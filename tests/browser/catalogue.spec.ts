@@ -74,7 +74,7 @@ test('the catalogue index lists the test block with its triangle count', async (
   expect(errors).toEqual([]);
 });
 
-test('the early look renders, with stand-ins for pieces not registered yet', async ({ page }) => {
+test('the early look renders the group, real pieces or stand-ins', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${server.origin}/dev/look/`);
@@ -82,7 +82,17 @@ test('the early look renders, with stand-ins for pieces not registered yet', asy
   const s = await canvasStats(page);
   expect(s.distinct).toBeGreaterThan(150);
   expect(s.spread).toBeGreaterThan(60);
-  const placed = await page.evaluate(() => Object.keys((window as unknown as { __look: { placed: object } }).__look.placed).sort());
+  const placed = await page.evaluate(() => Object.keys((window as unknown as { __look: { boxes: object } }).__look.boxes).sort());
   expect(placed).toEqual(['button', 'crate', 'fetch']);
+  expect(errors).toEqual([]);
+});
+
+test('the early look has every shot, including both Fetch designs side by side', async ({ page }) => {
+  const errors = watchErrors(page);
+  for (const shot of ['button', 'crate', 'fetch', 'fetches']) {
+    await page.goto(`${server.origin}/dev/look/?shot=${shot}`);
+    await page.waitForFunction('window.__ready === true', null, { timeout: 60_000 });
+    expect((await canvasStats(page)).distinct).toBeGreaterThan(100);
+  }
   expect(errors).toEqual([]);
 });
