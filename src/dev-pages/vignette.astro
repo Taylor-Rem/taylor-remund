@@ -1,0 +1,259 @@
+---
+// /dev/vignette/ (W4 § C, REWRITE.md § G "P1. The vignette"): the whole
+// vignette, playable. The real world (the simulation's scene laid out by
+// view/vignette.ts), every station view, and stand-ins for whatever has not
+// landed yet (the read-out lists each slot and what fills it). This is the
+// page the owner uses and scores at gate G1. Dev-only; never shipped.
+//
+// Query:
+//   ?patch=patch-felt|patch-toy    which Patch (default: whichever is registered)
+//   ?fetch=<name>                  which Fetch design (default fetch-porter)
+//   ?shot=home|button|fetch|patch|cord   the camera (default home: wide, or the cluster on a portrait phone)
+//   ?view=wide|phone               force a framing
+//   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
+// Hooks: window.__workshop (stage debug hooks), window.__vignette (the
+//   workshop, slots, measure(): label cap heights in px, draw calls, triangles).
+//
+// Capture (from the repo root):
+//   node scripts/capture.ts "/dev/vignette/?hud=0" --out shots/vignette/whole.png
+//   node scripts/capture.ts "/dev/vignette/?hud=0" --mobile --out shots/vignette/phone.png
+//   node scripts/check-vignette.ts
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Vignette</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
+      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+      #hud {
+        position: fixed; left: 8px; bottom: 6px; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #bfe3d8;
+        opacity: 0.8; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000;
+      }
+      #cursor {
+        position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -8px 0 0 -8px; border-radius: 50%;
+        border: 2px solid #ffd27a; box-shadow: 0 0 0 1px #12292c; pointer-events: none; display: none;
+      }
+      #cursor.down { background: rgba(255, 210, 122, 0.5); }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="hud"></div>
+    <div id="cursor"></div>
+    <script>
+      import { Box3, Vector3, type Mesh, type Object3D, type BufferAttribute } from 'three';
+      import { bootWorkshop } from '../workshop/shell/boot.ts';
+      import { installDebugHooks } from '../workshop/view/stage/debug.ts';
+      import { createStubPhysics } from '../workshop/sim/index.ts';
+      import type { Vec3 } from '../workshop/sim/index.ts';
+      import { loadVignette, homeBox, FRAMING, LAYOUT, layoutForSim } from '../workshop/view/vignette.ts';
+      import type { View } from '../workshop/view/stage/camera.ts';
+
+      const q = new URLSearchParams(location.search);
+      const tier = q.get('tier') === 'low' ? 'low' : 'high';
+      const manual = q.get('manual') === '1';
+      const seed = Number(q.get('seed') ?? 1);
+      const hudOn = q.get('hud') !== '0';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+
+      if (q.get('debug') === '1') {
+        const dot = document.getElementById('cursor')!;
+        dot.style.display = 'block';
+        addEventListener('pointermove', (e) => (dot.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`));
+        addEventListener('pointerdown', () => dot.classList.add('down'));
+        addEventListener('pointerup', () => dot.classList.remove('down'));
+      }
+
+      const vig = await loadVignette({ patch: q.get('patch'), fetch: q.get('fetch'), seed });
+      const portrait = (): boolean => q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight);
+
+      /** Close views (§ G P1: close on the Button, on Fetch, on Patch). */
+      const shots: Record<string, () => Box3> = {
+        button: () => new Box3(new Vector3(LAYOUT.button.x - 1.5, 0, LAYOUT.button.z - 1.0), new Vector3(LAYOUT.button.x + 1.6, 1.4, LAYOUT.button.z + 1.4)),
+        fetch: () => {
+          const m = vig.world()?.motion('fetch');
+          const p = m ? m.pose.p : ([LAYOUT.lane.a[0], 0.5, LAYOUT.lane.a[1]] as Vec3);
+          return new Box3(new Vector3(p[0] - 1.1, 0, p[2] - 0.6), new Vector3(p[0] + 1.1, 1.2, p[2] + 0.7));
+        },
+        patch: () => {
+          const s = vig.fit.stool.seat;
+          return new Box3(new Vector3(s[0] - 1.0, 0, s[2] - 1.0), new Vector3(s[0] + 1.8, 2.0, s[2] + 0.6));
+        },
+        cord: () => {
+          const j = vig.fit.board.jacks;
+          return new Box3(new Vector3(j.storefront[0] - 1.6, 0, j.storefront[2] - 0.4), new Vector3(j.lamp[0] + 1.4, 2.2, j.storefront[2] + 1.8));
+        },
+      };
+
+      const ws = await bootWorkshop(canvas, {
+        tier,
+        reducedMotion,
+        seed,
+        manual,
+        scene: vig.scene,
+        stations: vig.stations,
+        stage: { preserveDrawingBuffer: q.get('preserve') === '1' },
+        ...(q.get('physics') === 'stub' ? { physics: async () => createStubPhysics() } : {}),
+        frameCamera(stage, scene) {
+          const edge = { y: scene.bench.top, z: scene.bench.maxZ };
+          stage.camera.stationSize = 1.6;
+          stage.camera.setSubject(homeBox(portrait()), {
+            edge,
+            bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 5, scene.bench.maxZ)),
+          });
+          stage.camera.focusOn(null);
+          stage.camera.focusHeight = FRAMING.focus[1];
+          stage.camera.cutTo(stage.camera.home());
+        },
+        onFrameRequest(id, stage) {
+          // a station framed by double-click: the close views stand in for station framing until P2
+          const box = id === 'button' ? shots.button!() : id === 'fetch' ? shots.fetch!() : id === 'cord' || id?.startsWith('jack') ? shots.cord!() : null;
+          if (box) stage.camera.easeTo(stage.camera.frame(box));
+          else stage.camera.easeTo(stage.camera.home());
+        },
+      });
+      const views: Record<string, View> = { home: ws.stage.camera.home() };
+      installDebugHooks(ws.stage, ws.loop, views);
+
+      const applyShot = (name: string): void => {
+        const f = shots[name];
+        if (!f) {
+          ws.stage.camera.cutTo(ws.stage.camera.home());
+          return;
+        }
+        const b = f();
+        ws.stage.camera.cutTo(ws.stage.camera.frame(b));
+        ws.stage.camera.focusOn(b.getCenter(new Vector3()));
+      };
+
+      // ── measuring (gate G1 part one): label capitals in px at this view, draw calls, triangles ──
+      interface LabelCap { key: string; register: string; text: string; px: number; onScreen: boolean }
+      const v0 = new Vector3(), v1 = new Vector3(), v2 = new Vector3();
+      function project(p: Vector3): { x: number; y: number; z: number } {
+        const s = ws.stage.camera.worldToScreen(p);
+        return { x: ((s.x + 1) / 2) * canvas.clientWidth, y: ((1 - s.y) / 2) * canvas.clientHeight, z: s.z };
+      }
+      function measureLabels(): LabelCap[] {
+        const out: LabelCap[] = [];
+        ws.stage.scene.updateMatrixWorld(true);
+        ws.stage.scene.traverse((o: Object3D) => {
+          const m = o as Mesh;
+          if (!m.isMesh || !m.visible) return;
+          let vis = true;
+          for (let a: Object3D | null = m; a; a = a.parent) if (!a.visible) vis = false;
+          if (!vis) return;
+          const mat = m.userData['kitMaterial'] as string | undefined;
+          if (!mat) return;
+          const tag = `.${mat}.`;
+          const at = m.name.indexOf(tag);
+          if (at < 0) return;
+          const key = m.name.slice(at + tag.length);
+          if (!key.includes('|')) return;
+          const register = key.split(/[:@|]/)[0]!;
+          const text = key.slice(key.indexOf('|') + 1);
+          const cap = ws.labels.capHeight(key);
+          const size = ws.labels.size(key);
+          const g = m.geometry;
+          const pos = g.getAttribute('position') as BufferAttribute;
+          const uv = g.getAttribute('uv') as BufferAttribute | undefined;
+          if (!uv) return;
+          const idx = g.index;
+          const tris = idx ? idx.count / 3 : pos.count / 3;
+          const per: number[] = [];
+          let on = false;
+          for (let t = 0; t < tris; t++) {
+            const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+            const s0 = project(v0.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld));
+            const s1 = project(v1.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld));
+            const s2 = project(v2.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld));
+            const du1 = uv.getX(i1) - uv.getX(i0), dv1 = uv.getY(i1) - uv.getY(i0);
+            const du2 = uv.getX(i2) - uv.getX(i0), dv2 = uv.getY(i2) - uv.getY(i0);
+            const det = du1 * dv2 - du2 * dv1;
+            if (Math.abs(det) < 1e-9) continue;
+            // J = S · UV⁻¹; its second column is screen pixels per unit of v
+            const ax = s1.x - s0.x, ay = s1.y - s0.y, bx = s2.x - s0.x, by = s2.y - s0.y;
+            const jvx = (-du2 * ax + du1 * bx) / det, jvy = (-du2 * ay + du1 * by) / det;
+            per.push(Math.hypot(jvx, jvy));
+            if ([s0, s1, s2].some((s) => s.x >= 0 && s.x <= canvas.clientWidth && s.y >= 0 && s.y <= canvas.clientHeight && s.z < 1)) on = true;
+          }
+          if (!per.length) return;
+          per.sort((a, b) => a - b);
+          const pxPerV = per[Math.floor(per.length / 2)]!;
+          out.push({ key, register, text, px: Math.round(pxPerV * (cap / size.h) * 10) / 10, onScreen: on });
+        });
+        return out;
+      }
+
+      const api = {
+        ws,
+        vig,
+        slots: vig.slots,
+        layout: () => layoutForSim(vig.scene),
+        shot: applyShot,
+        measure() {
+          ws.advance(0);
+          const st = ws.stage.stats();
+          return { labels: measureLabels(), scene: st.scene, frame: st.frame, renderer: st.renderer, width: canvas.clientWidth, height: canvas.clientHeight };
+        },
+        project: (p: Vec3) => project(new Vector3(...p)),
+        /** Screen position of an interactable (its pick proxy's centre). */
+        where(id: string) {
+          const m = ws.world.motion(id);
+          if (m) return project(new Vector3(...m.pose.p));
+          if (id === 'button') return project(new Vector3(LAYOUT.button.x, 0.9, LAYOUT.button.z + 0.3));
+          const j = vig.scene.cord.jacks.find((k) => k.id === id);
+          if (j) return project(new Vector3(...j.at));
+          if (id === 'cord') {
+            const c = ws.world.cord('cord');
+            const jj = vig.scene.cord.jacks.find((k) => k.id === c?.jack);
+            return jj ? project(new Vector3(jj.at[0], jj.at[1], jj.at[2] + 0.25)) : null;
+          }
+          return null;
+        },
+      };
+      (window as unknown as { __vignette: typeof api }).__vignette = api;
+
+      const shotName = q.get('shot');
+      if (shotName && shotName !== 'home') applyShot(shotName);
+
+      if (hudOn) {
+        let n = 0;
+        const tick = (): void => {
+          if (++n % 15 === 0) {
+            const st = ws.stage.stats();
+            const ft = ws.loop.frameTimes().slice(-60);
+            const ms = ft.length ? ft.reduce((a, b) => a + b, 0) / ft.length : 0;
+            hud.textContent = [
+              `vignette · ${portrait() ? 'phone' : 'wide'}   draw calls ${st.scene.calls}  tris ${st.scene.triangles}  frame ${ms.toFixed(1)} ms`,
+              ...vig.slots.map((s) => `${s.real ? '  ' : '* '}${s.name.padEnd(13)} ${s.source}`),
+            ].join('\n');
+          }
+          requestAnimationFrame(tick);
+        };
+        tick();
+      }
+
+      if (manual) {
+        ws.advance(12);
+        if (shotName && shotName !== 'home') applyShot(shotName);
+        for (let i = 0; i < 6; i++) ws.advance(0);
+        window.__ready = true;
+      } else {
+        let frames = 0;
+        const ready = (): void => {
+          if (++frames === 20) {
+            if (shotName && shotName !== 'home') applyShot(shotName);
+            window.__ready = true;
+          } else requestAnimationFrame(ready);
+        };
+        requestAnimationFrame(ready);
+      }
+    </script>
+  </body>
+</html>
