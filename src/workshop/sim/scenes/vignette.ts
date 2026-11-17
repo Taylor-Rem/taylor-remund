@@ -20,7 +20,7 @@ export const AT = {
   /** The Big Red Button's pedestal: ground centre, footprint half size, height. */
   button: { x: 0, z: 1.9, half: 0.42, height: 0.62 },
   /** Fetch's lane of yellow tape, on the ground. */
-  lane: { a: [-1.7, 0.55] as const, b: [2.9, 0.55] as const },
+  lane: { a: [-1.1, 0.55] as const, b: [3.2, 0.55] as const },
   /** The switchboard at the back, and its two jacks. */
   board: { x: -0.5, z: -4.35, halfW: 0.95, height: 1.7, depth: 0.6 },
   jacks: { storefront: [-0.95, 1.15, -4.02] as Vec3, lamp: [-0.05, 1.15, -4.02] as Vec3 },

@@ -1,0 +1,63 @@
+---
+// Dev-only smoke page for W1-sim: proves the Rapier adapter loads under Vite
+// in a browser (lazily, after first paint) and that the vignette world runs.
+// Prints what happened as text; no drawing. Sets window.__ready when done.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Physics probe</title>
+    <style>
+      body { font: 14px/1.5 ui-monospace, monospace; margin: 24px; }
+    </style>
+  </head>
+  <body>
+    <h1>Physics probe</h1>
+    <pre id="out">loading physics...</pre>
+    <script>
+      import { createRapierPhysics, createWorld } from '../workshop/sim/index.ts';
+
+      const out = document.getElementById('out')!;
+      const lines: string[] = [];
+      const say = (s: string): void => {
+        lines.push(s);
+        out.textContent = lines.join('\n');
+      };
+      const w = window as unknown as { __ready?: boolean; __probe?: unknown };
+      try {
+        const t0 = performance.now();
+        const physics = await createRapierPhysics();
+        say(`engine: ${physics.engine}, loaded in ${(performance.now() - t0).toFixed(0)} ms`);
+        const world = createWorld({ seed: 1, physics });
+        say(`parts: ${[...world.parts()].map((p) => p.id).join(', ')}`);
+        const t1 = performance.now();
+        const counts: Record<string, number> = {};
+        for (let i = 0; i < 60 * 12; i++) {
+          world.advance();
+          for (const e of world.drainEvents()) counts[e.type] = (counts[e.type] ?? 0) + 1;
+        }
+        const ms = (performance.now() - t1) / (60 * 12);
+        say(`12 s simulated: ${ms.toFixed(3)} ms per step`);
+        say(`events: ${JSON.stringify(counts)}`);
+        const fetch = world.crew('fetch');
+        say(`fetch: ${fetch?.state}; crate-4 at ${world.motion('crate-4')?.pose.p.map((x) => x.toFixed(2)).join(', ')}`);
+        world.dispatch({ type: 'press', id: 'button' });
+        let n = 0;
+        do {
+          world.advance();
+          world.drainEvents();
+          n++;
+        } while (world.bracketed && n < 1000);
+        say(`button rung: ${JSON.stringify(world.button())} after ${n} steps`);
+        w.__probe = { ok: true, msPerStep: ms, counts, button: world.button() };
+      } catch (e) {
+        say(`FAILED: ${(e as Error).stack ?? e}`);
+        w.__probe = { ok: false, error: String(e) };
+      }
+      w.__ready = true;
+    </script>
+  </body>
+</html>
