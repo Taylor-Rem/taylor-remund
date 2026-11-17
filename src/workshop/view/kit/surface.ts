@@ -136,8 +136,10 @@ class Bvh {
   private tri: Float32Array; // 9 floats per triangle
   private order: Uint32Array;
   // node layout: minx miny minz maxx maxy maxz, then (left/first, right/count, leaf flag) in nodeI
-  private box: number[] = [];
-  private nodeI: number[] = [];
+  private boxL: number[] = [];
+  private nodeL: number[] = [];
+  private box: Float32Array = new Float32Array(0);
+  private nodeI: Int32Array = new Int32Array(0);
 
   constructor(tri: Float32Array) {
     this.tri = tri;
@@ -149,11 +151,13 @@ class Bvh {
       for (let a = 0; a < 3; a++) cen[i * 3 + a] = (tri[i * 9 + a]! + tri[i * 9 + 3 + a]! + tri[i * 9 + 6 + a]!) / 3;
     }
     if (n > 0) this.build(cen, 0, n);
+    this.box = Float32Array.from(this.boxL);
+    this.nodeI = Int32Array.from(this.nodeL);
   }
 
   private build(cen: Float32Array, start: number, end: number): number {
-    const node = this.nodeI.length / 3;
-    this.nodeI.push(0, 0, 0);
+    const node = this.nodeL.length / 3;
+    this.nodeL.push(0, 0, 0);
     let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
     let cmn = [Infinity, Infinity, Infinity], cmx = [-Infinity, -Infinity, -Infinity];
     for (let i = start; i < end; i++) {
@@ -170,12 +174,12 @@ class Bvh {
         if (c > cmx[a]!) cmx[a] = c;
       }
     }
-    this.box.push(mnx, mny, mnz, mxx, mxy, mxz);
+    this.boxL.push(mnx, mny, mnz, mxx, mxy, mxz);
     const count = end - start;
     if (count <= 4) {
-      this.nodeI[node * 3] = start;
-      this.nodeI[node * 3 + 1] = count;
-      this.nodeI[node * 3 + 2] = 1;
+      this.nodeL[node * 3] = start;
+      this.nodeL[node * 3 + 1] = count;
+      this.nodeL[node * 3 + 2] = 1;
       return node;
     }
     let axis = 0;
@@ -197,22 +201,26 @@ class Bvh {
     if (split === start || split === end) split = (start + end) >> 1;
     const left = this.build(cen, start, split);
     const right = this.build(cen, split, end);
-    this.nodeI[node * 3] = left;
-    this.nodeI[node * 3 + 1] = right;
-    this.nodeI[node * 3 + 2] = 0;
+    this.nodeL[node * 3] = left;
+    this.nodeL[node * 3 + 1] = right;
+    this.nodeL[node * 3 + 2] = 0;
     return node;
   }
+
+  private stack = new Int32Array(128);
 
   /** Nearest hit distance along the ray within tmax, or Infinity. */
   hit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, tmax: number): number {
     if (this.nodeI.length === 0) return Infinity;
     const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
-    const stack: number[] = [0];
+    const stack = this.stack;
+    let sp = 0;
+    stack[sp++] = 0;
     let best = tmax;
     const b = this.box;
     const T = this.tri;
-    while (stack.length) {
-      const nd = stack.pop()!;
+    while (sp > 0) {
+      const nd = stack[--sp]!;
       let t0 = 0, t1 = best;
       let ta = (b[nd * 6]! - ox) * ix, tb = (b[nd * 6 + 3]! - ox) * ix;
       t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb));
@@ -242,7 +250,14 @@ class Bvh {
           if (tt > 1e-5 && tt < best) best = tt;
         }
       } else {
-        stack.push(this.nodeI[nd * 3]!, this.nodeI[nd * 3 + 1]!);
+        if (sp + 2 > stack.length) {
+          const grown = new Int32Array(stack.length * 2);
+          grown.set(stack);
+          this.stack = grown;
+          return this.hit(ox, oy, oz, dx, dy, dz, tmax);
+        }
+        stack[sp++] = this.nodeI[nd * 3]!;
+        stack[sp++] = this.nodeI[nd * 3 + 1]!;
       }
     }
     return best;
@@ -250,7 +265,7 @@ class Bvh {
 }
 
 export interface AoOptions {
-  /** Rays per vertex (spread over the vertex and its one-ring). Default 16. */
+  /** Rays per vertex (spread over the vertex and its one-ring). Default 12. */
   samples?: number;
   /** Only occluders nearer than this count (units). Default 0.14. */
   distance?: number;
@@ -265,7 +280,7 @@ export interface AoOptions {
  * max(curvature cavity, occlusion). Done once per piece build.
  */
 export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: BufferGeometry; matrix?: Matrix4 | undefined }>, opts: AoOptions = {}): void {
-  const S = opts.samples ?? 16;
+  const S = opts.samples ?? 12;
   const D = opts.distance ?? 0.14;
   const [r0, r1] = opts.range ?? [0.06, 0.42];
   const list = items.map((it) => (it instanceof BufferGeometry ? { geometry: it, matrix: undefined } : it));
@@ -339,6 +354,10 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       }
     }
     for (let i = 0; i < n; i++) {
+      // a vertex that stands for a large area (the corner of a big flat face) cannot carry a local
+      // occlusion event without smearing it across the face: fade its AO out (and skip the rays)
+      const trust = 1 - smooth((D * 0.5) ** 2, (D * 1.4) ** 2, area[i]!);
+      if (trust < 0.01) continue;
       const nx = nr[i * 3]!, ny = nr[i * 3 + 1]!, nz = nr[i * 3 + 2]!;
       let tx: number, ty: number, tz: number;
       if (Math.abs(nx) < 0.9) { tx = 0; ty = nz; tz = -ny; } else { tx = -nz; ty = 0; tz = nx; }
@@ -357,7 +376,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       }
       // per-origin occlusion; the vertex takes a blend of the mean and the least occluded origin,
       // so a big face whose far corner tucks under a bolt does not go dark all over
-      const no = Math.min(origins.length / 3, 6);
+      const no = Math.min(origins.length / 3, Math.max(1, Math.floor(S / 3)));
       const per = Math.max(3, Math.ceil(S / no));
       let sum = 0;
       let least = Infinity;
@@ -377,9 +396,6 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
         if (o < least) least = o;
       }
       const occ = (sum / no) * 0.5 + least * 0.5;
-      // a vertex that stands for a large area (the corner of a big flat face) cannot carry a local
-      // occlusion event without smearing it across the face: fade its AO out
-      const trust = 1 - smooth((D * 0.5) ** 2, (D * 1.4) ** 2, area[i]!);
       const ao = smooth(r0, r1, occ) * trust;
       if (ao > surf.getY(i)) surf.setY(i, ao);
     }
