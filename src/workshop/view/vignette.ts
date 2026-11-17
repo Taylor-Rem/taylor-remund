@@ -62,8 +62,11 @@ export const LAYOUT = {
   toss: { linvel: [2.1, 2.2, 0.25] as Vec3, angvel: [2.5, 0, -6] as Vec3 },
   /** The switchboard: back against the wall, its centre at x. */
   board: { x: 1.05, yaw: 0 },
-  /** Patch's stool: at the board's left end, turned so Patch sits side-on to the camera, facing the jacks. */
-  stool: { x: -1.25, z: -3.35, yaw: 62 },
+  /**
+   * Patch's stool: the board's `stool` socket, nudged right (dx) so Patch does not sit in front of the
+   * STOREFRONT tape; x/z are for a stand-in board only. Yaw: the stand-in Patch only (the designs say their own).
+   */
+  stool: { x: -1.25, z: -3.35, yaw: 62, dx: 0.5 },
   /** The phone on its easel: right of centre, between the board and the Button. */
   phone: { x: 2.75, z: -1.55, yaw: -16 },
   /** A length of belt along the front (its centre). */
@@ -71,8 +74,14 @@ export const LAYOUT = {
   /** The sign, hung on the wall above the board (its origin height). */
   sign: { x: 1.05, y: 3.05 },
   /** The tool wall, back left on the wall (its origin height). */
-  toolwall: { x: -4.75, y: 0.3 },
-  /** The lamp's clamp at the back edge of the bench. */
+  toolwall: { x: -5.85, y: 0.3 },
+  /**
+   * The key light (the lamp's bulb) and its aim. The lamp's body is stood so its bulb lands here, so this
+   * also places the lamp: its clamp sits at the back edge 0.9 left of the bulb. Moved 1.7 right of the
+   * stage's default so the clamp stands in the gap between the tool wall and the board, not in front of the tools.
+   */
+  bulb: { at: [-1.9, 5.2, -0.6] as const, aim: [0.6, 0, -0.1] as const },
+  /** The lamp's clamp at the back edge of the bench (the stand-in only; the real lamp follows the bulb). */
   lamp: { x: -4.45, z: -4.72, yaw: 0 },
 } as const;
 
@@ -198,7 +207,9 @@ export function againstWall(b: Box3): number {
 export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null }, k: FitConstants = {}): Fit {
   // the console body (not the guard, the counter's bracket or the cable): what a crate bumps into
   const C = k.console ?? { w: 2.1, frontBottomZ: 0.66, backZ: -0.76 };
-  const B = new Box3(new Vector3(-C.w / 2, 0, C.backZ), new Vector3(C.w / 2, k.deckY ?? 1.04, C.frontBottomZ));
+  // centred on the console's origin, so the Button's view (which stands the piece at the pedestal's centre) and the body agree
+  const hz = Math.max(-C.backZ, C.frontBottomZ);
+  const B = new Box3(new Vector3(-C.w / 2, 0, -hz), new Vector3(C.w / 2, k.deckY ?? 1.04, hz));
   const boardB = pieces.board ? pieceBounds(pieces.board) : box(STAND_IN.board.w, STAND_IN.board.h, STAND_IN.board.d);
   const boardAt: Placed = { x: LAYOUT.board.x, z: againstWall(boardB), yaw: LAYOUT.board.yaw };
   const sb = STAND_IN.board;
@@ -211,7 +222,7 @@ export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null;
   const stoolB = pieces.stool ? pieceBounds(pieces.stool) : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
   // the stool stands where the board says (its `stool` socket), turned for a side-on Patch
   const st = socketAt(pieces.board ?? null, 'stool', boardAt);
-  const stoolAt: Placed = st ? { x: st[0], z: st[2], yaw: LAYOUT.stool.yaw } : { x: LAYOUT.stool.x, z: LAYOUT.stool.z, yaw: LAYOUT.stool.yaw };
+  const stoolAt: Placed = st ? { x: st[0] + LAYOUT.stool.dx, z: st[2], yaw: LAYOUT.stool.yaw } : { x: LAYOUT.stool.x, z: LAYOUT.stool.z, yaw: LAYOUT.stool.yaw };
   const seat = socketAt(pieces.stool ?? null, 'seat', stoolAt) ?? ([stoolAt.x, stoolB.max.y, stoolAt.z] as Vec3);
   const phoneB = pieces.phone ? pieceBounds(pieces.phone) : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);
   const beltB = pieces.belt ? pieceBounds(pieces.belt) : box(STAND_IN.belt.w, STAND_IN.belt.h, STAND_IN.belt.d);
@@ -484,7 +495,8 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
       scene,
       seed,
       pool,
-      lampBody: true,
+      lampBody: !views.lamp,
+      bulb: LAYOUT.bulb,
       standIn: STAND_IN,
       at: { sign: LAYOUT.sign, toolwall: LAYOUT.toolwall, lamp: LAYOUT.lamp, phone: fit.phone.at, stool: fit.stool.at },
     }),

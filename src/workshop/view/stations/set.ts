@@ -137,6 +137,8 @@ export interface SetOptions {
   seed: number;
   /** Build the lamp's body here (false when a lamp view of its own does). */
   lampBody: boolean;
+  /** Where the lamp's bulb (the key light) is and what it aims at; the lamp's body follows it. Default: the stage's. */
+  bulb?: { at: readonly [number, number, number]; aim: readonly [number, number, number] };
   /** Static parts other views handed over to be merged with the set (they must be built first). */
   pool?: StaticPool;
   /** Stand-in sizes for pieces that have not landed. */
@@ -207,6 +209,7 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
 
     // the lamp's body; the key light sits at its bulb
     let bulbAt: Vector3 | null = null;
+    if (o.bulb) ctx.stage.lights.setBulb(o.bulb.at, o.bulb.aim);
     if (o.lampBody) {
       const lamp = build(E.lamp);
       const m = placedMatrix(o.at.lamp);

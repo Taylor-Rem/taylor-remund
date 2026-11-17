@@ -30,7 +30,7 @@ export const PATCH_FEEL = {
   plugStare: 1.1,
   lookHold: 2.4,
   /** Head limits about the body: yaw either side, pitch down/up. */
-  yawMax: 1.35,
+  yawMax: 1.6,
   pitchMin: -0.5,
   pitchMax: 0.35,
   /** Pointer interest: things nearer than this to Patch get looked at. */
@@ -73,12 +73,17 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
     root.name = 'patch';
     const seat = o.fit.stool.seat;
     root.position.set(seat[0], seat[1], seat[2]);
-    root.rotation.y = (F.facing * Math.PI) / 180;
+    // each design says how it sits side-on at the board (felt: SIDE_ON radians; toy: SIT_YAW degrees)
+    const sideOn = o.module?.['SIDE_ON'];
+    const sitYaw = o.module?.['SIT_YAW'];
+    root.rotation.y = typeof sideOn === 'number' ? sideOn : typeof sitYaw === 'number' ? (sitYaw * Math.PI) / 180 : (F.facing * Math.PI) / 180;
     root.add(obj);
     ctx.scene.add(root);
     root.updateMatrixWorld(true);
 
-    const posePatch = (o.module?.['posePatch'] as PoseFn | undefined) ?? null;
+    const posePatch = o.entry ? ((o.module?.['posePatch'] as PoseFn | undefined) ?? null) : null;
+    type Expr = Record<string, unknown> & { headYaw?: number; headPitch?: number };
+    const EXPR = (o.module?.['EXPRESSIONS'] as Record<string, Expr> | undefined) ?? {};
     const head = obj.getObjectByName('head') ?? null;
     const headRest = head ? head.quaternion.clone() : null;
     const headWorld = new Vector3();
@@ -91,6 +96,7 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
     let stareUntil = -1;
     const target = new Vector3();
     const local = new Vector3();
+    const vis = new Vector3();
     const inv = new Quaternion();
 
     const want = (w: Frame['world'], frame: Frame): string => {
@@ -136,18 +142,35 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
           }
           if (e.type === 'cord.plugged') stareUntil = Math.min(stareUntil, frame.time);
         }
-        const expression = want(w, frame);
+        let expression = want(w, frame);
+        if (!EXPR[expression]) expression = 'unimpressed';
+        const ex = EXPR[expression];
         // the target in Patch's own frame (facing +Z locally)
         inv.copy(root.quaternion).invert();
         local.copy(target).sub(headWorld).applyQuaternion(inv);
-        const gy = Math.max(-F.yawMax, Math.min(F.yawMax, Math.atan2(local.x, local.z)));
-        const gp = Math.max(F.pitchMin, Math.min(F.pitchMax, Math.atan2(local.y, Math.hypot(local.x, local.z))));
+        // Looking at the visitor is the design's own head pose (its expression turns the face round over
+        // the shoulder). Anything else is that pose turned by the angle between the visitor and the target,
+        // so the face never swings further from the visitor than it needs to.
+        const ty = Math.atan2(local.x, local.z), tp = Math.atan2(local.y, Math.hypot(local.x, local.z));
+        vis.set(...F.visitor).sub(headWorld).applyQuaternion(inv);
+        const vy = Math.atan2(vis.x, vis.z), vp = Math.atan2(vis.y, Math.hypot(vis.x, vis.z));
+        let gy: number, gp: number;
+        if (ex && typeof ex.headYaw === 'number') {
+          const lookAtVisitor = expression === 'the-look';
+          gy = ex.headYaw + (lookAtVisitor ? 0 : Math.max(-F.yawMax, Math.min(0.5, ty - vy)));
+          gp = (ex.headPitch ?? 0) + (lookAtVisitor ? 0 : Math.max(F.pitchMin, Math.min(F.pitchMax, tp - vp)));
+        } else {
+          gy = Math.max(-F.yawMax, Math.min(F.yawMax, ty));
+          gp = Math.max(F.pitchMin, Math.min(F.pitchMax, tp));
+        }
         const dt = Math.min(frame.dt, 0.1);
         const k = 1 - Math.exp(-(expression === 'the-look' ? F.turnRate * 0.55 : F.turnRate) * dt);
         yaw += (gy - yaw) * k;
         pitch += (gp - pitch) * k;
         if (posePatch) {
-          posePatch(obj, { expression, head: [yaw, pitch, 0], headYaw: yaw, headPitch: pitch });
+          // the expression's face (lids, brows, mouth, ears, arms), the head where Patch is looking; the eyes lead a little
+          const lead: [number, number] = [Math.max(-1, Math.min(1, (gy - yaw) * 2)), Math.max(-1, Math.min(1, (gp - pitch) * 2))];
+          posePatch(obj, { ...(ex ?? {}), headYaw: yaw, headPitch: pitch, gaze: lead });
         } else if (head && headRest) {
           head.quaternion.copy(headRest).multiply(tq.setFromAxisAngle(Y, yaw)).multiply(tq2.setFromAxisAngle(X, -pitch));
         }
