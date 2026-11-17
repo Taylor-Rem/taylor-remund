@@ -17,5 +17,10 @@ export default defineConfig({
   integrations: [cname(), legacyPassthrough(), devPages()],
   // Agent worktrees live under .claude/worktrees/ (git-ignored copies of the
   // project); the dev server must not watch or serve them.
-  vite: { server: { watch: { ignored: ['**/.claude/**', '**/shots/**', '**/legacy/**'] } } },
+  vite: {
+    server: { watch: { ignored: ['**/.claude/**', '**/shots/**', '**/legacy/**'] } },
+    // Rapier's wasm glue must not be pre-bundled: Vite's dependency optimiser
+    // loads it twice and the dev server fails with "reading '__wbindgen_export'".
+    optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
+  },
 });
