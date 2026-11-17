@@ -1,0 +1,42 @@
+{
+  "sign": {
+    "first": { "text": "TAYLOR", "kind": "fact", "source": "REWRITE.md § C, the layout: \"sign: TAYLOR REMUND\"; the vignette shows the first word" }
+  },
+  "tape": {
+    "doNotTouch": { "text": "DO NOT TOUCH", "kind": "voice", "source": "REWRITE.md § B4" }
+  },
+  "jacks": {
+    "storefront": { "text": "STOREFRONT", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" },
+    "platen": { "text": "PLATEN", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" }
+  },
+  "tools": {
+    "laravel": { "text": "LARAVEL", "kind": "fact", "source": "/resume/ #skills (Laravel); REWRITE.md § D9" },
+    "vue": { "text": "VUE", "kind": "fact", "source": "/resume/ #skills (Vue.js); REWRITE.md § D9" },
+    "php": { "text": "PHP", "kind": "fact", "source": "/resume/ #skills (PHP); REWRITE.md § D9" },
+    "python": { "text": "PYTHON", "kind": "fact", "source": "/resume/ #skills (Python); REWRITE.md § D9" },
+    "rust": { "text": "RUST", "kind": "fact", "source": "/resume/ #skills (Rust); REWRITE.md § D9" },
+    "sql": { "text": "SQL", "kind": "fact", "source": "/resume/ #skills (MySQL, PostgreSQL, SQLite: no pill reads \"SQL\" alone); REWRITE.md § D9" }
+  },
+  "cards": {
+    "revertRung1": { "text": "WELL, THAT WAS UNNECESSARY.", "kind": "voice", "source": "REWRITE.md § B4, rung 1" }
+  },
+  "slips": {
+    "fetchOutOfLane": { "text": "OUT OF MY LANE.", "kind": "voice", "source": "REWRITE.md § B5, Fetch" }
+  },
+  "phone": {
+    "attract": [
+      { "text": "Make it blue.", "kind": "voice", "from": "owner", "source": "REWRITE.md § B3" }
+    ]
+  },
+  "stencil": {
+    "size": {
+      "S": { "text": "S", "kind": "ui", "source": "art-direction § 2: crate sizes S, M, L" },
+      "M": { "text": "M", "kind": "ui", "source": "art-direction § 2: crate sizes S, M, L" },
+      "L": { "text": "L", "kind": "ui", "source": "art-direction § 2: crate sizes S, M, L" }
+    },
+    "up": { "text": "↑", "kind": "ui", "source": "art-direction § 10, crates: two up-arrows and the size letter" }
+  },
+  "plates": {
+    "presses": { "text": "PRESSES", "kind": "ui", "source": "REWRITE.md § B4: \"A plate beside it counts the presses\"" }
+  }
+}

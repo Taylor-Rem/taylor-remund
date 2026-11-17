@@ -1,0 +1,184 @@
+---
+// Dev page: every label register on flat quads under a raking light.
+// /dev/labels/                      the default view (long lens, 21 units across 1440 px)
+// /dev/labels/?view=close&item=N    one item about 6x closer (N = index in `items` below)
+// /dev/labels/?light=front          a plain front light instead of the raking one
+// Sets window.__ready when a settled frame is drawn; window.__labels for inspection.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Labels</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #status { position: fixed; left: 8px; bottom: 6px; font: 12px/1.3 monospace; color: #9cc; white-space: pre; pointer-events: none; }
+      #status.bad { color: #f66; font-size: 16px; background: #000c; padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="status">loading fonts…</div>
+    <script>
+      import * as THREE from 'three';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { createLabels, world, capPx } from '../workshop/view/labels/index.ts';
+      import { fallbackChars } from '../workshop/view/labels/fonts.ts';
+      import { context } from '../workshop/view/labels/draw.ts';
+      import { hex } from '../workshop/view/palette.ts';
+
+      const status = document.getElementById('status')!;
+      const q = new URLSearchParams(location.search);
+      const fail = (msg: string): never => {
+        status.textContent = msg;
+        status.className = 'bad';
+        (window as any).__labelsError = msg;
+        console.error(msg);
+        throw new Error(msg);
+      };
+
+      async function main(): Promise<void> {
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        document.body.appendChild(renderer.domElement);
+
+        const labels = await createLabels({ anisotropy: renderer.capabilities.getMaxAnisotropy() }).catch((e) => fail(String(e)));
+        (window as any).__labels = labels;
+
+        // The browser half of the fallback test: a glyph we did not subset must be caught.
+        const probe = context(8, 8);
+        if (fallbackChars(probe, 'tape', 'Ж').length !== 1) fail('fallback detector did not flag a missing glyph (Ж)');
+        for (const role of ['tape', 'stencil', 'type', 'sign'] as const) {
+          if (fallbackChars(probe, role, 'H').length) fail(`font ${role} fell back`);
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(hex('teal-deep'));
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        scene.environmentIntensity = 0.35;
+
+        // The neutral board everything is mounted on, and a wood patch for the stencils.
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(26, 15), new THREE.MeshStandardMaterial({ color: new THREE.Color(hex('steel')).multiplyScalar(0.55), roughness: 0.85 }));
+        board.position.set(0, 0, 0);
+        scene.add(board);
+
+        type Item = { key: string; x: number; y: number; z?: number; mat?: 'metal' | 'screen' | 'stencil'; on?: 'wood' | 'teal' };
+        const T = world.tools;
+        const items: Item[] = [];
+        const add = (key: string, x: number, y: number, extra: Partial<Item> = {}) => items.push({ key, x, y, ...extra });
+        add(labels.sign(world.sign), -4.6, 5.2);
+        add(labels.tape(world.tape.doNotTouch, 'black'), 4.2, 5.6);
+        add(labels.tape(world.jacks.storefront, 'red'), 4.2, 4.6);
+        add(labels.tape(world.jacks.platen, 'blue'), 4.2, 3.6);
+        add(labels.plate(world.plates.presses), 4.2, 2.4, { mat: 'metal' });
+        const tools = [T.laravel, T.vue, T.php, T.python, T.rust, T.sql];
+        const colours = ['black', 'red', 'blue', 'black', 'red', 'blue'] as const;
+        tools.forEach((t, i) => add(labels.tape(t, colours[i], { capHeight: 0.16 }), -9 + (i % 3) * 3.0, 2.3 - Math.floor(i / 3) * 0.8));
+        add(labels.card(world.cards.revertRung1), -6.4, -1.6);
+        add(labels.slip(world.slips.fetchOutOfLane), -3.3, -1.4);
+        const S = world.stencil;
+        add(labels.stencil(`${S.up} ${S.up}`), 0.4, -0.7, { mat: 'stencil', on: 'wood' });
+        add(labels.stencil(S.size.S), -0.3, -2.0, { mat: 'stencil', on: 'wood' });
+        add(labels.stencil(S.size.M), 0.4, -2.0, { mat: 'stencil', on: 'wood' });
+        add(labels.stencil(S.size.L, { paint: 'paper' }), 1.1, -2.0, { mat: 'stencil', on: 'teal' });
+        add(labels.phone(world.phone.attract), 3.1, -1.4, { mat: 'screen' });
+
+        for (const it of items) {
+          const e = labels.entry(it.key);
+          const { w, h } = e.size;
+          if (it.on) {
+            const back = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.25, h + 0.2), new THREE.MeshStandardMaterial({ color: new THREE.Color(hex(it.on === 'wood' ? 'wood-light' : 'teal-panel')), roughness: 0.75 }));
+            back.position.set(it.x, it.y, 0.004);
+            scene.add(back);
+          }
+          const m = new THREE.MeshStandardMaterial({ map: e.map, normalMap: e.normal, roughnessMap: e.rough, roughness: 1, metalness: 0 });
+          if (it.mat === 'metal') {
+            m.metalnessMap = e.rough;
+            m.metalness = 1;
+          }
+          if (it.mat === 'stencil') {
+            m.transparent = true;
+            m.depthWrite = false;
+            m.roughness = 0.8;
+          } else if (e.transparent) m.alphaTest = 0.5;
+          if (!e.rough && it.mat !== 'stencil') m.roughness = 0.88;
+          if (it.mat === 'screen') {
+            m.emissiveMap = e.map;
+            m.emissive = new THREE.Color(1, 1, 1);
+            m.emissiveIntensity = 0.75;
+            m.roughness = 0.2;
+          }
+          const quad = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
+          quad.position.set(it.x, it.y, 0.01);
+          scene.add(quad);
+        }
+
+        // Light: a raking warm key across the board from the left, a dim cool fill.
+        const raking = q.get('light') !== 'front';
+        const key = new THREE.DirectionalLight(new THREE.Color(hex('amber-glow')).lerp(new THREE.Color(1, 1, 1), 0.55), raking ? 3.2 : 2.2);
+        key.position.set(raking ? -12 : -3, raking ? 4 : 6, raking ? 2.2 : 12);
+        scene.add(key);
+        const fill = new THREE.HemisphereLight(new THREE.Color(hex('teal-light')), new THREE.Color(hex('wood')), 0.55);
+        scene.add(fill);
+        const front = new THREE.DirectionalLight(new THREE.Color(hex('teal-light')).lerp(new THREE.Color(1, 1, 1), 0.6), 0.45);
+        front.position.set(2, 1, 10);
+        scene.add(front);
+
+        // Camera: long lens, pitched down; 21 units across at the default view.
+        const fov = 20;
+        const pitch = THREE.MathUtils.degToRad(33);
+        const aspect = innerWidth / innerHeight;
+        const across = 21;
+        const dist = across / aspect / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
+        const close = q.get('view') === 'close';
+        const item = items[Number(q.get('item') ?? 0)] ?? items[0]!;
+        const target = close ? new THREE.Vector3(item.x, item.y, 0) : new THREE.Vector3(0, 1.4, 0);
+        const d = close ? dist / Number(q.get('zoom') ?? 6) : dist;
+        const camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 400);
+        camera.position.copy(target).add(new THREE.Vector3(0, Math.sin(pitch) * d, Math.cos(pitch) * d));
+        camera.lookAt(target);
+
+        if (q.has('raw')) {
+          // The textures themselves, flat: ?raw=sign,tape (registers) — colour, normal, roughness.
+          const pick = (q.get('raw') ?? '').split(',').filter(Boolean);
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'position:fixed;inset:0;overflow:auto;background:#555;z-index:2';
+          for (const e of labels.entries()) {
+            if (pick.length && !pick.includes(e.register)) continue;
+            for (const t of [e.map, e.normal, e.rough]) {
+              if (!t) continue;
+              const { width: w, height: h, data } = t.image as { width: number; height: number; data: Uint8Array };
+              const c = document.createElement('canvas');
+              c.width = w;
+              c.height = h;
+              c.style.cssText = `display:inline-block;margin:4px;width:${Math.min(w, Number(q.get('rawW') ?? 1400))}px`;
+              const id = new ImageData(w, h);
+              for (let y = 0; y < h; y++) id.data.set(data.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+              c.getContext('2d')!.putImageData(id, 0, 0);
+              wrap.appendChild(c);
+            }
+          }
+          document.body.appendChild(wrap);
+        }
+
+        renderer.render(scene, camera);
+        const mem = labels.memory();
+        const px = (window as any).__pxPerUnit = innerWidth / across;
+        const lines = labels.entries().map((e) => `${e.register.padEnd(7)} ${JSON.stringify(e.text).slice(0, 30).padEnd(31)} ${e.size.w.toFixed(2)} x ${e.size.h.toFixed(2)} u  cap ${e.capHeight.toFixed(3)} u = ${capPx(e.capHeight, 'front', { pxPerUnit: px, pitchDeg: 33 }).toFixed(1)} px  ${e.px.w}x${e.px.h}`);
+        status.textContent = `${mem.labels} labels, ${mem.textures} textures, ${(mem.bytes / 1048576).toFixed(1)} MiB GPU\n` + (q.has('table') ? lines.join('\n') : '');
+        if (q.has('nostatus')) status.style.display = 'none';
+        requestAnimationFrame(() => {
+          renderer.render(scene, camera);
+          (window as any).__ready = true;
+        });
+      }
+      main().catch((e) => fail(String(e?.stack ?? e)));
+    </script>
+  </body>
+</html>
