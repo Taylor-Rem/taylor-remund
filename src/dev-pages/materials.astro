@@ -1,13 +1,19 @@
 ---
 // Swatch bench for view/materials (W1). Every MaterialClass on the same three
 // test forms, under a stand-in for the stage light (warm key spot with
-// shadows, cool fill, cool rim, RoomEnvironment). Dev-only; never shipped.
+// shadows, cool fill, cool rim, RoomEnvironment), plus focused scenes for
+// finish, lpos and labels. Dev-only; never shipped.
 //   ?class=steel        one class, close
+//   ?scene=finish       red enamel at finish 0, 0.5, 1 (the Button's cap)
+//   ?scene=brass        brass at finish 0 and 1 (hand-polished)
+//   ?scene=planks       three planks turned three ways, ONE merged geometry, grain following each
+//   ?scene=labels       real labels: stencil on wood and on painted steel, tape, card, brass plate
 //   ?token=teal-panel   override every swatch's hue
 //   ?tier=low           low-tier shaders
 //   ?bench=1            measure frame cost (window.__bench); ?flat=1 swaps in plain materials for a baseline
-//   ?plain=wood,steel  swap those classes for a plain material (cost probing)
-      //   ?t=3.5              simulation time for update() (belt scroll, bulb flicker)
+//   ?plain=wood,steel   swap those classes for a plain material (cost probing)
+//   ?benchtop=normal    draw the bench with the full wood shader instead of its 'large' path
+//   ?t=3.5              simulation time for update() (belt scroll, bulb flicker)
 //   ?cam=x,y,z,tx,ty,tz,fov   override the camera
 ---
 <!doctype html>
@@ -28,23 +34,26 @@
     <div id="hud"></div>
     <script>
       import {
-        BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, DirectionalLight, Fog, HemisphereLight, LatheGeometry, Mesh,
-        MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PMREMGenerator, Scene, SpotLight, SRGBColorSpace, Vector2, Vector3,
-        ACESFilmicToneMapping, Color, Object3D, WebGLRenderer, type Material, type Texture,
+        BoxGeometry, BufferAttribute, BufferGeometry, DirectionalLight, Fog, HemisphereLight, LatheGeometry, Matrix4, Mesh,
+        MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Scene, SpotLight, SRGBColorSpace, Vector2, Vector3,
+        ACESFilmicToneMapping, Color, Object3D, WebGLRenderer, type Material,
       } from 'three';
       import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
       import { createMaterials, CLASS_NAMES } from '../workshop/view/materials/index.ts';
+      import { createLabels, world } from '../workshop/view/labels/index.ts';
       import { linear, palette, type Token } from '../workshop/view/palette.ts';
       import type { MaterialClass } from '../workshop/view/kit/types.ts';
-      import type { Labels } from '../workshop/view/types.ts';
 
       const q = new URLSearchParams(location.search);
       const only = q.get('class') as MaterialClass | null;
+      const sceneName = q.get('scene');
       const tokenOverride = q.get('token') as Token | null;
       const tier = q.get('tier') === 'low' ? 'low' : 'high';
       const bench = q.get('bench') === '1';
       const flat = q.get('flat') === '1';
       const simTime = Number(q.get('t') ?? '2.0');
+      const close = !!only || !!sceneName;
       const hud = document.getElementById('hud')!;
       if (tokenOverride && !(tokenOverride in palette)) console.error(`unknown token ${tokenOverride}`);
 
@@ -55,13 +64,36 @@
       // ---- test geometry ---------------------------------------------------
       const smooth = (a: number, b: number, x: number): number => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-      function colourise(g: BufferGeometry, token: Token, jitter = 0.04): void {
+      function colourise(g: BufferGeometry, token: Token | 'white', jitter = 0.04): BufferGeometry {
         const n = g.attributes.position!.count;
-        const c = linear(token);
+        const c = token === 'white' ? [1, 1, 1] : linear(token);
         const k = 1 + (rnd() - 0.5) * jitter;
         const arr = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) { arr[i * 3] = c[0] * k; arr[i * 3 + 1] = c[1] * k; arr[i * 3 + 2] = c[2] * k; }
+        for (let i = 0; i < n; i++) { arr[i * 3] = c[0]! * k; arr[i * 3 + 1] = c[1]! * k; arr[i * 3 + 2] = c[2]! * k; }
         g.setAttribute('color', new BufferAttribute(arr, 3));
+        return g;
+      }
+
+      /** Material-space position, as the kit writes it: the part's own position, an optional axis remap, a seeded offset. */
+      function withLpos(g: BufferGeometry, remap?: (p: Vector3) => Vector3): BufferGeometry {
+        const pos = g.attributes.position!;
+        // seeded offset along +X only, so a part keeps its own axis at y = z = 0 (turned rings stay concentric)
+        const off = new Vector3(rnd() * 40 - 20, 0, 0);
+        const arr = new Float32Array(pos.count * 3);
+        const p = new Vector3();
+        for (let i = 0; i < pos.count; i++) {
+          p.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+          const l = remap ? remap(p.clone()) : p;
+          arr[i * 3] = l.x + off.x; arr[i * 3 + 1] = l.y + off.y; arr[i * 3 + 2] = l.z + off.z;
+        }
+        g.setAttribute('lpos', new BufferAttribute(arr, 3));
+        return g;
+      }
+
+      function setFinish(g: BufferGeometry, f: number): BufferGeometry {
+        const s = g.attributes.surf!;
+        for (let i = 0; i < s.count; i++) s.setZ(i, f);
+        return g;
       }
 
       /** Rounded box with angle-spaced bevel vertices, wear/cavity from position. */
@@ -77,7 +109,7 @@
           if (i >= N - bevelSegs) { const t = r * Math.tan(((i - (N - bevelSegs)) / bevelSegs) * Math.PI / 4); return hs - r + t; }
           return -hs + r + ((i - bevelSegs) / mid) * (2 * hs - 2 * r);
         };
-        const surf = new Float32Array(pos.count * 2);
+        const surf = new Float32Array(pos.count * 3);
         const p = new Vector3(), inner = new Vector3(), dir = new Vector3();
         for (let k = 0; k < pos.count; k++) {
           p.set(map(pos.getX(k), half[0]!), map(pos.getY(k), half[1]!), map(pos.getZ(k), half[2]!));
@@ -98,9 +130,9 @@
           if (p.y < -half[1]! + r * 1.5) wear *= 0.4; // bottom edges are not handled
           let cav = 0.55 * (1 - smooth(0, r * 2.5, p.y + half[1]!)); // contact with the bench
           if (cavFn) cav = Math.max(cav, cavFn(new Vector3(p.x, p.y + h / 2, p.z)));
-          surf[k * 2] = wear; surf[k * 2 + 1] = cav;
+          surf[k * 3] = wear; surf[k * 3 + 1] = cav;
         }
-        g.setAttribute('surf', new BufferAttribute(surf, 2));
+        g.setAttribute('surf', new BufferAttribute(surf, 3));
         return g;
       }
 
@@ -125,14 +157,13 @@
         return out;
       }
 
-      /** A turned knob: flange, step, groove, body, shoulder, chamfered cap, dome. */
-      function knob(): BufferGeometry {
+      /** A turned knob: flange, step, groove, body, shoulder, chamfered cap, dome. Its turning axis is lpos +X. */
+      function knob(finish = 0): BufferGeometry {
         const raw = [
           [0, 0], [0.3, 0], [0.3, 0.06], [0.225, 0.075], [0.225, 0.13], [0.19, 0.15], [0.19, 0.185], [0.225, 0.205],
           [0.24, 0.36], [0.275, 0.385], [0.275, 0.45], [0.22, 0.49], [0.12, 0.515], [0, 0.522],
         ].map(([r, y]) => new Vector2(r, y));
         const pts = fillet(raw, 0.014, 4);
-        // signed turning per point, summed over a short arc window
         const turn = pts.map((p, i) => {
           if (i === 0 || i === pts.length - 1) return 0;
           const d1 = p.clone().sub(pts[i - 1]!), d2 = pts[i + 1]!.clone().sub(p);
@@ -146,19 +177,32 @@
           for (let j = 0; j < pts.length; j++) { const dd = Math.abs(arc[j]! - arc[i]!); if (dd < win) s += turn[j]! * (1 - dd / win); }
           return s;
         });
-        const segs = 48;
-        const g = new LatheGeometry(pts, segs);
+        const g = new LatheGeometry(pts, 64);
         const n = g.attributes.position!.count;
-        const surf = new Float32Array(n * 2);
+        const surf = new Float32Array(n * 3);
         for (let k = 0; k < n; k++) {
           const j = k % pts.length;
           const s = wearP[j]!;
           const y = pts[j]!.y;
-          surf[k * 2] = Math.min(1, Math.max(0, s / 1.0)) * (y < 0.03 ? 0.4 : 1);
-          surf[k * 2 + 1] = Math.min(1, Math.max(0, -s / 0.9)) + (y < 0.015 ? 0.5 : 0);
+          surf[k * 3] = Math.min(1, Math.max(0, s / 1.0)) * (y < 0.03 ? 0.4 : 1);
+          surf[k * 3 + 1] = Math.min(1, Math.max(0, -s / 0.9)) + (y < 0.015 ? 0.5 : 0);
+          surf[k * 3 + 2] = finish;
         }
-        g.setAttribute('surf', new BufferAttribute(surf, 2));
-        return g;
+        g.setAttribute('surf', new BufferAttribute(surf, 3));
+        return withLpos(g, (p) => new Vector3(p.y, -p.x, p.z)); // turning axis on +X
+      }
+
+      /** A label quad standing in XY facing +Z, uv 0..1, wear at its rim, white vertex colour. */
+      function quad(w: number, h: number): BufferGeometry {
+        const g = new PlaneGeometry(w, h, 32, 12);
+        const pos = g.attributes.position!;
+        const surf = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+          const dx = w / 2 - Math.abs(pos.getX(i)), dy = h / 2 - Math.abs(pos.getY(i));
+          surf[i * 3] = 1 - smooth(0, Math.min(w, h) * 0.18, Math.min(dx, dy));
+        }
+        g.setAttribute('surf', new BufferAttribute(surf, 3));
+        return withLpos(colourise(g, 'white', 0));
       }
 
       // ---- renderer, scene, light -----------------------------------------
@@ -183,9 +227,9 @@
 
       const amberGlow = new Color().fromArray(linear('amber-glow'));
       const keyCol = amberGlow.clone().lerp(new Color().fromArray(linear('paper')), 0.35);
-      const key = new SpotLight(keyCol, only ? 110 : 420, 0, only ? Math.PI / 7 : Math.PI / 6, 0.8, 1.6);
-      key.position.set(only ? -3 : -7, only ? 6 : 12, only ? -2.5 : -5);
-      key.target.position.set(only ? 0 : 0.5, 0, only ? 0 : 0.5);
+      const key = new SpotLight(keyCol, close ? 110 : 420, 0, close ? Math.PI / 7 : Math.PI / 6, 0.8, 1.6);
+      key.position.set(close ? -3 : -7, close ? 6 : 12, close ? -2.5 : -5);
+      key.target.position.set(close ? 0 : 0.5, 0, close ? 0 : 0.5);
       key.castShadow = true;
       key.shadow.mapSize.set(2048, 2048);
       key.shadow.radius = 5;
@@ -206,30 +250,9 @@
       rim.position.set(8, 6, -9);
       scene.add(rim);
 
-      // ---- materials ---------------------------------------------------------
-      const fakeLabels: Labels = (() => {
-        const tex = new Map<string, Texture>();
-        const make = (text: string): string => {
-          const key = `tape:${text}`;
-          if (tex.has(key)) return key;
-          const cv = document.createElement('canvas');
-          cv.width = 512; cv.height = 128;
-          const x = cv.getContext('2d')!;
-          x.fillStyle = palette.ink; x.fillRect(0, 0, 512, 128);
-          x.fillStyle = palette.paper; x.font = 'bold 64px monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
-          x.fillText(text, 256, 68);
-          const t = new CanvasTexture(cv); t.colorSpace = SRGBColorSpace; t.anisotropy = 4;
-          tex.set(key, t);
-          return key;
-        };
-        return {
-          tape: (t) => make(t), stencil: (t) => make(t), card: (t) => make(t), plate: (t) => make(t), sign: (t) => make(t),
-          slip: (t) => make(t), phone: (m) => make(m.map((x) => x.text).join(' ')),
-          size: () => ({ w: 1, h: 0.25 }), capHeight: () => 0.2, texture: (k) => tex.get(k)!, normalMap: () => null,
-          roughnessMap: () => null, transparent: () => false,
-        };
-      })();
-      const mats = createMaterials({ tier, labels: fakeLabels });
+      // ---- materials and the real labels -----------------------------------
+      const labels = await createLabels({ anisotropy: renderer.capabilities.getMaxAnisotropy() });
+      const mats = createMaterials({ tier, labels });
       mats.update(simTime);
       const flatMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
       const plain = new Set((q.get('plain') ?? '').split(',').filter(Boolean));
@@ -240,12 +263,22 @@
         glass: 'teal-deep', bulb: 'amber-glow', felt: 'teal-light', tape: 'ink', belt: 'ink',
       };
 
-      function addMesh(parent: Object3D, g: BufferGeometry, m: Material, x: number, y: number, z: number, ry = 0, rx = 0): Mesh {
+      function addMesh(parent: Object3D, g: BufferGeometry, m: Material, x: number, y: number, z: number, ry = 0, rx = 0, rz = 0): Mesh {
         const mesh = new Mesh(g, m);
-        mesh.position.set(x, y, z); mesh.rotation.set(rx, ry, 0);
+        mesh.position.set(x, y, z); mesh.rotation.set(rx, ry, rz, "YXZ");
         mesh.castShadow = true; mesh.receiveShadow = true;
         parent.add(mesh);
         return mesh;
+      }
+
+      const plate = { w: 0.34, h: 0.2, y: 0.3 };
+      const blockCav = (p: Vector3): number => {
+        if (p.z < 0.24) return 0;
+        const dx = Math.max(0, Math.abs(p.x) - plate.w / 2), dy = Math.max(0, Math.abs(p.y - plate.y) - plate.h / 2);
+        return 0.9 * (1 - smooth(0, 0.05, Math.hypot(dx, dy)));
+      };
+      function testBlock(token: Token, finish = 0, withPlate = true): BufferGeometry {
+        return setFinish(withLpos(colourise(roundedBox(0.72, 0.56, 0.5, 0.045, 4, 12, withPlate ? blockCav : undefined), token)), finish);
       }
 
       function swatch(cls: MaterialClass, cx: number, cz: number): void {
@@ -253,54 +286,103 @@
         const group = new Object3D();
         group.position.set(cx, 0, cz);
         scene.add(group);
-        // block with a raised plate on its face (cavity round the plate)
-        const plate = { w: 0.34, h: 0.2, y: 0.3 };
-        const blockCav = (p: Vector3): number => {
-          if (p.z < 0.24) return 0;
-          const dx = Math.max(0, Math.abs(p.x) - plate.w / 2), dy = Math.max(0, Math.abs(p.y - plate.y) - plate.h / 2);
-          return 0.9 * (1 - smooth(0, 0.05, Math.hypot(dx, dy)));
-        };
-        const block = roundedBox(0.72, 0.56, 0.5, 0.045, 4, 12, blockCav);
-        colourise(block, token);
-        const b = addMesh(group, block, matOf(cls), -0.85, 0, 0.05, 0.38);
-        const pl = roundedBox(plate.w, plate.h, 0.04, 0.012, 3, 6, (p) => 0.8 * (1 - smooth(0, 0.012, p.z + 0.02)));
-        colourise(pl, token, 0.08);
+        const b = addMesh(group, testBlock(token), matOf(cls), -0.85, 0, 0.05, 0.38);
+        const pl = withLpos(colourise(roundedBox(plate.w, plate.h, 0.04, 0.012, 3, 6, (p) => 0.8 * (1 - smooth(0, 0.012, p.z + 0.02))), token, 0.08));
         addMesh(b, pl, matOf(cls), 0, plate.y - plate.h / 2, 0.25);
-        // turned knob
-        const k = knob();
-        colourise(k, token);
-        addMesh(group, k, matOf(cls), 0.05, 0, 0.25, 0.4);
-        // flat panel standing on its edge
-        const panel = roundedBox(0.62, 0.46, 0.05, 0.018, 3, 10);
-        colourise(panel, token);
-        const panelMat = cls === 'tape' && !flat ? mats.textured('tape', fakeLabels.tape('DO NOT TOUCH')) : matOf(cls);
-        addMesh(group, panel, panelMat, 0.85, 0, -0.1, -0.3, -0.06);
+        addMesh(group, colourise(knob(), token), matOf(cls), 0.05, 0, 0.25, 0.4);
+        const panel = withLpos(colourise(roundedBox(0.62, 0.46, 0.05, 0.018, 3, 10), token));
+        if (cls === 'tape' && !flat) {
+          addMesh(group, panel, matOf(cls), 0.85, 0, -0.1, -0.3, -0.06);
+          const k = labels.tape(world.tape.doNotTouch, 'black');
+          const sz = labels.size(k);
+          const s = 0.55 / sz.w; // labels are sized for the default view; fit the test panel
+          addMesh(group, quad(sz.w * s, sz.h * s), mats.textured('tape', k), 0.85, 0.2, -0.07, -0.3, -0.06);
+        } else {
+          addMesh(group, panel, matOf(cls), 0.85, 0, -0.1, -0.3, -0.06);
+        }
       }
 
-      // bench planks (wood) under everything
-      const benchW = only ? 6 : 13, benchD = only ? 3.4 : 8.2;
+      // bench planks (wood, the cheap 'large' path) under everything
+      const benchW = close ? 6 : 13, benchD = close ? 3.4 : 8.2;
       const planks = Math.round(benchD / 0.62);
+      const benchMat = flat || plain.has('wood') ? flatMat : mats.of('wood', q.get('benchtop') === 'normal' ? undefined : 'large');
       for (let i = 0; i < planks; i++) {
         const pd = benchD / planks;
-        const g = roundedBox(benchW, 0.14, pd - 0.012, 0.02, 3, 24);
-        colourise(g, 'wood', 0.22);
-        const m = addMesh(scene, g, matOf('wood'), 0, -0.14, -benchD / 2 + pd * (i + 0.5));
+        const g = withLpos(colourise(roundedBox(benchW, 0.14, pd - 0.012, 0.02, 3, 24), 'wood', 0.22));
+        const m = addMesh(scene, g, benchMat, 0, -0.14, -benchD / 2 + pd * (i + 0.5));
         m.castShadow = false;
       }
 
-      const classes = only ? [only] : CLASS_NAMES;
-      const cols = 4;
-      classes.forEach((cls, i) => {
-        if (only) { swatch(cls, 0, 0); return; }
-        const c = i % cols, r = Math.floor(i / cols);
-        swatch(cls, (c - (cols - 1) / 2) * 3.0, (r - 1) * 2.4);
-      });
+      const target = new Vector3(0, 0.22, 0.05);
+      let dist = 6.2;
+      if (sceneName === 'finish') {
+        // the Button's cap: red enamel at finish 0, 0.5, 1
+        [0, 0.5, 1].forEach((f, i) => {
+          addMesh(scene, colourise(knob(f), 'button-red', 0), mats.of('steel'), (i - 1) * 0.85, 0, 0.1, 0.4);
+          addMesh(scene, testBlock('button-red', f, false), mats.of('steel'), (i - 1) * 0.85, 0, -0.75, 0.3);
+        });
+        dist = 5.4;
+      } else if (sceneName === 'brass') {
+        [0, 1].forEach((f, i) => {
+          addMesh(scene, colourise(knob(f), 'brass', 0), mats.of('brass'), (i - 0.5) * 1.3 - 0.35, 0, 0.15, 0.4);
+          addMesh(scene, setFinish(withLpos(colourise(roundedBox(0.62, 0.46, 0.05, 0.018, 3, 10), 'brass')), f), mats.of('brass'), (i - 0.5) * 1.3 + 0.32, 0, -0.15, -0.3, -0.06);
+        });
+        dist = 5.2;
+      } else if (sceneName === 'planks') {
+        // three planks, each built along its own +X, turned three ways, merged into ONE geometry
+        const parts: BufferGeometry[] = [];
+        const mk = (m: Matrix4, token: Token): void => {
+          const g = withLpos(colourise(roundedBox(1.5, 0.16, 0.3, 0.02, 3, 16), token, 0.2));
+          g.translate(0, -0.08, 0); // centre it before turning (lpos is already written)
+          g.applyMatrix4(m);
+          parts.push(g);
+        };
+        mk(new Matrix4().makeTranslation(0, 0.24, 0.55), 'wood-light'); // along X
+        mk(new Matrix4().makeTranslation(-0.55, 0.24, -0.35).multiply(new Matrix4().makeRotationY(Math.PI / 2)), 'wood-light'); // along Z
+        mk(new Matrix4().makeTranslation(0.55, 0.75, -0.35).multiply(new Matrix4().makeRotationZ(Math.PI / 2)), 'wood-light'); // standing, along Y
+        const merged = mergeGeometries(parts);
+        if (!merged) console.error('merge failed');
+        else addMesh(scene, merged, mats.of('wood'), 0, 0, 0);
+        target.set(0, 0.45, 0);
+        dist = 5.0;
+      } else if (sceneName === 'labels') {
+        // a stencil on a wood panel and on painted steel, a tape strip, a card, a brass plate
+        const woodPanel = withLpos(colourise(roundedBox(1.1, 0.7, 0.06, 0.02, 3, 12), 'wood-light', 0.1));
+        addMesh(scene, woodPanel, mats.of('wood'), -0.7, 0, -0.4, 0.15);
+        const steelPanel = withLpos(colourise(roundedBox(1.1, 0.7, 0.06, 0.02, 3, 12), 'teal-panel'));
+        addMesh(scene, steelPanel, mats.of('steel'), 0.7, 0, -0.4, -0.15);
+        // labels are sized for the default view; fit them to these small test panels
+        const fitted = (k: string, by: 'w' | 'h', v: number): BufferGeometry => {
+          const sz = labels.size(k);
+          const s = v / (by === 'w' ? sz.w : sz.h);
+          return quad(sz.w * s, sz.h * s);
+        };
+        const st = labels.stencil(world.stencil.size.M);
+        addMesh(scene, fitted(st, 'h', 0.34), mats.textured('wood', st), -0.7, 0.36, -0.4 + 0.032, 0.15).castShadow = false;
+        const st2 = labels.stencil(world.stencil.up, { paint: 'paper' });
+        addMesh(scene, fitted(st2, 'h', 0.3), mats.textured('steel', st2), 0.7, 0.4, -0.4 + 0.032, -0.15).castShadow = false;
+        const tp = labels.tape(world.tape.doNotTouch, 'red');
+        addMesh(scene, fitted(tp, 'w', 0.8), mats.textured('tape', tp), 0.66, 0.14, -0.4 + 0.034, -0.15, 0, 0.03).castShadow = false;
+        const cd = labels.card(world.cards.revertRung1);
+        addMesh(scene, fitted(cd, 'w', 0.85), mats.textured('paper', cd), -0.55, 0.004, 0.5, 0.12, -Math.PI / 2);
+        const pt = labels.plate(world.plates.presses);
+        addMesh(scene, fitted(pt, 'w', 0.7), mats.textured('brass', pt), 0.7, 0.004, 0.55, -0.2, -Math.PI / 2);
+        target.set(0, 0.2, 0.05);
+        dist = 5.6;
+      } else {
+        const classes = only ? [only] : CLASS_NAMES;
+        const cols = 4;
+        classes.forEach((cls, i) => {
+          if (only) { swatch(cls, 0, 0); return; }
+          const c = i % cols, r = Math.floor(i / cols);
+          swatch(cls, (c - (cols - 1) / 2) * 3.0, (r - 1) * 2.4);
+        });
+        if (!only) { target.set(0, 0, 0.2); dist = 24; }
+      }
 
       // ---- camera ----------------------------------------------------------
       const cam = new PerspectiveCamera(20, window.innerWidth / window.innerHeight, 0.5, 80);
       const pitch = (33 * Math.PI) / 180;
-      const dist = only ? 6.2 : 24;
-      const target = new Vector3(0, only ? 0.22 : 0, only ? 0.05 : 0.2);
       cam.position.set(target.x, target.y + Math.sin(pitch) * dist, target.z + Math.cos(pitch) * dist);
       const camQ = q.get('cam');
       if (camQ) {
@@ -319,6 +401,7 @@
 
       const w = window as unknown as Record<string, unknown>;
       w.__mats = mats;
+      w.__labels = labels;
       w.__renderer = renderer;
       w.__render = () => renderer.render(scene, cam);
       w.__scene = scene;
@@ -340,7 +423,6 @@
         return +runs[2]!.toFixed(2);
       };
       w.__time = timeFrames;
-
       if (bench) {
         const ms = timeFrames();
         const res = { tier, flat, ms, w: canvas.width, h: canvas.height };
