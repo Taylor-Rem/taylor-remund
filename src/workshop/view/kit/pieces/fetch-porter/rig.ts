@@ -148,7 +148,8 @@ export const PRESETS: Record<ArmPreset, Arms> = {
   // forearms level in front, hands brought in to a crate's width, jaws open on its sides
   carry: { left: J(0.78, -0.2, -0.25, 0.85, 1.57, 0.55), right: J(0.78, -0.2, -0.25, 0.85, 1.57, 0.55) },
   // both hands held out and up to the visitor, jaws open like cupped palms
-  offer: { left: J(1.15, 0.1, -0.5, 0.45, -1.1, 1.0), right: J(1.1, 0.14, -0.5, 0.5, -1.1, 1.0) },
+  // (held out to the sides as well as forward: from the camera's height straight-forward arms read as hanging)
+  offer: { left: J(0.95, 0.75, -0.9, 0.85, -1.2, 1.0), right: J(0.9, 0.8, -0.9, 0.9, -1.2, 1.0) },
   // right hand to the cap's brim, left at rest
   // (the arms are short: the claw comes up beside the turret's mast, and the head tips its peak to go with it)
   salute: { left: J(0.3, 0.16, 0.0, 0.6, 0.0, 0.2), right: J(2.1, 0.4, 0.0, 1.1, 0.6, 0.1) },
