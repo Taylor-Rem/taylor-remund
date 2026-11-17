@@ -221,7 +221,7 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
   const topAt = (x: number, zz: number): number => boards.find((q) => x >= q.xa && x <= q.xb && zz >= q.za && zz <= q.zb)?.y ?? 0;
   for (const d of marks.drips) {
     const g = setFinish(blob(d.x, d.z, d.r * d.long, d.r, d.rot, low ? 6 : 9, topAt(d.x, d.z) + 0.0016, R), 1);
-    b.add(part('wood', g, d.token, { seed: R.int(0, 1e6), jitter: 0.04 }));
+    b.add(large(part('wood', g, d.token, { seed: R.int(0, 1e6), jitter: 0.04 }))); // the large path dries paint duller, like the boards it sits on
   }
   for (const l of marks.lines) {
     const g = blob(l.x, l.z, l.len / 2, 0.0032, l.rot, 6, topAt(l.x, l.z) + 0.0014, R, 0.04);

@@ -258,6 +258,21 @@ describe('materials', () => {
     expect(fs).toContain('u_clusterClean');
   });
 
+  it('shows use on wood: dark tracks by cavity, sanded lift by wear, drag marks and dried paint on the large path', () => {
+    for (const k of ['use', 'sanded', 'drag', 'dragScale', 'driedDeep', 'driedSat']) expect(CLASSES.wood.params[k], k).toBeDefined();
+    const large = compile(mats.of('wood', 'large') as MeshStandardMaterial).fragmentShader;
+    expect(large).toContain('col *= 1.0 - useDark;');
+    expect(large).toContain('float across = pScratchCell(');
+    expect(large).toContain('pig *= u_driedDeep;');
+  });
+
+  it('keeps black tape black: low base specular and environment, a thin sharp coat', () => {
+    const tape = mats.of('tape') as MeshPhysicalMaterial;
+    expect(tape.envMapIntensity).toBeLessThan(0.5);
+    expect(tape.clearcoatRoughness).toBeLessThan(0.1);
+    expect(compile(tape).fragmentShader).toContain('pSpec = u_spec');
+  });
+
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {
     const m = createMaterials({ tier: 'high' });
     const belt = m.uniforms('belt');
