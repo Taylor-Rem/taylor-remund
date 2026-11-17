@@ -1,0 +1,139 @@
+---
+// W2-crate review scenes under the real stage (temporary scaffolding until
+// /dev/catalogue/ covers multi-piece scenes). Dev-only; never shipped.
+// Query: ?scene=one|lineup|stack|bench|row  ?size=S|M|L  ?paint=<token>  ?seed=n
+//        ?dist=wide|station|close  ?view=beauty|clay  ?detail=low  ?yaw=<deg>
+//        ?open=<deg> (lid)  ?at=x,z  ?lamp=0..1
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>W2 crate</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <script>
+      import { Box3, Group, MeshStandardMaterial, Vector3, type Material, type Object3D } from 'three';
+      import { createStage } from '../workshop/view/stage/index.ts';
+      import { createLoop } from '../workshop/view/stage/loop.ts';
+      import { createMaterials } from '../workshop/view/materials/index.ts';
+      import { createLabels } from '../workshop/view/labels/index.ts';
+      import { realize } from '../workshop/view/kit/realize.ts';
+      import type { Materials } from '../workshop/view/types.ts';
+      import type { Piece } from '../workshop/view/kit/types.ts';
+      import type { Token } from '../workshop/view/palette.ts';
+      import { crate, crateLabels, crateLabelKeys, repaint, type CrateSize } from '../workshop/view/kit/pieces/crate/index.ts';
+      import { bench, backWall, laneTape } from '../workshop/view/kit/pieces/bench/index.ts';
+
+      const q = new URLSearchParams(location.search);
+      const scene = q.get('scene') ?? 'one';
+      const dist = q.get('dist') ?? 'station';
+      const view = q.get('view') ?? 'beauty';
+      const detail = (q.get('detail') === 'low' ? 'low' : 'high') as 'high' | 'low';
+      const seed = Number(q.get('seed') ?? 1);
+      const size = (['S', 'M', 'L'].includes(q.get('size') ?? '') ? q.get('size') : 'M') as CrateSize;
+      const paint = (q.get('paint') || null) as Token | null;
+      const yaw = Number(q.get('yaw') ?? -14);
+      const at = (q.get('at') ?? '0.4,0.6').split(',').map(Number) as [number, number];
+
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const stage = createStage(canvas, { tier: 'high', reducedMotion: false, camera: { stationSize: 0.5 }, passes: { focus: q.get('focus') !== '0' } });
+      const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy() });
+      crateLabels(labels);
+      const real = createMaterials({ tier: 'high', labels });
+      const clay = new MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.7, vertexColors: false });
+      const materials: Materials = view === 'clay'
+        ? { of: () => clay as Material, textured: () => clay as Material, update() {}, dispose() {} }
+        : real;
+      const sizes: Record<string, { w: number; h: number }> = {};
+      for (const s of ['S', 'M', 'L'] as const) {
+        const k = crateLabelKeys(s);
+        sizes[s + ' arrows'] = labels.size(k.arrows);
+        sizes[s + ' letter'] = labels.size(k.letter);
+      }
+      (window as unknown as { __stencil: unknown }).__stencil = sizes;
+
+      const world = new Group();
+      stage.scene.add(world);
+      const put = (p: Piece, x: number, y: number, z: number, ry = 0): Object3D => {
+        const o = realize(p, materials);
+        o.position.set(x, y, z);
+        o.rotation.y = (ry * Math.PI) / 180;
+        world.add(o);
+        return o;
+      };
+
+      // the stage: four bench sections, the wall at the back, lane tape
+      put(bench({ sections: 4, width: 5, depth: 10, seed: 11, detail }), 0, 0, 0);
+      put(backWall({ width: 20, height: 6, seed: 5, detail }), 0, 0, -5);
+      put(laneTape({ points: [[-3.4, -0.6], [-0.9, -0.6], [-0.9, 1.9], [-3.4, 1.9], [-3.4, -0.6]], seed: 3, detail }), 0, 0, 0);
+      put(laneTape({ points: [[-0.2, 2.6], [4.6, 2.6], [4.6, 0.4]], seed: 4, detail }), 0, 0, 0);
+
+      const subject = new Box3();
+      const objs: Object3D[] = [];
+      const crateAt = (sz: CrateSize, pt: Token | null, x: number, y: number, z: number, ry: number, s = seed): Object3D => {
+        const p = crate({ size: sz, paint: pt, seed: s, detail });
+        const o = put(p, x, y, z, ry);
+        const lid = o.getObjectByName('lid');
+        if (lid && q.get('open')) lid.rotation.y = (-Number(q.get('open')) * Math.PI) / 180;
+        objs.push(o);
+        return o;
+      };
+      if (scene === 'one') crateAt(size, paint, at[0], 0, at[1], yaw);
+      if (scene === 'lineup') {
+        crateAt('S', null, at[0] - 1.05, 0, at[1] + 0.05, yaw + 6, seed);
+        crateAt('M', 'paint-blue', at[0], 0, at[1], yaw - 3, seed + 1);
+        crateAt('L', 'cable-red', at[0] + 1.25, 0, at[1] - 0.05, yaw + 2, seed + 2);
+      }
+      if (scene === 'row') {
+        // every paint on M
+        const ps: Array<Token | null> = [null, 'cable-red', 'paint-orange', 'tape-yellow', 'paint-green', 'teal-light', 'paint-blue', 'paint-violet', 'paper'];
+        ps.forEach((pt, i) => crateAt('M', pt, at[0] - 3.2 + i * 0.8, 0, at[1], yaw + (i % 3) * 4, seed + i));
+      }
+      if (scene === 'stack') {
+        const L = crateAt('L', null, at[0], 0, at[1], yaw, seed);
+        const hL = new Box3().setFromObject(L).max.y;
+        const M = crateAt('M', 'paint-blue', at[0] + 0.05, hL - 0.003, at[1] + 0.02, yaw + 5, seed + 1);
+        const hM = new Box3().setFromObject(M).max.y;
+        crateAt('S', 'cable-red', at[0] - 0.04, hM - 0.003, at[1] + 0.04, yaw - 6, seed + 2);
+      }
+      if (q.get('repaint')) for (const o of objs) repaint(o, q.get('repaint') === 'bare' ? null : (q.get('repaint') as Token));
+      for (const o of objs) subject.union(new Box3().setFromObject(o));
+      if (subject.isEmpty()) subject.set(new Vector3(-6.4, -1.1, -0.8), new Vector3(-0.6, 0.4, 5.1));
+
+      const wideBox = new Box3(new Vector3(-7.6, -0.4, -5.0), new Vector3(6.8, 5.6, 4.6));
+      stage.camera.setSubject(wideBox, { edge: { y: 0, z: 5.2 } });
+      const c = subject.getCenter(new Vector3());
+      if (dist === 'wide') {
+        stage.camera.focusOn(c);
+        stage.camera.cutTo(stage.camera.home());
+      } else {
+        const pad = dist === 'close' ? 0.04 : 0.22;
+        const box = subject.clone().expandByScalar(pad);
+        if (dist === 'close') box.min.y = Math.max(0, subject.min.y);
+        stage.camera.focusOn(c);
+        stage.camera.cutTo(stage.camera.frame(box));
+      }
+      if (q.get('lamp') !== null) stage.lights.setLamp({ level: Number(q.get('lamp')) });
+
+      let frames = 0;
+      const loop = createLoop({
+        step() {},
+        render(info) {
+          real.update(0);
+          stage.render({ dt: info.dt });
+          if (++frames === 8) requestAnimationFrame(() => { (window as unknown as { __ready: boolean }).__ready = true; });
+        },
+      });
+      loop.start();
+      (window as unknown as { __w2: unknown }).__w2 = { stage, objs, repaint };
+    </script>
+  </body>
+</html>

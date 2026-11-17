@@ -208,6 +208,9 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
     wake(id) {
       body(id).wakeUp();
     },
+    sleep(id) {
+      body(id).sleep();
+    },
 
     sensorContents(id) {
       const h = sensors.get(id);

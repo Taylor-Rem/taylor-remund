@@ -148,6 +148,12 @@ export function createStubPhysics(options: StubOptions = {}): StubPhysics {
     wake(id) {
       get(id).sleeping = false;
     },
+    sleep(id) {
+      const b = get(id);
+      b.sleeping = true;
+      b.linvel = [0, 0, 0];
+      b.angvel = [0, 0, 0];
+    },
     sensorContents(id) {
       const s = sensors.get(id);
       if (!s) throw new Error(`stub physics: no sensor "${id}"`);
