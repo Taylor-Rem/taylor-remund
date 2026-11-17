@@ -106,7 +106,7 @@
       }
       if (q.get('repaint')) for (const o of objs) repaint(o, q.get('repaint') === 'bare' ? null : (q.get('repaint') as Token));
       for (const o of objs) subject.union(new Box3().setFromObject(o));
-      if (subject.isEmpty()) subject.set(new Vector3(-6.4, -1.1, -0.8), new Vector3(-0.6, 0.4, 5.1));
+      if (subject.isEmpty()) subject.set(new Vector3(-3.4, -1.1, -0.2), new Vector3(3.4, 0.4, 5.1));
 
       const wideBox = new Box3(new Vector3(-7.6, -0.4, -5.0), new Vector3(6.8, 5.6, 4.6));
       stage.camera.setSubject(wideBox, { edge: { y: 0, z: 5.2 } });
