@@ -45,8 +45,11 @@ export type MaterialClass =
  *            local frame, with +X along the part's length (the grain of a plank, the
  *            brushing of a brass strip, the travel of the belt). It is written when a
  *            solid is made and is NOT changed when the part is placed, merged or
- *            animated; each part also gets a seeded offset, so two identical parts
- *            never show the same chips or grain. Materials evaluate every procedural
+ *            animated; each part also gets a seeded offset ALONG +X ONLY (so the
+ *            part's own axis stays at y = z = 0: turned rings and the pith of a
+ *            plank centre on the part, not on an arbitrary point), so two identical
+ *            parts never show the same chips or grain. A turned part puts its lathe
+ *            axis on +X. Materials evaluate every procedural
  *            detail in lpos space (never in merged object space, where a plank turned
  *            90 degrees would have its grain running the wrong way).
  *  - uv      vec2, optional. For textured quads (labels, cards, plates) the usual
@@ -55,9 +58,17 @@ export type MaterialClass =
  */
 export const ATTR = { color: 'color', surf: 'surf', lpos: 'lpos' } as const;
 
+/**
+ * A cheaper cut of a class for surfaces that fill the screen (the bench top,
+ * the back wall): `realize` asks the materials for `of(cls, variant)`.
+ */
+export type MaterialVariant = 'large';
+
 /** A lump of one material. */
 export interface KitPart {
   material: MaterialClass;
+  /** Optional cheaper variant of the class; parts of different variants never merge. */
+  variant?: MaterialVariant;
   geometry: BufferGeometry;
   /** For textured parts (label tape, cards, stencils, plates): key of a texture made by view/labels. */
   texture?: string;

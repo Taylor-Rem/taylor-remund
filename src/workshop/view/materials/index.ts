@@ -43,8 +43,17 @@ export interface MaterialsOptions {
 /** Live uniforms of one class: `u_<param>` numbers and `c_<colour>` colours, shared by its textured variants. */
 export type ClassUniforms = Record<string, { value: number | Color }>;
 
+/**
+ * 'large': the cheap path for big flat surfaces that fill the screen (the
+ * bench top): fewer layers, no scratch pass. Only `wood` has one today; other
+ * classes return their normal material.
+ */
+export type MaterialVariant = 'large';
+
 export interface WorkshopMaterials extends Materials {
   readonly tier: Tier;
+  /** The shared material of a class, or its cheap 'large' variant. */
+  of(cls: MaterialClass, variant?: MaterialVariant): Material;
   setLabels(labels: Labels): void;
   /** The live uniforms of a class, for art direction (set `.value`; takes effect next frame). */
   uniforms(cls: MaterialClass): ClassUniforms;
@@ -79,15 +88,54 @@ function makeUniforms(def: ClassDef): ClassUniforms {
 interface Variant {
   map?: Texture;
   normalMap?: Texture | null;
+  roughnessMap?: Texture | null;
+  /** How a label's alpha is used: cut the shape (tape ends, slips) or blend it on (sprayed stencil). */
+  alpha?: 'cut' | 'spray';
+  large?: boolean;
+}
+
+/** Classes with a cheaper 'large' path (a LARGE define in their GLSL). */
+const HAS_LARGE: ReadonlySet<MaterialClass> = new Set(['wood']);
+
+/**
+ * Stencils are blended on (sprayed paint, soft edges, the surface showing
+ * through); every other transparent label is cut with alphaTest. The Labels
+ * contract does not say which register a key is, so this reads the key's
+ * register prefix (view/labels labelKey: `stencil…|text`).
+ */
+export function labelAlpha(labels: Labels, key: string): 'cut' | 'spray' | undefined {
+  if (!labels.transparent(key)) return undefined;
+  return key.startsWith('stencil') ? 'spray' : 'cut';
 }
 
 function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUniforms, noise: { value: Data3DTexture }, variant: Variant): Pbr {
   const mat: Pbr = def.kind === 'physical' ? new MeshPhysicalMaterial() : new MeshStandardMaterial();
-  mat.name = variant.map ? `workshop/${cls}/textured` : `workshop/${cls}`;
+  mat.name = variant.map ? `workshop/${cls}/textured` : variant.large ? `workshop/${cls}/large` : `workshop/${cls}`;
   mat.vertexColors = true;
+  // A geometry without surf or lpos reads them as zeros: finish 0, and lpos
+  // falls back to the object position (glsl.ts VERTEX_MAIN).
+  (mat as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = {
+    color: [1, 1, 1],
+    uv: [0, 0],
+    uv1: [0, 0],
+    surf: [0, 0, 0],
+    lpos: [0, 0, 0],
+  };
   for (const [k, v] of Object.entries(def.props)) (mat as unknown as Record<string, number>)[k] = v;
   if (variant.map) mat.map = variant.map;
   if (variant.normalMap) mat.normalMap = variant.normalMap;
+  if (variant.roughnessMap) {
+    mat.roughnessMap = variant.roughnessMap;
+    mat.metalnessMap = variant.roughnessMap;
+  }
+  if (variant.alpha === 'cut') mat.alphaTest = 0.5;
+  if (variant.alpha === 'spray') {
+    mat.transparent = true;
+    mat.depthWrite = false;
+    mat.polygonOffset = true;
+    mat.polygonOffsetFactor = -2;
+    mat.polygonOffsetUnits = -2;
+  }
 
   const defines: Record<string, string> = {
     [`MAT_${cls.toUpperCase()}`]: '',
@@ -95,9 +143,14 @@ function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUni
   };
   if (tier === 'low') defines.TIER_LOW = '';
   if (variant.map) defines.LABEL_MAP = '';
+  if (variant.alpha === 'spray') defines.LABEL_SPRAY = '';
+  if (variant.large) defines.LARGE = '';
   mat.defines = { ...(mat.defines ?? {}), ...defines };
 
-  const key = `workshop:${cls}:${tier}:${variant.map ? 'map' : ''}${variant.normalMap ? '+n' : ''}`;
+  const key = [
+    'workshop', cls, tier,
+    variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '',
+  ].join(':');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise });
@@ -107,7 +160,7 @@ function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUni
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${uniformDecls(uniforms)}`, 'after');
+    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${uniformDecls(uniforms)}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -129,7 +182,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const tier = opts.tier;
   let labels: Labels | undefined = opts.labels;
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
-  const shared = new Map<MaterialClass, Pbr>();
+  const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
   const noise = { value: createNoiseTexture() };
 
@@ -142,13 +195,15 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     return u;
   };
 
-  const of = (cls: MaterialClass): Pbr => {
-    let m = shared.get(cls);
+  const of = (cls: MaterialClass, variant?: MaterialVariant): Pbr => {
+    const large = variant === 'large' && HAS_LARGE.has(cls);
+    const k = large ? `${cls}:large` : cls;
+    let m = shared.get(k);
     if (!m) {
       const def = CLASSES[cls];
       if (!def) throw new Error(`materials: unknown class ${String(cls)}`);
-      m = build(cls, def, tier, uniformsOf(cls), noise, {});
-      shared.set(cls, m);
+      m = build(cls, def, tier, uniformsOf(cls), noise, { large });
+      shared.set(k, m);
     }
     return m;
   };
@@ -162,7 +217,12 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       let m = textured.get(k);
       if (!m) {
         if (!labels) throw new Error('materials: textured() needs Labels (pass labels to createMaterials or call setLabels)');
-        m = build(cls, CLASSES[cls], tier, uniformsOf(cls), noise, { map: labels.texture(key), normalMap: labels.normalMap(key) });
+        m = build(cls, CLASSES[cls], tier, uniformsOf(cls), noise, {
+          map: labels.texture(key),
+          normalMap: labels.normalMap(key),
+          roughnessMap: labels.roughnessMap(key),
+          alpha: labelAlpha(labels, key),
+        });
         textured.set(k, m);
       }
       return m;

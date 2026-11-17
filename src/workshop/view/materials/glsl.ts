@@ -1,20 +1,25 @@
 /**
- * The GLSL shared by every workshop material: object-space varyings, cheap
- * noise (a baked 4-channel volume, one fetch per lookup), straight scratch lines, a footprint fade that keeps high-frequency
- * layers from crawling, and a scale-correct bump perturbation that needs no
- * tangents or UVs.
+ * The GLSL shared by every workshop material: material-space varyings, cheap
+ * noise (a baked 4-channel volume, one fetch per lookup), straight scratch
+ * lines, a footprint fade that keeps high-frequency layers from crawling,
+ * and a scale-correct bump perturbation that needs no tangents or UVs.
  *
- * Everything is evaluated in OBJECT space (the geometry's own coordinates),
- * so detail sticks to a part when it moves. Instances add their translation
- * to that space so two copies of one part are not identical.
+ * Everything is evaluated in MATERIAL space: the kit's `lpos` attribute, each
+ * vertex's position in its own part's frame (+X along the part's length),
+ * which placement, merging and animation never change (kit/types.ts). The
+ * normal in that frame is recovered per pixel from screen derivatives, so no
+ * second attribute is needed. A geometry without `lpos` falls back to its
+ * object position (the attribute then reads as 0,0,0 through
+ * `defaultAttributeValues`). Instances add their translation either way, so
+ * two copies of one part are not identical.
  */
 
 /** Vertex declarations. */
 export const VERTEX_PARS = /* glsl */ `
-attribute vec2 surf;
-varying vec3 vObj;
-varying vec3 vObjN;
-varying vec2 vSurf;
+attribute vec3 surf;
+attribute vec3 lpos;
+varying vec3 vLp;
+varying vec3 vSurf;
 #ifdef MAT_BELT
 uniform float u_useUv;
 uniform float u_uvScale;
@@ -22,24 +27,22 @@ varying float vBeltU;
 #endif
 `;
 
-/** Runs right after <begin_vertex>: `transformed` and `objectNormal` exist. */
+/** Runs right after <begin_vertex>. */
 export const VERTEX_MAIN = /* glsl */ `
-vObj = position;
-vObjN = objectNormal;
+vLp = all(equal(lpos, vec3(0.0))) ? position : lpos;
 vSurf = surf;
 #ifdef USE_INSTANCING
-vObj += instanceMatrix[3].xyz * 3.71;
+vLp += instanceMatrix[3].xyz * 3.71;
 #endif
 #ifdef MAT_BELT
-vBeltU = mix(position.x, uv.x * u_uvScale, u_useUv);
+vBeltU = mix(vLp.x, uv.x * u_uvScale, u_useUv);
 #endif
 `;
 
 /** Fragment declarations and helpers. */
 export const FRAGMENT_PARS = /* glsl */ `
-varying vec3 vObj;
-varying vec3 vObjN;
-varying vec2 vSurf;
+varying vec3 vLp;
+varying vec3 vSurf;
 #ifdef MAT_BELT
 varying float vBeltU;
 #endif
@@ -132,6 +135,22 @@ float pScratchesLite(vec3 p, vec3 n, float freq, float density, float width, flo
   return pScratchCell(p, n, 1.0 / freq, width, density, fw, 0.0);
 }
 
+// The shading normal carried into material space. Per pixel, the screen
+// derivatives give the same two tangents in view space and in lpos space;
+// the map between the two frames (a rotation, per part) takes the smooth
+// view normal across. Falls back to the view normal if lpos is degenerate.
+vec3 pToLocal(vec3 vn, vec3 lp, vec3 vp) {
+  vec3 lx = dFdx(lp), ly = dFdy(lp);
+  vec3 vx = dFdx(vp), vy = dFdy(vp);
+  vec3 ln = cross(lx, ly);
+  vec3 wn = cross(vx, vy);
+  float ll = dot(ln, ln), wl = dot(wn, wn);
+  if (ll < 1e-24 || wl < 1e-24) return vn;
+  mat3 L = mat3(lx, ly, ln * inversesqrt(ll) * length(lx));
+  mat3 V = mat3(vx, vy, wn * inversesqrt(wl) * length(vx));
+  return normalize(L * (inverse(V) * vn));
+}
+
 // Bump mapping from a height's screen derivatives (Mikkelsen 2010), scale
 // correct: dB is the height change per pixel in view units.
 vec3 pPerturb(vec3 surfPos, vec3 n, vec2 dB, float faceDir) {
@@ -148,11 +167,14 @@ vec3 pPerturb(vec3 surfPos, vec3 n, vec2 dB, float faceDir) {
 /**
  * Opens the per-class block (replaces <color_fragment>). Sets up the inputs
  * every class reads and the outputs it may write:
- *   in : pBase (albedo: vertex colour, or the label map), pWear, pCav, pP, pN
- *        (object space), pUp (-1..1, facing world up), pFacing (0..1 toward
- *        the camera), pFw (object units per pixel)
- *   out: pAlbedo, pRough, pMetal, pH (height in object units; the normal is
- *        bent by its screen-space slope), pEmit, pSheen
+ *   in : pBase (albedo: vertex colour, or the label map), pWear, pCav,
+ *        pFinish (0 the class's normal finish .. 1 high gloss), pP, pN
+ *        (material space), pUp (-1..1, facing world up), pFacing (0..1 toward
+ *        the camera), pFw (material units per pixel)
+ *   out: pAlbedo, pRough, pMetal, pH (height in material units; the normal is
+ *        bent by its screen-space slope), pDB (an explicit per-pixel height
+ *        slope, added to pH's), pEmit, pSheen, pCoat/pCoatRough (clearcoat,
+ *        physical classes with clearcoat only)
  */
 export const FRAGMENT_OPEN = /* glsl */ `
 vec3 pBase = diffuseColor.rgb;
@@ -161,16 +183,22 @@ pBase *= vColor.rgb;
 #endif
 float pWear = clamp(vSurf.x, 0.0, 1.0);
 float pCav = clamp(vSurf.y, 0.0, 1.0);
-vec3 pP = vObj;
-vec3 pN = normalize(vObjN);
+float pFinish = clamp(vSurf.z, 0.0, 1.0);
+vec3 pP = vLp;
 vec3 pVN = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+vec3 pN = pToLocal(pVN, vLp, -vViewPosition);
 float pUp = dot(pVN, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
 float pFacing = clamp(dot(pVN, normalize(vViewPosition)), 0.0, 1.0);
-float pFw = length(fwidth(vObj));
+float pFw = length(fwidth(vLp));
 vec3 pAlbedo = pBase;
 float pRough = roughness;
 float pMetal = metalness;
 float pH = 0.0;
+vec2 pDB = vec2(0.0);
+#ifdef USE_CLEARCOAT
+float pCoat = clearcoat;
+float pCoatRough = clearcoatRoughness;
+#endif
 vec3 pEmit = vec3(0.0);
 vec3 pSheen = vec3(0.0);
 `;
@@ -179,18 +207,28 @@ export const FRAGMENT_CLOSE = /* glsl */ `
 diffuseColor.rgb = max(pAlbedo, vec3(0.0));
 `;
 
+// A label's roughness map (G) sets the base; the class's procedural
+// deviation from its nominal roughness (scuffs, dust, tarnish) rides on top.
 export const FRAGMENT_ROUGHNESS = /* glsl */ `
+#ifdef USE_ROUGHNESSMAP
+roughnessFactor = clamp(texelRoughness.g + (pRough - roughness), 0.04, 1.0);
+#else
 roughnessFactor = clamp(pRough, 0.04, 1.0);
+#endif
 `;
 
 export const FRAGMENT_METALNESS = /* glsl */ `
+#ifdef USE_METALNESSMAP
+metalnessFactor = clamp(texelMetalness.b + (pMetal - metalness), 0.0, 1.0);
+#else
 metalnessFactor = clamp(pMetal, 0.0, 1.0);
+#endif
 `;
 
 /** After <normal_fragment_maps>: bend the shading normal by the class's height. */
 export const FRAGMENT_NORMAL = /* glsl */ `
 {
-  vec2 dB = vec2(dFdx(pH), dFdy(pH));
+  vec2 dB = vec2(dFdx(pH), dFdy(pH)) + pDB;
   normal = pPerturb(-vViewPosition, normal, dB, faceDirection);
 }
 `;
@@ -199,8 +237,13 @@ export const FRAGMENT_EMISSIVE = /* glsl */ `
 totalEmissiveRadiance += pEmit;
 `;
 
+/** After <lights_physical_fragment>: per-pixel sheen and clearcoat. */
 export const FRAGMENT_SHEEN = /* glsl */ `
 #ifdef USE_SHEEN
 material.sheenColor = pSheen;
+#endif
+#ifdef USE_CLEARCOAT
+material.clearcoat = clamp(pCoat, 0.0, 1.0);
+material.clearcoatRoughness = min(max(pCoatRough, 0.045) + geometryRoughness, 1.0);
 #endif
 `;

@@ -7,7 +7,7 @@
  */
 import type { Object3D, Scene, Texture } from 'three';
 import type { Id, SimEvent, Vec3, WorldView } from '../sim/types.ts';
-import type { MaterialClass, Piece } from './kit/types.ts';
+import type { MaterialClass, MaterialVariant, Piece } from './kit/types.ts';
 import type { Token } from './palette.ts';
 
 export type Tier = 'high' | 'low';
@@ -15,7 +15,7 @@ export type Tier = 'high' | 'low';
 /** The shared materials: one per class (§ E3), plus textured variants for labels. */
 export interface Materials {
   /** The shared material of a class. */
-  of(cls: MaterialClass): import('three').Material;
+  of(cls: MaterialClass, variant?: MaterialVariant): import('three').Material;
   /** A variant of a class carrying a texture made by view/labels (label tape, card, stencil, plate). Cached by key. */
   textured(cls: MaterialClass, key: string): import('three').Material;
   /** Advance anything time-driven (the belt's scroll, bulb flicker). `time` is simulation seconds. */

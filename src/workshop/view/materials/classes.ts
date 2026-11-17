@@ -6,8 +6,10 @@
  * `c_<name>`). Change a look here, nowhere else.
  *
  * GLSL contract for `glsl` (see glsl.ts FRAGMENT_OPEN): read pBase, pWear,
- * pCav, pP, pN, pUp, pFacing, pFw; write pAlbedo, pRough, pMetal, pH, pEmit,
- * pSheen. `TIER_LOW` is defined on the low tier: wrap the costly layers
+ * pCav, pFinish, pP, pN, pUp, pFacing, pFw; write pAlbedo, pRough, pMetal,
+ * pH, pDB, pEmit, pSheen, pCoat/pCoatRough. `LABEL_MAP` is defined on a
+ * textured variant (pBase is then the label's albedo), `LARGE` on a class's
+ * cheap path for big surfaces. `TIER_LOW` is defined on the low tier: wrap the costly layers
  * (micro-normal, scratches, fibres) in `#ifndef TIER_LOW`.
  *
  * Cost discipline: a noise lookup is a texture fetch that returns FOUR
@@ -31,6 +33,8 @@ export interface ClassDef {
   props: Record<string, number>;
   params: Record<string, Param>;
   colours: () => Record<string, Color>;
+  /** Optional GLSL functions for this class (declared after the shared helpers and uniforms). */
+  pars?: string;
   glsl: string;
 }
 
@@ -74,10 +78,12 @@ const DUST = /* glsl */ `
 `;
 
 export const CLASSES: Record<MaterialClass, ClassDef> = {
-  // Painted steel: satin enamel over dark steel, chipped where worn. 6 fetches.
+  // Painted steel: satin enamel over dark steel, chipped where worn; finish 1
+  // is deep wet gloss (the Button's cap) with a clearcoat lobe. 6 fetches
+  // (+4 on high tier for a per-pixel chip-edge slope).
   steel: {
-    kind: 'standard',
-    props: { roughness: 0.45, metalness: 0, envMapIntensity: 0.75 },
+    kind: 'physical',
+    props: { roughness: 0.45, metalness: 0, envMapIntensity: 0.75, clearcoat: 1, clearcoatRoughness: 0.05, specularIntensity: 1 },
     params: {
       roughness: p(0.44, 0.25, 0.7), // satin enamel
       roughVar: p(0.14, 0, 0.3), // slow roughness drift
@@ -93,73 +99,113 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       fleckScale: p(55, 15, 150),
       chipRim: p(0.06, 0, 0.2), // width of the lighter paint edge round a chip
       rimLighten: p(1.5, 1, 2.2),
-      paintThickness: p(0.003, 0, 0.012), // step down into a chip (object units)
+      paintThickness: p(0.003, 0, 0.012), // step down into a chip (material units)
       bareMetal: p(0.55, 0, 1),
-      bareRough: p(0.5, 0.2, 0.9),
-      rust: p(0.5, 0, 1),
+      bareRough: p(0.4, 0.2, 0.9),
+      rust: p(0.45, 0, 1),
+      rustEdge: p(0.7, 0, 1), // a trace of rust just inside a chip's edge
+      rustEdgeWidth: p(0.04, 0.01, 0.3),
       scratch: p(0.85, 0, 1),
       scratchScale: p(9, 2, 40), // scratch cells per unit (a scratch is up to ~0.8 cell long)
       scratchDensity: p(0.42, 0, 1), // share of cells holding a scratch
-      scratchWidth: p(0.0018, 0.0002, 0.01), // object units
+      scratchWidth: p(0.0018, 0.0002, 0.01), // material units
       grime: p(0.95, 0, 1.5),
       dust: p(0.22, 0, 1),
-      peel: p(0.0003, 0, 0.002), // orange-peel amplitude (object units)
+      peel: p(0.0003, 0, 0.002), // orange-peel amplitude (material units)
+      glossRough: p(0.07, 0.02, 0.3), // enamel roughness at finish 1
+      glossChips: p(0.45, 0, 1), // chip amount kept at finish 1 (a gloss coat is tougher)
+      glossDeepen: p(0.82, 0.5, 1), // wet gloss reads deeper in colour
+      coat: p(0.9, 0, 1), // clearcoat lobe strength at finish 1
+      coatRough: p(0.035, 0.0, 0.3),
     },
     colours: () => ({
-      bare: tok('steel').lerp(tok('ink'), 0.45).multiplyScalar(0.4),
+      bare: tok('steel').lerp(tok('ink'), 0.4).multiplyScalar(0.5),
       rust: rust(),
+      rustEdge: tok('paint-orange').lerp(tok('wood'), 0.5).multiplyScalar(0.4),
       primer: tok('paper').lerp(tok('steel'), 0.6).multiplyScalar(0.55),
       grime: grime(),
       dust: dust(),
     }),
+    pars: /* glsl */ `
+float steelChipField(vec3 q, float wear) {
+  vec3 x = q * u_chipScale;
+  float n = pNoise4(x).r * 0.62 + pNoise4(x * 2.13 + 17.3).g * 0.38;
+  return wear + (n - 0.5) * u_chipNoise;
+}
+`,
     glsl: /* glsl */ `
+float fin = pFinish;
 vec4 T = pNoise4(pP * u_toneScale);            // r tone, g tone2, b fleck gate, a dust
 vec4 D = pFbm4(pP * u_dirtScale + 13.0);       // r dirt, g grime var, b rust var
 vec4 C = pFbm4(pP * u_chipScale);              // r chip outline, g roughness drift
 vec4 F = pNoise4(pP * u_fleckScale + 11.0);    // r flecks, g bare variation, b rust patches, a orange peel
 float gN = D.g;
 float dN = T.a;
-vec3 paint = pBase * (1.0 + (T.r - 0.5) * u_toneVar * 2.0 + (T.g - 0.5) * u_toneVar);
-float dirtM = smoothstep(0.3, 0.95, D.r) * u_dirt;
+vec3 paint = pBase * (1.0 + (T.r - 0.5) * u_toneVar * 2.0 * (1.0 - fin) + (T.g - 0.5) * u_toneVar);
+float dirtM = smoothstep(0.3, 0.95, D.r) * u_dirt * (1.0 - 0.7 * fin);
 paint *= 1.0 - dirtM;
+paint *= mix(1.0, u_glossDeepen, fin);
 
 // chips: one ragged field from wear and noise; flecks are a finer second population
+float chipAmt = u_chipAmount * mix(1.0, u_glossChips, fin);
 float fleckGate = smoothstep(0.05, 0.6, pWear) * 0.75 + 0.25 * smoothstep(0.6, 0.9, T.b);
-float fleckF = smoothstep(0.72, 0.9, F.r) * fleckGate * u_fleck;
-float field = pWear * u_chipAmount + (C.r - 0.5) * u_chipNoise + fleckF * 0.45;
+float fleckF = smoothstep(0.72, 0.9, F.r) * fleckGate * u_fleck * (1.0 - 0.6 * fin);
+float field = pWear * chipAmt + (C.r - 0.5) * u_chipNoise + fleckF * 0.45;
 float aw = max(fwidth(field) * 0.7, 1e-4);
 float chip = smoothstep(u_chipThreshold - aw, u_chipThreshold + aw, field);
 float rimLo = u_chipThreshold - u_chipRim;
 float rim = smoothstep(rimLo, u_chipThreshold, field) * (1.0 - chip);
-pH = -u_paintThickness * smoothstep(u_chipThreshold - u_chipRim * 2.5, u_chipThreshold + aw, field);
+float stepLo = u_chipThreshold - u_chipRim * 2.0;
+#ifndef TIER_LOW
+// the paint step as a true per-pixel slope (no 2x2 stair on the rim)
+{
+  float h0 = -u_paintThickness * smoothstep(stepLo, u_chipThreshold, field);
+  float fx = steelChipField(pP + dFdx(pP), (pWear + dFdx(pWear)) * chipAmt) + fleckF * 0.45;
+  float fy = steelChipField(pP + dFdy(pP), (pWear + dFdy(pWear)) * chipAmt) + fleckF * 0.45;
+  pDB = vec2(-u_paintThickness * smoothstep(stepLo, u_chipThreshold, fx) - h0, -u_paintThickness * smoothstep(stepLo, u_chipThreshold, fy) - h0);
+}
+#else
+pH = -u_paintThickness * smoothstep(stepLo, u_chipThreshold + aw, field);
+#endif
 
+// bare steel: mid-dark, a little metallic so it catches the lamp; rust in
+// patches and a thin trace just inside the chip edge
 vec3 bare = c_bare * (0.7 + 0.6 * F.g);
 float rustM = smoothstep(0.55, 0.9, F.b * 0.8 + pCav * 0.3 + (1.0 - pWear) * 0.2) * u_rust;
 bare = mix(bare, c_rust * (0.6 + 0.8 * D.b), rustM);
+float edgeIn = chip * (1.0 - smoothstep(u_chipThreshold, u_chipThreshold + u_rustEdgeWidth, field));
+bare = mix(bare, c_rustEdge * (0.7 + 0.6 * F.g), edgeIn * u_rustEdge);
 vec3 edgeCol = mix(paint * u_rimLighten, c_primer, 0.3);
 paint = mix(paint, edgeCol, rim * 0.8);
 
 float scr = 0.0;
 #ifndef TIER_LOW
-scr = pScratches(pP, pN, u_scratchScale, u_scratchDensity, u_scratchWidth, pFw) * u_scratch;
+scr = pScratches(pP, pN, u_scratchScale, u_scratchDensity, u_scratchWidth, pFw) * u_scratch * (1.0 - 0.5 * fin);
 #endif
-// a scratch through the paint shows bright steel, a chip shows the dark substrate
-vec3 scrCol = c_bare * 3.2 + paint * 0.25;
+// a scratch through the paint shows bright steel, a chip shows the substrate
+vec3 scrCol = c_bare * 2.2 + paint * 0.25;
 vec3 col = mix(paint, scrCol, scr * (1.0 - chip));
 pAlbedo = mix(col, bare, chip);
-pMetal = u_bareMetal * max(chip, scr * 0.8) * (1.0 - rustM * chip);
-pRough = u_roughness + (C.g - 0.5) * u_roughVar * 1.5 + dirtM * 0.4;
-pRough = mix(pRough, u_bareRough + rustM * 0.3, chip);
+pMetal = u_bareMetal * max(chip, scr * 0.8) * (1.0 - max(rustM, edgeIn * u_rustEdge) * chip);
+float paintRough = u_roughness + (C.g - 0.5) * u_roughVar * 1.5 + dirtM * 0.4;
+paintRough = mix(paintRough, u_glossRough, fin);
+pRough = mix(paintRough, u_bareRough + rustM * 0.3 + edgeIn * 0.2, chip);
 pRough = mix(pRough, 0.3, scr * (1.0 - chip) * 0.6);
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
-pH += (F.a - 0.5) * u_peel * (1.0 - chip) * pAA(u_fleckScale, pFw);
+pH += (F.a - 0.5) * u_peel * (1.0 - chip) * (1.0 - fin) * pAA(u_fleckScale, pFw);
+#endif
+#ifdef USE_CLEARCOAT
+pCoat = u_coat * fin * (1.0 - chip) * (1.0 - scr * 0.5);
+pCoatRough = u_coatRough;
 #endif
 `,
   },
 
-  // Brass: warm full metal, turned/brushed, polished where handled, patina in the creases. 4 fetches.
+  // Brass: warm full metal, brushed along the part, turned rings on its end
+  // faces, polished where worn, patina in the creases; finish 1 is
+  // hand-polished. 4 fetches.
   brass: {
     kind: 'standard',
     props: { roughness: 0.35, metalness: 1, envMapIntensity: 1.0 },
@@ -168,8 +214,10 @@ pH += (F.a - 0.5) * u_peel * (1.0 - chip) * pAA(u_fleckScale, pFw);
       desat: p(0.32, 0, 0.7), // the token is a paint colour; real brass reflects paler
       roughMin: p(0.2, 0.05, 0.5),
       roughMax: p(0.42, 0.2, 0.7),
-      brushScale: p(220, 60, 600), // streak frequency across the brushing
+      brushScale: p(220, 60, 600), // streak frequency across the brushing (along lpos +X)
       brushContrast: p(0.3, 0, 0.6),
+      turnScale: p(160, 40, 500), // turned rings per unit of radius on end faces
+      turnContrast: p(0.55, 0, 1),
       hairScale: p(14, 3, 60), // hairline polishing scratches
       hairDensity: p(0.5, 0, 1),
       tarnishScale: p(3.5, 1, 12),
@@ -179,6 +227,7 @@ pH += (F.a - 0.5) * u_peel * (1.0 - chip) * pAA(u_fleckScale, pFw);
       roughPolish: p(0.16, 0.05, 0.4),
       patina: p(1.1, 0, 2),
       dent: p(0.002, 0, 0.006),
+      finishRough: p(0.08, 0.03, 0.3), // roughness at finish 1 (hand-polished)
       grime: p(0.5, 0, 1.5),
       dust: p(0.08, 0, 1),
     },
@@ -188,51 +237,68 @@ pH += (F.a - 0.5) * u_peel * (1.0 - chip) * pAA(u_fleckScale, pFw);
       dust: dust(),
     }),
     glsl: /* glsl */ `
-float side = pNoise(vec3(pP.x * 2.0, pP.y * u_brushScale, pP.z * 2.0));
-float face = pNoise(vec3(length(pP.xz) * u_brushScale, pP.y * 2.0, pP.x * 2.0));
-float brush = mix(side, face, smoothstep(0.55, 0.85, abs(pN.y)));
-brush = mix(0.5, brush, pAA(u_brushScale, pFw));
+float fin = pFinish;
+float side = pNoise(vec3(pP.x * 2.0, pP.y * u_brushScale, pP.z * u_brushScale));
+float rad = length(pP.yz);
+float turnN = pNoise(vec3(rad * u_turnScale, pP.x * 3.0, 0.5));
+// a crisp ring profile on top of the noise, so turning reads at a glance
+float turnRing = 0.5 + 0.5 * sin(rad * u_turnScale * 6.2832 * 0.5 + turnN * 4.0);
+float face = mix(turnN, turnRing, 0.5);
+float endF = smoothstep(0.55, 0.85, abs(pN.x));
+float brush = mix(side, face, endF);
+float brushC = mix(u_brushContrast, u_turnContrast, endF) * (1.0 - 0.8 * fin);
+brush = mix(0.5, brush, pAA(mix(u_brushScale, u_turnScale, endF), pFw));
 vec4 T = pFbm4(pP * u_tarnishScale);            // r tarnish, g patina edge, b dents, a dust
 float gN = T.g;
 float dN = T.a;
 float tarn = T.r;
-float polish = smoothstep(0.12, 0.75, pWear);
+float polish = max(smoothstep(0.12, 0.75, pWear), fin);
+#ifdef LABEL_MAP
+vec3 brassC = pBase;
+#else
 vec3 brassC = pBase * u_bright;
 brassC = mix(brassC, vec3(dot(brassC, vec3(0.2126, 0.7152, 0.0722))), u_desat);
-vec3 col = brassC * (1.0 + (brush - 0.5) * u_brushContrast * 2.0);
-col *= mix(1.0, u_tarnishDark, smoothstep(0.35, 0.75, tarn) * u_tarnish);
-col = mix(col, brassC * u_polishBright, polish);
-float pat = smoothstep(0.3, 0.75, pCav * u_patina + (T.g - 0.5) * 0.6);
+#endif
+vec3 col = brassC * (1.0 + (brush - 0.5) * brushC * 2.0);
+col *= mix(1.0, u_tarnishDark, smoothstep(0.35, 0.75, tarn) * u_tarnish * (1.0 - fin));
+col = mix(col, brassC * u_polishBright * (1.0 + (brush - 0.5) * brushC), polish);
+float pat = smoothstep(0.3, 0.75, pCav * u_patina * (1.0 - 0.7 * fin) + (T.g - 0.5) * 0.6);
 pAlbedo = mix(col, c_patina * (0.7 + 0.6 * tarn), pat);
 pMetal = mix(1.0, 0.15, pat);
 pRough = mix(u_roughMin, u_roughMax, brush * 0.65 + tarn * 0.35);
 pRough = mix(pRough, u_roughPolish, polish);
+pRough = mix(pRough, u_finishRough + (brush - 0.5) * 0.04, fin);
 pRough = mix(pRough, 0.8, pat);
 #ifndef TIER_LOW
 float hair = pScratches(pP, pN, u_hairScale, u_hairDensity, 0.0008, pFw) * (1.0 - pat);
 pAlbedo *= 1.0 + hair * 0.35;
 pRough = mix(pRough, u_roughPolish * 0.6, hair * 0.7);
-pH = T.b * u_dent;
+pH = T.b * u_dent * (1.0 - 0.5 * fin) + (turnRing - 0.5) * 0.0002 * endF * pAA(u_turnScale, pFw);
 #endif
 ${GRIME}
 ${DUST}
 `,
   },
 
-  // Wood: grain along local +X, rings from a pith off the piece, end grain on ±X faces. 4 fetches.
+  // Wood: grain along lpos +X, rings from a pith off the piece, end grain
+  // where the part-local normal faces ±X. 4 fetches; the LARGE path (big
+  // flat surfaces: the bench top) takes 2 and no scratch pass.
   wood: {
     kind: 'standard',
-    props: { roughness: 0.7, metalness: 0, envMapIntensity: 0.45 },
+    props: { roughness: 0.74, metalness: 0, envMapIntensity: 0.4 },
     params: {
-      roughness: p(0.68, 0.4, 0.95),
-      lateGloss: p(-0.1, -0.3, 0.2), // latewood is denser and a little glossier
+      roughness: p(0.76, 0.4, 0.95), // dry, unfinished
+      roughVar: p(0.16, 0, 0.4), // patchy: handled areas sheen, dry areas dull
+      lateGloss: p(-0.08, -0.3, 0.2), // latewood is denser and a little glossier
       ringFreq: p(17, 6, 80), // growth rings per unit of radius
-      ringIrregular: p(0.55, 0, 1.5), // uneven ring spacing
+      ringIrregular: p(0.8, 0, 1.5), // uneven ring spacing
+      growth: p(0.9, 0, 2), // slow runs of wide and narrow years
       pithDist: p(0.9, 0.3, 3), // distance of the tree's centre: further = straighter stripes
-      taper: p(0.06, 0, 0.3), // rings drift across the face along the grain: cathedral arches
-      warp: p(0.035, 0, 0.2), // how much the rings wander
+      taper: p(0.07, 0, 0.3), // rings drift across the face along the grain: cathedral arches
+      warp: p(0.05, 0, 0.2), // how much the rings wander
       warpScale: p(3, 1, 20),
       warpLen: p(0.6, 0.05, 3), // along the grain
+      wobble: p(0.006, 0, 0.03), // fine ring wobble that breaks straight stripes
       grainContrast: p(0.7, 0, 1),
       early: p(1.12, 0.8, 1.6),
       late: p(0.62, 0.2, 1),
@@ -249,8 +315,9 @@ ${DUST}
       scuffScale: p(9, 2, 40),
       scuffDensity: p(0.6, 0, 1),
       scuffWidth: p(0.002, 0.0002, 0.01),
-      grainBump: p(0.0002, 0, 0.003),
-      fibreBump: p(0.0002, 0, 0.002),
+      grainBump: p(0.00035, 0, 0.003), // latewood stands proud a little (raised grain)
+      fibreBump: p(0.0006, 0, 0.002), // micro-relief of open fibres
+      poreBump: p(0.0004, 0, 0.002),
       grime: p(0.8, 0, 1.5),
       dust: p(0.15, 0, 1),
     },
@@ -259,26 +326,34 @@ ${DUST}
 float sd = pHash(floor(vColor.rgb * 911.0) + 0.5);
 vec3 q = pP + vec3(sd * 17.0, sd * 0.37, sd * 0.53);
 vec4 L = pNoise4(q * vec3(u_warpLen, u_warpScale, u_warpScale));            // r warp, g long warp, b tone, a dust
+vec4 S = pNoise4(q * vec3(u_streakLen, u_streakFreq, u_streakFreq) + 2.0);   // r streaks, g coarse fibre, b wobble, a roughness
+#ifdef LARGE
+vec4 E = vec4(S.b, S.a, 0.5, 0.5);
+vec4 Fb = vec4(S.g, 0.5, 0.5, 0.5);
+#else
 vec4 E = pNoise4(pP * 7.0 + 3.0);                                             // r worn-edge var, g grime var
-vec4 S = pNoise4(q * vec3(u_streakLen, u_streakFreq, u_streakFreq) + 2.0);   // r streaks, g coarse fibre
 vec4 Fb = pNoise4(q * vec3(u_fibreLen, u_fibreFreq, u_fibreFreq));           // r fibre, g pores
+#endif
 float gN = E.g;
 float dN = L.a;
 vec2 pith = vec2(-0.55 - sd * 0.9, -0.85 + sd * 1.1) * u_pithDist;
-float warp = (L.r - 0.5) * u_warp + (L.g - 0.5) * u_warp * 2.0;
+float warp = (L.r - 0.5) * u_warp + (L.g - 0.5) * u_warp * 2.0 + (S.b - 0.5) * u_wobble;
 float r = length(pP.yz - pith) + warp + q.x * u_taper;
 float rt = r * u_ringFreq;
-float rt2 = rt + (pNoise1(rt * 0.5, sd * 9.0) - 0.5) * u_ringIrregular;
+float rt2 = rt + (pNoise1(rt * 0.5, sd * 9.0) - 0.5) * u_ringIrregular + (pNoise1(rt * 0.12, sd * 5.0 + 2.0) - 0.5) * u_growth * 3.0;
 float ring = fract(rt2);
 // earlywood darkens slowly across the ring, then a thin dense latewood line
 float late = smoothstep(0.0, 1.0, ring) * 0.35 + smoothstep(0.72, 0.9, ring) * (1.0 - smoothstep(0.94, 1.0, ring)) * 0.65;
-late *= 0.6 + 0.4 * pHash(vec3(floor(rt2), sd, 1.0));
+late *= 0.55 + 0.45 * pHash(vec3(floor(rt2), sd, 1.0));
 late = mix(0.3, late, pAA(u_ringFreq * 1.5, pFw));
 float fAA = pAA(u_fibreFreq, pFw);
+#ifdef LARGE
+fAA = pAA(u_streakFreq, pFw);
+#endif
 float fibre = mix(0.5, Fb.r, fAA);
 float streak = mix(0.5, S.r, pAA(u_streakFreq, pFw));
 float pores = 0.0;
-#ifndef TIER_LOW
+#if !defined(TIER_LOW) && !defined(LARGE)
 pores = smoothstep(0.78, 0.92, Fb.g) * fAA;
 #endif
 vec3 col = mix(pBase * u_early, pBase * u_late, late * u_grainContrast);
@@ -288,16 +363,17 @@ float endg = smoothstep(0.55, 0.85, abs(pN.x));
 col *= mix(1.0, u_endDark, endg);
 float wornE = smoothstep(0.15, 0.85, pWear) * u_edgeWear * (0.55 + 0.45 * E.r);
 col = mix(col, col * u_edgeLight, wornE);
-#ifndef TIER_LOW
+#if !defined(TIER_LOW) && !defined(LARGE)
 float sc = pScratchesLite(pP, pN, u_scuffScale, u_scuffDensity, u_scuffWidth, pFw);
 col = mix(col, col * 1.45, sc * 0.6);
 #endif
 pAlbedo = col;
-pRough = u_roughness + late * u_lateGloss + endg * 0.12 - wornE * 0.18 + (fibre - 0.5) * 0.1;
+pRough = u_roughness + late * u_lateGloss + endg * 0.1 - wornE * 0.2 + (fibre - 0.5) * 0.12
+       + (S.a - 0.5) * u_roughVar + (L.b - 0.5) * u_roughVar * 0.8 + pores * 0.1;
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
-pH = late * u_grainBump + fibre * u_fibreBump * fAA;
+pH = late * u_grainBump * (1.0 - endg) + fibre * u_fibreBump * fAA - pores * u_poreBump;
 #endif
 `,
   },
@@ -404,6 +480,7 @@ pAlbedo = mix(col, c_rust * (0.6 + 0.8 * Sm.b), rustM);
 pMetal = mix(1.0, 0.1, rustM);
 pRough = mix(u_roughMin, u_roughMax, lines * 0.4 + Sm.r * 0.6);
 pRough = mix(pRough - pWear * u_polish, 0.85, rustM);
+pRough = mix(pRough, u_roughMin * 0.4, pFinish * (1.0 - rustM)); // finish 1: polished bright steel
 ${GRIME}
 ${DUST}
 `,
@@ -424,7 +501,7 @@ ${DUST}
 vec4 Sm = pNoise4(pP * u_smudgeScale);
 float sm = Sm.r * 0.6 + Sm.g * 0.4;
 pAlbedo = pBase * u_tint;
-pRough = u_roughness + smoothstep(0.45, 0.8, sm) * u_smudge;
+pRough = u_roughness + smoothstep(0.45, 0.8, sm) * u_smudge * (1.0 - pFinish); // finish 1: a clean lens
 pMetal = 0.0;
 `,
   },
@@ -526,7 +603,7 @@ pH = pNoise(pP * u_grainScale) * u_grain * pAA(u_grainScale, pFw);
       grooveDust: p(0.45, 0, 1),
       speed: p(0.6, 0, 3), // units per simulation second
       offset: p(0, -1e6, 1e6), // driven by update()
-      useUv: p(0, 0, 1), // 1: run along uv.x × uvScale instead of object +X
+      useUv: p(1, 0, 1), // 1: uv.x × uvScale runs along the loop (the kit contract); 0: lpos +X
       uvScale: p(1, 0.01, 100),
     },
     colours: () => ({ dust: dust().multiplyScalar(0.75) }),
