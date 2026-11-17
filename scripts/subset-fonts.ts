@@ -24,9 +24,9 @@ import { FACES, SUBSET } from '../src/workshop/view/labels/fonts.ts';
 import type { FaceRole } from '../src/workshop/view/labels/fonts.ts';
 
 /** Which original makes which file. */
-export const FONTS: Record<FaceRole, { original: string; source: string }> = {
+export const FONTS: Record<FaceRole, { original: string; source: string; compact?: boolean }> = {
   tape: { original: 'BarlowSemiCondensed-SemiBold.ttf', source: 'https://github.com/google/fonts/raw/main/ofl/barlowsemicondensed/BarlowSemiCondensed-SemiBold.ttf' },
-  type: { original: 'CourierPrime-Regular.ttf', source: 'https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Regular.ttf' },
+  type: { original: 'IosevkaFixedSlab-Medium.ttf', source: 'https://github.com/be5invis/Iosevka/releases/download/v34.9.1/PkgTTF-Unhinted-IosevkaFixedSlab-34.9.1.zip (IosevkaFixedSlab-Medium.ttf inside)', compact: true },
   stencil: { original: 'StardosStencil-Bold.ttf', source: 'https://github.com/google/fonts/raw/main/ofl/stardosstencil/StardosStencil-Bold.ttf' },
   sign: { original: 'AlfaSlabOne-Regular.ttf', source: 'https://github.com/google/fonts/raw/main/ofl/alfaslabone/AlfaSlabOne-Regular.ttf' },
 };
@@ -238,7 +238,7 @@ export interface SubsetResult {
 }
 
 /** Subset one TrueType font to `chars`, renamed `family`, as WOFF2. */
-export function subsetFont(ttf: Buffer, family: string, chars: string): SubsetResult {
+export function subsetFont(ttf: Buffer, family: string, chars: string, compact = false): SubsetResult {
   const tables = readTables(ttf);
   const head = Buffer.from(need(tables, 'head'));
   const longLoca = head.readInt16BE(50) === 1;
@@ -288,48 +288,75 @@ export function subsetFont(ttf: Buffer, family: string, chars: string): SubsetRe
     });
     return src.subarray(0, end);
   };
-  const bodies: Buffer[] = [];
-  const newLoca = Buffer.alloc((numGlyphs + 1) * 4);
-  let cur = 0;
-  for (let g = 0; g < numGlyphs; g++) {
-    newLoca.writeUInt32BE(cur, g * 4);
-    if (!keep.has(g)) continue;
-    let gb = stripped(g);
-    if (gb.length % 4) gb = Buffer.concat([gb, Buffer.alloc(4 - (gb.length % 4))]);
-    bodies.push(gb);
-    cur += gb.length;
-  }
-  newLoca.writeUInt32BE(cur, numGlyphs * 4);
-  head.writeInt16BE(1, 50);
-  head.writeUInt32BE(0, 8);
-
-  // Zero the metrics of dropped glyphs (they compress away).
-  const nhm = need(tables, 'hhea').readUInt16BE(34);
-  const hmtx = Buffer.from(need(tables, 'hmtx'));
-  for (let g = 0; g < numGlyphs; g++) {
-    if (keep.has(g)) continue;
-    if (g < nhm) hmtx.writeUInt32BE(0, g * 4);
-    else hmtx.writeInt16BE(0, nhm * 4 + (g - nhm) * 2);
-  }
-
   const post = Buffer.from(need(tables, 'post').subarray(0, 32));
   post.writeUInt32BE(0x00030000, 0);
-  const out = new Map<string, Buffer>([
-    ['cmap', buildCmap(keepMap)],
-    ['head', head],
-    ['hhea', Buffer.from(need(tables, 'hhea'))],
-    ['hmtx', hmtx],
-    ['maxp', Buffer.from(need(tables, 'maxp'))],
-    ['name', buildName(need(tables, 'name'), family)],
-    ['OS/2', Buffer.from(need(tables, 'OS/2'))],
-    ['post', post],
-    ['glyf', Buffer.concat(bodies)],
-    ['loca', newLoca],
-  ]);
-  for (const t of ['GPOS', 'kern', 'gasp']) {
-    const b = tables.get(t);
-    if (b) out.set(t, Buffer.from(b));
+  head.writeInt16BE(1, 50);
+  head.writeUInt32BE(0, 8);
+  const nhm = need(tables, 'hhea').readUInt16BE(34);
+  const metric = (g: number): [number, number] => {
+    const hm = need(tables, 'hmtx');
+    if (g < nhm) return [hm.readUInt16BE(g * 4), hm.readInt16BE(g * 4 + 2)];
+    return [hm.readUInt16BE((nhm - 1) * 4), hm.readInt16BE(nhm * 4 + (g - nhm) * 2)];
+  };
+  const pad = (b: Buffer): Buffer => (b.length % 4 ? Buffer.concat([b, Buffer.alloc(4 - (b.length % 4))]) : b);
+  const out = new Map<string, Buffer>();
+
+  if (!compact) {
+    // Glyph ids kept: dropped glyphs become empty, their metrics zero (they compress away).
+    const bodies: Buffer[] = [];
+    const newLoca = Buffer.alloc((numGlyphs + 1) * 4);
+    let cur = 0;
+    for (let g = 0; g < numGlyphs; g++) {
+      newLoca.writeUInt32BE(cur, g * 4);
+      if (!keep.has(g)) continue;
+      const gb = pad(stripped(g));
+      bodies.push(gb);
+      cur += gb.length;
+    }
+    newLoca.writeUInt32BE(cur, numGlyphs * 4);
+    const hmtx = Buffer.from(need(tables, 'hmtx'));
+    for (let g = 0; g < numGlyphs; g++) {
+      if (keep.has(g)) continue;
+      if (g < nhm) hmtx.writeUInt32BE(0, g * 4);
+      else hmtx.writeInt16BE(0, nhm * 4 + (g - nhm) * 2);
+    }
+    out.set('cmap', buildCmap(keepMap)).set('hhea', Buffer.from(need(tables, 'hhea'))).set('hmtx', hmtx).set('maxp', Buffer.from(need(tables, 'maxp')));
+    out.set('glyf', Buffer.concat(bodies)).set('loca', newLoca);
+    for (const t of ['GPOS', 'kern']) {
+      const b = tables.get(t);
+      if (b) out.set(t, Buffer.from(b));
+    }
+  } else {
+    // Glyphs renumbered densely (for big fonts, where empty slots still cost bytes).
+    // Positioning tables refer to old ids, so GPOS/kern go: fine for a monospace.
+    const order = [...keep].sort((a, b) => a - b);
+    const remap = new Map(order.map((g, i) => [g, i]));
+    const bodies: Buffer[] = [];
+    const newLoca = Buffer.alloc((order.length + 1) * 4);
+    const hmtx = Buffer.alloc(order.length * 4);
+    let cur = 0;
+    order.forEach((g, i) => {
+      newLoca.writeUInt32BE(cur, i * 4);
+      const gb = Buffer.from(pad(stripped(g)));
+      if (gb.length && gb.readInt16BE(0) < 0) walkComponents(gb, (p) => gb.writeUInt16BE(remap.get(gb.readUInt16BE(p + 2))!, p + 2));
+      bodies.push(gb);
+      cur += gb.length;
+      const [adv, lsb] = metric(g);
+      hmtx.writeUInt16BE(adv, i * 4);
+      hmtx.writeInt16BE(lsb, i * 4 + 2);
+    });
+    newLoca.writeUInt32BE(cur, order.length * 4);
+    const hhea = Buffer.from(need(tables, 'hhea'));
+    hhea.writeUInt16BE(order.length, 34);
+    const maxp = Buffer.from(need(tables, 'maxp'));
+    maxp.writeUInt16BE(order.length, 4);
+    const cm = new Map([...keepMap].map(([c, g]) => [c, remap.get(g)!]));
+    out.set('cmap', buildCmap(cm)).set('hhea', hhea).set('hmtx', hmtx).set('maxp', maxp);
+    out.set('glyf', Buffer.concat(bodies)).set('loca', newLoca);
   }
+  out.set('name', buildName(need(tables, 'name'), family)).set('OS/2', Buffer.from(need(tables, 'OS/2'))).set('post', post).set('head', head);
+  const gasp = tables.get('gasp');
+  if (gasp) out.set('gasp', Buffer.from(gasp));
   const tags = [...out.keys()].sort();
   const table = (t: string): Buffer => out.get(t)!;
 
@@ -402,7 +429,7 @@ function main(argv: string[]): number {
   for (const role of Object.keys(FONTS) as FaceRole[]) {
     const spec = FONTS[role];
     const face = FACES[role];
-    const res = subsetFont(readFileSync(join(src, spec.original)), face.family, SUBSET[role]);
+    const res = subsetFont(readFileSync(join(src, spec.original)), face.family, SUBSET[role], spec.compact);
     const dest = join(outDir, face.file);
     writeFileSync(dest, res.woff2);
     const miss = res.missing.length ? `; NOT IN FONT: ${JSON.stringify(res.missing.join(''))}` : '';

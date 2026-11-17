@@ -37,7 +37,7 @@ describe('the 12 px rule', () => {
     for (const [name, spec] of Object.entries(REGISTERS)) {
       if (!spec.ruled) continue;
       const px = capPx(spec.capHeight, 'front');
-      expect(px, name).toBeGreaterThanOrEqual(DEFAULT_VIEW.minCapPx * (name === 'card' ? 1 : 1.1));
+      expect(px, name).toBeGreaterThanOrEqual(DEFAULT_VIEW.minCapPx * (name === 'card' || name === 'slip' ? 1 : 1.1));
     }
   });
 
@@ -135,6 +135,17 @@ describe('plans', () => {
       expect(l.left + l.width).toBeLessThanOrEqual(p.px.w);
       expect(l.baseline).toBeLessThan(p.px.h);
     }
+  });
+
+  it('with the narrow print face (0.68 cap per character) the cue card is at most 2.2 wide and the slip two lines', () => {
+    const print: Advance = () => 0.68;
+    const card = planPaper('card', 'WELL, THAT WAS UNNECESSARY.', print, rng(2));
+    expect(card.lines).toHaveLength(3);
+    expect(card.world.w).toBeLessThanOrEqual(2.2);
+    const slip = planPaper('slip', 'OUT OF MY LANE.', print, rng(2));
+    expect(slip.lines).toHaveLength(2);
+    expect(capPx(slip.capWorld, 'front')).toBeGreaterThanOrEqual(12);
+    expect(slip.world.w).toBeLessThan(card.world.w);
   });
 
   it('a slip is narrower than a card for the same words', () => {

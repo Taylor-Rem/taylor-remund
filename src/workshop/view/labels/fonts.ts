@@ -19,8 +19,8 @@ export const FACES: Record<FaceRole, FaceSpec> = {
   tape: { family: 'Workshop Tape', file: 'workshop-tape.woff2', from: 'Barlow Semi Condensed SemiBold' },
   // Crate stencils: a true stencil face with bridges.
   stencil: { family: 'Workshop Stencil', file: 'workshop-stencil.woff2', from: 'Stardos Stencil Bold' },
-  // Typed cards and slips: a typewriter face.
-  type: { family: 'Workshop Type', file: 'workshop-type.woff2', from: 'Courier Prime' },
+  // Printed cards and slips: a narrow slab monospace, like a teletype or receipt printer.
+  type: { family: 'Workshop Print', file: 'workshop-print.woff2', from: 'Iosevka Fixed Slab Medium' },
   // The hand-painted sign: a sturdy slab.
   sign: { family: 'Workshop Sign', file: 'workshop-sign.woff2', from: 'Alfa Slab One' },
 };

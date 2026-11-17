@@ -73,7 +73,7 @@ export const REGISTERS: Record<Register, RegisterSpec> = {
   stencil: { capHeight: 0.2, texelsPerUnit: 320, ruled: false },
   // A cue card held up on a stick: big on purpose, so its capitals meet the 12 px rule too.
   card: { capHeight: 0.23, texelsPerUnit: 320, ruled: true },
-  slip: { capHeight: 0.16, texelsPerUnit: 384, ruled: false },
+  slip: { capHeight: 0.23, texelsPerUnit: 320, ruled: true },
   phone: { capHeight: 0.034, texelsPerUnit: 1150, ruled: false },
 };
 
@@ -190,8 +190,8 @@ export const PROPORTIONS = {
   plate: { heightPerCap: 2.25, sidePad: 0.85, tracking: 0.16 },
   stencil: { heightPerCap: 1.5, sidePad: 0.38, tracking: 0.12 },
   sign: { heightPerCap: 1.76, sidePad: 0.55, tracking: 0.07, shade: 0.11 },
-  card: { maxChars: 12, lineGap: 1.75, top: 1.75, bottom: 1.05, side: 0.85 },
-  slip: { maxChars: 10, lineGap: 1.75, top: 1.6, bottom: 1.35, side: 0.8 },
+  card: { maxChars: 12, lineGap: 1.62, top: 1.5, bottom: 0.9, side: 0.6 },
+  slip: { maxChars: 10, lineGap: 1.62, top: 1.55, bottom: 1.15, side: 0.55 },
 } as const;
 
 export function planTape(text: string, adv: Advance, r: Rng, opts?: PlanOptions): Plan {

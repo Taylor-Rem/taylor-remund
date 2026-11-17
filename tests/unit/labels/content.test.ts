@@ -93,7 +93,7 @@ describe('fonts', () => {
     const readme = readFileSync('public/fonts/README.txt', 'utf8');
     for (const f of Object.values(FACES)) {
       expect(readme).toContain(f.file);
-      expect(readFileSync(`public/fonts/${f.file.replace('.woff2', '.OFL.txt')}`, 'utf8')).toContain('SIL OPEN FONT LICENSE');
+      expect(readFileSync(`public/fonts/${f.file.replace('.woff2', '.OFL.txt')}`, 'utf8')).toMatch(/SIL Open Font License/i);
     }
   });
 });
