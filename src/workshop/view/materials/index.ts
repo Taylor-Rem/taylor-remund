@@ -13,12 +13,13 @@
  * Labels can be passed now or later with `setLabels` (the label textures are
  * made by view/labels, which may be built after the materials).
  */
-import { MeshPhysicalMaterial, MeshStandardMaterial, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
-import { CLASSES, CLASS_NAMES, type ClassDef, type Param } from './classes.ts';
+import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
 import { createNoiseTexture, NOISE_PERIOD } from './noise.ts';
 import {
+  DEBUG_PARS,
   FRAGMENT_CLOSE,
   FRAGMENT_EMISSIVE,
   FRAGMENT_METALNESS,
@@ -34,8 +35,19 @@ import {
 export { CLASSES, CLASS_NAMES } from './classes.ts';
 export type { ClassDef, Param } from './classes.ts';
 
+/**
+ * Review views. 'clay': one neutral matte tone (form, bevels and shadow only).
+ * 'wear' | 'cavity' | 'finish': that surf channel as a ramp over the clay.
+ * 'lpos': material-space bands every half unit (x yellow, y/z teal).
+ * Every procedural layer, map roughness and emission is switched off.
+ */
+export type DebugView = 'clay' | 'wear' | 'cavity' | 'finish' | 'lpos';
+export const DEBUG_VIEWS: readonly DebugView[] = ['clay', 'wear', 'cavity', 'finish', 'lpos'];
+
 export interface MaterialsOptions {
   tier: Tier;
+  /** Build every material as a review view instead of its real look. */
+  debug?: DebugView;
   /** Source of label textures for `textured()`. May also be given later with `setLabels`. */
   labels?: Labels;
 }
@@ -61,6 +73,15 @@ export interface WorkshopMaterials extends Materials {
   set(cls: MaterialClass, param: string, value: number): void;
   /** All materials made so far (shared plus textured), e.g. for renderer.compile checks. */
   all(): Material[];
+  /** The review view this instance was built for, if any. */
+  readonly debug: DebugView | undefined;
+  /**
+   * The blob contact-shadow decal (view/effects/blob-shadows): a soft radial
+   * falloff from the quad's uv, tinted toward `teal-deep`, depth-tested
+   * without depth write, polygon offset. Per-instance strength rides in the
+   * instance colour's red channel. Shared; one per materials instance.
+   */
+  decal(): MeshBasicMaterial;
 }
 
 type Pbr = MeshStandardMaterial | MeshPhysicalMaterial;
@@ -108,7 +129,26 @@ export function labelAlpha(labels: Labels, key: string): 'cut' | 'spray' | undef
   return key.startsWith('stencil') ? 'spray' : 'cut';
 }
 
-function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUniforms, noise: { value: Data3DTexture }, variant: Variant): Pbr {
+interface Shared {
+  tier: Tier;
+  noise: { value: Data3DTexture };
+  debug: DebugView | undefined;
+  debugUniforms: ClassUniforms;
+}
+
+function debugUniforms(): ClassUniforms {
+  const clay = tok('paper').lerp(tok('steel'), 0.45).multiplyScalar(0.85);
+  return {
+    d_clay: { value: clay },
+    d_hot: { value: tok('button-red') },
+    d_cold: { value: tok('paint-blue') },
+    d_bandA: { value: tok('tape-yellow') },
+    d_bandB: { value: tok('teal-light') },
+  };
+}
+
+function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant): Pbr {
+  const { tier, noise, debug } = sh;
   const mat: Pbr = def.kind === 'physical' ? new MeshPhysicalMaterial() : new MeshStandardMaterial();
   mat.name = variant.map ? `workshop/${cls}/textured` : variant.large ? `workshop/${cls}/large` : `workshop/${cls}`;
   mat.vertexColors = true;
@@ -145,22 +185,27 @@ function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUni
   if (variant.map) defines.LABEL_MAP = '';
   if (variant.alpha === 'spray') defines.LABEL_SPRAY = '';
   if (variant.large) defines.LARGE = '';
+  if (debug) {
+    defines.DEBUG_VIEW = '';
+    defines[`DEBUG_${debug.toUpperCase()}`] = '';
+  }
   mat.defines = { ...(mat.defines ?? {}), ...defines };
 
   const key = [
     'workshop', cls, tier,
     variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '',
+    debug ?? '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise });
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${uniformDecls(uniforms)}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -172,6 +217,42 @@ function build(cls: MaterialClass, def: ClassDef, tier: Tier, uniforms: ClassUni
   return mat;
 }
 
+/** The blob-shadow decal: see WorkshopMaterials.decal. */
+function buildDecal(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial();
+  m.name = 'workshop/decal';
+  // a deep teal, a little darker than the room, never black
+  m.color.copy(tok('teal-deep').lerp(tok('ink'), 0.35));
+  m.transparent = true;
+  m.opacity = 0.85;
+  m.depthTest = true;
+  m.depthWrite = false;
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = -2;
+  m.polygonOffsetUnits = -2;
+  m.fog = false;
+  m.toneMapped = true;
+  m.defines = { USE_UV: '' };
+  m.customProgramCacheKey = () => 'workshop:decal';
+  m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+    shader.fragmentShader = inject(
+      shader.fragmentShader,
+      'color_fragment',
+      /* glsl */ `
+{
+  // dense core, long soft skirt, exactly zero at the rim
+  float r = clamp(length(vUv * 2.0 - 1.0), 0.0, 1.0);
+  diffuseColor.a *= exp(-3.2 * r * r) * (1.0 - r * r * r);
+#if defined(USE_INSTANCING_COLOR)
+  diffuseColor.a *= vColor.r;
+#endif
+}`,
+      'replace',
+    );
+  };
+  return m;
+}
+
 /** Steady with a faint irregular waver: deterministic in `time`, no rng needed. */
 function flicker(time: number, amount: number): number {
   const w = Math.sin(time * 13.7) * 0.5 + Math.sin(time * 7.3 + 1.1) * 0.3 + Math.sin(time * 29.1 + 2.3) * 0.2;
@@ -180,11 +261,13 @@ function flicker(time: number, amount: number): number {
 
 export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const tier = opts.tier;
+  const sh: Shared = { tier, noise: { value: createNoiseTexture() }, debug: opts.debug, debugUniforms: debugUniforms() };
+  const noise = sh.noise;
+  let decal: MeshBasicMaterial | undefined;
   let labels: Labels | undefined = opts.labels;
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
-  const noise = { value: createNoiseTexture() };
 
   const uniformsOf = (cls: MaterialClass): ClassUniforms => {
     let u = uniformsBy.get(cls);
@@ -202,7 +285,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     if (!m) {
       const def = CLASSES[cls];
       if (!def) throw new Error(`materials: unknown class ${String(cls)}`);
-      m = build(cls, def, tier, uniformsOf(cls), noise, { large });
+      m = build(cls, def, sh, uniformsOf(cls), { large });
       shared.set(k, m);
     }
     return m;
@@ -211,13 +294,18 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
 
   const api: WorkshopMaterials = {
     tier,
+    debug: opts.debug,
+    decal() {
+      decal ??= buildDecal();
+      return decal;
+    },
     of,
     textured(cls, key) {
       const k = `${cls}\u0000${key}`;
       let m = textured.get(k);
       if (!m) {
         if (!labels) throw new Error('materials: textured() needs Labels (pass labels to createMaterials or call setLabels)');
-        m = build(cls, CLASSES[cls], tier, uniformsOf(cls), noise, {
+        m = build(cls, CLASSES[cls], sh, uniformsOf(cls), {
           map: labels.texture(key),
           normalMap: labels.normalMap(key),
           roughnessMap: labels.roughnessMap(key),
@@ -254,6 +342,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       shared.clear();
       textured.clear();
       noise.value.dispose();
+      decal?.dispose();
+      decal = undefined;
     },
   };
   return api;

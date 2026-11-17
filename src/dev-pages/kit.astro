@@ -202,13 +202,7 @@
           if ((o as Mesh).isMesh) {
             const m = o as Mesh;
             const g = m.geometry.clone();
-            if (view === 'finish') {
-              // finish: dark = the class's normal finish, bright gold = gloss
-              const s = g.getAttribute('surf');
-              const c = new Float32Array(s.count * 3);
-              for (let i = 0; i < s.count; i++) { const f = s.getZ(i); c[i * 3] = 0.12 + 0.88 * f; c[i * 3 + 1] = 0.12 + 0.7 * f; c[i * 3 + 2] = 0.14 + 0.2 * f; }
-              g.setAttribute('color', new BufferAttribute(c, 3));
-            } else g.setAttribute('color', new BufferAttribute(K.surfDebugColors(g, view === 'surf' ? 'both' : view), 3));
+            g.setAttribute('color', new BufferAttribute(K.surfDebugColors(g, view === 'surf' ? 'both' : (view as 'wear' | 'cavity' | 'finish')), 3));
             m.geometry = g;
           }
         });

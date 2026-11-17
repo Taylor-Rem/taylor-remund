@@ -56,7 +56,23 @@ function indexOf(g: BufferGeometry): ArrayLike<number> {
  * largest convex k, cavity the largest concave k, each through a smoothstep
  * whose thresholds are curvatures in 1/units (world: 1 unit = Fetch's height).
  */
-export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, number]; cavity?: [number, number] } = {}): Float32Array {
+export interface SurfOptions {
+  wear?: [number, number];
+  cavity?: [number, number];
+  /**
+   * Wear band (units): wear spreads from convex edges onto the faces beside them, falling
+   * linearly to zero this far from the edge (1.6x at corners, where two or three edges
+   * meet). The solid must carry a ring of vertices about this far onto each face (the
+   * loft's band rings) or the gradient smears across the face. 0 = no spread.
+   * Default: the geometry's `userData.kitBand`, else 0.
+   */
+  band?: number;
+}
+
+/** Default wear band for kit solids (units): how far edge wear reaches onto a face. */
+export const WEAR_BAND = 0.045;
+
+export function surfFromCurvature(g: BufferGeometry, opts: SurfOptions = {}): Float32Array {
   // finish (z) is kept from the geometry's existing surf if it has one, else 0
   const prev = g.getAttribute(ATTR.surf);
   const [w0, w1] = opts.wear ?? [10, 45];
@@ -93,6 +109,8 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
     } else if (gn[k * 3]! * nx + gn[k * 3 + 1]! * ny + gn[k * 3 + 2]! * nz < 0.95) crease[k] = 1;
   }
   const out = new Float32Array(n * 3);
+  const corner = new Uint8Array(groups);
+  const pairsBuf: number[] = [];
   for (let i = 0; i < n; i++) {
     const px = pos[i * 3]!, py = pos[i * 3 + 1]!, pz = pos[i * 3 + 2]!;
     const nx = nrm[i * 3]!, ny = nrm[i * 3 + 1]!, nz = nrm[i * 3 + 2]!;
@@ -103,6 +121,7 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
     let c1 = 0, v1 = 0, c2 = 0, v2 = 0;
     const ks: number[] = [];
     const es: number[] = [];
+    const pairs = pairsBuf;
     for (const j of nb[id[i]!]!) {
       if (j === id[i]) continue;
       const ex = rep[j * 3]! - px, ey = rep[j * 3 + 1]! - py, ez = rep[j * 3 + 2]! - pz;
@@ -115,6 +134,8 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
       ks.push(k);
       es.push(ex / el, ey / el, ez / el);
     }
+    // convex opposite pairs, with the direction they curve along (to find corners)
+    pairs.length = 0;
     for (let a = 0; a < ks.length; a++) {
       for (let b = a + 1; b < ks.length; b++) {
         const d = es[a * 3]! * es[b * 3]! + es[a * 3 + 1]! * es[b * 3 + 1]! + es[a * 3 + 2]! * es[b * 3 + 2]!;
@@ -123,12 +144,86 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
         const cv = Math.min(ka, kb), cc = Math.min(-ka, -kb);
         if (cv > c2) c2 = cv;
         if (cc > v2) v2 = cc;
+        if (cv > w0) pairs.push(cv, es[a * 3]! - es[b * 3]!, es[a * 3 + 1]! - es[b * 3 + 1]!, es[a * 3 + 2]! - es[b * 3 + 2]!);
       }
     }
+    // a corner curves convexly along two roughly perpendicular directions
+    let cornerHere = false;
+    for (let a = 0; a < pairs.length && !cornerHere; a += 4) {
+      for (let b = a + 4; b < pairs.length; b += 4) {
+        const la = Math.hypot(pairs[a + 1]!, pairs[a + 2]!, pairs[a + 3]!), lb = Math.hypot(pairs[b + 1]!, pairs[b + 2]!, pairs[b + 3]!);
+        const dd = (pairs[a + 1]! * pairs[b + 1]! + pairs[a + 2]! * pairs[b + 2]! + pairs[a + 3]! * pairs[b + 3]!) / (la * lb || 1);
+        if (Math.abs(dd) < 0.5) { cornerHere = true; break; }
+      }
+    }
+    if (cornerHere) corner[id[i]!] = 1;
     const sharp = crease[id[i]!] === 1;
     out[i * 3] = smooth(w0, w1, sharp ? c1 : c2);
     out[i * 3 + 1] = smooth(c0, cc1, sharp ? v1 : v2);
     out[i * 3 + 2] = prev && prev.itemSize === 3 ? prev.getZ(i) : 0;
+  }
+
+  // corners (two or three edges meeting) carry the most wear
+  for (let i = 0; i < n; i++) if (corner[id[i]!] && out[i * 3]! > 0) out[i * 3] = Math.min(1, out[i * 3]! + 0.3);
+
+  // spread edge wear onto the faces beside it: a geodesic distance from the nearest edge
+  // vertex over the welded mesh, wear falling linearly to zero at `band` (1.6x from corners)
+  const band = opts.band ?? (typeof g.userData['kitBand'] === 'number' ? (g.userData['kitBand'] as number) : 0);
+  if (band > 0) {
+    const gw = new Float32Array(groups);
+    for (let i = 0; i < n; i++) gw[id[i]!] = Math.max(gw[id[i]!]!, out[i * 3]!);
+    const dist = new Float32Array(groups).fill(Infinity);
+    const srcW = new Float32Array(groups);
+    const srcR = new Float32Array(groups);
+    for (let k = 0; k < groups; k++) {
+      if (gw[k]! >= 0.25) {
+        dist[k] = 0;
+        srcW[k] = gw[k]!;
+        srcR[k] = band * (corner[k] ? 1.6 : 1);
+      }
+    }
+    for (let pass = 0; pass < 6; pass++) {
+      let changed = false;
+      for (let k = 0; k < groups; k++) {
+        for (const j of nb[k]!) {
+          if (dist[j] === Infinity) continue;
+          const e = Math.hypot(rep[j * 3]! - rep[k * 3]!, rep[j * 3 + 1]! - rep[k * 3 + 1]!, rep[j * 3 + 2]! - rep[k * 3 + 2]!);
+          const nd = dist[j]! + e;
+          if (nd < dist[k]! && nd < srcR[j]!) {
+            dist[k] = nd;
+            srcW[k] = srcW[j]!;
+            srcR[k] = srcR[j]!;
+            changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+    for (let i = 0; i < n; i++) {
+      const k = id[i]!;
+      if (dist[k] === Infinity || dist[k] === 0) continue;
+      const w = srcW[k]! * Math.max(0, 1 - dist[k]! / srcR[k]!);
+      if (w > out[i * 3]!) out[i * 3] = w;
+    }
+  }
+
+  // thin parts (a louvre slat, a strap, a handle bar) are nearly all edge: scale their wear
+  // down by the part's thickness, estimated as 2 x volume / area (a slab of thickness t gives
+  // t; a rod of radius r gives r), so they keep some edge wear without chipping all over
+  let vol = 0, area = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t]! * 3, b = idx[t + 1]! * 3, c = idx[t + 2]! * 3;
+    const ax = pos[a]!, ay = pos[a + 1]!, az = pos[a + 2]!;
+    const bx = pos[b]!, by = pos[b + 1]!, bz = pos[b + 2]!;
+    const cx = pos[c]!, cy = pos[c + 1]!, cz = pos[c + 2]!;
+    vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+    const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+    area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  }
+  if (area > 0) {
+    const thick = (2 * Math.abs(vol)) / area;
+    const f = 0.35 + 0.65 * smooth(0.008, 0.03, thick);
+    if (f < 0.999) for (let i = 0; i < n; i++) out[i * 3] = out[i * 3]! * f;
   }
   return out;
 }
@@ -410,15 +505,25 @@ export function tint(g: BufferGeometry, token: Token, opts: TintOptions = {}): B
 
 /**
  * Debug colouring for the dev page: wear in red, cavity in blue, over a
- * neutral grey. Returns a Float32Array for a colour attribute (does not
+ * neutral grey; or 'finish' (surf.z) from dark (normal) to warm white (gloss). Returns a Float32Array for a colour attribute (does not
  * modify the geometry).
  */
-export function surfDebugColors(g: BufferGeometry, which: 'both' | 'wear' | 'cavity' = 'both'): Float32Array {
+export function surfDebugColors(g: BufferGeometry, which: 'both' | 'wear' | 'cavity' | 'finish' = 'both'): Float32Array {
   const sa = g.getAttribute(ATTR.surf);
   const s = sa.array;
-  const k = sa.itemSize;
+  const k = sa.itemSize; // 3 (wear, cavity, finish); older 2-component data still reads
   const n = s.length / k;
   const out = new Float32Array(n * 3);
+  if (which === 'finish') {
+    // finish: dark grey = the class's normal finish, warm white = gloss
+    for (let i = 0; i < n; i++) {
+      const f = k >= 3 ? s[i * k + 2]! : 0;
+      out[i * 3] = 0.15 + 0.8 * f;
+      out[i * 3 + 1] = 0.15 + 0.72 * f;
+      out[i * 3 + 2] = 0.17 + 0.5 * f;
+    }
+    return out;
+  }
   for (let i = 0; i < n; i++) {
     const w = which === 'cavity' ? 0 : s[i * k]!;
     const c = which === 'wear' ? 0 : s[i * k + 1]!;
