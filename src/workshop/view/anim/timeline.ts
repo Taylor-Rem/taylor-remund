@@ -11,8 +11,10 @@ export type Key = readonly [t: number, v: number, ease?: Ease];
 
 export class Track {
   readonly keys: readonly Key[];
+  readonly ease: Ease;
 
-  constructor(keys: readonly Key[], readonly ease: Ease = inOutQuad) {
+  constructor(keys: readonly Key[], ease: Ease = inOutQuad) {
+    this.ease = ease;
     if (keys.length === 0) throw new Error('Track: no keys');
     for (let i = 1; i < keys.length; i++) if (keys[i]![0] < keys[i - 1]![0]) throw new Error('Track: keys out of order');
     this.keys = keys;
@@ -40,7 +42,11 @@ export class Track {
 
 /** Several named tracks sampled together: a beat. */
 export class Timeline<K extends string> {
-  constructor(readonly tracks: Readonly<Record<K, Track>>) {}
+  readonly tracks: Readonly<Record<K, Track>>;
+
+  constructor(tracks: Readonly<Record<K, Track>>) {
+    this.tracks = tracks;
+  }
 
   get duration(): number {
     let d = 0;

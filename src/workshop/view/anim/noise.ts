@@ -66,12 +66,12 @@ export class Cadence {
   private next: number;
   private readonly r: () => number;
 
-  constructor(
-    public min: number,
-    public max: number,
-    seed = 1,
-    start = 0,
-  ) {
+  min: number;
+  max: number;
+
+  constructor(min: number, max: number, seed = 1, start = 0) {
+    this.min = min;
+    this.max = max;
     this.r = stream(seed);
     this.next = start + this.gap();
   }

@@ -8,11 +8,13 @@ import { bump, clamp01, type Ease, linear } from './ease.ts';
 
 export class OneShot {
   private t0 = -Infinity;
+  duration: number;
+  ease: Ease;
 
-  constructor(
-    public duration: number,
-    public ease: Ease = linear,
-  ) {}
+  constructor(duration: number, ease: Ease = linear) {
+    this.duration = duration;
+    this.ease = ease;
+  }
 
   /** Start (or restart) at time t. */
   fire(t: number): this {
@@ -54,12 +56,15 @@ export class OneShot {
  */
 export class Envelope {
   private t0 = -Infinity;
+  attack: number;
+  hold: number;
+  release: number;
 
-  constructor(
-    public attack: number,
-    public hold: number,
-    public release: number,
-  ) {}
+  constructor(attack: number, hold: number, release: number) {
+    this.attack = attack;
+    this.hold = hold;
+    this.release = release;
+  }
 
   fire(t: number): this {
     this.t0 = t;

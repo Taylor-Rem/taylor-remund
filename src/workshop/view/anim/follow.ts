@@ -32,8 +32,11 @@ export function approach(a: number, b: number, maxStep: number): number {
 export class Derivative {
   private last: number | null = null;
   value = 0;
+  readonly rate: number;
 
-  constructor(readonly rate = 30) {}
+  constructor(rate = 30) {
+    this.rate = rate;
+  }
 
   push(x: number, dt: number): number {
     if (this.last !== null && dt > 1e-6) this.value = damp(this.value, (x - this.last) / dt, this.rate, dt);
