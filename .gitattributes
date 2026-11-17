@@ -1,0 +1,2 @@
+# The approved text of record is compared byte for byte (REWRITE.md § E8): never normalise it.
+legal-reference/** -text
