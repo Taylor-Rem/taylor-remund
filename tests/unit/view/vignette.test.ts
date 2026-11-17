@@ -1,42 +1,38 @@
 /**
  * The vignette's composition (REWRITE.md § B3 "The centre cluster", § C
  * "Nothing usable is hidden behind anything else", § G P1), checked as
- * geometry: the laid-out scene, the camera's two homes through the real
- * camera rig, and the rope the cord view simulates.
+ * geometry: the simulation's scene with the real pieces stood on it, the
+ * camera's two homes through the real camera rig, and the cord's rope.
  */
 import { Box3, Ray, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { FRAMING, LAYOUT, fitPieces, homeBox, layoutForSim, vignetteScene } from '../../../src/workshop/view/vignette.ts';
+import { FRAMING, LAYOUT, fitPieces, homeBox, measured, staticBox } from '../../../src/workshop/view/vignette.ts';
 import { Rope, CORD_FEEL } from '../../../src/workshop/view/stations/cord.ts';
-import type { SceneDesc, Vec3 } from '../../../src/workshop/sim/types.ts';
-
+import { vignette as scene } from '../../../src/workshop/sim/index.ts';
+import type { Vec3 } from '../../../src/workshop/sim/types.ts';
 import { switchboard, stool } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
-import { belt, BELT } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
+import { belt } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
 import { CONSOLE, BUTTON } from '../../../src/workshop/view/kit/pieces/button/index.ts';
 
-// the real pieces where they have landed (sizes and sockets; no labels needed)
-const fit = fitPieces(
-  { board: switchboard({ detail: 'low' }), stool: stool({ detail: 'low' }), belt: belt({ length: LAYOUT.belt.length, detail: 'low' }) },
-  { console: CONSOLE, deckY: BUTTON.deckY, belt: BELT, beltLength: LAYOUT.belt.length },
-);
-const scene = vignetteScene(fit);
-
-const staticBox = (s: SceneDesc, id: string): Box3 => {
-  const st = s.statics.find((q) => q.id === id);
-  if (!st || st.shape.type !== 'box') throw new Error(`no static ${id}`);
-  const [hx, hy, hz] = st.shape.half;
-  const [x, y, z] = st.pose.p;
-  return new Box3(new Vector3(x - hx, y - hy, z - hz), new Vector3(x + hx, y + hy, z + hz));
+// the real pieces (sizes and sockets; no labels needed)
+const fit = fitPieces(scene, { board: switchboard({ detail: 'low' }), stool: stool({ detail: 'low' }), belt: belt({ length: LAYOUT.beltLength, detail: 'low' }) });
+const body = (id: string): Box3 => {
+  const b = staticBox(scene, id);
+  if (!b) throw new Error(`no static ${id}`);
+  return b;
 };
+
+/** Where the fumbled crate comes to rest (the simulation's tuning: about (1.71, 2.34)). */
+const REST: Vec3 = [1.71, 0.225, 2.34];
 
 /** The four things a phone must show (§ B3): the Button, the loose crate where it comes to rest, the phone, Patch. */
 function cluster(): Record<string, Box3> {
   const seat = fit.stool.seat;
   return {
-    button: staticBox(scene, 'button-pedestal').expandByVector(new Vector3(0, 0.45, 0)),
-    crate: new Box3(new Vector3(LAYOUT.fumbleX - 1.1, 0, LAYOUT.lane.a[1] - 0.25), new Vector3(LAYOUT.fumbleX - 0.6, 0.45, LAYOUT.lane.a[1] + 0.25)),
-    phone: staticBox(scene, 'phone'),
+    button: body('console').expandByVector(new Vector3(0, 0.45, 0)),
+    crate: new Box3(new Vector3(REST[0] - 0.25, 0, REST[2] - 0.25), new Vector3(REST[0] + 0.25, 0.45, REST[2] + 0.25)),
+    phone: body('phone'),
     patch: new Box3(new Vector3(seat[0] - 0.35, seat[1], seat[2] - 0.3), new Vector3(seat[0] + 0.35, seat[1] + 1.1, seat[2] + 0.3)),
   };
 }
@@ -55,7 +51,7 @@ const inFrame = (rig: CameraRig, b: Box3): boolean =>
     return Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1;
   });
 
-describe('the vignette layout', () => {
+describe('the vignette on the simulation scene', () => {
   it('keeps the centre cluster inside the middle 40% of the bench', () => {
     const span = (scene.bench.maxX - scene.bench.minX) * 0.4;
     for (const [name, b] of Object.entries(cluster())) {
@@ -64,38 +60,25 @@ describe('the vignette layout', () => {
     }
   });
 
-  it("runs Fetch's lane in front of the console, and fumbles beside it, not in front of its tape", () => {
-    const con = staticBox(scene, 'button-pedestal');
-    const lane = scene.runner.lane;
-    expect(Math.min(lane.a[1], lane.b[1]) - LAYOUT.lane.halfW).toBeGreaterThan(con.max.z);
-    const fx = lane.a[0] + (lane.b[0] - lane.a[0]) * scene.runner.fumbleAt;
-    expect(fx - 0.6).toBeGreaterThan(con.max.x); // Fetch (0.6 wide) clear of the console's right end
-  });
-
-  it('puts no two bodies inside each other', () => {
-    const ids = scene.statics.map((s) => s.id).filter((id) => id !== 'bench' && id !== 'back-wall');
-    for (let i = 0; i < ids.length; i++)
-      for (let j = i + 1; j < ids.length; j++) {
-        const a = staticBox(scene, ids[i]!).expandByScalar(-0.01), b = staticBox(scene, ids[j]!).expandByScalar(-0.01);
-        expect(a.intersectsBox(b), `${ids[i]} × ${ids[j]}`).toBe(false);
-      }
-    // the stack stands clear of everything
-    for (const p of scene.parts.filter((q) => scene.button.stack.includes(q.id)))
-      for (const id of ids) expect(staticBox(scene, id).containsPoint(new Vector3(...p.pose.p)), `${p.id} in ${id}`).toBe(false);
-  });
-
-  it('seats the cord in jacks on the board face', () => {
-    const board = staticBox(scene, 'board');
-    for (const j of scene.cord.jacks) {
-      expect(j.at[0]).toBeGreaterThan(board.min.x);
-      expect(j.at[0]).toBeLessThan(board.max.x);
-      expect(j.at[1]).toBeGreaterThan(0.5);
+  it('stands the board against the wall on its body, and its jacks on the board', () => {
+    const b = body('board');
+    expect(fit.board.at.x).toBeCloseTo(b.getCenter(new Vector3()).x, 6);
+    for (const j of Object.values(fit.board.jacks)) {
+      expect(j[0]).toBeGreaterThan(b.min.x);
+      expect(j[0]).toBeLessThan(b.max.x);
+      expect(j[1]).toBeGreaterThan(1);
     }
   });
 
-  it('reports the numbers the simulation should take', () => {
-    const t = layoutForSim(scene) as Record<string, unknown>;
-    for (const k of ['stack', 'button', 'lane', 'board', 'jacks', 'belt', 'stool', 'phone', 'chute', 'bench']) expect(t[k], k).toBeTruthy();
+  it('seats Patch on the stool, beside the board', () => {
+    const s = body('stool');
+    expect(fit.stool.seat[1]).toBeGreaterThan(0.5);
+    expect(fit.stool.seat[0]).toBeCloseTo(s.getCenter(new Vector3()).x, 6);
+  });
+
+  it('reports the pieces against the simulation', () => {
+    const m = measured(scene, fit, { console: CONSOLE, deckY: BUTTON.deckY });
+    for (const k of ['board', 'stool', 'jacks', 'cordRoot', 'seat', 'console']) expect(m[k], k).toBeTruthy();
   });
 });
 
@@ -108,36 +91,36 @@ describe('the camera homes', () => {
   it('shows the centre cluster with the wall behind at 1440×900', () => {
     const rig = rigAt(1440, 900);
     for (const [name, b] of Object.entries(cluster())) expect(inFrame(rig, b), name).toBe(true);
-    // the sign's word and the board, on the wall
     expect(inFrame(rig, new Box3(new Vector3(LAYOUT.sign.x - 2.4, LAYOUT.sign.y, -5), new Vector3(LAYOUT.sign.x + 2.4, LAYOUT.sign.y + 1.2, -4.8)))).toBe(true);
-    expect(inFrame(rig, staticBox(scene, 'board'))).toBe(true);
+    expect(inFrame(rig, body('board'))).toBe(true);
   });
 
   it('hides nothing usable behind anything else from the fixed camera', () => {
     const rig = rigAt(1440, 900);
     const eye = rig.camera.position.clone();
     const targets: Record<string, Vec3> = {
-      'button cap': [LAYOUT.button.x + 0.3, 1.1, LAYOUT.button.z - 0.2],
-      ...Object.fromEntries(scene.cord.jacks.map((j) => [j.id, j.at])),
-      phone: [LAYOUT.phone.x, 0.55, LAYOUT.phone.z],
+      'button cap': scene.button.at,
+      ...Object.fromEntries(Object.entries(fit.board.jacks).map(([k, v]) => [`jack ${k}`, v])),
+      phone: [body('phone').getCenter(new Vector3()).x, 0.55, body('phone').getCenter(new Vector3()).z],
       'patch head': [fit.stool.seat[0], fit.stool.seat[1] + 0.9, fit.stool.seat[2]],
       'stack top': scene.parts.find((p) => p.id === scene.button.stack[2])!.pose.p,
-      fetch: [LAYOUT.fumbleX, 0.8, LAYOUT.lane.a[1]],
+      'fetch offering': [2.5, 0.8, scene.runner.lane.a[1]],
+      'loose crate': REST,
     };
-    const blockers = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, staticBox(scene, s.id)] as const);
+    const blockers = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, body(s.id)] as const);
     for (const [name, t] of Object.entries(targets)) {
       const to = new Vector3(...t);
       const ray = new Ray(eye, to.clone().sub(eye).normalize());
       const dist = eye.distanceTo(to);
       for (const [id, b] of blockers) {
-        if (b.containsPoint(to) || b.clone().expandByScalar(0.05).containsPoint(to)) continue; // its own body
+        if (b.clone().expandByScalar(0.05).containsPoint(to)) continue; // its own body
         const hit = ray.intersectBox(b, new Vector3());
         expect(hit && eye.distanceTo(hit) < dist - 0.05 ? `${name} hidden by ${id}` : null).toBe(null);
       }
     }
   });
 
-  it('frames the wide home from the layout table', () => {
+  it('frames the wide home from the framing table', () => {
     expect(homeBox(false).min.toArray()).toEqual([...FRAMING.wide.min]);
   });
 });

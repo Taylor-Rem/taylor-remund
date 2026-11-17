@@ -50,7 +50,7 @@
       import { installDebugHooks } from '../workshop/view/stage/debug.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
       import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
-      import { loadVignette, homeBox, FRAMING, LAYOUT, layoutForSim } from '../workshop/view/vignette.ts';
+      import { loadVignette, homeBox, FRAMING, staticBox } from '../workshop/view/vignette.ts';
       import type { View } from '../workshop/view/stage/camera.ts';
 
       const q = new URLSearchParams(location.search);
@@ -75,10 +75,13 @@
 
       /** Close views (§ G P1: close on the Button, on Fetch, on Patch). */
       const shots: Record<string, () => Box3> = {
-        button: () => new Box3(new Vector3(LAYOUT.button.x - 1.5, 0, LAYOUT.button.z - 1.0), new Vector3(LAYOUT.button.x + 1.6, 1.4, LAYOUT.button.z + 1.4)),
+        button: () => {
+          const c = staticBox(vig.scene, 'console')!.getCenter(new Vector3());
+          return new Box3(new Vector3(c.x - 1.5, 0, c.z - 1.0), new Vector3(c.x + 1.6, 1.4, c.z + 1.4));
+        },
         fetch: () => {
           const m = vig.world()?.motion('fetch');
-          const p = m ? m.pose.p : ([LAYOUT.lane.a[0], 0.5, LAYOUT.lane.a[1]] as Vec3);
+          const p = m ? m.pose.p : ([vig.scene.runner.lane.a[0], 0.5, vig.scene.runner.lane.a[1]] as Vec3);
           return new Box3(new Vector3(p[0] - 1.1, 0, p[2] - 0.6), new Vector3(p[0] + 1.1, 1.2, p[2] + 0.7));
         },
         patch: () => {
@@ -201,7 +204,7 @@
         vig,
         slots: vig.slots,
         log,
-        layout: () => layoutForSim(vig.scene),
+        layout: () => vig.measured,
         shot: applyShot,
         measure() {
           ws.advance(0);
@@ -241,7 +244,7 @@
         where(id: string) {
           const m = ws.world.motion(id);
           if (m) return project(new Vector3(...m.pose.p));
-          if (id === 'button') return project(new Vector3(LAYOUT.button.x, 0.9, LAYOUT.button.z + 0.3));
+          if (id === 'button') return project(new Vector3(...vig.scene.button.at));
           const j = vig.scene.cord.jacks.find((k) => k.id === id);
           if (j) return project(new Vector3(...j.at));
           if (id === 'cord') {
