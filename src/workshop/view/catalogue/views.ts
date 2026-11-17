@@ -7,8 +7,9 @@
  *   clay    one neutral tone: form, bevels and shadow only
  *   wear    the `surf.x` signal (red over the clay tone)
  *   cavity  the `surf.y` signal (blue)
- *   lpos    material-space position as bands (where grain, chips and
- *           brushing are evaluated); object position where lpos is absent
+ *   lpos    material-space position as slow colour ramps (yellow to teal
+ *           along +X, darker along Y): each part's own frame and its seeded
+ *           +X offset show as a different hue; object position where absent
  *   wire    the clay with its wireframe
  *
  * No material is constructed here; colours are derived from palette tokens.
@@ -39,6 +40,8 @@ export function makeClay(mats: WorkshopMaterials): void {
       /* a parameter the class no longer has */
     }
   }
+  // clay is matte: no specular glint for the bloom to pick up
+  (mats.of('paper') as unknown as { specularIntensity: number }).specularIntensity = 0.04;
 }
 
 /** Per-vertex colours for a debug view of one geometry. */
@@ -58,10 +61,10 @@ export function debugColours(g: BufferGeometry, mode: Exclude<ViewMode, 'beauty'
       const v = surf ? (mode === 'wear' ? surf.getX(i) : surf.getY(i)) : 0;
       c = mixRGB(scaleRGB(clay, 0.6), scaleRGB(mode === 'wear' ? hot : cold, 1.6), Math.min(1, Math.max(0, v)));
     } else if (mode === 'lpos') {
-      // bands every 0.1 unit along +X (the grain direction), fainter along Y and Z
-      const fx = (((lp.getX(i) * 10) % 1) + 1) % 1;
-      const fy = (((lp.getY(i) * 4) % 1) + 1) % 1;
-      c = mixRGB(mixRGB(bandA, bandB, fx), clay, 0.25 + 0.35 * fy);
+      // per-vertex colour can only show slow ramps: hue along +X (the grain), shade along Y
+      const fx = (((lp.getX(i) * 1.5) % 1) + 1) % 1;
+      const fy = (((lp.getY(i) * 2) % 1) + 1) % 1;
+      c = scaleRGB(mixRGB(bandA, bandB, Math.abs(fx * 2 - 1)), 0.55 + 0.45 * fy);
     }
     out[i * 3] = c[0];
     out[i * 3 + 1] = c[1];
