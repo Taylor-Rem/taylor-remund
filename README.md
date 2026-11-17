@@ -1,17 +1,25 @@
 # taylorremund.com
 
-The studio site, products first: it sells Patchlamp and explains the services around it
-(the products-first redesign, live since 2026-09-17; `REDESIGN.md` is its record). Plain
-HTML, CSS and JavaScript, no build step, hosted on GitHub Pages from `main`, so a push to
-`main` is a production deploy. `CLAUDE.md` is the operating manual: the pages, the file map,
-the design and content rules.
+**Branch `rewrite`: the workshop.** An interactive miniature factory on a workbench that
+happens to contain Taylor Remund's résumé. `main` is still the live plain-HTML site, and
+stays that way until the cutover. `REWRITE.md` is the specification and the plan;
+`CLAUDE.md` is the operating manual for this branch.
 
-- `/` — the Patchlamp and Services cards, the Patchlamp band, services, a short about, contact.
+Astro (static), TypeScript, Three.js and Rapier. Hosted on GitHub Pages.
+
+```
+npm ci
+npm run dev       # the site, with dev-only pages under /dev/
+npm run verify    # typecheck, tests, build, and every check (URLs, legal text, links, budgets, layers, claims)
+```
+
+- `/` — the stage (the workshop) with the strip and the paperwork in plain HTML.
+- `/resume/` — the employer material. Never depends on WebGL.
 - `/ai/` — the services page: the AI working session and the computer install, with prices.
-- `/resume/` — the employer material (stats, skills, projects, experience).
-- `/privacy/`, `/terms/`, `/sms/` — the legal pages Twilio's 10DLC campaign lists.
+- `/privacy/`, `/terms/`, `/sms/` — the legal pages Twilio's 10DLC campaign lists; built byte for
+  byte from `legal-reference/`.
 
-Preview locally with `python3 -m http.server 8000` (the subfolder links need a server).
+The old site is kept under `legacy/` for the migration.
 
 ## Custom domain: taylorremund.com
 

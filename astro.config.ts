@@ -15,4 +15,7 @@ export default defineConfig({
   compressHTML: false,
   devToolbar: { enabled: false },
   integrations: [cname(), legacyPassthrough(), devPages()],
+  // Agent worktrees live under .claude/worktrees/ (git-ignored copies of the
+  // project); the dev server must not watch or serve them.
+  vite: { server: { watch: { ignored: ['**/.claude/**', '**/shots/**', '**/legacy/**'] } } },
 });
