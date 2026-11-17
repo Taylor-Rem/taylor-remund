@@ -1,9 +1,10 @@
 # REWRITE — taylorremund.com, the workshop
 
-**Status: draft 3, for approval (2026-11-17). Nothing is built, and nothing
-in this file authorises building.** Work starts when § Approval log carries
-a dated line from Taylor against gate G0. Branch `rewrite`, local only.
-`main` is the live site and stays untouched until the cutover.
+**Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). Building
+has begun at P0 and stops at G1**, which is a hard stop: nothing of the
+wider environment is produced until Taylor has passed the look. Branch
+`rewrite`, local only. `main` is the live site and stays untouched until
+the cutover.
 
 Taylor, 2026-11-17: "I don't want a better résumé website. I want an
 unforgettable interactive experience that happens to contain my résumé."
@@ -1806,7 +1807,7 @@ about Taylor that he has not supplied.
 
 | gate | what it approves | date | by |
 |---|---|---|---|
-| G0 | This specification; building may begin at P0 and stops at G1 | | |
+| G0 | This specification; building may begin at P0 and stops at G1 | 2026-11-17 | Taylor: "I am authorizing G0 and the start of implementation." Not authorised by this line: deploying, pushing the branch, changing production, or passing any later gate. |
 | G1 | The look; the method for producing the rest of the bench | | |
 | G2 | The bench plays; release 1's list confirmed | | |
 | G4 | Both hatches, the paperwork, the truth table, the crew's lines | | |
