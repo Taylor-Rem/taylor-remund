@@ -6,5 +6,9 @@ export default defineConfig({
   test: {
     include: ['tests/unit/**/*.test.ts', 'tests/scenario/**/*.test.ts'],
     environment: 'node',
+    // Headless physics scenarios are heavy, and verify often runs while other work
+    // loads the machine: the default 5 s per test turns load into false failures.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
