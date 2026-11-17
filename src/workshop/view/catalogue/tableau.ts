@@ -88,7 +88,7 @@ export function shotCamera(shot: Shot, boxes: Partial<Record<Role | 'fetchA' | '
       // look a little behind and below the Button: the group sits low, the lit bench and wall above
       // the group low in the frame: the wall above, the bench nose and the dark below
       // (on a portrait phone the spare height goes to the bench and wall behind, not the dark below)
-      f.set(f.x + 0.5, 0.6, CLUSTER.z - (portrait ? 1.5 : 0.1));
+      f.set(f.x + (portrait ? 0.15 : 0.5), 0.6, CLUSTER.z - (portrait ? 1.5 : 0.1));
       return { focus: f, distance: across(10, 5.4) };
     }
     case 'button': {
