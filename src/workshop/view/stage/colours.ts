@@ -53,6 +53,8 @@ export interface StageColours {
   /** Hemisphere sky (cool, from the room) and ground (warm bounce off the wood bench). Unit luminance. */
   hemiSky: RGB;
   hemiGround: RGB;
+  /** Bounce off the lit bench: the key's warmth through the wood. Unit luminance. */
+  bounce: RGB;
   /** The room: clear colour and fog. Exactly teal-deep. */
   room: RGB;
   /** What ambient occlusion darkens toward: teal, never grey (multiplier, 0..1 per channel). */
@@ -96,6 +98,7 @@ export function stageColours(): StageColours {
     rim,
     hemiSky,
     hemiGround,
+    bounce: unitLuminance(mix(key, woodLight, 0.5)),
     room: tealDeep,
     occlusion,
     gradeShadow: unitLuminance(mix(tealLight, tealDeep, 0.3)),

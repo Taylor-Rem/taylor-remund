@@ -17,6 +17,7 @@ import {
   DirectionalLight,
   HemisphereLight,
   MathUtils,
+  PointLight,
   Object3D,
   SpotLight,
   Vector3,
@@ -39,10 +40,12 @@ export interface LightRigOptions {
 
 /** Tuned by eye on the stage dev page; see the W1 report for what each does. */
 export const RIG = {
-  key: { intensity: 230, angle: MathUtils.degToRad(56), penumbra: 0.85, decay: 2 },
+  key: { intensity: 240, angle: MathUtils.degToRad(48), penumbra: 0.92, decay: 2 },
   shadow: { mapSize: 2048, radius: 5, blurSamples: 8, bias: -0.0004, normalBias: 0.025 },
-  fill: { hemi: 0.35, front: 0.75 },
+  fill: { hemi: 0.35, front: 0.6 },
   rim: { intensity: 2.4 },
+  /** What bounces: warm light off the lit bench, from just above the pool (lifts the lower wall and undersides). */
+  bounce: { intensity: 5, height: 1.1 },
   env: { intensity: 0.8 },
   /** What each part keeps at night (level 0), as a fraction of its day value. */
   night: { fill: 0.1, rim: 0.3, env: 0.12 },
@@ -61,6 +64,7 @@ export class LightRig {
   readonly hemi: HemisphereLight;
   readonly front: DirectionalLight;
   readonly rim: DirectionalLight;
+  readonly bounce: PointLight;
   private readonly keyColour = new Color();
   private readonly defaultKey = new Color();
   private lamp: LampState = { level: 1, colour: null };
@@ -81,8 +85,8 @@ export class LightRig {
     // KEY: the lamp.
     const key = new SpotLight(this.keyColour, RIG.key.intensity, 0, RIG.key.angle, RIG.key.penumbra, RIG.key.decay);
     key.name = 'key';
-    const bulb = opts.bulb ?? [-3.2, 6.4, -1.0];
-    const aim = opts.aim ?? [0.6, 0, -0.3];
+    const bulb = opts.bulb ?? [-3.6, 5.2, -0.6];
+    const aim = opts.aim ?? [0.6, 0, -0.1];
     key.position.set(bulb[0], bulb[1], bulb[2]);
     key.target.position.set(aim[0], aim[1], aim[2]);
     key.castShadow = opts.tier === 'high';
@@ -110,6 +114,12 @@ export class LightRig {
     this.rim.position.set(9, 6.5, -10);
     this.rim.target.position.set(0, 0.5, 0);
     this.root.add(this.rim, this.rim.target);
+
+    // BOUNCE: the lit bench throws warm light back up. No shadows.
+    this.bounce = new PointLight(toColor(c.bounce), RIG.bounce.intensity, 0, 2);
+    this.bounce.name = 'bounce';
+    this.bounce.position.set(aim[0], RIG.bounce.height, aim[2]);
+    this.root.add(this.bounce);
   }
 
   /**
@@ -145,7 +155,10 @@ export class LightRig {
   /** The bulb's world position (for a kit lamp to sit its bulb at, or the reverse). */
   setBulb(pos: readonly [number, number, number], aim?: readonly [number, number, number]): void {
     this.key.position.set(pos[0], pos[1], pos[2]);
-    if (aim) this.key.target.position.set(aim[0], aim[1], aim[2]);
+    if (aim) {
+      this.key.target.position.set(aim[0], aim[1], aim[2]);
+      this.bounce.position.set(aim[0], aim[1] + RIG.bounce.height, aim[2]);
+    }
     this.key.target.updateMatrixWorld();
   }
 
@@ -213,6 +226,7 @@ export class LightRig {
     this.hemi.intensity = RIG.fill.hemi * nf;
     this.front.intensity = RIG.fill.front * nf;
     this.rim.intensity = RIG.rim.intensity * MathUtils.lerp(RIG.night.rim, 1, l);
+    this.bounce.intensity = RIG.bounce.intensity * l;
     this.envIntensity = RIG.env.intensity * MathUtils.lerp(RIG.night.env, 1, l);
     if (this.scene) this.scene.environmentIntensity = this.envIntensity * this.envScale;
   }

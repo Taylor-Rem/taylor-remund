@@ -172,14 +172,24 @@ async function main(): Promise<number> {
       const idle = async ({ sleep }: ScriptApi): Promise<void> => sleep(6000);
       log(await measure(withQuery(url, { timer: '1' }), { ...base, script: idle, label: 'GPU timers (idle)', vsync: true }));
       // And by subtraction: each pass switched off in turn, uncapped and synced, at rest.
+      // A warm-up run is thrown away; the baseline is measured before and after and averaged.
       const ab = { ...base, script: async ({ sleep }: ScriptApi) => sleep(8000) };
-      const all = await measure(withQuery(url, { sync: '1' }), { ...ab, label: 'A/B: all passes', vsync: false });
-      log(all);
+      await measure(withQuery(url, { sync: '1' }), { ...ab, label: 'warm-up', vsync: false });
+      const before = await measure(withQuery(url, { sync: '1' }), { ...ab, label: 'A/B: all passes (before)', vsync: false });
+      log(before);
       log(await measure(withQuery(url, { sync: '1', post: '0' }), { ...ab, label: 'A/B: no post', vsync: false }));
+      const without: [string, RunResult][] = [];
       for (const p of PASSES) {
         const r = await measure(withQuery(url, { sync: '1', pass: `-${p}` }), { ...ab, label: `A/B: without ${p}`, vsync: false });
         log(r);
-        if (!v.json) console.log(`${''.padEnd(24)} → ${p} costs about ${(all.median - r.median).toFixed(2)} ms`);
+        without.push([p, r]);
+      }
+      const after = await measure(withQuery(url, { sync: '1' }), { ...ab, label: 'A/B: all passes (after)', vsync: false });
+      log(after);
+      const baseline = (before.median + after.median) / 2;
+      if (!v.json) {
+        console.log(`A/B baseline ${baseline.toFixed(2)} ms (noise between the two baseline runs: ${Math.abs(before.median - after.median).toFixed(2)} ms)`);
+        for (const [p, r] of without) console.log(`  ${p.padEnd(9)} costs about ${(baseline - r.median).toFixed(2)} ms`);
       }
     }
   } catch (e) {

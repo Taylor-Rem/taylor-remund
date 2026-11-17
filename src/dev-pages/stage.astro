@@ -303,8 +303,8 @@
       }
 
       // ── the lamp: brass clamp at the back, two arm sections, a bell shade, the bulb ──
-      const bulbPos = new Vector3(-3.2, 6.4, -1.0);
-      const aimPos = new Vector3(0.6, 0, -0.3);
+      const bulbPos = new Vector3(-3.6, 5.2, -0.6);
+      const aimPos = new Vector3(0.6, 0, -0.1);
       {
         const base = lathe(fillet([[0, 0], [0.32, 0], [0.32, 0.12], [0.16, 0.2], [0.1, 0.5], [0, 0.5]], 0.04), M.brass, 32);
         place(base, -4.4, 0, -4.4);
@@ -315,7 +315,7 @@
         knuckle.position.copy(elbow);
         world.add(knuckle);
         const neck = bulbPos.clone().add(new Vector3(-0.35, 0.55, -0.35));
-        const arm2 = mesh(new TubeGeometry(new CatmullRomCurve3([elbow, new Vector3(-4.2, 6.0, -2.2), neck]), 32, 0.05, 10), M.steel);
+        const arm2 = mesh(new TubeGeometry(new CatmullRomCurve3([elbow, new Vector3(-4.4, 5.5, -2.0), neck]), 32, 0.05, 10), M.steel);
         world.add(arm2);
         // bell shade around the bulb, opening toward the aim point
         const shade = lathe(fillet([[0.62, 0], [0.52, 0.12], [0.3, 0.45], [0.16, 0.62], [0.08, 0.7], [0, 0.7]], 0.06, 4), M.shade, 40);
@@ -523,6 +523,13 @@
       };
       refreshViews();
       const pickView = (name: string | null): View => (name && views[name]) || stage.camera.home();
+      // What is sharp is the page's choice: the centre cluster for the whole view, the box for a close one.
+      const cluster = new Vector3(0.4, 0.5, 1.2);
+      const focusFor = (name: string | null): void => {
+        const b = name ? boxes[name] : undefined;
+        stage.camera.focusOn(b ? b.getCenter(new Vector3()) : cluster);
+      };
+      focusFor(q.view);
       stage.camera.cutTo(pickView(q.view));
       addEventListener('resize', () => {
         setSubject();
@@ -558,7 +565,11 @@
       canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const r = canvas.getBoundingClientRect();
-        stage.camera.zoomBy(Math.exp(e.deltaY * 0.0015), { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 });
+        const ndc = { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 };
+        stage.camera.zoomBy(Math.exp(e.deltaY * 0.0015), ndc);
+        // focus follows what the pointer zoomed toward
+        const p = stage.camera.benchPoint(ndc, 0.5);
+        if (p) stage.camera.focusOn(p);
       }, { passive: false });
       let drag: { x: number } | null = null;
       canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX }; });
@@ -571,7 +582,10 @@
       addEventListener('keydown', (e) => {
         if (e.key === 'd') stage.lights.dip();
         if (e.key === 's') stage.camera.shake(0.08);
-        if (e.key === 'Escape') stage.camera.easeTo(stage.camera.home());
+        if (e.key === 'Escape') {
+          stage.camera.focusOn(cluster);
+          stage.camera.easeTo(stage.camera.home());
+        }
       });
     </script>
   </body>

@@ -68,10 +68,10 @@ export const LOOK = {
   exposure: 1.0,
   toneMap: 'aces' as ToneMap,
   /** `scale` is the AO resolution; `power` sharpens the occlusion curve; `strength` mixes it toward the teal occlusion colour. */
-  gtao: { scale: 0.5, radius: 0.8, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 8, denoise: 8, denoiseRadius: 5, strength: 1.0 },
+  gtao: { scale: 0.5, radius: 0.8, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 6, denoiseRadius: 5, strength: 1.0 },
   bloom: { threshold: 3.0, knee: 1.2, strength: 0.65, radius: 0.85, levels: 5 },
-  /** Focus: no blur within `range` (fraction of focus distance); `scale` px of blur per unit of |z−f|/z; capped at `max` px, both at 900 px tall. */
-  focus: { range: 0.035, scale: 34, max: 5.5 },
+  /** Focus: no blur within `range` (fraction of focus distance); `scale` px of blur per unit of |z−f|/z; capped at `max` px, both at 900 px tall; `far` scales the blur beyond the focus plane. */
+  focus: { range: 0.03, scale: 46, max: 7, far: 0.55 },
   grade: { saturation: 1.1, shadow: 0.6, light: 0.18, contrast: 1.04, lift: 0.45 },
   vignette: { amount: 0.55, inner: 0.42, outer: 1.18 },
   /** Below the bench top the world fades to the room over `drop` units; beyond |x| > `halfWidth` over `side`. */
@@ -164,6 +164,7 @@ uniform float focusDistance;
 uniform float focusRange;
 uniform float focusScale;
 uniform float focusMax;
+uniform float focusFar;
 uniform float aoStrength;
 uniform vec3 occlusion;
 
@@ -178,7 +179,9 @@ float cocAt(float d) {
   if (d >= 1.0) return focusMax;
   float z = viewDistance(d);
   float off = abs(z - focusDistance) / z;
-  return min(focusMax, max(0.0, off - focusRange) * focusScale);
+  // Beyond the focus plane blur grows more slowly, so the sign on the back wall stays legible.
+  float k = z > focusDistance ? focusFar : 1.0;
+  return min(focusMax, max(0.0, off - focusRange) * focusScale * k);
 }
 
 vec3 occlude(vec3 c, vec2 uv) {
@@ -202,6 +205,7 @@ const focusUniforms = () => ({
   focusRange: { value: LOOK.focus.range },
   focusScale: { value: LOOK.focus.scale },
   focusMax: { value: LOOK.focus.max },
+  focusFar: { value: LOOK.focus.far },
   aoStrength: { value: LOOK.gtao.strength },
   occlusion: { value: new Vector3() },
 });
@@ -536,6 +540,7 @@ export class PostChain {
     u.focusRange!.value = LOOK.focus.range;
     u.focusScale!.value = LOOK.focus.scale * k;
     u.focusMax!.value = LOOK.focus.max * k;
+    u.focusFar!.value = LOOK.focus.far;
     u.aoStrength!.value = LOOK.gtao.strength;
   }
 

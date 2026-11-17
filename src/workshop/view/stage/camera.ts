@@ -295,9 +295,28 @@ export class CameraRig {
     return t > 0 ? ray.at(t, new Vector3()) : null;
   }
 
-  /** Distance from the camera to the focus point (the depth of field's focus plane). */
+  /**
+   * Where the depth of field focuses. By default: where the centre of the
+   * frame meets the plane y = `focusHeight` (about half a robot above the
+   * bench), so whatever sits in the middle of the picture is sharp at any
+   * zoom. `focusOn(p)` pins it to a world point instead (a framed station);
+   * `focusOn(null)` returns to the default.
+   */
+  focusHeight = 0.5;
+  private pinnedFocus: Vector3 | null = null;
+
+  focusOn(p: { x: number; y: number; z: number } | null): void {
+    this.pinnedFocus = p ? new Vector3(p.x, p.y, p.z) : null;
+  }
+
+  /** Distance from the camera to the plane of sharp focus, along the view direction. */
   focusDistance(): number {
-    return this.distance;
+    const cam = this.camera.position;
+    if (this.pinnedFocus) return Math.max(0.1, this.pinnedFocus.clone().sub(cam).dot(this.dir));
+    const dy = this.dir.y;
+    if (Math.abs(dy) < 1e-6) return this.distance;
+    const t = (this.focusHeight - cam.y) / dy;
+    return t > 0 ? t : this.distance;
   }
 
   /** Advance easing and shake. `dt` in seconds. */
