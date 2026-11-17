@@ -377,6 +377,16 @@ ${DUST}
       paintSpec: p(0.25, 0, 1), // paint's specular energy: low, so the tint holds under the key
       paintDeep: p(0.85, 0.5, 1), // pigment reads a little deeper than the token on wood
       paintSat: p(1.15, 1, 1.6), // and a little richer, so lit tops keep their hue
+      // Dried paint on a big worked surface (the 'large' variant: drips, old
+      // spills on the bench) settles darker and duller than a fresh crate.
+      driedDeep: p(0.6, 0.2, 1),
+      driedSat: p(0.7, 0, 1.2),
+      // Use: the bench builder writes years of use into surf. Cavity near 1 is
+      // a worn, grimy track; wear on a flat face is sanded, paler bare wood.
+      use: p(0.55, 0, 1), // multiplicative darkening by cavity (broken up by the grime noise)
+      sanded: p(0.35, 0, 1), // lift by wear, on faces as well as edges
+      drag: p(0.35, 0, 1), // cheap drag marks on the 'large' path (one fetch + one scratch cell)
+      dragScale: p(1.2, 0.3, 6), // along-grain streak frequency of the drag marks
     },
     colours: () => ({ grime: grime(), dust: dust(), bareWood: tok('wood-light') }),
     glsl: /* glsl */ `
@@ -423,18 +433,41 @@ col *= mix(1.0, u_endDark, endg);
 vec3 grainCol = col; // before edge lightening: paint takes none of it
 float wornE = smoothstep(0.15, 0.85, pWear) * u_edgeWear * (0.55 + 0.45 * E.r);
 col = mix(col, col * u_edgeLight, wornE);
+// years of use: dark worn tracks where cavity is high, sanded pale wood where wear is
+float useDark = clamp(pCav * u_use * (0.6 + 0.8 * E.g), 0.0, 0.9);
+col *= 1.0 - useDark;
+float sand = pWear * u_sanded * (0.7 + 0.6 * E.r);
+col *= 1.0 + sand;
+col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), sand * 0.35);
 #if !defined(TIER_LOW) && !defined(LARGE)
 float sc = pScratchesLite(pP, pN, u_scuffScale, u_scuffDensity, u_scuffWidth, pFw);
 col = mix(col, col * 1.45, sc * 0.6);
 #endif
+#if !defined(TIER_LOW) && defined(LARGE)
+// drag marks: soft streaks along the grain and a sparse cell of straight scuffs across it
+float dragM = 0.0;
+{
+  vec4 Dg = pNoise4(vec3(pP.x * u_dragScale, pP.y * u_dragScale * 18.0, pP.z * u_dragScale * 18.0) + 9.0);
+  float along = smoothstep(0.7, 0.86, Dg.r) * smoothstep(0.45, 0.75, Dg.g);
+  float across = pScratchCell(pP, pN, 0.35, 0.004, 0.45, pFw, 4.2);
+  dragM = max(along * 0.8, across) * u_drag;
+  col = mix(col, col * 1.3, dragM);
+}
+#endif
 pRough = u_roughness + late * u_lateGloss + endg * 0.1 - wornE * 0.2 + (fibre - 0.5) * 0.12
-       + (S.a - 0.5) * u_roughVar + (L.b - 0.5) * u_roughVar * 0.8 + pores * 0.1;
+       + (S.a - 0.5) * u_roughVar + (L.b - 0.5) * u_roughVar * 0.8 + pores * 0.1
+       + useDark * 0.15 - sand * 0.15;
 // paint over the wood: the grain's colour, cut to a quarter, rides on the paint
 float paintAmt = 0.0;
 {
   vec3 grainMod = grainCol / max(woodHue, vec3(1e-4));
   vec3 pig = pBase * u_paintDeep;
+#ifdef LARGE
+  pig *= u_driedDeep;
+  pig = max(mix(vec3(dot(pig, vec3(0.2126, 0.7152, 0.0722))), pig, u_driedSat), vec3(0.0));
+#else
   pig = max(mix(vec3(dot(pig, vec3(0.2126, 0.7152, 0.0722))), pig, u_paintSat), vec3(0.0));
+#endif
   vec3 paintCol = pig * mix(vec3(1.0), grainMod, u_paintGrain) * (1.0 - pores * u_pores * 0.3);
   // blotchy, not along the grain: worn paint comes off in patches
 #ifdef LARGE
@@ -445,7 +478,7 @@ float paintAmt = 0.0;
   float paintField = 0.55 + (pn - 0.5) * 0.8 - pWear * u_paintWear;
   paintAmt = smoothstep(1.0 - pFinish - 0.03, 1.0 - pFinish + 0.03, paintField) * painted;
   col = mix(col, paintCol, paintAmt);
-  pRough = mix(pRough + wornE * 0.2, u_paintRough + (S.a - 0.5) * 0.06 + pores * 0.05, paintAmt);
+  pRough = mix(pRough, u_paintRough + (S.a - 0.5) * 0.06 + pores * 0.05, paintAmt);
   pSpec = mix(1.0, u_paintSpec, paintAmt);
 }
 pAlbedo = col;
@@ -658,9 +691,15 @@ pH = f1 * u_fibreBump * fAA + clumps * u_clumpBump;
   // Label and lane tape: glossy plastic, scuffed at the edges. 2 fetches.
   tape: {
     kind: 'physical',
-    props: { roughness: 0.32, metalness: 0, envMapIntensity: 0.8, clearcoat: 0.45, clearcoatRoughness: 0.18 },
+    // Glossy label tape: black reads black from the front. The broad lobe is
+    // turned down and the room's reflection is low; a thin, sharp coat gives
+    // the narrow gloss streak, and the base lobe (bent by the label's normal
+    // map) lets the embossed letters' edges catch the light.
+    props: { roughness: 0.3, metalness: 0, envMapIntensity: 0.25, clearcoat: 0.35, clearcoatRoughness: 0.04, specularIntensity: 1 },
     params: {
-      roughness: p(0.32, 0.1, 0.6),
+      roughness: p(0.3, 0.1, 0.6),
+      spec: p(0.35, 0, 1), // base specular energy: low, so the sheen does not cross the width
+      coat: p(0.35, 0, 1), // the narrow gloss streak
       edgeScuff: p(0.7, 0, 1),
       grain: p(0.00006, 0, 0.001),
       grainScale: p(160, 40, 400),
@@ -676,6 +715,10 @@ float scuff = smoothstep(0.3, 0.9, pWear) * u_edgeScuff * (0.5 + 0.5 * N.g);
 pAlbedo = pBase * (0.96 + 0.08 * N.r);
 pAlbedo = mix(pAlbedo, pAlbedo * 0.7 + c_dust * 0.25, scuff);
 pRough = u_roughness + (N.r - 0.5) * 0.015 + scuff * 0.35;
+pSpec = u_spec * (1.0 - scuff * 0.5);
+#ifdef USE_CLEARCOAT
+pCoat = u_coat * (1.0 - scuff);
+#endif
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
