@@ -131,17 +131,8 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
     return new Box3().setFromObject(o);
   };
 
-  const realizeInto = (piece: Piece, at: Placement, large = false): Object3D => {
+  const realizeInto = (piece: Piece, at: Placement): Object3D => {
     const obj = realize(piece, materials);
-    if (large) {
-      // Seam (W1.5 report): realize asks for materials.of(cls) without the
-      // part's variant, and merge drops `variant`, so the 'large' path is
-      // never reached through the kit. The ground asks for it here.
-      obj.traverse((o) => {
-        const m = o as Mesh;
-        if (m.isMesh) m.material = materials.of((m.userData['kitMaterial'] ?? 'wood') as 'wood', 'large');
-      });
-    }
     obj.position.set(at.x ?? 0, at.y ?? 0, at.z ?? 0);
     obj.rotation.y = ((at.yaw ?? 0) * Math.PI) / 180;
     world.add(obj);
@@ -158,13 +149,11 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
       realizeInto(p, { y: -p.size.y });
       groundSource = 'registry';
     } else {
-      const g = realizeInto(benchStandIn(), {}, true);
-      for (const o of [g]) o.traverse((m) => ((m as Mesh).castShadow = false));
+      realizeInto(benchStandIn(), {}).traverse((m) => ((m as Mesh).castShadow = false));
       groundSource = 'stand-in';
     }
     if (opts.wall) {
-      const w = realizeInto(wallStandIn(), {}, true);
-      w.traverse((m) => ((m as Mesh).castShadow = false));
+      realizeInto(wallStandIn(), {}).traverse((m) => ((m as Mesh).castShadow = false));
     }
   }
 

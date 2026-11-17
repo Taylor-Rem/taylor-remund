@@ -6,7 +6,7 @@
  */
 import type { Piece } from '../kit/types.ts';
 import { roundedBox } from '../kit/solids.ts';
-import { part, piece, T } from '../kit/compose.ts';
+import { large, part, piece, T } from '../kit/compose.ts';
 import { transform } from '../kit/deform.ts';
 import { rng } from '../kit/rng.ts';
 
@@ -31,11 +31,11 @@ export function benchStandIn(o: GroundOptions = {}): Piece {
     const g = roundedBox({ w: W, h: t, d: pd - 0.022, r: 0.03, rTop: front ? 0.12 : 0.03, segs: 4 });
     // planks are not all quite level or quite the same board
     const lift = R.spread(0.004);
-    b.add({ ...part('wood', transform(g, T(0, -t + lift, z)), 'wood', { seed: R.int(0, 9999), jitter: 0.09, warm: 0.04 }), variant: 'large' as const });
+    b.add(large(part('wood', transform(g, T(0, -t + lift, z)), 'wood', { seed: R.int(0, 9999), jitter: 0.09, warm: 0.04 })));
   }
   // the apron under the front edge
   const apron = roundedBox({ w: W - 0.4, h: 0.8, d: 0.3, r: 0.05 });
-  b.add({ ...part('wood', transform(apron, T(0, -t - 0.8, D / 2 - 0.2)), 'wood', { seed: 3, shade: 0.72 }), variant: 'large' as const });
+  b.add(large(part('wood', transform(apron, T(0, -t - 0.8, D / 2 - 0.2)), 'wood', { seed: 3, shade: 0.72 })));
   return b.build();
 }
 
@@ -50,7 +50,7 @@ export function wallStandIn(o: GroundOptions & { height?: number; at?: number } 
   const n = Math.ceil(H / bh);
   for (let i = 0; i < n; i++) {
     const g = roundedBox({ w: W, h: bh - 0.025, d: 0.16, r: 0.025, segs: 3 });
-    b.add({ ...part('wood', transform(g, T(R.spread(0.3), i * bh - 0.42, z - 0.16 + R.spread(0.006))), 'wood', { seed: R.int(0, 9999), jitter: 0.12, shade: 0.42 }), variant: 'large' as const });
+    b.add(large(part('wood', transform(g, T(R.spread(0.3), i * bh - 0.42, z - 0.16 + R.spread(0.006))), 'wood', { seed: R.int(0, 9999), jitter: 0.12, shade: 0.42 })));
   }
   return b.build();
 }
