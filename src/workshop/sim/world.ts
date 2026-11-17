@@ -564,6 +564,7 @@ export function createWorld(opts: WorldOptions): World {
     },
     idleSteps: () => clock.step - lastInput,
     touched: (id) => touchedSet.has(id),
+    halfExtents: (id) => loose.get(id)?.half,
     mode: (id) => loose.get(id)?.mode,
     pose: (id) => (loose.has(id) ? lp(id).pose : undefined),
     settled: (id) => {

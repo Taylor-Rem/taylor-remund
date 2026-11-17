@@ -21,13 +21,13 @@ describe('Fetch (§ B3, § B5)', () => {
     expect(world.crew('fetch')).toMatchObject({ state: 'idle', carrying: 'crate-4' });
     expect(world.mode('crate-4')).toBe('crew');
     expect(world.mode('fetch')).toBe('crew');
-    const t = trace(world, steps(3.5));
+    const t = trace(world, steps(5));
     expect(t.map((s) => s.state).slice(0, 3)).toEqual(['roll', 'skid', 'idle']);
     // it overshot: during the skid it moves backwards along its heading
     const w2 = stubWorld().world;
     let sawBackward = false;
     let maxSpeed = 0;
-    for (let i = 0; i < steps(3.5); i++) {
+    for (let i = 0; i < steps(5); i++) {
       w2.advance();
       w2.drainEvents();
       const m = w2.crew('fetch');

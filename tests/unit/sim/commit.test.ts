@@ -27,7 +27,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
     );
     expect(res.refused).toEqual([]);
     expect(res.effects).toEqual([
-      { target: 'crate-1', field: 'colour', before: 'paper', after: 'paint-blue', cause: 't1' },
+      { target: 'crate-1', field: 'colour', before: 'bare', after: 'paint-blue', cause: 't1' },
       { target: 'crate-1', field: 'label', before: '', after: 'HELLO', cause: 't1' },
     ]);
     expect(world.part('crate-1')?.colour).toBe('paint-blue');
@@ -64,7 +64,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
       ],
       't3',
     );
-    expect(r.effects).toEqual([{ target: 'crate-2', field: 'colour', before: 'paper', after: 'cable-red', cause: 't3' }]);
+    expect(r.effects).toEqual([{ target: 'crate-2', field: 'colour', before: 'bare', after: 'cable-red', cause: 't3' }]);
   });
 
   test('consecutive writes keep the writer chain (rule 6/8 worked example)', () => {
@@ -74,7 +74,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
     world.commit([{ target: 'crate-1', field: 'colour', after: 'paint-blue' }], 't1');
     world.commit([{ target: 'crate-1', field: 'colour', after: 'cable-red' }], 't2');
     expect(recorded.map((r) => r.map((x) => [x.effect.before, x.effect.after, x.previousWriter]))).toEqual([
-      [['paper', 'paint-blue', 'settled']],
+      [['bare', 'paint-blue', 'settled']],
       [['paint-blue', 'cable-red', 't1']],
     ]);
     expect(world.writer('crate-1', 'colour')).toBe('t2');

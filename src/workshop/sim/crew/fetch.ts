@@ -36,7 +36,11 @@ export const FETCH_TUNING = {
   /** The lane's stops are this far inside its ends. */
   inset: 0.3,
   bodyHalfHeight: 0.5,
-  handForward: 0.44,
+  /** Hands reach this far beyond the front of its body (half depth `bodyHalfDepth`), plus the carried part's own half depth. */
+  handGap: 0.03,
+  bodyHalfDepth: 0.26,
+  /** Nominal reach of the hands from its centre, for an S crate (used for the pickup distance). */
+  handForward: 0.515,
   handHeight: 0.62,
   /** Visitor inactivity before the fumble (§ B3: about 4 s). */
   fumbleAfter: 4,
@@ -112,7 +116,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const handPose = (): Pose => {
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);
-    return { p: [x + fx * T.handForward, T.handHeight, z + fz * T.handForward], q: qyaw(heading) };
+    // never inside its own body: the crate's near face sits just clear of Fetch's front
+    const reach = T.bodyHalfDepth + T.handGap + (carrying ? (ctx.halfExtents(carrying)?.[2] ?? 0.225) : 0.225);
+    return { p: [x + fx * reach, T.handHeight, z + fz * reach], q: qyaw(heading) };
   };
 
   // take hold of its own body and its crate
@@ -270,15 +276,30 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           break;
         case 'fumble': {
           v = 0;
+          // turn to the fumble heading during the wind-up (shortest way), so the toss is the same whichever way it came
+          if (carrying) {
+            const left = Math.max(1, steps(T.fumbleWindup) - inState());
+            const d = Math.atan2(Math.sin(spec.fumbleHeading - heading), Math.cos(spec.fumbleHeading - heading));
+            heading += d / left;
+          }
           if (carrying && inState() >= steps(T.fumbleWindup)) {
+            heading = spec.fumbleHeading;
             const crate = carrying;
             carrying = null;
             fumbled = crate;
             lastFumble = ctx.clock.step;
             ctx.detach(crate, spec.toss.linvel, spec.toss.angvel, 'crew');
           }
-          if (fumbled) lookAt = ctx.pose(fumbled)?.p ?? null;
-          if (inState() >= steps(T.fumbleWindup + T.fumbleRecover)) enter(fumbled ? 'offer' : 'idle');
+          if (fumbled) {
+            lookAt = ctx.pose(fumbled)?.p ?? null;
+            // after letting go, turn to face the visitor for the offer
+            const left = Math.max(1, steps(T.fumbleWindup + T.fumbleRecover) - inState());
+            heading += Math.atan2(Math.sin(spec.offerHeading - heading), Math.cos(spec.offerHeading - heading)) / left;
+          }
+          if (inState() >= steps(T.fumbleWindup + T.fumbleRecover)) {
+            if (fumbled) heading = spec.offerHeading;
+            enter(fumbled ? 'offer' : 'idle');
+          }
           break;
         }
         case 'offer': {
