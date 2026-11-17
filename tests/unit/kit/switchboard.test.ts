@@ -5,7 +5,7 @@ import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import {
-  BOARD, catalogue, cordGeometry, cordPlug, JACKS, lensColour, NAMED_POSES, PLUG, POSE, poseSwitchboard, SEAT_Y, stool, switchboard, updateCord,
+  BOARD, catalogue, cordGeometry, cordPlug, JACKS, NAMED_POSES, PLUG, POSE, poseSwitchboard, SEAT_Y, stool, switchboard, updateCord,
 } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
 import { vignette } from '../../../src/workshop/sim/scenes/vignette.ts';
 
@@ -56,7 +56,9 @@ describe('the switchboard', () => {
   it('has a lamp node and a drawer node per live jack, and its sockets', () => {
     const n = nodes(p);
     for (const j of JACKS) {
-      expect(n.get(`lamp.${j}`)?.parts.some((q) => q.material === 'bulb'), `lamp.${j}`).toBe(true);
+      expect(n.has(`lamp.${j}`), `lamp.${j}`).toBe(true);
+      expect(n.get(`lamp.${j}.lit`)?.parts.some((q) => q.material === 'bulb'), `lamp.${j}.lit`).toBe(true);
+      expect(n.get(`lamp.${j}.unlit`)?.parts.some((q) => q.material === 'glass'), `lamp.${j}.unlit`).toBe(true);
       expect(n.has(`drawer.${j}`), `drawer.${j}`).toBe(true);
       for (const s of [`jack.${j}`, `lamp.${j}`, `label.${j}`]) expect(p.sockets?.[s], s).toBeDefined();
     }
@@ -110,24 +112,61 @@ describe('the switchboard', () => {
     expect(keys.sort()).toEqual(['card-l', 'card-s', 'tape-l', 'tape-s']);
   });
 
-  it('poses: drawers slide out along +Z, lamps light, on a realized board and on a piece', () => {
-    // STOPGAP (lead, 2026-11-17): lamp lighting rewrites the lens's vertex colours through its node's mesh,
-    // which the default skinned backend merges away. Until the lamps are made backend-independent
-    // (lit/unlit lens nodes), this checks the per-node backend only.
-    const o = K.realize(switchboard(), stub, { backend: 'nodes' });
+  it('poses on the default (skinned) backend: drawers slide out along +Z, lamps swap lit and dark lenses', () => {
+    const o = K.realize(switchboard(), stub);
     const d = o.getObjectByName('drawer.storefront')!;
+    o.updateMatrixWorld(true);
     const before = d.getWorldPosition(new Vector3());
+    const scaleOf = (name: string): number => {
+      o.updateMatrixWorld(true);
+      return new Vector3().setFromMatrixScale(o.getObjectByName(name)!.matrixWorld).x;
+    };
+    // dark by default
+    expect(scaleOf('lamp.lamp.lit')).toBeLessThan(0.01);
+    expect(scaleOf('lamp.lamp.unlit')).toBeCloseTo(1, 5);
     poseSwitchboard(o, { drawers: { storefront: 1 }, lamps: { lamp: 1 } });
     o.updateMatrixWorld(true);
     const after = d.getWorldPosition(new Vector3());
     expect(after.z - before.z).toBeCloseTo(POSE.drawerTravel, 5);
     expect(Math.abs(after.x - before.x)).toBeLessThan(1e-6);
-    const lens = o.getObjectByName('lamp.lamp')!.children.find((c) => (c as Mesh).isMesh) as Mesh;
-    expect(lens.geometry.getAttribute('color').getX(0)).toBeCloseTo(lensColour(1)[0], 5);
-    poseSwitchboard(o, { drawers: { storefront: 0 } });
+    expect(scaleOf('lamp.lamp.lit')).toBeCloseTo(1, 5);
+    expect(scaleOf('lamp.lamp.unlit')).toBeLessThan(0.01);
+    expect(scaleOf('lamp.storefront.lit')).toBeLessThan(0.01);
+    poseSwitchboard(o, { drawers: { storefront: 0 }, lamps: { lamp: 0 } });
     o.updateMatrixWorld(true);
     expect(d.getWorldPosition(new Vector3()).distanceTo(before)).toBeLessThan(1e-6);
-    for (const name of Object.keys(NAMED_POSES)) expect(() => switchboard({ pose: name })).not.toThrow();
+    expect(scaleOf('lamp.lamp.lit')).toBeLessThan(0.01);
+    // posing writes no geometry: two realisations of one piece never share lamp state
+    const piece = switchboard();
+    const a = K.realize(piece, stub), b = K.realize(piece, stub);
+    poseSwitchboard(a, { lamps: { storefront: 1 } });
+    a.updateMatrixWorld(true);
+    b.updateMatrixWorld(true);
+    expect(new Vector3().setFromMatrixScale(b.getObjectByName('lamp.storefront.lit')!.matrixWorld).x).toBeLessThan(0.01);
+  });
+
+  it("the 'nodes' and 'skinned' backends agree for every named pose, and a build-time pose matches", () => {
+    const piece = switchboard();
+    const names = ['drawer.storefront', 'drawer.lamp', ...JACKS.flatMap((j) => [`lamp.${j}.lit`, `lamp.${j}.unlit`])];
+    for (const pose of Object.keys(NAMED_POSES)) {
+      const n = K.realize(piece, stub, { backend: 'nodes' }), s = K.realize(piece, stub, { backend: 'skinned' });
+      const built = K.realize(switchboard({ pose }), stub, { backend: 'nodes' });
+      poseSwitchboard(n, NAMED_POSES[pose]!);
+      poseSwitchboard(s, NAMED_POSES[pose]!);
+      for (const o of [n, s, built]) o.updateMatrixWorld(true);
+      for (const name of names) {
+        const mn = n.getObjectByName(name)!.matrixWorld.elements, ms = s.getObjectByName(name)!.matrixWorld.elements, mb = built.getObjectByName(name)!.matrixWorld.elements;
+        mn.forEach((v, k) => {
+          expect(ms[k]!, `${pose} ${name}`).toBeCloseTo(v, 5);
+          expect(mb[k]!, `${pose} ${name} (built)`).toBeCloseTo(v, 5);
+        });
+      }
+    }
+  });
+
+  it('draws in a handful of calls on the default backend', () => {
+    const bud = K.budget(p);
+    expect(bud.calls).toBeLessThanOrEqual(30);
   });
 
   it('every catalogue entry builds', () => {
