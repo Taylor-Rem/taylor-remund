@@ -202,6 +202,34 @@
           return { labels: measureLabels(), scene: st.scene, frame: st.frame, renderer: st.renderer, width: canvas.clientWidth, height: canvas.clientHeight };
         },
         project: (p: Vec3) => project(new Vector3(...p)),
+        /**
+         * Two consecutive frames of a still scene (no simulation step, dt 0), read straight back:
+         * any pixel that differs is flicker (z-fighting, shadow noise, temporal shimmer).
+         */
+        stillPair(threshold = 2) {
+          const gl = ws.stage.renderer.getContext();
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+          const a = new Uint8Array(w * h * 4), b = new Uint8Array(w * h * 4);
+          ws.advance(0);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, a);
+          ws.advance(0);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, b);
+          let n = 0, max = 0;
+          let x0 = w, y0 = h, x1 = -1, y1 = -1;
+          for (let i = 0; i < w * h; i++) {
+            const d = Math.max(Math.abs(a[i * 4]! - b[i * 4]!), Math.abs(a[i * 4 + 1]! - b[i * 4 + 1]!), Math.abs(a[i * 4 + 2]! - b[i * 4 + 2]!));
+            if (d > max) max = d;
+            if (d > threshold) {
+              n++;
+              const x = i % w, y = h - 1 - Math.floor(i / w);
+              if (x < x0) x0 = x;
+              if (x > x1) x1 = x;
+              if (y < y0) y0 = y;
+              if (y > y1) y1 = y;
+            }
+          }
+          return { width: w, height: h, differing: n, maxDelta: max, box: n ? [x0, y0, x1, y1] : null };
+        },
         /** Screen position of an interactable (its pick proxy's centre). */
         where(id: string) {
           const m = ws.world.motion(id);

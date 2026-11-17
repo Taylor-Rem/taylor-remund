@@ -179,6 +179,7 @@ export class Rope {
   step(dt: number, a: Vector3, ta: Vector3, b: Vector3, tb: Vector3, floor: (v: Vector3) => void): void {
     const F = CORD_FEEL;
     const n = this.p.length;
+    if (!(dt > 0)) return; // no time, no motion (a still frame is a still frame)
     const sub = Math.max(1, Math.ceil(dt * 120));
     const h = dt / sub;
     for (let s = 0; s < sub; s++) {
