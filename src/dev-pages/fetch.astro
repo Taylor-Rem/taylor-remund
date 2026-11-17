@@ -1,0 +1,242 @@
+---
+// /dev/fetch/ (W4 § A): Fetch alive. Fetch on the bench with the real
+// simulation running its lane loop; every state is reached through the
+// simulation (intents, or simply waiting), never by poking the view.
+// Dev-only; never shipped.
+//
+// Keys (and the buttons at the bottom):
+//   B  press the Button          → frozen for the rung, then resumes
+//   G  pick Fetch up, carry it, put it down off its lane → held, return
+//   T  take the crate out of its hands                   → salute
+//   R  start over (it fumbles ~4 s after the last input, offers, and after 12 s ignored fetches the crate back and shrugs)
+//   move the pointer over the bench: it looks at the pointer when it is near or moving
+//
+// Query: ?manual=1 (captures: drive with __fetch.step(n))  ?seed=N  ?tier=low  ?view=close|wide|phone
+//        ?rm=1 (reduced motion, as if the system asked)  ?debug=1 (state overlay and a pointer dot)
+// Hooks: window.__fetch { ws, play(name), step(n), project(p), member() }
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Fetch</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
+      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+      #debug {
+        position: fixed; left: 8px; top: 8px; padding: 6px 9px; border-radius: 6px;
+        background: rgba(10, 20, 22, 0.78); color: #efe6d2; font: 12px/1.45 ui-monospace, Menlo, monospace;
+        white-space: pre; pointer-events: none; display: none;
+      }
+      #keys { position: fixed; left: 8px; bottom: 8px; display: none; gap: 6px; }
+      #keys button { font: 12px ui-monospace, Menlo, monospace; background: #1f4a4f; color: #efe6d2; border: 1px solid #3a7c7a; border-radius: 4px; padding: 4px 8px; }
+      #cursor {
+        position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -8px 0 0 -8px; border-radius: 50%;
+        border: 2px solid #ffd27a; box-shadow: 0 0 0 1px #12292c; pointer-events: none; display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="debug"></div>
+    <div id="cursor"></div>
+    <div id="keys">
+      <button data-k="b">B press</button><button data-k="g">G pick up</button><button data-k="t">T take crate</button><button data-k="r">R restart</button>
+    </div>
+    <script>
+      import { Box3, Group, Vector3 } from 'three';
+      import { bootWorkshop, type BootStation, type Workshop } from '../workshop/shell/boot.ts';
+      import { createPartsView } from '../workshop/view/stations/parts.ts';
+      import { createFetchView } from '../workshop/view/stations/fetch.ts';
+      import { installDebugHooks } from '../workshop/view/stage/debug.ts';
+      import type { Intent, Part, Vec3, WorldView } from '../workshop/sim/index.ts';
+      import { defaultHalfExtents } from '../workshop/sim/parts.ts';
+      import { crate, crateLabels } from '../workshop/view/kit/pieces/crate/index.ts';
+      import { bench, backWall, laneTape } from '../workshop/view/kit/pieces/bench/index.ts';
+      import { button, buttonLabels } from '../workshop/view/kit/pieces/button/index.ts';
+      import type { Frame } from '../workshop/view/types.ts';
+      import type { View } from '../workshop/view/stage/camera.ts';
+
+      const q = new URLSearchParams(location.search);
+      const debug = q.get('debug') === '1';
+      const tier = q.get('tier') === 'low' ? 'low' : 'high';
+      const manual = q.get('manual') === '1';
+      const seed = Number(q.get('seed') ?? 1);
+      const reducedMotion = q.get('rm') === '1' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+
+      let worldRef: WorldView | null = null;
+      const halfOf = (part: Part): Vec3 => worldRef?.scene.parts.find((s) => s.id === part.id)?.half ?? defaultHalfExtents(part.kind, part.size);
+
+      /** The set for this page: bench, wall, Fetch's lane tape, the Button standing on its pedestal. */
+      const setView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'fetch-page-set';
+        ctx.scene.add(root);
+        crateLabels(ctx.labels);
+        let built = false;
+        return {
+          root,
+          update(frame: Frame) {
+            if (built) return;
+            built = true;
+            const w = frame.world;
+            const add = (o: ReturnType<typeof ctx.realize>, x: number, y: number, z: number): void => {
+              o.position.set(x, y, z);
+              root.add(o);
+            };
+            add(ctx.realize(bench({ sections: 4, width: 5, depth: 10, seed: 11 })), 0, 0, 0);
+            add(ctx.realize(backWall({ width: 20, height: 6, seed: 5 })), 0, 0, -5);
+            const lane = w.scene.runner.lane;
+            const pad = 0.55;
+            const [ax, az] = lane.a;
+            const [bx, bz] = lane.b;
+            add(ctx.realize(laneTape({ points: [[ax - pad, az - 0.42], [bx + pad, bz - 0.42]], seed: 3 })), 0, 0, 0);
+            add(ctx.realize(laneTape({ points: [[ax - pad, az + 0.42], [bx + pad, bz + 0.42]], seed: 4 })), 0, 0, 0);
+            const ped = w.scene.statics.find((s) => s.id === 'button-pedestal');
+            if (ped && q.get('button') !== '0') {
+              const o = ctx.realize(button({ labels: buttonLabels(ctx.labels), seed: 2 }));
+              o.scale.setScalar(0.6);
+              add(o, ped.pose.p[0], 0, ped.pose.p[2] + 0.1);
+              ctx.pickable(w.button().id, o);
+            }
+          },
+          dispose() {
+            root.removeFromParent();
+          },
+        };
+      };
+
+      const views: Record<string, View> = {};
+      const ws: Workshop = await bootWorkshop(canvas, {
+        tier,
+        reducedMotion,
+        seed,
+        manual,
+        stations: [
+          setView,
+          createPartsView({ half: halfOf, piece: (part, half) => crate({ size: part.size, seed: Math.round(half[0] * 1000) + part.id.length }) }),
+          createFetchView({ seed: 7 }),
+        ],
+        frameCamera(stage, scene) {
+          const edge = { y: scene.bench.top, z: scene.bench.maxZ };
+          const v = q.get('view') ?? (innerWidth < innerHeight ? 'phone' : 'close');
+          const lane = scene.runner.lane;
+          const box =
+            v === 'wide' ? new Box3(new Vector3(-5, -0.3, -5), new Vector3(6, 2.6, 5))
+            : v === 'phone' ? new Box3(new Vector3(lane.a[0] - 0.6, 0, lane.a[1] - 0.8), new Vector3(lane.b[0] + 0.6, 1.5, 2.6))
+            : new Box3(new Vector3(lane.a[0] - 0.7, 0, lane.a[1] - 0.9), new Vector3(lane.b[0] + 0.7, 1.4, 2.4));
+          stage.camera.setSubject(box, { edge, bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 4, scene.bench.maxZ)) });
+          stage.camera.focusOn(new Vector3((lane.a[0] + lane.b[0]) / 2, 0.5, lane.a[1] + 0.3));
+          stage.camera.cutTo(stage.camera.home());
+        },
+        onFrame,
+      });
+      worldRef = ws.world;
+      installDebugHooks(ws.stage, ws.loop, views);
+
+      // ───────────────────────── scripted intents, on simulation steps ─────────────────────────
+
+      let plan: { at: number; intent: Intent }[] = [];
+      const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      const ease = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+      /** Carry from a to b over n steps, starting at step s. */
+      function carry(s: number, n: number, a: Vec3, b: Vec3, wiggle = 0): void {
+        for (let i = 1; i <= n; i++) {
+          const p = lerp3(a, b, ease(i / n));
+          plan.push({ at: s + i, intent: { type: 'carry', target: [p[0] + wiggle * Math.sin(i * 0.22), p[1], p[2]] } });
+        }
+      }
+      function play(name: string): void {
+        const w = ws.world;
+        const s = w.step + 1;
+        plan = plan.filter((p) => p.at > w.step);
+        if (name === 'press') plan.push({ at: s, intent: { type: 'press', id: w.button().id } });
+        if (name === 'pickup') {
+          const id = w.scene.runner.id;
+          const p = w.motion(id)!.pose.p;
+          const grip: Vec3 = [p[0], p[1] + 0.25, p[2]];
+          plan.push({ at: s, intent: { type: 'grab', id, grip } });
+          const up: Vec3 = [p[0] + 0.3, 1.9, p[2] + 0.5];
+          const over: Vec3 = [p[0] + 1.3, 1.7, p[2] + 1.1];
+          const down: Vec3 = [p[0] + 1.5, 0.75, p[2] + 1.15];
+          carry(s, 24, grip, up);
+          carry(s + 24, 50, up, over, 0.25);
+          carry(s + 74, 30, over, down);
+          plan.push({ at: s + 118, intent: { type: 'release', velocity: [0, 0, 0] } });
+        }
+        if (name === 'take') {
+          const m = w.crew(w.scene.runner.id)!;
+          if (!m.carrying) return;
+          const c = w.motion(m.carrying)!.pose.p;
+          plan.push({ at: s, intent: { type: 'grab', id: m.carrying, grip: c } });
+          const up: Vec3 = [c[0], c[1] + 0.8, c[2] + 0.5];
+          const down: Vec3 = [c[0] + 0.2, 0.4, c[2] + 1.2];
+          carry(s, 30, c, up);
+          carry(s + 30, 30, up, down);
+          plan.push({ at: s + 66, intent: { type: 'release', velocity: [0, 0, 0] } });
+        }
+      }
+      function dispatchDue(): void {
+        const now = ws.world.step;
+        const due = plan.filter((p) => p.at <= now + 1);
+        plan = plan.filter((p) => p.at > now + 1);
+        for (const p of due) ws.dispatch(p.intent);
+      }
+
+      // ───────────────────────── overlay ─────────────────────────
+
+      const overlay = document.getElementById('debug')!;
+      const cursorDot = document.getElementById('cursor')!;
+      if (debug) {
+        overlay.style.display = 'block';
+        cursorDot.style.display = 'block';
+        document.getElementById('keys')!.style.display = 'flex';
+        addEventListener('pointermove', (e) => (cursorDot.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`));
+      }
+      function onFrame(frame: Frame): void {
+        dispatchDue();
+        if (!debug) return;
+        const m = frame.world.crew(frame.world.scene.runner.id);
+        if (m) overlay.textContent = `${m.state.padEnd(7)} ${m.stateTime.toFixed(2)}s  v ${m.speed.toFixed(2)}  ${m.carrying ?? '-'}  t ${frame.time.toFixed(2)}`;
+      }
+
+      const keys: Record<string, () => void> = {
+        b: () => play('press'),
+        g: () => play('pickup'),
+        t: () => play('take'),
+        r: () => location.reload(),
+      };
+      addEventListener('keydown', (e) => keys[e.key.toLowerCase()]?.());
+      for (const b of document.querySelectorAll<HTMLButtonElement>('#keys button')) b.addEventListener('click', () => keys[b.dataset['k']!]?.());
+
+      (window as unknown as { __fetch: unknown }).__fetch = {
+        ws,
+        play,
+        /** Manual mode: n steps, one step at a time (scripted intents land on their steps), rendering the last. */
+        step(n: number) {
+          for (let i = 0; i < n; i++) {
+            dispatchDue();
+            ws.loop.advance(1);
+          }
+        },
+        member: () => ws.world.crew(ws.world.scene.runner.id),
+        project(p: Vec3) {
+          const s = ws.stage.camera.worldToScreen({ x: p[0], y: p[1], z: p[2] });
+          return { x: ((s.x + 1) / 2) * canvas.clientWidth, y: ((1 - s.y) / 2) * canvas.clientHeight };
+        },
+      };
+      let frames = 0;
+      const ready = (): void => {
+        if (++frames === 10) window.__ready = true;
+        else requestAnimationFrame(ready);
+      };
+      if (manual) {
+        for (let i = 0; i < 10; i++) ws.advance(1);
+        window.__ready = true;
+      } else requestAnimationFrame(ready);
+    </script>
+  </body>
+</html>
