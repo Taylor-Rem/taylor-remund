@@ -89,7 +89,10 @@ export function deform(g: BufferGeometry, f: (x: number, y: number, z: number) =
   }
   pos.needsUpdate = true;
   nrm.needsUpdate = true;
-  if (!opts.keepSurf && g.getAttribute(ATTR.surf)) g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g), 3));
+  // wear and cavity are re-measured from the new shape, with the solid's own wear band
+  // (geometry.userData.kitBand, written by finish) and keeping the finish channel; wear written
+  // by intent (the cheap solids: userData.kitSurf = 'intent') is kept as it is
+  if (!opts.keepSurf && g.userData['kitSurf'] !== 'intent' && g.getAttribute(ATTR.surf)) g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g), 3));
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
