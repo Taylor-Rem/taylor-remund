@@ -100,7 +100,6 @@ export function crateSpec(size: CrateSize): Readonly<Spec> {
 
 // ---- the stencil -------------------------------------------------------------
 
-const STENCIL_PAINT: Token = 'ink';
 /**
  * Width of a stencil label in cap units: side pads (2 × 0.38, labels/layout
  * PROPORTIONS.stencil) plus the advance of its glyphs. The arrow's advance
@@ -115,25 +114,37 @@ function stencilTexts(size: CrateSize): { arrows: string; letter: string } {
   return { arrows: world.stencil.up + world.stencil.up, letter: world.stencil.size[size] };
 }
 
-/** The label keys a crate of this size names (the stencil textures). */
-export function crateLabelKeys(size: CrateSize): { arrows: string; letter: string } {
+/** The two stencil inks: `ink` on bare wood and light paints, `paper` on dark ones. */
+export type StencilInk = 'ink' | 'paper';
+const STENCIL_INKS: readonly StencilInk[] = ['ink', 'paper'];
+const DARK_PAINTS: ReadonlySet<Token> = new Set<Token>(['cable-red', 'paint-blue', 'paint-violet', 'paint-green']);
+
+/** Which stencil ink a crate of this paint wears. */
+export function stencilInk(paint: Token | null): StencilInk {
+  return paint && DARK_PAINTS.has(paint) ? 'paper' : 'ink';
+}
+
+/** The label keys a crate of this size names (the stencil textures), for one ink. */
+export function crateLabelKeys(size: CrateSize, ink: StencilInk = 'ink'): { arrows: string; letter: string } {
   const s = SPECS[size];
   const t = stencilTexts(size);
   return {
-    arrows: labelKey('stencil', t.arrows, STENCIL_PAINT, { capHeight: s.arrowCap }),
-    letter: labelKey('stencil', t.letter, STENCIL_PAINT, { capHeight: s.letterCap }),
+    arrows: labelKey('stencil', t.arrows, ink, { capHeight: s.arrowCap }),
+    letter: labelKey('stencil', t.letter, ink, { capHeight: s.letterCap }),
   };
 }
 
-/** Make every texture a crate needs (all three sizes). Call once before realizing crates. */
+/** Make every texture a crate needs (all three sizes, both inks). Call once before realizing crates. */
 export function crateLabels(labels: Labels): void {
   for (const size of ['S', 'M', 'L'] as const) {
     const s = SPECS[size];
     const t = stencilTexts(size);
-    const keys = crateLabelKeys(size);
-    const a = labels.stencil(t.arrows, { paint: STENCIL_PAINT, capHeight: s.arrowCap });
-    const l = labels.stencil(t.letter, { paint: STENCIL_PAINT, capHeight: s.letterCap });
-    if (a !== keys.arrows || l !== keys.letter) throw new Error(`crate: label keys drifted (${a} / ${l})`);
+    for (const ink of STENCIL_INKS) {
+      const keys = crateLabelKeys(size, ink);
+      const a = labels.stencil(t.arrows, { paint: ink, capHeight: s.arrowCap });
+      const l = labels.stencil(t.letter, { paint: ink, capHeight: s.letterCap });
+      if (a !== keys.arrows || l !== keys.letter) throw new Error(`crate: label keys drifted (${a} / ${l})`);
+    }
   }
 }
 
@@ -164,6 +175,30 @@ const PAINT_CLASS = 'wood' as MaterialClass;
 const SKIN_SINK = 0.012;
 
 const PAINT = new WeakMap<BufferGeometry, PaintInfo>();
+/** surf.z written on painted skins: how fully the paint covers the grain (see the report's materials request). */
+const PAINT_COVERAGE = 1;
+
+/** A stencil decal mesh: its ink, and its resting positions (it sinks into the plank when the other ink is showing). */
+interface StencilInfo {
+  ink: StencilInk;
+  rest: Float32Array;
+}
+const STENCIL = new WeakMap<BufferGeometry, StencilInfo>();
+/** How far the unused stencil sinks behind the face (decals sit 0.0042 proud; planks are at least 0.024 thick). */
+const STENCIL_SINK = 0.016;
+
+function writeStencil(g: BufferGeometry, info: StencilInfo, ink: StencilInk): void {
+  const pos = g.getAttribute('position') as BufferAttribute;
+  const nrm = g.getAttribute('normal') as BufferAttribute;
+  const p = pos.array as Float32Array;
+  const sink = info.ink === ink ? 0 : STENCIL_SINK;
+  for (let i = 0; i < pos.count; i++) {
+    p[i * 3] = info.rest[i * 3]! - nrm.getX(i) * sink;
+    p[i * 3 + 1] = info.rest[i * 3 + 1]! - nrm.getY(i) * sink;
+    p[i * 3 + 2] = info.rest[i * 3 + 2]! - nrm.getZ(i) * sink;
+  }
+  pos.needsUpdate = true;
+}
 
 /** Where the paint lives in a built crate: per node and material, the skin vertex ranges. */
 export function paintRanges(p: Piece): Array<{ node: string; material: MaterialClass; ranges: Array<[number, number]> }> {
@@ -199,6 +234,10 @@ function writePaint(g: BufferGeometry, info: PaintInfo, paint: Token | null): vo
     }
   }
   col.needsUpdate = true;
+  // paint coverage in the finish channel (surf.z): 1 painted, 0 bare (the contract asked of the wood class)
+  const sf = g.getAttribute('surf') as BufferAttribute;
+  for (const [start, count] of info.ranges) for (let i = start; i < start + count; i++) sf.setZ(i, paint ? PAINT_COVERAGE : 0);
+  sf.needsUpdate = true;
   if (info.rest) {
     // bare: each skin sinks into its plank (hidden inside the wood); painted: back on the face
     const pos = g.getAttribute('position') as BufferAttribute;
@@ -229,16 +268,19 @@ export function repaint(object: Object3D, paint: Token | null): number {
   object.traverse((o) => {
     const m = o as Mesh;
     if (!m.isMesh) return;
-    let info = PAINT.get(m.geometry);
-    if (!info) return;
+    const info = PAINT.get(m.geometry);
+    const st = STENCIL.get(m.geometry);
+    if (!info && !st) return;
     if (m.userData['crateOwnPaint'] !== true) {
+      // shared with other crates (the build memo): this crate gets its own copy first
       const g = m.geometry.clone();
-      PAINT.set(g, info);
+      if (info) PAINT.set(g, info);
+      if (st) STENCIL.set(g, st);
       m.geometry = g;
       m.userData['crateOwnPaint'] = true;
-      info = PAINT.get(g)!;
     }
-    writePaint(m.geometry, info, paint);
+    if (info) writePaint(m.geometry, info, paint);
+    if (st) writeStencil(m.geometry, st, stencilInk(paint));
     n++;
   });
   return n;
@@ -382,7 +424,6 @@ export function crate(o: CrateOptions = {}): Piece {
     if (wl.front) {
       // stencil: arrows over the size letter, sprayed across the planks
       if (o.stencil !== false) {
-        const keys = crateLabelKeys(size);
         const pw = 2 * xIn;
         const ph2 = panelY1 - panelY0;
         const aw = STENCIL_W.arrows! * S.arrowCap, ah = STENCIL_H * S.arrowCap;
@@ -399,23 +440,28 @@ export function crate(o: CrateOptions = {}): Piece {
           lxp = R.spread(0.012); lyp = n === 1 ? panelY0 + ph2 * 0.34 : mid(bands[0]!) + 0.015;
         }
         const zs = 0.0042;
-        for (const [key, cx, cy, w, h] of [[keys.arrows, ax, ay, aw, ah], [keys.letter, lxp, lyp, lw, lh]] as const) {
-          // each band rides its own plank (its tilt), cut at the gaps
-          const tilt = R.spread(1.2);
-          for (let i = 0; i < n; i++) {
-            const band = bands[i]!;
-            const g = decalBands(cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, [band]);
-            if (!g) continue;
-            // the stencil was held a little crooked: turn the texture, not the band (the band must stop at the gap)
-            const uv = g.getAttribute('uv') as BufferAttribute;
-            const ca = Math.cos(tilt * DEG), sa = Math.sin(tilt * DEG);
-            for (let j = 0; j < uv.count; j++) {
-              const px = (uv.getX(j) - 0.5) * w, py = (uv.getY(j) - 0.5) * h;
-              uv.setXY(j, (px * ca - py * sa) / w + 0.5, (px * sa + py * ca) / h + 0.5);
+        const tilts = [R.spread(1.2), R.spread(1.2)];
+        // both inks are sprayed in the same place; the one the paint does not want sinks into the plank
+        for (const ink of STENCIL_INKS) {
+          const keys = crateLabelKeys(size, ink);
+          const marks = [[keys.arrows, ax, ay, aw, ah, tilts[0]!], [keys.letter, lxp, lyp, lw, lh, tilts[1]!]] as const;
+          for (const [key, cx, cy, w, h, tilt] of marks) {
+            // each band rides its own plank (its tilt), cut at the gaps
+            for (let i = 0; i < n; i++) {
+              const band = bands[i]!;
+              const g = decalBands(cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, [band]);
+              if (!g) continue;
+              // the stencil was held a little crooked: turn the texture, not the band (the band must stop at the gap)
+              const uv = g.getAttribute('uv') as BufferAttribute;
+              const ca = Math.cos(tilt * DEG), sa = Math.sin(tilt * DEG);
+              for (let j = 0; j < uv.count; j++) {
+                const px = (uv.getX(j) - 0.5) * w, py = (uv.getY(j) - 0.5) * h;
+                uv.setXY(j, (px * ca - py * sa) / w + 0.5, (px * sa + py * ca) / h + 0.5);
+              }
+              // the band is in wall coordinates: onto plank i's face (its own cup)
+              transform(g, chain(plankMats[i]!, T(0, -plankYs[i]!, zs)));
+              into(b, texturedPart('wood', g, key));
             }
-            // the band is in wall coordinates: onto plank i's face (its own cup)
-            transform(g, chain(plankMats[i]!, T(0, -plankYs[i]!, zs)));
-            into(b, texturedPart('wood', g, key));
           }
         }
       }
@@ -583,7 +629,15 @@ export function crate(o: CrateOptions = {}): Piece {
   b.socket('grip', { at: [0, (y0 + H) / 2, 0] });
   const built = b.build();
   registerPaint(b, built, skinned);
-  for (const [g, info] of paintGeoms(built)) if (paint || info.rest) writePaint(g, info, paint);
+  for (const [g, info] of paintGeoms(built)) writePaint(g, info, paint);
+  // both stencil inks are built; the one this paint does not want sits inside the plank
+  for (const q of built.root.parts) {
+    if (!q.texture) continue;
+    const ink: StencilInk = q.texture.startsWith('stencil:paper') ? 'paper' : 'ink';
+    const info: StencilInfo = { ink, rest: (q.geometry.getAttribute('position').array as Float32Array).slice() };
+    STENCIL.set(q.geometry, info);
+    writeStencil(q.geometry, info, stencilInk(paint));
+  }
   return built;
 }
 
@@ -655,9 +709,13 @@ export const catalogue: CatalogueEntry[] = [
         paint: asPaint(opts['paint']),
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
         ...(opts.detail ? { detail: opts.detail } : {}),
-        // the stencil needs its textures made first (crateLabels); the catalogue page does not make them yet
+        // the stencil needs its textures made first: `labels` below does that and turns it on
         ...(opts['stencil'] === true ? {} : { stencil: false }),
       }),
+    labels: (labels) => {
+      crateLabels(labels);
+      return { stencil: true };
+    },
     variants: {
       M: { size: 'M' },
       S: { size: 'S' },
