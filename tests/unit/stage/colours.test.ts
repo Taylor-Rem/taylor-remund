@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { linear } from '../../../src/workshop/view/palette.ts';
 import { lampColourFrom, luminance, stageColours } from '../../../src/workshop/view/stage/colours.ts';
 import { defaultPanels, envRadiance } from '../../../src/workshop/view/stage/environment.ts';
-import { blobFalloff } from '../../../src/workshop/view/effects/blob-shadows.ts';
+import { MeshBasicMaterial } from 'three';
+import { BlobShadows } from '../../../src/workshop/view/effects/blob-shadows.ts';
 
 const c = stageColours();
 const warm = (rgb: readonly number[]): boolean => rgb[0]! > rgb[1]! && rgb[1]! > rgb[2]!;
@@ -68,13 +69,16 @@ describe('the generated environment', () => {
   });
 });
 
-describe('blob shadow falloff', () => {
-  it('is dense in the middle and exactly clear at the rim', () => {
-    const n = 64;
-    const a = blobFalloff(n);
-    const alpha = (i: number, j: number) => a[(j * n + i) * 4 + 3]!;
-    expect(alpha(32, 32)).toBeGreaterThan(200);
-    expect(alpha(0, 32)).toBeLessThan(8);
-    expect(alpha(0, 0)).toBe(0);
+describe('blob shadows', () => {
+  it('draw with the decal they are given and put strength × opacity in the instance colour', () => {
+    const decal = new MeshBasicMaterial();
+    decal.opacity = 0.8;
+    const b = new BlobShadows(decal, 4, 0.4);
+    expect(b.mesh.material).toBe(decal);
+    b.set([{ x: 1, z: 2, rx: 0.5, rz: 0.3, strength: 1 }, { x: 0, z: 0, rx: 1, rz: 1, strength: 0.5 }]);
+    expect(b.mesh.count).toBe(2);
+    expect(b.mesh.instanceColor!.getX(0)).toBeCloseTo(0.5, 6);
+    expect(b.mesh.instanceColor!.getX(1)).toBeCloseTo(0.25, 6);
+    b.dispose();
   });
 });

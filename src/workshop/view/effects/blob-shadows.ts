@@ -5,32 +5,15 @@
  * to ground small things that the shadow map is too coarse for.
  *
  * One instanced draw for every blob. Each blob is an ellipse: centre on the
- * bench, radii in x and z, and a strength 0..1. The colour is a deep teal
- * from the palette, never black.
+ * bench, radii in x and z, and a strength 0..1. The look (radial falloff,
+ * teal-deep tint, depth test without write, polygon offset) is the materials
+ * module's decal: `new BlobShadows(materials.decal(), capacity, opacity)`.
+ * Strength rides in the instance colour's red channel, which the decal reads;
+ * this file configures no material.
  */
-import { Color, DataTexture, LinearFilter, Matrix4, Quaternion, RGBAFormat, UnsignedByteType, Vector3, type InstancedMesh, type MeshBasicMaterial, type Object3D } from 'three';
+import { Color, Matrix4, Quaternion, Vector3, type InstancedMesh, type Material, type Object3D } from 'three';
 import { blobShadowMesh } from '../kit/stage-helpers.ts';
-import { stageColours } from '../stage/colours.ts';
-
-/** The falloff texture: alpha is a soft disc (a smoothstep of a gaussian), rgb white. */
-export function blobFalloff(size = 64): Uint8Array {
-  const data = new Uint8Array(size * size * 4);
-  for (let j = 0; j < size; j++) {
-    for (let i = 0; i < size; i++) {
-      const x = ((i + 0.5) / size) * 2 - 1;
-      const y = ((j + 0.5) / size) * 2 - 1;
-      const r = Math.min(1, Math.hypot(x, y));
-      // Dense core, long soft skirt, exactly zero at the rim.
-      const a = Math.exp(-3.2 * r * r) * (1 - r * r * r);
-      const k = (j * size + i) * 4;
-      data[k] = 255;
-      data[k + 1] = 255;
-      data[k + 2] = 255;
-      data[k + 3] = Math.round(Math.max(0, a) * 255);
-    }
-  }
-  return data;
-}
+import { createMaterials } from '../materials/index.ts';
 
 export interface Blob {
   x: number;
@@ -46,10 +29,22 @@ export interface Blob {
   y?: number;
 }
 
+/**
+ * DEPRECATED fallback for callers still using `new BlobShadows(capacity, opacity)`:
+ * one decal from a materials instance of its own, made once. Delete when every
+ * caller passes `materials.decal()`.
+ */
+let fallbackDecal: Material | null = null;
+function legacyDecal(): Material {
+  fallbackDecal ??= createMaterials({ tier: 'high' }).decal();
+  return fallbackDecal;
+}
+
 export class BlobShadows {
   readonly mesh: InstancedMesh;
-  private readonly texture: DataTexture;
   private readonly capacity: number;
+  /** Multiplies every blob's strength (the old per-instance opacity, relative to the decal's own). */
+  private readonly gain: number;
   private count = 0;
   private readonly m = new Matrix4();
   private readonly q = new Quaternion();
@@ -58,34 +53,21 @@ export class BlobShadows {
   private readonly up = new Vector3(0, 1, 0);
   private readonly c = new Color();
 
-  constructor(capacity = 64, opacity = 0.85) {
-    this.capacity = capacity;
-    this.mesh = blobShadowMesh(capacity);
-    const size = 64;
-    this.texture = new DataTexture(blobFalloff(size), size, size, RGBAFormat, UnsignedByteType);
-    this.texture.magFilter = LinearFilter;
-    this.texture.minFilter = LinearFilter;
-    this.texture.needsUpdate = true;
-    const mat = this.mesh.material as MeshBasicMaterial;
-    const col = stageColours().blob;
-    mat.color.fromArray(col);
-    mat.map = this.texture;
-    mat.transparent = true;
-    mat.opacity = opacity;
-    mat.depthWrite = false;
-    mat.polygonOffset = true;
-    mat.polygonOffsetFactor = -2;
-    mat.polygonOffsetUnits = -2;
-    mat.toneMapped = true;
-    mat.fog = false;
-    // Per-blob strength rides in the instance colour's red channel and scales alpha only.
-    mat.onBeforeCompile = (shader) => {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <color_fragment>',
-        '#if defined( USE_INSTANCING_COLOR )\n  diffuseColor.a *= vColor.r;\n#endif',
-      );
-    };
-    mat.needsUpdate = true;
+  /**
+   * @param decal the materials module's decal (`materials.decal()`), shared.
+   * @param capacity most blobs drawn.
+   * @param opacity overall darkness 0..1, as an absolute opacity (the decal's own opacity is divided out).
+   */
+  constructor(decal: Material, capacity?: number, opacity?: number);
+  /** @deprecated pass `materials.decal()` first. */
+  constructor(capacity?: number, opacity?: number);
+  constructor(a?: Material | number, b?: number, c?: number) {
+    const legacy = typeof a !== 'object';
+    const decal = legacy ? legacyDecal() : a;
+    this.capacity = (legacy ? a : b) ?? 64;
+    const opacity = (legacy ? b : c) ?? decal.opacity;
+    this.gain = decal.opacity > 0 ? opacity / decal.opacity : 1;
+    this.mesh = blobShadowMesh(this.capacity, decal);
     this.mesh.renderOrder = -1;
     this.mesh.count = 0;
   }
@@ -113,8 +95,8 @@ export class BlobShadows {
     this.s.set(b.rx * 2, 1, b.rz * 2);
     this.m.compose(this.p, this.q, this.s);
     this.mesh.setMatrixAt(i, this.m);
-    // Not a colour: the strength rides in the instance colour (the shader reads .r).
-    this.mesh.setColorAt(i, this.c.setScalar(Math.min(1, Math.max(0, b.strength))));
+    // Not a colour: the strength rides in the instance colour (the decal reads .r).
+    this.mesh.setColorAt(i, this.c.setScalar(Math.min(1, Math.max(0, b.strength * this.gain))));
   }
 
   addTo(parent: Object3D): this {
@@ -122,10 +104,9 @@ export class BlobShadows {
     return this;
   }
 
+  /** Disposes the geometry only: the decal material belongs to the materials module. */
   dispose(): void {
     this.mesh.removeFromParent();
     this.mesh.geometry.dispose();
-    (this.mesh.material as MeshBasicMaterial).dispose();
-    this.texture.dispose();
   }
 }
