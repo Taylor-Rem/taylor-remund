@@ -273,6 +273,20 @@ describe('materials', () => {
     expect(compile(tape).fragmentShader).toContain('pSpec = u_spec');
   });
 
+  it('keeps bare steel readable: a roughness floor, some diffuse, polish by finish', () => {
+    for (const k of ['metal', 'roughMin', 'wornBright', 'finishRough']) expect(CLASSES.metal.params[k], k).toBeDefined();
+    expect(CLASSES.metal.params.roughMin!.value).toBeGreaterThanOrEqual(0.35);
+    expect(CLASSES.metal.params.metal!.value).toBeLessThan(1);
+    expect(compile(mats.of('metal') as MeshStandardMaterial).fragmentShader).toContain('mix(u_metal, 1.0, pFinish)');
+  });
+
+  it('wears big flat enamel faces sparsely, gated by clusters, cavity and curvature', () => {
+    expect(CLASSES.steel.params.faceWear).toBeDefined();
+    const fs = compile(mats.of('steel') as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('float bigFace = ');
+    expect(fs).toContain('u_faceWear * smoothstep(');
+  });
+
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {
     const m = createMaterials({ tier: 'high' });
     const belt = m.uniforms('belt');
