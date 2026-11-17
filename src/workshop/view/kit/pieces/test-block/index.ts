@@ -21,6 +21,7 @@ import {
 import { aim, alongEdge, chain, mat, part, piece, place, T } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { transform } from '../../deform.ts';
+import { setFinish } from '../../space.ts';
 
 export function testBlock(o: KitOptions = {}): Piece {
   const seed = o.seed ?? 1;
@@ -104,8 +105,9 @@ export function testBlock(o: KitOptions = {}): Piece {
   const knobAt = T(0.3, yB1 + 0.075, -0.06);
   b.add(place(collar({ r: 0.07, inner: 0.03, h: 0.03, detail, seed: seed + 10 }), knobAt));
   const knob = b.node('knob', chain(knobAt, T(0, 0.028, 0), new Matrix4().makeRotationY(R.range(0, Math.PI * 2))));
-  knob.add(part('brass', lathe(profile(0, 0).to(0.05, 0, { fillet: 0.006, segs: 2 }).to(0.058, 0.014, { fillet: 0.006, segs: 2 }).to(0.046, 0.016).to(0, 0.016), { segs: 22, detail, support: false, caps: 'end' }), 'brass', { seed: seed + 11 }));
-  knob.add(part('brass', transform(knurlGeom(0.054, 0.042, 18, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }));
+  // the knob's brass is handled every day: polished (finish 1), while the plate and hinge keep the class's patina
+  knob.add(setFinish(part('brass', lathe(profile(0, 0).to(0.05, 0, { fillet: 0.006, segs: 2 }).to(0.058, 0.014, { fillet: 0.006, segs: 2 }).to(0.046, 0.016).to(0, 0.016), { segs: 22, detail, support: false, caps: 'end' }), 'brass', { seed: seed + 11 }), 1));
+  knob.add(setFinish(part('brass', transform(knurlGeom(0.054, 0.042, 18, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }), 0.7));
   knob.add(
     part(
       'rubber',

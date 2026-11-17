@@ -223,4 +223,77 @@ export class TriBvh {
       if (!found) return best;
     }
   }
+
+  /** Does a unit ray hit anything within (1e-5, tmax)? Stops at the first hit (cheaper than `hit`). */
+  any(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, tmax: number): boolean {
+    if (this.nodes === 0) return false;
+    const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
+    // per-ray slab offsets: which bound is entered first on each axis
+    const nxo = ix >= 0 ? 0 : 3, nyo = iy >= 0 ? 1 : 4, nzo = iz >= 0 ? 2 : 5;
+    const fxo = 3 - nxo, fyo = 5 - nyo, fzo = 7 - nzo;
+    const B = this.b, D = this.d, T = this.t, st = this.stack, stt = this.stackT;
+    let sp = 0;
+    let best = tmax;
+    let nd = 0;
+    for (;;) {
+      const second = D[nd * 2 + 1]!;
+      if (second >= 0) {
+        const s = D[nd * 2]!;
+        for (let k = s; k < s + second; k++) {
+          const t = k * 9;
+          const ax = T[t]!, ay = T[t + 1]!, az = T[t + 2]!;
+          const e1x = T[t + 3]! - ax, e1y = T[t + 4]! - ay, e1z = T[t + 5]! - az;
+          const e2x = T[t + 6]! - ax, e2y = T[t + 7]! - ay, e2z = T[t + 8]! - az;
+          const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+          const det = e1x * px + e1y * py + e1z * pz;
+          if (det > -1e-12 && det < 1e-12) continue;
+          const inv = 1 / det;
+          const sx = ox - ax, sy = oy - ay, sz = oz - az;
+          const u = (sx * px + sy * py + sz * pz) * inv;
+          if (u < 0 || u > 1) continue;
+          const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+          const v = (dx * qx + dy * qy + dz * qz) * inv;
+          if (v < 0 || u + v > 1) continue;
+          const tt = (e2x * qx + e2y * qy + e2z * qz) * inv;
+          if (tt > -1e-4 && tt < best) return true; // a ray leaving a vertex that sits on another surface hits it at t ~ 0
+        }
+      } else {
+        // interior: entry distances of both children, nearer first
+        const l = nd + 1, r = D[nd * 2]!;
+        let o = l * 6;
+        let t0 = (B[o + nxo]! - ox) * ix, t1 = (B[o + fxo]! - ox) * ix;
+        let a = (B[o + nyo]! - oy) * iy, b = (B[o + fyo]! - oy) * iy;
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        a = (B[o + nzo]! - oz) * iz; b = (B[o + fzo]! - oz) * iz;
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        if (t0 < 0) t0 = 0;
+        const tl = t0 <= t1 && t0 < best ? t0 : Infinity;
+        o = r * 6;
+        t0 = (B[o + nxo]! - ox) * ix; t1 = (B[o + fxo]! - ox) * ix;
+        a = (B[o + nyo]! - oy) * iy; b = (B[o + fyo]! - oy) * iy;
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        a = (B[o + nzo]! - oz) * iz; b = (B[o + fzo]! - oz) * iz;
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        if (t0 < 0) t0 = 0;
+        const tr = t0 <= t1 && t0 < best ? t0 : Infinity;
+        if (tl !== Infinity && tr !== Infinity) {
+          if (tl <= tr) { stt[sp] = tr; st[sp++] = r; nd = l; } else { stt[sp] = tl; st[sp++] = l; nd = r; }
+          continue;
+        }
+        if (tl !== Infinity) { nd = l; continue; }
+        if (tr !== Infinity) { nd = r; continue; }
+      }
+      // pop, skipping nodes that start beyond a closer hit
+      let found = false;
+      while (sp > 0) {
+        sp--;
+        if (stt[sp]! < best) { nd = st[sp]!; found = true; break; }
+      }
+      if (!found) return false;
+    }
+  }
 }

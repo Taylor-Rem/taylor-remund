@@ -5,8 +5,9 @@
  *  - lpos (vec3): where a vertex sits in its own part's frame, +X along the
  *    part's length. Written when a solid is made; `place`, `transform`,
  *    `deform`, `merge` and node animation never touch it. `grain` re-aims it.
- *    The piece builder adds a seeded offset per part at build time (see
- *    compose.ts `PieceBuilder.build`), so identical parts never share chips.
+ *    The piece builder adds a seeded offset per part along +X at build time
+ *    (see compose.ts `PieceBuilder.build`), so identical parts never share
+ *    chips; y and z are untouched, so the part's own axis stays at y = z = 0.
  *  - surf.z (finish): 0 = the class's normal finish, 1 = high gloss/polished.
  */
 import { BufferAttribute, Matrix4, Vector3 } from 'three';

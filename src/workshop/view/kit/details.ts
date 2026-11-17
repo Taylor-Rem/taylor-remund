@@ -19,6 +19,7 @@ import { aim, part, place, ring, T } from './compose.ts';
 import { rng } from './rng.ts';
 import { transform } from './deform.ts';
 import { loft } from './loft.ts';
+import { grain } from './space.ts';
 import { finish } from './mesh.ts';
 import type { Loop, PSample } from './profile.ts';
 
@@ -193,6 +194,8 @@ export function louvre(o: DetailOptions & { w?: number; h?: number; count?: numb
       support: false,
     });
     // the outline was drawn in (x=z', y); turn it so the extrusion runs along X and the section lies in ZY
+    // material space: +X along the slat (its extrusion ran along z)
+    grain(slat, 'z');
     transform(slat, new Matrix4().makeRotationY(-Math.PI / 2));
     transform(slat, new Matrix4().makeTranslation((iw + border * 0.3) / 2, y, depth * 0.25));
     out.push(part(o.material ?? 'steel', slat, o.token ?? 'teal-panel', { seed: (o.seed ?? 0) + i, jitter: 0.04 }));

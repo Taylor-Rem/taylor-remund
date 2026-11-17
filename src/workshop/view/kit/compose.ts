@@ -5,7 +5,7 @@
  */
 import { Box3, BufferAttribute, BufferGeometry, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { Token } from '../palette.ts';
-import type { KitPart, MaterialClass, Piece, PieceNode } from './types.ts';
+import type { KitPart, MaterialClass, MaterialVariant, Piece, PieceNode } from './types.ts';
 import { ATTR } from './types.ts';
 import { bakeCavity, tint } from './surface.ts';
 import type { AoOptions, TintOptions } from './surface.ts';
@@ -42,6 +42,16 @@ export function part(material: MaterialClass, geometry: BufferGeometry, token?: 
 export function texturedPart(material: MaterialClass, geometry: BufferGeometry, texture: string): KitPart {
   return { material, geometry, texture };
 }
+
+/** Mark parts as a class's `variant` (e.g. 'large', the cheaper cut for surfaces that fill the screen). In place; returns them. */
+export function withVariant(p: PartsLike, variant: MaterialVariant): KitPart[] {
+  const list = flat(p);
+  for (const q of list) q.variant = variant;
+  return list;
+}
+
+/** Shorthand: the 'large' variant (the bench top, the back wall). */
+export const large = (p: PartsLike): KitPart[] => withVariant(p, 'large');
 
 /** Recolour parts with a token (in place). */
 export function paint(p: PartsLike, token: Token, t?: TintOptions): KitPart[] {
@@ -98,7 +108,7 @@ export function place(p: PartsLike, m: Matrix4 | Placement): KitPart[] {
   const M = m instanceof Matrix4 ? m : mat(m);
   return flat(p).map((q) => {
     const g = transform(q.geometry.clone(), M);
-    return q.texture ? { material: q.material, geometry: g, texture: q.texture } : { material: q.material, geometry: g };
+    return { ...q, geometry: g };
   });
 }
 
@@ -226,21 +236,24 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
   return out;
 }
 
-/** Merge parts into one part per (material, texture). Order of first appearance is kept. */
+/** Merge parts into one part per (material, variant, texture). Order of first appearance is kept. */
 export function merge(p: PartsLike): KitPart[] {
-  const groups = new Map<string, { material: MaterialClass; texture?: string | undefined; geoms: BufferGeometry[] }>();
+  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; geoms: BufferGeometry[] }>();
   for (const q of flat(p)) {
-    const key = `${q.material}|${q.texture ?? ''}`;
+    const key = `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}`;
     let g = groups.get(key);
     if (!g) {
-      g = { material: q.material, texture: q.texture, geoms: [] };
+      g = { material: q.material, variant: q.variant, texture: q.texture, geoms: [] };
       groups.set(key, g);
     }
     g.geoms.push(q.geometry);
   }
   return [...groups.values()].map((g) => {
     const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
-    return g.texture ? { material: g.material, geometry, texture: g.texture } : { material: g.material, geometry };
+    const out: KitPart = { material: g.material, geometry };
+    if (g.variant) out.variant = g.variant;
+    if (g.texture) out.texture = g.texture;
+    return out;
   });
 }
 
@@ -307,7 +320,7 @@ export class PieceBuilder extends NodeBuilder {
   }
 
   /**
-   * Offset every part's lpos by a seeded vector, so two identical parts (two bolts, sixty
+   * Offset every part's lpos by a seeded distance along +X, so two identical parts (two bolts, sixty
    * crates' planks) never show the same chips or grain. Deterministic from the piece seed and
    * the part's order in the tree; done once, here, so builders never have to think about it.
    */
@@ -327,7 +340,8 @@ export class PieceBuilder extends NodeBuilder {
         seen.add(g);
         const h = hash2(seed, k++);
         const r = rng(h);
-        offsetLpos(g, r.range(0, LPOS_OFFSET), r.range(0, LPOS_OFFSET), r.range(0, LPOS_OFFSET));
+        // along +X only: the part's own axis stays at y = z = 0 (turned rings and a plank's pith centre on it)
+        offsetLpos(g, r.range(0, LPOS_OFFSET), 0, 0);
       }
       for (const c of b.children) walk(c);
     };

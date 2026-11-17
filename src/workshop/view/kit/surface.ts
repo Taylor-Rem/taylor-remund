@@ -136,7 +136,7 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
 // ---- ambient occlusion over a whole piece ---------------------------------
 
 export interface AoOptions {
-  /** Rays per vertex (spread over the vertex and its one-ring; the result is then smoothed over the mesh). Default 6. */
+  /** Rays per vertex (spread over the vertex and one of its one-ring points; the result is then smoothed over the mesh). Default 4. */
   samples?: number;
   /** Only occluders nearer than this count (units). Default 0.14. */
   distance?: number;
@@ -146,7 +146,7 @@ export interface AoOptions {
 }
 
 /** Timings of the cavity bake, for the dev page and perf checks. */
-export const bakeStats = { calls: 0, cacheHits: 0, lastMs: 0, totalMs: 0, lastRays: 0 };
+export const bakeStats = { calls: 0, cacheHits: 0, lastMs: 0, totalMs: 0, lastRays: 0, lastBvhMs: 0 };
 
 const MEMO_MAX = 256;
 const bakeMemo = new Map<string, Float32Array[]>();
@@ -179,7 +179,7 @@ function hashArrays(arrays: ReadonlyArray<Float32Array | Uint16Array | Uint32Arr
 export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: BufferGeometry; matrix?: Matrix4 | undefined }>, opts: AoOptions = {}): void {
   const t0 = now();
   bakeStats.calls++;
-  const S = opts.samples ?? 6;
+  const S = opts.samples ?? 4;
   const D = opts.distance ?? 0.14;
   const [r0, r1] = opts.range ?? [0.06, 0.42];
   const seed = opts.seed ?? 7;
@@ -244,7 +244,9 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       tri[o++] = p[v * 3 + 2]!;
     }
   });
+  const tb0 = now();
   const bvh = new TriBvh(tri);
+  bakeStats.lastBvhMs = now() - tb0;
   // a fixed cosine-weighted direction set (Fibonacci hemisphere), rotated per vertex
   const dirs = new Float32Array(S * 3);
   for (let s = 0; s < S; s++) {
@@ -255,7 +257,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
     dirs[s * 3 + 1] = r * Math.sin(a);
     dirs[s * 3 + 2] = Math.sqrt(1 - u);
   }
-  const maxOrigins = Math.max(1, Math.floor(S / 3));
+  const maxOrigins = Math.max(1, Math.floor(S / 2));
   const RING = maxOrigins - 1; // ring points kept per vertex (the vertex itself is the first origin)
   const minRing2 = (D * 0.15) ** 2;
   // copies of one vertex (seams, poles, merged twins) with the same normal are baked once
@@ -270,7 +272,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
     // rays from a small part only need to reach as far as the part is big: a bolt's contact
     // with its plate is within its own size, and shorter rays visit far fewer BVH nodes
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-    const Dg = Math.max(0.035, Math.min(D, (geometry.boundingSphere?.radius ?? D) * 1.2));
+    const Dg = Math.max(0.05, Math.min(D, (geometry.boundingSphere?.radius ?? D) * 1.2));
     results.push(ao);
     // one-ring sample points: a vertex stands for the region its triangles interpolate over,
     // so its occlusion is averaged at points part-way toward its adjacent triangles' centroids
@@ -304,6 +306,8 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       if (trust < 0.01) continue;
       // occlusion only ever raises cavity: a vertex already deep in a crease needs no rays
       if (surfA[i * 3 + 1]! > 0.92) continue;
+      // faces turned well down are never seen from the stage camera (always above): no rays
+      if (nr[i * 3 + 1]! < -0.9) continue;
       const px = p[i * 3]!, py = p[i * 3 + 1]!, pz = p[i * 3 + 2]!;
       const nx = nr[i * 3]!, ny = nr[i * 3 + 1]!, nz = nr[i * 3 + 2]!;
       // a numeric key from the quantised position and normal (two 32-bit hashes in one safe integer)
@@ -326,7 +330,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       // per-origin occlusion; the vertex takes a blend of the mean and the least occluded origin,
       // so a big face whose far corner tucks under a bolt does not go dark all over
       const no = 1 + ringN[i]!;
-      const per = Math.max(3, Math.ceil(S / no));
+      const per = Math.max(2, Math.ceil(S / no));
       let sum = 0;
       let least = Infinity;
       for (let k = 0; k < no; k++) {
@@ -338,24 +342,23 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
         ox += nx * 0.0015; oy += ny * 0.0015; oz += nz * 0.0015;
         let occ = 0;
         for (let r = 0; r < per; r++) {
-          const s = (k * per + r) % S;
+          const s = (r * no + k) % S; // interleaved: every origin gets near-normal and grazing rays
           const a = dirs[s * 3]!, b = dirs[s * 3 + 1]!, c = dirs[s * 3 + 2]!;
           const u = a * cr - b * sr, v = a * sr + b * cr;
-          const t = bvh.hit(ox, oy, oz, tx * u + bx * v + nx * c, ty * u + by * v + ny * c, tz * u + bz * v + nz * c, Dg);
-          if (t < Dg) occ += 1 - (t / Dg) * 0.6;
+          if (bvh.any(ox, oy, oz, tx * u + bx * v + nx * c, ty * u + by * v + ny * c, tz * u + bz * v + nz * c, Dg)) occ += 0.75;
         }
         rays += per;
         occ /= per;
         sum += occ;
         if (occ < least) least = occ;
       }
-      const value = smooth(r0, r1, (sum / no) * 0.5 + least * 0.5) * trust;
+      const value = smooth(r0, r1, (sum / no) * 0.7 + least * 0.3) * trust;
       ao[i] = value;
       done.set(qk, value);
     }
-    // few rays are noisy: average each vertex with its mesh neighbours (twice, half weight)
+    // few rays are noisy: blend each vertex with the mean of its mesh neighbours
     const sum = new Float32Array(n), cnt = new Float32Array(n);
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass = 0; pass < 1; pass++) {
       sum.fill(0);
       cnt.fill(0);
       for (let t = 0; t < idx.length; t += 3) {
@@ -364,7 +367,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
         sum[b] = sum[b]! + ao[a]! + ao[c]!; cnt[b] = cnt[b]! + 2;
         sum[c] = sum[c]! + ao[a]! + ao[b]!; cnt[c] = cnt[c]! + 2;
       }
-      for (let i = 0; i < n; i++) if (cnt[i]! > 0 && area[i]! < (D * 1.4) ** 2) ao[i] = ao[i]! * 0.5 + (sum[i]! / cnt[i]!) * 0.5;
+      for (let i = 0; i < n; i++) if (cnt[i]! > 0 && area[i]! < (D * 1.4) ** 2) ao[i] = ao[i]! * 0.6 + (sum[i]! / cnt[i]!) * 0.4;
     }
   });
   if (bakeMemo.size >= MEMO_MAX) bakeMemo.delete(bakeMemo.keys().next().value!);
