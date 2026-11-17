@@ -252,7 +252,7 @@ export function button(o: ButtonOptions = {}): Piece {
     const est = estimateLabels();
     const strips = o.labels ? o.labels.tape : est.tape.map((q) => ({ key: '', ...q }));
     const total = strips.reduce((a, q) => a + q.h, 0) * 0.92;
-    const mid = (yC0 + yTop) / 2 + 0.01;
+    const mid = (yC0 + yTop) / 2 + 0.035;
     let y = mid + (total / 2 - strips[0]!.h / 2) * Math.cos(lean);
     strips.forEach((st, i) => {
       const ang = i === 0 ? R.range(1.2, 2.4) : -R.range(1.0, 2.0);
@@ -309,7 +309,7 @@ export function button(o: ButtonOptions = {}): Piece {
       b.add(part('steel', g, 'teal-panel', { seed: seed + 20, shade: 0.95 }));
     }
     // the brass front plate with the window cut through it
-    const ww = 0.6, wh = 0.22, ws = 0.25;
+    const ww = 0.6, wh = 0.17, ws = 0.235;
     const frontPlate = extrude(
       [[-hw / 2, 0], [hw / 2, 0], [hw / 2, slant], [-hw / 2, slant]],
       set,
@@ -317,8 +317,8 @@ export function button(o: ButtonOptions = {}): Piece {
     );
     b.add(setFinish(part('brass', transform(frontPlate, chain(faceM, T(0, 0, -set))), 'brass', { seed: seed + 22, warm: 0.03 }), 0.2));
     // the four wheels, each its own node turning about the axle (+X); digit0 is the units wheel, on the right
-    const wr = 0.3, wwid = 0.13, gap = 0.018;
-    const glyph = 0.17;
+    const wr = 0.26, wwid = 0.13, gap = 0.018;
+    const glyph = 0.135;
     for (let i = 0; i < 4; i++) {
       const x = (1.5 - i) * (wwid + gap);
       const wheel = b.node(`digit${i}`, chain(faceM, T(x, ws, -0.012 - wr), new Matrix4().makeRotationZ(-Math.PI / 2)));
@@ -331,12 +331,12 @@ export function button(o: ButtonOptions = {}): Piece {
     }
     // the engraved plate under the window, a rivet either side
     const pl = o.labels?.plate ?? { key: '', ...estimateLabels().plate };
-    const plate = transform(sheet({ w: pl.w, h: pl.h, t: 0.003, nx: 1, ny: 1 }), chain(faceM, T(0, 0.068, 0.0005)));
+    const plate = transform(sheet({ w: pl.w, h: pl.h, t: 0.003, nx: 1, ny: 1 }), chain(faceM, T(0, 0.064, 0.0005)));
     if (o.labels && pl.key) b.add(texturedPart('brass', plate, pl.key));
     else b.add(part('brass', plate, 'brass', { shade: 0.9 }));
     for (const x of [-hw / 2 + 0.04, hw / 2 - 0.04]) {
       const sd = R.int(0, 999);
-      b.small(() => place(domeRivet({ d: 0.032, detail: 'low', seed: sd }), chain(faceM, T(x, 0.068, 0.0), mat({ rot: [90, 0, 0] }))));
+      b.small(() => place(domeRivet({ d: 0.032, detail: 'low', seed: sd }), chain(faceM, T(x, 0.064, 0.0), mat({ rot: [90, 0, 0] }))));
     }
     // a knurled reset knob on the housing's outboard end
     const knob = chain(T(hx - hw / 2 + 0.01, yTop + 0.17, -0.1), new Matrix4().makeRotationZ(Math.PI / 2));
