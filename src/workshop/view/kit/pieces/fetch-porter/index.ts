@@ -10,7 +10,7 @@
  * `fetchPorter({ pose })` to get a posed piece (the cavity is always baked
  * at the neutral pose), or realize it once and drive it with `poseFetch`.
  */
-import { Matrix4, Vector3 } from 'three';
+import { BufferAttribute, Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
 import type { KitOptions, KitPart, Piece, PieceNode } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
@@ -22,7 +22,10 @@ import { deform, transform } from '../../deform.ts';
 import { sweep, polylinePath, linePath, sections } from '../../sweep.ts';
 import { hexBolt, spring } from '../../details.ts';
 import type { DetailOptions } from '../../details.ts';
-import { aim, chain, mat, part, piece, place, T } from '../../compose.ts';
+import { aim, chain, mat, part, piece, place, T, texturedPart } from '../../compose.ts';
+import { tint } from '../../surface.ts';
+import { world } from '../../../labels/content.ts';
+import type { Labels } from '../../../types.ts';
 import type { NodeBuilder } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { setFinish, grain } from '../../space.ts';
@@ -38,6 +41,8 @@ export type { FetchPose, ArmJoints, ArmPreset, Arms, ExpressionName } from './ri
 export interface FetchPorterOptions extends KitOptions {
   /** A named expression or an explicit pose, applied to the node transforms after the bake. */
   pose?: ExpressionName | FetchPose;
+  /** Its name on label tape: a texture key from view/labels and the size that label wants (see the catalogue's `labels` hook). Blank tape without it. */
+  nameTape?: { key: string; w: number; h: number };
 }
 
 const DEG = Math.PI / 180;
@@ -95,7 +100,7 @@ export function fetchPorter(o: FetchPorterOptions = {}): Piece {
   buildFork(lean, detail, seed);
   buildSuspension(lean.node('suspension', rest.suspension), detail, seed);
   const body = lean.node('body', rest.body);
-  buildTorso(body, detail, seed, R.fork(1));
+  buildTorso(body, detail, seed, R.fork(1), o.nameTape);
   const head = body.node('head', rest.head);
   const cock = head.node('headCock', rest.headCock);
   const tilt = cock.node('headTilt', rest.headTilt);
@@ -244,7 +249,7 @@ function buildSuspension(n: NodeBuilder, detail: 'high' | 'low', seed: number): 
 
 // ---- the torso ------------------------------------------------------------------------
 
-function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: ReturnType<typeof rng>): void {
+function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: ReturnType<typeof rng>, nameTape?: FetchPorterOptions['nameTape']): void {
   const { w, d, rPlan: rp, y0, y1, lidTop } = TORSO;
   const lo = detail === 'low';
   // the mounting cup under the pail, where the spring bears
@@ -348,8 +353,23 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
     const i = Math.round(x * 100);
     n.small(() => place(rivet({ d: 0.014, detail: 'low', seed: seed + 70 + i, material: 'metal', token: 'steel' }), aim([x, y1 + 0.012, d / 2 + 0.0085], [0, 0, 1])));
   }
-  // label-tape strip on the lid lip (its texture key is the nameplate socket's job)
-  n.add(part('tape', transform(roundedBox({ w: 0.15, h: 0.0016, d: 0.026, r: 0.0007, segs: 1, detail: 'low', band: 0 }), chain(T(0.02, y1 + 0.012, d / 2 + 0.0105), askew(seed + 80, 3), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 1.4 }));
+  // its name on a strip of label tape across the lid's lip, a little crooked
+  const tw = nameTape ? Math.min(0.19, nameTape.w) : 0.15, th = nameTape ? Math.min(0.03, nameTape.h) : 0.026;
+  const tape = extrude([[-tw / 2, -th / 2], [tw / 2, -th / 2], [tw / 2, th / 2], [-tw / 2, th / 2]], 0.0016, { bevel: 0.0005, bevelBase: 0, radius: 0.0012, segs: 1, detail: 'low', caps: 'end' });
+  const tm = chain(T(0.02, y1 + 0.012, d / 2 + 0.0095), askew(seed + 80, 3));
+  if (nameTape) {
+    // uv straight from the strip's face: u along the text, v up
+    const pos = tape.getAttribute('position');
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      uv[i * 2] = (pos.getX(i) + tw / 2) / tw;
+      uv[i * 2 + 1] = (pos.getY(i) + th / 2) / th;
+    }
+    tape.setAttribute('uv', new BufferAttribute(uv, 2));
+    n.add(texturedPart('tape', tint(transform(tape, tm), 'paper'), nameTape.key));
+  } else {
+    n.add(part('tape', transform(tape, tm), 'ink', { shade: 1.4 }));
+  }
 }
 
 // ---- the turret --------------------------------------------------------------------------
@@ -401,7 +421,7 @@ function buildTurret(head: NodeBuilder, cock: NodeBuilder, tilt: NodeBuilder, br
       .to(0, cd - 0.03),
     { segs: lo ? 18 : 22, detail, caps: 'end', filletSegs: 3 },
   );
-  tilt.add(wearScale(part('steel', transform(shell, chain(C, T(0, 0, back), Y_TO_Z)), 'paper', { seed: seed + 96, shade: 0.96 }), 0.55));
+  tilt.add(wearScale(part('steel', transform(shell, chain(C, T(0, 0, back), Y_TO_Z)), 'paper', { seed: seed + 96, shade: 0.96 }), 0.35));
   tilt.add(part('brass', transform(turn(profile(cr * 0.9, 0).to(cr * 0.99, 0, { sharp: true }).to(cr + 0.006, 0.006, { fillet: 0.004, segs: 2 }).to(cr * 0.99, 0.012, { sharp: true }).to(cr * 0.9, 0.012).close(), { segs: 18 }), chain(C, T(0, 0, back + 0.064), Y_TO_Z)), 'brass', { seed: seed + 97, warm: 0.03 }));
   // brass hubs on the can's flanks: its "ears"
   for (const s of [-1, 1]) {
@@ -610,6 +630,13 @@ function buildAerial(body: NodeBuilder, rest: Record<string, Matrix4>, detail: '
 }
 
 
+/** Make Fetch's name tape (label tape from content) and return what `nameTape` wants. */
+export function fetchNameTape(labels: Labels): NonNullable<FetchPorterOptions['nameTape']> {
+  const key = labels.tape(world.names.fetch, 'black', { capHeight: 0.013 });
+  const sz = labels.size(key);
+  return { key, w: sz.w, h: sz.h };
+}
+
 const POSES = Object.fromEntries(EXPRESSION_NAMES.map((n) => [n, { pose: n }]));
 
 export const catalogue: CatalogueEntry[] = [
@@ -622,8 +649,12 @@ export const catalogue: CatalogueEntry[] = [
       const pose = opts['pose'];
       if (typeof pose === 'string' && pose in EXPRESSIONS) o.pose = pose as ExpressionName;
       else if (pose && typeof pose === 'object') o.pose = pose as FetchPose;
+      const tape = opts['nameTape'] as FetchPorterOptions['nameTape'] | undefined;
+      if (tape && typeof tape.key === 'string') o.nameTape = tape;
       return fetchPorter(o);
     },
+    poses: EXPRESSION_NAMES,
+    labels: (labels: Labels) => ({ nameTape: fetchNameTape(labels) }),
     variants: { ...POSES, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
     camera: { distance: 4.2 },
     note: 'Fetch, take B: the Porter. A lunch-pail runner on one sprung wheel, its eye in a turret under a cap peak. ?pose=curious|eager|oops|offer|deadpan',
