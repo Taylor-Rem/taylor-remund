@@ -1,0 +1,33 @@
+{
+  "strip": {
+    "name": { "text": "Taylor Remund", "kind": "fact", "source": "REWRITE.md § B7" },
+    "role": { "text": "software engineer", "kind": "fact", "source": "REWRITE.md § B7" },
+    "line": { "text": "I build and run Patchlamp", "kind": "fact", "source": "REWRITE.md § B7" },
+    "links": [
+      { "text": "Résumé", "kind": "ui", "href": "/resume/" },
+      { "text": "GitHub", "kind": "ui", "href": "https://github.com/Taylor-Rem", "source": "legacy/index.html #contact" },
+      { "text": "LinkedIn", "kind": "ui", "href": "https://linkedin.com/in/taylor-remund-88169124a", "source": "legacy/index.html #contact" },
+      { "text": "Email", "kind": "ui", "href": "mailto:remundtaylor3@gmail.com", "source": "legacy/index.html #contact" }
+    ]
+  },
+  "nav": {
+    "resume": { "text": "Résumé", "kind": "ui", "href": "/resume/" },
+    "services": { "text": "Services", "kind": "ui", "href": "/ai/" }
+  },
+  "footer": {
+    "links": [
+      { "text": "Privacy", "kind": "ui", "href": "/privacy/" },
+      { "text": "Terms", "kind": "ui", "href": "/terms/" },
+      { "text": "SMS", "kind": "ui", "href": "/sms/" }
+    ]
+  },
+  "paperwork": {
+    "patchlamp": { "text": "The lamp's on.", "kind": "voice", "source": "legacy/index.html #patchlamp .pl-title" },
+    "services": { "text": "AI, installed in your business", "kind": "ui", "source": "legacy/index.html #services .section-title" },
+    "about": { "text": "Who's behind this", "kind": "ui", "source": "legacy/index.html #about .section-title" },
+    "contact": { "text": "Talk to me", "kind": "ui", "source": "legacy/index.html #contact .section-title" }
+  },
+  "notFound": {
+    "title": { "text": "Not found", "kind": "ui" }
+  }
+}

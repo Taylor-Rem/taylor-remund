@@ -1,0 +1,54 @@
+---
+// Provisional layout for the conventional pages (REWRITE.md § F1). For P0 it
+// borrows the legacy stylesheet (/style.css, served by the temporary legacy
+// passthrough) so the legal typography still applies. It loads nothing from
+// any other origin: no Google Fonts.
+import { site } from '../content/site.ts';
+import Footer from './Footer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  /** The page's robots meta, exactly as the legacy page had it; omit for none. */
+  robots?: string;
+}
+const { title, description, robots } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {robots && <meta name="robots" content={robots} />}
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <nav class="navbar">
+      <div class="nav-container">
+        <a href="/" class="nav-logo">{site.strip.name.text}</a>
+        <ul class="paper-nav">
+          <li><a href={site.nav.resume.href}>{site.nav.resume.text}</a></li>
+          <li><a href={site.nav.services.href}>{site.nav.services.text}</a></li>
+        </ul>
+      </div>
+    </nav>
+    <slot />
+    <Footer />
+  </body>
+</html>
+
+<style>
+  .paper-nav {
+    display: flex;
+    gap: 24px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .paper-nav a {
+    color: var(--text-soft);
+    text-decoration: none;
+  }
+</style>

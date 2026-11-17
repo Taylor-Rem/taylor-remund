@@ -1,0 +1,10 @@
+---
+// The slim legal line every page carries (REWRITE.md § 2: Privacy, Terms, SMS
+// on every page). Nothing links to /career-send/, on purpose.
+import { site } from '../content/site.ts';
+---
+<footer class="footer">
+  <p class="footer-links">{site.footer.links.map((link, i) => (
+    <>{i > 0 && <span>&middot;</span>}<a href={link.href}>{link.text}</a></>
+  ))}</p>
+</footer>

@@ -1,0 +1,36 @@
+---
+// The home page layout (REWRITE.md § B7, § E6): the strip and the paperwork in
+// plain HTML, and the element the 3D stage will mount into. Placeholder for
+// P0: no stage script, no styling yet.
+import { site } from '../content/site.ts';
+import Footer from './Footer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const { strip } = site;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+  </head>
+  <body>
+    <header class="strip">
+      <p><a href="/">{strip.name.text}</a> &middot; {strip.role.text} &middot; {strip.line.text}</p>
+      <nav aria-label="Links">
+        <ul>
+          {strip.links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
+        </ul>
+      </nav>
+    </header>
+    <div id="stage"></div>
+    <slot />
+    <Footer />
+  </body>
+</html>
