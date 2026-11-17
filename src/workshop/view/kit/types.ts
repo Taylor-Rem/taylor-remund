@@ -74,10 +74,18 @@ export interface KitPart {
   texture?: string;
 }
 
-/** A rigid node. Its parts move together; children move relative to it. */
+/**
+ * A rigid node. Its parts move together; children move relative to it.
+ * Its parts are built in the node's own space, whose origin is the node's
+ * PIVOT: a hinged thing (hatch, lid, guard) puts its hinge axis on the node's
+ * local +Y through the origin, so a view opens it by rotating about Y; a knob
+ * or wheel turns about its local Y the same way; a slider travels along its
+ * local X. Cavity (surf.y) is baked once, at the rest pose, across the whole
+ * piece: a hatch swung open keeps the shading of its closed position.
+ */
 export interface PieceNode {
   name: string;
-  /** Local transform relative to the parent node. Identity when omitted. */
+  /** Local transform relative to the parent node: where the pivot sits (and its rest rotation). Identity when omitted. */
   transform?: Matrix4;
   parts: KitPart[];
   children?: PieceNode[];

@@ -4,7 +4,7 @@ import type { Material, Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { MaterialClass } from '../../../src/workshop/view/kit/types.ts';
-import { testBlock } from '../../../src/workshop/view/kit/pieces/test-block.ts';
+import { testBlock } from '../../../src/workshop/view/kit/pieces/test-block/index.ts';
 import { checkGeometry } from './helpers.ts';
 
 describe('profile DSL', () => {

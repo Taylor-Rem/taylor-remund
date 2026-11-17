@@ -25,9 +25,9 @@ const NO_CAST: ReadonlySet<MaterialClass> = new Set(['bulb']);
 const NO_RECEIVE: ReadonlySet<MaterialClass> = new Set(['bulb']);
 
 function meshOf(node: PieceNode, part: KitPart, materials: Materials, o: RealizeOptions): Mesh {
-  const material = part.texture ? materials.textured(part.material, part.texture) : materials.of(part.material);
+  const material = part.texture ? materials.textured(part.material, part.texture) : materials.of(part.material, part.variant);
   const mesh = new Mesh(part.geometry, material);
-  mesh.name = `${node.name}.${part.material}${part.texture ? `.${part.texture}` : ''}`;
+  mesh.name = `${node.name}.${part.material}${part.variant ? `.${part.variant}` : ''}${part.texture ? `.${part.texture}` : ''}`;
   mesh.castShadow = (o.castShadow ?? true) && !NO_CAST.has(part.material);
   mesh.receiveShadow = (o.receiveShadow ?? true) && !NO_RECEIVE.has(part.material);
   mesh.userData['kitMaterial'] = part.material;

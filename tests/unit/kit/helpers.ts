@@ -11,7 +11,12 @@ export function checkGeometry(g: BufferGeometry): void {
   expect(nrm.count).toBe(pos.count);
   expect(col.count).toBe(pos.count);
   expect(surf.count).toBe(pos.count);
-  expect(surf.itemSize).toBe(2);
+  expect(surf.itemSize).toBe(3);
+  const lpos = g.getAttribute('lpos');
+  expect(lpos).toBeDefined();
+  expect(lpos.itemSize).toBe(3);
+  expect(lpos.count).toBe(pos.count);
+  for (const v of lpos.array) expect(Number.isFinite(v)).toBe(true);
   for (const a of [pos, nrm, col, surf]) for (const v of a.array) expect(Number.isFinite(v)).toBe(true);
   for (let i = 0; i < nrm.count; i++) expect(Math.abs(Math.hypot(nrm.getX(i), nrm.getY(i), nrm.getZ(i)) - 1)).toBeLessThan(1e-3);
   for (const v of surf.array) {

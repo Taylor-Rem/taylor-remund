@@ -89,7 +89,7 @@ export function deform(g: BufferGeometry, f: (x: number, y: number, z: number) =
   }
   pos.needsUpdate = true;
   nrm.needsUpdate = true;
-  if (!opts.keepSurf && g.getAttribute(ATTR.surf)) g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g), 2));
+  if (!opts.keepSurf && g.getAttribute(ATTR.surf)) g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g), 3));
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;

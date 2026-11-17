@@ -1,6 +1,7 @@
 ---
 // The kit review page (seed of the parts catalogue, REWRITE.md § E3).
-// Query: ?view=clay|raw|color|wear|cavity|surf|wire|normals  ?piece=all|test-block|solids|details
+// Query: ?view=clay|raw|color|real|wear|cavity|surf|finish|lpos|wire|normals  ?piece=all|test-block|solids|details|one:<name>|cat:<catalogue name>
+//        ?bench=1 (bake timing: six test blocks, different seeds)
 //        ?az=<deg> (camera azimuth)  ?el=<deg> (pitch)  ?zoom=<k>  ?at=x,y,z (look-at)  ?spin=1  ?detail=low
 // Throwaway lights and materials live here; they are not the stage's.
 ---
@@ -33,7 +34,11 @@
       import type { Materials } from '../workshop/view/types.ts';
       import type { MaterialClass, Piece } from '../workshop/view/kit/types.ts';
       import * as K from '../workshop/view/kit/index.ts';
-      import { testBlock } from '../workshop/view/kit/pieces/test-block.ts';
+      import { testBlock } from '../workshop/view/kit/pieces/test-block/index.ts';
+      import { findEntry, pieceFolders, buildCached } from '../workshop/view/kit/pieces/registry.ts';
+      import { bakeStats } from '../workshop/view/kit/surface.ts';
+      import { createMaterials } from '../workshop/view/materials/index.ts';
+      import { ShaderMaterial } from 'three';
 
       const q = new URLSearchParams(location.search);
       const view = q.get('view') ?? 'clay';
@@ -45,10 +50,10 @@
       function withSurf(m: MeshStandardMaterial, cavity: number, wear: number): MeshStandardMaterial {
         m.onBeforeCompile = (s) => {
           s.vertexShader = s.vertexShader
-            .replace('#include <common>', '#include <common>\nattribute vec2 surf;\nvarying vec2 vSurf;')
+            .replace('#include <common>', '#include <common>\nattribute vec3 surf;\nvarying vec3 vSurf;')
             .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurf = surf;');
           s.fragmentShader = s.fragmentShader
-            .replace('#include <common>', '#include <common>\nvarying vec2 vSurf;')
+            .replace('#include <common>', '#include <common>\nvarying vec3 vSurf;')
             .replace('#include <color_fragment>', `#include <color_fragment>\n diffuseColor.rgb *= mix(1.0, ${(1 - cavity).toFixed(2)}, vSurf.y);\n diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.6 + 0.04, vSurf.x * ${wear.toFixed(2)});`);
         };
         m.customProgramCacheKey = () => `surf${cavity}${wear}`;
@@ -62,11 +67,27 @@
         paper: { r: 0.95, m: 0 }, metal: { r: 0.38, m: 0.9 }, glass: { r: 0.08, m: 0.2 }, bulb: { r: 0.4, m: 0, e: true },
         felt: { r: 1, m: 0 }, tape: { r: 0.3, m: 0 }, belt: { r: 0.85, m: 0 },
       };
+      // lpos: stripes across +X (the part's length), y and z as slow ramps; lit by the normal
+      const lposMat = new ShaderMaterial({
+        vertexShader: `attribute vec3 lpos; varying vec3 vL; varying vec3 vN;
+          void main() { vL = lpos; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `varying vec3 vL; varying vec3 vN;
+          void main() {
+            float s = smoothstep(0.42, 0.5, fract(vL.x * 10.0)) * (1.0 - smoothstep(0.92, 1.0, fract(vL.x * 10.0)));
+            vec3 base = vec3(0.25 + 0.5 * fract(vL.x * 0.25), 0.3 + 0.5 * fract(vL.y * 3.0), 0.3 + 0.5 * fract(vL.z * 3.0));
+            vec3 c = mix(base, vec3(0.95, 0.9, 0.8), s * 0.75);
+            float l = 0.45 + 0.55 * max(0.0, dot(normalize(vN), normalize(vec3(-0.4, 0.8, 0.6))));
+            gl_FragColor = vec4(c * l, 1.0);
+          }`,
+      });
+      const real = view === 'real' ? createMaterials({ tier: 'high' }) : null;
       const colored = new Map<MaterialClass, Material>();
       const materials: Materials = {
-        of(cls) {
+        of(cls, variant) {
+          if (real) return real.of(cls, variant);
           if (view === 'normals') return normalMat;
-          if (view === 'wear' || view === 'cavity' || view === 'surf') return debugMat;
+          if (view === 'lpos') return lposMat;
+          if (view === 'wear' || view === 'cavity' || view === 'surf' || view === 'finish') return debugMat;
           if (view === 'color') {
             let m = colored.get(cls);
             if (!m) {
@@ -78,7 +99,7 @@
           }
           return clay;
         },
-        textured(cls) { return this.of(cls); },
+        textured(cls, key) { return real ? real.textured(cls, key) : this.of(cls); },
         update() {},
         dispose() {},
       };
@@ -125,6 +146,7 @@
         { name: 'spring', build: () => pc('spring', K.spring({ r: 0.07, wire: 0.012, turns: 6, detail })) },
         { name: 'flange', build: () => pc('flange', K.flange({ od: 0.3, t: 0.03, bolts: 6, detail })) },
         { name: 'collar', build: () => pc('collar', K.collar({ r: 0.09, detail })) },
+        { name: 'beltLoop', build: () => pc('belt', K.place(K.beltLoop({ span: 0.3, r: 0.05, width: 0.16, detail }), K.T(0, 0.06, 0))) },
       ];
 
       const scene = new Scene();
@@ -163,15 +185,30 @@
           span = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) * 2.2;
         }
       }
+      if (which.startsWith('cat:')) {
+        const e = await findEntry(which.slice(4));
+        if (e) {
+          add(buildCached(e, { detail, seed: Number(q.get('seed') ?? 1) }), 0, 0);
+          const b = new Box3().setFromObject(root);
+          focus = b.getCenter(new Vector3());
+          span = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) * 1.6;
+        }
+      }
       if (which === 'all') { layout(solids, 5, 0.0, -1.0, 0.62, 0.62); layout(details, 8, -2.3, 1.0, 0.42, 0.42); focus = new Vector3(0, 0.2, 0.1); span = 5.4; }
       const buildMs = performance.now() - t0;
 
-      if (view === 'wear' || view === 'cavity' || view === 'surf') {
+      if (view === 'wear' || view === 'cavity' || view === 'surf' || view === 'finish') {
         root.traverse((o) => {
           if ((o as Mesh).isMesh) {
             const m = o as Mesh;
             const g = m.geometry.clone();
-            g.setAttribute('color', new BufferAttribute(K.surfDebugColors(g, view === 'surf' ? 'both' : view), 3));
+            if (view === 'finish') {
+              // finish: dark = the class's normal finish, bright gold = gloss
+              const s = g.getAttribute('surf');
+              const c = new Float32Array(s.count * 3);
+              for (let i = 0; i < s.count; i++) { const f = s.getZ(i); c[i * 3] = 0.12 + 0.88 * f; c[i * 3 + 1] = 0.12 + 0.7 * f; c[i * 3 + 2] = 0.14 + 0.2 * f; }
+              g.setAttribute('color', new BufferAttribute(c, 3));
+            } else g.setAttribute('color', new BufferAttribute(K.surfDebugColors(g, view === 'surf' ? 'both' : view), 3));
             m.geometry = g;
           }
         });
@@ -222,7 +259,7 @@
       renderer.toneMappingExposure = 1.05;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = PCFShadowMap;
-      if (view === 'color') {
+      if (view === 'color' || view === 'real') {
         const pm = new PMREMGenerator(renderer);
         scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
         scene.environmentIntensity = 0.35;
@@ -241,8 +278,19 @@
       };
       place(az);
       const bb = new Box3().setFromObject(root);
+      let bench = '';
+      if (q.get('bench') === '1') {
+        // bake timing: six test blocks with different seeds (no memo hits), then one repeat (a memo hit)
+        const ms: number[] = [];
+        for (let i = 0; i < 6; i++) { testBlock({ detail, seed: 1000 + i }); ms.push(bakeStats.lastMs); }
+        testBlock({ detail, seed: 1000 });
+        const hit = bakeStats.lastMs;
+        const sorted = ms.slice().sort((a, b) => a - b);
+        bench = `  bvh ${bakeStats.lastBvhMs.toFixed(1)}ms  bake ms: first ${ms[0]!.toFixed(1)} median ${sorted[3]!.toFixed(1)} min ${sorted[0]!.toFixed(1)} memo-hit ${hit.toFixed(2)} rays ${bakeStats.lastRays}`;
+        (window as unknown as { __bench: unknown }).__bench = { ms, hit, rays: bakeStats.lastRays };
+      }
       (document.getElementById('hud') as HTMLElement).textContent =
-        `view=${view} piece=${which} detail=${detail}  triangles=${tris}  build=${buildMs.toFixed(0)}ms  bounds=${bb.min.toArray().map((v) => v.toFixed(2))}..${bb.max.toArray().map((v) => v.toFixed(2))}`;
+        `view=${view} piece=${which} detail=${detail}  triangles=${tris}  build=${buildMs.toFixed(0)}ms  pieces: ${pieceFolders().join(',')}${bench}  bounds=${bb.min.toArray().map((v) => v.toFixed(2))}..${bb.max.toArray().map((v) => v.toFixed(2))}`;
       const spin = q.get('spin') === '1';
       let frames = 0;
       const loop = (t: number) => {

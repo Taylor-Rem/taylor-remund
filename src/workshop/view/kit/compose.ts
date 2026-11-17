@@ -5,11 +5,22 @@
  */
 import { Box3, BufferAttribute, BufferGeometry, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { Token } from '../palette.ts';
-import type { KitPart, MaterialClass, Piece, PieceNode } from './types.ts';
+import type { KitPart, MaterialClass, MaterialVariant, Piece, PieceNode } from './types.ts';
 import { ATTR } from './types.ts';
 import { bakeCavity, tint } from './surface.ts';
 import type { AoOptions, TintOptions } from './surface.ts';
 import { transform } from './deform.ts';
+import { offsetLpos } from './space.ts';
+import { hash2, rng } from './rng.ts';
+
+/** Range of the per-part lpos offset (units). Materials' procedural detail must not repeat within it. */
+export const LPOS_OFFSET = 64;
+
+function nameSeed(name: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
 import { triangleCount } from './mesh.ts';
 import type { V3 } from './loft.ts';
 
@@ -31,6 +42,16 @@ export function part(material: MaterialClass, geometry: BufferGeometry, token?: 
 export function texturedPart(material: MaterialClass, geometry: BufferGeometry, texture: string): KitPart {
   return { material, geometry, texture };
 }
+
+/** Mark parts as a class's `variant` (e.g. 'large', the cheaper cut for surfaces that fill the screen). In place; returns them. */
+export function withVariant(p: PartsLike, variant: MaterialVariant): KitPart[] {
+  const list = flat(p);
+  for (const q of list) q.variant = variant;
+  return list;
+}
+
+/** Shorthand: the 'large' variant (the bench top, the back wall). */
+export const large = (p: PartsLike): KitPart[] => withVariant(p, 'large');
 
 /** Recolour parts with a token (in place). */
 export function paint(p: PartsLike, token: Token, t?: TintOptions): KitPart[] {
@@ -87,7 +108,7 @@ export function place(p: PartsLike, m: Matrix4 | Placement): KitPart[] {
   const M = m instanceof Matrix4 ? m : mat(m);
   return flat(p).map((q) => {
     const g = transform(q.geometry.clone(), M);
-    return q.texture ? { material: q.material, geometry: g, texture: q.texture } : { material: q.material, geometry: g };
+    return { ...q, geometry: g };
   });
 }
 
@@ -162,7 +183,7 @@ export function grid(p: PartsLike, nx: number, nz: number, dx: number, dz: numbe
 
 // ---- merging -------------------------------------------------------------------
 
-/** Concatenate geometries (indexed or not) into one indexed geometry, keeping position, normal, color, surf and uv. */
+/** Concatenate geometries (indexed or not) into one indexed geometry, keeping position, normal, color, surf, lpos and uv. */
 export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometry {
   let nv = 0;
   let ni = 0;
@@ -173,7 +194,7 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
     ni += g.index ? g.index.count : c;
     if (g.getAttribute('uv')) anyUv = true;
   }
-  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), surf = new Float32Array(nv * 2);
+  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), surf = new Float32Array(nv * 3), lpos = new Float32Array(nv * 3);
   const uv = anyUv ? new Float32Array(nv * 2) : null;
   const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
   let vo = 0, io = 0;
@@ -186,7 +207,10 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
     if (cl) col.set(cl.array as Float32Array, vo * 3);
     else col.fill(1, vo * 3, (vo + c) * 3);
     const s = g.getAttribute(ATTR.surf);
-    if (s) surf.set(s.array as Float32Array, vo * 2);
+    if (s && s.itemSize === 3) surf.set(s.array as Float32Array, vo * 3);
+    else if (s) for (let i = 0; i < c; i++) { surf[(vo + i) * 3] = s.getX(i); surf[(vo + i) * 3 + 1] = s.getY(i); }
+    const l = g.getAttribute(ATTR.lpos);
+    lpos.set((l ?? g.getAttribute('position')).array as Float32Array, vo * 3);
     const u = g.getAttribute('uv');
     if (uv && u) uv.set(u.array as Float32Array, vo * 2);
     if (g.index) {
@@ -203,7 +227,8 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
   out.setAttribute('position', new BufferAttribute(pos, 3));
   out.setAttribute('normal', new BufferAttribute(nrm, 3));
   out.setAttribute(ATTR.color, new BufferAttribute(col, 3));
-  out.setAttribute(ATTR.surf, new BufferAttribute(surf, 2));
+  out.setAttribute(ATTR.surf, new BufferAttribute(surf, 3));
+  out.setAttribute(ATTR.lpos, new BufferAttribute(lpos, 3));
   if (uv) out.setAttribute('uv', new BufferAttribute(uv, 2));
   out.setIndex(new BufferAttribute(idx, 1));
   out.computeBoundingBox();
@@ -211,21 +236,24 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
   return out;
 }
 
-/** Merge parts into one part per (material, texture). Order of first appearance is kept. */
+/** Merge parts into one part per (material, variant, texture). Order of first appearance is kept. */
 export function merge(p: PartsLike): KitPart[] {
-  const groups = new Map<string, { material: MaterialClass; texture?: string | undefined; geoms: BufferGeometry[] }>();
+  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; geoms: BufferGeometry[] }>();
   for (const q of flat(p)) {
-    const key = `${q.material}|${q.texture ?? ''}`;
+    const key = `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}`;
     let g = groups.get(key);
     if (!g) {
-      g = { material: q.material, texture: q.texture, geoms: [] };
+      g = { material: q.material, variant: q.variant, texture: q.texture, geoms: [] };
       groups.set(key, g);
     }
     g.geoms.push(q.geometry);
   }
   return [...groups.values()].map((g) => {
     const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
-    return g.texture ? { material: g.material, geometry, texture: g.texture } : { material: g.material, geometry };
+    const out: KitPart = { material: g.material, geometry };
+    if (g.variant) out.variant = g.variant;
+    if (g.texture) out.texture = g.texture;
+    return out;
   });
 }
 
@@ -267,6 +295,8 @@ export class NodeBuilder {
 }
 
 export interface PieceOptions {
+  /** Seed for the per-part material-space offsets (default: from the piece name). Pass the piece's own seed. */
+  seed?: number;
   /** Bake ambient-occlusion cavity across the whole piece at rest (default true). */
   ao?: AoOptions | false;
   /** Detail level: 'low' drops parts added with `small` (default 'high'). */
@@ -289,7 +319,37 @@ export class PieceBuilder extends NodeBuilder {
     return this;
   }
 
+  /**
+   * Offset every part's lpos by a seeded distance along +X, so two identical parts (two bolts, sixty
+   * crates' planks) never show the same chips or grain. Deterministic from the piece seed and
+   * the part's order in the tree; done once, here, so builders never have to think about it.
+   */
+  private offsetDone = false;
+
+  private offsetParts(): void {
+    if (this.offsetDone) return;
+    this.offsetDone = true;
+    const seed = this.opts.seed ?? nameSeed(this.pieceName);
+    const seen = new Set<BufferGeometry>();
+    let k = 0;
+    const walk = (b: NodeBuilder): void => {
+      for (let i = 0; i < b.parts.length; i++) {
+        const q = b.parts[i]!;
+        if (seen.has(q.geometry)) b.parts[i] = { ...q, geometry: q.geometry.clone() };
+        const g = b.parts[i]!.geometry;
+        seen.add(g);
+        const h = hash2(seed, k++);
+        const r = rng(h);
+        // along +X only: the part's own axis stays at y = z = 0 (turned rings and a plank's pith centre on it)
+        offsetLpos(g, r.range(0, LPOS_OFFSET), 0, 0);
+      }
+      for (const c of b.children) walk(c);
+    };
+    walk(this);
+  }
+
   build(): Piece {
+    this.offsetParts();
     const all: Array<{ geometry: BufferGeometry; matrix: Matrix4 }> = [];
     let triangles = 0;
     const box = new Box3();

@@ -10,22 +10,24 @@
  * 'knob' (turns about its local Y axis).
  */
 import { Matrix4 } from 'three';
-import type { KitOptions, Piece } from '../types.ts';
-import { roundedBox, slab, lathe, taperBox, profiledBox } from '../solids.ts';
-import { profile } from '../profile.ts';
-import { sweep, polylinePath } from '../sweep.ts';
+import type { KitOptions, Piece } from '../../types.ts';
+import type { CatalogueEntry } from '../../catalogue.ts';
+import { roundedBox, slab, lathe, taperBox, profiledBox } from '../../solids.ts';
+import { profile } from '../../profile.ts';
+import { sweep, polylinePath } from '../../sweep.ts';
 import {
   cableGland, domeRivet, flange, handle, hexBolt, hinge, knurlGeom, louvre, rubberFoot, seam, slottedScrew, collar, weldBead,
-} from '../details.ts';
-import { aim, alongEdge, chain, mat, part, piece, place, T } from '../compose.ts';
-import { askew, rng } from '../rng.ts';
-import { transform } from '../deform.ts';
+} from '../../details.ts';
+import { aim, alongEdge, chain, mat, part, piece, place, T } from '../../compose.ts';
+import { askew, rng } from '../../rng.ts';
+import { transform } from '../../deform.ts';
+import { setFinish } from '../../space.ts';
 
 export function testBlock(o: KitOptions = {}): Piece {
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
   const R = rng(seed);
-  const b = piece('test-block', { detail });
+  const b = piece('test-block', { detail, seed });
 
   // ---- large form: feet, plinth, body, hood --------------------------------
   const W = 1.0, D = 0.64; // body
@@ -103,8 +105,9 @@ export function testBlock(o: KitOptions = {}): Piece {
   const knobAt = T(0.3, yB1 + 0.075, -0.06);
   b.add(place(collar({ r: 0.07, inner: 0.03, h: 0.03, detail, seed: seed + 10 }), knobAt));
   const knob = b.node('knob', chain(knobAt, T(0, 0.028, 0), new Matrix4().makeRotationY(R.range(0, Math.PI * 2))));
-  knob.add(part('brass', lathe(profile(0, 0).to(0.05, 0, { fillet: 0.006, segs: 2 }).to(0.058, 0.014, { fillet: 0.006, segs: 2 }).to(0.046, 0.016).to(0, 0.016), { segs: 22, detail, support: false, caps: 'end' }), 'brass', { seed: seed + 11 }));
-  knob.add(part('brass', transform(knurlGeom(0.054, 0.042, 18, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }));
+  // the knob's brass is handled every day: polished (finish 1), while the plate and hinge keep the class's patina
+  knob.add(setFinish(part('brass', lathe(profile(0, 0).to(0.05, 0, { fillet: 0.006, segs: 2 }).to(0.058, 0.014, { fillet: 0.006, segs: 2 }).to(0.046, 0.016).to(0, 0.016), { segs: 22, detail, support: false, caps: 'end' }), 'brass', { seed: seed + 11 }), 1));
+  knob.add(setFinish(part('brass', transform(knurlGeom(0.054, 0.042, 18, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }), 0.7));
   knob.add(
     part(
       'rubber',
@@ -147,3 +150,13 @@ export function testBlock(o: KitOptions = {}): Piece {
   b.socket('label', mat({ at: [-0.235, 0.68, zF + 0.012] }));
   return b.build();
 }
+
+export const catalogue: CatalogueEntry[] = [
+  {
+    name: 'test-block',
+    build: (opts = {}) => testBlock({ ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.detail ? { detail: opts.detail } : {}) }),
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
+    camera: { distance: 4.2 },
+    note: 'The kit demo: every solid, detail and signal on one small machine housing.',
+  },
+];
