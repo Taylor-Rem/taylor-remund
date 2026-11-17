@@ -8,7 +8,7 @@
  * The rung and the press count are the Button's own and are not in the
  * history (§ E5 rule 13); they are the only things a rung changes.
  */
-import type { Id, Intent, Vec3 } from '../types.ts';
+import type { ButtonView, Id, Intent, RungPhase, Vec3 } from '../types.ts';
 import type { SimContext, Unit } from '../context.ts';
 import { HZ, steps } from '../clock.ts';
 
@@ -20,17 +20,7 @@ export const BUTTON_TUNING = {
   rewind: 1.2,
 } as const;
 
-export type RungPhase = 'idle' | 'playing' | 'rewinding';
-
-export interface ButtonView {
-  readonly id: Id;
-  /** Rung reached (0 before the first press). Kept outside the history. */
-  readonly rung: number;
-  readonly presses: number;
-  readonly phase: RungPhase;
-  /** Seconds since `phase` began. */
-  readonly phaseTime: number;
-}
+export type { ButtonView, RungPhase } from '../types.ts';
 
 export interface ButtonUnit extends Unit {
   view(): ButtonView;

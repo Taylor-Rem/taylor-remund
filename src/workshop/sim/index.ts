@@ -9,19 +9,16 @@
  *   // every frame: world.dispatch(...intents); for each due fixed step: world.advance();
  *   // then hand world (a WorldView) and world.drainEvents() to view and audio.
  */
+// the read-only surface (WorldView and everything it returns, SceneDesc included)
 export type * from './types.ts';
 export { createWorld, LOOSE_TUNING } from './world.ts';
 export type { World, WorldOptions } from './world.ts';
-export type { BodyMode, Holding, CommitResult } from './context.ts';
+export type { CommitResult } from './context.ts';
 export type { Change, HistoryHooks, Recorded, ActionKind } from './history.ts';
 export { p1History } from './history.ts';
 export type { Writer } from './store.ts';
-export type { ButtonView, RungPhase } from './machines/button.ts';
 export { BUTTON_TUNING } from './machines/button.ts';
-export type { CordView } from './machines/cord.ts';
-export type { FetchState } from './crew/fetch.ts';
 export { FETCH_TUNING } from './crew/fetch.ts';
-export type { SceneDesc } from './scene.ts';
 export { vignette, AT as VIGNETTE_LAYOUT } from './scenes/vignette.ts';
 export type { PhysicsPort } from './physics/port.ts';
 export { createStubPhysics } from './physics/stub.ts';

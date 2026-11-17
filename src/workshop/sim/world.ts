@@ -80,14 +80,14 @@ export const LOOSE_TUNING = {
 } as const;
 
 /** The world as the input, view, audio, ui and shell layers use it. */
+/**
+ * The world's write side, for the shell and the tests. Everything readable is
+ * `WorldView` (sim/types.ts); `view`, `input`, `ui` and `audio` use only that.
+ */
 export interface World extends WorldView {
-  readonly scene: SceneDesc;
   /** The only way input reaches the world. Handled at the start of the next step, in order. */
   dispatch(intent: Intent): void;
-  /**
-   * Advance exactly one fixed step (1/60 s). (The brief calls this `step()`;
-   * `WorldView.step` is already the step count, so the method is `advance`.)
-   */
+  /** Advance exactly one fixed step (1/60 s). `WorldView.step` is the counter. */
   advance(): void;
   /** Events since the last drain, in order. */
   drainEvents(): SimEvent[];
@@ -97,18 +97,6 @@ export interface World extends WorldView {
   writer(target: Id, field: string): Writer | undefined;
   /** Every durable field: target, field, value, writer (saving, the replay check, the bracket tests). */
   durable(): { target: Id; field: string; value: Value; writer: Writer }[];
-  interactable(id: Id): Interactable | undefined;
-  /** What the visitor's hand holds. */
-  holding(): Holding | null;
-  /** What the world is doing with a part's body ('chute': off the bench, not drawn until it returns). */
-  mode(id: Id): BodyMode | undefined;
-  /** § E5 rule 5: the visitor has touched or changed this part; the crew leaves it alone. */
-  touched(id: Id): boolean;
-  /** The Button's own state (outside the history, § E5 rule 13). */
-  button(): ButtonView;
-  /** The cord's transient state (where the lifted plug is). */
-  cord(id: Id): CordView | undefined;
-  readonly hovered: Id | null;
   dispose(): void;
 }
 
@@ -395,7 +383,8 @@ export function createWorld(opts: WorldOptions): World {
     physics.setVelocity(l.id, v, w);
   }
 
-  function readMotion(): void {
+  /** Read every part's pose back. `exact`: poses to report as given (the rewind's recorded frame; the engine may renormalise a set rotation by an ulp). */
+  function readMotion(exact?: ReadonlyMap<Id, Pose>): void {
     for (const l of loose.values()) {
       if (l.mode === 'chute') {
         l.prev = l.pose;
@@ -404,7 +393,7 @@ export function createWorld(opts: WorldOptions): World {
       }
       const st = physics.state(l.id);
       l.prev = l.pose;
-      l.pose = st.pose;
+      l.pose = exact?.get(l.id) ?? st.pose;
       l.awake = l.mode === 'held' || l.mode === 'crew' ? dist(l.prev.p, l.pose.p) > 1e-6 || qangle(l.prev.q, l.pose.q) > 1e-6 : !st.sleeping;
     }
   }
@@ -609,8 +598,12 @@ export function createWorld(opts: WorldOptions): World {
       partCache.clear();
       for (const [id, s] of b.loose) {
         const l = lp(id);
+        // keep this step's `prev` (the second-last rewind frame) so the last rewind step still
+        // interpolates; the restored pose is the first recorded frame, so nothing jumps.
+        // A part that was in the chute at the press was never drawn: no interpolation.
+        const prev = l.prev;
         Object.assign(l, s, { contacts: new Map(s.contacts) });
-        l.prev = l.pose;
+        l.prev = s.mode === 'chute' ? l.pose : prev;
       }
       bracket = null;
       history.bracket(false);
@@ -618,14 +611,15 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
-  function playback(): void {
+  /** One step of the rung's rewind: put every body at its recorded pose. Returns the frame shown. */
+  function playback(): ReadonlyMap<Id, Pose> | undefined {
     const b = bracket;
-    if (!b) return;
+    if (!b) return undefined;
     b.rewound += 1;
     const f = Math.min(1, b.rewound / b.rewindSteps);
     const idx = Math.round((1 - f) * (b.frames.length - 1));
     const frame = b.frames[idx];
-    if (!frame) return;
+    if (!frame) return undefined;
     for (const [id, p] of frame) {
       const l = lp(id);
       if (l.mode === 'chute') {
@@ -635,6 +629,7 @@ export function createWorld(opts: WorldOptions): World {
       physics.setPose(id, p);
       if (l.mode === 'free' || l.mode === 'held') physics.setVelocity(id, [0, 0, 0], [0, 0, 0]);
     }
+    return frame;
   }
 
   const button: ButtonUnit = createButton(ctx, opts.button);
@@ -714,8 +709,7 @@ export function createWorld(opts: WorldOptions): World {
       }
       for (const u of units) u.pre?.();
       if (bracket?.phase === 'rewind') {
-        playback();
-        readMotion();
+        readMotion(playback());
       } else {
         driveHeld();
         const contacts = physics.step();
@@ -768,7 +762,7 @@ export function createWorld(opts: WorldOptions): World {
     motion(id): PartMotion | undefined {
       const l = loose.get(id);
       if (!l) return undefined;
-      return { pose: l.pose, prev: l.prev, held: l.mode === 'held', awake: l.awake };
+      return { pose: l.pose, prev: l.prev, held: l.mode === 'held', awake: l.awake, mode: l.mode };
     },
     setting: (t, f) => store.get(t, f),
     interactables: () => registry.all(),

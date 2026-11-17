@@ -4,25 +4,13 @@
  * they meet through this context: parts, the commit funnel, the event bus
  * (REWRITE.md § E4 invariant 2).
  */
-import type { Cause, Effect, Id, Intent, Interactable, Part, Pose, SimEvent, Value, Vec3 } from './types.ts';
+import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Part, Pose, SimEvent, Value, Vec3 } from './types.ts';
 import type { Clock } from './clock.ts';
 import type { Rng } from './rng.ts';
 import type { Change, HistoryHooks } from './history.ts';
 import type { SceneDesc } from './scene.ts';
 
-/** What the world does with a loose part's body right now (transient, never recorded). */
-export type BodyMode =
-  /** simulated: falls, tumbles, rests */
-  | 'free'
-  /** in the visitor's hand, spring-driven toward the pointer */
-  | 'held'
-  /** driven by a crew member (Fetch itself, or a crate in its hands) */
-  | 'crew'
-  /** fell off the bench; waiting to come back up the return chute */
-  | 'chute';
-
-/** What the visitor's hand holds. */
-export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id };
+export type { BodyMode, Holding } from './types.ts';
 
 export interface CommitResult {
   /** The effects applied, in order (one per field). */
