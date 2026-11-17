@@ -113,7 +113,8 @@ float pScratchCell(vec3 p, vec3 n, float cell, float width, float density, float
   vec3 fc = f - ex.zxy * 0.08;
   float across = abs(dot(fc, sn)) * cell;
   float along = length(fc - sn * dot(fc, sn));
-  float len = 0.3 + 0.1 * ex.y;
+  // lengths vary a lot: mostly short nicks, now and then a longer drag
+  float len = 0.1 + 0.3 * ex.y * ex.y;
   float taper = 1.0 - smoothstep(len * 0.35, len, along);
   float w = width * (0.35 + 0.65 * taper);
   float wd = max(w, fw * 0.75);
@@ -204,13 +205,51 @@ vec3 pSheen = vec3(0.0);
 `;
 
 export const FRAGMENT_CLOSE = /* glsl */ `
+#ifdef DEBUG_VIEW
+// Review views (createMaterials({ debug })): a neutral matte clay, or one
+// per-pixel signal over it. Everything procedural is switched off.
+{
+  vec3 dv = d_clay;
+#if defined(DEBUG_WEAR)
+  dv = mix(d_clay, d_hot, pWear);
+#elif defined(DEBUG_CAVITY)
+  dv = mix(d_clay, d_cold, pCav);
+#elif defined(DEBUG_FINISH)
+  dv = mix(d_clay, d_bandA, pFinish);
+#elif defined(DEBUG_LPOS)
+  vec3 band = smoothstep(0.42, 0.5, abs(fract(vLp * 2.0) - 0.5));
+  dv = mix(mix(d_clay, d_bandA, band.x * 0.8), d_bandB, max(band.y, band.z) * 0.6);
+#endif
+  pAlbedo = dv;
+  pRough = 0.85;
+  pMetal = 0.0;
+  pH = 0.0;
+  pDB = vec2(0.0);
+  pEmit = vec3(0.0);
+  pSheen = vec3(0.0);
+#ifdef USE_CLEARCOAT
+  pCoat = 0.0;
+#endif
+}
+#endif
 diffuseColor.rgb = max(pAlbedo, vec3(0.0));
+`;
+
+/** Uniforms of the review views (debug option): colours derived from palette tokens. */
+export const DEBUG_PARS = /* glsl */ `
+#ifdef DEBUG_VIEW
+uniform vec3 d_clay;
+uniform vec3 d_hot;
+uniform vec3 d_cold;
+uniform vec3 d_bandA;
+uniform vec3 d_bandB;
+#endif
 `;
 
 // A label's roughness map (G) sets the base; the class's procedural
 // deviation from its nominal roughness (scuffs, dust, tarnish) rides on top.
 export const FRAGMENT_ROUGHNESS = /* glsl */ `
-#ifdef USE_ROUGHNESSMAP
+#if defined(USE_ROUGHNESSMAP) && !defined(DEBUG_VIEW)
 roughnessFactor = clamp(texelRoughness.g + (pRough - roughness), 0.04, 1.0);
 #else
 roughnessFactor = clamp(pRough, 0.04, 1.0);
@@ -218,7 +257,7 @@ roughnessFactor = clamp(pRough, 0.04, 1.0);
 `;
 
 export const FRAGMENT_METALNESS = /* glsl */ `
-#ifdef USE_METALNESSMAP
+#if defined(USE_METALNESSMAP) && !defined(DEBUG_VIEW)
 metalnessFactor = clamp(texelMetalness.b + (pMetal - metalness), 0.0, 1.0);
 #else
 metalnessFactor = clamp(pMetal, 0.0, 1.0);

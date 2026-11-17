@@ -88,35 +88,47 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       roughness: p(0.44, 0.25, 0.7), // satin enamel
       roughVar: p(0.14, 0, 0.3), // slow roughness drift
       toneScale: p(2.6, 0.5, 8), // tonal drift frequency (per unit)
-      toneVar: p(0.07, 0, 0.3), // tonal drift strength
+      toneVar: p(0.06, 0, 0.3), // tonal drift strength
       dirt: p(0.09, 0, 0.6), // fine mottled dirt over the whole surface
       dirtScale: p(22, 5, 80),
-      chipAmount: p(0.72, 0, 1.2), // how much wear turns into chips
-      chipScale: p(15, 4, 40), // chip noise frequency: bigger = smaller chips
-      chipNoise: p(1.0, 0.2, 2), // raggedness of chip outlines
+      // How wear becomes "edge": wear below wearFloor never chips; wear at
+      // wearFull counts as a full edge. A low wearFull lets the kit's thin
+      // wear gradient next to a bevel (0.03-0.06 units wide, small values)
+      // pull chips onto the face; raise it to keep chips on the bevel.
+      wearFloor: p(0.03, 0, 0.3),
+      wearFull: p(0.55, 0.05, 1),
+      chipAmount: p(0.8, 0, 1.5), // how much edge turns into chips
+      chipScale: p(11, 4, 40), // chip patch frequency: bigger = smaller patches
+      chipNoise: p(1.15, 0.2, 2.5), // raggedness and reach of the patches (how far they bite into a face)
       chipThreshold: p(0.6, 0.3, 0.9), // higher = fewer chips
-      fleck: p(0.5, 0, 1), // small flecks knocked off near edges and, rarely, on faces
+      maxCover: p(0.45, 0.05, 1), // at most this share of a part may chip, however worn (thin slats, straps, handles)
+      cavityGuard: p(0.9, 0, 2), // recesses keep their paint
+      fleck: p(0.35, 0, 1), // small flecks knocked off near edges and, rarely, on faces
       fleckScale: p(55, 15, 150),
       chipRim: p(0.06, 0, 0.2), // width of the lighter paint edge round a chip
-      rimLighten: p(1.5, 1, 2.2),
+      rimLighten: p(1.35, 1, 2.2),
       paintThickness: p(0.003, 0, 0.012), // step down into a chip (material units)
       bareMetal: p(0.55, 0, 1),
       bareRough: p(0.4, 0.2, 0.9),
-      rust: p(0.45, 0, 1),
+      rust: p(0.4, 0, 1),
       rustEdge: p(0.7, 0, 1), // a trace of rust just inside a chip's edge
       rustEdgeWidth: p(0.04, 0.01, 0.3),
-      scratch: p(0.85, 0, 1),
-      scratchScale: p(9, 2, 40), // scratch cells per unit (a scratch is up to ~0.8 cell long)
-      scratchDensity: p(0.42, 0, 1), // share of cells holding a scratch
-      scratchWidth: p(0.0018, 0.0002, 0.01), // material units
+      // Scratches are quiet by default: a scratch on enamel is a slightly
+      // lighter, duller line in the paint's own hue, not a bright hair.
+      scratch: p(0.55, 0, 1),
+      scratchScale: p(14, 2, 40), // scratch cells per unit (a scratch is 0.2-0.8 of a cell)
+      scratchDensity: p(0.16, 0, 1), // share of cells holding a scratch
+      scratchEdge: p(0.35, 0, 1), // extra, longer scratches, near edges only
+      scratchWidth: p(0.0012, 0.0002, 0.01), // material units
+      scratchLift: p(1.22, 1, 2), // how much lighter than the paint a scratch is
       grime: p(0.95, 0, 1.5),
-      dust: p(0.22, 0, 1),
+      dust: p(0.06, 0, 1),
       peel: p(0.0003, 0, 0.002), // orange-peel amplitude (material units)
-      glossRough: p(0.07, 0.02, 0.3), // enamel roughness at finish 1
+      glossRough: p(0.2, 0.02, 0.4), // enamel body roughness under the coat at finish 1
       glossChips: p(0.45, 0, 1), // chip amount kept at finish 1 (a gloss coat is tougher)
-      glossDeepen: p(0.82, 0.5, 1), // wet gloss reads deeper in colour
-      coat: p(0.9, 0, 1), // clearcoat lobe strength at finish 1
-      coatRough: p(0.035, 0.0, 0.3),
+      glossDeepen: p(0.76, 0.5, 1), // thick wet enamel reads deeper in colour
+      coat: p(1.0, 0, 1), // clearcoat lobe strength at finish 1
+      coatRough: p(0.02, 0.0, 0.3), // small, crisp highlight
     },
     colours: () => ({
       bare: tok('steel').lerp(tok('ink'), 0.4).multiplyScalar(0.5),
@@ -127,17 +139,20 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       dust: dust(),
     }),
     pars: /* glsl */ `
-float steelChipField(vec3 q, float wear) {
+float steelEdge(float wear) {
+  return smoothstep(u_wearFloor, u_wearFull, wear);
+}
+float steelChipField(vec3 q, float base) {
   vec3 x = q * u_chipScale;
   float n = pNoise4(x).r * 0.62 + pNoise4(x * 2.13 + 17.3).g * 0.38;
-  return wear + (n - 0.5) * u_chipNoise;
+  return base + (n - 0.5) * u_chipNoise;
 }
 `,
     glsl: /* glsl */ `
 float fin = pFinish;
 vec4 T = pNoise4(pP * u_toneScale);            // r tone, g tone2, b fleck gate, a dust
 vec4 D = pFbm4(pP * u_dirtScale + 13.0);       // r dirt, g grime var, b rust var
-vec4 C = pFbm4(pP * u_chipScale);              // r chip outline, g roughness drift
+vec4 C = pFbm4(pP * u_chipScale);              // r chip outline, g roughness drift, b cover gate
 vec4 F = pNoise4(pP * u_fleckScale + 11.0);    // r flecks, g bare variation, b rust patches, a orange peel
 float gN = D.g;
 float dN = T.a;
@@ -146,11 +161,17 @@ float dirtM = smoothstep(0.3, 0.95, D.r) * u_dirt * (1.0 - 0.7 * fin);
 paint *= 1.0 - dirtM;
 paint *= mix(1.0, u_glossDeepen, fin);
 
-// chips: one ragged field from wear and noise; flecks are a finer second population
+// Chips: patches whose size and shape come from the noise, placed by how
+// much of an edge this is, kept out of recesses, and capped so a part that is
+// worn everywhere (a slat, a strap) cannot lose all its paint.
 float chipAmt = u_chipAmount * mix(1.0, u_glossChips, fin);
-float fleckGate = smoothstep(0.05, 0.6, pWear) * 0.75 + 0.25 * smoothstep(0.6, 0.9, T.b);
+float E = steelEdge(pWear);
+float guard = smoothstep(0.15, 0.6, pCav) * u_cavityGuard;
+float cover = smoothstep(1.0 - u_maxCover - 0.12, 1.0 - u_maxCover + 0.12, C.b);
+float fleckGate = E * 0.75 + 0.25 * smoothstep(0.6, 0.9, T.b);
 float fleckF = smoothstep(0.72, 0.9, F.r) * fleckGate * u_fleck * (1.0 - 0.6 * fin);
-float field = pWear * chipAmt + (C.r - 0.5) * u_chipNoise + fleckF * 0.45;
+float base = E * chipAmt - guard - (1.0 - cover) * 0.7 + fleckF * 0.45;
+float field = base + (C.r - 0.5) * u_chipNoise;
 float aw = max(fwidth(field) * 0.7, 1e-4);
 float chip = smoothstep(u_chipThreshold - aw, u_chipThreshold + aw, field);
 float rimLo = u_chipThreshold - u_chipRim;
@@ -160,8 +181,9 @@ float stepLo = u_chipThreshold - u_chipRim * 2.0;
 // the paint step as a true per-pixel slope (no 2x2 stair on the rim)
 {
   float h0 = -u_paintThickness * smoothstep(stepLo, u_chipThreshold, field);
-  float fx = steelChipField(pP + dFdx(pP), (pWear + dFdx(pWear)) * chipAmt) + fleckF * 0.45;
-  float fy = steelChipField(pP + dFdy(pP), (pWear + dFdy(pWear)) * chipAmt) + fleckF * 0.45;
+  float other = base - E * chipAmt;
+  float fx = steelChipField(pP + dFdx(pP), steelEdge(pWear + dFdx(pWear)) * chipAmt + other);
+  float fy = steelChipField(pP + dFdy(pP), steelEdge(pWear + dFdy(pWear)) * chipAmt + other);
   pDB = vec2(-u_paintThickness * smoothstep(stepLo, u_chipThreshold, fx) - h0, -u_paintThickness * smoothstep(stepLo, u_chipThreshold, fy) - h0);
 }
 #else
@@ -175,22 +197,26 @@ float rustM = smoothstep(0.55, 0.9, F.b * 0.8 + pCav * 0.3 + (1.0 - pWear) * 0.2
 bare = mix(bare, c_rust * (0.6 + 0.8 * D.b), rustM);
 float edgeIn = chip * (1.0 - smoothstep(u_chipThreshold, u_chipThreshold + u_rustEdgeWidth, field));
 bare = mix(bare, c_rustEdge * (0.7 + 0.6 * F.g), edgeIn * u_rustEdge);
-vec3 edgeCol = mix(paint * u_rimLighten, c_primer, 0.3);
-paint = mix(paint, edgeCol, rim * 0.8);
+vec3 edgeCol = mix(paint * u_rimLighten, c_primer, 0.25);
+paint = mix(paint, edgeCol, rim * 0.7);
 
 float scr = 0.0;
 #ifndef TIER_LOW
-scr = pScratches(pP, pN, u_scratchScale, u_scratchDensity, u_scratchWidth, pFw) * u_scratch * (1.0 - 0.5 * fin);
+{
+  float s1 = pScratchCell(pP, pN, 1.0 / u_scratchScale, u_scratchWidth, u_scratchDensity, pFw, 0.0);
+  float s2 = pScratchCell(pP, pN, 2.6 / u_scratchScale, u_scratchWidth * 1.2, u_scratchEdge * E, pFw, 7.4);
+  scr = max(s1, s2) * u_scratch * (1.0 - 0.5 * fin) * (1.0 - smoothstep(0.2, 0.6, pCav));
+}
 #endif
-// a scratch through the paint shows bright steel, a chip shows the substrate
-vec3 scrCol = c_bare * 2.2 + paint * 0.25;
+// a scratch is the paint, a little lighter and duller; a chip shows the substrate
+vec3 scrCol = paint * u_scratchLift + c_primer * 0.04;
 vec3 col = mix(paint, scrCol, scr * (1.0 - chip));
 pAlbedo = mix(col, bare, chip);
-pMetal = u_bareMetal * max(chip, scr * 0.8) * (1.0 - max(rustM, edgeIn * u_rustEdge) * chip);
+pMetal = u_bareMetal * chip * (1.0 - max(rustM, edgeIn * u_rustEdge));
 float paintRough = u_roughness + (C.g - 0.5) * u_roughVar * 1.5 + dirtM * 0.4;
 paintRough = mix(paintRough, u_glossRough, fin);
 pRough = mix(paintRough, u_bareRough + rustM * 0.3 + edgeIn * 0.2, chip);
-pRough = mix(pRough, 0.3, scr * (1.0 - chip) * 0.6);
+pRough = mix(pRough, pRough + 0.18, scr * (1.0 - chip));
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
@@ -210,12 +236,14 @@ pCoatRough = u_coatRough;
     kind: 'standard',
     props: { roughness: 0.35, metalness: 1, envMapIntensity: 1.0 },
     params: {
-      bright: p(1.6, 0.8, 2.5), // albedo lift over the token (metal reflectance)
-      desat: p(0.32, 0, 0.7), // the token is a paint colour; real brass reflects paler
-      roughMin: p(0.2, 0.05, 0.5),
-      roughMax: p(0.42, 0.2, 0.7),
+      bright: p(1.5, 0.8, 2.5), // albedo lift over the token (metal reflectance)
+      desat: p(0.12, 0, 0.7), // a little paler than the paint token
+      yellow: p(0.1, 0, 0.3), // pulls the hue from copper toward the brass token's yellow
+      metal: p(0.82, 0.5, 1), // below 1 keeps a little diffuse: flat plates stay warm gold with nothing bright to mirror
+      roughMin: p(0.32, 0.05, 0.6), // roughness floor: a soft sheen, not a mirror of the dark room
+      roughMax: p(0.5, 0.2, 0.8),
       brushScale: p(220, 60, 600), // streak frequency across the brushing (along lpos +X)
-      brushContrast: p(0.3, 0, 0.6),
+      brushContrast: p(0.17, 0, 0.6),
       turnScale: p(160, 40, 500), // turned rings per unit of radius on end faces
       turnContrast: p(0.55, 0, 1),
       hairScale: p(14, 3, 60), // hairline polishing scratches
@@ -225,9 +253,9 @@ pCoatRough = u_coatRough;
       tarnishDark: p(0.62, 0.3, 1),
       polishBright: p(1.45, 1, 2),
       roughPolish: p(0.16, 0.05, 0.4),
-      patina: p(1.1, 0, 2),
+      patina: p(0.85, 0, 2),
       dent: p(0.002, 0, 0.006),
-      finishRough: p(0.08, 0.03, 0.3), // roughness at finish 1 (hand-polished)
+      finishRough: p(0.12, 0.03, 0.3), // roughness at finish 1 (hand-polished)
       grime: p(0.5, 0, 1.5),
       dust: p(0.08, 0, 1),
     },
@@ -258,13 +286,15 @@ vec3 brassC = pBase;
 #else
 vec3 brassC = pBase * u_bright;
 brassC = mix(brassC, vec3(dot(brassC, vec3(0.2126, 0.7152, 0.0722))), u_desat);
+brassC.g *= 1.0 + u_yellow;
+brassC.b *= 1.0 - u_yellow;
 #endif
 vec3 col = brassC * (1.0 + (brush - 0.5) * brushC * 2.0);
 col *= mix(1.0, u_tarnishDark, smoothstep(0.35, 0.75, tarn) * u_tarnish * (1.0 - fin));
 col = mix(col, brassC * u_polishBright * (1.0 + (brush - 0.5) * brushC), polish);
-float pat = smoothstep(0.3, 0.75, pCav * u_patina * (1.0 - 0.7 * fin) + (T.g - 0.5) * 0.6);
+float pat = smoothstep(0.5, 0.85, pCav * u_patina * (1.0 - 0.7 * fin) + (T.g - 0.5) * 0.6);
 pAlbedo = mix(col, c_patina * (0.7 + 0.6 * tarn), pat);
-pMetal = mix(1.0, 0.15, pat);
+pMetal = mix(mix(u_metal, 1.0, fin), 0.15, pat);
 pRough = mix(u_roughMin, u_roughMax, brush * 0.65 + tarn * 0.35);
 pRough = mix(pRough, u_roughPolish, polish);
 pRough = mix(pRough, u_finishRough + (brush - 0.5) * 0.04, fin);
@@ -304,11 +334,11 @@ ${DUST}
       late: p(0.62, 0.2, 1),
       streakFreq: p(42, 10, 150), // visible grain lines across the board
       streakLen: p(0.9, 0.2, 5),
-      streak: p(0.32, 0, 0.8),
+      streak: p(0.4, 0, 0.8),
       fibreFreq: p(150, 40, 500),
       fibreLen: p(2, 0.5, 20),
-      fibreContrast: p(0.34, 0, 0.8),
-      pores: p(0.4, 0, 0.8),
+      fibreContrast: p(0.45, 0, 0.8),
+      pores: p(0.55, 0, 0.9),
       endDark: p(0.68, 0.4, 1),
       edgeWear: p(0.8, 0, 1),
       edgeLight: p(1.3, 1, 2),
@@ -506,12 +536,21 @@ pMetal = 0.0;
 `,
   },
 
-  // Bulb: the only class that glows. Emission is the vertex colour times intensity. No fetch.
+  // Bulb: the only class that glows. Emission is the vertex colour times a
+  // level in linear units, chosen per vertex by the finish channel:
+  //   finish 0 = a lamp or marquee bulb (lampLevel), finish 1 = an indicator
+  //   lamp (indicatorLevel); in between blends. `intensity` dims every bulb
+  //   at once (the lamp dip, night). The post chain's bloom threshold is
+  //   meant to sit between the brightest lit surface (about 2 linear under
+  //   the key) and the indicator level, e.g. 3: lit paint never blooms, both
+  //   bulb levels do. A dark vertex colour gives an unlit bulb. No fetch.
   bulb: {
     kind: 'standard',
     props: { roughness: 0.12, metalness: 0, envMapIntensity: 0.5 },
     params: {
-      intensity: p(3.2, 0, 12),
+      lampLevel: p(9, 0, 30),
+      indicatorLevel: p(5, 0, 30),
+      intensity: p(1, 0, 2), // global dimmer
       core: p(2.2, 0.2, 4), // how much hotter the middle of the bulb is than its edge
       edge: p(0.3, 0, 1),
       flicker: p(1, 0.8, 1.2), // driven by update(); 1 = steady
@@ -521,9 +560,10 @@ pMetal = 0.0;
     glsl: /* glsl */ `
 float core = pow(pFacing, u_core);
 pAlbedo = pBase * 0.3;
+float level = mix(u_lampLevel, u_indicatorLevel, pFinish) * u_intensity;
 // the edge of a lit bulb is deeper amber, the middle near white-hot
 vec3 hot = mix(pBase * pBase * pBase, pBase, core);
-pEmit = hot * u_intensity * u_flicker * mix(u_edge, 1.0, core);
+pEmit = hot * level * u_flicker * mix(u_edge, 1.0, core);
 pRough = 0.12;
 `,
   },
