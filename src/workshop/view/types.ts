@@ -8,6 +8,7 @@
 import type { Object3D, Scene, Texture } from 'three';
 import type { Id, SimEvent, Vec3, WorldView } from '../sim/types.ts';
 import type { MaterialClass, MaterialVariant, Piece } from './kit/types.ts';
+import type { Stage } from './stage/index.ts';
 import type { Token } from './palette.ts';
 
 export type Tier = 'high' | 'low';
@@ -67,9 +68,17 @@ export interface LabelPhoneMessage {
   text: string;
 }
 
+/**
+ * The parts of the stage a station view may use: frame, shake or focus the
+ * camera (`camera.focusOn`, `camera.shake`), and set or dip the lamp
+ * (`lights.setLamp`, `lights.dip`, `lights.setBulb`). Never the renderer.
+ */
+export type StageHandle = Pick<Stage, 'camera' | 'lights'>;
+
 /** What every station view is built with. */
 export interface ViewContext {
   readonly scene: Scene;
+  readonly stage: StageHandle;
   readonly materials: Materials;
   readonly labels: Labels;
   readonly tier: Tier;
