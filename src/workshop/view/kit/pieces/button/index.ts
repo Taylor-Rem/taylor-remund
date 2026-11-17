@@ -29,7 +29,7 @@ import { askew, rng } from '../../rng.ts';
 import { deform, transform } from '../../deform.ts';
 import { setFinish, grain } from '../../space.ts';
 import { cylinderRibbons, DIGIT_STROKES, hexHead, ridgedBand, sheet, stripes } from './geom.ts';
-import { estimateLabels } from './labels.ts';
+import { buttonLabels, estimateLabels } from './labels.ts';
 import type { ButtonLabelRefs } from './labels.ts';
 import { NAMED_POSES, POSE, posePiece } from './pose.ts';
 import type { ButtonPose } from './pose.ts';
@@ -394,7 +394,7 @@ export function button(o: ButtonOptions = {}): Piece {
   return built;
 }
 
-export const catalogue: Array<CatalogueEntry & { poses?: readonly string[] }> = [
+export const catalogue: CatalogueEntry[] = [
   {
     name: 'button',
     build: (opts = {}) =>
@@ -406,6 +406,7 @@ export const catalogue: Array<CatalogueEntry & { poses?: readonly string[] }> = 
       }),
     variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
     poses: Object.keys(NAMED_POSES),
+    labels: (labels) => ({ labels: buttonLabels(labels) }),
     camera: { distance: 5 },
     note: 'The Big Red Button on its console: the reddest thing on the bench.',
   },
