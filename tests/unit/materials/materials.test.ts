@@ -14,26 +14,35 @@ import type { Labels } from '../../../src/workshop/view/types.ts';
 
 const ALL: MaterialClass[] = ['steel', 'brass', 'wood', 'rubber', 'paper', 'metal', 'glass', 'bulb', 'felt', 'tape', 'belt'];
 
+/**
+ * A stand-in for view/labels (no browser here: the real createLabels needs
+ * fonts and a canvas; the dev page uses the real one). Keys follow the real
+ * `register|text` shape; tape and stencils are transparent, plates carry a
+ * roughness map.
+ */
 function fakeLabels(): Labels & { made: string[] } {
   const made: string[] = [];
   const tex = new Map<string, Texture>();
-  const key = (t: string): string => {
-    if (!tex.has(t)) {
-      tex.set(t, new Texture());
-      made.push(t);
+  const rough = new Map<string, Texture>();
+  const key = (register: string) => (t: string): string => {
+    const k = `${register}|${t}`;
+    if (!tex.has(k)) {
+      tex.set(k, new Texture());
+      if (register === 'plate') rough.set(k, new Texture());
+      made.push(k);
     }
-    return t;
+    return k;
   };
   return {
     made,
-    tape: key, stencil: key, card: key, plate: key, sign: key, slip: key,
-    phone: (m) => key(m.map((x) => x.text).join(' ')),
+    tape: key('tape:black'), stencil: key('stencil:ink'), card: key('card'), plate: key('plate'), sign: key('sign'), slip: key('slip'),
+    phone: (m) => key('phone')(m.map((x) => x.text).join(' ')),
     size: () => ({ w: 1, h: 0.2 }),
     capHeight: () => 0.2,
     texture: (k) => tex.get(k)!,
     normalMap: () => null,
-    roughnessMap: () => null,
-    transparent: () => false,
+    roughnessMap: (k) => rough.get(k) ?? null,
+    transparent: (k) => k.startsWith('tape') || k.startsWith('stencil') || k.startsWith('slip'),
   };
 }
 
@@ -77,8 +86,8 @@ describe('materials', () => {
   it('injects into every shader chunk it needs, for every class', () => {
     for (const cls of ALL) {
       const s = compile(mats.of(cls) as MeshStandardMaterial);
-      expect(s.vertexShader).toContain('attribute vec2 surf;');
-      expect(s.vertexShader).toContain('vObj = position;');
+      expect(s.vertexShader).toContain('attribute vec3 surf;');
+      expect(s.vertexShader).toContain('vLp = ');
       expect(s.fragmentShader).toContain('uniform highp sampler3D uNoiseTex;');
       expect(s.fragmentShader).toContain('roughnessFactor = clamp(pRough');
       expect(s.fragmentShader).toContain('normal = pPerturb(');
@@ -113,15 +122,67 @@ describe('materials', () => {
     const m = createMaterials({ tier: 'high' });
     expect(() => m.textured('tape', 'x')).toThrow(/Labels/);
     m.setLabels(labels);
-    const a = m.textured('tape', labels.tape('DO NOT TOUCH'));
-    expect(m.textured('tape', 'DO NOT TOUCH')).toBe(a);
+    const k = labels.tape('DO NOT TOUCH');
+    const a = m.textured('tape', k);
+    expect(m.textured('tape', k)).toBe(a);
     expect(m.textured('tape', labels.tape('OTHER'))).not.toBe(a);
-    expect(m.textured('paper', 'DO NOT TOUCH')).not.toBe(a);
-    expect((a as MeshStandardMaterial).map).toBe(labels.texture('DO NOT TOUCH'));
+    expect(m.textured('paper', k)).not.toBe(a);
+    expect((a as MeshStandardMaterial).map).toBe(labels.texture(k));
     expect((a as MeshStandardMaterial).defines?.LABEL_MAP).toBe('');
     expect(a.customProgramCacheKey()).not.toBe(m.of('tape').customProgramCacheKey());
     expect(compile(a as MeshStandardMaterial).uniforms.u_edgeScuff).toBe(m.uniforms('tape').u_edgeScuff);
     m.dispose();
+  });
+
+  it('cuts shaped labels, sprays stencils on, and reads label roughness maps', () => {
+    const labels = fakeLabels();
+    const m = createMaterials({ tier: 'high', labels });
+    const tape = m.textured('tape', labels.tape('X')) as MeshStandardMaterial;
+    expect(tape.alphaTest).toBe(0.5);
+    expect(tape.transparent).toBe(false);
+    const st = m.textured('wood', labels.stencil('M')) as MeshStandardMaterial;
+    expect(st.transparent).toBe(true);
+    expect(st.depthWrite).toBe(false);
+    expect(st.alphaTest).toBe(0);
+    expect(st.defines?.LABEL_SPRAY).toBe('');
+    const card = m.textured('paper', labels.card('C')) as MeshStandardMaterial;
+    expect(card.transparent).toBe(false);
+    expect(card.alphaTest).toBe(0);
+    const plate = m.textured('brass', labels.plate('P')) as MeshStandardMaterial;
+    expect(plate.roughnessMap).toBe(labels.roughnessMap(labels.plate('P')));
+    expect(plate.metalnessMap).toBe(plate.roughnessMap);
+    const fs = compile(plate).fragmentShader;
+    expect(fs).toContain('texelRoughness.g + (pRough - roughness)');
+    expect(fs).toContain('texelMetalness.b + (pMetal - metalness)');
+    m.dispose();
+  });
+
+  it('reads surf as vec3 and lpos, both defaulting to zero when a geometry lacks them', () => {
+    for (const cls of ALL) {
+      const mat = mats.of(cls) as MeshStandardMaterial & { defaultAttributeValues: Record<string, number[]> };
+      expect(mat.defaultAttributeValues.surf).toEqual([0, 0, 0]);
+      expect(mat.defaultAttributeValues.lpos).toEqual([0, 0, 0]);
+      const s = compile(mat);
+      expect(s.vertexShader).toContain('attribute vec3 surf;');
+      expect(s.vertexShader).toContain('attribute vec3 lpos;');
+      expect(s.vertexShader).toContain('all(equal(lpos, vec3(0.0))) ? position : lpos');
+      expect(s.fragmentShader).toContain('float pFinish = clamp(vSurf.z, 0.0, 1.0);');
+    }
+  });
+
+  it('gives steel a per-pixel clearcoat for finish 1 and wood a cheap large path', () => {
+    const steel = mats.of('steel');
+    expect(steel).toBeInstanceOf(MeshPhysicalMaterial);
+    expect((steel as MeshPhysicalMaterial).clearcoat).toBeGreaterThan(0);
+    const fs = compile(steel as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('float steelChipField(');
+    expect(fs).toContain('material.clearcoat = clamp(pCoat, 0.0, 1.0);');
+    const large = mats.of('wood', 'large') as MeshStandardMaterial;
+    expect(large).not.toBe(mats.of('wood'));
+    expect(mats.of('wood', 'large')).toBe(large);
+    expect(large.defines?.LARGE).toBe('');
+    expect(large.customProgramCacheKey()).not.toBe(mats.of('wood').customProgramCacheKey());
+    expect(mats.of('steel', 'large')).toBe(steel); // no large path: the normal material
   });
 
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {
