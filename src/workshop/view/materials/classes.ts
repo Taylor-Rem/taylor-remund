@@ -732,12 +732,12 @@ pH = pNoise(pP * u_grainScale) * u_grain * pAA(u_grainScale, pFw);
     kind: 'standard',
     props: { roughness: 0.88, metalness: 0, envMapIntensity: 0.3 },
     params: {
-      lift: p(1.7, 1, 5),
+      lift: p(1.2, 1, 5),
       roughness: p(0.86, 0.7, 1),
       ribFreq: p(9, 2, 30), // ribs per unit along the belt
       ribHeight: p(0.006, 0, 0.02),
       ribWear: p(0.5, 0, 1),
-      grooveDust: p(0.45, 0, 1),
+      grooveDust: p(0.05, 0, 1), // kept low: at 0.45 the dusty grooves read as pale stripes and the belt as a roller bed, not rubber
       speed: p(0.6, 0, 3), // units per simulation second
       offset: p(0, -1e6, 1e6), // driven by update()
       useUv: p(1, 0, 1), // 1: uv.x × uvScale runs along the loop (the kit contract); 0: lpos +X

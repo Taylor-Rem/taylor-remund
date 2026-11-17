@@ -1,0 +1,74 @@
+---
+// W3 section D review page: the sign and the tool wall hung on the real back
+// wall, at about their places in the layout (REWRITE.md § C), under the real
+// stage. Dev-only; never shipped.
+//
+// Query:
+//   ?shot=wide|wall|sign|tools|tool   wide: whole-bench scale; wall: both pieces; sign/tools: a station view; tool: one tool close (&tool=<name>)
+//   ?view=beauty|clay|wear|cavity|finish|lpos|wire   ?lamp=0..1  ?tier=high|low  ?hud=0  ?manual=1  ?out=1 (tools lifted off: shadows only)
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>W3 wall</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.35 ui-monospace, monospace; color: #bfe3d8; opacity: 0.75; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import { Box3, Vector3 } from 'three';
+      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
+      import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
+      import { VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
+      import { pxPerUnit } from '../workshop/view/catalogue/distances.ts';
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+      const shot = q.get('shot') ?? 'wide';
+      const view = ((VIEW_MODES as readonly string[]).includes(q.get('view') ?? '') ? q.get('view') : 'beauty') as ViewMode;
+      /** Where the two pieces hang (their origins are on the wall plane). */
+      const SIGN_AT = { x: 0.4, y: 3.45, z: -5 };
+      const TOOLS_AT = { x: -6.7, y: 0.75, z: -5 };
+
+      async function main(): Promise<void> {
+        const lampQ = q.get('lamp');
+        const s = await mountShowcase(canvas, {
+          tier: q.get('tier') === 'low' ? 'low' : 'high',
+          lamp: lampQ === null ? null : Number(lampQ),
+          manual: q.get('manual') === '1',
+          wall: true,
+        });
+        const signE = await findPiece('sign');
+        const toolsE = await findPiece('toolwall');
+        const sign = signE ? s.add(buildEntry(signE, null, {}, s.labels), { ...SIGN_AT, blob: 0, view }) : null;
+        const tools = toolsE ? s.add(buildEntry(toolsE, null, q.get('out') === '1' ? { tools: false } : {}, s.labels), { ...TOOLS_AT, blob: 0, view }) : null;
+        let box = new Box3(new Vector3(-10, 0, -5), new Vector3(10, 4, 5));
+        let dist: 'wide' | number = 'wide';
+        let focus = new Vector3(0, 1.2, 0);
+        if (shot === 'sign' && sign) { box = s.boxOf(sign); focus = box.getCenter(new Vector3()); dist = 15; }
+        if (shot === 'tools' && tools) { box = s.boxOf(tools); focus = box.getCenter(new Vector3()); dist = 15; }
+        if (shot === 'wall') { focus = new Vector3(-3, 3, -5); dist = 30; }
+        if (shot === 'tool' && tools) {
+          const t = tools.getObjectByName(`tool.${q.get('tool') ?? 'laravel'}`);
+          if (t) { box = s.boxOf(t); focus = box.getCenter(new Vector3()); dist = 5.5; }
+        }
+        s.look(box, dist, { focus });
+        if (q.get('hud') !== '0') {
+          const ppu = pxPerUnit(s.stage.camera.distance, canvas.clientHeight);
+          hud.textContent = `${shot} ${view} ${ppu.toFixed(0)} px/unit`;
+        }
+        s.start();
+      }
+      main().catch((e: unknown) => { console.error(e); hud.textContent = String(e); });
+    </script>
+  </body>
+</html>
