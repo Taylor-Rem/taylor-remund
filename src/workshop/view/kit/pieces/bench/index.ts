@@ -32,6 +32,10 @@ import { finish, MeshData } from '../../mesh.ts';
 import { rng, type Rng } from '../../rng.ts';
 import { ATTR } from '../../types.ts';
 import { bevelBox, stud } from '../crate/geo.ts';
+import { blob, patchGeometry, planMarks, PATCH_LIFT, type Patch } from './dress.ts';
+import { mergeGeometries } from '../../compose.ts';
+import { setFinish } from '../../space.ts';
+import { tint } from '../../surface.ts';
 import { grain } from '../../space.ts';
 
 export interface BenchSectionOptions extends KitOptions {
@@ -91,7 +95,7 @@ function nosePlank(x0: number, x1: number, zBack: number, zFront: number, T: num
   const d0 = md.v(x0, -cb, zBack, 0, 0, -1), d1 = md.v(x1, -cb, zBack, 0, 0, -1);
   const e0 = md.v(x0, -T, zBack, 0, 0, -1), e1 = md.v(x1, -T, zBack, 0, 0, -1);
   md.quad(d0, d1, e1, e0);
-  return finish(md, { wear: [6, 22] });
+  return finish(md, { wear: [2, 8] }); // the whole roll of the nose reads worn (lighter)
 }
 
 /** Write a top-to-bottom cavity ramp (the apron falling into the dark). */
@@ -142,6 +146,9 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
   const seam = 0.003;
   const tone = (): { seed: number; jitter: number; warm: number; shade: number } => ({ seed: R.int(0, 1e6), jitter: 0.045, warm: 0.02, shade: BENCH_SHADE });
   const cuts = [x0, ...o.joints, x1];
+  // every top board, collected first so the marks of use can be merged into the board they lie on
+  interface Board { g: BufferGeometry; tone: ReturnType<typeof tone>; xa: number; xb: number; za: number; zb: number; y: number }
+  const boards: Board[] = [];
   let z = zB;
   for (let i = 0; i < nP; i++) {
     const pw = (widths[i]! / sum) * avail;
@@ -151,13 +158,19 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
       for (let k = 0; k < cuts.length - 1; k++) {
         const xa = cuts[k]! + (k > 0 ? seam : 0), xb = cuts[k + 1]! - (k < cuts.length - 2 ? seam : 0);
         const g = nosePlank(xa, xb, za, zb, T, o.detail, { left: true, right: true });
-        const dings = low ? 0 : Math.max(1, Math.round((xb - xa) * 0.8));
-        for (let d = 0; d < dings; d++) {
-          const x = xa + 0.3 + R() * (xb - xa - 0.6);
-          const a = R.range(0.15, 1.3);
-          dent(g, [x, -NOSE_R + Math.cos(a) * NOSE_R, zb - NOSE_R + Math.sin(a) * NOSE_R], [0, Math.cos(a), Math.sin(a)], R.range(0.04, 0.08), R.range(0.008, 0.016));
+        if (!low) {
+          // knocks along the front edge where things were dropped
+          const dings = Math.max(2, Math.round((xb - xa) * 1.5));
+          for (let d = 0; d < dings; d++) {
+            const x = xa + 0.25 + R() * (xb - xa - 0.5);
+            const a = R.range(0.2, 1.3);
+            dent(g, [x, -NOSE_R + Math.cos(a) * NOSE_R, zb - NOSE_R + Math.sin(a) * NOSE_R], [0, Math.cos(a), Math.sin(a)], R.range(0.035, 0.09), R.range(0.008, 0.02));
+          }
+          // a chipped corner at one end of the length
+          const end = R() < 0.5 ? xa : xb;
+          dent(g, [end, -0.02, zb - 0.02], [end === xa ? -1 : 1, 0.6, 0.6], 0.12, 0.035);
         }
-        b.add(large(part('wood', g, 'wood', tone())));
+        boards.push({ g, tone: tone(), xa, xb, za, zb: zb - NOSE_R, y: 0 });
       }
     } else {
       // boards of uneven length, butt joints staggered row to row
@@ -169,11 +182,71 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
       }
       xs.push(x1);
       for (let k = 0; k < xs.length - 1; k++) {
-        const g = bevelBox({ min: [xs[k]! + (k > 0 ? seam : 0), -T, za], max: [xs[k + 1]! - (k < xs.length - 2 ? seam : 0), 0, zb], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
-        b.add(large(part('wood', g, 'wood', tone())));
+        const xa = xs[k]! + (k > 0 ? seam : 0), xb = xs[k + 1]! - (k < xs.length - 2 ? seam : 0);
+        // the odd board has shrunk or settled a hair below its neighbours (never above the plane y = 0)
+        const y = R() < 0.3 ? -R.range(0.0015, 0.004) : 0;
+        const g = bevelBox({ min: [xa, -T + y, za], max: [xb, y, zb], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
+        boards.push({ g, tone: tone(), xa, xb, za, zb, y });
       }
     }
     z = zb + gap;
+  }
+
+  // ---- years of use (dress.ts): marks merged into their boards, things lying on top as parts ----
+  const marks = planMarks(R, x0, x1, zB, zF, low);
+  const inset = 0.02;
+  const fits = (bd: Board, x: number, zz: number, rx: number, rz: number): boolean =>
+    x - rx >= bd.xa + inset && x + rx <= bd.xb - inset && zz - rz >= bd.za + inset && zz + rz <= bd.zb - inset;
+  const extra = new Map<Board, BufferGeometry[]>();
+  for (const pt of marks.patches) {
+    // the patch's reach along X and Z (rotated ellipse, with the outline's wobble)
+    const c = Math.abs(Math.cos(pt.rot)), sn = Math.abs(Math.sin(pt.rot));
+    const ex = (pt.rx * c + pt.rz * sn) * 1.2, ez = (pt.rx * sn + pt.rz * c) * 1.2;
+    const home = boards.find((q) => pt.x >= q.xa && pt.x <= q.xb && pt.z >= q.za && pt.z <= q.zb);
+    if (!home) continue;
+    // slide it across its board until it fits, if it can
+    pt.z = Math.max(home.za + ez + inset, Math.min(home.zb - ez - inset, pt.z));
+    if (!fits(home, pt.x, pt.z, ex, ez)) continue;
+    const list = extra.get(home) ?? [];
+    list.push(patchGeometry(pt, home.y + PATCH_LIFT, R));
+    extra.set(home, list);
+  }
+  for (const bd of boards) {
+    tint(bd.g, 'wood', bd.tone);
+    const more = extra.get(bd) ?? [];
+    for (const m of more) tint(m, 'wood', bd.tone); // exactly the board's colour: only its surf shows
+    const g = more.length ? mergeGeometries([bd.g, ...more]) : bd.g;
+    b.add(large({ material: 'wood', geometry: g }));
+  }
+  const topAt = (x: number, zz: number): number => boards.find((q) => x >= q.xa && x <= q.xb && zz >= q.za && zz <= q.zb)?.y ?? 0;
+  for (const d of marks.drips) {
+    const g = setFinish(blob(d.x, d.z, d.r * d.long, d.r, d.rot, low ? 6 : 9, topAt(d.x, d.z) + 0.0016, R), 1);
+    b.add(part('wood', g, d.token, { seed: R.int(0, 1e6), jitter: 0.04 }));
+  }
+  for (const l of marks.lines) {
+    const g = blob(l.x, l.z, l.len / 2, 0.0032, l.rot, 6, topAt(l.x, l.z) + 0.0014, R, 0.04);
+    b.add(part('metal', g, 'ink', { seed: R.int(0, 1e6), shade: 1.6, jitter: 0.1 })); // graphite: a dull sheen
+  }
+  for (const t of marks.residue) {
+    const g = blob(t.x, t.z, t.len / 2, t.w / 2, t.rot, 14, topAt(t.x, t.z) + 0.0013, R, 0.12);
+    b.add(part('paper', g, 'paper', { seed: R.int(0, 1e6), shade: 0.16, warm: 0.15 })); // old, yellowed, dirty
+  }
+  // nail heads where the boards cross the bearers under them
+  if (!low) {
+    const bearers: number[] = [];
+    for (let k = 0; k < cuts.length - 1; k++) bearers.push(cuts[k]! + 0.32, (cuts[k]! + cuts[k + 1]!) / 2, cuts[k + 1]! - 0.32);
+    for (const bx of bearers) {
+      for (const bd of boards) {
+        if (bx < bd.xa + 0.05 || bx > bd.xb - 0.05) continue;
+        const w = bd.zb - bd.za;
+        for (const f of [0.24, 0.76]) {
+          if (R() < 0.12) continue; // pulled, or never driven
+          const at: [number, number, number] = [bx + R.spread(0.03), bd.y, bd.za + w * f + R.spread(0.04)];
+          const s = grain(stud(0.016, 0.0045, 5), 'y');
+          b.add(part('metal', transform(s, aim(at, [0, 1, 0], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.45, jitter: 0.15 }));
+        }
+      }
+    }
   }
   // the apron under the front edge, one length per section, its lower half in the dark
   const ap = o.apron;
@@ -181,8 +254,8 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
   for (let k = 0; k < cuts.length - 1; k++) {
     const xa = cuts[k]! + (k > 0 ? seam : 0), xb = cuts[k + 1]! - (k < cuts.length - 2 ? seam : 0);
     const g = bevelBox({ min: [xa, -T - ap, za - 0.12], max: [xb, -T + 0.001, za], c: 0.016, omit: ['py', 'nz'], wear: 0.6 });
-    darkenDown(g, -T - 0.05, -T - ap, 1.4);
-    b.add(large(part('wood', g, 'wood', { ...tone(), shade: BENCH_SHADE * 0.85 })));
+    darkenDown(g, -T - 0.03, -T - ap, 2.2);
+    b.add(large(part('wood', g, 'wood', { ...tone(), shade: BENCH_SHADE * 0.62 })));
   }
   // steel mending plates over the joints, four bolts each
   const plates = [...o.joints, ...(o.endPlates?.left ? [x0] : []), ...(o.endPlates?.right ? [x1] : [])];
@@ -244,6 +317,7 @@ function strip(len: number, w: number, y: number, R: Rng, o: { torn: boolean; bu
   const xs: number[] = [];
   for (let x = 0; x < len; x += step) xs.push(x);
   xs.push(len);
+  if (o.detail !== 'low') xs.push(0.035, len - 0.035); // rows near the ends, which lift a little
   if (o.bubbleAt !== null) {
     for (let k = -4; k <= 4; k++) xs.push(o.bubbleAt + k * 0.02);
   }
@@ -259,6 +333,10 @@ function strip(len: number, w: number, y: number, R: Rng, o: { torn: boolean; bu
   const bubZ = R.spread(w * 0.15);
   const top: number[][] = [];
   const tornJag = cols.map(() => R.spread(0.012));
+  const liftAmt = R.range(0.5, 1.2);
+  // where wheels and boxes cross it, the middle is scuffed dull: a few runs along the strip
+  const runs = Array.from({ length: 1 + R.int(0, 2) }, () => [R() * len, R.range(0.25, 0.7), R.range(0.45, 0.8)] as const);
+  const scuffAt = (x: number): number => runs.reduce((m, [x0, l, a]) => Math.max(m, a * Math.max(0, 1 - Math.abs(x - x0) / l)), 0);
   for (const x of rowsX) {
     const row: number[] = [];
     for (const c of cols) {
@@ -268,6 +346,9 @@ function strip(len: number, w: number, y: number, R: Rng, o: { torn: boolean; bu
       let xx = x;
       if (o.torn && x === len) xx = len + tornJag[cols.indexOf(c)]!;
       let yy = y + TAPE_T;
+      // the ends have let go a little: lifted most at the corners
+      const fromEnd = Math.min(x, len - x);
+      if (o.detail !== 'low' && fromEnd < 0.035) yy += (1 - fromEnd / 0.035) * (0.0012 + 0.0022 * Math.abs(c)) * liftAmt;
       if (bub !== null) {
         const d = Math.hypot((x - bub) / 0.065, (z - bubZ) / 0.045);
         if (d < 1) yy += 0.0055 * (1 - d * d) * (1 - d * d);
@@ -309,10 +390,15 @@ function strip(len: number, w: number, y: number, R: Rng, o: { torn: boolean; bu
     }
   }
   // the top's edge vertices are worn too
-  for (const row of top) {
+  rowsX.forEach((x, i) => {
+    const row = top[i]!;
     wear[row[0]!] = 0.6;
     wear[row[cols.length - 1]!] = 0.6;
-  }
+    const sc = scuffAt(x);
+    wear[row[1]!] = sc * 0.7;
+    wear[row[2]!] = sc;
+    wear[row[3]!] = sc * 0.7;
+  });
   const g = finish(md);
   const s = g.getAttribute(ATTR.surf);
   for (let i = 0; i < s.count; i++) s.setXYZ(i, wear[i] ?? 0, 0, 0);
@@ -368,29 +454,68 @@ export function backWall(o: BackWallOptions = {}): Piece {
   const b = piece('back-wall', { detail, seed, ao: { distance: 0.2 } });
   const t = 0.05;
   const skirtH = 0.26, skirtT = 0.045;
+  const dadoY = 2.15 + R.spread(0.03), dadoH = 0.13;
+  // where something once hung: a lighter rectangle, crisp-edged, cut by the board seams
+  const ghost = { x0: R.range(-width * 0.3, width * 0.1), y0: R.range(2.6, 3.2), w: R.range(1.1, 1.6), h: R.range(0.8, 1.1) };
+  // scuffs low down where things were stood against it
+  const scuffs = Array.from({ length: low ? 0 : Math.round(width / 3) }, () => ({ x: R.range(-width / 2 + 0.5, width / 2 - 0.5), y: R.range(0.45, 1.3), rx: R.range(0.12, 0.3), ry: R.range(0.1, 0.35) }));
   let x = -width / 2;
   const nails: number[][] = [];
+  const toWall = new Matrix4().set(0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1); // (x, y, z) -> (-y, x, z): X up
+  const flipX = new Matrix4().makeScale(-1, 1, 1);
+  const fromPlan = new Matrix4().makeRotationX(Math.PI / 2); // a patch laid in XZ, stood up to face +Z
+  /** A patch on the wall at (x, y = pt.z), its material space set to match the board's (grain up the board). */
+  const wallPatch = (pt: Patch, zLift: number): BufferGeometry => {
+    const g = patchGeometry({ ...pt, z: -pt.z }, 0, R);
+    transform(g, fromPlan);
+    transform(g, new Matrix4().makeTranslation(0, 0, zLift));
+    const pos = g.getAttribute('position');
+    const lp = g.getAttribute(ATTR.lpos);
+    for (let i = 0; i < pos.count; i++) lp.setXYZ(i, pos.getY(i), pos.getX(i), pos.getZ(i));
+    return g;
+  };
   while (x < width / 2 - 1e-3) {
     const bw = Math.min(width / 2 - x, 0.68 + R.spread(0.12));
     const gap = 0.012;
     const xa = x, xb = x + bw - gap;
     // a board standing up: built along X (its grain), then stood on end
-    const lift = R.spread(0.006);
-    const g = bevelBox({ min: [0, xa, -t + lift * 0], max: [height + R.spread(0.02), xb, 0], c: low ? 0.006 : 0.01, omit: ['nz', 'nx'], wear: 0.6 });
-    transform(g, new Matrix4().set(0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)); // (x, y, z) -> (-y, x, z): X up
-    transform(g, new Matrix4().makeScale(-1, 1, 1)); // back to +X to the right (winding fixed by transform)
-    b.add(large(part('wood', g, 'teal-deep', { seed: R.int(0, 1e6), jitter: 0.18, shade: 0.95, warm: 0.06 })));
+    const g = bevelBox({ min: [0, xa, -t], max: [height + R.spread(0.02), xb, 0], c: low ? 0.006 : 0.01, omit: ['nz', 'nx'], wear: 0.6 });
+    transform(g, toWall);
+    transform(g, flipX);
+    // a step lighter than the room: between teal-deep and teal-panel, board by board
+    const tone = R() < 0.5 ? { token: 'teal-deep' as const, shade: R.range(1.35, 1.75) } : { token: 'teal-panel' as const, shade: R.range(0.55, 0.72) };
+    const tn = { seed: R.int(0, 1e6), jitter: 0.06, shade: tone.shade, warm: R.spread(0.05) };
+    tint(g, tone.token, tn);
+    const more: BufferGeometry[] = [];
+    if (!low) {
+      const ox0 = Math.max(xa + 0.02, ghost.x0), ox1 = Math.min(xb - 0.02, ghost.x0 + ghost.w);
+      if (ox1 - ox0 > 0.05) {
+        more.push(wallPatch({ x: (ox0 + ox1) / 2, z: ghost.y0 + ghost.h / 2, rx: (ox1 - ox0) / 2, rz: ghost.h / 2, rot: 0, surf: (tt) => [tt >= 1 ? 0 : 0.75, 0], rings: [0.96, 1], segs: 4, square: true }, 0.0012));
+      }
+      for (const sc of scuffs) {
+        if (sc.x - sc.rx < xa + 0.02 || sc.x + sc.rx > xb - 0.02) continue;
+        more.push(wallPatch({ x: sc.x, z: sc.y, rx: sc.rx, rz: sc.ry, rot: R.spread(0.6), surf: (tt) => [0, tt >= 1 ? 0 : 0.5 * (1 - tt)], rings: [0.5, 1], segs: 10 }, 0.0012));
+      }
+    }
+    for (const m of more) tint(m, tone.token, tn);
+    b.add(large({ material: 'wood', geometry: more.length ? mergeGeometries([g, ...more]) : g }));
     if (!low) for (const yy of [1.35, 3.9]) nails.push([(xa + xb) / 2 + R.spread(0.05), yy + R.spread(0.04)]);
     x += bw;
   }
-  // the skirting
+  // the skirting and a dado rail
   const sk = bevelBox({ min: [-width / 2, 0, 0], max: [width / 2, skirtH, skirtT], c: 0.016, omit: ['ny', 'nz'], wear: 0.8 });
   b.add(large(part('wood', sk, 'wood', { seed: R.int(0, 1e6), shade: 0.45, jitter: 0.04 })));
-  // a few nail heads (some boards lost theirs)
-  for (const [nx, ny] of nails) {
-    if (R() < 0.35) continue;
+  const dado = bevelBox({ min: [-width / 2, dadoY, 0], max: [width / 2, dadoY + dadoH, 0.035], c: 0.012, omit: ['nz'], wear: 0.85 });
+  b.add(large(part('wood', dado, 'teal-panel', { seed: R.int(0, 1e6), shade: 0.55, jitter: 0.04 })));
+  // nail heads (some boards lost theirs), the two that held whatever hung there, and the dado's
+  if (!low) {
+    nails.push([ghost.x0 + ghost.w * 0.2, ghost.y0 + ghost.h - 0.06, 0.0001], [ghost.x0 + ghost.w * 0.8, ghost.y0 + ghost.h - 0.06, 0.0001]);
+    for (let xx = -width / 2 + 0.4; xx < width / 2 - 0.2; xx += R.range(1.1, 1.8)) nails.push([xx, dadoY + dadoH / 2, 0.035]);
+  }
+  for (const nl of nails) {
+    if (nl.length === 2 && R() < 0.3) continue;
     const s = grain(stud(0.011, 0.005, 5), 'y');
-    b.add(part('metal', transform(s, aim([nx!, ny!, 0], [0, 0, 1], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.35, jitter: 0.12 }));
+    b.add(part('metal', transform(s, aim([nl[0]!, nl[1]!, nl[2] ?? 0], [0, 0, 1], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.35, jitter: 0.12 }));
   }
   return b.build();
 }

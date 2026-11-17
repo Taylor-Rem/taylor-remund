@@ -1,8 +1,10 @@
+import { Box3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { backWall, bench, benchSection, catalogue, laneTape, SAMPLE_TAPE } from '../../../src/workshop/view/kit/pieces/bench/index.ts';
 import { checkGeometry } from './helpers.ts';
+import { PATCH_LIFT } from '../../../src/workshop/view/kit/pieces/bench/dress.ts';
 
 function parts(p: Piece): PieceNode['parts'] {
   const out: PieceNode['parts'] = [];
@@ -27,7 +29,12 @@ describe('bench section', () => {
   it('top surface exactly y = 0, spans its width and depth, falls below', () => {
     const p = benchSection({ width: 5, depth: 10, seed: 2 });
     const bb = K.pieceBounds(p);
-    expect(bb.max.y).toBeCloseTo(0, 6);
+    // the boards' top is the plane y = 0 (some settled a hair below); nail heads and drips stand a few mm on it
+    const boards = new Box3();
+    for (const q of parts(p)) if (q.variant === 'large') { q.geometry.computeBoundingBox(); boards.union(q.geometry.boundingBox!); }
+    expect(boards.max.y).toBeLessThanOrEqual(PATCH_LIFT + 1e-6);
+    expect(boards.max.y).toBeGreaterThan(0);
+    expect(bb.max.y).toBeLessThan(0.008);
     expect(bb.min.y).toBeLessThan(-0.8);
     expect(bb.min.x).toBeCloseTo(-2.5, 3);
     expect(bb.max.x).toBeCloseTo(2.5, 3);
@@ -51,8 +58,8 @@ describe('bench section', () => {
   it('a joint puts a steel plate and bolts on the apron', () => {
     const plain = benchSection({ seed: 4 });
     const jointed = benchSection({ seed: 4, joints: { right: true } });
-    expect(parts(plain).some((q) => q.material === 'metal')).toBe(false);
-    expect(parts(jointed).some((q) => q.material === 'metal')).toBe(true);
+    const metal = (p: Piece): number => parts(p).filter((q) => q.material === 'metal').reduce((s, q) => s + K.triangleCount(q.geometry), 0);
+    expect(metal(jointed)).toBeGreaterThan(metal(plain) + 300); // the plate and four bolts
   });
 
   it('is deterministic per seed', () => {
