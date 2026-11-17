@@ -23,6 +23,7 @@
       import { Box3, Color, MeshBasicMaterial, Vector3 } from 'three';
       import type { Mesh, Object3D } from 'three';
       import { mountShowcase } from '../../workshop/view/catalogue/mount.ts';
+      import { findPiece, buildEntry } from '../../workshop/view/catalogue/registry.ts';
       import { hex } from '../../workshop/view/palette.ts';
       import * as K from '../../workshop/view/kit/index.ts';
       import { patchToy, posePatch, EXPRESSIONS, SEAT_H } from '../../workshop/view/kit/pieces/patch-toy/index.ts';
@@ -39,8 +40,12 @@
       const canvas = document.getElementById('c') as HTMLCanvasElement;
       const s = await mountShowcase(canvas, { post: view !== 'sil', ground: view === 'sil' ? 'none' : 'bench' });
 
-      // a stand-in stool (until the switchboard engineer's `stool` lands): turned seat, three splayed legs
+      // the real stool when it is registered (Patch sits on its `seat` socket), else a stand-in
+      const stoolEntry = await findPiece('stool');
+      const realStool = stoolEntry ? buildEntry(stoolEntry, null, { seed: 1 }, s.labels) : null;
+      const seatY = realStool?.sockets?.['seat'] ? realStool.sockets['seat'].elements[13]! : SEAT_H;
       function stool(): K.Piece {
+        if (realStool) return realStool;
         const b = K.piece('stool-standin', { seed: 3 });
         const seat = K.lathe(K.profile(0, SEAT_H - 0.07).to(0.27, SEAT_H - 0.07, { fillet: 0.02 }).to(0.28, SEAT_H, { fillet: 0.025 }).to(0, SEAT_H), { segs: 32 });
         b.add(K.part('wood', K.grain(seat, 'x'), 'wood-light', { seed: 4 }));
@@ -61,13 +66,21 @@
         const x = sheet ? (i - (names.length - 1) / 2) * spacing : 0;
         const st = s.add(stool(), { x, z: 0, yaw: 0, blob: 0.8, view: view === 'clay' ? 'clay' : 'beauty' });
         const p = patchToy({ seed, detail });
-        const o = s.add(p, { x, y: SEAT_H, z: 0, yaw, blob: 0, view: view === 'clay' ? 'clay' : 'beauty' });
+        const o = s.add(p, { x, y: seatY, z: 0, yaw, blob: 0, view: view === 'clay' ? 'clay' : 'beauty' });
         posePatch(o, nm in EXPRESSIONS ? EXPRESSIONS[nm as ExpressionName] : {});
         if (view === 'sil') for (const t of [o, st]) t.traverse((m) => { if ((m as Mesh).isMesh) (m as Mesh).material = black; });
         objs.push(o);
         const b = s.boxOf(o).union(s.boxOf(st));
         box = box ? box.union(b) : b;
       });
+      // ?board=1: the switchboard behind and to Patch's front (the visitor's left), as the vignette will stand it
+      if (q.get('board') === '1') {
+        const be = await findPiece('switchboard');
+        if (be) {
+          const bo = s.add(buildEntry(be, null, { seed: 1 }, s.labels), { x: -1.55, z: -1.35, yaw: 25, view: view === 'clay' ? 'clay' : 'beauty' });
+          if (view === 'sil') bo.traverse((m) => { if ((m as Mesh).isMesh) (m as Mesh).material = black; });
+        }
+      }
       if (view === 'sil') {
         s.stage.scene.background = new Color(hex('paper'));
         s.stage.scene.fog = null;
@@ -75,13 +88,13 @@
       const B = box as unknown as Box3;
       const focus = B.getCenter(new Vector3());
       if (dist === 'face') {
-        const f = new Vector3(0, SEAT_H + 0.75, 0.1);
+        const f = new Vector3(0, seatY + 0.75, 0.1);
         s.look(new Box3(f.clone().addScalar(-0.42), f.clone().addScalar(0.42)), 'close', { focus: f });
       } else if (dist === 'close') {
-        focus.y = SEAT_H + 0.45;
-        s.look(new Box3(new Vector3(-0.5, SEAT_H - 0.35, -0.4), new Vector3(0.5, SEAT_H + 1.15, 0.5)), 'close', { focus });
+        focus.y = seatY + 0.45;
+        s.look(new Box3(new Vector3(-0.5, seatY - 0.35, -0.4), new Vector3(0.5, seatY + 1.15, 0.5)), 'close', { focus });
       } else if (sheet) {
-        focus.y = SEAT_H + 0.5;
+        focus.y = seatY + 0.5;
         s.look(B, Number(q.get('d') ?? 13), { focus });
       } else if (!Number.isNaN(Number(dist))) {
         s.look(B, Number(dist), { focus });
