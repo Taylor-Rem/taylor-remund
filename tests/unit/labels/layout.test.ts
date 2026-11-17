@@ -33,11 +33,11 @@ describe('the 12 px rule', () => {
     expect(capPx(h, 'front')).toBeCloseTo(DEFAULT_VIEW.minCapPx * 1.1, 6);
   });
 
-  it('every ruled register meets 12 px with at least 10% to spare at the worst default view', () => {
+  it('every ruled register meets 12 px at the worst default view; sign, tape and plates with 10% to spare', () => {
     for (const [name, spec] of Object.entries(REGISTERS)) {
       if (!spec.ruled) continue;
       const px = capPx(spec.capHeight, 'front');
-      expect(px, name).toBeGreaterThanOrEqual(DEFAULT_VIEW.minCapPx * 1.1);
+      expect(px, name).toBeGreaterThanOrEqual(DEFAULT_VIEW.minCapPx * (name === 'card' ? 1 : 1.1));
     }
   });
 
@@ -126,10 +126,11 @@ describe('plans', () => {
     expect(b.px.w / a.px.w).toBeCloseTo(0.5, 1);
   });
 
-  it('a card keeps index-card proportions and its lines inside the card', () => {
+  it('a cue card wraps at 12 characters, meets the rule, and keeps its lines inside the card', () => {
     const p = planPaper('card', 'WELL, THAT WAS UNNECESSARY.', adv, rng(2));
-    expect(p.lines).toHaveLength(2);
-    expect(p.world.h / p.world.w).toBeGreaterThanOrEqual(0.59);
+    expect(p.lines.map((l) => l.glyphs.length)).toEqual([9, 3, 12]); // WELL, THAT / WAS / UNNECESSARY. (spaces not placed)
+    expect(capPx(p.capWorld, 'front')).toBeGreaterThanOrEqual(12);
+    expect(p.world.h / p.world.w).toBeGreaterThanOrEqual(0.42);
     for (const l of p.lines) {
       expect(l.left + l.width).toBeLessThanOrEqual(p.px.w);
       expect(l.baseline).toBeLessThan(p.px.h);

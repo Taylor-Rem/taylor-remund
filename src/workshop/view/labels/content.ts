@@ -4,6 +4,7 @@
  */
 import worldJson from '../../../content/world.json';
 import { assertContent } from '../../../content/schema.ts';
+import type { Entry } from '../../../content/schema.ts';
 import type { PhoneMessage } from './layout.ts';
 
 const raw = assertContent(worldJson, 'src/content/world.json');
@@ -14,7 +15,7 @@ export const world = {
   /** The sign's first word (the vignette shows TAYLOR). */
   sign: raw.sign.first.text,
   tape: { doNotTouch: raw.tape.doNotTouch.text },
-  jacks: { storefront: raw.jacks.storefront.text, platen: raw.jacks.platen.text },
+  jacks: { storefront: raw.jacks.storefront.text, lamp: raw.jacks.lamp.text, platen: raw.jacks.platen.text },
   tools: {
     laravel: raw.tools.laravel.text,
     vue: raw.tools.vue.text,
@@ -36,6 +37,43 @@ export const world = {
     up: raw.stencil.up.text,
   },
   plates: { presses: raw.plates.presses.text },
+  /** Plain names for the controls list and screen readers. */
+  names: {
+    crate: raw.names.crate.text,
+    fetch: raw.names.fetch.text,
+    lamp: raw.names.lamp.text,
+    belt: raw.names.belt.text,
+    button: raw.names.button.text,
+    cord: raw.names.cord.text,
+    jack: { storefront: raw.names.jack.storefront.text, lamp: raw.names.jack.lamp.text },
+  },
 } as const;
+
+/**
+ * The content ids the simulation speaks in (sim never holds text), each
+ * mapped to its entry in world.json. Add an id here when sim starts emitting it.
+ */
+const BY_ID: Readonly<Record<string, Entry>> = {
+  'card.rung1': raw.cards.revertRung1 as Entry,
+  'slip.out-of-lane': raw.slips.fetchOutOfLane as Entry,
+  'name.crate': raw.names.crate as Entry,
+  'name.fetch': raw.names.fetch as Entry,
+  'name.lamp': raw.names.lamp as Entry,
+  'name.belt': raw.names.belt as Entry,
+  'name.button': raw.names.button as Entry,
+  'name.cord': raw.names.cord as Entry,
+  'name.jack.storefront': raw.names.jack.storefront as Entry,
+  'name.jack.lamp': raw.names.jack.lamp as Entry,
+};
+
+/** Every content id this module resolves. */
+export const CONTENT_IDS: readonly string[] = Object.keys(BY_ID);
+
+/** The entry for a simulation content id. Throws on an unknown id. */
+export function contentById(id: string): Entry {
+  const e = BY_ID[id];
+  if (!e) throw new Error(`content: unknown content id ${JSON.stringify(id)} (known: ${CONTENT_IDS.join(', ')})`);
+  return e;
+}
 
 export type World = typeof world;

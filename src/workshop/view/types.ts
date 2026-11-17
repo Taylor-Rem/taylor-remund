@@ -8,6 +8,7 @@
 import type { Object3D, Scene, Texture } from 'three';
 import type { Id, SimEvent, Vec3, WorldView } from '../sim/types.ts';
 import type { MaterialClass, Piece } from './kit/types.ts';
+import type { Token } from './palette.ts';
 
 export type Tier = 'high' | 'low';
 
@@ -24,16 +25,46 @@ export interface Materials {
 
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
 export interface Labels {
-  /** Returns the texture key for a label, creating the texture on first use. */
-  tape(text: string, colour?: 'black' | 'red' | 'blue'): string;
-  stencil(text: string): string;
-  card(text: string): string;
-  plate(text: string): string;
-  sign(text: string): string;
+  /**
+   * Each maker returns the texture key for a label, creating the textures on
+   * first use. Defaults meet the 12 px rule at the default view; `capHeight`
+   * (world units) overrides the height of a capital.
+   */
+  tape(text: string, colour?: 'black' | 'red' | 'blue', opts?: LabelOptions): string;
+  /** Sprayed stencil, in `paint` (default `ink`); transparent background. */
+  stencil(text: string, opts?: LabelOptions & { paint?: Token }): string;
+  /** A big typed cue card (the crew's voice). */
+  card(text: string, opts?: LabelOptions): string;
+  /** A narrow torn slip, as Fetch prints. */
+  slip(text: string, opts?: LabelOptions): string;
+  /** Engraved brass. */
+  plate(text: string, opts?: LabelOptions): string;
+  /** Hand-painted sign board. */
+  sign(text: string, opts?: LabelOptions): string;
+  /** A phone screen showing these messages, newest last. */
+  phone(messages: readonly LabelPhoneMessage[], opts?: LabelOptions & { screen?: { w: number; h: number } }): string;
   /** Size in world units a label of this key wants to be (so capitals meet the 12 px rule). */
   size(key: string): { w: number; h: number };
+  /** World height of this label's capitals. */
+  capHeight(key: string): number;
+  /** sRGB colour map, full albedo (use with white vertex colour). */
   texture(key: string): Texture;
   normalMap(key: string): Texture | null;
+  /** G = roughness, B = metalness (three.js channel convention), or null. */
+  roughnessMap(key: string): Texture | null;
+  /** True when the colour map's alpha cuts the shape (tape ends, torn slips, stencils): use alphaTest, or blending for stencils. */
+  transparent(key: string): boolean;
+}
+
+export interface LabelOptions {
+  /** Height of a capital in world units. */
+  capHeight?: number;
+}
+
+/** One message on the phone screen: the owner's (right) or Patch's (left). */
+export interface LabelPhoneMessage {
+  from: 'owner' | 'patch';
+  text: string;
 }
 
 /** What every station view is built with. */

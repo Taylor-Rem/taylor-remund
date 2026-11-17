@@ -7,7 +7,20 @@
   },
   "jacks": {
     "storefront": { "text": "STOREFRONT", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" },
-    "platen": { "text": "PLATEN", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" }
+    "platen": { "text": "PLATEN", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" },
+    "lamp": { "text": "LAMP", "kind": "ui", "source": "REWRITE.md § B2, X1 (the switchboard's jacks)" }
+  },
+  "names": {
+    "crate": { "text": "Crate", "kind": "ui", "source": "REWRITE.md § C, the layout (crate stack; pallets of stencilled crates)" },
+    "fetch": { "text": "Fetch", "kind": "ui", "source": "REWRITE.md § B5, the crew; a working name (§ Decisions, G4)" },
+    "lamp": { "text": "Lamp", "kind": "ui", "source": "REWRITE.md § C, the layout (the LAMP, clamped here)" },
+    "belt": { "text": "Belt", "kind": "ui", "source": "REWRITE.md § C, the layout (The belt, #line)" },
+    "button": { "text": "Big Red Button", "kind": "ui", "source": "REWRITE.md § B4, The Big Red Button" },
+    "cord": { "text": "Patch cord", "kind": "ui", "source": "REWRITE.md § B2, X1 (re-patch the cord); § A palette (cable-red: the patch cord)" },
+    "jack": {
+      "storefront": { "text": "Storefront jack", "kind": "ui", "source": "REWRITE.md § B2, X1 (jack STOREFRONT)" },
+      "lamp": { "text": "Lamp jack", "kind": "ui", "source": "REWRITE.md § B2, X1 (jack LAMP)" }
+    }
   },
   "tools": {
     "laravel": { "text": "LARAVEL", "kind": "fact", "source": "/resume/ #skills (Laravel); REWRITE.md § D9" },

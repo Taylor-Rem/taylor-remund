@@ -2,7 +2,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import worldJson from '../../../src/content/world.json';
 import { validateContent } from '../../../src/content/schema.ts';
-import { world } from '../../../src/workshop/view/labels/content.ts';
+import { CONTENT_IDS, contentById, world } from '../../../src/workshop/view/labels/content.ts';
+import { cardFor } from '../../../src/workshop/sim/machines/button.ts';
+import { walk } from '../../../scripts/lib/fsutil.ts';
 import { FACES, SUBSET } from '../../../src/workshop/view/labels/fonts.ts';
 import type { FaceRole } from '../../../src/workshop/view/labels/fonts.ts';
 
@@ -28,7 +30,7 @@ describe('src/content/world.json', () => {
   it('holds exactly the vignette strings the brief names', () => {
     expect(world.sign).toBe('TAYLOR');
     expect(world.tape.doNotTouch).toBe('DO NOT TOUCH');
-    expect(world.jacks).toEqual({ storefront: 'STOREFRONT', platen: 'PLATEN' });
+    expect(world.jacks).toEqual({ storefront: 'STOREFRONT', lamp: 'LAMP', platen: 'PLATEN' });
     expect(Object.values(world.tools)).toEqual(['LARAVEL', 'VUE', 'PHP', 'PYTHON', 'RUST', 'SQL']);
     expect(world.cards.revertRung1).toBe('WELL, THAT WAS UNNECESSARY.');
     expect(world.slips.fetchOutOfLane).toBe('OUT OF MY LANE.');
@@ -93,5 +95,33 @@ describe('fonts', () => {
       expect(readme).toContain(f.file);
       expect(readFileSync(`public/fonts/${f.file.replace('.woff2', '.OFL.txt')}`, 'utf8')).toContain('SIL OPEN FONT LICENSE');
     }
+  });
+});
+
+describe('contentById', () => {
+  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp'];
+
+  it('resolves every id the simulation speaks in, to the right entry', () => {
+    for (const id of ids) expect(contentById(id).text, id).toBeTruthy();
+    expect(contentById('card.rung1').text).toBe('WELL, THAT WAS UNNECESSARY.');
+    expect(contentById(cardFor(1)).text).toBe('WELL, THAT WAS UNNECESSARY.');
+    expect(contentById('slip.out-of-lane').text).toBe('OUT OF MY LANE.');
+    expect(contentById('name.button')).toMatchObject({ text: 'Big Red Button', kind: 'ui' });
+    expect(contentById('name.jack.lamp').text).toBe('Lamp jack');
+    expect([...CONTENT_IDS].sort()).toEqual([...ids].sort());
+  });
+
+  it('throws on an unknown id', () => {
+    expect(() => contentById('card.rung99')).toThrow(/unknown content id/);
+  });
+
+  it('every literal content id in src/workshop/sim resolves', () => {
+    const found = new Set<string>();
+    for (const f of walk('src/workshop/sim').filter((x) => x.endsWith('.ts'))) {
+      const code = readFileSync(`src/workshop/sim/${f}`, 'utf8');
+      for (const m of code.matchAll(/'((?:card|slip|name)\.[a-z0-9.-]+)'/g)) found.add(m[1]!);
+    }
+    expect(found.size).toBeGreaterThan(0);
+    for (const id of found) expect(() => contentById(id), id).not.toThrow();
   });
 });

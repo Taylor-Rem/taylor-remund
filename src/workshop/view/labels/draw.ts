@@ -447,15 +447,15 @@ export function paintSign(plan: Plan, r: Rng): Painted {
   const O = blur(F, cap * 0.016);
   map(O, (i) => smoothstep(0.04, 0.3, O.d[i]!));
   const ridge = blur(F, cap * 0.035);
-  // Which way the brush ran: along each stroke, i.e. across the gradient of a wide blur.
-  const flow = blur(F, cap * 0.1);
 
   const board = mix(rgb('ink'), rgb('teal-panel'), 0.32);
   const amber = mix(rgb('amber'), rgb('wood'), 0.1);
   const amberDeep = mix(rgb('amber'), rgb('cable-red'), 0.3);
   const face = rgb('paper');
   const key = mix(rgb('ink'), board, 0.25);
-  const brush = fbm(r() * 1e6, 3);
+  const streakA = valueNoise(r() * 1e6);
+  const streakB = valueNoise(r() * 1e6);
+  const drift = valueNoise(r() * 1e6);
   const boardBrush = fbm(r() * 1e6, 3);
   const grime = fbm(r() * 1e6, 4);
   const scratches = valueNoise(r() * 1e6);
@@ -465,23 +465,14 @@ export function paintSign(plan: Plan, r: Rng): Painted {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      // Stroke direction from the blurred face's gradient; vertical where it is flat.
-      const xl = Math.max(0, x - 2);
-      const xr = Math.min(w - 1, x + 2);
-      const yu = Math.max(0, y - 2);
-      const yd = Math.min(h - 1, y + 2);
-      const gx = flow.d[y * w + xr]! - flow.d[y * w + xl]!;
-      const gy = flow.d[yd * w + x]! - flow.d[yu * w + x]!;
-      const gl = Math.hypot(gx, gy);
-      const k = smoothstep(0.004, 0.03, gl);
-      let ux = k * (gl > 0 ? -gy / gl : 0);
-      let uy = k * (gl > 0 ? gx / gl : 0) + (1 - k);
-      const ul = Math.hypot(ux, uy) || 1;
-      ux /= ul;
-      uy /= ul;
-      const along = x * ux + y * uy;
-      const across = -x * uy + y * ux;
-      const br = brush(along / (cap * 2.5), across / (cap * 0.022));
+      // Brush strokes: long and horizontal-ish, the angle drifting only a little across
+      // the board (slower than a letter is wide, so it never curls into marbling).
+      const tilt = (drift(x / (cap * 1.6), 0.5) - 0.5) * 0.3;
+      const ca = Math.cos(tilt);
+      const sa = Math.sin(tilt);
+      const along = x * ca + y * sa;
+      const across = -x * sa + y * ca;
+      const br = 0.65 * streakA(along / (cap * 3.2), across / (cap * 0.028)) + 0.35 * streakB(along / (cap * 1.1), across / (cap * 0.012));
       const bb = boardBrush(x / (cap * 0.9), y / (cap * 0.07));
       const gr = grime(x / (cap * 0.8), y / (cap * 0.8));
       const edgeD = Math.min(x, y, w - 1 - x, h - 1 - y) / cap;

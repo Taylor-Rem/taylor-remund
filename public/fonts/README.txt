@@ -28,8 +28,15 @@ How they were made: glyph ids kept, glyphs outside the set emptied, cmap
 rebuilt (3,1 format 4), GSUB/GDEF and hinting dropped (instructions
 stripped), GPOS/kern kept for kerning, post set to format 3, name table
 renamed, then WOFF2 with null-transformed glyf/loca and Brotli quality 11.
-The tool is a small Node script (no dependencies) that the W1 hand-in
-names; run per font:
-  node subset.mjs <original.ttf> <out.woff2> "<family name>" "<characters>"
+
+To remake them: download the four original .ttf files listed above into
+one directory (the file names must stay as upstream names them), then
+  node scripts/subset-fonts.ts <that directory>
+which writes public/fonts/workshop-*.woff2. The character sets come from
+SUBSET in src/workshop/view/labels/fonts.ts. Output is deterministic:
+re-running it on the originals above (sha256 prefixes: Barlow bd299f4bc5b44d30,
+Courier Prime 72f793376f8e2841, Stardos 6b15f50b1b358512, Alfa Slab
+28664afa698a3393) reproduced the committed files byte for byte on
+2026-11-17 (Node 22's built-in Brotli).
 
 Sizes (bytes): tape 13564, type 8360, stencil 6832, sign 7068; total 35824.
