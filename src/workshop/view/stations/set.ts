@@ -198,15 +198,7 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     if (tw) {
       const m = wallStand(tw, o.at.toolwall.x, o.at.toolwall.y);
       items.push({ piece: tw, at: m });
-      for (const t of o.tools) {
-        const name = t.name.replace(/^tool-/, '');
-        const hang = socketMatrix(tw, `hang.${name}`, m);
-        if (!hang) continue;
-        const tp = build(t);
-        if (!tp) continue;
-        const peg = tp.sockets?.['peg'];
-        items.push({ piece: tp, at: peg ? hang.clone().multiply(peg.clone().invert()) : hang });
-      }
+      // the tool wall carries its six tools (each also registered alone as `tool-…`, for when they come loose)
     } else {
       const s = o.standIn.toolwall;
       const p = clay('toolwall', s.w, s.h, s.d);

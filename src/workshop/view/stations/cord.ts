@@ -38,7 +38,7 @@ export const CORD_FEEL = {
   points: 26,
   radius: 0.032,
   sides: 8,
-  slack: 1.05,
+  slack: 0.75,
   /** Gravity on the rope (the world's is -16; a cloth cord reads heavier with a little less). */
   gravity: -13,
   /** Velocity kept per 1/120 s substep (air drag on cloth). */
@@ -232,10 +232,16 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     board.applyMatrix4(boardM);
     root.add(board);
 
-    // each jack's lamp: a node named after the jack; lit = its bulb part shows, the dark lens hides
+    // each jack's lamp: the real board lights its lens through `poseSwitchboard` (vertex colour);
+    // the stand-in swaps a lit bulb for a dark lens
+    type PoseBoard = (root: Object3D, pose: { lamps?: Record<string, number>; drawers?: Record<string, number> }) => void;
+    const poseBoard = o.board ? ((o.boardModule?.['poseSwitchboard'] as PoseBoard | undefined) ?? null) : null;
+    const BOARD = o.board ? (o.boardModule?.['BOARD'] as { w: number; shelfY: number; shelfZ: number; panelZ: number; top: number } | undefined) : undefined;
+    const lampLevel: Record<string, number> = { storefront: -1, lamp: -1 };
     const lamps = new Map<Id, { on: Object3D[]; off: Object3D[] }>();
     const jackKey: Record<string, 'storefront' | 'lamp'> = { 'jack-storefront': 'storefront', 'jack-lamp': 'lamp' };
     for (const [id, key] of Object.entries(jackKey)) {
+      if (poseBoard) continue;
       const node = board.getObjectByName(`lamp.${key}`) ?? board.getObjectByName(`lamp-${key}`) ?? board.getObjectByName(`${key}.lamp`);
       const on: Object3D[] = [];
       const off: Object3D[] = [];
@@ -263,7 +269,9 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     }
 
     // ── the plug ──
-    const plugPiece = o.plug ? buildEntry(o.plug, null, { seed: o.seed }, ctx.labels) : standInPlug();
+    // seated convention (origin on the seating face, +Z back along the plug); the catalogue's entry shows it lying on the bench
+    const cordPlug = o.boardModule?.['cordPlug'] as ((opts: { seed?: number; rest?: 'seat' | 'bench' }) => Piece) | undefined;
+    const plugPiece = o.plug && cordPlug ? cordPlug({ seed: o.seed, rest: 'seat' }) : o.plug ? buildEntry(o.plug, null, { seed: o.seed, cord: false }, ctx.labels) : standInPlug();
     const plugInner = ctx.realize(plugPiece);
     const plug = new Group();
     plug.name = 'plug';
@@ -273,8 +281,18 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     if (picking) picking.add('cord', plug, { pad: 0.05 });
     else ctx.pickable('cord', plug);
 
-    // ── the rope ──
-    const tube = tubePiece(F.points, F.sides, F.radius);
+    // ── the rope: the switchboard's braided cord when it is there, else a plain tube ──
+    type CordGeometry = (pts: readonly (readonly [number, number, number])[]) => BufferGeometry;
+    type UpdateCord = (g: BufferGeometry, pts: readonly (readonly [number, number, number])[]) => void;
+    const cordGeometry = o.boardModule?.['cordGeometry'] as CordGeometry | undefined;
+    const updateCord = o.boardModule?.['updateCord'] as UpdateCord | undefined;
+    const braided = !!(cordGeometry && updateCord);
+    let tube: Piece;
+    if (braided) {
+      const b = piece('cord', { ao: false });
+      b.add({ material: 'rubber', geometry: cordGeometry!(Array.from({ length: F.points }, (_, i) => [i * 0.05, 0.5, 0] as const)) });
+      tube = b.build();
+    } else tube = tubePiece(F.points, F.sides, F.radius);
     const tubeObj = ctx.realize(tube);
     root.add(tubeObj);
     let tubeGeom: BufferGeometry | null = null;
@@ -290,8 +308,20 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     const rope = new Rope(rootAt, startJack.clone().addScaledVector(AXIS_Z, cordSocket.z), F.points, far + F.slack);
     const boardFront = fit.board.at.z + fit.board.bounds.max.z;
     const boardTop = fit.board.bounds.max.y;
+    const at = fit.board.at;
     const floor = (v: Vector3): void => {
       if (v.y < F.radius) v.y = F.radius;
+      if (BOARD) {
+        // the real board: the jack panel's face, and the keyshelf in front of it
+        const lx = v.x - at.x, lz = v.z - at.z;
+        if (Math.abs(lx) > BOARD.w / 2 || v.y > BOARD.top) return;
+        if (lz < BOARD.shelfZ && v.y < BOARD.shelfY + F.radius) {
+          if (BOARD.shelfZ - lz < BOARD.shelfY + F.radius - v.y) v.z = at.z + BOARD.shelfZ + F.radius;
+          else v.y = BOARD.shelfY + F.radius;
+        }
+        if (lz < BOARD.panelZ + F.radius) v.z = at.z + BOARD.panelZ + F.radius;
+        return;
+      }
       // in front of the board's face, not inside the cabinet
       if (v.z < boardFront + F.radius && v.y < boardTop && v.x > fit.board.at.x + fit.board.bounds.min.x && v.x < fit.board.at.x + fit.board.bounds.max.x) v.z = boardFront + F.radius;
     };
@@ -313,7 +343,9 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     let first = true;
     const end = new Vector3();
     const tEnd = new Vector3();
-    const tRoot = new Vector3(0, 0, 1);
+    // the cord leaves the board straight: up out of the keyshelf's grommet (the real board), out of the face (the stand-in)
+    const tRoot = o.board ? new Vector3(0, 1, 0) : new Vector3(0, 0, 1);
+    const ropePts: Array<[number, number, number]> = Array.from({ length: F.points }, () => [0, 0, 0]);
     const goal = new Vector3();
 
     return {
@@ -329,6 +361,21 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
             seatV = 0;
           }
           if (e.type === 'cord.unplugged') hover = 0;
+        }
+        if (poseBoard) {
+          // a lens comes up fast and dies a little slower (a filament)
+          const want: Record<string, number> = {};
+          let changed = false;
+          for (const [id, key] of Object.entries(jackKey)) {
+            const goalK = id === v.jack && !v.lifted ? 1 : 0;
+            const cur = lampLevel[key]! < 0 ? goalK : lampLevel[key]!;
+            const next = cur + (goalK - cur) * (1 - Math.exp(-(goalK > cur ? 30 : 12) * dt));
+            const k = Math.abs(next - goalK) < 0.004 ? goalK : next;
+            if (k !== lampLevel[key]) changed = true;
+            lampLevel[key] = k;
+            want[key] = k;
+          }
+          if (changed) poseBoard(board, { lamps: want });
         }
         for (const [id, l] of lamps) {
           const lit = id === v.jack && !v.lifted;
@@ -379,7 +426,18 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
         end.copy(cordSocket).applyQuaternion(plug.quaternion).add(plug.position);
         tEnd.copy(cordSocket).normalize().applyQuaternion(plug.quaternion);
         rope.step(ctx.reducedMotion ? Math.min(dt, 1 / 60) : dt, rootAt, tRoot, end, tEnd, floor);
-        if (tubeGeom) writeTube(tubeGeom, rope.p, F.sides, F.radius);
+        if (tubeGeom) {
+          if (braided) {
+            for (let i = 0; i < F.points; i++) {
+              const p = rope.p[i]!;
+              const r = ropePts[i]!;
+              r[0] = p.x;
+              r[1] = p.y;
+              r[2] = p.z;
+            }
+            updateCord!(tubeGeom, ropePts);
+          } else writeTube(tubeGeom, rope.p, F.sides, F.radius);
+        }
       },
       dispose() {
         root.removeFromParent();

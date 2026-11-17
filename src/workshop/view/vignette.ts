@@ -71,7 +71,7 @@ export const LAYOUT = {
   /** The sign, hung on the wall above the board (its origin height). */
   sign: { x: 1.05, y: 3.05 },
   /** The tool wall, back left on the wall (its origin height). */
-  toolwall: { x: -4.75, y: 0.6 },
+  toolwall: { x: -4.75, y: 0.3 },
   /** The lamp's clamp at the back edge of the bench. */
   lamp: { x: -4.45, z: -4.72, yaw: 0 },
 } as const;
@@ -209,7 +209,9 @@ export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null;
   };
   const cordRoot = socketAt(pieces.board ?? null, 'cord.root', boardAt) ?? ([boardAt.x - sb.w / 2 + 0.35, 0.72, boardAt.z + boardB.max.z + 0.02] as Vec3);
   const stoolB = pieces.stool ? pieceBounds(pieces.stool) : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
-  const stoolAt: Placed = { x: LAYOUT.stool.x, z: LAYOUT.stool.z, yaw: LAYOUT.stool.yaw };
+  // the stool stands where the board says (its `stool` socket), turned for a side-on Patch
+  const st = socketAt(pieces.board ?? null, 'stool', boardAt);
+  const stoolAt: Placed = st ? { x: st[0], z: st[2], yaw: LAYOUT.stool.yaw } : { x: LAYOUT.stool.x, z: LAYOUT.stool.z, yaw: LAYOUT.stool.yaw };
   const seat = socketAt(pieces.stool ?? null, 'seat', stoolAt) ?? ([stoolAt.x, stoolB.max.y, stoolAt.z] as Vec3);
   const phoneB = pieces.phone ? pieceBounds(pieces.phone) : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);
   const beltB = pieces.belt ? pieceBounds(pieces.belt) : box(STAND_IN.belt.w, STAND_IN.belt.h, STAND_IN.belt.d);
