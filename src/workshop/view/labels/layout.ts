@@ -7,6 +7,7 @@
  * then scaled to world units by the register's cap height and to texels by
  * the register's texel density.
  */
+import type { LabelPhoneMessage } from '../types.ts';
 import type { Rng } from './rng.ts';
 import { jitter } from './rng.ts';
 
@@ -16,10 +17,7 @@ export const TAPES = ['black', 'red', 'blue'] as const;
 export type TapeColour = (typeof TAPES)[number];
 
 /** One message on the phone screen: the owner's (right, blue) or Patch's (left). */
-export interface PhoneMessage {
-  from: 'owner' | 'patch';
-  text: string;
-}
+export type PhoneMessage = LabelPhoneMessage;
 
 // ---- the 12 px rule (REWRITE.md § G "Gate G1", art-direction § 7) ----------
 
@@ -73,8 +71,9 @@ export const REGISTERS: Record<Register, RegisterSpec> = {
   plate: { capHeight: 0.26, texelsPerUnit: 384, ruled: true },
   sign: { capHeight: 0.9, texelsPerUnit: 224, ruled: true },
   stencil: { capHeight: 0.2, texelsPerUnit: 320, ruled: false },
-  card: { capHeight: 0.1, texelsPerUnit: 480, ruled: false },
-  slip: { capHeight: 0.085, texelsPerUnit: 480, ruled: false },
+  // A cue card held up on a stick: big on purpose, so its capitals meet the 12 px rule too.
+  card: { capHeight: 0.23, texelsPerUnit: 320, ruled: true },
+  slip: { capHeight: 0.16, texelsPerUnit: 384, ruled: false },
   phone: { capHeight: 0.034, texelsPerUnit: 1150, ruled: false },
 };
 
@@ -191,8 +190,8 @@ export const PROPORTIONS = {
   plate: { heightPerCap: 2.25, sidePad: 0.85, tracking: 0.16 },
   stencil: { heightPerCap: 1.5, sidePad: 0.38, tracking: 0.12 },
   sign: { heightPerCap: 1.76, sidePad: 0.55, tracking: 0.07, shade: 0.11 },
-  card: { maxChars: 15, lineGap: 2.05, top: 2.3, bottom: 1.25, side: 1.4 },
-  slip: { maxChars: 10, lineGap: 1.85, top: 1.8, bottom: 1.6, side: 1.05 },
+  card: { maxChars: 12, lineGap: 1.75, top: 1.75, bottom: 1.05, side: 0.85 },
+  slip: { maxChars: 10, lineGap: 1.75, top: 1.6, bottom: 1.35, side: 0.8 },
 } as const;
 
 export function planTape(text: string, adv: Advance, r: Rng, opts?: PlanOptions): Plan {
@@ -235,10 +234,10 @@ export function planPaper(register: 'card' | 'slip', text: string, adv: Advance,
   const rows = wrap(text, P.maxChars);
   const a = adv('M');
   const widest = Math.max(...rows.map((s) => [...s].length));
-  const textW = Math.max(widest, register === 'card' ? 11 : 7) * a;
+  const textW = Math.max(widest, register === 'card' ? 9 : 7) * a;
   const w = P.side * 2 + textW;
   let h = P.top + (rows.length - 1) * P.lineGap + 1 + P.bottom;
-  if (register === 'card') h = Math.max(h, w * 0.6); // index-card proportions, 5 x 3
+  if (register === 'card') h = Math.max(h, w * 0.42); // never a mere strip
   const lines = rows.map((s, i) => {
     // A typewriter's baseline wanders per letter; its carriage is set by hand per line.
     const l = layoutLine(s, () => a, { tracking: 0, x: 0.03, y: 0.05, rot: 0.012, scale: 0 }, r);

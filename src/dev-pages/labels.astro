@@ -79,15 +79,16 @@
         add(labels.plate(world.plates.presses), 4.2, 2.4, { mat: 'metal' });
         const tools = [T.laravel, T.vue, T.php, T.python, T.rust, T.sql];
         const colours = ['black', 'red', 'blue', 'black', 'red', 'blue'] as const;
-        tools.forEach((t, i) => add(labels.tape(t, colours[i], { capHeight: 0.16 }), -9 + (i % 3) * 3.0, 2.3 - Math.floor(i / 3) * 0.8));
-        add(labels.card(world.cards.revertRung1), -6.4, -1.6);
-        add(labels.slip(world.slips.fetchOutOfLane), -3.3, -1.4);
+        tools.forEach((t, i) => add(labels.tape(t, colours[i]), -8.8 + (i % 3) * 2.6, 2.5 - Math.floor(i / 3) * 0.75));
+        add(labels.card(world.cards.revertRung1), -7.2, -1.9);
+        add(labels.slip(world.slips.fetchOutOfLane), -3.4, -1.6);
         const S = world.stencil;
         add(labels.stencil(`${S.up} ${S.up}`), 0.4, -0.7, { mat: 'stencil', on: 'wood' });
         add(labels.stencil(S.size.S), -0.3, -2.0, { mat: 'stencil', on: 'wood' });
         add(labels.stencil(S.size.M), 0.4, -2.0, { mat: 'stencil', on: 'wood' });
         add(labels.stencil(S.size.L, { paint: 'paper' }), 1.1, -2.0, { mat: 'stencil', on: 'teal' });
         add(labels.phone(world.phone.attract), 3.1, -1.4, { mat: 'screen' });
+        add(labels.tape(world.jacks.lamp, 'black'), 7.6, 4.6);
 
         for (const it of items) {
           const e = labels.entry(it.key);

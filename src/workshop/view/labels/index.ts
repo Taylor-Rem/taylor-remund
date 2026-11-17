@@ -18,18 +18,17 @@
  */
 import { ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, NoColorSpace, RGBAFormat, SRGBColorSpace, UnsignedByteType } from 'three';
 import type { Texture } from 'three';
-import type { Token } from '../palette.ts';
 import type { Labels } from '../types.ts';
 import type { Painted } from './draw.ts';
 import { ARROW, ARROW_ADVANCE, advance, checkText, paintPaper, paintPhone, paintPlate, paintSign, paintStencil, paintTape } from './draw.ts';
 import { loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
-import type { PhoneMessage, Plan, PlanOptions, Register, TapeColour } from './layout.ts';
+import type { Plan, Register } from './layout.ts';
 import { TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
 import { halve, toTextureRows } from './raster.ts';
 import { rng } from './rng.ts';
 
-export { world } from './content.ts';
+export { CONTENT_IDS, contentById, world } from './content.ts';
 export type { PhoneMessage, PlanOptions, Register, TapeColour } from './layout.ts';
 export { REGISTERS, capPx, minCapHeight, DEFAULT_VIEW } from './layout.ts';
 
@@ -56,20 +55,8 @@ export interface LabelEntry {
   bytes: number;
 }
 
+/** The concrete labels: the `Labels` contract plus inspection for dev pages and budgets. */
 export interface WorkshopLabels extends Labels {
-  tape(text: string, colour?: TapeColour, opts?: PlanOptions): string;
-  stencil(text: string, opts?: PlanOptions & { paint?: Token }): string;
-  card(text: string, opts?: PlanOptions): string;
-  /** The narrow torn slip Fetch prints. */
-  slip(text: string, opts?: PlanOptions): string;
-  plate(text: string, opts?: PlanOptions): string;
-  sign(text: string, opts?: PlanOptions): string;
-  /** A phone screen showing these messages (newest last). */
-  phone(messages: readonly PhoneMessage[], opts?: PlanOptions & { screen?: { w: number; h: number } }): string;
-  roughnessMap(key: string): Texture | null;
-  transparent(key: string): boolean;
-  /** World height of this label's capitals. */
-  capHeight(key: string): number;
   entry(key: string): LabelEntry;
   /** Every label made so far, and the GPU memory their textures take (RGBA8 + mips). */
   memory(): { labels: number; textures: number; bytes: number };
