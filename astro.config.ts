@@ -1,9 +1,12 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import cname from './integrations/cname.ts';
 import devPages from './integrations/dev-pages.ts';
 import legacyPassthrough from './integrations/legacy-passthrough.ts';
 
 // REWRITE.md § E1, § E11: static output, directory URLs, built into dist/.
+const here = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, '');
+
 export default defineConfig({
   site: 'https://taylorremund.com',
   output: 'static',
@@ -18,7 +21,10 @@ export default defineConfig({
   // Agent worktrees live under .claude/worktrees/ (git-ignored copies of the
   // project); the dev server must not watch or serve them.
   vite: {
-    server: { watch: { ignored: ['**/.claude/**', '**/shots/**', '**/legacy/**'] } },
+    // Ignore THIS checkout's .claude/ (other agents' worktrees), by absolute path:
+    // a '**/.claude/**' glob would also match a worktree's own files, since a
+    // worktree lives under .claude/worktrees/, and its dev server would never reload.
+    server: { watch: { ignored: [`${here}/.claude/**`, `${here}/shots/**`, `${here}/legacy/**`] } },
     // Rapier's wasm glue must not be pre-bundled: Vite's dependency optimiser
     // loads it twice and the dev server fails with "reading '__wbindgen_export'".
     optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
