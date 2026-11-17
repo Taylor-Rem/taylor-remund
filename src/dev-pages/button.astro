@@ -1,0 +1,206 @@
+---
+// /dev/button/ (W4 § B): the Button's moment. The Button on the bench with
+// the real crate stack, the real simulation, the lamp's behaviour and the cue
+// card: press it (click the cap, or B) and watch rung 1 end to end:
+// press → flinch → rewind → card. Dev-only; never shipped.
+//
+// Query: ?tier=high|low  ?seed=N  ?manual=1 (drive with __workshop.advance)
+//        ?view=wide|phone  ?reduced=1 (reduced motion)  ?debug=1 (events)
+// Hooks: window.__workshop (stage hooks), window.__button { ws, press(),
+//        screen(p) → CSS px, cap(), card(), views }
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Button</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
+      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+      #debug { position: fixed; left: 8px; top: 8px; padding: 6px 8px; background: rgba(10, 20, 22, 0.78); color: #efe6d2;
+        font: 11px/1.45 ui-monospace, Menlo, monospace; white-space: pre; pointer-events: none; display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="debug"></div>
+    <script>
+      import { Box3, Group, Quaternion, Vector3, type Object3D } from 'three';
+      import { bootWorkshop, type BootStation } from '../workshop/shell/boot.ts';
+      import { createPartsView } from '../workshop/view/stations/parts.ts';
+      import { createButtonView } from '../workshop/view/stations/button.ts';
+      import { createCardView } from '../workshop/view/stations/card.ts';
+      import { createLampView } from '../workshop/view/stations/lamp.ts';
+      import { installDebugHooks } from '../workshop/view/stage/debug.ts';
+      import type { Part, SimEvent, Vec3, WorldView } from '../workshop/sim/index.ts';
+      import { defaultHalfExtents } from '../workshop/sim/parts.ts';
+      import { bench, backWall, laneTape } from '../workshop/view/kit/pieces/bench/index.ts';
+      import { crate, crateLabels } from '../workshop/view/kit/pieces/crate/index.ts';
+      import { fetchPorter, fetchNameTape } from '../workshop/view/kit/pieces/fetch-porter/index.ts';
+      import type { Frame, StationView } from '../workshop/view/types.ts';
+      import type { View } from '../workshop/view/stage/camera.ts';
+
+      const q = new URLSearchParams(location.search);
+      const tier = q.get('tier') === 'low' ? 'low' : 'high';
+      const manual = q.get('manual') === '1';
+      const seed = Number(q.get('seed') ?? 1);
+      const reducedMotion = q.get('reduced') === '1' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const debug = q.get('debug') === '1';
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const detail = tier === 'low' ? 'low' : 'high';
+
+      let worldRef: WorldView | null = null;
+      const halfOf = (part: Part): Vec3 => worldRef?.scene.parts.find((s) => s.id === part.id)?.half ?? defaultHalfExtents(part.kind, part.size);
+
+      /** The set: the real bench, the back wall, Fetch's lane tape. */
+      const setView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'set';
+        ctx.scene.add(root);
+        const put = (o: Object3D, x: number, y: number, z: number): void => {
+          o.position.set(x, y, z);
+          root.add(o);
+        };
+        put(ctx.realize(bench({ sections: 4, width: 5, depth: 10, seed: 11, detail })), 0, 0, 0);
+        put(ctx.realize(backWall({ width: 20, height: 6, seed: 5, detail })), 0, 0, -5);
+        let lane = false;
+        return {
+          root,
+          update(frame: Frame) {
+            if (lane) return;
+            lane = true;
+            const l = frame.world.scene.runner.lane;
+            for (const dz of [-0.4, 0.4]) put(ctx.realize(laneTape({ points: [[l.a[0] - 0.4, l.a[1] + dz], [l.b[0] + 0.4, l.b[1] + dz]], seed: dz > 0 ? 3 : 4, detail })), 0, 0, 0);
+          },
+          dispose() { root.removeFromParent(); },
+        };
+      };
+
+      /** Fetch until its view lands: the real porter, standing where the simulation has it. */
+      const fetchMods = import.meta.glob('../workshop/view/stations/fetch.ts');
+      const fetchStandIn: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'fetch-stand-in';
+        ctx.scene.add(root);
+        const body = new Group();
+        const o = ctx.realize(fetchPorter({ seed: 2, detail, nameTape: fetchNameTape(ctx.labels) }));
+        body.add(o);
+        root.add(body);
+        let picked = false;
+        const pa = new Vector3(), pb = new Vector3(), qa = new Quaternion(), qb = new Quaternion();
+        return {
+          root,
+          update(frame: Frame) {
+            const w = frame.world;
+            const id = w.scene.runner.id;
+            if (!picked) { picked = true; ctx.pickable(id, body); }
+            const m = w.motion(id);
+            if (!m || m.mode === 'chute') { body.visible = false; return; }
+            body.visible = true;
+            pa.set(...(m.prev.p as [number, number, number])); pb.set(...(m.pose.p as [number, number, number]));
+            qa.set(...(m.prev.q as [number, number, number, number])); qb.set(...(m.pose.q as [number, number, number, number]));
+            if (m.prev !== m.pose) { pa.lerp(pb, frame.alpha); qa.slerp(qb, frame.alpha); } else { pa.copy(pb); qa.copy(qb); }
+            const h = w.halfExtents(id)?.[1] ?? 0.5;
+            body.position.set(pa.x, pa.y - h, pa.z);
+            body.quaternion.copy(qa);
+          },
+          dispose() { root.removeFromParent(); },
+        };
+      };
+      const fetchLoader = Object.values(fetchMods)[0];
+      let fetchStation: BootStation = fetchStandIn;
+      if (fetchLoader) {
+        const m = (await fetchLoader()) as Record<string, unknown>;
+        const make = Object.entries(m).find(([k, v]) => typeof v === 'function' && /^create\w*Fetch\w*View$/.test(k))?.[1] as (() => BootStation) | undefined;
+        if (make) fetchStation = make();
+      }
+
+      const crates: BootStation = (ctx) => {
+        crateLabels(ctx.labels);
+        return createPartsView({
+          half: halfOf,
+          piece: (part) => crate({ size: part.size, paint: part.colour === 'paper' ? null : (part.colour as never), seed: 3 + Number(part.id.replace(/\D/g, '') || 0), detail }),
+        })(ctx);
+      };
+
+      const lamp = createLampView();
+      const buttonV = createButtonView();
+      const cardV = createCardView();
+      let views: { lamp?: StationView; button?: StationView; card?: StationView } = {};
+
+      const wideBox = new Box3(new Vector3(-4.6, -0.3, -2.4), new Vector3(4.6, 3.2, 4.2));
+      const phoneBox = new Box3(new Vector3(-3.0, 0, -0.4), new Vector3(2.6, 3.0, 2.8));
+      const log: string[] = [];
+      const overlay = document.getElementById('debug')!;
+      if (debug) overlay.style.display = 'block';
+
+      const ws = await bootWorkshop(canvas, {
+        tier,
+        reducedMotion,
+        seed,
+        manual,
+        stations: [
+          setView,
+          crates,
+          (ctx) => (views.lamp = lamp(ctx)),
+          (ctx) => (views.button = buttonV(ctx)),
+          (ctx) => (views.card = cardV(ctx)),
+          fetchStation,
+        ],
+        frameCamera(stage, scene) {
+          const edge = { y: scene.bench.top, z: scene.bench.maxZ };
+          const portrait = innerWidth < innerHeight || q.get('view') === 'phone';
+          stage.camera.setSubject(portrait ? phoneBox : wideBox, { edge, bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 4, scene.bench.maxZ)) });
+          stage.camera.focusOn(new Vector3(-0.2, 0.9, 1.6));
+          stage.camera.cutTo(stage.camera.home());
+        },
+        onFrame(frame) {
+          for (const e of frame.events) {
+            if (e.type === 'part.hit' || e.type === 'part.rested' || e.type === 'effect') continue;
+            log.push(`${frame.world.step} ${describe(e)}`);
+            if (log.length > 14) log.shift();
+          }
+          if (debug) {
+            const b = frame.world.button();
+            overlay.textContent = [`step ${frame.world.step}  t ${frame.time.toFixed(2)}  phase ${b.phase} ${b.phaseTime.toFixed(2)}  presses ${b.presses}`,
+              `lamp ${ws?.stage.lights.effectiveLevel.toFixed(2)}`, ...log].join('\n');
+          }
+        },
+      });
+      worldRef = ws.world;
+      function describe(e: SimEvent): string {
+        return `${e.type} ${'id' in e ? e.id : ''}${'rung' in e ? ' rung ' + e.rung : ''}${'content' in e ? ' ' + e.content : ''}`;
+      }
+      const viewsByName: Record<string, View> = { wide: ws.stage.camera.home() };
+      installDebugHooks(ws.stage, ws.loop, viewsByName);
+      addEventListener('keydown', (e) => { if (e.key === 'b') ws.dispatch({ type: 'press', id: ws.world.scene.button.id }); });
+
+      const screen = (p: { x: number; y: number; z: number }): { x: number; y: number } => {
+        const s = ws.stage.camera.worldToScreen(p);
+        return { x: ((s.x + 1) / 2) * canvas.clientWidth, y: ((1 - s.y) / 2) * canvas.clientHeight };
+      };
+      (window as unknown as { __button: unknown }).__button = {
+        ws,
+        views,
+        log,
+        press: () => ws.dispatch({ type: 'press', id: ws.world.scene.button.id }),
+        screen,
+        cap() {
+          const c = ws.stage.scene.getObjectByName('cap');
+          return c ? screen(c.getWorldPosition(new Vector3())) : null;
+        },
+        card() {
+          const v = views.card as unknown as { cardCentre(): Vector3 | null };
+          const c = v.cardCentre();
+          return c ? screen(c) : null;
+        },
+      };
+      let frames = 0;
+      const ready = (): void => { if (++frames === 10) (window as unknown as { __ready: boolean }).__ready = true; else requestAnimationFrame(ready); };
+      if (manual) { for (let i = 0; i < 10; i++) ws.advance(1); (window as unknown as { __ready: boolean }).__ready = true; }
+      else requestAnimationFrame(ready);
+    </script>
+  </body>
+</html>
