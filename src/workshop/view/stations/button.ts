@@ -97,7 +97,7 @@ export interface ButtonView extends StationView {
 const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
 
 function pedestalOf(w: WorldView): { p: Vector3; q: Quaternion } {
-  const s = w.scene.statics.find((x) => x.id === 'button-pedestal');
+  const s = w.scene.statics.find((x) => x.id === 'console');
   const top = w.scene.bench.top;
   if (!s) return { p: new Vector3(0, top, 0), q: new Quaternion() };
   return { p: new Vector3(s.pose.p[0], top, s.pose.p[2]), q: new Quaternion(s.pose.q[0], s.pose.q[1], s.pose.q[2], s.pose.q[3]) };

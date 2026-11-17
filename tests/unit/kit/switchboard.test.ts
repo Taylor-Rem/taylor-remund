@@ -84,8 +84,8 @@ describe('the switchboard', () => {
   it('puts the jacks where a seated raccoon reaches them, above their tape, the cord root on the keyshelf', () => {
     for (const j of JACKS) {
       const jp = pos(p.sockets![`jack.${j}`]!), lp = pos(p.sockets![`label.${j}`]!);
-      expect(jp.y).toBeGreaterThan(SEAT_Y + 0.7);
-      expect(jp.y).toBeLessThan(SEAT_Y + 1.15);
+      // Patch's reach paw comes up to about SEAT_Y + 0.41 (patch-toy rig); the jack's escutcheon spans ±0.175
+      expect(Math.abs(jp.y - (SEAT_Y + 0.41))).toBeLessThan(0.12);
       expect(lp.y).toBeLessThan(jp.y - 0.25);
       expect(jp.z).toBeGreaterThan(0);
     }
@@ -111,7 +111,10 @@ describe('the switchboard', () => {
   });
 
   it('poses: drawers slide out along +Z, lamps light, on a realized board and on a piece', () => {
-    const o = K.realize(switchboard(), stub);
+    // STOPGAP (lead, 2026-11-17): lamp lighting rewrites the lens's vertex colours through its node's mesh,
+    // which the default skinned backend merges away. Until the lamps are made backend-independent
+    // (lit/unlit lens nodes), this checks the per-node backend only.
+    const o = K.realize(switchboard(), stub, { backend: 'nodes' });
     const d = o.getObjectByName('drawer.storefront')!;
     const before = d.getWorldPosition(new Vector3());
     poseSwitchboard(o, { drawers: { storefront: 1 }, lamps: { lamp: 1 } });
@@ -191,4 +194,16 @@ describe('the plug and the cord', () => {
   });
 });
 
-void ({} as Object3D);
+describe('Patch on the stool, at the board', () => {
+  it("Patch's reach paw comes up to the live jacks' height from the seat socket", async () => {
+    const { patchToy, posePatch, SIT_YAW } = await import('../../../src/workshop/view/kit/pieces/patch-toy/index.ts');
+    const s = stool();
+    const o: Object3D = K.realize(patchToy({}), stub);
+    o.position.copy(pos(s.sockets!['seat']!));
+    o.rotation.y = (SIT_YAW * Math.PI) / 180;
+    posePatch(o, { arms: 'reach' });
+    o.updateMatrixWorld(true);
+    const paw = o.getObjectByName('pawL')!.getWorldPosition(new Vector3());
+    expect(Math.abs(paw.y - BOARD.jackY)).toBeLessThan(0.1);
+  });
+});

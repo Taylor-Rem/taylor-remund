@@ -72,7 +72,7 @@
         const build = (w: WorldView): void => {
           built = true;
           for (const s of w.scene.statics) {
-            if (s.shape.type !== 'box' || s.id === 'button-pedestal') continue;
+            if (s.shape.type !== 'box' || s.id === 'console') continue;
             const [hx, hy, hz] = s.shape.half;
             const b = K.piece(`static-${s.id}`, { ao: false });
             if (s.id === 'bench') {
@@ -124,7 +124,7 @@
         let built = false;
         const build = (w: WorldView): void => {
           built = true;
-          const ped = w.scene.statics.find((s) => s.id === 'button-pedestal');
+          const ped = w.scene.statics.find((s) => s.id === 'console');
           if (!ped || ped.shape.type !== 'box') return;
           const [hx, hy, hz] = ped.shape.half;
           const b = K.piece('button-stand-in');

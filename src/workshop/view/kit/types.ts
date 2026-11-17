@@ -72,6 +72,11 @@ export interface KitPart {
   geometry: BufferGeometry;
   /** For textured parts (label tape, cards, stencils, plates): key of a texture made by view/labels. */
   texture?: string;
+  /**
+   * false: leave this part out of the shadow pass (tiny parts whose shadow nobody sees).
+   * It still receives shadows. Parts of a different castShadow never merge.
+   */
+  castShadow?: false;
 }
 
 /**

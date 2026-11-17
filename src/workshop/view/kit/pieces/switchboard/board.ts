@@ -29,13 +29,12 @@
  * up), `stool` (where Patch's stool stands on the bench).
  */
 import { Matrix4 } from 'three';
-import type { BufferGeometry } from 'three';
 import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { aim, chain, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
-import { deform, transform } from '../../deform.ts';
+import { dent, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { bevelBox, ridgedBand, sheet, stud } from '../../cheap.ts';
 import { estimateLabels, JACKS } from './labels.ts';
@@ -78,18 +77,6 @@ export interface SwitchboardOptions extends KitOptions {
 
 const Z_UP = new Matrix4().makeRotationX(Math.PI / 2); // a slab lying in XZ turned to face +Z
 
-/** A dent that keeps the solid's wear (the kit's `dent` remeasures it without the band). */
-function dentKeep(g: BufferGeometry, at: [number, number, number], dir: [number, number, number], r: number, d: number): void {
-  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-  const nx = dir[0] / l, ny = dir[1] / l, nz = dir[2] / l;
-  deform(g, (x, y, z) => {
-    const q = Math.hypot(x - at[0], y - at[1], z - at[2]) / r;
-    if (q >= 1) return [x, y, z];
-    const w = (1 - q * q) * (1 - q * q) * d;
-    return [x - nx * w, y - ny * w, z - nz * w];
-  }, { keepSurf: true });
-}
-
 export function switchboard(o: SwitchboardOptions = {}): Piece {
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
@@ -111,14 +98,14 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
   {
     const g = roundedBox({ w: W - 0.24, h: 0.72, d: 1.04, r: 0.03, rPlan: 0.03, segs: 3, detail, band: 0 });
     transform(g, T(0, 0.1, 0.02));
-    dentKeep(g, [-1.6 + R.spread(0.2), 0.16, 0.54], [0, 0, 1], 0.12, 0.012);
+    dent(g, [-1.6 + R.spread(0.2), 0.16, 0.54], [0, 0, 1], 0.12, 0.012);
     b.add(part('steel', g, 'teal-panel', { seed: seed + 1, shade: 0.92, jitter: 0.03 }));
   }
   // the desk's wooden end panels
   for (const s of [-1, 1]) {
     const g = roundedBox({ w: 0.16, h: 0.74, d: 1.12, r: 0.03, detail, band: 0 });
     transform(g, T(s * (W / 2 - 0.08), 0.08, 0.04));
-    dentKeep(g, [s * (W / 2), 0.55, 0.6], [s, 0, 1], 0.07, 0.012);
+    dent(g, [s * (W / 2), 0.55, 0.6], [s, 0, 1], 0.07, 0.012);
     b.add(part('wood', grain(g, 'y'), 'wood', { seed: seed + 2 + s, jitter: 0.06, shade: 0.59 }));
   }
   // the drawer rail: a wooden face board across the desk's top
@@ -128,7 +115,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     const g = roundedBox({ w: W + 0.12, h: 0.085, d: 0.82, r: 0.03, rTop: 0.035, rPlan: 0.05, detail });
     transform(g, T(0, yK - 0.085, (BOARD.shelfZ - 0.12) / 2));
     // the front edge is worn down where elbows rest
-    for (const x of [-0.9 + R.spread(0.2), 0.9 + R.spread(0.2)]) dentKeep(g, [x, yK, BOARD.shelfZ], [0, 1, 1], 0.32, 0.012);
+    for (const x of [-0.9 + R.spread(0.2), 0.9 + R.spread(0.2)]) dent(g, [x, yK, BOARD.shelfZ], [0, 1, 1], 0.32, 0.012);
     b.add(part('wood', g, 'wood', { seed: seed + 5, jitter: 0.04, shade: 0.59 }));
   }
   // the panel's enamel body
@@ -141,8 +128,8 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
   for (const s of [-1, 1]) {
     const g = roundedBox({ w: 0.2, h: 1.76, d: 0.6, r: 0.035, segs: 3, detail, band: 0 });
     transform(g, T(s * (W / 2 - 0.1), yK - 0.02, zP - 0.19));
-    dentKeep(g, [s * (W / 2 - 0.2), 1.3 + R.spread(0.3), zP + 0.11], [-s, 0, 1], 0.08, 0.014);
-    dentKeep(g, [s * (W / 2), 2.2 + R.spread(0.2), zP + 0.11], [s, 0, 1], 0.06, 0.01);
+    dent(g, [s * (W / 2 - 0.2), 1.3 + R.spread(0.3), zP + 0.11], [-s, 0, 1], 0.08, 0.014);
+    dent(g, [s * (W / 2), 2.2 + R.spread(0.2), zP + 0.11], [s, 0, 1], 0.06, 0.01);
     b.add(part('wood', grain(g, 'y'), 'wood', { seed: seed + 7 + s, jitter: 0.06, shade: 0.62 }));
   }
   // the cornice: a moulded crown (cove and bead) over everything
@@ -159,7 +146,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
       .to(0, 0.24);
     const g = profiledBox({ w: W + 0.16, d: 0.8, rPlan: r, detail }, pr);
     transform(g, T(0, BOARD.top - 0.24, zP - 0.19));
-    dentKeep(g, [1.2 + R.spread(0.4), BOARD.top - 0.05, zP + 0.23], [0, 0.4, 1], 0.1, 0.012);
+    dent(g, [1.2 + R.spread(0.4), BOARD.top - 0.05, zP + 0.23], [0, 0.4, 1], 0.1, 0.012);
     b.add(part('wood', g, 'wood', { seed: seed + 10, jitter: 0.04, shade: 0.59 }));
   }
   // the crest: an arched board standing on the cornice, carrying the board's master lamp in a big brass bezel
@@ -177,7 +164,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     outline.push([-cw / 2, 0.05]);
     const g = extrude(outline, 0.09, { bevel: 0.018, bevelBase: 0.018, segs: 2, detail, radius: 0.02 });
     transform(g, T(0, BOARD.top - 0.01, zP - 0.12));
-    dentKeep(g, [0.5, BOARD.top + 0.17, zP - 0.03], [0.5, 1, 1], 0.07, 0.01);
+    dent(g, [0.5, BOARD.top + 0.17, zP - 0.03], [0.5, 1, 1], 0.07, 0.01);
     b.add(part('wood', g, 'wood', { seed: seed + 13, jitter: 0.04, shade: 0.64 }));
     const mAt = aim([0, BOARD.top + 0.15, zP - 0.03], [0, 0, 1], 12);
     b.add(place(bezel(0.11, detail, seed + 14), mAt));
@@ -209,8 +196,8 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     const M = chain(T(R.spread(0.01), (pl.y0 + pl.y1) / 2, zP), askew(seed + 20 + i, 0.25), Z_UP);
     transform(g, M);
     // knocks along the edges, where things were dropped
-    dentKeep(g, [-plateW / 2 + 0.3 + R.range(0, 1.2), pl.y1, zPlate], [0, 1, 1], 0.07, 0.009);
-    dentKeep(g, [plateW / 2 - 0.2 - R.range(0, 1.4), pl.y0, zPlate], [0, -1, 1], 0.06, 0.008);
+    dent(g, [-plateW / 2 + 0.3 + R.range(0, 1.2), pl.y1, zPlate], [0, 1, 1], 0.07, 0.009);
+    dent(g, [plateW / 2 - 0.2 - R.range(0, 1.4), pl.y0, zPlate], [0, -1, 1], 0.06, 0.008);
     b.add(part('steel', g, 'teal-panel', { seed: seed + 22 + i, shade: pl.s, jitter: 0.03 }));
     // slotted screws at the corners and along the long edges
     const xs = [-plateW / 2 + 0.06, -plateW / 6, plateW / 6, plateW / 2 - 0.06];
