@@ -97,8 +97,10 @@ export function fetchPorter(o: FetchPorterOptions = {}): Piece {
   const body = lean.node('body', rest.body);
   buildTorso(body, detail, seed, R.fork(1));
   const head = body.node('head', rest.head);
-  const tilt = head.node('headTilt', rest.headTilt);
-  buildTurret(head, tilt, detail, seed);
+  const cock = head.node('headCock', rest.headCock);
+  const tilt = cock.node('headTilt', rest.headTilt);
+  const brow = tilt.node('brow', rest.brow);
+  buildTurret(head, cock, tilt, brow, detail, seed);
   const eye = tilt.node('eye', rest.eye);
   buildEye(eye, rest, detail, seed);
   for (const s of ['L', 'R'] as const) buildArm(body, s, rest, detail, seed + (s === 'L' ? 100 : 200));
@@ -107,8 +109,31 @@ export function fetchPorter(o: FetchPorterOptions = {}): Piece {
   if (!lo) b.socket('nameplate', mat({ at: [0.02, rest.body!.elements[13]! + WHEEL_R + TORSO.y1 + 0.022, TORSO.d / 2 + 0.012] }));
   b.socket('carry', mat({ at: [0, 0.5, 0.42] }));
   const built = b.build();
+  // the lids are baked tucked inside the can (open), which would read as grime once they close:
+  // give them the open air's cavity instead
+  clearCavity(built.root, new Set(['lidTop', 'lidBottom', 'pupil', 'pupilDot']), 0.12);
   if (o.pose) applyPose(built, typeof o.pose === 'string' ? EXPRESSIONS[o.pose] : o.pose);
   return built;
+}
+
+/** Scale a part's wear (surf.x): thin shells and small turned parts read as all-edge to the curvature measure. In place. */
+function wearScale<T extends KitPart>(q: T, k: number): T {
+  const sf = q.geometry.getAttribute('surf');
+  for (let i = 0; i < sf.count; i++) sf.setX(i, sf.getX(i) * k);
+  sf.needsUpdate = true;
+  return q;
+}
+
+/** Cap the baked cavity (surf.y) on the named nodes' parts: for parts that move out of where they were baked. */
+function clearCavity(n: PieceNode, names: ReadonlySet<string>, cap: number): void {
+  if (names.has(n.name)) {
+    for (const q of n.parts) {
+      const sf = q.geometry.getAttribute('surf');
+      for (let i = 0; i < sf.count; i++) sf.setY(i, Math.min(sf.getY(i), cap));
+      sf.needsUpdate = true;
+    }
+  }
+  for (const c of n.children ?? []) clearCavity(c, names, cap);
 }
 
 /** Set a built piece's node transforms to a pose (the cavity keeps its neutral bake). In place. */
@@ -132,11 +157,11 @@ function buildWheel(w: NodeBuilder, detail: 'high' | 'low', seed: number): void 
   const ri = Rw * 0.58;
   // a fat balloon tyre: rounded shoulders, a chevron tread pushed out of the crown
   const prof = profile(ri, -hw * 0.82)
-    .to(Rw * 0.84, -hw, { fillet: 0.02, segs: 2 })
+    .to(Rw * 0.84, -hw, { fillet: 0.02, segs: 1 })
     .to(Rw, -hw * 0.6, { fillet: 0.045, segs: 2 })
     .to(Rw, hw * 0.6, { smooth: true })
     .to(Rw * 0.84, hw, { fillet: 0.045, segs: 2 })
-    .to(ri, hw * 0.82, { fillet: 0.02, segs: 2 });
+    .to(ri, hw * 0.82, { fillet: 0.02, segs: 1 });
   let tyre = turn(prof, { segs: lo ? 36 : 48, detail: 'high', caps: false, filletSegs: 2 });
   const lugs = 12; // 48 segments: 4 per lug
   const depth = 0.012;
@@ -161,7 +186,7 @@ function buildWheel(w: NodeBuilder, detail: 'high' | 'low', seed: number): void 
       .to(ri * 0.55, -hw * 0.55, { fillet: 0.012, segs: 2 })
       .to(ri * 0.42, -hw * 0.82, { fillet: 0.01, segs: 2 })
       .to(0, -hw * 0.86),
-    { segs: lo ? 10 : 12, detail, caps: 'end' },
+    { segs: 10, detail, caps: 'end' },
   );
   const discs = [disc, transform(disc.clone(), new Matrix4().makeScale(1, -1, 1))];
   for (const d of discs) w.add(part('steel', d, 'teal-light', { seed: seed + 3, shade: 0.95 }));
@@ -169,7 +194,7 @@ function buildWheel(w: NodeBuilder, detail: 'high' | 'low', seed: number): void 
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + 0.3;
     const at: [number, number, number] = [Math.cos(a) * ri * 0.5, hw * 0.55, Math.sin(a) * ri * 0.5];
-    w.small(() => place(hexBolt({ af: 0.017, detail: 'low', seed: seed + i, token: 'steel' }), aim(at, [0, 1, 0])));
+    w.small(() => place(rivet({ d: 0.02, seed: seed + i, material: 'metal', token: 'steel' }), aim(at, [0, 1, 0])));
   }
 }
 
@@ -200,8 +225,8 @@ function buildFork(n: NodeBuilder, detail: 'high' | 'low', seed: number): void {
   // a mudguard over the top and back of the tyre: a strip of sheet turned about the axle, with rolled edges
   const gw = WHEEL_W / 2 + 0.013, Rg = WHEEL_R + 0.022, gt = 0.009;
   const gsec = profile(Rg, -gw).to(Rg + gt, -gw, { fillet: gt * 0.45, segs: 1 }).to(Rg + gt, gw, { fillet: gt * 0.45, segs: 1 }).to(Rg, gw).close();
-  // lathe angle 0 is +X before the turn onto the axle; the strip runs from just ahead of the top round the back
-  const guard = transform(turn(gsec, { from: Math.PI / 2 - 0.35, to: Math.PI / 2 - 0.35 + 2.1, segs: lo ? 8 : 12 }), chain(Y_TO_X, new Matrix4().makeRotationX(0)));
+  // lathe angle pi lands on top (+Y) once turned onto the axle; the strip runs from just ahead of the top round the back
+  const guard = transform(turn(gsec, { from: Math.PI - 0.35, to: Math.PI - 0.35 + 2.1, segs: lo ? 8 : 12 }), Y_TO_X);
   n.add(part('steel', guard, 'teal-light', { seed: seed + 19, shade: 0.92 }));
 }
 
@@ -214,7 +239,7 @@ function buildSuspension(n: NodeBuilder, detail: 'high' | 'low', seed: number): 
   n.add(spring({ r: 0.06, wire, pitch: (SPRING_L - 2 * wire) / turns, turns, detail: 'low', seed: seed + 21, material: 'metal', token: 'steel' }));
   // damper rod and the spring seats
   n.add(part('metal', turn(profile(0, 0).to(0.017, 0, { sharp: true }).to(0.017, SPRING_L, { sharp: true }).to(0, SPRING_L), { segs: 10, detail, caps: false }), 'steel', { seed: seed + 22, shade: 0.7 }));
-  n.add(place(ring({ r: 0.078, inner: 0.016, h: 0.016, seed: seed + 23 }), T(0, -0.002, 0)));
+  n.add(place(ring({ r: 0.078, inner: 0.016, h: 0.016, seed: seed + 23, segs: 12 }), T(0, -0.002, 0)));
 }
 
 // ---- the torso ------------------------------------------------------------------------
@@ -223,7 +248,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
   const { w, d, rPlan: rp, y0, y1, lidTop } = TORSO;
   const lo = detail === 'low';
   // the mounting cup under the pail, where the spring bears
-  n.add(part('steel', turn(profile(0, 0).to(0.075, 0, { fillet: 0.012 }).to(0.095, y0 + 0.012, { fillet: 0.01 }).to(0, y0 + 0.012), { segs: 18, detail, caps: 'end' }), 'teal-panel', { seed: seed + 30, shade: 0.8 }));
+  n.add(part('steel', turn(profile(0, 0).to(0.075, 0, { fillet: 0.012 }).to(0.095, y0 + 0.012, { fillet: 0.01 }).to(0, y0 + 0.012), { segs: 12, detail, caps: 'end', filletSegs: 1 }), 'teal-panel', { seed: seed + 30, shade: 0.8 }));
   // the pail: flared, soft-cornered, wider at the top than the bottom
   const h = y1 - y0;
   const pail = profiledBox(
@@ -236,7 +261,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
       .to(rp + 0.006, h, { fillet: 0.004 })
       .to(0, h),
   );
-  n.add(part('steel', transform(pail, T(0, y0, 0)), 'teal-panel', { seed: seed + 31, jitter: 0.03 }));
+  n.add(part('steel', transform(pail, T(0, y0, 0)), 'teal-light', { seed: seed + 31, jitter: 0.03 }));
   // the lid: a lip band and a domed top, in the lighter teal
   const lid = profiledBox(
     { w: w + 0.012, d: d + 0.012, rPlan: rp + 0.006, detail, band: 0 },
@@ -247,7 +272,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
       .curve(rp * 0.2, lidTop - y1 - 0.004, rp - 0.05, lidTop - y1 - 0.002, lo ? 3 : 4)
       .to(0, lidTop - y1),
   );
-  n.add(part('steel', transform(lid, T(0, y1 + 0.001, 0)), 'teal-light', { seed: seed + 33, jitter: 0.03 }));
+  n.add(part('steel', transform(lid, T(0, y1 + 0.001, 0)), 'teal-panel', { seed: seed + 33, jitter: 0.03, shade: 1.1 }));
 
   // ---- front: a radio grille (screen left) and a gauge (screen right) ----
   const zf = d / 2 + 0.004;
@@ -259,7 +284,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
   n.add(part('steel', transform(slab({ w: 0.16, d: 0.07, t: 0.004, r: 0.02, bevel: 0.002, detail: 'low', open: true, band: 0 }), chain(gm, T(0, 0.016, 0))), 'ink', { shade: 1.6 }));
   for (let i = 0; i < 3; i++) {
     const yy = (i - 1) * 0.021;
-    n.add(part('metal', transform(sweep(linePath([-0.072, 0, 0], [0.072, 0, 0], 1), { radius: 0.0055, segs: 6, ends: 'round', endRadius: 0.003 }), chain(gm, mat({ rot: [-90, 0, 0] }), T(0, yy, 0.026))), 'steel', { seed: seed + 36 + i }));
+    n.add(part('metal', transform(sweep(linePath([-0.072, 0, 0], [0.072, 0, 0], 1), { radius: 0.0055, segs: 5, ends: 'flat' }), chain(gm, mat({ rot: [-90, 0, 0] }), T(0, yy, 0.026))), 'steel', { seed: seed + 36 + i }));
   }
   for (const [dx, dy] of [[-0.084, 0.036], [0.084, 0.036], [-0.084, -0.036], [0.084, -0.036]] as const) {
     const s = R.int(0, 999);
@@ -278,8 +303,8 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
     const cx = s * (w / 2 - 0.08), cz = d / 2 + 0.006;
     const open = 0;
     const cm = chain(T(cx, y1 - 0.018, cz), askew(seed + 40 + s, 2), mat({ rot: [90, 0, 0] }));
-    n.add(part('brass', transform(slab({ w: 0.046, d: 0.04, t: 0.007, r: 0.008, bevel: 0.003, detail, open: true, band: 0 }), chain(cm, T(0, 0, 0.012))), 'brass', { seed: seed + 41 + s, warm: 0.04 }));
-    const bail = sweep(polylinePath([[cx - 0.016, y1 - 0.024, cz + 0.006], [cx - 0.016, y1 + 0.026 + open * 0.01, cz + 0.009], [cx + 0.016, y1 + 0.026, cz + 0.009], [cx + 0.016, y1 - 0.024, cz + 0.006]], 0.008, 3), { radius: 0.0042, segs: 4, ends: 'round' });
+    n.add(part('brass', transform(roundedBox({ w: 0.046, h: 0.007, d: 0.04, r: 0.003, rPlan: 0.008, segs: 1, detail: 'low', open: true, band: 0 }), chain(cm, T(0, 0, 0.012))), 'brass', { seed: seed + 41 + s, warm: 0.04 }));
+    const bail = sweep(polylinePath([[cx - 0.016, y1 - 0.024, cz + 0.006], [cx - 0.016, y1 + 0.026 + open * 0.01, cz + 0.009], [cx + 0.016, y1 + 0.026, cz + 0.009], [cx + 0.016, y1 - 0.024, cz + 0.006]], 0.008, 2), { radius: 0.0042, segs: 4, ends: 'flat' });
     n.add(setFinish(part('brass', bail, 'brass', { seed: seed + 43 + s }), 0.6));
     n.add(part('brass', transform(slab({ w: 0.04, d: 0.02, t: 0.006, r: 0.006, bevel: 0.0025, detail, open: true, band: 0 }), chain(T(cx, y1 + 0.024, d / 2 + 0.009), mat({ rot: [90, 0, 0] }))), 'brass', { seed: seed + 45 + s }));
   }
@@ -306,7 +331,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
     const sx = s * (SHOULDER.x - 0.035);
     const hub = turn(
       profile(0, 0).to(0.062, 0, { sharp: true }).to(0.062, 0.012, { fillet: 0.006, segs: 1 }).to(0.05, 0.022, { fillet: 0.006, segs: 2 }).to(0, 0.03),
-      { segs: 14, detail, caps: 'end' },
+      { segs: 12, detail, caps: 'end' },
     );
     n.add(part('steel', transform(hub, aim([s * (w / 2 - 0.035), SHOULDER.y, SHOULDER.z], [s, 0, 0])), 'teal-light', { seed: seed + 52 + s }));
     // bolts round the hub
@@ -329,12 +354,11 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
 
 // ---- the turret --------------------------------------------------------------------------
 
-function buildTurret(head: NodeBuilder, tilt: NodeBuilder, detail: 'high' | 'low', seed: number): void {
+function buildTurret(head: NodeBuilder, cock: NodeBuilder, tilt: NodeBuilder, brow: NodeBuilder, detail: 'high' | 'low', seed: number): void {
   const lo = detail === 'low';
   const { r: cr, depth: cd, c: cc, front } = CAN;
   // swivel: a knurled brass ring on a teal base, on the lid
-  head.add(part('steel', turn(profile(0, -0.02).to(0.085, -0.02, { sharp: true }).to(0.085, 0.002, { fillet: 0.006 }).to(0.07, 0.01, { fillet: 0.004 }).to(0, 0.01), { segs: 20, detail, caps: 'end' }), 'teal-panel', { seed: seed + 90, shade: 0.9 }));
-  head.add(place(ring({ r: 0.064, inner: 0.024, h: 0.02, seed: seed + 91 }), T(0, 0.008, 0)));
+  head.add(place(ring({ r: 0.07, inner: 0.024, h: 0.026, seed: seed + 91, segs: 14 }), T(0, -0.006, 0)));
   // the periscope mast: a turned tube with a gland at its foot
   const mast = turn(
     profile(0, 0.02)
@@ -343,15 +367,25 @@ function buildTurret(head: NodeBuilder, tilt: NodeBuilder, detail: 'high' | 'low
       .to(0.026, 0.038, { fillet: 0.004 })
       .to(0.024, NECK - 0.012, { smooth: true })
       .to(0, NECK - 0.012),
-    { segs: 14, detail, caps: 'end' },
+    { segs: 12, detail, caps: false },
   );
   head.add(part('metal', mast, 'steel', { seed: seed + 92 }));
   // the knuckle the turret nods on: a brass ball in the mast's cup
-  tilt.add(setFinish(part('brass', turn(profile(0, -0.03).curve(0.034, 0, 0.036, -0.03, lo ? 3 : 5).curve(0, 0.03, 0.036, 0.03, lo ? 3 : 5), { segs: 14, detail, caps: false }), 'brass', { seed: seed + 93, warm: 0.03 }), 0.5));
+  cock.add(setFinish(part('brass', turn(profile(0, -0.03).curve(0.034, 0, 0.036, -0.03, lo ? 3 : 5).curve(0, 0.03, 0.036, 0.03, 3), { segs: 10, detail, caps: false }), 'brass', { seed: seed + 93, warm: 0.03 }), 0.5));
 
-  const C = T(0, cc, 0);
-  // the saddle under the can, gripping the ball
-  tilt.add(part('steel', transform(turn(profile(0, 0).to(0.05, 0, { fillet: 0.01 }).to(0.064, 0.03, { fillet: 0.01 }).to(0, 0.036), { segs: 16, detail, caps: 'end' }), T(0, 0.012, 0)), 'teal-panel', { seed: seed + 89 }));
+  const C = new Matrix4();
+  // the yoke: a U of flat bar from a saddle on the knuckle, up both flanks of the can to its pins
+  const yx = cr + 0.022;
+  const yb = 0.03;
+  const yoke = sweep(polylinePath([[-yx, cc, 0], [-yx, yb, 0], [yx, yb, 0], [yx, cc, 0]], 0.08, 3), {
+    section: sweepSection(0.006, 0.02, 1),
+    radius: 0.004,
+    ends: 'round',
+    up: [0, 0, 1],
+  });
+  cock.add(part('steel', yoke, 'teal-panel', { seed: seed + 88 }));
+  // the saddle under the yoke, gripping the ball
+  cock.add(part('steel', transform(turn(profile(0, 0).to(0.05, 0, { fillet: 0.01 }).to(0.064, 0.03, { fillet: 0.01 }).to(0, 0.036), { segs: 10, detail, caps: 'end', filletSegs: 1 }), T(0, 0.012, 0)), 'teal-panel', { seed: seed + 89 }));
   // the can: cream enamel, a teal rear cap, a brass bead between them
   const back = -cd / 2 - 0.005;
   const rear = lathe(profile(0, 0).curve(cr * 0.93, 0.05, cr * 0.9, 0.004, 4).to(cr * 0.955, 0.075, { fillet: 0.01 }).to(0, 0.075), { segs: lo ? 18 : 24, detail, caps: 'end', filletSegs: 2 });
@@ -367,38 +401,39 @@ function buildTurret(head: NodeBuilder, tilt: NodeBuilder, detail: 'high' | 'low
       .to(0, cd - 0.03),
     { segs: lo ? 18 : 22, detail, caps: 'end', filletSegs: 3 },
   );
-  tilt.add(part('steel', transform(shell, chain(C, T(0, 0, back), Y_TO_Z)), 'paper', { seed: seed + 96, shade: 0.96 }));
-  tilt.add(part('brass', transform(turn(profile(cr * 0.9, 0).to(cr * 0.99, 0, { sharp: true }).to(cr + 0.006, 0.006, { fillet: 0.004, segs: 2 }).to(cr * 0.99, 0.012, { sharp: true }).to(cr * 0.9, 0.012).close(), { segs: 22 }), chain(C, T(0, 0, back + 0.064), Y_TO_Z)), 'brass', { seed: seed + 97, warm: 0.03 }));
+  tilt.add(wearScale(part('steel', transform(shell, chain(C, T(0, 0, back), Y_TO_Z)), 'paper', { seed: seed + 96, shade: 0.96 }), 0.55));
+  tilt.add(part('brass', transform(turn(profile(cr * 0.9, 0).to(cr * 0.99, 0, { sharp: true }).to(cr + 0.006, 0.006, { fillet: 0.004, segs: 2 }).to(cr * 0.99, 0.012, { sharp: true }).to(cr * 0.9, 0.012).close(), { segs: 18 }), chain(C, T(0, 0, back + 0.064), Y_TO_Z)), 'brass', { seed: seed + 97, warm: 0.03 }));
   // brass hubs on the can's flanks: its "ears"
   for (const s of [-1, 1]) {
-    const cap = turn(profile(0, 0).to(0.036, 0, { sharp: true }).to(0.036, 0.008, { fillet: 0.004 }).to(0.028, 0.016, { fillet: 0.006 }).curve(0, 0.024, 0.022, 0.024, 2), { segs: 11, detail, caps: 'end', filletSegs: 2 });
-    tilt.add(setFinish(part('brass', transform(cap, aim([s * (cr - 0.004), cc, -0.01], [s, 0, 0])), 'brass', { seed: seed + 94 + s, warm: 0.03 }), 0.5));
+    // the yoke's pin hubs: the turret's brass "ears"
+    const cap = turn(profile(0, 0).to(0.036, 0, { sharp: true }).to(0.036, 0.008, { fillet: 0.004 }).to(0.028, 0.016, { fillet: 0.006 }).curve(0, 0.024, 0.022, 0.024, 2), { segs: 9, detail, caps: 'end', filletSegs: 1 });
+    cock.add(setFinish(part('brass', transform(cap, aim([s * (yx + 0.004), cc, 0], [s, 0, 0])), 'brass', { seed: seed + 94 + s, warm: 0.03 }), 0.5));
   }
   // an indicator lamp on the crown in a brass cup
-  tilt.add(place(ring({ r: 0.022, inner: 0.008, h: 0.012, seed: seed + 98 }), T(0, cc + cr - 0.006, -0.035)));
-  tilt.add(setFinish(part('bulb', transform(turn(profile(0, 0).to(0.012, 0, { sharp: true }).curve(0, 0.016, 0.013, 0.015, 3), { segs: 10, detail: 'low', caps: 'end' }), T(0, cc + cr + 0.005, -0.035)), 'amber-glow'), 1));
+  tilt.add(place(ring({ r: 0.022, inner: 0.008, h: 0.012, seed: seed + 98 }), T(0, cr - 0.006, -0.035)));
+  tilt.add(setFinish(part('bulb', transform(turn(profile(0, 0).to(0.012, 0, { sharp: true }).curve(0, 0.016, 0.013, 0.015, 3), { segs: 10, detail: 'low', caps: 'end' }), T(0, cr + 0.005, -0.035)), 'amber-glow'), 1));
 
   // the cap's peak: a curved brim over the eye, hugging the can, worn at an angle
   const bw = 0.36, bd = 0.1, bt = 0.013;
-  const cock = 0.13;
+  const brimCock = 0.13;
   let brim = roundedBox({ w: bw, h: bt, d: bd, r: 0.005, rPlan: 0.04, detail });
   const Rb = cr + 0.006;
   brim = deform(brim, (x, y, z) => {
-    const a = x / Rb + cock;
+    const a = x / Rb + brimCock;
     const zz = z + bd / 2; // 0 at the back edge
     const droop = zz * zz * 0.9;
     const rr = Rb + y - droop;
-    return [Math.sin(a) * rr, Math.cos(a) * rr + cc, front - 0.055 + zz * 0.95];
+    return [Math.sin(a) * rr, Math.cos(a) * rr, front - 0.055 + zz * 0.95];
   });
-  tilt.add(part('steel', brim, 'teal-panel', { seed: seed + 99 }));
+  brow.add(part('steel', brim, 'teal-panel', { seed: seed + 99 }));
   for (const s of [-1, 1]) {
-    const a = s * 0.55 + cock;
-    tilt.small(() => place(rivet({ d: 0.013, detail: 'low', seed: seed + 100 + s }), aim([Math.sin(a) * (Rb + bt), Math.cos(a) * (Rb + bt) - 0.001 + cc, front - 0.03], [Math.sin(a), Math.cos(a), 0])));
+    const a = s * 0.55 + brimCock;
+    brow.small(() => place(rivet({ d: 0.013, detail: 'low', seed: seed + 100 + s }), aim([Math.sin(a) * (Rb + bt), Math.cos(a) * (Rb + bt) - 0.001, front - 0.03], [Math.sin(a), Math.cos(a), 0])));
   }
   // rivets round the shell's rear bead
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + 0.95;
-    tilt.small(() => place(rivet({ d: 0.012, detail: 'low', seed: seed + 104 + i, material: 'metal', token: 'steel' }), aim([Math.cos(a) * (cr + 0.001), Math.sin(a) * (cr + 0.001) + cc, back + 0.1], [Math.cos(a), Math.sin(a), 0])));
+    tilt.small(() => place(rivet({ d: 0.012, detail: 'low', seed: seed + 104 + i, material: 'metal', token: 'steel' }), aim([Math.cos(a) * (cr + 0.001), Math.sin(a) * (cr + 0.001), back + 0.1], [Math.cos(a), Math.sin(a), 0])));
   }
 }
 
@@ -412,7 +447,7 @@ function buildEye(eye: NodeBuilder, rest: Record<string, Matrix4>, detail: 'high
   const { rs, a } = EYE;
   const capA = Math.asin(a / rs);
   // the lens: a dark glass dome
-  const lens = turn(capSamples(rs, 0, capA + 0.04, lo ? 4 : 6), { segs: lo ? 18 : 28, detail, caps: false });
+  const lens = turn(capSamples(rs, 0, capA + 0.04, lo ? 4 : 5), { segs: lo ? 18 : 26, detail, caps: false });
   eye.add(setFinish(part('glass', transform(lens, chain(T(0, 0, EYE_C), Y_TO_Z)), 'teal-deep', { shade: 0.8 }), 1));
   // the bezel: a fat brass ring with a rolled lip, six screws
   const bz = turn(
@@ -441,21 +476,22 @@ function buildEye(eye: NodeBuilder, rest: Record<string, Matrix4>, detail: 'high
       { o: Math.sin(IRIS.ang) * (rs - 0.002), y: Math.cos(IRIS.ang) * (rs - 0.002), no: Math.sin(IRIS.ang + 0.6), ny: Math.cos(IRIS.ang + 0.6) },
       ...capSamples(ir, IRIS.pupil * 0.7, IRIS.ang, lo ? 4 : 6),
     ],
-    { segs: lo ? 14 : 20, detail, caps: false },
+    { segs: lo ? 12 : 14, detail, caps: false },
   );
-  pupil.add(setFinish(part('bulb', transform(iris, Y_TO_Z), 'amber', { shade: 0.75 }), 1));
+  pupil.add(setFinish(part('bulb', transform(iris, Y_TO_Z), 'amber'), 1));
   // a darker amber ring inside the iris
-  const ring = turn(capSamples(ir + 0.0012, IRIS.ang * 0.62, IRIS.ang * 0.74, 1), { segs: lo ? 14 : 20, detail, caps: false });
+  const ring = turn(capSamples(ir + 0.0012, IRIS.ang * 0.62, IRIS.ang * 0.74, 1), { segs: lo ? 12 : 14, detail, caps: false });
   pupil.add(setFinish(part('bulb', transform(ring, Y_TO_Z), 'amber-glow', { shade: 0.85 }), 1));
-  const pr = ir + 0.0025;
+  const pr = ir + 0.004;
   const pup = turn(
     [
       { o: Math.sin(IRIS.pupil) * (ir - 0.001), y: Math.cos(IRIS.pupil) * (ir - 0.001), no: Math.sin(IRIS.pupil + 0.8), ny: Math.cos(IRIS.pupil + 0.8) },
       ...capSamples(pr, 0, IRIS.pupil, lo ? 3 : 5),
     ],
-    { segs: lo ? 10 : 14, detail, caps: false },
+    { segs: lo ? 10 : 12, detail, caps: false },
   );
-  pupil.add(setFinish(part('glass', transform(pup, Y_TO_Z), 'ink'), 1));
+  const dot = pupil.node('pupilDot', rest.pupilDot);
+  dot.add(setFinish(part('glass', transform(pup, Y_TO_Z), 'ink'), 1));
 
   // the lids: cream shells over the lens, curved on the lens sphere, a rolled lip
   for (const which of ['lidTop', 'lidBottom'] as const) {
@@ -475,7 +511,7 @@ function buildEye(eye: NodeBuilder, rest: Record<string, Matrix4>, detail: 'high
     // lathe angle pi/2 turns to the front (+Z) and pi to the top (+Y) once the axis lies along X
     const from = sgn > 0 ? Math.PI / 2 : Math.PI / 2 - span;
     const g = transform(turn(sec, { from, to: from + span, segs: lo ? 6 : 8, detail, filletSegs: 1 }), Y_TO_X);
-    node.add(part('steel', g, 'paper', { seed: seed + 120 + sgn, shade: 0.93 }));
+    node.add(wearScale(part('steel', g, 'paper', { seed: seed + 120 + sgn, shade: 0.84 }), 0.12));
     // a dark lash line at the lip
     const lip = sweep(
       { points: Array.from({ length: 9 }, (_, i) => {
@@ -483,9 +519,9 @@ function buildEye(eye: NodeBuilder, rest: Record<string, Matrix4>, detail: 'high
         const rr = LID.r + LID.t * 0.15;
         return new Vector3(Math.sin(be) * rr, sgn * 0.003, Math.cos(be) * rr);
       }) },
-      { radius: 0.0042, segs: 5, ends: 'flat' },
+      { radius: 0.0042, segs: 4, ends: 'flat' },
     );
-    node.add(part('steel', lip, 'teal-panel', { seed: seed + 123 + sgn, shade: 0.7 }));
+    node.add(wearScale(part('steel', lip, 'teal-panel', { seed: seed + 123 + sgn, shade: 0.7 }), 0.2));
   }
 }
 
@@ -506,7 +542,7 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
       .to(0, -0.018),
     { segs: sg, detail, caps: true },
   );
-  arm.add(part('steel', ua, 'teal-light', { seed: seed + 1, jitter: 0.03 }));
+  arm.add(wearScale(part('steel', ua, 'teal-light', { seed: seed + 1, jitter: 0.03 }), 0.5));
   // the elbow: a brass knuckle across the joint
   const fore = arm.node(`forearm${s}`, rest[`forearm${s}`]);
   const knuckle = turn(profile(0, -0.04).to(0.031, -0.04, { fillet: 0.01 }).to(0.031, 0.04, { fillet: 0.01 }).to(0, 0.04), { segs: 8, detail, caps: true, filletSegs: 1 });
@@ -521,10 +557,10 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
       .to(0, -0.012),
     { segs: sg, detail, caps: true },
   );
-  fore.add(part('steel', fa, 'teal-light', { seed: seed + 4, jitter: 0.03 }));
+  fore.add(wearScale(part('steel', fa, 'teal-light', { seed: seed + 4, jitter: 0.03 }), 0.5));
   // the hand: a palm block and two chunky claws
   const hand = fore.node(`hand${s}`, rest[`hand${s}`]);
-  hand.add(part('metal', transform(roundedBox({ w: 0.09, h: 0.05, d: 0.058, r: 0.018, segs: 1, detail, band: 0 }), T(0, -0.05, 0)), 'steel', { seed: seed + 6 }));
+  hand.add(part('metal', transform(turn(profile(0, -0.029).to(0.04, -0.029, { fillet: 0.012, segs: 2 }).to(0.04, 0.029, { fillet: 0.012, segs: 2 }).to(0, 0.029), { segs: 8, caps: true }), chain(T(0, -0.048, 0), Y_TO_Z, new Matrix4().makeRotationY(Math.PI / 8))), 'steel', { seed: seed + 6 }));
   // one claw outline (in the jaw's XY plane, pivot at the origin, curling in at the tip)
   for (const j of [0, 1] as const) {
     const js = j === 0 ? 1 : -1;
@@ -537,7 +573,6 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
     });
     jaw.add(part('metal', g, 'steel', { seed: seed + 7 + j }));
     jaw.add(part('rubber', transform(turn(profile(0, -0.02).curve(0.014, -0.008, 0.015, -0.02, 2).to(0.014, 0.008, { smooth: true }).curve(0, 0.02, 0.015, 0.02, 2), { segs: 6, caps: false }), chain(T(js * -0.013, -0.11, 0), new Matrix4().makeRotationZ(js * 0.8), Y_TO_Z)), 'ink', { seed: seed + 9 + j }));
-    jaw.add(part('brass', transform(turn(profile(0, -0.019).to(0.009, -0.019, { fillet: 0.003 }).to(0.009, 0.019, { fillet: 0.003 }).to(0, 0.019), { segs: 6, detail: 'low', caps: true }), Y_TO_Z), 'brass'));
   }
 }
 
@@ -555,7 +590,7 @@ function buildAerial(body: NodeBuilder, rest: Record<string, Matrix4>, detail: '
     if (i > 0) node = node.node(names[i]!, rest[names[i]!]);
     const L = segs[i]!;
     const r = radii[i]!;
-    node.add(part('metal', turn(profile(0, 0).to(r, 0, { sharp: true }).to(r * 0.9, L, { sharp: true }).to(0, L), { segs: lo ? 6 : 8, detail, caps: false }), 'steel', { seed: seed + 131 + i }));
+    node.add(part('metal', turn(profile(0, 0).to(r, 0, { sharp: true }).to(r * 0.9, L, { sharp: true }).to(0, L), { segs: 6, detail, caps: false }), 'steel', { seed: seed + 131 + i }));
     // a brass ferrule at the joint
     node.add(part('brass', turn(profile(0, -0.004).to(r + 0.004, -0.004, { fillet: 0.002 }).to(r + 0.004, 0.014, { fillet: 0.002 }).to(0, 0.014), { segs: 8, detail: 'low', caps: true }), 'brass', { seed: seed + 134 + i }));
   }

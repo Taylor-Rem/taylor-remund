@@ -10,10 +10,13 @@
  *       ├ wheel               spins about its local Y (= the axle, world X at rest)
  *       ├ suspension          the coil spring: scales along its own Y when squashed
  *       └ body                the lunch-pail torso, riding on the spring
- *          ├ head             the swivel ring on the lid: yaw
- *          │  └ headTilt      the knuckle atop the periscope mast: pitch (a nod), and roll (a cock)
- *          │     └ eye        the front face of the turret (+Z out)
- *          │        ├ pupil   at the lens sphere's centre: gaze turns it so the iris slides over the lens
+ *          ├ head             the swivel ring on the lid and its periscope mast: yaw
+ *          │  └ headCock      the knuckle atop the mast, carrying the yoke: roll (a cock of the head)
+ *          │     └ headTilt   the yoke's pins, at the can's centre: pitch (a nod)
+ *          │        ├ brow    the cap's peak, about the can's axis: + pulls it down flat, - shoots it up
+ *          │        └ eye     the front face of the turret (+Z out)
+ *          │           ├ pupil   at the lens sphere's centre: gaze turns it so the iris slides over the lens
+ *          │           │  └ pupilDot  the black pupil: scales in the eye plane (dilate / pinpoint)
  *          │        ├ lidTop  at the same centre: rotates about X to close
  *          │        └ lidBottom
  *          ├ armL / armR      shoulders (L = Fetch's own left = +X, screen right)
@@ -56,8 +59,8 @@ export const SWIVEL = { y: 0.288, z: 0.055 } as const;
 /** The periscope mast: from the swivel up to the knuckle the turret nods on. */
 export const NECK = 0.078;
 /** Turret can: radius, depth, and the yoke pin height above the swivel. */
-/** Turret can: radius, depth, its centre above the knuckle, and its front face ahead of the centre. */
-export const CAN = { r: 0.185, depth: 0.25, c: 0.214, front: 0.118 } as const;
+/** Turret can: radius, depth, its centre (the yoke pins) above the knuckle, and its front face ahead of the centre. */
+export const CAN = { r: 0.185, depth: 0.25, c: 0.245, front: 0.118 } as const;
 /** Eye: lens sphere radius, opening radius at the face plane, and the derived dome height. */
 export const EYE = { rs: 0.162, a: 0.12 } as const;
 export const EYE_H = EYE.rs - Math.sqrt(EYE.rs * EYE.rs - EYE.a * EYE.a);
@@ -70,7 +73,10 @@ export const LID = { r: EYE.rs + 0.0125, t: 0.008, open: 0.95, closed: 0.012 } a
 /** The angular radius of the bezel's opening, seen from the lens sphere's centre. */
 export const BEZEL_OPEN = Math.asin((EYE.a - 0.008) / EYE.rs);
 /** Most the gaze can turn the pupil (radians), so the iris stays inside the bezel. */
-export const GAZE_MAX = BEZEL_OPEN - IRIS.ang - 0.05;
+export const GAZE_MAX = BEZEL_OPEN - IRIS.ang - 0.025;
+
+/** How far the brow travels (radians): down onto the eye, and up off it. */
+export const BROW = { down: 0.45, up: 0.42 } as const;
 
 /** Shoulders, in body space. */
 export const SHOULDER = { x: 0.315, y: 0.15, z: 0.03 } as const;
@@ -117,6 +123,10 @@ export interface FetchPose {
   headPitch?: number;
   /** Cock of the turret in its yoke (+ tips the top toward +X). Radians, small. */
   headRoll?: number;
+  /** The cap's peak: -1 shot up (surprise) .. 0 rest .. 1 pulled down flat over the eye (deadpan, a frown). */
+  brow?: number;
+  /** Pupil size: 0.55 pinpoint .. 1 rest .. 1.35 dilated. */
+  pupilSize?: number;
   /** Pupil offset within the eye, -1..1 each (x + toward Fetch's left / screen right, y + up). Clamped to the unit disc. */
   gaze?: [number, number];
   /** [top, bottom] 0 open .. 1 closed. */
@@ -144,7 +154,7 @@ export const PRESETS: Record<ArmPreset, Arms> = {
   // upper arms out, forearms up, jaws open: "who, me?"
   shrug: { left: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9), right: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9) },
   // the fumble: arms up and everywhere, unequal
-  flail: { left: J(1.6, 1.15, 0.4, 0.5, 0.6, 1.0), right: J(0.5, 1.45, -0.6, 1.5, -0.4, 0.85) },
+  flail: { left: J(2.0, 1.25, 0.4, 0.35, 0.6, 1.0), right: J(1.0, 1.55, -0.6, 1.2, -0.4, 0.85) },
 };
 
 /** A neutral pose: the rest the cavity is baked in. */
@@ -155,6 +165,8 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
   headYaw: 0,
   headPitch: 0,
   headRoll: 0,
+  brow: 0,
+  pupilSize: 1,
   gaze: [0, 0],
   lids: [0, 0],
   arms: 'rest',
@@ -167,68 +179,78 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
  * the temperament: Fetch always tips a little forward, keen to go.
  */
 export const EXPRESSIONS = {
-  // head cocked hard, eye wide and on the visitor, one claw up at its "chin": hm?
+  // head cocked hard over, peak lifted, big pupil looking right at the visitor, a claw at its "chin": hm?
   curious: {
-    lean: [0.09, -0.08],
+    lean: [0.1, -0.12],
     squash: 0.15,
-    headYaw: 0.1,
-    headPitch: 0.36,
-    headRoll: -0.4,
-    gaze: [0.15, 0.3],
-    lids: [0, 0],
+    headYaw: 0.15,
+    headPitch: 0.34,
+    headRoll: -0.42,
+    brow: -0.55,
+    pupilSize: 1.3,
+    gaze: [0.35, 0.3],
+    lids: [0, 0.12],
     arms: { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.75, 0.1, 0.5, 2.1, 0.4, 0.25) },
-    aerial: [-0.3, 0.35],
+    aerial: [-0.35, 0.55],
     flag: 0.6,
   },
-  // crouched on its spring and tipped forward, eye up and wide, hands up: let me, let me
+  // crouched on its spring and tipped hard forward, eye up and dilated, both claws up and open: let me, let me
   eager: {
-    lean: [0.28, 0],
-    squash: 0.65,
+    lean: [0.36, 0],
+    squash: 0.8,
     headYaw: 0,
-    headPitch: 0.44,
-    headRoll: 0.08,
-    gaze: [0, 0.55],
+    headPitch: 0.5,
+    headRoll: 0.06,
+    brow: -0.35,
+    pupilSize: 1.35,
+    gaze: [0, 0.75],
     lids: [0, 0],
-    arms: { left: J(1.25, 0.35, -0.6, 1.25, -0.8, 1.0), right: J(1.3, 0.3, -0.6, 1.3, -0.8, 1.0) },
-    aerial: [-0.7, 0.05],
+    arms: { left: J(2.15, 0.55, -0.4, 0.45, 0, 1.0), right: J(2.1, 0.5, -0.4, 0.55, 0, 1.0) },
+    aerial: [-0.95, 0.05],
     flag: 1.4,
   },
-  // just fumbled: everything up, eye wide and straight down at the crate
+  // just fumbled: everything up, peak shot up, eye wide open with a pinpoint pupil hard down at the crate
   oops: {
-    lean: [0.16, 0.12],
-    squash: 0.45,
-    headYaw: 0.15,
-    headPitch: -0.42,
-    headRoll: 0.22,
-    gaze: [0.05, -0.95],
+    lean: [0.2, 0.16],
+    squash: 0.55,
+    headYaw: 0.2,
+    headPitch: -0.45,
+    headRoll: 0.28,
+    brow: -1,
+    pupilSize: 0.55,
+    gaze: [0.1, -1],
     lids: [0, 0],
     arms: 'flail',
-    aerial: [0.55, -0.45],
+    aerial: [0.75, -0.6],
     flag: 2.6,
   },
-  // looking up at the visitor, both hands out, a sorry little tilt and a soft lower lid
+  // looking up at the visitor, both claws held out open, a sorry tilt, lower lid up in a soft smile
   offer: {
-    lean: [0.1, 0.03],
-    squash: 0.2,
-    headYaw: 0,
-    headPitch: 0.46,
-    headRoll: 0.26,
-    gaze: [-0.1, 0.5],
-    lids: [0.12, 0.32],
+    lean: [0.12, 0.05],
+    squash: 0.25,
+    headYaw: -0.05,
+    headPitch: 0.5,
+    headRoll: 0.34,
+    brow: 0.25,
+    pupilSize: 1.2,
+    gaze: [-0.2, 0.7],
+    lids: [0.15, 0.45],
     arms: 'offer',
-    aerial: [-0.15, 0.2],
+    aerial: [-0.2, 0.3],
     flag: 0.3,
   },
-  // flat stare at the visitor, half-lidded, arms limp, aerial drooping over
+  // a flat slot of an eye under a pulled-down peak, staring straight at the visitor; arms limp, aerial flopped over
   deadpan: {
-    lean: [-0.03, 0],
+    lean: [-0.05, 0],
     headYaw: 0,
-    headPitch: 0.3,
+    headPitch: 0.32,
     headRoll: 0,
-    gaze: [0, 0.15],
-    lids: [0.56, 0.36],
-    arms: { left: J(0.05, 0.08, 0, 0.15, 0, 0.1), right: J(0.05, 0.08, 0, 0.15, 0, 0.1) },
-    aerial: [0.95, -0.6],
+    brow: 1,
+    pupilSize: 0.85,
+    gaze: [0, 0.1],
+    lids: [0.84, 0.62],
+    arms: { left: J(0.0, 0.06, 0, 0.1, 0, 0.05), right: J(0.0, 0.06, 0, 0.1, 0, 0.05) },
+    aerial: [1.3, -0.8],
     flag: 0,
   },
 } satisfies Record<string, FetchPose>;
@@ -321,8 +343,13 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   m.head = chain(T(0, SWIVEL.y, SWIVEL.z), RY(yaw));
   // + pitch looks up: the eye (+Z) turns toward +Y, which is a rotation of -pitch about X
   // (the body's rake is taken out here, so a pitch of 0 looks level)
-  m.headTilt = chain(T(0, NECK, 0), RZ(-roll), RX(-pitch - BODY_RAKE));
-  m.eye = T(0, CAN.c, CAN.front);
+  m.headCock = chain(T(0, NECK, 0), RZ(-roll));
+  m.headTilt = chain(T(0, CAN.c, 0), RX(-pitch - BODY_RAKE));
+  // + brow pulls the peak forward and down over the eye (a rotation of + about X carries the top toward +Z)
+  m.brow = RX(clamp(p.brow, -1, 1) * (p.brow > 0 ? BROW.down : BROW.up));
+  m.eye = T(0, 0, CAN.front);
+  const ps = clamp(p.pupilSize, 0.55, 1.35);
+  m.pupilDot = S(ps, ps, 1);
   const ga = GAZE_MAX;
   m.pupil = chain(T(0, 0, EYE_C), RY(gx * ga), RX(-gy * ga));
   // lids: their lips sit at +open (top) / -open (bottom) above/below the centre line when open
