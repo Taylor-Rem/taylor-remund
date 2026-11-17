@@ -109,6 +109,13 @@ What draft 3 changed, at his review of draft 2:
    again at every later gate (§ A, § G).
 6. **Every engineering decision is tied to what the visitor feels** (§ E0).
 
+**Amendment to draft 3** (2026-11-17, at Taylor's request before G0;
+§ E5 and its test row in § E8 only): consecutive transactions writing the
+same field restore the previous writer as well as the previous value;
+"undo that" is all or nothing; an older pending change never commits over
+a newer one; a moving part has one owner when throws overlap; being held
+is no longer a recorded location; named deterministic tests for each.
+
 Contradictions found in draft 2 and how each was settled:
 
 | draft 2 said | settled as |
@@ -1062,7 +1069,11 @@ machine has "inverse" code that could be wrong.
 | Transient | everything in flight | animations, where a robot is and what it intends, the belt's phase, timers, particles, sound | Never. It is rebuilt from durable state. |
 
 A part's **location** is durable and is exactly one of: `rest` (with a
-pose), `held`, `in` (a named station's mouth), `shipped`.
+pose), `in` (a named station's mouth), `shipped`. Being held and being in
+flight are motion, not locations: while a part is held or moving, its
+durable location stays what it last was, and is written again only when
+the part comes to rest, enters a mouth, or ships. So a recorded "before"
+is always a place a part can be put back to.
 
 **The rules.**
 
@@ -1085,9 +1096,19 @@ pose), `held`, `in` (a named station's mouth), `shipped`.
      the crate ships. The shipment belongs to putting the crate down, and
      starting the belt is its own transaction.
    - When a visitor lets go of a part, a window stays open until everything
-     it set moving is at rest again (six seconds at most). Any other part
-     that was at rest before and is at rest somewhere else after is charged
-     to that transaction: the toppled stack belongs to the throw.
+     it set moving is at rest again (six seconds at most). Any part that
+     was at rest before and is at rest somewhere else when the window
+     closes is charged to that transaction: the toppled stack belongs to
+     the throw.
+   - **A moving part has one owner.** If the visitor starts another action
+     while a window is still open, the older window closes at that moment
+     and records only what has already come to rest; everything still
+     moving passes to the new transaction. If the visitor picks up a part
+     that is still moving, that part passes to the new transaction and the
+     older window goes on without it. Either way the part's recorded
+     "before" is its last durable location, the place it rested before
+     anything disturbed it, so undoing the newer action puts it back there
+     and the older transaction holds no entry for it.
    - A part that falls off the bench and comes back up the chute is charged
      the same way as any machine effect.
 5. **Single writers.** These keep histories from tangling.
@@ -1097,36 +1118,76 @@ pose), `held`, `in` (a named station's mouth), `shipped`.
      does not use it or move it. Fetch draws fresh crates from the stack.
    - In attract mode there is no history yet, so the crew may demonstrate
      anything.
-6. **Last writer.** Every durable field remembers which cause last wrote
-   it. Undoing a transaction restores, for each field it wrote, the value
-   that field had before the transaction first wrote it, **only if that
-   transaction is still the field's last writer.** If something else has
-   written it since, that field is left alone and Revert says so on a
-   card. A transaction keeps one entry per field (the first "before", the
-   last "after"), so an undo never passes through the states in between.
-7. **Putting things back.** Restoring a location of `rest` hops the part
+6. **Writer and previous writer.** Every durable field carries, beside its
+   value, the cause that last wrote it: its **writer**. The first time a
+   transaction writes a field it records one **entry** for it: the value
+   the field had at that moment (`before`) and the writer it had at that
+   moment (`previous writer`). Later writes to the same field by the same
+   transaction only update that entry's `after`. So a transaction holds one
+   entry per field, and an undo never passes through the states in between.
+7. **Writes arrive in order.** A field is never written by an older
+   transaction after a newer one has written it. This holds by
+   construction: instructions are carried out one at a time in the order
+   they were sent; a machine's effect on a part is charged to whoever
+   placed it last; a moving part has one owner. It is also enforced at the
+   commit point: a pending change whose field a newer transaction has
+   written since does not commit, and whoever was carrying it out says so
+   (text "faster", then turn the dial by hand before Patch gets there, and
+   Patch replies that it has been changed since and leaves it). So for
+   any field, the chain of previous writers runs strictly back in time.
+8. **The lever.** It takes the most recent transaction on the stack. For
+   each of its entries: if the transaction is still the field's writer,
+   the field gets its `before` value back **and its writer becomes the
+   entry's previous writer**; if the crew or the system has written the
+   field since, the field is left exactly as it is and Revert says so on a
+   card. Then the transaction leaves the stack. No newer transaction can
+   have written any of its fields, because there is none.
+
+   *Consecutive writes to one field.* A crate starts in its original
+   colour, writer W. T1 paints it blue: T1's entry is before = original,
+   previous writer = W; the field is now blue, writer T1. T2 paints it red:
+   T2's entry is before = blue, previous writer = T1; the field is now
+   red, writer T2. Undoing T2 gives blue with writer T1. Undoing T1 then
+   finds itself the writer and gives the original colour with writer W.
+   Each undo restores exactly the state its own transaction found.
+9. **Putting things back.** Restoring a location of `rest` hops the part
    back to its earlier pose along a short arc, without physics; if the
    place is taken, to the nearest free spot. Restoring from `shipped`
    brings it in through the dock door. Restoring `in` sets it back in that
    station's mouth.
-8. **Unfinished business.** A transaction may still have work pending when
-   it is undone: Patch mid-job, a crate still riding the belt. Undoing it
-   first cancels everything pending under it (each machine drops that work
-   and returns to idle; nothing more commits), then restores.
-9. **One step.** All the restores of one undo are applied in the same
-   simulation step. What the visitor sees (paint draining, the hop, the
-   reversing beep) is transient and plays after.
-10. **Two ways to undo, one history.** The lever undoes the most recent
-    transaction. "Undo that", texted to Patch, undoes the most recent
-    instruction sent through the jack the cord is in. Both go through rule
-    6, so neither can corrupt the other.
-11. **Not in the history at all:** the camera, panels, lids and hatches,
+10. **Unfinished business.** A transaction may still have work pending
+    when it is undone: Patch mid-job, a crate still riding the belt.
+    Undoing it first cancels everything pending under it (each machine
+    drops that work and returns to idle; nothing more commits), then
+    restores.
+11. **One step.** All the restores of one undo are applied in the same
+    simulation step. What the visitor sees (paint draining, the hop, the
+    reversing beep) is transient and plays after.
+12. **"Undo that" is all or nothing.** Texted to Patch, it picks the most
+    recent instruction sent through the jack the cord is in that has not
+    been undone, which may not be the newest transaction on the stack. It
+    goes ahead **only if that transaction is still the writer of every
+    field it wrote.** Then it is rule 8 applied to that transaction, and
+    by rule 7 no newer transaction holds an entry for any of those fields,
+    so taking it out of the middle of the stack leaves every other entry
+    true. If anything has written any of those fields since (a newer
+    transaction, the crew, the system), **nothing is changed and the
+    transaction stays where it is**; Patch replies that something has
+    changed it since, and that the lever takes things back in order. It
+    never restores part of a transaction, and it never removes a
+    transaction whose value a newer entry still holds as its `before`.
+    That is what keeps a later pull of the lever from bringing back a
+    value no surviving action set.
+13. **Not in the history at all:** the camera, panels, lids and hatches,
     sound, what has been discovered, and the Button.
-12. **Forgetting.** The stack holds thirty transactions. When one drops
-    off, or when Revert puts away parts nobody has touched for a while,
-    the fields it last wrote are marked settled and can no longer be
-    undone. Putting away always forgets first, so no entry is left
-    pointing at something that has gone.
+14. **Forgetting.** The stack holds thirty transactions. When the oldest
+    drops off, its entries are deleted, and wherever it was a field's
+    writer or an entry's previous writer, that becomes `settled`: a
+    settled value is simply how the world is, and cannot be undone. When
+    Revert puts a part away, every entry about that part is deleted from
+    every transaction first, so no entry is left pointing at something
+    that has gone. A transaction with no entries and nothing pending
+    leaves the stack, so a pull of the lever never does nothing silently.
 
 **The Button is bracketed.** At the press: a snapshot of all durable state
 and every part's pose; parts and handles stop responding; the crew pauses;
@@ -1143,19 +1204,53 @@ history cannot interfere with the Button.
 |---|---|---|
 | Texts "make it blue" with a crate on the platen, then at once drags a different crate away | T1: nothing yet (Patch is working). T2: the second crate's location. Two seconds later Patch commits: T1 gains the first crate's colour. | Undoes T2 (the later action): the second crate hops back. A second pull undoes T1: the paint drains. |
 | Throws a crate into the stack; four crates end up on the floor of the bench | T: the thrown crate's location and the four others', gathered when everything is at rest. | All five hop back, last moved first. The stack is whole. |
-| Puts a tool on the belt; it rides, sounds, ships | T: the tool's location, written three times (`in` belt, then `shipped`), kept as one entry: before = on its peg. | The tool comes back in through the dock door and hangs itself up. It never stops halfway. |
+| Puts a tool on the belt; it rides, sounds, ships | T: the tool's location, written twice (`in` the belt, then `shipped`), kept as one entry: before = on its peg. | The tool comes back in through the dock door and hangs itself up. It never stops halfway. |
+| Texts "make it blue", then "make it red", at the same crate | T1: colour, before = original. T2: colour, before = blue, previous writer = T1. | First pull: blue, and the colour is T1's again. Second pull: the original colour. Two texts of "undo that" do the same. |
+| Texts "faster" to the belt (speed 1 to 2), then turns the dial by hand (2 to 3), then texts "undo that" | T1: speed, before = 1. T2: speed, before = 2, previous writer = T1. | "Undo that" picks T1, finds the dial has written the speed since, and changes nothing; T1 stays on the stack and Patch says so. The lever then gives 2, then 1. Had T1 been removed, the next pull would have restored a 2 that no surviving action set. |
+| Paints a crate blue by text, drags a different crate across the bench, then texts "undo that" | T1: the first crate's colour. T2: the second crate's location. | "Undo that" picks T1, which still owns the colour: the paint drains and T1 leaves the middle of the stack. T2 is untouched; the lever still undoes it. |
+| Throws crate A at the stack; before things settle, throws crate B | T1 closes the moment B is let go, holding only what has already come to rest. Everything still moving, A included if it is, is T2's, with before = where it rested before either throw. | First pull: everything T2 holds returns to where it started. Second pull: the rest. |
+| Throws a crate at the stack, then catches one of the falling crates and sets it down | T1: the thrown crate and the others, without the caught one. T2: the caught crate, before = its place in the stack. | First pull: the caught crate goes back to the stack. Second pull: the others follow. |
 | Texts "make the sign red", then pulls the lever while Patch is still reaching for the drawer | T is open with nothing committed. | Patch's job is cancelled; Patch looks at the lever. Nothing changes, because nothing had. |
-| Paints a crate, leaves it for five minutes; Revert puts it away | T was forgotten when Revert put the crate away. | The lever undoes whatever came before it, or reports there is nothing left. |
+| Paints a crate, leaves it for five minutes; Revert puts it away | T's entry about that crate was deleted when Revert put it away; T, left empty, left the stack. | The lever undoes whatever came before it, or reports there is nothing left. |
 | Ships Fetch | T: Fetch's location = `shipped`. Ten seconds later Fetch comes back up the chute by itself: written by `crew`. | Fetch's location is no longer T's to restore. Revert's card says someone has moved that since. |
 | Presses the Button mid-experiment | Nothing. The rung is bracketed. | Undoes the action before the press, exactly as if the Button had not been pressed. |
 
-**What the tests hold** (§ E8): after any random sequence of visitor
-actions and undos with the crew frozen, undoing everything returns every
-field to its starting value; with the crew running, no field last written
-by `crew` or `system` is ever changed by an undo; every part always has
-exactly one location and the cord is always in exactly one jack; no stack
-entry ever points at a part that has been put away; the world's durable
-state after a Button rung is identical to the state before it.
+**What the tests hold** (§ E8). History tests run against stand-in
+machines with scripted rest events in place of physics, so every one is
+exact and repeats identically.
+
+*The replay check*, after every action and every undo in a sequence
+generated from a seed that mixes actions, lever pulls and "undo that":
+the durable state equals what is obtained by starting from the initial
+state and applying, in order, every recorded effect whose transaction has
+not been undone. Any restored value that no surviving effect accounts for
+fails it. That is the test for stale state.
+
+*Invariants*, checked at every step of the same sequences: every field's
+writer is a transaction on the stack, `crew`, `system` or `settled`; every
+entry's previous writer is one of those too, and where it is a transaction
+it is older than the entry's own; no field written by `crew` or `system`
+since is changed by an undo; every part has exactly one location and the
+cord is in exactly one jack; no entry points at a part that has been put
+away; with the crew frozen and fewer actions than the stack holds, pulling
+the lever until it is empty returns every field to its starting value and
+writer.
+
+*Named cases*, one deterministic test each:
+
+| test | sequence | must hold |
+|---|---|---|
+| `consecutive-writes` | T1 original to blue; T2 blue to red; lever; lever | after the first pull: blue, writer T1; after the second: original, original writer |
+| `consecutive-writes-forgotten` | the same, then T1 is forgotten; lever | blue, writer `settled`; a further pull does not touch the colour |
+| `targeted-undo-clean` | T1 paints by text; T2 moves another part; "undo that" | colour restored; T1 gone from the middle; T2's entry and the part it moved unchanged; lever then undoes T2 |
+| `targeted-undo-refused` | T1 "faster" by text; T2 dial by hand; "undo that"; lever; lever | "undo that" changes no value and no stack entry; then speed 2 with writer T1; then speed 1 |
+| `targeted-undo-refused-by-crew` | T1 changes a field by text; a stand-in writes that field as `crew`; "undo that" | nothing changes; T1 stays. (Rule 5 keeps this from arising in play; the test pins rule 12 in case it ever does.) |
+| `late-commit-dropped` | T1 "faster" by text, still pending; T2 dial by hand; Patch reaches the job | T1 commits nothing; speed and its writer are T2's; lever restores the speed from before both |
+| `window-handover` | T1 throw; one part at rest; T2 throw while another still moves; all at rest; lever; lever | the moving part is in T2 alone with before = its place before either throw; after both pulls everything is where it started |
+| `window-claim-by-grab` | T1 throw; a falling part is caught and set down as T2; lever; lever | T1 holds no entry for the caught part; after both pulls everything is where it started |
+| `open-transaction-undo` | T sends a text; lever before the commit | the job is cancelled, nothing is written, T leaves the stack |
+| `put-away-forgets` | T paints a crate; Revert puts it away; lever | no entry names the crate; the lever acts on the transaction before T or reports nothing left |
+| `button-bracket` | actions; a Button rung; lever | durable state after the rung is identical to before it; the lever undoes the action before the press |
 
 ### E6. Loading, in order
 
@@ -1202,7 +1297,7 @@ tab is hidden.
 | kind | what it proves |
 |---|---|
 | Unit | part properties; each machine's states; the instruction parser, from a table of texts; the content schema |
-| History | every statement under "What the tests hold" in § E5, by generated random sequences from a seed, plus each worked example as a named test |
+| History | everything under "What the tests hold" in § E5: the replay check and the invariants on sequences generated from a seed, and each named case as a deterministic test |
 | Scenario (headless) | recorded inputs lead to expected outcomes. Release 1: a crate put on the belt sounds at the striker and ships at the dock; each of X1, X2, X3 end to end; rung 4 leaves the bench as it was. When the inspector arrives, the shipping scenario changes with it: stamped parts ship, unstamped parts do not. |
 | Soak | an hour of simulated random grabbing, throwing and pressing from a seed: no part outside the bench, no runaway part count, every machine back to idle after reset |
 | Browser | the page loads in Chromium, Firefox and WebKit with no console error; the canvas is not blank; the Still tier appears when WebGL is refused; reduced motion is honoured; the keyboard path presses the Button and hears the result announced |
