@@ -46,11 +46,11 @@ const DEG = Math.PI / 180;
  */
 export const LAYOUT = {
   /** The sign's origin on the wall (x, height): over the board, clear of its crest. */
-  sign: { x: 1.05, y: 3.05 },
+  sign: { x: 1.4, y: 3.05 },
   /** The tool wall's origin on the wall (x, height): left of the lamp's clamp. */
-  toolwall: { x: -5.85, y: 0.3 },
+  toolwall: { x: -6.45, y: 0.3 },
   /** Where the lamp is clamped (its origin: on the bench top at the wall face). The key light follows from its bulb socket. */
-  lampPlace: [-2.8, 0, -5] as Vec3,
+  lampPlace: [-2.05, 0, -5] as Vec3,
   /** The key light when the lamp piece is missing. */
   bulb: { at: [-1.9, 5.2, -0.6] as const, aim: [0.6, 0, -0.1] as const },
   /** The phone turns a little toward the visitor (its body is the simulation's). */
@@ -66,8 +66,14 @@ export const FRAMING = {
   wide: { min: [-6.0, 0, -5] as Vec3, max: [6.6, 4.5, 4.6] as Vec3 },
   /** Button, loose crate, phone and Patch, all four without panning. */
   phone: { min: [-2.25, 0, -3.9] as Vec3, max: [3.45, 1.7, 2.9] as Vec3 },
-  /** Where focus sits (depth of field) at home. */
-  focus: [0.4, 0.55, 0.4] as Vec3,
+  /**
+   * Where the focus is pinned at home: the middle of what a visitor plays with (the console's front,
+   * Fetch's lane), so Fetch, the Button and the belt are sharp and only the wall's top and the very
+   * front edge soften. With `focus` below for the blur itself.
+   */
+  focus: [0.4, 0.6, 1.4] as Vec3,
+  /** The blur at this framing (stage LOOK.focus): a wider sharp band and a gentler ramp than the stage's default. */
+  blur: { range: 0.075, scale: 12, max: 6, far: 0.5 },
 } as const;
 
 /** Sizes of stand-ins (art-direction § 10, W3 brief), for slots whose piece has not landed. */
@@ -252,7 +258,7 @@ export function measured(scene: SceneDesc, fit: Fit, k: { console?: { w: number;
 // ───────────────────────── loading the vignette ─────────────────────────
 
 export interface VignetteOptions {
-  /** Which Patch design (`patch-toy` | `patch-felt`); default patch-toy, else whichever is registered. */
+  /** Which Patch design (`patch-toy` | `patch-felt`); default patch-felt, else whichever is registered. */
   patch?: string | null;
   /** Which Fetch design; default `fetch-porter`, else the first `fetch-…`. */
   fetch?: string | null;
@@ -311,7 +317,7 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     phone: find('phone'),
     sign: find('sign'),
     toolwall: find('toolwall'),
-    patch: o.patch ? find(o.patch) : firstOf(['patch-toy', 'patch-felt', 'patch', 'patch-*']),
+    patch: o.patch ? find(o.patch) : firstOf(['patch-felt', 'patch-toy', 'patch', 'patch-*']),
   };
   const tools = entries.filter((e) => e.name.startsWith('tool-'));
   for (const [k, e] of Object.entries(E)) slot(k, e);

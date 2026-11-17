@@ -38,7 +38,7 @@ export const CORD_FEEL = {
   points: 26,
   radius: 0.032,
   sides: 8,
-  slack: 0.75,
+  slack: 0.4,
   /** Gravity on the rope (the world's is -16; a cloth cord reads heavier with a little less). */
   gravity: -13,
   /** Velocity kept per 1/120 s substep (air drag on cloth). */

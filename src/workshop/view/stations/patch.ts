@@ -67,7 +67,7 @@ const tq = new Quaternion();
 export function createPatchView(o: PatchViewOptions): StationViewFactory {
   return (ctx: ViewContext): StationView => {
     const F = PATCH_FEEL;
-    const p = o.entry ? buildEntry(o.entry, null, { seed: o.seed }, ctx.labels) : standInPatch();
+    const p = o.entry ? buildEntry(o.entry, null, { seed: o.seed, standIn: false }, ctx.labels) : standInPatch();
     const obj = ctx.realize(p);
     const root = new Group();
     root.name = 'patch';
@@ -107,13 +107,10 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
         if (pa) target.set(pa[0], pa[1], pa[2]);
         return 'working';
       }
-      if (t < lookUntil) {
+      // the plug is out of its jack: the slow sideways stare at whoever did it, for as long as it is out
+      if (t < lookUntil || cord?.lifted) {
         target.set(...F.visitor);
         return 'the-look';
-      }
-      if (cord?.lifted && cord.plugAt) {
-        target.set(cord.plugAt[0], cord.plugAt[1], cord.plugAt[2]);
-        return 'working';
       }
       if (frame.pointer && frame.hovered) {
         tv.set(frame.pointer[0], frame.pointer[1], frame.pointer[2]);
@@ -140,7 +137,10 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
             stareUntil = frame.time + F.plugStare;
             lookUntil = stareUntil + F.lookHold;
           }
-          if (e.type === 'cord.plugged') stareUntil = Math.min(stareUntil, frame.time);
+          if (e.type === 'cord.plugged') {
+            stareUntil = Math.min(stareUntil, frame.time);
+            lookUntil = Math.min(lookUntil, frame.time + 0.6);
+          }
         }
         let expression = want(w, frame);
         if (!EXPR[expression]) expression = 'unimpressed';
@@ -157,8 +157,10 @@ export function createPatchView(o: PatchViewOptions): StationViewFactory {
         let gy: number, gp: number;
         if (ex && typeof ex.headYaw === 'number') {
           const lookAtVisitor = expression === 'the-look';
-          gy = ex.headYaw + (lookAtVisitor ? 0 : Math.max(-F.yawMax, Math.min(0.5, ty - vy)));
-          gp = (ex.headPitch ?? 0) + (lookAtVisitor ? 0 : Math.max(F.pitchMin, Math.min(F.pitchMax, tp - vp)));
+          // at rest Patch keeps half an eye on the visitor: it follows the action only part of the way
+          const share = expression === 'unimpressed' ? 0.55 : 1;
+          gy = ex.headYaw + (lookAtVisitor ? 0 : share * Math.max(-F.yawMax, Math.min(0.5, ty - vy)));
+          gp = (ex.headPitch ?? 0) + (lookAtVisitor ? 0 : share * Math.max(F.pitchMin, Math.min(F.pitchMax, tp - vp)));
         } else {
           gy = Math.max(-F.yawMax, Math.min(F.yawMax, ty));
           gp = Math.max(F.pitchMin, Math.min(F.pitchMax, tp));

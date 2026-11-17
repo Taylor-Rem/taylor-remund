@@ -48,6 +48,7 @@
       import { Box3, Vector3, type Mesh, type Object3D, type BufferAttribute } from 'three';
       import { bootWorkshop } from '../workshop/shell/boot.ts';
       import { installDebugHooks } from '../workshop/view/stage/debug.ts';
+      import { LOOK } from '../workshop/view/stage/index.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
       import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
       import { loadVignette, homeBox, FRAMING, staticBox } from '../workshop/view/vignette.ts';
@@ -116,8 +117,8 @@
             edge,
             bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 5, scene.bench.maxZ)),
           });
-          stage.camera.focusOn(null);
-          stage.camera.focusHeight = FRAMING.focus[1];
+          stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
+          Object.assign(LOOK.focus, FRAMING.blur);
           stage.camera.cutTo(stage.camera.home());
         },
         onFrameRequest(id, stage) {
@@ -134,6 +135,7 @@
         const f = shots[name];
         if (!f) {
           ws.stage.camera.cutTo(ws.stage.camera.home());
+          ws.stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
           return;
         }
         const b = f();
