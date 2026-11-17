@@ -18,8 +18,10 @@
  * jack panel's face is the plane z = 0.
  *
  * Moving nodes:
- *  - `lamp.storefront`, `lamp.lamp`: the live lens lamps (`bulb` class,
- *    dark by default; `poseSwitchboard` lights them).
+ *  - `lamp.storefront`, `lamp.lamp`: the live lens lamps. Each holds two
+ *    lenses: `lamp.<jack>.lit` (`bulb` class, built collapsed to HIDDEN scale)
+ *    and `lamp.<jack>.unlit` (dark glass). `poseSwitchboard` swaps their
+ *    scales: node transforms only, so it works on every realize backend.
  *  - `drawer.storefront`, `drawer.lamp`: the drawers. Each node's local +X
  *    points out of the board (world +Z); the drawer slides along it.
  * Sockets: `jack.storefront`, `jack.lamp` (the jack mouth, +Z out of the
@@ -39,7 +41,7 @@ import { grain, setFinish } from '../../space.ts';
 import { bevelBox, ridgedBand, sheet, stud } from '../../cheap.ts';
 import { estimateLabels, JACKS } from './labels.ts';
 import type { JackName, SwitchboardLabelRefs } from './labels.ts';
-import { NAMED_POSES, POSE, poseSwitchboard } from './pose.ts';
+import { HIDDEN, NAMED_POSES, poseSwitchboard } from './pose.ts';
 import type { SwitchboardPose } from './pose.ts';
 
 /** The board's layout, shared with the tests, the pose helper and the view. */
@@ -153,7 +155,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
   {
     const cw = 1.7, ch = 0.3;
     const outline: Array<[number, number]> = [[-cw / 2, 0], [cw / 2, 0], [cw / 2, 0.05]];
-    const n = hi ? 10 : 6;
+    const n = hi ? 9 : 6;
     for (let i = 1; i < n; i++) {
       const t = i / n;
       const x = cw / 2 - t * cw;
@@ -168,7 +170,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     b.add(part('wood', g, 'wood', { seed: seed + 13, jitter: 0.04, shade: 0.64 }));
     const mAt = aim([0, BOARD.top + 0.15, zP - 0.03], [0, 0, 1], 12);
     b.add(place(bezel(0.11, detail, seed + 14), mAt));
-    b.add(place([lensPart(0.068, hi ? 10 : 8, 'glass', seed + 15)], chain(mAt, T(0, BEZEL_SEAT, 0))));
+    b.add(place([lensPart(0.068, 8, 'glass', seed + 15)], chain(mAt, T(0, BEZEL_SEAT, 0))));
     for (const sx of [-1, 1]) b.small(() => place([part('brass', stud(0.014, 0.009, 6), 'brass', { seed: seed + 16 })], chain(T(sx * 0.62, BOARD.top + 0.06, zP - 0.03), Z_UP)));
   }
   // turned finials on the stiles' tops, above the cornice's corners
@@ -218,8 +220,10 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     const lx = x + BOARD.lampDX;
     const lat = aim([lx, y, zPlate - 0.002], [0, 0, 1], R.range(0, 30));
     b.add(place(bezel(0.115, detail, seed + 34), lat));
+    // two lenses in one bezel: the glowing one built collapsed into the seat, the dark one in place; posing swaps their scales
     const lamp = b.node(`lamp.${j}`, aim([lx, y, zPlate - 0.002 + BEZEL_SEAT], [0, 0, 1]));
-    lamp.add(lensPart(0.072, hi ? 10 : 8, 'bulb', seed + 36));
+    lamp.node(`lamp.${j}.lit`, new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(lensPart(0.072, hi ? 10 : 8, 'bulb', seed + 36));
+    lamp.node(`lamp.${j}.unlit`).add(lensPart(0.072, hi ? 10 : 8, 'glass', seed + 37, true));
     jackSockets[`lamp.${j}`] = T(lx, y, zPlate + BEZEL_SEAT + 0.04);
   }
   // two capped positions between them: future jacks, a brass blank in each
@@ -470,8 +474,8 @@ function lensPart(r: number, segs: number, cls: 'bulb' | 'glass', seed: number, 
   const pr = cheap ? profile(r, 0).to(r * 0.6, r * 0.55, { sharp: true }).to(0, r * 0.68) : profile(0, 0).to(r, 0, { sharp: true }).to(r * 0.95, r * 0.28, { sharp: true }).to(r * 0.55, r * 0.62, { sharp: true }).to(0, r * 0.72);
   const g = lathe(pr, { segs, caps: false, band: 0 });
   if (cls === 'bulb') {
-    const p = part('bulb', g, 'amber-glow', { seed, shade: POSE.lensOff });
-    return setFinish(p, 0.55);
+    // between the lamp and indicator levels: at the indicator level alone the lens reads pale, not lit
+    return setFinish(part('bulb', g, 'amber-glow', { seed }), 0.55);
   }
   return setFinish(part('glass', g, 'amber', { seed, shade: cheap ? 0.45 : 0.3 }), 0.6);
 }

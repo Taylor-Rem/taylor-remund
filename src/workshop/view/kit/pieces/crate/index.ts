@@ -38,6 +38,7 @@ import type { CatalogueEntry } from '../../catalogue.ts';
 import type { Labels } from '../../../types.ts';
 import { linear, paints, type Token } from '../../../palette.ts';
 import { aim, chain, part, piece, texturedPart, T, type NodeBuilder } from '../../compose.ts';
+import { sourcesOf } from '../../realize.ts';
 import { deform, transform } from '../../deform.ts';
 import { grain } from '../../space.ts';
 import { tint } from '../../surface.ts';
@@ -149,58 +150,36 @@ export function crateLabels(labels: Labels): void {
 }
 
 // ---- paint bookkeeping ----------------------------------------------------------
+//
+// Paint and stencil state is keyed by a Piece's PART geometry. A realised crate
+// may draw that geometry as it is (the per-node backend) or merged with others
+// into one skinned mesh per material (the default backend); `sourcesOf(mesh)`
+// says where each part's vertices sit either way, and every write below takes
+// that offset.
 
 interface PaintInfo {
-  /** [first vertex, count] of every skin in this geometry. */
+  /** [first vertex, count] of every paint skin in the part's geometry. */
   ranges: Array<[number, number]>;
   /** Per skin vertex (in range order): the bare colour (rgb) and the paint's tone multiplier. */
   bare: Float32Array;
   tone: Float32Array;
-  /**
-   * When the paint is its own material (enamel skins), bare means no paint at
-   * all: the skins sink into their planks, out of sight, and come back up when painted.
-   * The unfolded positions of the ranges, in range order.
-   */
-  rest: Float32Array | null;
 }
 
-/**
- * The paint's material class. 'wood' (the default): skins merged into the
- * planks, wearing the paint colour over the grain: matte painted wood.
- * 'steel' (enamel skins that sink into the planks when bare) reflected the
- * room like chrome under the lamp on lit tops; kept for comparison.
- */
-const PAINT_CLASS = 'wood' as MaterialClass;
-/** How far a bare crate's paint skins sit inside their planks (less than any plank is thick). */
-const SKIN_SINK = 0.012;
-
 const PAINT = new WeakMap<BufferGeometry, PaintInfo>();
-/** surf.z written on painted skins: how fully the paint covers the grain (see the report's materials request). */
+/** surf.z written on painted skins: paint coverage for the `wood` class (0 bare .. 1 fully painted). */
 const PAINT_COVERAGE = 1;
 
-/** A stencil decal mesh: its ink, and its resting positions (it sinks into the plank when the other ink is showing). */
+/** A stencil decal part: its ink, and its resting (showing) positions and normals in the part's own space. */
 interface StencilInfo {
   ink: StencilInk;
   rest: Float32Array;
+  normal: Float32Array;
 }
 const STENCIL = new WeakMap<BufferGeometry, StencilInfo>();
 /** How far the unused stencil sinks behind the face (decals sit 0.0042 proud; planks are at least 0.024 thick). */
 const STENCIL_SINK = 0.016;
 
-function writeStencil(g: BufferGeometry, info: StencilInfo, ink: StencilInk): void {
-  const pos = g.getAttribute('position') as BufferAttribute;
-  const nrm = g.getAttribute('normal') as BufferAttribute;
-  const p = pos.array as Float32Array;
-  const sink = info.ink === ink ? 0 : STENCIL_SINK;
-  for (let i = 0; i < pos.count; i++) {
-    p[i * 3] = info.rest[i * 3]! - nrm.getX(i) * sink;
-    p[i * 3 + 1] = info.rest[i * 3 + 1]! - nrm.getY(i) * sink;
-    p[i * 3 + 2] = info.rest[i * 3 + 2]! - nrm.getZ(i) * sink;
-  }
-  pos.needsUpdate = true;
-}
-
-/** Where the paint lives in a built crate: per node and material, the skin vertex ranges. */
+/** Where the paint lives in a built crate: per node and material, the skin vertex ranges (in each part's geometry). */
 export function paintRanges(p: Piece): Array<{ node: string; material: MaterialClass; ranges: Array<[number, number]> }> {
   const out: Array<{ node: string; material: MaterialClass; ranges: Array<[number, number]> }> = [];
   const walk = (n: PieceNode): void => {
@@ -214,13 +193,19 @@ export function paintRanges(p: Piece): Array<{ node: string; material: MaterialC
   return out;
 }
 
-function writePaint(g: BufferGeometry, info: PaintInfo, paint: Token | null): void {
+/**
+ * Write paint (or bare wood) into `g`, whose vertices from `at` on are this part's
+ * (0 for the part's own geometry). Colour and coverage only: positions untouched.
+ * Returns the vertices written.
+ */
+function writePaint(g: BufferGeometry, info: PaintInfo, paint: Token | null, at = 0): number {
   const col = g.getAttribute('color') as BufferAttribute;
+  const sf = g.getAttribute('surf') as BufferAttribute;
   const a = col.array as Float32Array;
   const pc = paint ? linear(paint) : null;
   let k = 0;
   for (const [start, count] of info.ranges) {
-    for (let i = start; i < start + count; i++, k++) {
+    for (let i = at + start; i < at + start + count; i++, k++) {
       if (pc) {
         const t = info.tone[k]!;
         a[i * 3] = pc[0] * t;
@@ -231,57 +216,77 @@ function writePaint(g: BufferGeometry, info: PaintInfo, paint: Token | null): vo
         a[i * 3 + 1] = info.bare[k * 3 + 1]!;
         a[i * 3 + 2] = info.bare[k * 3 + 2]!;
       }
+      sf.setZ(i, paint ? PAINT_COVERAGE : 0);
     }
   }
   col.needsUpdate = true;
-  // paint coverage in the finish channel (surf.z): 1 painted, 0 bare (the contract asked of the wood class)
-  const sf = g.getAttribute('surf') as BufferAttribute;
-  for (const [start, count] of info.ranges) for (let i = start; i < start + count; i++) sf.setZ(i, paint ? PAINT_COVERAGE : 0);
   sf.needsUpdate = true;
-  if (info.rest) {
-    // bare: each skin sinks into its plank (hidden inside the wood); painted: back on the face
-    const pos = g.getAttribute('position') as BufferAttribute;
-    const nrm = g.getAttribute('normal') as BufferAttribute;
-    const p = pos.array as Float32Array;
-    const sink = paint ? 0 : SKIN_SINK;
-    let j = 0;
-    for (const [start, count] of info.ranges) {
-      for (let i = start; i < start + count; i++, j++) {
-        p[i * 3] = info.rest[j * 3]! - nrm.getX(i) * sink;
-        p[i * 3 + 1] = info.rest[j * 3 + 1]! - nrm.getY(i) * sink;
-        p[i * 3 + 2] = info.rest[j * 3 + 2]! - nrm.getZ(i) * sink;
-      }
-    }
-    pos.needsUpdate = true;
-  }
+  return k;
 }
 
 /**
- * Repaint a realized crate (the Object3D from `realize`): rewrites the paint
- * skins' vertex colours to `paint` (a palette token) or back to bare wood
- * (null). Geometry shared with other crates (the build memo) is cloned for
- * this object first, so only this crate changes. Returns how many meshes it
- * touched (0: not a crate).
+ * Show or sink a stencil part inside `g` (its vertices from `at` on). `world` takes the
+ * part's own space to `g`'s space: identity for the part's own geometry, the node's rest
+ * world matrix inside a skinned mesh. Returns the vertices written.
+ */
+function writeStencil(g: BufferGeometry, info: StencilInfo, ink: StencilInk, at = 0, world?: Matrix4): number {
+  const pos = g.getAttribute('position') as BufferAttribute;
+  const p = pos.array as Float32Array;
+  const sink = info.ink === ink ? 0 : STENCIL_SINK;
+  const n = info.rest.length / 3;
+  const v = new Vector3();
+  for (let i = 0; i < n; i++) {
+    v.set(info.rest[i * 3]! - info.normal[i * 3]! * sink, info.rest[i * 3 + 1]! - info.normal[i * 3 + 1]! * sink, info.rest[i * 3 + 2]! - info.normal[i * 3 + 2]! * sink);
+    if (world) v.applyMatrix4(world);
+    p[(at + i) * 3] = v.x;
+    p[(at + i) * 3 + 1] = v.y;
+    p[(at + i) * 3 + 2] = v.z;
+  }
+  pos.needsUpdate = true;
+  return n;
+}
+
+/** A node's rest (bind) world matrix in a skinned mesh's space: where its part's vertices were put when the mesh was merged. */
+function bindWorld(mesh: Mesh, node: string): Matrix4 | undefined {
+  const sk = (mesh as unknown as { skeleton?: { bones: Object3D[]; boneInverses: Matrix4[] }; bindMatrixInverse?: Matrix4 });
+  if (!sk.skeleton || !sk.bindMatrixInverse) return undefined;
+  const i = sk.skeleton.bones.findIndex((b) => b.name === node);
+  if (i < 0) return undefined;
+  return sk.bindMatrixInverse.clone().multiply(sk.skeleton.boneInverses[i]!.clone().invert());
+}
+
+/**
+ * Repaint a realized crate (the Object3D from `realize`, either backend): rewrites the
+ * paint skins' colour and coverage to `paint` (a palette token) or back to bare wood
+ * (null), and shows the stencil ink that paint wants. Geometry shared with other
+ * crates (the build memo, and the skinned backend's per-Piece geometry) is cloned for
+ * this object first, so its twins do not change. Returns how many vertices it wrote
+ * (0: not a crate).
  */
 export function repaint(object: Object3D, paint: Token | null): number {
   let n = 0;
+  const ink = stencilInk(paint);
   object.traverse((o) => {
     const m = o as Mesh;
     if (!m.isMesh) return;
-    const info = PAINT.get(m.geometry);
-    const st = STENCIL.get(m.geometry);
-    if (!info && !st) return;
-    if (m.userData['crateOwnPaint'] !== true) {
-      // shared with other crates (the build memo): this crate gets its own copy first
+    // find the crate's parts in this mesh before any clone (a per-node clone is not the Piece's geometry)
+    const own = m.userData['crateOwnPaint'] as Array<{ source: BufferGeometry; node: string; start: number; count: number }> | undefined;
+    const sources = own ?? sourcesOf(m).filter((s) => PAINT.has(s.source) || STENCIL.has(s.source));
+    if (sources.length === 0) return;
+    if (!own) {
+      // shared with other crates: this crate gets its own copy first, and remembers where its parts sit
       const g = m.geometry.clone();
-      if (info) PAINT.set(g, info);
-      if (st) STENCIL.set(g, st);
+      g.userData = { ...m.geometry.userData };
       m.geometry = g;
-      m.userData['crateOwnPaint'] = true;
+      m.userData['crateOwnPaint'] = sources;
     }
-    if (info) writePaint(m.geometry, info, paint);
-    if (st) writeStencil(m.geometry, st, stencilInk(paint));
-    n++;
+    const skinnedMesh = (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true;
+    for (const s of sources) {
+      const info = PAINT.get(s.source);
+      if (info) n += writePaint(m.geometry, info, paint, s.start);
+      const st = STENCIL.get(s.source);
+      if (st) n += writeStencil(m.geometry, st, ink, s.start, skinnedMesh ? bindWorld(m, s.node) : undefined);
+    }
   });
   return n;
 }
@@ -328,18 +333,6 @@ export function crate(o: CrateOptions = {}): Piece {
   const wood = (g: BufferGeometry, token: Token, t: { seed: number; jitter?: number; shade?: number; warm?: number }, skins?: { geoms: BufferGeometry[]; tone: number }): KitPart[] => {
     tint(g, token, t);
     if (!skins || skins.geoms.length === 0) return [{ material: 'wood', geometry: g }];
-    if (PAINT_CLASS !== 'wood') {
-      // enamel: each skin its own part of the paint class, the whole of it paint
-      const out: KitPart[] = [{ material: 'wood', geometry: g }];
-      for (const s of skins.geoms) {
-        tint(s, token, t);
-        const n = s.getAttribute('position').count;
-        const c = (s.getAttribute('color') as BufferAttribute).array as Float32Array;
-        skinned.set(s, { geometry: s, ranges: [[0, n]], bare: Array.from(c), tone: new Array<number>(n).fill(skins.tone) });
-        out.push({ material: PAINT_CLASS, geometry: s });
-      }
-      return out;
-    }
     const base = (g.getAttribute('color') as BufferAttribute).array as Float32Array;
     const bare: number[] = [];
     const tone: number[] = [];
@@ -634,7 +627,7 @@ export function crate(o: CrateOptions = {}): Piece {
   for (const q of built.root.parts) {
     if (!q.texture) continue;
     const ink: StencilInk = q.texture.startsWith('stencil:paper') ? 'paper' : 'ink';
-    const info: StencilInfo = { ink, rest: (q.geometry.getAttribute('position').array as Float32Array).slice() };
+    const info: StencilInfo = { ink, rest: (q.geometry.getAttribute('position').array as Float32Array).slice(), normal: (q.geometry.getAttribute('normal').array as Float32Array).slice() };
     STENCIL.set(q.geometry, info);
     writeStencil(q.geometry, info, stencilInk(paint));
   }
@@ -663,16 +656,7 @@ function registerPaint(b: NodeBuilder, built: Piece, skinned: Map<BufferGeometry
     }
     for (const p of node.parts) {
       const gr = groups.get(`${p.material}|${p.variant ?? ''}|${p.texture ?? ''}`);
-      if (gr && gr.ranges.length) {
-        let rest: Float32Array | null = null;
-        if (p.material !== 'wood') {
-          const a = p.geometry.getAttribute('position').array as Float32Array;
-          rest = new Float32Array(gr.ranges.reduce((s, r) => s + r[1], 0) * 3);
-          let j = 0;
-          for (const [st, c] of gr.ranges) for (let i = st; i < st + c; i++, j++) rest.set(a.subarray(i * 3, i * 3 + 3), j * 3);
-        }
-        PAINT.set(p.geometry, { ranges: gr.ranges, bare: new Float32Array(gr.bare), tone: new Float32Array(gr.tone), rest });
-      }
+      if (gr && gr.ranges.length) PAINT.set(p.geometry, { ranges: gr.ranges, bare: new Float32Array(gr.bare), tone: new Float32Array(gr.tone) });
     }
     nb.children.forEach((c, i) => {
       const child = node.children?.[i];

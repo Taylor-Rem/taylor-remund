@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Matrix4, Mesh, MeshBasicMaterial, Vector3 } from 'three';
-import type { BufferAttribute, Material, Object3D } from 'three';
+import { Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import type { Material, Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
@@ -8,7 +8,6 @@ import { crate, crateLabelKeys, catalogue, paintRanges, repaint, stencilInk } fr
 import { linear } from '../../../src/workshop/view/palette.ts';
 import { checkGeometry } from './helpers.ts';
 
-const NODES = { backend: 'nodes' } as const;
 const stub: Materials = {
   of: () => new MeshBasicMaterial() as Material,
   textured: () => new MeshBasicMaterial() as Material,
@@ -119,67 +118,131 @@ describe('crate', () => {
     expect(inside).toBeGreaterThan(50);
   });
 
-  it('repaint rewrites only the paint range of this object, and back to bare', () => {
-    const p = crate({ size: 'S', seed: 9 });
-    const a = K.realize(p, stub, NODES); // repaint finds paint by part geometry: per-node backend until it reads kitSources (kit follow-up 4)
-    const b = K.realize(p, stub, NODES); // shares geometry with a (the memo case)
-    const before = new Map<Mesh, Float32Array>();
-    a.traverse((o: Object3D) => { const m = o as Mesh; if (m.isMesh) before.set(m, (m.geometry.getAttribute('color').array as Float32Array).slice()); });
-    expect(repaint(a, 'cable-red')).toBeGreaterThan(0);
-    const red = linear('cable-red');
+  /** For each mesh of a realised crate, which of its vertices are paint and which are stencil (and which ink), via sourcesOf. */
+  function layout(p: Piece, o: Object3D): Map<Mesh, { paint: Set<number>; stencil: Map<number, 'ink' | 'paper'> }> {
     const ranges = paintRanges(p);
-    a.traverse((o: Object3D) => {
-      const m = o as Mesh;
+    const partOf = new Map<unknown, { node: string; material: string; texture?: string }>();
+    for (const n of nodes(p)) for (const q of n.parts) partOf.set(q.geometry, { node: n.name, material: q.material, ...(q.texture ? { texture: q.texture } : {}) });
+    const out = new Map<Mesh, { paint: Set<number>; stencil: Map<number, 'ink' | 'paper'> }>();
+    o.traverse((x: Object3D) => {
+      const m = x as Mesh;
       if (!m.isMesh) return;
-      const now = m.geometry.getAttribute('color').array as Float32Array;
-      const old = before.get(m)!;
-      const node = m.parent!.name;
-      const r = ranges.find((x) => x.node === node && x.material === m.userData['kitMaterial'] && !m.name.includes('stencil'));
-      for (let v = 0; v < now.length / 3; v++) {
-        const inPaint = !!r && r.ranges.some(([s, c]) => v >= s && v < s + c);
-        if (inPaint) expect(Math.abs(now[v * 3]! / now[v * 3 + 2]! - red[0] / red[2])).toBeLessThan(1e-3);
-        else expect(now[v * 3]).toBe(old[v * 3]);
+      const paint = new Set<number>();
+      const stencil = new Map<number, 'ink' | 'paper'>();
+      for (const s of K.sourcesOf(m)) {
+        const part = partOf.get(s.source);
+        if (!part) continue;
+        if (part.texture) for (let i = 0; i < s.count; i++) stencil.set(s.start + i, part.texture.startsWith('stencil:paper') ? 'paper' : 'ink');
+        const r = !part.texture ? ranges.find((x) => x.node === part.node && x.material === part.material) : undefined;
+        if (r) for (const [a, c] of r.ranges) for (let i = a; i < a + c; i++) paint.add(s.start + i);
       }
+      out.set(m, { paint, stencil });
     });
-    // the other realisation, sharing the memoised geometry, is untouched
-    b.traverse((o: Object3D) => { const m = o as Mesh; if (m.isMesh) for (const [mm, old] of before) if (mm.name === m.name && mm.parent!.name === m.parent!.name) expect(Array.from(m.geometry.getAttribute('color').array as Float32Array)).toEqual(Array.from(old)); });
-    // back to bare: every colour as built
+    return out;
+  }
+
+  const colours = (o: Object3D): Map<string, Float32Array> => {
+    const out = new Map<string, Float32Array>();
+    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh) out.set(`${m.parent!.name}/${m.name}`, (m.geometry.getAttribute('color').array as Float32Array).slice()); });
+    return out;
+  };
+
+  it('repaint, default (skinned) backend: only the paint range of this crate changes, its twin does not, and back to bare', () => {
+    const p = crate({ size: 'M', seed: 9 });
+    const a = K.realize(p, stub);
+    const b = K.realize(p, stub); // shares the skinned geometry with a
+    expect(a.userData['kitBackend']).toBe('skinned');
+    const lay = layout(p, a);
+    const totalPaint = [...lay.values()].reduce((s, l) => s + l.paint.size, 0);
+    const totalStencil = [...lay.values()].reduce((s, l) => s + l.stencil.size, 0);
+    expect(totalPaint).toBeGreaterThan(100);
+    const before = new Map<Mesh, Float32Array>();
+    for (const m of lay.keys()) before.set(m, (m.geometry.getAttribute('color').array as Float32Array).slice());
+    const bBefore = colours(b);
+    // returns the vertices it wrote: every paint vertex and every stencil vertex
+    expect(repaint(a, 'cable-red')).toBe(totalPaint + totalStencil);
+    const red = linear('cable-red');
+    for (const [m, l] of lay) {
+      const now = m.geometry.getAttribute('color').array as Float32Array;
+      const sz = m.geometry.getAttribute('surf');
+      const old = before.get(m)!;
+      for (let v = 0; v < now.length / 3; v++) {
+        if (l.paint.has(v)) {
+          expect(Math.abs(now[v * 3]! / now[v * 3 + 2]! - red[0] / red[2])).toBeLessThan(1e-3);
+          expect(sz.getZ(v)).toBe(1);
+        } else expect(now[v * 3]).toBe(old[v * 3]);
+      }
+    }
+    expect(colours(b)).toEqual(bBefore);
     repaint(a, null);
-    a.traverse((o: Object3D) => { const m = o as Mesh; if (m.isMesh) expect(Array.from(m.geometry.getAttribute('color').array as Float32Array)).toEqual(Array.from(before.get(m)!)); });
+    for (const [m, l] of lay) {
+      expect(Array.from(m.geometry.getAttribute('color').array as Float32Array)).toEqual(Array.from(before.get(m)!));
+      for (const v of l.paint) expect(m.geometry.getAttribute('surf').getZ(v)).toBe(0);
+    }
     expect(repaint(K.realize(K.piece('x').add(K.part('wood', K.roundedBox({ w: 1, h: 1, d: 1 }), 'wood')).build(), stub), 'paper')).toBe(0);
-    void (null as unknown as BufferAttribute);
-    void Matrix4;
   });
 
-  it('paint is matte painted wood: no extra material; repaint moves only the stencil (dark paint swaps ink)', () => {
+  it('repaint swaps the stencil ink on the default backend: paper up on dark paint, ink up when bare', () => {
     const p = crate({ size: 'M', seed: 2 });
-    const o = K.realize(p, stub, NODES);
+    const o = K.realize(p, stub);
+    const lay = layout(p, o);
     const mats = new Set<string>();
-    const pos: Array<[Mesh, Float32Array]> = [];
-    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh) { mats.add(String(m.userData['kitMaterial'])); pos.push([m, (m.geometry.getAttribute('position').array as Float32Array).slice()]); } });
+    for (const m of lay.keys()) mats.add(String(m.userData['kitMaterial']));
     expect(mats.has('steel')).toBe(false);
-    repaint(o, 'paint-green');
-    const maxZ = (m: Mesh): number => {
-      const a = m.geometry.getAttribute('position').array as Float32Array;
-      return Math.max(...Array.from({ length: a.length / 3 }, (_, i) => a[i * 3 + 2]!));
+    const posBefore = new Map<Mesh, Float32Array>();
+    for (const m of lay.keys()) posBefore.set(m, (m.geometry.getAttribute('position').array as Float32Array).slice());
+    // the front-most z of each ink's vertices: the one showing sits 0.016 proud of the sunk one
+    const front = (ink: 'ink' | 'paper'): number => {
+      let z = -Infinity;
+      for (const [m, l] of lay) for (const [v, k] of l.stencil) if (k === ink) z = Math.max(z, m.geometry.getAttribute('position').getZ(v));
+      return z;
     };
-    // a sunk stencil sits 0.016 behind the one showing
-    const visible = (m: Mesh): boolean => maxZ(m) > Math.max(...st.map(maxZ)) - 0.008;
-    const st = pos.map(([m]) => m).filter((m) => m.name.includes('stencil'));
-    for (const [m, before] of pos) {
-      const tex = m.name.includes('stencil');
-      if (!tex) expect(Array.from(m.geometry.getAttribute('position').array as Float32Array)).toEqual(Array.from(before));
+    expect(front('ink') - front('paper')).toBeCloseTo(0.016, 3);
+    repaint(o, 'paint-green');
+    expect(front('paper') - front('ink')).toBeCloseTo(0.016, 3);
+    // nothing but the stencil moved
+    for (const [m, l] of lay) {
+      const a = m.geometry.getAttribute('position').array as Float32Array, b0 = posBefore.get(m)!;
+      for (let v = 0; v < a.length / 3; v++) if (!l.stencil.has(v)) expect(a[v * 3 + 2]).toBe(b0[v * 3 + 2]);
     }
-    // green is dark: the paper stencil is up, the ink one sunk; back to bare swaps them back
-    expect(st.length).toBe(4);
-    for (const m of st) expect(visible(m)).toBe(m.name.includes('stencil:paper'));
     repaint(o, null);
-    for (const m of st) expect(visible(m)).toBe(m.name.includes('stencil:ink'));
-    // the painted skins carry paint coverage in the finish channel
+    expect(front('ink') - front('paper')).toBeCloseTo(0.016, 3);
+    // the painted build carries paint coverage in the finish channel
     const pp = crate({ size: 'M', seed: 2, paint: 'paint-green' });
     const r = paintRanges(pp)[0]!;
     const part = nodes(pp).find((n) => n.name === r.node)!.parts.find((q) => q.material === r.material && !q.texture)!;
     expect(part.geometry.getAttribute('surf').getZ(r.ranges[0]![0])).toBe(1);
+  });
+
+  it('the nodes and skinned backends agree after the same repaint', () => {
+    const p = crate({ size: 'L', seed: 5 });
+    const sk = K.realize(p, stub, { backend: 'skinned' });
+    const nd = K.realize(p, stub, { backend: 'nodes' });
+    expect(repaint(sk, 'paint-blue')).toBe(repaint(nd, 'paint-blue'));
+    // compare every source part's colours and positions (in its node's space for nodes; merged for skinned)
+    const per = (o: Object3D): Map<unknown, { col: number[]; z: number[] }> => {
+      const out = new Map<unknown, { col: number[]; z: number[] }>();
+      o.traverse((x: Object3D) => {
+        const m = x as Mesh;
+        if (!m.isMesh) return;
+        const sources = (m.userData['crateOwnPaint'] as ReturnType<typeof K.sourcesOf> | undefined) ?? K.sourcesOf(m);
+        for (const s of sources) {
+          const c = m.geometry.getAttribute('color').array as Float32Array;
+          out.set(s.source, { col: Array.from(c.slice(s.start * 3, (s.start + s.count) * 3)), z: [] });
+        }
+      });
+      return out;
+    };
+    const a = per(sk), b = per(nd);
+    let compared = 0;
+    for (const [src, v] of b) {
+      const w = a.get(src);
+      if (!w) continue;
+      expect(w.col.length).toBe(v.col.length);
+      for (let i = 0; i < v.col.length; i++) expect(w.col[i]).toBeCloseTo(v.col[i]!, 6);
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(5);
   });
 
   it('is registered with its sizes and paints', () => {

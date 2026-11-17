@@ -103,7 +103,13 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       chipThreshold: p(0.6, 0.3, 0.9), // higher = fewer chips
       maxCover: p(0.45, 0.05, 1),
       clusterScale: p(1.3, 0.3, 6), // object-scale blotches that decide where a piece is battered (per unit)
-      clusterClean: p(0.12, 0, 1), // chip density left in the clean stretches between battered places // at most this share of a part may chip, however worn (thin slats, straps, handles)
+      clusterClean: p(0.12, 0, 1), // chip density left in the clean stretches between battered places
+      // Face wear: sparse small chips, scuffs and dull rubbed patches on the
+      // FLAT interior of big faces, which have no wear signal of their own.
+      // Placed by the same battered-places field (a few per piece), stronger
+      // low on upright faces and near edges, never in recesses, and gated by
+      // curvature so small, tightly curved parts never get it.
+      faceWear: p(0.45, 0, 1.5),
       cavityGuard: p(0.9, 0, 2), // recesses keep their paint
       fleck: p(0.35, 0, 1), // small flecks knocked off near edges and, rarely, on faces
       fleckScale: p(55, 15, 150),
@@ -156,7 +162,7 @@ float steelChipField(vec3 q, float base) {
 float fin = pFinish;
 vec4 T = pNoise4(pP * u_toneScale);            // r tone, g tone2, b fleck gate, a dust
 vec4 D = pFbm4(pP * u_dirtScale + 13.0);       // r dirt, g grime var, b rust var
-vec4 C = pFbm4(pP * u_chipScale);              // r chip outline, g roughness drift, b cover gate
+vec4 C = pFbm4(pP * u_chipScale);              // r chip outline, g roughness drift, b cover gate, a face chips
 vec4 F = pNoise4(pP * u_fleckScale + 11.0);    // r flecks, g bare variation, b rust patches, a orange peel
 vec4 K = pFbm4(pP * u_clusterScale + 5.0);     // r battered places
 float gN = D.g;
@@ -178,7 +184,17 @@ float fleckF = smoothstep(0.72, 0.9, F.r) * fleckGate * u_fleck * (1.0 - 0.6 * f
 // battered places: a few object-scale blotches per piece; corners (highest
 // wear) still chip most, long stretches between them keep their paint
 float cluster = mix(u_clusterClean, 1.0, smoothstep(0.42, 0.68, K.r));
-float base = E * chipAmt * cluster - guard - (1.0 - cover) * 0.7 + fleckF * 0.45 * cluster;
+// face wear: curvature (1 / radius, from screen derivatives) keeps it off small parts
+float curv = length(fwidth(pVN)) / max(length(fwidth(vViewPosition)), 1e-6);
+float bigFace = 1.0 - smoothstep(3.0, 9.0, curv);
+float upright = 1.0 - abs(pUp);
+float low = 1.0 - smoothstep(0.05, 0.7, pP.y);
+float faceW = u_faceWear * smoothstep(0.47, 0.62, K.r) * bigFace * (1.0 - smoothstep(0.12, 0.45, pCav))
+            * (0.45 + 0.8 * upright * low + 0.6 * E) * (1.0 - 0.7 * fin);
+float faceChip = smoothstep(0.64, 0.68, C.a + (F.r - 0.5) * 0.12) * smoothstep(0.1, 0.3, faceW);
+float rubbed = faceW * smoothstep(0.4, 0.72, D.r);
+paint *= 1.0 + rubbed * 0.1; // rubbed paint: a little paler and duller
+float base = E * chipAmt * cluster - guard - (1.0 - cover) * 0.7 + fleckF * 0.45 * cluster + faceChip * 2.0;
 float field = base + (C.r - 0.5) * u_chipNoise;
 float aw = max(fwidth(field) * 0.7, 1e-4);
 float chip = smoothstep(u_chipThreshold - aw, u_chipThreshold + aw, field);
@@ -212,7 +228,7 @@ float scr = 0.0;
 #ifndef TIER_LOW
 {
   float s1 = pScratchCell(pP, pN, 1.0 / u_scratchScale, u_scratchWidth, u_scratchDensity, pFw, 0.0);
-  float s2 = pScratchCell(pP, pN, 2.6 / u_scratchScale, u_scratchWidth * 1.2, u_scratchEdge * E, pFw, 7.4);
+  float s2 = pScratchCell(pP, pN, 2.6 / u_scratchScale, u_scratchWidth * 1.2, u_scratchEdge * E + faceW * 0.5, pFw, 7.4);
   scr = max(s1, s2) * u_scratch * (1.0 - 0.5 * fin) * (1.0 - smoothstep(0.2, 0.6, pCav));
 }
 #endif
@@ -221,7 +237,7 @@ vec3 scrCol = paint * u_scratchLift + c_primer * 0.04;
 vec3 col = mix(paint, scrCol, scr * (1.0 - chip));
 pAlbedo = mix(col, bare, chip);
 pMetal = u_bareMetal * chip * (1.0 - max(rustM, edgeIn * u_rustEdge));
-float paintRough = u_roughness + (C.g - 0.5) * u_roughVar * 1.5 + dirtM * 0.4;
+float paintRough = u_roughness + (C.g - 0.5) * u_roughVar * 1.5 + dirtM * 0.4 + rubbed * 0.3;
 paintRough = mix(paintRough, u_glossRough, fin);
 pRough = mix(paintRough, u_bareRough + rustM * 0.3 + edgeIn * 0.2, chip);
 pRough = mix(pRough, pRough + 0.18, scr * (1.0 - chip));
@@ -564,11 +580,17 @@ pH = fib * u_fibreBump + Mo.a * u_cockle;
   // Bare steel: machined, mid-rough, rust in the creases. 5 fetches.
   metal: {
     kind: 'standard',
-    props: { roughness: 0.4, metalness: 1, envMapIntensity: 0.9 },
+    props: { roughness: 0.45, metalness: 1, envMapIntensity: 0.9 },
     params: {
-      bright: p(1.0, 0.5, 1.5),
-      roughMin: p(0.28, 0.1, 0.6),
-      roughMax: p(0.5, 0.2, 0.8),
+      bright: p(1.15, 0.5, 1.5),
+      // Like brass: a roughness floor and a little diffuse, so a flat face
+      // that mirrors the dark room still reads as mid-grey steel. Finish 1
+      // asks for polish (chrome-like: full mirror, low roughness).
+      metal: p(0.72, 0.4, 1),
+      roughMin: p(0.42, 0.1, 0.7),
+      roughMax: p(0.62, 0.2, 0.9),
+      wornBright: p(0.35, 0, 1), // worn edges rubbed brighter
+      finishRough: p(0.1, 0.02, 0.3),
       lineScale: p(110, 30, 600), // machining lines per unit
       lineContrast: p(0.25, 0, 0.6),
       rust: p(0.75, 0, 2),
@@ -588,12 +610,13 @@ vec4 R = pNoise4(pP * 30.0);          // r rust grain, g grime var
 float gN = R.g;
 float dN = Sm.a;
 vec3 col = pBase * u_bright * (1.0 + (lines - 0.5) * u_lineContrast * 2.0) * (0.88 + 0.24 * Sm.r);
+col *= 1.0 + smoothstep(0.2, 0.9, pWear) * u_wornBright;
 float rustM = smoothstep(0.4, 0.8, pCav * u_rust + (Sm.g - 0.5) * 0.7) * (0.6 + 0.4 * R.r);
 pAlbedo = mix(col, c_rust * (0.6 + 0.8 * Sm.b), rustM);
-pMetal = mix(1.0, 0.1, rustM);
+pMetal = mix(mix(u_metal, 1.0, pFinish), 0.1, rustM);
 pRough = mix(u_roughMin, u_roughMax, lines * 0.4 + Sm.r * 0.6);
 pRough = mix(pRough - pWear * u_polish, 0.85, rustM);
-pRough = mix(pRough, u_roughMin * 0.4, pFinish * (1.0 - rustM)); // finish 1: polished bright steel
+pRough = mix(pRough, u_finishRough, pFinish * (1.0 - rustM)); // finish 1: polished bright steel
 ${GRIME}
 ${DUST}
 `,

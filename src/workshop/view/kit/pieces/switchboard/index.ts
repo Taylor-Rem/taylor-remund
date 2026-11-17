@@ -14,7 +14,7 @@ import { cordPlug } from './plug.ts';
 
 export { switchboard, BOARD, JACK_MOUTH } from './board.ts';
 export type { SwitchboardOptions } from './board.ts';
-export { poseSwitchboard, lensColour, NAMED_POSES, POSE } from './pose.ts';
+export { poseSwitchboard, NAMED_POSES, POSE, HIDDEN } from './pose.ts';
 export type { SwitchboardPose } from './pose.ts';
 export { switchboardLabels, estimateLabels, JACKS, TAPE_CAP, CARD_CAP } from './labels.ts';
 export type { JackName, SwitchboardLabelRefs, LabelRef } from './labels.ts';
