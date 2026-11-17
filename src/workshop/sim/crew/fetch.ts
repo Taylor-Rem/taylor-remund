@@ -18,7 +18,7 @@
  * `carry` in the brief is not a separate state: `carrying` is set while it
  * rolls, idles or skids with a crate in its hands.
  */
-import type { CrewMember, Id, Pose, Vec3 } from '../types.ts';
+import type { CrewMember, FetchState, Id, Pose, Vec3 } from '../types.ts';
 import type { SimContext, Unit } from '../context.ts';
 import { HZ, steps } from '../clock.ts';
 import { qyaw, yawOf } from '../math.ts';
@@ -58,7 +58,7 @@ export const FETCH_TUNING = {
   returnSpeed: 2.2,
 } as const;
 
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen';
+export type { FetchState } from '../types.ts';
 type Purpose = 'lap' | 'fumble' | 'retrieve';
 
 export interface FetchUnit extends Unit {

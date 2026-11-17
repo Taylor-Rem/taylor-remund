@@ -5,20 +5,12 @@
  * transient (the plug follows the pointer), and only pushing it into a jack
  * commits. Dropped anywhere else, it goes back to the jack it came from.
  */
-import type { Id, Intent, Vec3 } from '../types.ts';
+import type { CordView, Id, Intent, Vec3 } from '../types.ts';
 import type { SimContext, Unit } from '../context.ts';
 
 export const JACK_FIELD = 'jack';
 
-export interface CordView {
-  readonly id: Id;
-  /** The jack the cord is in (durable). While lifted, the jack it came from. */
-  readonly jack: Id;
-  readonly lifted: boolean;
-  /** Where the lifted plug is heading (world space), or null when it is in its jack. */
-  readonly plugAt: Vec3 | null;
-  readonly jacks: readonly Id[];
-}
+export type { CordView } from '../types.ts';
 
 export interface CordUnit extends Unit {
   view(): CordView;
