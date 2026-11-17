@@ -145,8 +145,8 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
     const bench = await findPiece('bench');
     if (bench) {
       const p = buildEntry(bench, null, { seed: 1 });
-      // the bench piece is built resting on y = 0; its TOP is the plane things stand on
-      realizeInto(p, { y: -p.size.y });
+      // the bench piece is built with its TOP at y = 0 (the plane things stand on), hanging below it
+      realizeInto(p, {});
       groundSource = 'registry';
     } else {
       realizeInto(benchStandIn(), {}).traverse((m) => ((m as Mesh).castShadow = false));

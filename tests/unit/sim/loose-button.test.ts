@@ -74,6 +74,50 @@ describe('loose parts with the stub physics (exact)', () => {
     expect(world.mode('crate-2')).toBe('free');
   });
 
+  test('halfExtents: every part\'s box is on the read surface, Fetch included', () => {
+    const { world } = stubWorld();
+    expect(world.halfExtents('crate-1')).toEqual([0.4, 0.4, 0.4]);
+    expect(world.halfExtents('crate-3')).toEqual([0.225, 0.225, 0.225]);
+    expect(world.halfExtents('fetch')).toEqual([0.3, 0.5, 0.26]);
+    expect(world.halfExtents('nope')).toBeUndefined();
+  });
+
+  test('a cancelled pick-up (let go at once, slow, in place) goes back exactly and commits nothing', () => {
+    const { world } = stubWorld();
+    const loc = world.part('crate-3')!.location;
+    world.dispatch({ type: 'grab', id: 'crate-3', grip: world.motion('crate-3')!.pose.p });
+    run(world, 6);
+    expect(world.motion('crate-3')!.pose.p[1]).toBeGreaterThan(loc.at === 'rest' ? loc.pose.p[1] : 0);
+    world.dispatch({ type: 'release', velocity: [0.2, 0, 0] });
+    const ev = run(world, 60);
+    expect(ev).toContainEqual({ type: 'part.released', id: 'crate-3', speed: 0 });
+    expect(types(ev)).not.toContain('effect');
+    expect(types(ev)).not.toContain('part.rested');
+    expect(loc.at).toBe('rest');
+    if (loc.at === 'rest') expect(world.motion('crate-3')!.pose).toEqual(loc.pose);
+    expect(world.writer('crate-3', 'location')).toBe('settled');
+    expect(world.holding()).toBeNull();
+    expect(world.mode('crate-3')).toBe('free');
+  });
+
+  test('not cancelled: let go late, or fast, or after moving it', () => {
+    for (const [wait, v, carry] of [
+      [30, [0, 0, 0], false],
+      [4, [3, 0, 0], false],
+      [4, [0, 0, 0], true],
+    ] as const) {
+      const { world } = stubWorld();
+      world.dispatch({ type: 'grab', id: 'crate-3', grip: world.motion('crate-3')!.pose.p });
+      for (let i = 0; i < wait; i++) {
+        if (carry) world.dispatch({ type: 'carry', target: [-1, 1.5, 1.5] });
+        run(world, 1);
+      }
+      world.dispatch({ type: 'release', velocity: v as unknown as Vec3 });
+      const ev = run(world, 120);
+      expect(types(ev)).toContain('part.rested');
+    }
+  });
+
   test('place: tap-then-tap puts the held part at a spot', () => {
     const { world } = stubWorld();
     world.dispatch({ type: 'grab', id: 'crate-3', grip: world.motion('crate-3')!.pose.p });
