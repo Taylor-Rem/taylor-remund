@@ -65,6 +65,12 @@ export interface ExpandOptions {
   creaseDeg?: number;
   /** Insert support samples beside fillets and chamfers (default false: wear peaks inside fillets on its own). */
   support?: boolean;
+  /**
+   * Wear band: put a ring of samples this far onto each flat run beside a fillet or chamfer,
+   * so the wear that `finish` spreads from an edge falls to zero across a band of the face
+   * instead of across the whole face (0 = no band rings). Runs too short for a ring get none.
+   */
+  band?: number;
 }
 
 /** Fillet segments per 90° for a radius (world units): 1 + 45·r, clamped. */
@@ -311,6 +317,7 @@ export function expandProfile(nodesIn: PNode[], closed: boolean, opts: ExpandOpt
   if (N < 2) throw new Error('profile needs at least two points');
   const detail = opts.detail ?? 1;
   const maxSegs = opts.segs ?? 6;
+  const band = opts.band ?? 0;
   const creaseCos = Math.cos(((opts.creaseDeg ?? DEFAULT_CREASE_DEG) * Math.PI) / 180);
   const sgn = area2(nodes) >= 0 ? 1 : -1;
   const segNormal = (a: { o: number; y: number }, b: { o: number; y: number }): [number, number] => {
@@ -357,7 +364,7 @@ export function expandProfile(nodesIn: PNode[], closed: boolean, opts: ExpandOpt
       while (ab - aa > Math.PI) ab -= 2 * Math.PI;
       while (ab - aa < -Math.PI) ab += 2 * Math.PI;
       const nsgn = (Math.cos(aa) * n0[0] + Math.sin(aa) * n0[1]) >= 0 ? 1 : -1;
-      const sup = Math.max(0.004, Math.min(rho * 0.6, 0.02));
+      const sup = band > 0 ? band : Math.max(0.004, Math.min(rho * 0.6, 0.02));
       for (let k = 0; k <= segs; k++) {
         const ang = aa + (ab - aa) * (k / segs);
         const node: ENode = {
@@ -374,7 +381,7 @@ export function expandProfile(nodesIn: PNode[], closed: boolean, opts: ExpandOpt
     }
     if (c.chamfer && c.chamfer > 0 && theta > 1e-3) {
       const t = Math.min(c.chamfer, roomA, roomB);
-      const sup = Math.max(0.004, Math.min(t * 0.8, 0.012));
+      const sup = band > 0 ? band : Math.max(0.004, Math.min(t * 0.8, 0.012));
       E.push({ o: P.o - d0[0] * t, y: P.y - d0[1] * t, crease: true, supBefore: sup });
       E.push({ o: P.o + d1[0] * t, y: P.y + d1[1] * t, crease: true, supAfter: sup });
       continue;
@@ -385,7 +392,7 @@ export function expandProfile(nodesIn: PNode[], closed: boolean, opts: ExpandOpt
 
   // 2. support samples on straight runs next to fillets and creases
   const S: ENode[] = [];
-  const support = opts.support === true;
+  const support = opts.support === true || band > 0;
   const M = E.length;
   const segCount = closed ? M : M - 1;
   for (let i = 0; i < M; i++) {
@@ -396,6 +403,8 @@ export function expandProfile(nodesIn: PNode[], closed: boolean, opts: ExpandOpt
     const len = Math.hypot(b.o - a.o, b.y - a.y);
     if (len < 1e-9) continue;
     const dx = (b.o - a.o) / len, dy = (b.y - a.y) / len;
+    // a run facing straight down (a box's base) is never seen: no band ring there
+    if (band > 0 && segNormal(a, b)[1] < -0.9) continue;
     const sa = a.supAfter ?? 0, sb = b.supBefore ?? 0;
     if (sa > 0 && len > sa * 2.5 + sb) S.push({ o: a.o + dx * sa, y: a.y + dy * sa, crease: false, n: segNormal(a, b) });
     if (sb > 0 && len > sb * 2.5 + sa) S.push({ o: b.o - dx * sb, y: b.y - dy * sb, crease: false, n: segNormal(a, b) });
