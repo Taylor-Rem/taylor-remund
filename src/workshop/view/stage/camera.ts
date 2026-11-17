@@ -78,6 +78,21 @@ export function boxTarget(box: Box3, out = new Vector3()): Vector3 {
 
 const smooth = (t: number): number => t * t * (3 - 2 * t);
 
+/** Margin past the bounds the view may show, as a fraction of the frame's width. */
+const PAN_MARGIN = 0.03;
+/** How far the rubber band gives past a pan limit, as a fraction of the frame's height (about 10 px at 900). */
+const PAN_GIVE = 0.012;
+
+/** Clamp v to [lo, hi], letting it past by at most `give`, with resistance growing toward that. */
+export function rubber(v: number, lo: number, hi: number, give: number): number {
+  if (v >= lo && v <= hi) return v;
+  const edge = v < lo ? lo : hi;
+  const e = Math.abs(v - edge);
+  if (give <= 0) return edge;
+  const g = give * (1 - Math.exp(-e / give));
+  return v < lo ? lo - g : hi + g;
+}
+
 export class CameraRig {
   readonly camera: PerspectiveCamera;
   readonly fov: number;
@@ -238,9 +253,13 @@ export class CameraRig {
   /** Slide the focus along the bench (world units; +x right, +z toward the visitor). */
   panBy(dx: number, dz = 0): void {
     this.ease = null;
-    this.focus.x += dx;
-    this.focus.z += dz;
-    this.clampState();
+    // Past a limit the drag meets resistance: only the give is let through.
+    const r = this.panRange();
+    const over = (v: number, lo: number, hi: number): number => (v < lo ? lo - v : v > hi ? v - hi : 0);
+    const resist = (v: number, dv: number, lo: number, hi: number): number => (over(v + dv, lo, hi) > over(v, lo, hi) ? dv * 0.35 : dv);
+    this.focus.x += resist(this.focus.x, dx, r.x[0], r.x[1]);
+    this.focus.z += resist(this.focus.z, dz, r.z[0], r.z[1]);
+    this.clampState(true);
     this.apply();
   }
 
@@ -335,6 +354,14 @@ export class CameraRig {
       if (e.t >= 1) this.ease = null;
       this.clampState();
     }
+    if (!this.ease && this.stretched) {
+      // The rubber band springs back to the pan range.
+      const r = this.panRange();
+      const k = 1 - Math.exp(-14 * step);
+      this.focus.x += (MathUtils.clamp(this.focus.x, r.x[0], r.x[1]) - this.focus.x) * k;
+      this.focus.z += (MathUtils.clamp(this.focus.z, r.z[0], r.z[1]) - this.focus.z) * k;
+      if (Math.abs(MathUtils.clamp(this.focus.x, r.x[0], r.x[1]) - this.focus.x) < 1e-4 && Math.abs(MathUtils.clamp(this.focus.z, r.z[0], r.z[1]) - this.focus.z) < 1e-4) this.clampState();
+    }
     if (this.shakeAmp > 1e-4) {
       // A damped spring on the amplitude, sampled as two incommensurate sines.
       this.shakeTime += step;
@@ -353,16 +380,69 @@ export class CameraRig {
     return this.ease !== null;
   }
 
-  private clampState(): void {
+  /**
+   * Where the focus may be at the current zoom and aspect: wherever the view
+   * still stays inside `bounds` plus a small margin. Across the bench (x): the
+   * frame's half-width at the focus distance must fit inside the bounds. Along
+   * it (z): the focus stays over the bounds and the frame's bottom edge (the
+   * bench plane under the bottom of the picture) does not run past the front.
+   * When the view already shows the whole width there is nowhere to go: the
+   * range collapses onto the home focus.
+   */
+  panRange(): { x: [number, number]; z: [number, number] } {
+    const d = this.distance;
+    const b = this.bounds;
+    const tanV = Math.tan(MathUtils.degToRad(this.fov) / 2);
+    const halfW = tanV * this.aspect * d;
+    const mx = halfW * 2 * PAN_MARGIN;
+    const home = this.homeFocus;
+    const range = (lo: number, hi: number, h: number): [number, number] => (lo <= hi ? [lo, hi] : [MathUtils.clamp(h, hi, lo), MathUtils.clamp(h, hi, lo)]);
+    const x = range(b.min.x + halfW - mx, b.max.x - halfW + mx, home.x);
+    // The bench point under the bottom of the frame, relative to the focus (translation-invariant).
+    const planeY = this.subjectOpts.edge?.y ?? this.subject.min.y;
+    const p = this.projectFromRay(this.focus.y, d, -1, planeY);
+    const nearOffset = p === null ? 0 : p - 0; // z of the bottom edge minus focus z
+    const front = (this.subjectOpts.edge?.z ?? b.max.z) + mx;
+    const z = range(b.min.z, Math.min(b.max.z, front - nearOffset), home.z);
+    return { x, z };
+  }
+
+  /** z offset (from the focus) where the ray through NDC (0, ndcY) meets the plane y = planeY, for a focus at height fy and distance d. */
+  private projectFromRay(fy: number, d: number, ndcY: number, planeY: number): number | null {
+    const cam = this.scratch;
+    cam.fov = this.fov;
+    cam.aspect = this.aspect;
+    cam.near = 0.1;
+    cam.far = d * 4 + 100;
+    cam.updateProjectionMatrix();
+    cam.position.set(0, fy, 0).addScaledVector(this.dir, -d);
+    cam.lookAt(0, fy, 0);
+    cam.updateMatrixWorld(true);
+    const o = cam.position;
+    const dir = new Vector3(0, ndcY, 0.5).unproject(cam).sub(o).normalize();
+    if (Math.abs(dir.y) < 1e-6) return null;
+    const t = (planeY - o.y) / dir.y;
+    return t > 0 ? o.z + dir.z * t : null;
+  }
+
+  /**
+   * Keep the focus inside the pan range. `soft`: allow a little rubber-band
+   * give past the limit (it springs back in `update`); none under reduced motion.
+   */
+  private clampState(soft = false): void {
     this.zoom = MathUtils.clamp(this.zoom, 0, 1);
-    // At zoom 0 the subject is centred; zoomed in, the focus may travel the bounds.
-    const free = MathUtils.clamp(this.zoom * 1.4, 0, 1);
-    const c = this.homeFocus;
-    const lo = this.bounds.min;
-    const hi = this.bounds.max;
-    this.focus.x = MathUtils.clamp(this.focus.x, MathUtils.lerp(c.x, lo.x, free), MathUtils.lerp(c.x, hi.x, free));
-    this.focus.z = MathUtils.clamp(this.focus.z, MathUtils.lerp(c.z, lo.z, free), MathUtils.lerp(c.z, hi.z, free));
-    this.focus.y = MathUtils.clamp(this.focus.y, lo.y - 1, hi.y);
+    const r = this.panRange();
+    const give = soft && !this.reducedMotion ? Math.tan(MathUtils.degToRad(this.fov) / 2) * this.distance * 2 * PAN_GIVE : 0;
+    this.focus.x = rubber(this.focus.x, r.x[0], r.x[1], give);
+    this.focus.z = rubber(this.focus.z, r.z[0], r.z[1], give);
+    this.focus.y = MathUtils.clamp(this.focus.y, this.bounds.min.y - 1, this.bounds.max.y);
+  }
+
+  /** True while the focus sits past its pan range (the rubber band is stretched). */
+  get stretched(): boolean {
+    const r = this.panRange();
+    const e = 1e-6;
+    return this.focus.x < r.x[0] - e || this.focus.x > r.x[1] + e || this.focus.z < r.z[0] - e || this.focus.z > r.z[1] + e;
   }
 
   /** Place the camera from the state. */

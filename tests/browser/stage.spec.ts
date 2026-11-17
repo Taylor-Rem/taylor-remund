@@ -68,7 +68,7 @@ for (const tier of ['high', 'low'] as const) {
 
 test('every post pass can be switched off from the query string', async ({ page }) => {
   const errors = watchErrors(page);
-  await page.goto(`${server.origin}/dev/stage/?pass=-gtao,-bloom,-focus,-grade,-vignette,-fog,-msaa`);
+  await page.goto(`${server.origin}/dev/stage/?pass=-gtao,-bloom,-focus,-grade,-vignette,-fog,-msaa,-shadowTint`);
   await page.waitForFunction('window.__ready === true', null, { timeout: 60_000 });
   const passes = await page.evaluate(() => ({ ...window.__workshop!.passes }));
   expect(Object.values(passes).every((v) => v === false)).toBe(true);

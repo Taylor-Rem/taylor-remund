@@ -137,7 +137,7 @@ export function createPartsView(opts: PartsViewOptions): StationViewFactory {
     ctx.scene.add(root);
     const entries = new Map<Id, Entry>();
     const blobOpacity = opts.blobs === 'off' ? 0 : typeof opts.blobs === 'number' ? opts.blobs : ctx.tier === 'low' ? 0.85 : 0.5;
-    const shadows = blobOpacity > 0 ? new BlobShadows(64, blobOpacity).addTo(root) : null;
+    const shadows = blobOpacity > 0 ? new BlobShadows(ctx.materials.decal(), 64, blobOpacity).addTo(root) : null;
     const blobs: Blob[] = [];
 
     const make = (part: Part): Entry => {

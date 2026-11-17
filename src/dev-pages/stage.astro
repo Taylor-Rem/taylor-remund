@@ -33,6 +33,7 @@
       import { createLoop } from '../workshop/view/stage/loop.ts';
       import { installDebugHooks, parseStageQuery } from '../workshop/view/stage/debug.ts';
       import { BlobShadows, type Blob } from '../workshop/view/effects/blob-shadows.ts';
+      import { createMaterials } from '../workshop/view/materials/index.ts';
       import type { View } from '../workshop/view/stage/camera.ts';
 
       const q = parseStageQuery(location.search);
@@ -493,7 +494,7 @@
       }
 
       // ── contact shadows: the low tier's only grounding; faint helpers on high ──
-      const blobFx = new BlobShadows(64, high ? 0.35 : 0.85).addTo(world);
+      const blobFx = new BlobShadows(createMaterials({ tier: q.tier }).decal(), 64, high ? 0.35 : 0.85).addTo(world);
       blobFx.set(blobs);
 
       // ── views ──

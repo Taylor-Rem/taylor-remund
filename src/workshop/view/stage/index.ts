@@ -130,6 +130,7 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
   let post = tier === 'high' && (opts.post ?? true);
   let toneMap: ToneMap = opts.toneMap ?? LOOK.toneMap;
   const chain = tier === 'high' ? new PostChain(renderer, scene, camera.camera, passes) : null;
+  if (chain) chain.keyLight = lights.key;
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const timer = new GpuTimer(gl);
   timer.enabled = opts.gpuTimer ?? false;

@@ -28,6 +28,7 @@ import {
   Vector3,
   WebGLRenderTarget,
   type PerspectiveCamera,
+  type SpotLight,
   type Scene,
   type Texture,
   type WebGLRenderer,
@@ -55,12 +56,14 @@ export interface PassFlags {
   vignette: boolean;
   /** Room fall-off below the bench and beyond its ends; the background is exactly teal-deep. */
   fog: boolean;
+  /** Coloured shadows: what the key does not reach leans teal, whatever its albedo. */
+  shadowTint: boolean;
 }
 
-export const PASS_NAMES = ['msaa', 'gtao', 'bloom', 'focus', 'grade', 'vignette', 'fog'] as const satisfies readonly (keyof PassFlags)[];
+export const PASS_NAMES = ['msaa', 'gtao', 'bloom', 'focus', 'grade', 'vignette', 'fog', 'shadowTint'] as const satisfies readonly (keyof PassFlags)[];
 
 export function defaultFlags(): PassFlags {
-  return { msaa: true, gtao: true, bloom: true, focus: true, grade: true, vignette: true, fog: true };
+  return { msaa: true, gtao: true, bloom: true, focus: true, grade: true, vignette: true, fog: true, shadowTint: true };
 }
 
 /** Tuned by eye on the stage dev page; see the W1 report. */
@@ -77,7 +80,17 @@ export const LOOK = {
   grade: { saturation: 0.85, shadow: 0.6, light: 0.18, contrast: 1.04, lift: 0.15 },
   vignette: { amount: 0.3, inner: 0.42, outer: 1.18 },
   /** Below the bench top the world fades to the room over `drop` units; beyond |x| > `halfWidth` over `side`. */
+  /** 0.9 (was 2.2): the real bench's apron, lit head-on by the low front fill, read as a bright band; it now falls into the room. */
   fog: { drop: 0.9, halfWidth: 10.4, side: 3.0, strength: 1.0 },
+  /**
+   * Coloured shadows. In the composite, how much of the key reaches each
+   * pixel is rebuilt from the depth buffer (the key's shadow map, its cone
+   * and the facing of the surface); where it does not reach, the colour takes
+   * the teal's hue at its own luminance. `amount` 0..1 at full shadow;
+   * `softness` widens the shadow-map lookup (texels); `bias` is the lookup's
+   * depth bias. The colour is `stageColours().shadowTint`.
+   */
+  shadowTint: { amount: 0.55, softness: 2.5, bias: 0.0015, normalOffset: 0.03 },
 };
 
 const VERT = /* glsl */ `
@@ -291,6 +304,15 @@ const COMPOSITE = {
     fogStrength: { value: LOOK.fog.strength },
     vignette: { value: new Vector3(LOOK.vignette.amount, LOOK.vignette.inner, LOOK.vignette.outer) },
     frame: { value: 0 },
+    tKeyShadow: { value: null as Texture | null },
+    keyShadowMatrix: { value: new Matrix4() },
+    keyShadowTexel: { value: new Vector2(1 / 2048, 1 / 2048) },
+    keyPos: { value: new Vector3() },
+    keyDir: { value: new Vector3(0, -1, 0) },
+    keyCone: { value: new Vector2(0.5, 0.9) },
+    shadowTintColour: { value: new Vector3() },
+    shadowTintAmount: { value: LOOK.shadowTint.amount },
+    shadowTintParams: { value: new Vector3(LOOK.shadowTint.softness, LOOK.shadowTint.bias, LOOK.shadowTint.normalOffset) },
   },
   vertexShader: VERT,
   fragmentShader: /* glsl */ `
@@ -316,7 +338,73 @@ uniform vec3 fog;
 uniform float fogStrength;
 uniform vec3 vignette;
 uniform float frame;
+#ifdef USE_SHADOW_TINT
+#ifdef USE_KEY_SHADOW
+uniform sampler2DShadow tKeyShadow;
+#endif
+uniform mat4 keyShadowMatrix;
+uniform vec2 keyShadowTexel;
+uniform vec3 keyPos;
+uniform vec3 keyDir;
+uniform vec2 keyCone;
+uniform vec3 shadowTintColour;
+uniform float shadowTintAmount;
+uniform vec3 shadowTintParams;
+#endif
 varying vec2 vUv;
+
+vec3 worldAt(vec2 uv, float d) {
+  vec4 vp = projInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+  vp /= vp.w;
+  return (viewInv * vp).xyz;
+}
+
+#ifdef USE_SHADOW_TINT
+// How much this surface is in the key's shadow, 0..1: inside the key's cone,
+// blocked in its shadow map (4 taps, widened where the picture is blurred)
+// or facing away from it (normal rebuilt from the depth buffer).
+// The surface normal from the depth buffer: of the two neighbours on each
+// axis, take the one nearer in depth, so silhouettes and thin parts (a flag,
+// a rod) do not borrow the background's slope.
+vec3 normalAt(vec2 uv, vec3 wp, float d) {
+  vec2 px = 1.0 / resolution;
+  float dl = depthAt(uv - vec2(px.x, 0.0));
+  float dr = depthAt(uv + vec2(px.x, 0.0));
+  float dd = depthAt(uv - vec2(0.0, px.y));
+  float du = depthAt(uv + vec2(0.0, px.y));
+  vec3 hx = abs(dr - d) < abs(d - dl) ? worldAt(uv + vec2(px.x, 0.0), dr) - wp : wp - worldAt(uv - vec2(px.x, 0.0), dl);
+  vec3 hy = abs(du - d) < abs(d - dd) ? worldAt(uv + vec2(0.0, px.y), du) - wp : wp - worldAt(uv - vec2(0.0, px.y), dd);
+  return normalize(cross(hx, hy));
+}
+
+float keyShadow(vec2 uv, float d, vec3 wp, float blur) {
+  vec3 L = normalize(keyPos - wp);
+  float cone = smoothstep(keyCone.x, keyCone.y, dot(-L, keyDir));
+  // Outside the key's cone there is no key shadow to colour: skip the rest.
+  if (cone < 0.002) return 0.0;
+  vec3 n = normalAt(uv, wp, d);
+  if (dot(n, viewInv[3].xyz - wp) < 0.0) n = -n;
+  // Form shadow counts for half: it is already dark in the material's own shading.
+  float facing = mix(1.0, smoothstep(0.0, 0.25, dot(n, L)), 0.6);
+  float lit = 1.0;
+#ifdef USE_KEY_SHADOW
+  vec4 sc = keyShadowMatrix * vec4(wp + n * shadowTintParams.z, 1.0);
+  sc.xyz /= sc.w;
+  if (sc.x > 0.0 && sc.x < 1.0 && sc.y > 0.0 && sc.y < 1.0 && sc.z < 1.0) {
+    float z = sc.z - shadowTintParams.y;
+    vec2 r = keyShadowTexel * (shadowTintParams.x + blur);
+    lit = 0.25 * (
+      texture(tKeyShadow, vec3(sc.xy + vec2(-r.x, -r.y), z)) +
+      texture(tKeyShadow, vec3(sc.xy + vec2( r.x, -r.y), z)) +
+      texture(tKeyShadow, vec3(sc.xy + vec2(-r.x,  r.y), z)) +
+      texture(tKeyShadow, vec3(sc.xy + vec2( r.x,  r.y), z)));
+  }
+#endif
+  // Shadow only where the key would otherwise have lit: inside its cone.
+  // Outside the pool the room and the grade decide; paint there keeps its colour.
+  return cone * (1.0 - lit * facing);
+}
+#endif
 
 void main() {
   float d = depthAt(vUv);
@@ -326,6 +414,21 @@ void main() {
   // Sharp where in focus, the half-resolution gather where not.
   float coc = cocAt(d);
   col = mix(col, texture2D(tFocus, vUv).rgb, smoothstep(0.35, 1.5, coc));
+#endif
+
+#ifdef USE_SHADOW_TINT
+  if (d < 1.0) {
+    float blurPx = 0.0;
+#ifdef USE_FOCUS
+    blurPx = cocAt(d) * 2.0;
+#endif
+    vec3 wpT = worldAt(vUv, d);
+    float shade = keyShadow(vUv, d, wpT, blurPx);
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    // Bulbs and lit glass keep their colour.
+    float t = shadowTintAmount * shade * (1.0 - smoothstep(1.5, 3.0, lum));
+    col = mix(col, lum * shadowTintColour, t);
+  }
 #endif
 
 #ifdef USE_BLOOM
@@ -361,9 +464,7 @@ void main() {
   if (d >= 1.0) {
     f = 1.0;
   } else {
-    vec4 vp = projInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
-    vp /= vp.w;
-    vec3 wp = (viewInv * vp).xyz;
+    vec3 wp = worldAt(vUv, d);
     float below = smoothstep(0.0, fog.x, -wp.y - 0.35);
     float beyond = smoothstep(fog.y, fog.y + fog.z, abs(wp.x));
     f = max(below, beyond) * fogStrength;
@@ -457,6 +558,7 @@ export class PostChain {
     setV3(this.composite.u.gradeShadow, c.gradeShadow);
     setV3(this.composite.u.gradeLight, c.gradeLight);
     setV3(this.composite.u.room, c.room);
+    setV3(this.composite.u.shadowTintColour, c.shadowTint);
   }
 
   private makeSceneTarget(w: number, h: number): WebGLRenderTarget {
@@ -498,7 +600,8 @@ export class PostChain {
 
   private syncDefines(): void {
     const f = this.flags;
-    const key = [f.gtao, f.bloom, f.focus, f.grade, f.vignette, f.fog, this.toneMap, this.debugView].join();
+    const keyShadow = !!this.keyLight?.castShadow && !!this.keyLight.shadow.map?.depthTexture;
+    const key = [f.gtao, f.bloom, f.focus, f.grade, f.vignette, f.fog, f.shadowTint, keyShadow, this.toneMap, this.debugView].join();
     if (key === this.definesKey) return;
     this.definesKey = key;
     const d: Record<string, string> = {};
@@ -508,6 +611,8 @@ export class PostChain {
     if (f.grade) d.USE_GRADE = '';
     if (f.vignette) d.USE_VIGNETTE = '';
     if (f.fog) d.USE_FOG = '';
+    if (f.shadowTint && this.keyLight) d.USE_SHADOW_TINT = '';
+    if (f.shadowTint && keyShadow) d.USE_KEY_SHADOW = '';
     if (this.debugView === 'ao') d.DEBUG_AO = '';
     if (this.debugView === 'coc') d.DEBUG_COC = '';
     d[this.toneMap === 'agx' ? 'TONEMAP_AGX' : this.toneMap === 'aces' ? 'TONEMAP_ACES' : 'TONEMAP_NEUTRAL'] = '';
@@ -564,6 +669,24 @@ export class PostChain {
     (u.aoTexel!.value as Vector2).set(1 / Math.max(1, Math.round(this.width * LOOK.gtao.scale)), 1 / Math.max(1, Math.round(this.height * LOOK.gtao.scale)));
   }
 
+  /** The key light whose reach drives the coloured shadows (the stage sets it). */
+  keyLight: SpotLight | null = null;
+
+  private bindKey(u: Record<string, { value: unknown }>): void {
+    const k = this.keyLight;
+    if (!k) return;
+    const map = k.shadow.map?.depthTexture ?? null;
+    u.tKeyShadow!.value = map;
+    (u.keyShadowMatrix!.value as Matrix4).copy(k.shadow.matrix);
+    (u.keyShadowTexel!.value as Vector2).set(1 / k.shadow.mapSize.x, 1 / k.shadow.mapSize.y);
+    k.getWorldPosition(u.keyPos!.value as Vector3);
+    const tgt = k.target.getWorldPosition(new Vector3());
+    (u.keyDir!.value as Vector3).copy(tgt).sub(u.keyPos!.value as Vector3).normalize();
+    (u.keyCone!.value as Vector2).set(Math.cos(k.angle), Math.cos(k.angle * (1 - k.penumbra)));
+    u.shadowTintAmount!.value = LOOK.shadowTint.amount;
+    (u.shadowTintParams!.value as Vector3).set(LOOK.shadowTint.softness, LOOK.shadowTint.bias, LOOK.shadowTint.normalOffset);
+  }
+
   /** Draw one frame: the scene into the HDR target, then the passes, then the screen. */
   render(focusDistance: number, timer: GpuTimer | null): void {
     const r = this.renderer;
@@ -617,6 +740,7 @@ export class PostChain {
     (u.vignette!.value as Vector3).set(LOOK.vignette.amount, LOOK.vignette.inner, LOOK.vignette.outer);
     (u.fog!.value as Vector3).set(LOOK.fog.drop, LOOK.fog.halfWidth, LOOK.fog.side);
     u.fogStrength!.value = LOOK.fog.strength;
+    this.bindKey(u);
     this.composite.pass.renderToScreen = true;
     this.composite.pass.render(r, NO_TARGET, NO_TARGET, 0, false);
     timer?.end();
