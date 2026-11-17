@@ -116,7 +116,7 @@ export interface FetchPose {
   lean?: [number, number];
   /** Wheel spin, radians. */
   wheel?: number;
-  /** 0 rest .. 1 the spring fully compressed. */
+  /** -0.6 up on the spring, stretched tall .. 0 rest .. 1 the spring fully compressed. */
   squash?: number;
   /** Turret yaw (+ turns the eye toward +X, Fetch's left) and pitch (+ looks up). Radians. */
   headYaw?: number;
@@ -196,19 +196,19 @@ export const EXPRESSIONS = {
     aerial: [-0.35, 0.55],
     flag: 0.6,
   },
-  // crouched on its spring and tipped hard forward, eye up and dilated, both claws up and open: let me, let me
+  // up on its toes: spring stretched, body high, both claws up, eye up and dilated, aerial whipped back: me! me!
   eager: {
-    lean: [0.36, 0],
-    squash: 0.8,
+    lean: [0.14, 0],
+    squash: -0.6,
     headYaw: 0,
     headPitch: 0.5,
-    headRoll: 0.06,
-    brow: -0.35,
+    headRoll: 0.05,
+    brow: -0.7,
     pupilSize: 1.35,
-    gaze: [0, 0.75],
+    gaze: [0, 0.8],
     lids: [0, 0],
-    arms: { left: J(1.5, 0.95, -0.9, 1.0, -0.6, 1.0), right: J(1.45, 0.9, -0.9, 1.05, -0.6, 1.0) },
-    aerial: [-0.95, 0.05],
+    arms: { left: J(2.2, 0.55, -0.3, 0.25, 0, 1.0), right: J(2.2, 0.5, -0.3, 0.3, 0, 1.0) },
+    aerial: [-1.3, 0.1],
     flag: 1.4,
   },
   // just fumbled: everything up, peak shot up, eye wide open with a pinpoint pupil hard down at the crate
@@ -226,17 +226,17 @@ export const EXPRESSIONS = {
     aerial: [0.75, -0.6],
     flag: 2.6,
   },
-  // looking up at the visitor, both claws held out open, a sorry tilt, lower lid up in a soft smile
+  // looking UP at the visitor, head tipped, lower lid up in a small smile, both claws held out forward and spread
   offer: {
-    lean: [0.12, 0.05],
-    squash: 0.25,
+    lean: [0.08, 0.04],
+    squash: 0.2,
     headYaw: -0.05,
     headPitch: 0.5,
-    headRoll: 0.34,
-    brow: 0.25,
-    pupilSize: 1.2,
-    gaze: [-0.2, 0.7],
-    lids: [0.15, 0.45],
+    headRoll: 0.22,
+    brow: -0.15,
+    pupilSize: 1.25,
+    gaze: [-0.1, 0.8],
+    lids: [0.06, 0.55],
     arms: 'offer',
     aerial: [-0.2, 0.3],
     flag: 0.3,
@@ -322,7 +322,7 @@ export const jawAngle = (grip: number): number => 0.04 + clamp(grip, 0, 1) * 0.5
 export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   const p = { ...NEUTRAL, ...pose };
   const fore = clamp(p.lean[0], -0.45, 0.45), side = clamp(p.lean[1], -0.35, 0.35);
-  const squash = clamp(p.squash, 0, 1);
+  const squash = clamp(p.squash, -0.6, 1);
   const yaw = clamp(p.headYaw, -1.4, 1.4), pitch = clamp(p.headPitch, -0.45, 0.5), roll = clamp(p.headRoll, -0.42, 0.42);
   let gx = p.gaze[0], gy = p.gaze[1];
   const gl = Math.hypot(gx, gy);
@@ -366,8 +366,8 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
     m[`forearm${nm}`] = chain(T(0, -UPPER_ARM, 0), RX(-a.elbow));
     m[`hand${nm}`] = chain(T(0, -FOREARM, 0), RY(s * a.wrist));
     const j = jawAngle(a.grip);
-    m[`pincer${nm}0`] = chain(T(0.02, -0.044, 0), RZ(j));
-    m[`pincer${nm}1`] = chain(T(-0.02, -0.044, 0), RZ(-j));
+    m[`pincer${nm}0`] = chain(T(0.026, -0.058, 0), RZ(j));
+    m[`pincer${nm}1`] = chain(T(-0.026, -0.058, 0), RZ(-j));
   };
   arm(1, L, 'L');
   arm(-1, R, 'R');

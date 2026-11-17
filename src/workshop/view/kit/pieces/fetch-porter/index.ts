@@ -24,6 +24,7 @@ import { hexBolt, spring } from '../../details.ts';
 import type { DetailOptions } from '../../details.ts';
 import { aim, chain, mat, part, piece, place, T, texturedPart } from '../../compose.ts';
 import { tint } from '../../surface.ts';
+import { linear } from '../../../palette.ts';
 import { world } from '../../../labels/content.ts';
 import type { Labels } from '../../../types.ts';
 import type { NodeBuilder } from '../../compose.ts';
@@ -46,6 +47,8 @@ export interface FetchPorterOptions extends KitOptions {
 }
 
 const DEG = Math.PI / 180;
+/** The claws are drawn at one size and built half as big again, so they register at the bench's scale. */
+const CLAW = new Matrix4().makeScale(1.5, 1.5, 1.5);
 /** Lathe geometry is built along +Y; this turns it to face +Z. */
 const Y_TO_Z = new Matrix4().makeRotationX(Math.PI / 2);
 /** And this turns it to lie along +X. */
@@ -232,7 +235,7 @@ function buildFork(n: NodeBuilder, detail: 'high' | 'low', seed: number): void {
   const gsec = profile(Rg, -gw).to(Rg + gt, -gw, { fillet: gt * 0.45, segs: 1 }).to(Rg + gt, gw, { fillet: gt * 0.45, segs: 1 }).to(Rg, gw).close();
   // lathe angle pi lands on top (+Y) once turned onto the axle; the strip runs from just ahead of the top round the back
   const guard = transform(turn(gsec, { from: Math.PI - 0.35, to: Math.PI - 0.35 + 2.1, segs: lo ? 8 : 12 }), Y_TO_X);
-  n.add(part('steel', guard, 'teal-light', { seed: seed + 19, shade: 0.92 }));
+  n.add(part('steel', guard, 'teal-panel', { seed: seed + 19 }));
 }
 
 // ---- the spring -----------------------------------------------------------------------
@@ -266,7 +269,8 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
       .to(rp + 0.006, h, { fillet: 0.004 })
       .to(0, h),
   );
-  n.add(part('steel', transform(pail, T(0, y0, 0)), 'teal-light', { seed: seed + 31, jitter: 0.03 }));
+  // cream enamelware, like the mug on the switchboard shelf: chipped dark at the edges, never a cow pattern
+  n.add(wearScale(part('steel', transform(pail, T(0, y0, 0)), 'paper', { seed: seed + 31, jitter: 0.03, shade: 0.9, warm: 0.04 }), 0.45));
   // the lid: a lip band and a domed top, in the lighter teal
   const lid = profiledBox(
     { w: w + 0.012, d: d + 0.012, rPlan: rp + 0.006, detail, band: 0 },
@@ -277,7 +281,13 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
       .curve(rp * 0.2, lidTop - y1 - 0.004, rp - 0.05, lidTop - y1 - 0.002, lo ? 3 : 4)
       .to(0, lidTop - y1),
   );
-  n.add(part('steel', transform(lid, T(0, y1 + 0.001, 0)), 'teal-panel', { seed: seed + 33, jitter: 0.03, shade: 1.1 }));
+  // the lid is cream enamel too, with its rolled lip in teal (painted per vertex: one part, no extra triangles)
+  const lidPart = part('steel', lid, 'paper', { seed: seed + 33, jitter: 0.03, shade: 0.93, warm: 0.03 });
+  const rim = linear('teal-light');
+  const lc = lid.getAttribute('color'), lp = lid.getAttribute('position');
+  for (let i = 0; i < lp.count; i++) if (lp.getY(i) < 0.029) lc.setXYZ(i, rim[0], rim[1], rim[2]);
+  lc.needsUpdate = true;
+  n.add(wearScale({ ...lidPart, geometry: transform(lidPart.geometry, T(0, y1 + 0.001, 0)) }, 0.5));
 
   // ---- front: a radio grille (screen left) and a gauge (screen right) ----
   const zf = d / 2 + 0.004;
@@ -445,7 +455,7 @@ function buildTurret(head: NodeBuilder, cock: NodeBuilder, tilt: NodeBuilder, br
     const rr = Rb + y - droop;
     return [Math.sin(a) * rr, Math.cos(a) * rr, front - 0.055 + zz * 0.95];
   });
-  brow.add(part('steel', brim, 'teal-panel', { seed: seed + 99 }));
+  brow.add(part('steel', brim, 'teal-light', { seed: seed + 99, shade: 0.9 }));
   for (const s of [-1, 1]) {
     const a = s * 0.55 + brimCock;
     brow.small(() => place(rivet({ d: 0.013, detail: 'low', seed: seed + 100 + s }), aim([Math.sin(a) * (Rb + bt), Math.cos(a) * (Rb + bt) - 0.001, front - 0.03], [Math.sin(a), Math.cos(a), 0])));
@@ -580,7 +590,7 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
   fore.add(wearScale(part('steel', fa, 'teal-light', { seed: seed + 4, jitter: 0.03 }), 0.5));
   // the hand: a palm block and two chunky claws
   const hand = fore.node(`hand${s}`, rest[`hand${s}`]);
-  hand.add(part('metal', transform(turn(profile(0, -0.029).to(0.04, -0.029, { fillet: 0.012, segs: 2 }).to(0.04, 0.029, { fillet: 0.012, segs: 2 }).to(0, 0.029), { segs: 8, caps: true }), chain(T(0, -0.048, 0), Y_TO_Z, new Matrix4().makeRotationY(Math.PI / 8))), 'steel', { seed: seed + 6 }));
+  hand.add(part('metal', transform(turn(profile(0, -0.034).to(0.05, -0.034, { fillet: 0.014, segs: 2 }).to(0.05, 0.034, { fillet: 0.014, segs: 2 }).to(0, 0.034), { segs: 8, caps: true }), chain(T(0, -0.054, 0), Y_TO_Z, new Matrix4().makeRotationY(Math.PI / 8))), 'steel', { seed: seed + 6 }));
   // one claw outline (in the jaw's XY plane, pivot at the origin, curling in at the tip)
   for (const j of [0, 1] as const) {
     const js = j === 0 ? 1 : -1;
@@ -591,8 +601,8 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
       ends: 'flat',
       up: [0, 0, 1],
     });
-    jaw.add(part('metal', g, 'steel', { seed: seed + 7 + j }));
-    jaw.add(part('rubber', transform(turn(profile(0, -0.02).curve(0.014, -0.008, 0.015, -0.02, 2).to(0.014, 0.008, { smooth: true }).curve(0, 0.02, 0.015, 0.02, 2), { segs: 6, caps: false }), chain(T(js * -0.013, -0.11, 0), new Matrix4().makeRotationZ(js * 0.8), Y_TO_Z)), 'ink', { seed: seed + 9 + j }));
+    jaw.add(part('metal', transform(g, CLAW), 'steel', { seed: seed + 7 + j }));
+    jaw.add(part('rubber', transform(turn(profile(0, -0.02).curve(0.014, -0.008, 0.015, -0.02, 2).to(0.014, 0.008, { smooth: true }).curve(0, 0.02, 0.015, 0.02, 2), { segs: 6, caps: false }), chain(CLAW, T(js * -0.013, -0.11, 0), new Matrix4().makeRotationZ(js * 0.8), Y_TO_Z)), 'ink', { seed: seed + 9 + j }));
   }
 }
 
