@@ -4,10 +4,10 @@
 // three's real sources, and no colour literal lives in the folder.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
+import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
 import { describe, expect, it } from 'vitest';
 import { lookViolations } from '../../../scripts/check-look.ts';
-import { CLASS_NAMES, CLASSES, createMaterials } from '../../../src/workshop/view/materials/index.ts';
+import { CLASS_NAMES, CLASSES, createMaterials, DEBUG_VIEWS } from '../../../src/workshop/view/materials/index.ts';
 import { bakeNoise, NOISE_SIZE } from '../../../src/workshop/view/materials/noise.ts';
 import type { MaterialClass } from '../../../src/workshop/view/kit/types.ts';
 import type { Labels } from '../../../src/workshop/view/types.ts';
@@ -183,6 +183,52 @@ describe('materials', () => {
     expect(large.defines?.LARGE).toBe('');
     expect(large.customProgramCacheKey()).not.toBe(mats.of('wood').customProgramCacheKey());
     expect(mats.of('steel', 'large')).toBe(steel); // no large path: the normal material
+  });
+
+  it('builds review views: clay and per-pixel signals, own program keys, token colours', () => {
+    for (const view of DEBUG_VIEWS) {
+      const d = createMaterials({ tier: 'high', debug: view });
+      expect(d.debug).toBe(view);
+      const m = d.of('steel') as MeshStandardMaterial;
+      expect(m.defines?.DEBUG_VIEW).toBe('');
+      expect(m.defines?.[`DEBUG_${view.toUpperCase()}`]).toBe('');
+      expect(m.customProgramCacheKey()).not.toBe(mats.of('steel').customProgramCacheKey());
+      const s = compile(m);
+      expect(s.fragmentShader).toContain('uniform vec3 d_clay;');
+      expect(s.uniforms.d_clay).toBeDefined();
+      expect(s.fragmentShader).toContain('pEmit = vec3(0.0);');
+      d.dispose();
+    }
+    expect(mats.debug).toBeUndefined();
+  });
+
+  it('makes the blob-shadow decal: soft radial falloff, no depth write, polygon offset, shared', () => {
+    const d = mats.decal();
+    expect(d).toBeInstanceOf(MeshBasicMaterial);
+    expect(mats.decal()).toBe(d);
+    expect(d.transparent).toBe(true);
+    expect(d.depthWrite).toBe(false);
+    expect(d.depthTest).toBe(true);
+    expect(d.polygonOffset).toBe(true);
+    const shader = { vertexShader: ShaderLib.basic.vertexShader, fragmentShader: ShaderLib.basic.fragmentShader, uniforms: UniformsUtils.clone(ShaderLib.basic.uniforms) } as unknown as WebGLProgramParametersWithUniforms;
+    d.onBeforeCompile(shader, undefined as never);
+    expect(shader.fragmentShader).toContain('exp(-3.2 * r * r)');
+    expect(shader.fragmentShader).toContain('diffuseColor.a *= vColor.r;');
+  });
+
+  it('names the bulb levels and picks them by finish', () => {
+    const u = mats.uniforms('bulb');
+    expect(u.u_lampLevel!.value).toBe(9);
+    expect(u.u_indicatorLevel!.value).toBe(5);
+    expect(compile(mats.of('bulb') as MeshStandardMaterial).fragmentShader).toContain('mix(u_lampLevel, u_indicatorLevel, pFinish)');
+  });
+
+  it('gates steel chips by edge response, cavity and a cover cap', () => {
+    for (const k of ['wearFloor', 'wearFull', 'maxCover', 'cavityGuard', 'scratchEdge', 'scratchLift']) expect(CLASSES.steel.params[k], k).toBeDefined();
+    const fs = compile(mats.of('steel') as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('float E = steelEdge(pWear);');
+    expect(fs).toContain('u_cavityGuard');
+    expect(fs).toContain('u_maxCover');
   });
 
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {

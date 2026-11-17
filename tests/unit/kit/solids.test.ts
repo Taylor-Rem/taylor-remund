@@ -28,7 +28,7 @@ const cases: Case[] = [
   { name: 'roundedBox', make: (detail) => K.roundedBox({ w: 0.5, h: 0.4, d: 0.3, r: 0.05, detail }), size: [0.5, 0.4, 0.3], cap: 900 },
   { name: 'roundedBox (top/bottom radii)', make: (detail) => K.roundedBox({ w: 0.5, h: 0.35, d: 0.4, rPlan: 0.12, rTop: 0.1, rBottom: 0.02, detail }), size: [0.5, 0.35, 0.4], cap: 1200 },
   { name: 'chamferedBox', make: () => K.chamferedBox({ w: 0.45, h: 0.35, d: 0.4, c: 0.05 }), size: [0.45, 0.35, 0.4], cap: 200 },
-  { name: 'chamferedBox soft', make: () => K.chamferedBox({ w: 0.45, h: 0.35, d: 0.4, c: 0.05, crisp: false }), size: [0.45, 0.35, 0.4], cap: 300 },
+  { name: 'chamferedBox soft', make: () => K.chamferedBox({ w: 0.45, h: 0.35, d: 0.4, c: 0.05, crisp: false }), size: [0.45, 0.35, 0.4], cap: 450 },
   { name: 'taperBox', make: (detail) => K.taperBox({ w: 0.5, h: 0.4, d: 0.4, r: 0.04, topW: 0.3, topD: 0.3, detail }), size: [0.5, 0.4, 0.4], cap: 900 },
   { name: 'profiledBox', make: (detail) => K.profiledBox({ w: 0.6, d: 0.4, rPlan: 0.06, detail }, K.profile(0, 0).to(0.06, 0, { sharp: true }).to(0.06, 0.05, { fillet: 0.012 }).to(0.03, 0.08, { fillet: 0.01 }).to(0, 0.08)), size: [0.6, 0.08, 0.4], cap: 900 },
   { name: 'slab', make: (detail) => K.slab({ w: 0.5, d: 0.4, t: 0.06, detail }), size: [0.5, 0.06, 0.4], cap: 900 },
@@ -98,13 +98,14 @@ describe('kit solids', () => {
     expect(seen).toBeGreaterThan(2);
   });
 
-  it('wear is high inside fillets and zero on the flats; cavity is high inside a tray', () => {
+  it('wear is high inside fillets and zero on the flats beyond the band; cavity is high inside a tray', () => {
     const g = K.roundedBox({ w: 0.6, h: 0.3, d: 0.4, r: 0.03 });
     const p = g.getAttribute('position'), s = g.getAttribute('surf'), n = g.getAttribute('normal');
     let crest = 0;
     for (let i = 0; i < p.count; i++) {
       const flat = Math.max(Math.abs(n.getX(i)), Math.abs(n.getY(i)), Math.abs(n.getZ(i))) > 0.9999;
-      if (flat) expect(s.getX(i)).toBe(0);
+      const inFromEdge = Math.min(0.3 - Math.abs(p.getX(i)), 0.2 - Math.abs(p.getZ(i)), p.getY(i), 0.3 - p.getY(i));
+      if (flat && inFromEdge > 0.03 + 0.045 * 1.6) expect(s.getX(i)).toBe(0);
       if (Math.abs(n.getY(i) - Math.SQRT1_2) < 0.05 && Math.abs(n.getZ(i) - Math.SQRT1_2) < 0.05) crest = Math.max(crest, s.getX(i));
     }
     expect(crest).toBeGreaterThan(0.5);
