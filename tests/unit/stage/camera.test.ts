@@ -126,3 +126,77 @@ describe('camera rig: a long lens at a fixed pitch', () => {
     expect(rig.focus.x).toBeCloseTo(2, 6);
   });
 });
+
+describe('camera rig: pan limits follow what is off-screen', () => {
+  const benchBounds = new Box3(new Vector3(-10, -1, -5), new Vector3(10, 4, 5));
+  const edge = { y: 0, z: 5 };
+  /** World x of the frame's left and right edges at the focus distance. */
+  const frameX = (rig: CameraRig): [number, number] => {
+    const half = Math.tan((rig.fov * Math.PI) / 360) * rig.camera.aspect * rig.distance;
+    return [rig.focus.x - half, rig.focus.x + half];
+  };
+
+  it('1440×900 seeing the whole bench: nowhere to go at home zoom', () => {
+    const rig = new CameraRig();
+    rig.setAspect(1440 / 900);
+    rig.setSubject(bench, { edge, bounds: benchBounds });
+    rig.cutTo(rig.home());
+    const r = rig.panRange();
+    expect(r.x[1] - r.x[0]).toBeLessThan(1e-6);
+    const before = rig.focus.clone();
+    rig.panBy(5, 0);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60);
+    expect(rig.focus.distanceTo(before)).toBeLessThan(1e-3);
+  });
+
+  it('390×844 at home zoom (the centre cluster) can travel the whole bench', () => {
+    const rig = new CameraRig();
+    rig.setAspect(390 / 844);
+    rig.setSubject(cluster, { edge, bounds: benchBounds });
+    rig.cutTo(rig.home());
+    const r = rig.panRange();
+    expect(r.x[0]).toBeLessThan(-6);
+    expect(r.x[1]).toBeGreaterThan(6);
+    for (let i = 0; i < 200; i++) rig.panBy(0.5, 0);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60);
+    const [, right] = frameX(rig);
+    // the right edge of the picture sits at the bench's end, plus the small margin
+    expect(right).toBeGreaterThan(9.9);
+    expect(right).toBeLessThan(10 + (right - frameX(rig)[0]) * 0.035);
+    for (let i = 0; i < 400; i++) rig.panBy(-0.5, 0);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60);
+    expect(frameX(rig)[0]).toBeLessThan(-9.9);
+  });
+
+  it('1440×900 zoomed in can pan, and the view stays inside the bounds', () => {
+    const rig = new CameraRig();
+    rig.setAspect(1440 / 900);
+    rig.setSubject(bench, { edge, bounds: benchBounds });
+    rig.cutTo({ focus: [0, 0.5, 0], zoom: 0.8 });
+    const r = rig.panRange();
+    expect(r.x[1] - r.x[0]).toBeGreaterThan(5);
+    rig.panBy(-100, -100);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60);
+    expect(frameX(rig)[0]).toBeGreaterThan(-10 - 0.1 * (frameX(rig)[1] - frameX(rig)[0]));
+    expect(rig.focus.z).toBeGreaterThanOrEqual(-5 - 1e-6);
+  });
+
+  it('gives a little past a limit and springs back; no give under reduced motion', () => {
+    const mk = (reducedMotion: boolean) => {
+      const rig = new CameraRig({ reducedMotion });
+      rig.setAspect(390 / 844);
+      rig.setSubject(cluster, { edge, bounds: benchBounds });
+      rig.cutTo(rig.home());
+      for (let i = 0; i < 400; i++) rig.panBy(0.5, 0);
+      return rig;
+    };
+    const soft = mk(false);
+    const limit = soft.panRange().x[1];
+    expect(soft.focus.x).toBeGreaterThan(limit);
+    expect(soft.focus.x - limit).toBeLessThan(0.05 * soft.distance);
+    for (let i = 0; i < 60; i++) soft.update(1 / 60);
+    expect(soft.focus.x).toBeCloseTo(limit, 4);
+    const hard = mk(true);
+    expect(hard.focus.x).toBeCloseTo(hard.panRange().x[1], 6);
+  });
+});

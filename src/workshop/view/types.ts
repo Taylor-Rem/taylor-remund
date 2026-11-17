@@ -24,6 +24,15 @@ export interface Materials {
   dispose(): void;
 }
 
+/**
+ * Materials only effects use, kept apart from `Materials` so a stand-in that just
+ * feeds `realize` (tests, review pages) does not have to supply them.
+ */
+export interface EffectMaterials {
+  /** The shared soft contact-shadow decal (tinted toward teal-deep; per-instance strength in the instance colour's red). */
+  decal(): import('three').Material;
+}
+
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
 export interface Labels {
   /**
@@ -79,7 +88,7 @@ export type StageHandle = Pick<Stage, 'camera' | 'lights'>;
 export interface ViewContext {
   readonly scene: Scene;
   readonly stage: StageHandle;
-  readonly materials: Materials;
+  readonly materials: Materials & EffectMaterials;
   readonly labels: Labels;
   readonly tier: Tier;
   readonly reducedMotion: boolean;

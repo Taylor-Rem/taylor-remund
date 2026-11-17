@@ -27,9 +27,9 @@ export interface ButtonLabelRefs {
   plate: LabelRef;
 }
 
-/** Capital heights (world units). The tape is as big as the pedestal's front allows. */
-export const TAPE_CAP = 0.11;
-export const PLATE_CAP = 0.03;
+/** Capital heights (world units). The tape uses the labels' default (the 12 px rule); the plate is read from the default view too. */
+export const TAPE_CAP = 0.26;
+export const PLATE_CAP = 0.06;
 
 /** The tape's words, split into the strips they were stuck on in. */
 export function tapeStrips(): string[] {
@@ -42,16 +42,17 @@ export function tapeStrips(): string[] {
 export function buttonLabels(labels: Labels): ButtonLabelRefs {
   const ref = (key: string): LabelRef => ({ key, ...labels.size(key) });
   return {
-    tape: tapeStrips().map((s) => ref(labels.tape(s, 'black', { capHeight: TAPE_CAP }))),
+    tape: tapeStrips().map((s) => ref(labels.tape(s, 'black'))),
     plate: ref(labels.plate(world.plates.presses, { capHeight: PLATE_CAP })),
   };
 }
 
 /** Sizes to lay out with when no labels were made (clay reviews, tests): close to the real ones. */
 export function estimateLabels(): { tape: Array<{ w: number; h: number }>; plate: { w: number; h: number } } {
-  const width = (s: string, cap: number): number => cap * (0.62 * s.replace(/ /g, '').length + 0.3 * (s.split(' ').length - 1) + 1.2);
+  // measured against the real labels: about 1.42x a plain cap-width estimate, 1.77 caps tall
+  const width = (s: string, cap: number): number => 1.42 * cap * (0.62 * s.replace(/ /g, '').length + 0.3 * (s.split(' ').length - 1) + 1.2);
   return {
-    tape: tapeStrips().map((s) => ({ w: width(s, TAPE_CAP), h: TAPE_CAP * 1.9 })),
+    tape: tapeStrips().map((s) => ({ w: width(s, TAPE_CAP), h: TAPE_CAP * 1.77 })),
     plate: { w: width(world.plates.presses, PLATE_CAP), h: PLATE_CAP * 2.2 },
   };
 }

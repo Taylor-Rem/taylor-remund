@@ -77,18 +77,35 @@ export function cylinderRibbons(strokes: ReadonlyArray<ReadonlyArray<P2>>, o: { 
     const nx = -Math.sin(phi), nz = Math.cos(phi);
     return [nx * R, s + off, nz * R, nx, 0, nz];
   };
-  for (const st of strokes) {
-    if (st.length < 2) continue;
+  for (const raw of strokes) {
+    if (raw.length < 2) continue;
+    // split long runs round the drum: a straight chord across many degrees would sink under the surface
+    const maxDa = R * 0.07;
+    const st: P2[] = [raw[0]!];
+    for (let k = 1; k < raw.length; k++) {
+      const p = raw[k - 1]!, q = raw[k]!;
+      const n = Math.max(1, Math.ceil(Math.abs(q[1] - p[1]) / maxDa));
+      for (let i = 1; i <= n; i++) st.push([p[0] + ((q[0] - p[0]) * i) / n, p[1] + ((q[1] - p[1]) * i) / n]);
+    }
     const pairs: Array<[number, number]> = [];
     for (let k = 0; k < st.length; k++) {
       const p = st[k]!;
-      const prev = st[Math.max(0, k - 1)]!, next = st[Math.min(st.length - 1, k + 1)]!;
-      let ts = next[0] - prev[0], ta = next[1] - prev[1];
-      const l = Math.hypot(ts, ta) || 1;
-      ts /= l;
-      ta /= l;
+      // a closed loop (the 0, the 8) joins its ends with a mitre too
+      const closed = Math.hypot(st[0]![0] - st[st.length - 1]![0], st[0]![1] - st[st.length - 1]![1]) < 1e-9;
+      const prev = k > 0 ? st[k - 1]! : closed ? st[st.length - 2]! : p;
+      const next = k < st.length - 1 ? st[k + 1]! : closed ? st[1]! : p;
+      // mitred joins: offset along the bisector of the two segments' normals, lengthened (clamped) so corners stay full width
+      const unit = (x: number, y: number): [number, number] => {
+        const l = Math.hypot(x, y) || 1;
+        return [x / l, y / l];
+      };
+      const d1 = next !== p ? unit(next[0] - p[0], next[1] - p[1]) : unit(p[0] - prev[0], p[1] - prev[1]);
+      const d0 = prev !== p ? unit(p[0] - prev[0], p[1] - prev[1]) : d1;
+      let [ts, ta] = unit(d0[0] + d1[0], d0[1] + d1[1]);
+      if (Math.hypot(d0[0] + d1[0], d0[1] + d1[1]) < 1e-6) [ts, ta] = d0;
+      const cosHalf = Math.max(0.5, ts * d1[0] + ta * d1[1]);
       // offset across the stroke (perpendicular in the (s, a) plane)
-      const hw = o.width / 2;
+      const hw = o.width / 2 / cosHalf;
       const ps = -ta * hw, pa = ts * hw;
       const A = at(p[0] + ps, p[1] + pa, 0), B = at(p[0] - ps, p[1] - pa, 0);
       pairs.push([md.v(A[0], A[1], A[2], A[3], A[4], A[5]), md.v(B[0], B[1], B[2], B[3], B[4], B[5])]);

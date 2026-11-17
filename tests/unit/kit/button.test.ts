@@ -9,7 +9,7 @@ import { wheelDigit } from '../../../src/workshop/view/kit/pieces/button/pose.ts
 import { tapeStrips } from '../../../src/workshop/view/kit/pieces/button/labels.ts';
 import { world } from '../../../src/workshop/view/labels/content.ts';
 
-const BUDGET = 9000;
+const BUDGET = 11000; // the lead's budget for the console (was 9,000 for the pedestal)
 
 const stub: Materials = {
   of: (): Material => new MeshBasicMaterial(),
@@ -80,11 +80,13 @@ describe('the Button', () => {
     const b = K.pieceBounds(p);
     expect(b.min.y).toBeGreaterThanOrEqual(-1e-3);
     expect(b.min.y).toBeLessThan(0.01);
-    // the cap's crown, at rest: about 1.0-1.2 above the bench
+    // the cap's crown, at rest, on the console's deck: about 1.4-1.55 above the bench
     const cap = p.sockets!['cap']!;
     const crown = new Vector3().setFromMatrixPosition(cap);
-    expect(crown.y).toBeGreaterThan(1.0);
-    expect(crown.y).toBeLessThan(1.2);
+    expect(crown.y).toBeGreaterThan(1.4);
+    expect(crown.y).toBeLessThan(1.55);
+    // the console is about 2.1 wide
+    expect(b.max.x - b.min.x).toBeGreaterThan(2.1);
     expect(p.size.x).toBeCloseTo(b.max.x - b.min.x, 6);
     expect(p.size.y).toBeCloseTo(b.max.y - b.min.y, 6);
     expect(p.size.z).toBeCloseTo(b.max.z - b.min.z, 6);
@@ -187,6 +189,8 @@ describe('the Button', () => {
     expect(catalogue.map((e) => e.name)).toContain('button');
     const e = catalogue.find((x) => x.name === 'button')!;
     expect(e.build({ detail: 'low' }).name).toBe('button');
+    expect(e.poses).toContain('shut-pressed');
+    expect(typeof e.labels).toBe('function');
   });
 
   it('realizes into named groups with meshes', () => {
