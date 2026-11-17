@@ -28,7 +28,10 @@ function meshOf(node: PieceNode, part: KitPart, materials: Materials, o: Realize
   const material = part.texture ? materials.textured(part.material, part.texture) : materials.of(part.material, part.variant);
   const mesh = new Mesh(part.geometry, material);
   mesh.name = `${node.name}.${part.material}${part.variant ? `.${part.variant}` : ''}${part.texture ? `.${part.texture}` : ''}`;
-  mesh.castShadow = (o.castShadow ?? true) && !NO_CAST.has(part.material);
+  // blended decals (sprayed stencils: transparent without an alpha cut) never cast a shadow;
+  // they may receive one. Cut labels (alphaTest) and opaque parts cast as usual.
+  const blended = material.transparent && !(material.alphaTest > 0);
+  mesh.castShadow = (o.castShadow ?? true) && !NO_CAST.has(part.material) && !blended;
   mesh.receiveShadow = (o.receiveShadow ?? true) && !NO_RECEIVE.has(part.material);
   mesh.userData['kitMaterial'] = part.material;
   return mesh;

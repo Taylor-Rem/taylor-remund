@@ -4,7 +4,7 @@ import type { BufferAttribute, Material, Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { crate, crateLabelKeys, catalogue, paintRanges, repaint } from '../../../src/workshop/view/kit/pieces/crate/index.ts';
+import { crate, crateLabelKeys, catalogue, paintRanges, repaint, stencilInk } from '../../../src/workshop/view/kit/pieces/crate/index.ts';
 import { linear } from '../../../src/workshop/view/palette.ts';
 import { checkGeometry } from './helpers.ts';
 
@@ -88,9 +88,13 @@ describe('crate', () => {
 
   it('names the stencil textures it uses', () => {
     const p = crate({ size: 'S', seed: 1 });
-    const keys = crateLabelKeys('S');
+    const ink = crateLabelKeys('S', 'ink'), paper = crateLabelKeys('S', 'paper');
     const tex = nodes(p).flatMap((n) => n.parts.map((q) => q.texture)).filter(Boolean);
-    expect(new Set(tex)).toEqual(new Set([keys.arrows, keys.letter]));
+    expect(new Set(tex)).toEqual(new Set([ink.arrows, ink.letter, paper.arrows, paper.letter]));
+    expect(stencilInk(null)).toBe('ink');
+    expect(stencilInk('paper')).toBe('ink');
+    expect(stencilInk('cable-red')).toBe('paper');
+    expect(stencilInk('paint-blue')).toBe('paper');
     expect(nodes(crate({ size: 'S', stencil: false })).flatMap((n) => n.parts.map((q) => q.texture)).filter(Boolean)).toEqual([]);
   });
 
@@ -99,7 +103,7 @@ describe('crate', () => {
     const blue = crate({ size: 'M', seed: 4, paint: 'paint-blue' });
     const ranges = paintRanges(bare);
     expect(ranges.length).toBeGreaterThan(0);
-    expect(ranges.every((r) => r.material === 'steel')).toBe(true);
+    expect(ranges.every((r) => r.material === 'wood')).toBe(true);
     const nb = nodes(bare), nc = nodes(blue);
     let inside = 0;
     nb.forEach((n, i) => n.parts.forEach((q, j) => {
@@ -146,24 +150,35 @@ describe('crate', () => {
     void Matrix4;
   });
 
-  it('bare, the paint skins hide inside the planks; repaint brings them to the face', () => {
+  it('paint is matte painted wood: no extra material; repaint moves only the stencil (dark paint swaps ink)', () => {
     const p = crate({ size: 'M', seed: 2 });
     const o = K.realize(p, stub);
-    const steel: Mesh[] = [];
-    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh && m.userData['kitMaterial'] === 'steel') steel.push(m); });
-    expect(steel.length).toBe(2); // body and lid
-    const before = steel.map((m) => (m.geometry.getAttribute('position').array as Float32Array).slice());
+    const mats = new Set<string>();
+    const pos: Array<[Mesh, Float32Array]> = [];
+    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh) { mats.add(String(m.userData['kitMaterial'])); pos.push([m, (m.geometry.getAttribute('position').array as Float32Array).slice()]); } });
+    expect(mats.has('steel')).toBe(false);
     repaint(o, 'paint-green');
-    steel.forEach((m, i) => {
-      const a = m.geometry.getAttribute('position').array as Float32Array, n = m.geometry.getAttribute('normal').array as Float32Array;
-      // every vertex moved out along its normal by the sink depth
-      for (let v = 0; v < a.length / 3; v++) {
-        const d = (a[v * 3]! - before[i]![v * 3]!) * n[v * 3]! + (a[v * 3 + 1]! - before[i]![v * 3 + 1]!) * n[v * 3 + 1]! + (a[v * 3 + 2]! - before[i]![v * 3 + 2]!) * n[v * 3 + 2]!;
-        expect(d).toBeCloseTo(0.012, 5);
-      }
-    });
+    const maxZ = (m: Mesh): number => {
+      const a = m.geometry.getAttribute('position').array as Float32Array;
+      return Math.max(...Array.from({ length: a.length / 3 }, (_, i) => a[i * 3 + 2]!));
+    };
+    // a sunk stencil sits 0.016 behind the one showing
+    const visible = (m: Mesh): boolean => maxZ(m) > Math.max(...st.map(maxZ)) - 0.008;
+    const st = pos.map(([m]) => m).filter((m) => m.name.includes('stencil'));
+    for (const [m, before] of pos) {
+      const tex = m.name.includes('stencil');
+      if (!tex) expect(Array.from(m.geometry.getAttribute('position').array as Float32Array)).toEqual(Array.from(before));
+    }
+    // green is dark: the paper stencil is up, the ink one sunk; back to bare swaps them back
+    expect(st.length).toBe(4);
+    for (const m of st) expect(visible(m)).toBe(m.name.includes('stencil:paper'));
     repaint(o, null);
-    steel.forEach((m, i) => expect(Array.from(m.geometry.getAttribute('position').array as Float32Array)).toEqual(Array.from(before[i]!)));
+    for (const m of st) expect(visible(m)).toBe(m.name.includes('stencil:ink'));
+    // the painted skins carry paint coverage in the finish channel
+    const pp = crate({ size: 'M', seed: 2, paint: 'paint-green' });
+    const r = paintRanges(pp)[0]!;
+    const part = nodes(pp).find((n) => n.name === r.node)!.parts.find((q) => q.material === r.material && !q.texture)!;
+    expect(part.geometry.getAttribute('surf').getZ(r.ranges[0]![0])).toBe(1);
   });
 
   it('is registered with its sizes and paints', () => {

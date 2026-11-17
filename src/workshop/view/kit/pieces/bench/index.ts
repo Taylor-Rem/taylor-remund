@@ -106,63 +106,87 @@ function darkenDown(g: BufferGeometry, yTop: number, yBottom: number, amount: nu
   return g;
 }
 
-function addSection(b: NodeBuilder, R: Rng, o: { x0: number; width: number; depth: number; thickness: number; apron: number; detail: 'high' | 'low'; joints: { left?: boolean; right?: boolean }; neighbours?: { left?: boolean; right?: boolean }; rows?: { widths: number[]; tones: number[] } }): void {
-  const { x0, width, depth } = o;
-  const x1 = x0 + width;
+/** How dark the bench reads against what stands on it: the `wood` token, taken well down (walnut in lamplight, not pine). */
+const BENCH_SHADE = 0.55;
+
+interface TopOptions {
+  x0: number;
+  x1: number;
+  depth: number;
+  thickness: number;
+  apron: number;
+  detail: 'high' | 'low';
+  /** x of each joint between bolted sections (inside x0..x1): a fine seam in the nose and apron, and a mending plate. */
+  joints: number[];
+  /** Plates also at the outer ends (a lone section showing where its neighbours bolt on). */
+  endPlates?: { left?: boolean; right?: boolean };
+}
+
+/**
+ * The bench top: long boards running the whole length in rows, each row cut
+ * into boards of uneven length so the butt joints stagger (grain flows
+ * along each board, tone barely changes board to board); the nose plank and
+ * the apron are cut at the section joints with a fine seam, and the joints
+ * carry steel mending plates on the apron.
+ */
+function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
+  const { x0, x1, depth } = o;
   const T = o.thickness;
   const low = o.detail === 'low';
   const zF = depth / 2, zB = -depth / 2;
-  // where another section butts on, the boards run flush into it (no end bevel: a tight seam)
-  const nl = !!o.neighbours?.left, nr = !!o.neighbours?.right;
-  const ends: Array<'nx' | 'px'> = [...(nl ? ['nx' as const] : []), ...(nr ? ['px' as const] : [])];
-  // planks: wide, front to back; the front one carries the nose
-  // the boards run on across sections: rows (widths, base tone) can be shared by the caller
-  const nP = o.rows ? o.rows.widths.length : Math.max(3, Math.round(depth / 1.15));
-  const gap = 0.014;
-  const widths = o.rows ? o.rows.widths : Array.from({ length: nP }, () => 1 + R.spread(0.12));
+  const nP = Math.max(3, Math.round(depth / 1.15));
+  const gap = 0.012;
+  const widths = Array.from({ length: nP }, () => 1 + R.spread(0.12));
   const sum = widths.reduce((s, w) => s + w, 0);
   const avail = depth - gap * (nP - 1);
+  const seam = 0.003;
+  const tone = (): { seed: number; jitter: number; warm: number; shade: number } => ({ seed: R.int(0, 1e6), jitter: 0.045, warm: 0.02, shade: BENCH_SHADE });
+  const cuts = [x0, ...o.joints, x1];
   let z = zB;
-  // one board in the section is two boards butted end to end
-  const cutPlank = R.int(0, nP - 2);
   for (let i = 0; i < nP; i++) {
     const pw = (widths[i]! / sum) * avail;
     const za = z, zb = z + pw;
-    // a row keeps its board's tone across sections (a little drift where a new board starts)
-    const tone = o.rows ? { seed: o.rows.tones[i]! * 1000 + R.int(0, 3), jitter: 0.07, warm: 0.04 } : { seed: R.int(0, 1e6), jitter: 0.09, warm: 0.05 };
     if (i === nP - 1) {
-      const g = nosePlank(x0, x1, za, zb, T, o.detail, { left: !nl, right: !nr });
-      // a few knocks along the front edge, where things were dropped
-      const dings = low ? 0 : 3 + R.int(0, 2);
-      for (let k = 0; k < dings; k++) {
-        const x = x0 + 0.3 + R() * (width - 0.6);
-        const a = R.range(0.15, 1.3);
-        dent(g, [x, -NOSE_R + Math.cos(a) * NOSE_R, zb - NOSE_R + Math.sin(a) * NOSE_R], [0, Math.cos(a), Math.sin(a)], R.range(0.04, 0.08), R.range(0.008, 0.016));
+      // the nose plank, one length per section
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const xa = cuts[k]! + (k > 0 ? seam : 0), xb = cuts[k + 1]! - (k < cuts.length - 2 ? seam : 0);
+        const g = nosePlank(xa, xb, za, zb, T, o.detail, { left: true, right: true });
+        const dings = low ? 0 : Math.max(1, Math.round((xb - xa) * 0.8));
+        for (let d = 0; d < dings; d++) {
+          const x = xa + 0.3 + R() * (xb - xa - 0.6);
+          const a = R.range(0.15, 1.3);
+          dent(g, [x, -NOSE_R + Math.cos(a) * NOSE_R, zb - NOSE_R + Math.sin(a) * NOSE_R], [0, Math.cos(a), Math.sin(a)], R.range(0.04, 0.08), R.range(0.008, 0.016));
+        }
+        b.add(large(part('wood', g, 'wood', tone())));
       }
-      b.add(large(part('wood', g, 'wood', tone)));
     } else {
-      const cuts: number[] = [];
-      if (i === cutPlank) cuts.push(x0 + width * R.range(0.25, 0.75));
-      const xs = [x0, ...cuts, x1];
+      // boards of uneven length, butt joints staggered row to row
+      const xs = [x0];
+      let x = x0 + R.range(1.2, 5.5);
+      while (x < x1 - 1.0) {
+        xs.push(x);
+        x += R.range(3.4, 6.8);
+      }
+      xs.push(x1);
       for (let k = 0; k < xs.length - 1; k++) {
-        const g = bevelBox({ min: [xs[k]! + (k > 0 ? 0.004 : 0), -T, za], max: [xs[k + 1]! - (k < xs.length - 2 ? 0.004 : 0), 0, zb], c: low ? 0.008 : 0.014, omit: ['ny', ...(k === 0 && nl ? ['nx' as const] : []), ...(k === xs.length - 2 && nr ? ['px' as const] : [])], wear: 0.7 });
-        b.add(large(part('wood', g, 'wood', { ...tone, seed: tone.seed + k })));
+        const g = bevelBox({ min: [xs[k]! + (k > 0 ? seam : 0), -T, za], max: [xs[k + 1]! - (k < xs.length - 2 ? seam : 0), 0, zb], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
+        b.add(large(part('wood', g, 'wood', tone())));
       }
     }
     z = zb + gap;
   }
-  // the apron under the front edge, set back a little, its lower half in the dark
+  // the apron under the front edge, one length per section, its lower half in the dark
   const ap = o.apron;
   const za = zF - 0.05;
-  {
-    const g = bevelBox({ min: [x0, -T - ap, za - 0.12], max: [x1, -T + 0.001, za], c: 0.02, omit: ['py', 'nz', ...ends], wear: 0.6 });
+  for (let k = 0; k < cuts.length - 1; k++) {
+    const xa = cuts[k]! + (k > 0 ? seam : 0), xb = cuts[k + 1]! - (k < cuts.length - 2 ? seam : 0);
+    const g = bevelBox({ min: [xa, -T - ap, za - 0.12], max: [xb, -T + 0.001, za], c: 0.016, omit: ['py', 'nz'], wear: 0.6 });
     darkenDown(g, -T - 0.05, -T - ap, 1.4);
-    b.add(large(part('wood', g, 'wood', { seed: R.int(0, 1e6), shade: 0.82, jitter: 0.05 })));
+    b.add(large(part('wood', g, 'wood', { ...tone(), shade: BENCH_SHADE * 0.85 })));
   }
-  // the dark seam between the top's underside and the apron (a shadow line)
-  // mending plates on the apron where sections meet
-  for (const [on, xj] of [[o.joints.left, x0], [o.joints.right, x1]] as const) {
-    if (!on) continue;
+  // steel mending plates over the joints, four bolts each
+  const plates = [...o.joints, ...(o.endPlates?.left ? [x0] : []), ...(o.endPlates?.right ? [x1] : [])];
+  for (const xj of plates) {
     const pw = 0.34, ph = 0.3, pt = 0.012;
     const yc = -T - ap * 0.42 + R.spread(0.02);
     const xc = xj + R.spread(0.01);
@@ -181,7 +205,7 @@ export function benchSection(o: BenchSectionOptions = {}): Piece {
   const detail = o.detail ?? 'high';
   const width = o.width ?? 5, depth = o.depth ?? 10;
   const b = piece('bench-section', { detail, seed, ao: { distance: 0.25 } });
-  addSection(b, rng(seed), { x0: -width / 2, width, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: o.joints ?? {} });
+  addTop(b, rng(seed), { x0: -width / 2, x1: width / 2, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: [], endPlates: o.joints ?? {} });
   return b.build();
 }
 
@@ -190,19 +214,15 @@ export interface BenchOptions extends Omit<BenchSectionOptions, 'joints'> {
   sections?: number;
 }
 
-/** Several sections bolted together, centred on x = 0. */
+/** Several sections bolted together, centred on x = 0: the boards run on across the joints; the joints show in the nose, the apron and the plates. */
 export function bench(o: BenchOptions = {}): Piece {
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
   const n = Math.max(1, o.sections ?? 2);
   const width = o.width ?? 5, depth = o.depth ?? 10;
   const b = piece('bench', { detail, seed, ao: { distance: 0.25 } });
-  const RR = rng(seed);
-  const nP = Math.max(3, Math.round(depth / 1.15));
-  const rows = { widths: Array.from({ length: nP }, () => 1 + RR.spread(0.12)), tones: Array.from({ length: nP }, () => RR.int(0, 1e5)) };
-  for (let i = 0; i < n; i++) {
-    addSection(b, rng(seed * 101 + i), { x0: -(n * width) / 2 + i * width, width, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: { left: i > 0 }, neighbours: { left: i > 0, right: i < n - 1 }, rows });
-  }
+  const x0 = -(n * width) / 2;
+  addTop(b, rng(seed), { x0, x1: -x0, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: Array.from({ length: n - 1 }, (_, i) => x0 + (i + 1) * width) });
   return b.build();
 }
 
@@ -324,7 +344,7 @@ export function laneTape(o: LaneTapeOptions): Piece {
     // laid by hand: a fraction of a degree off the line
     const ang = Math.atan2(-dz, dx) + R.spread(0.004);
     transform(g, chain(T(ax, 0, az), new Matrix4().makeRotationY(ang), T(-pre, 0, 0)));
-    b.add(part('tape', g, 'tape-yellow', { seed: R.int(0, 1e6), jitter: 0.03 }));
+    b.add(part('tape', g, 'tape-yellow', { seed: R.int(0, 1e6), jitter: 0.04, shade: 0.8, warm: 0.03 })); // a little darker and dirtier than the token: the Button's hazard plate owns pure yellow
   }
   return b.build();
 }
