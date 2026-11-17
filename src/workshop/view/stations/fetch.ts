@@ -278,12 +278,13 @@ export class FetchPerformer {
 
     // ── pointer attention ──
     let pointerOn = false;
+    let pointerNear = false;
     if (i.pointer) {
       const sx = this.px.push(i.pointer[0], dt);
       const sz = this.pz.push(i.pointer[2], dt);
       if (Math.hypot(sx, sz) > F.pointerMoving) this.pointerMovedAt = i.time;
-      const near = Math.hypot(i.pointer[0] - P.x, i.pointer[2] - P.z) < F.pointerNear;
-      pointerOn = near || i.time - this.pointerMovedAt < F.pointerMemory;
+      pointerNear = Math.hypot(i.pointer[0] - P.x, i.pointer[2] - P.z) < F.pointerNear;
+      pointerOn = pointerNear || i.time - this.pointerMovedAt < F.pointerMemory;
     } else {
       this.px.reset();
       this.pz.reset();
@@ -423,7 +424,8 @@ export class FetchPerformer {
           turnOk = true;
           present = u > 0.08;
           blinkOk = u > 1.6;
-          pointerOk = u > 2.4 && pointerOn;
+          // the ask holds the visitor's eye: only a pointer close by (their hand reaching in) takes it
+          pointerOk = u > 2.4 && pointerNear;
           if (i.nearHeld) {
             arms = HANDS_UP;
             look = new Vector3(...i.nearHeld);
@@ -678,7 +680,8 @@ export class FetchPerformer {
     // contact shadow: under the tyre, fading as it leaves the bench
     const foot = new Vector3().setFromMatrixPosition(root);
     const h = Math.max(0, foot.y);
-    const shadow = { x: foot.x, z: foot.z, y: 0, r: 0.2 * (1 + h * 0.8), strength: Math.exp(-h * 3.5) };
+    // a contact shadow only: the stage's cast shadow does the rest once it leaves the bench
+    const shadow = { x: foot.x, z: foot.z, y: 0, r: 0.2, strength: 1 - smoothstep(0, 0.3, h) };
     return { pose, root, shadow };
   }
 
@@ -904,7 +907,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           blob.z = out.shadow.z;
           blob.rx = blob.rz = out.shadow.r;
           blob.strength = out.shadow.strength;
-          shadows.set([blob]);
+          shadows.set(blob.strength > 0.03 ? [blob] : []);
         }
       },
       dispose() {
