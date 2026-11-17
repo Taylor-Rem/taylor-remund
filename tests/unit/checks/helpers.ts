@@ -23,6 +23,12 @@ afterAll(() => {
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+/** `v`, or throws: for indexed access under noUncheckedIndexedAccess. */
+export function must<T>(v: T | undefined, what = 'value'): T {
+  if (v === undefined) throw new Error(`test fixture: ${what} is undefined`);
+  return v;
+}
+
 export function write(path: string, data: string | Buffer): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, data);

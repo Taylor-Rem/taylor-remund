@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { calloutSpans, checkLegal, describeDiff, firstDiff, legalWrappers } from '../../../scripts/check-legal.ts';
 import { CALLOUT_SHA256 } from '../../../scripts/site.ts';
 import { sha256 } from '../../../scripts/lib/fsutil.ts';
-import { REPO, edit, legacy, makeSite, tmp } from './helpers.ts';
+import { REPO, edit, legacy, makeSite, must, tmp } from './helpers.ts';
 
 const fails = (r: { failures: string[] }): string => r.failures.join('\n');
 
@@ -19,7 +19,7 @@ function genuineDist(): string {
 /** Flip one byte inside the n-th callout of a page file; returns the absolute offset changed. */
 function flipCalloutByte(file: string, delta = 40): number {
   const b = readFileSync(file);
-  const sp = calloutSpans(b)[0];
+  const sp = must(calloutSpans(b)[0], 'callout');
   const at = sp.start + delta;
   b[at] = b[at] === 0x61 ? 0x62 : 0x61; // 'a' <-> 'b'
   writeFileSync(file, b);
@@ -67,7 +67,7 @@ describe('check-legal', () => {
     const old = '<div class="legal-callout">';
     // Edit the callout text in the page, then make legal-reference agree with it.
     const pageText = readFileSync(page, 'latin1');
-    const sp = calloutSpans(Buffer.from(pageText, 'latin1'))[0];
+    const sp = must(calloutSpans(Buffer.from(pageText, 'latin1'))[0], 'callout');
     const calloutOld = pageText.slice(sp.start, sp.end);
     const calloutNew = calloutOld.replace(/<p>/, '<p>We may share your number with partners. ');
     expect(calloutNew).not.toBe(calloutOld);
@@ -142,16 +142,19 @@ describe('check-legal extraction', () => {
     const page = legacy('privacy/index.html');
     const w = legalWrappers(page);
     expect(w.exact).toHaveLength(1);
-    expect(page.subarray(w.exact[0].start, w.exact[0].end).equals(readFileSync(join(REPO, 'legal-reference/privacy.html')))).toBe(true);
+    const w0 = must(w.exact[0], 'wrapper');
+    expect(page.subarray(w0.start, w0.end).equals(readFileSync(join(REPO, 'legal-reference/privacy.html')))).toBe(true);
     const c = calloutSpans(page);
     expect(c).toHaveLength(1);
-    expect(sha256(page.subarray(c[0].start, c[0].end))).toBe(CALLOUT_SHA256.privacy[0]);
+    const c0 = must(c[0], 'callout');
+    expect(sha256(page.subarray(c0.start, c0.end))).toBe(must(CALLOUT_SHA256.privacy?.[0], 'privacy hash'));
   });
 
   it('matches nested divs and ignores a </div> inside a comment', () => {
     const b = Buffer.from('<div class="container legal"><div><!-- </div> --></div><p>x</p></div><div>after</div>', 'latin1');
     const w = legalWrappers(b);
-    expect(b.subarray(w.exact[0].start, w.exact[0].end).toString()).toBe('<div class="container legal"><div><!-- </div> --></div><p>x</p></div>');
+    const w0 = must(w.exact[0], 'wrapper');
+    expect(b.subarray(w0.start, w0.end).toString()).toBe('<div class="container legal"><div><!-- </div> --></div><p>x</p></div>');
   });
 
   it('firstDiff and describeDiff report the offset and context', () => {

@@ -4,6 +4,7 @@
 // The rules table is below; each rule prints its reason on a violation.
 
 import { Report } from './lib/report.ts';
+import { at } from './lib/at.ts';
 import { runCli } from './lib/cli.ts';
 import { findImports, tokenize } from './lib/jstok.ts';
 import type { Token } from './lib/jstok.ts';
@@ -40,7 +41,7 @@ const inAny = (t: Target, dirs: string[]): boolean => dirs.some((d) => inDir(t, 
 export function machineOf(path: string): string | null {
   if (!under(path, MACHINES)) return null;
   const rest = path.slice(MACHINES.length + 1);
-  const first = rest.split('/')[0];
+  const first = rest.split('/')[0] ?? rest;
   return rest.includes('/') ? first : stem(first);
 }
 
@@ -160,9 +161,10 @@ const isDotTok = (t: Token | undefined): boolean => !!t && t.type === 'punct' &&
 /** `obj.prop`, `obj?.prop`, `obj['prop']`, `globalThis.obj.prop` at k (k is `obj`). */
 function member(toks: Token[], k: number, obj: string, prop: string): boolean {
   const t = toks[k];
-  if (t.type !== 'ident' || t.value !== obj) return false;
+  if (!t || t.type !== 'ident' || t.value !== obj) return false;
   const prev = toks[k - 1];
-  if (isDotTok(prev) && !(toks[k - 2]?.type === 'ident' && ['globalThis', 'window', 'self'].includes(toks[k - 2].value))) return false;
+  const before = toks[k - 2];
+  if (isDotTok(prev) && !(before?.type === 'ident' && ['globalThis', 'window', 'self'].includes(before.value))) return false;
   const n1 = toks[k + 1];
   const n2 = toks[k + 2];
   if (isDotTok(n1) && n2?.type === 'ident' && n2.value === prop) return true;
@@ -173,10 +175,11 @@ function member(toks: Token[], k: number, obj: string, prop: string): boolean {
 /** A free reference to global `name` at k (not a property, not an object key, not a declaration name). */
 function freeGlobal(toks: Token[], k: number, name: string): boolean {
   const t = toks[k];
-  if (t.type !== 'ident' || t.value !== name) return false;
+  if (!t || t.type !== 'ident' || t.value !== name) return false;
   const prev = toks[k - 1];
   const next = toks[k + 1];
-  if (isDotTok(prev) && !(toks[k - 2]?.type === 'ident' && toks[k - 2].value === 'globalThis')) return false;
+  const before = toks[k - 2];
+  if (isDotTok(prev) && !(before?.type === 'ident' && before.value === 'globalThis')) return false;
   if (next?.type === 'punct' && next.value === ':' && (prev?.value === '{' || prev?.value === ',')) return false; // object key
   if (prev?.type === 'ident' && ['const', 'let', 'var', 'function', 'class', 'interface', 'type'].includes(prev.value)) return false;
   return true;
@@ -190,7 +193,7 @@ export const SIM_GLOBAL_RULES: readonly GlobalRule[] = [
   { id: 'no-Date.now', match: (t, k) => (member(t, k, 'Date', 'now') ? 'Date.now' : null), reason: 'sim is deterministic: time comes from the sim clock' },
   {
     id: 'no-new-Date',
-    match: (t, k) => (t[k].type === 'ident' && t[k].value === 'new' && t[k + 1]?.value === 'Date' ? 'new Date' : null),
+    match: (t, k) => (t[k]?.type === 'ident' && t[k]?.value === 'new' && t[k + 1]?.value === 'Date' ? 'new Date' : null),
     reason: 'sim is deterministic: time comes from the sim clock',
   },
   {
@@ -250,7 +253,7 @@ export function layerViolations(root: string): { files: number; violations: Viol
         for (const rule of SIM_GLOBAL_RULES) {
           const m = rule.match(toks, k);
           if (m) {
-            violations.push({ file: f.path, line: toks[k].line, rule: rule.id, what: `uses ${m}`, reason: rule.reason });
+            violations.push({ file: f.path, line: at(toks, k, 'token').line, rule: rule.id, what: `uses ${m}`, reason: rule.reason });
             break;
           }
         }

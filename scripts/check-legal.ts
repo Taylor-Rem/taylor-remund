@@ -9,6 +9,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Report } from './lib/report.ts';
+import { at } from './lib/at.ts';
 import { runCli } from './lib/cli.ts';
 import { excerpt, isDir, isFile, sha256, walk } from './lib/fsutil.ts';
 import { classList, findElements, scanTags } from './lib/html.ts';
@@ -93,7 +94,7 @@ export function checkWrappers(r: Report, dist: string, refDir: string): void {
       r.fail(`[1] ${p.path}: ${exact.length} elements open with ${LEGAL_WRAPPER_OPEN}; expected exactly 1`);
       continue;
     }
-    const sp = exact[0];
+    const sp = at(exact, 0, 'wrapper');
     if (sp.end < 0) {
       r.fail(`[1] ${p.path}: ${LEGAL_WRAPPER_OPEN} is never closed`);
       continue;

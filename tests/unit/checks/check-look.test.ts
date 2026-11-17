@@ -64,14 +64,19 @@ describe('check-look', () => {
     expect(rulesOf('src/workshop/view/stations/belt.ts', code)).toEqual([]);
   });
 
-  it('scans dev pages and prints file:line rule — excerpt', () => {
+  it('does not scan dev pages; prints file:line rule — excerpt for workshop files (.astro scripts included)', () => {
     const root = tmp('look-');
-    write(join(root, 'src/dev-pages/catalogue.astro'), `---\nconst bg = '#000000';\n---\n<div style="color: #fff">x</div>\n<script>\nimport { BoxGeometry } from 'three';\nnew BoxGeometry();\n</script>`);
+    // Dev pages are review scaffolding that never ships: throwaway lights and test geometry are fine there.
+    write(join(root, 'src/dev-pages/catalogue.astro'), `---\nconst bg = '#000000';\n---\n<script>\nimport { BoxGeometry } from 'three';\nnew BoxGeometry(); new DirectionalLight(0xffffff);\n</script>`);
+    write(join(root, 'src/dev-pages/lights.ts'), `export const l = new THREE.PointLight('#ffeeaa');`);
+    write(join(root, 'src/workshop/ui/Stage.astro'), `---\nconst bg = '#000000';\n---\n<div style="color: #fff">x</div>\n<script>\nimport { BoxGeometry } from 'three';\nnew BoxGeometry();\n</script>`);
     write(join(root, 'src/workshop/view/palette.ts'), `export const ink = '#101828';`);
     const r = checkLook({ root });
     expect(r.failures).toEqual([
-      `src/dev-pages/catalogue.astro:2 colour-in-palette: colour string literal outside src/workshop/view/palette.ts — const bg = '#000000';`,
-      `src/dev-pages/catalogue.astro:7 mesh-from-kit: new BoxGeometry() outside src/workshop/view/kit — new BoxGeometry();`,
+      `src/workshop/ui/Stage.astro:2 colour-in-palette: colour string literal outside src/workshop/view/palette.ts — const bg = '#000000';`,
+      `src/workshop/ui/Stage.astro:7 mesh-from-kit: new BoxGeometry() outside src/workshop/view/kit — new BoxGeometry();`,
     ]);
+    expect(r.render()).toMatch(/2 source files under src\/workshop;/);
+    expect(r.render()).toMatch(/not checked: src\/dev-pages/);
   });
 });

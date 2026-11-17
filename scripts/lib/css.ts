@@ -1,5 +1,7 @@
 // URL references in CSS: url(...) and @import.
 
+import { group } from './at.ts';
+
 export interface CssRef {
   url: string;
   kind: 'url' | 'import';
@@ -23,7 +25,7 @@ export function cssRefs(cssIn: string): CssRef[] {
   const importRe = /@import\s+(?:url\(\s*([^)]*?)\s*\)|("[^"]*"|'[^']*'))/gi;
   const importSpans: [number, number][] = [];
   for (let m = importRe.exec(css); m; m = importRe.exec(css)) {
-    refs.push({ url: unquote(m[1] ?? m[2]), kind: 'import', fontFallback: false });
+    refs.push({ url: unquote(m[1] ?? group(m, 2)), kind: 'import', fontFallback: false });
     importSpans.push([m.index, m.index + m[0].length]);
   }
   // Find which url()s are later sources inside an @font-face src list.
@@ -32,11 +34,13 @@ export function cssRefs(cssIn: string): CssRef[] {
   for (let f = faceRe.exec(css); f; f = faceRe.exec(css)) {
     const bodyStart = f.index + f[0].indexOf('{') + 1;
     const srcRe = /(^|[;{\s])src\s*:([^;}]*)/gi;
-    for (let s = srcRe.exec(f[1]); s; s = srcRe.exec(f[1])) {
-      const declStart = bodyStart + s.index + s[0].length - s[2].length;
+    const body = group(f, 1);
+    for (let s = srcRe.exec(body); s; s = srcRe.exec(body)) {
+      const value = group(s, 2);
+      const declStart = bodyStart + s.index + s[0].length - value.length;
       const urlRe = /url\(/gi;
       let first = true;
-      for (let u = urlRe.exec(s[2]); u; u = urlRe.exec(s[2])) {
+      for (let u = urlRe.exec(value); u; u = urlRe.exec(value)) {
         if (!first) fallbackAt.add(declStart + u.index);
         first = false;
       }
@@ -45,7 +49,7 @@ export function cssRefs(cssIn: string): CssRef[] {
   const urlRe = /url\(\s*("[^"]*"|'[^']*'|[^)]*?)\s*\)/gi;
   for (let m = urlRe.exec(css); m; m = urlRe.exec(css)) {
     if (importSpans.some(([a, b]) => m!.index >= a && m!.index < b)) continue;
-    refs.push({ url: unquote(m[1]), kind: 'url', fontFallback: fallbackAt.has(m.index) });
+    refs.push({ url: unquote(group(m, 1)), kind: 'url', fontFallback: fallbackAt.has(m.index) });
   }
   return refs.filter((r) => r.url !== '');
 }

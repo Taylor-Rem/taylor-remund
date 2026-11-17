@@ -81,7 +81,7 @@ const EXT = /\.(m|c)?[jt]sx?$/;
 
 /** Where an import specifier written in `fromPath` points. */
 export function resolveSpecifier(root: string, fromPath: string, spec: string, aliases: [string, string][]): Target {
-  let s = spec.split('?')[0];
+  let s = spec.split('?')[0] ?? spec;
   for (const [from, to] of aliases) {
     if (s === from.replace(/\/$/, '') || s.startsWith(from)) {
       s = to + s.slice(from.length);
@@ -95,7 +95,7 @@ export function resolveSpecifier(root: string, fromPath: string, spec: string, a
   if (/^src\//.test(s)) return { kind: 'file', path: normalizeModulePath(root, posix.normalize(s)) };
   if (/^[a-z]+:/i.test(s) && !s.startsWith('node:')) return { kind: 'virtual', specifier: spec };
   const parts = s.replace(/^node:/, '').split('/');
-  const name = s.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  const name = s.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? s);
   return { kind: 'package', name: s.startsWith('node:') ? 'node:' + name : name, specifier: spec };
 }
 

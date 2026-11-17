@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { checkClaims, claimProblems } from '../../../scripts/check-claims.ts';
-import { tmp, write } from './helpers.ts';
+import { must, tmp, write } from './helpers.ts';
 
 describe('check-claims', () => {
   it('passes with 0 entries when src/content does not exist', () => {
@@ -46,7 +46,7 @@ describe('check-claims', () => {
     write(join(root, 'src/content/broken.json'), '{ "text": ');
     const f = checkClaims({ root }).failures;
     expect(f).toEqual([
-      'src/content/broken.json: $: not valid JSON ' + f[0].slice('src/content/broken.json: $: not valid JSON '.length),
+      'src/content/broken.json: $: not valid JSON ' + must(f[0]).slice('src/content/broken.json: $: not valid JSON '.length),
       'src/content/projects.json: $.projects[0].summary: fact has no "source" (a fact that is not sourced does not appear)',
       'src/content/projects.json: $.projects[1].summary: fact has no "source" (a fact that is not sourced does not appear)',
       'src/content/projects.json: $.projects[2]["odd key"]: entry has "text" but no "kind" (fact, voice or ui)',

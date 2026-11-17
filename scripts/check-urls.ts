@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Report } from './lib/report.ts';
+import { group } from './lib/at.ts';
 import { runCli } from './lib/cli.ts';
 import { isDir, isFile, walk } from './lib/fsutil.ts';
 import { attr, findElements, robotsMetas, scanTags, collectIds, visibleText } from './lib/html.ts';
@@ -175,7 +176,7 @@ export function checkUnlinked(r: Report, dist: string, pages: BuiltPage[]): void
   if (maps.length === 0) r.note('no sitemap*.xml in the build');
   for (const m of maps) {
     const xml = readFileSync(join(dist, m), 'utf8');
-    const locs = [...xml.matchAll(/<loc>\s*([^<]*?)\s*<\/loc>/gi)].map((x) => x[1]);
+    const locs = [...xml.matchAll(/<loc>\s*([^<]*?)\s*<\/loc>/gi)].map((x) => group(x, 1));
     let bad = 0;
     for (const loc of locs) {
       const c = classify(loc.replace(/&amp;/g, '&'), '/');

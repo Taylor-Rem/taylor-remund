@@ -4,6 +4,8 @@
 // Offsets are indices into the string passed in. To get byte offsets, pass
 // the file decoded as 'latin1' (one char per byte).
 
+import { at } from './at.ts';
+
 export interface Tag {
   /** Lower-case element name. */
   name: string;
@@ -56,7 +58,7 @@ export function scanTags(html: string): Tag[] {
     let selfClosing = false;
     // attributes
     while (j < n) {
-      while (j < n && /\s/.test(html[j])) j++;
+      while (j < n && /\s/.test(html.charAt(j))) j++;
       if (j >= n) break;
       if (html[j] === '>') {
         j++;
@@ -78,11 +80,11 @@ export function scanTags(html: string): Tag[] {
       }
       const attrName = an[0].toLowerCase();
       j += an[0].length;
-      while (j < n && /\s/.test(html[j])) j++;
+      while (j < n && /\s/.test(html.charAt(j))) j++;
       let value = '';
       if (html[j] === '=') {
         j++;
-        while (j < n && /\s/.test(html[j])) j++;
+        while (j < n && /\s/.test(html.charAt(j))) j++;
         const q = html[j];
         if (q === '"' || q === "'") {
           const close = html.indexOf(q, j + 1);
@@ -165,11 +167,10 @@ export function collectIds(html: string, withNames = false): Set<string> {
  * or -1 when it is never closed.
  */
 export function matchingCloseEnd(tags: Tag[], openIndex: number): number {
-  const open = tags[openIndex];
+  const open = at(tags, openIndex, 'tag');
   if (open.selfClosing || VOID_ELEMENTS.has(open.name)) return open.end;
   let depth = 0;
-  for (let k = openIndex; k < tags.length; k++) {
-    const t = tags[k];
+  for (const t of tags.slice(openIndex)) {
     if (t.name !== open.name) continue;
     if (t.closing) {
       depth--;
@@ -207,14 +208,14 @@ export function visibleText(html: string): string {
   let out = '';
   let pos = 0;
   for (let k = 0; k < tags.length; k++) {
-    const t = tags[k];
+    const t = at(tags, k, 'tag');
     out += html.slice(pos, t.start);
     pos = t.end;
     if (!t.closing && (t.name === 'script' || t.name === 'style' || t.name === 'template')) {
       const close = tags.findIndex((u, m) => m > k && u.closing && u.name === t.name);
       if (close >= 0) {
         k = close;
-        pos = tags[close].end;
+        pos = at(tags, close, 'tag').end;
       }
     }
     // Block-ish boundaries become spaces so words don't run together.
@@ -233,7 +234,7 @@ export function inlineStyles(html: string): string[] {
   tags.forEach((t, k) => {
     if (t.closing || t.name !== 'style') return;
     const close = tags.findIndex((u, m) => m > k && u.closing && u.name === 'style');
-    out.push(html.slice(t.end, close >= 0 ? tags[close].start : html.length));
+    out.push(html.slice(t.end, close >= 0 ? at(tags, close, 'tag').start : html.length));
   });
   return out;
 }
@@ -245,7 +246,7 @@ export function scripts(html: string): { tag: Tag; body: string }[] {
   tags.forEach((t, k) => {
     if (t.closing || t.name !== 'script') return;
     const close = tags.findIndex((u, m) => m > k && u.closing && u.name === 'script');
-    out.push({ tag: t, body: html.slice(t.end, close >= 0 ? tags[close].start : html.length) });
+    out.push({ tag: t, body: html.slice(t.end, close >= 0 ? at(tags, close, 'tag').start : html.length) });
   });
   return out;
 }
@@ -254,7 +255,7 @@ export function scripts(html: string): { tag: Tag; body: string }[] {
 export function srcsetUrls(srcset: string): string[] {
   return srcset
     .split(',')
-    .map((s) => s.trim().split(/\s+/)[0])
+    .map((s) => s.trim().split(/\s+/)[0] ?? '')
     .filter(Boolean);
 }
 

@@ -2,6 +2,8 @@
 // literals without being fooled by comments, strings, template literals or
 // regular expressions. Not a parser.
 
+import { at, group } from './at.ts';
+
 export type TokType = 'ident' | 'num' | 'str' | 'tmpl' | 'regex' | 'punct';
 
 export interface Token {
@@ -44,7 +46,7 @@ export function tokenize(src: string): Token[] {
     const startLine = line;
     let s = '';
     while (i < n) {
-      const c = src[i];
+      const c = src.charAt(i);
       if (c === '\\') {
         const d = src[i + 1] ?? '';
         if (d === '\n') line++;
@@ -72,7 +74,7 @@ export function tokenize(src: string): Token[] {
   };
 
   while (i < n) {
-    const c = src[i];
+    const c = src.charAt(i);
     if (c === '\n') {
       line++;
       i++;
@@ -149,7 +151,7 @@ export function tokenize(src: string): Token[] {
         j++;
       }
       j++;
-      while (j < n && /[A-Za-z]/.test(src[j])) j++;
+      while (j < n && /[A-Za-z]/.test(src.charAt(j))) j++;
       toks.push({ type: 'regex', value: src.slice(i, j), line: startLine });
       i = j;
       continue;
@@ -217,7 +219,7 @@ export function findImports(toks: Token[]): ImportRef[] {
     return null;
   };
   for (let k = 0; k < toks.length; k++) {
-    const t = toks[k];
+    const t = at(toks, k, 'token');
     if (t.type !== 'ident' || isDot(toks[k - 1])) continue;
     const next = toks[k + 1];
     if (t.value === 'import') {
@@ -236,10 +238,11 @@ export function findImports(toks: Token[]): ImportRef[] {
       const typeOnly = next.type === 'ident' && next.value === 'type' && toks[k + 2]?.value !== 'from' && toks[k + 2]?.value !== ',';
       // scan to `from "x"`
       for (let m = k + 1; m < toks.length && m < k + 400; m++) {
-        const u = toks[m];
+        const u = at(toks, m, 'token');
+        const after = toks[m + 1];
         if (u.type === 'punct' && u.value === ';') break;
-        if (u.type === 'ident' && u.value === 'from' && toks[m + 1]?.type === 'str') {
-          out.push({ specifier: toks[m + 1].value, line: t.line, kind: 'static', typeOnly });
+        if (u.type === 'ident' && u.value === 'from' && after?.type === 'str') {
+          out.push({ specifier: after.value, line: t.line, kind: 'static', typeOnly });
           k = m + 1;
           break;
         }
@@ -249,7 +252,7 @@ export function findImports(toks: Token[]): ImportRef[] {
     if (t.value === 'export') {
       let m = k + 1;
       let typeOnly = false;
-      if (toks[m]?.type === 'ident' && toks[m].value === 'type') {
+      if (toks[m]?.type === 'ident' && toks[m]?.value === 'type') {
         typeOnly = true;
         m++;
       }
@@ -258,8 +261,9 @@ export function findImports(toks: Token[]): ImportRef[] {
       if (head.value === '{') {
         let depth = 0;
         for (; m < toks.length; m++) {
-          if (toks[m].value === '{' && toks[m].type === 'punct') depth++;
-          else if (toks[m].value === '}' && toks[m].type === 'punct') {
+          const u = at(toks, m, 'token');
+          if (u.value === '{' && u.type === 'punct') depth++;
+          else if (u.value === '}' && u.type === 'punct') {
             depth--;
             if (depth === 0) break;
           }
@@ -269,8 +273,10 @@ export function findImports(toks: Token[]): ImportRef[] {
         m++;
         if (toks[m]?.value === 'as') m += 2;
       } else continue;
-      if (toks[m]?.type === 'ident' && toks[m].value === 'from' && toks[m + 1]?.type === 'str') {
-        out.push({ specifier: toks[m + 1].value, line: t.line, kind: 'reexport', typeOnly });
+      const fromTok = toks[m];
+      const specTok = toks[m + 1];
+      if (fromTok?.type === 'ident' && fromTok.value === 'from' && specTok?.type === 'str') {
+        out.push({ specifier: specTok.value, line: t.line, kind: 'reexport', typeOnly });
         k = m + 1;
       }
       continue;
@@ -291,13 +297,14 @@ export function codeOf(file: string, text: string): string | null {
     const keep: [number, number][] = [];
     const fm = /^\s*---\r?\n([\s\S]*?)\r?\n---/.exec(text);
     if (fm) {
-      const s = text.indexOf(fm[1]);
-      keep.push([s, s + fm[1].length]);
+      const body = group(fm, 1);
+      const s = text.indexOf(body);
+      keep.push([s, s + body.length]);
     }
     const sre = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
     for (let m = sre.exec(text); m; m = sre.exec(text)) {
       const s = m.index + m[0].indexOf('>') + 1;
-      keep.push([s, s + m[1].length]);
+      keep.push([s, s + group(m, 1).length]);
     }
     keep.sort((x, y) => x[0] - y[0]);
     let out = '';

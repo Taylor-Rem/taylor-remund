@@ -1,7 +1,7 @@
 // check-look: gate G1 part one, "every mesh comes from the kit; every colour
 // is a palette token" (REWRITE.md § E3, § G P1).
 //
-// Static rules over the workshop sources (and the dev pages):
+// Static rules over the workshop sources (src/workshop; not src/dev-pages):
 // - geometry and mesh construction only in the kit,
 // - material construction only in the materials folder,
 // - colour literals only in the palette file.
@@ -9,13 +9,16 @@
 // GLSL is left alone: a vec3(...) in a shader is not checked.
 
 import { Report } from './lib/report.ts';
+import { at } from './lib/at.ts';
 import { runCli } from './lib/cli.ts';
 import { tokenize } from './lib/jstok.ts';
 import type { Token } from './lib/jstok.ts';
 import { sourceFiles, under } from './lib/source.ts';
 
 // ---- Where things may live (adjust here) -----------------------------------
-export const SCAN_DIRS: readonly string[] = ['src/workshop', 'src/dev-pages'];
+// src/dev-pages is review scaffolding that never ships (throwaway lights and
+// test geometry live there), so it is not scanned.
+export const SCAN_DIRS: readonly string[] = ['src/workshop'];
 export const KIT_DIRS: readonly string[] = ['src/workshop/view/kit'];
 export const MATERIAL_DIRS: readonly string[] = ['src/workshop/view/materials'];
 export const PALETTE_FILES: readonly string[] = ['src/workshop/view/palette.ts'];
@@ -75,7 +78,7 @@ function argsOf(toks: Token[], open: number): { inside: Token[]; end: number } {
   let depth = 0;
   const inside: Token[] = [];
   for (let k = open; k < toks.length; k++) {
-    const t = toks[k];
+    const t = at(toks, k, 'token');
     if (t.type === 'punct' && (t.value === '(' || t.value === '[' || t.value === '{')) {
       depth++;
       if (depth === 1) continue;
@@ -88,21 +91,27 @@ function argsOf(toks: Token[], open: number): { inside: Token[]; end: number } {
   return { inside, end: toks.length };
 }
 
+/** Index of `Name` in `[ns.]Name` starting at m. */
+function qualifiedName(toks: Token[], m: number): number {
+  return toks[m]?.type === 'ident' && toks[m + 1]?.value === '.' && toks[m + 2]?.type === 'ident' ? m + 2 : m;
+}
+
 /** `new [ns.]Name` at k: returns Name and the index of the token after it. */
 function newExpr(toks: Token[], k: number): { name: string; next: number } | null {
-  if (toks[k].type !== 'ident' || toks[k].value !== 'new') return null;
-  let m = k + 1;
-  if (toks[m]?.type === 'ident' && toks[m + 1]?.value === '.' && toks[m + 2]?.type === 'ident') m += 2;
-  if (toks[m]?.type !== 'ident') return null;
-  return { name: toks[m].value, next: m + 1 };
+  const t = toks[k];
+  if (t?.type !== 'ident' || t.value !== 'new') return null;
+  const m = qualifiedName(toks, k + 1);
+  const name = toks[m];
+  if (name?.type !== 'ident') return null;
+  return { name: name.value, next: m + 1 };
 }
 
 /** `extends [ns.]Name` at k. */
 function extendsExpr(toks: Token[], k: number): string | null {
-  if (toks[k].type !== 'ident' || toks[k].value !== 'extends') return null;
-  let m = k + 1;
-  if (toks[m]?.type === 'ident' && toks[m + 1]?.value === '.' && toks[m + 2]?.type === 'ident') m += 2;
-  return toks[m]?.type === 'ident' ? toks[m].value : null;
+  const t = toks[k];
+  if (t?.type !== 'ident' || t.value !== 'extends') return null;
+  const name = toks[qualifiedName(toks, k + 1)];
+  return name?.type === 'ident' ? name.value : null;
 }
 
 const isNum = (t: Token): boolean => t.type === 'num';
@@ -116,7 +125,7 @@ export function lookViolations(path: string, code: string): LookViolation[] {
   const palette = isPalette(path);
   const flagged = new Set<number>(); // token indexes already reported as colours
   const add = (k: number, rule: string): void => {
-    out.push({ file: path, line: toks[k].line, rule });
+    out.push({ file: path, line: at(toks, k, 'token').line, rule });
   };
   const colour = (k: number, rule: string): void => {
     if (palette || flagged.has(k)) return;
@@ -125,7 +134,7 @@ export function lookViolations(path: string, code: string): LookViolation[] {
   };
 
   for (let k = 0; k < toks.length; k++) {
-    const t = toks[k];
+    const t = at(toks, k, 'token');
     const ne = newExpr(toks, k);
     if (ne) {
       if (isGeometryClass(ne.name) && !inKit(path)) add(k, `mesh-from-kit: new ${ne.name}() outside ${KIT_DIRS.join(', ')}`);
@@ -133,7 +142,8 @@ export function lookViolations(path: string, code: string): LookViolation[] {
       if ((ne.name === 'Color' || LIGHTS.has(ne.name) || ne.name === 'Fog' || ne.name === 'FogExp2') && toks[ne.next]?.value === '(') {
         const { inside } = argsOf(toks, ne.next);
         const lits = inside.filter((u) => isLiteralColour(u) || (ne.name === 'Color' && isNum(u)));
-        if (lits.length && !palette) colour(toks.indexOf(lits[0], k), `colour-in-palette: literal colour in new ${ne.name}(…) outside ${PALETTE_FILES.join(', ')}`);
+        const first = lits[0];
+        if (first && !palette) colour(toks.indexOf(first, k), `colour-in-palette: literal colour in new ${ne.name}(…) outside ${PALETTE_FILES.join(', ')}`);
       }
     }
     const ext = extendsExpr(toks, k);
@@ -142,8 +152,9 @@ export function lookViolations(path: string, code: string): LookViolation[] {
       if (isMaterialClass(ext) && !inMaterials(path)) add(k, `material-from-materials: class extends ${ext} outside ${MATERIAL_DIRS.join(', ')}`);
     }
     // .setHex(lit) .setStyle(lit) .setRGB(num…) .setHSL(num…) .setColorName(lit)
-    if (t.type === 'punct' && (t.value === '.' || t.value === '?.') && toks[k + 1]?.type === 'ident' && toks[k + 2]?.value === '(') {
-      const method = toks[k + 1].value;
+    const methodTok = toks[k + 1];
+    if (t.type === 'punct' && (t.value === '.' || t.value === '?.') && methodTok?.type === 'ident' && toks[k + 2]?.value === '(') {
+      const method = methodTok.value;
       if (['setHex', 'setStyle', 'setColorName', 'setRGB', 'setHSL', 'setScalar'].includes(method)) {
         const { inside } = argsOf(toks, k + 2);
         const numeric = method === 'setRGB' || method === 'setHSL' || method === 'setHex';
@@ -184,7 +195,7 @@ export function checkLook(opts: LookOptions): Report {
     }
   }
   r.info(`       ${files.length} source file${files.length === 1 ? '' : 's'} under ${SCAN_DIRS.join(', ')}; kit: ${KIT_DIRS.join(', ')}; materials: ${MATERIAL_DIRS.join(', ')}; palette: ${PALETTE_FILES.join(', ')}`);
-  r.info('       not checked: vec3(...) literals in GLSL, CSS in .astro markup (hex and rgb()/hsl() strings in shader templates are checked)');
+  r.info('       not checked: src/dev-pages (review scaffolding, never shipped), vec3(...) literals in GLSL, CSS in .astro markup (hex and rgb()/hsl() strings in shader templates are checked)');
   if (n === 0) r.ok('every mesh from the kit, every material from materials, every colour literal in the palette');
   return r;
 }
