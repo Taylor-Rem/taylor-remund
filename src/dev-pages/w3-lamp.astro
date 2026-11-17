@@ -1,0 +1,127 @@
+---
+// W3 section C review scenes: the lamp clamped at the back of the bench with
+// the stage's key light MOVED TO ITS BULB SOCKET (so the shade's shadow and
+// glow are tested for real), the phone on the bench, the early-look pieces
+// for scale. Dev-only; never shipped.
+//
+// Query:
+//   ?shot=bench|lamp|shade|phone|phoneclose    whole bench (default) · the lamp at station scale · the shade close · the phone
+//   ?view=beauty|clay  ?lamp=0..1  ?on=0 (lamp dark)  ?key=default (leave the rig's key where it was)
+//   ?yaw=<deg>  turn the lamp about its clamp (the key follows the socket)   ?cone=<deg> key cone
+//   ?pieces=0  lamp (and phone) only   ?dist=<units> override the camera distance
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>W3 lamp and phone</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.35 ui-monospace, monospace; color: #bfe3d8; opacity: 0.75; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import { Box3, Matrix4, Vector3, type Object3D } from 'three';
+      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
+      import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
+      import type { ViewMode } from '../workshop/view/catalogue/views.ts';
+      import { lamp, poseLamp, LAMP_PLACE } from '../workshop/view/kit/pieces/lamp/index.ts';
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+      const shot = q.get('shot') ?? 'bench';
+      const view = (q.get('view') ?? 'beauty') as ViewMode;
+      const lampQ = q.get('lamp');
+
+      async function main(): Promise<void> {
+        const show = await mountShowcase(canvas, {
+          tier: q.get('tier') === 'low' ? 'low' : 'high',
+          post: q.get('post') !== '0',
+          lamp: lampQ === null ? null : Number(lampQ),
+          wall: true,
+        });
+        const status: string[] = [];
+        const yaw = Number(q.get('yaw') ?? 0);
+        const lp = lamp({ seed: 1 });
+        const lampObj = show.add(lp, { x: LAMP_PLACE[0], y: LAMP_PLACE[1], z: LAMP_PLACE[2], yaw, blob: 0, view });
+        if (q.get('on') === '0') poseLamp(lampObj, { on: false });
+        lampObj.updateWorldMatrix(true, true);
+        // the key light at the bulb socket, aimed down the shade's axis
+        const sock = new Matrix4().multiplyMatrices(lampObj.matrixWorld, lp.sockets!['bulb']!);
+        const bulb = new Vector3().setFromMatrixPosition(sock);
+        const dir = new Vector3(0, 1, 0).transformDirection(sock);
+        const aim = bulb.clone().addScaledVector(dir, 6.7);
+        if (q.get('key') !== 'default') {
+          show.stage.lights.setBulb([bulb.x, bulb.y, bulb.z], [aim.x, aim.y, aim.z]);
+          status.push(`key at the bulb socket (${bulb.toArray().map((v) => v.toFixed(2)).join(', ')}) aim (${aim.toArray().map((v) => v.toFixed(2)).join(', ')})`);
+        } else status.push('key left at the rig default');
+        if (q.get('cone')) show.stage.lights.key.angle = (Number(q.get('cone')) * Math.PI) / 180;
+        status.push(`lamp ${lp.triangles} tris`);
+
+        const extra = async (name: string, at: { x: number; z: number; yaw?: number }, opts: Record<string, unknown> = {}): Promise<Object3D | null> => {
+          const e = await findPiece(name);
+          if (!e) return null;
+          const p = buildEntry(e, null, opts, show.labels);
+          status.push(`${name} ${p.triangles} tris`);
+          return show.add(p, { ...at, view });
+        };
+        let phoneObj: Object3D | null = null;
+        if (q.get('pieces') !== '0') {
+          await extra('button', { x: 0, z: 1.9, yaw: -4 }, { seed: 2 });
+          await extra('crate', { x: -2.7, z: 0.7, yaw: 8 }, { seed: 3 });
+          await extra('fetch-porter', { x: 1.7, z: 2.8, yaw: -25 }, { seed: 3, pose: 'offer' });
+        }
+        phoneObj = await extra('phone', { x: -1.6, z: 2.4, yaw: 14 }, { seed: 1 });
+
+        const shade = lampObj.getObjectByName('shade')!;
+        const box = (o: Object3D): Box3 => show.boxOf(o);
+        const dist = q.get('dist') ? Number(q.get('dist')) : null;
+        switch (shot) {
+          case 'lamp': {
+            const b = box(lampObj);
+            show.look(b, dist ?? 'close');
+            break;
+          }
+          case 'shade': {
+            const b = box(shade);
+            show.look(b, dist ?? 'close');
+            break;
+          }
+          case 'phone':
+          case 'phoneclose': {
+            if (phoneObj) show.look(box(phoneObj), dist ?? (shot === 'phone' ? 'station' : 'close'));
+            break;
+          }
+          default: {
+            const b = new Box3(new Vector3(-10, 0, -5), new Vector3(10, 4, 5));
+            show.look(b, dist ?? 'wide');
+          }
+        }
+        (window as unknown as { __w3: unknown }).__w3 = { show, lampObj, lp };
+        if (q.get('hud') !== '0') {
+          let n = 0;
+          const tick = (): void => {
+            if (++n % 15 === 0) {
+              const st = show.stage.stats();
+              hud.textContent = `${status.join('\n')}\ndraw calls ${st.scene.calls}  tris ${st.scene.triangles}`;
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+        }
+        show.start();
+      }
+      main().catch((e: unknown) => {
+        console.error(e);
+        hud.textContent = String(e);
+      });
+    </script>
+  </body>
+</html>
