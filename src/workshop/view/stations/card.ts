@@ -119,7 +119,7 @@ export function createCardView(): (ctx: ViewContext) => CardView {
 
     const place = (w: WorldView): void => {
       placed = true;
-      const s = w.scene.statics.find((x) => x.id === 'button-pedestal');
+      const s = w.scene.statics.find((x) => x.id === 'console');
       const q = s ? new Quaternion(s.pose.q[0], s.pose.q[1], s.pose.q[2], s.pose.q[3]) : new Quaternion();
       const p = s ? new Vector3(s.pose.p[0], w.scene.bench.top, s.pose.p[2]) : new Vector3(0, w.scene.bench.top, 0);
       const off = new Vector3(F.slot.x, 0, F.slot.z).applyQuaternion(q);

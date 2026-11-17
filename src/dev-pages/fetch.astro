@@ -95,7 +95,7 @@
             const [bx, bz] = lane.b;
             add(ctx.realize(laneTape({ points: [[ax - pad, az - 0.42], [bx + pad, bz - 0.42]], seed: 3 })), 0, 0, 0);
             add(ctx.realize(laneTape({ points: [[ax - pad, az + 0.42], [bx + pad, bz + 0.42]], seed: 4 })), 0, 0, 0);
-            const ped = w.scene.statics.find((s) => s.id === 'button-pedestal');
+            const ped = w.scene.statics.find((s) => s.id === 'console');
             if (ped && q.get('button') !== '0') {
               const o = ctx.realize(button({ labels: buttonLabels(ctx.labels), seed: 2 }));
               o.scale.setScalar(0.6);
