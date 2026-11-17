@@ -49,7 +49,7 @@
       import { bootWorkshop } from '../workshop/shell/boot.ts';
       import { installDebugHooks } from '../workshop/view/stage/debug.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
-      import type { Vec3 } from '../workshop/sim/index.ts';
+      import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
       import { loadVignette, homeBox, FRAMING, LAYOUT, layoutForSim } from '../workshop/view/vignette.ts';
       import type { View } from '../workshop/view/stage/camera.ts';
 
@@ -91,7 +91,13 @@
         },
       };
 
+      // every simulation event, for the tests and the read-out
+      const log: { step: number; e: SimEvent }[] = [];
       const ws = await bootWorkshop(canvas, {
+        onFrame(frame) {
+          for (const e of frame.events) log.push({ step: frame.world.step, e });
+          if (log.length > 4000) log.splice(0, log.length - 4000);
+        },
         tier,
         reducedMotion,
         seed,
@@ -194,6 +200,7 @@
         ws,
         vig,
         slots: vig.slots,
+        log,
         layout: () => layoutForSim(vig.scene),
         shot: applyShot,
         measure() {
