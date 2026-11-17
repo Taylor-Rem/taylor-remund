@@ -72,7 +72,7 @@ describe('patch-felt (Patch, take A: the felt puppet)', () => {
 
   it('stands its stand-in stool on the bench at the seat height', () => {
     const p = patchFelt({ seed: 3 });
-    expect(p.root.transform!.elements[13]).toBeCloseTo(0.55, 5);
+    expect(p.root.transform!.elements[13]).toBeCloseTo(0.6, 5);
     expect(p.triangles).toBeGreaterThan(piece.triangles);
   });
 

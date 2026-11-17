@@ -23,8 +23,8 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 
 // ---- dimensions shared by the builder and the rig (world units; 1 = Fetch's body height) ----
 
-/** The stand-in stool's seat height (the real `stool` piece replaces it). */
-export const SEAT_H = 0.55;
+/** The stand-in stool's seat height: the real `stool`'s SEAT_Y (Patch's `root` goes on its `seat` socket). */
+export const SEAT_H = 0.6;
 /** The hips (spine pivot), in root space. */
 export const HIPS = { y: 0.07, z: -0.03 } as const;
 /** The neck (head pivot), in spine space. */
