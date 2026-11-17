@@ -110,6 +110,8 @@ export interface FinishOptions {
   cavity?: [number, number];
   /** Write uv from lpos: u = lpos.x (along the part, world units), v = lpos.y (sweeps: across the section, along its first axis). */
   uvFromLpos?: boolean;
+  /** Wear band (see surface.ts `SurfOptions.band`): remembered on the geometry for later recomputes. */
+  band?: number;
 }
 
 /**
@@ -126,6 +128,7 @@ export function finish(md: MeshData, opts: FinishOptions = {}): BufferGeometry {
   if (md.uv) g.setAttribute('uv', new BufferAttribute(new Float32Array(md.uv), 2));
   const index = n > 65535 ? new Uint32Array(md.idx) : new Uint16Array(md.idx);
   g.setIndex(new BufferAttribute(index, 1));
+  if (opts.band) g.userData['kitBand'] = opts.band;
   g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g, opts), 3));
   // material space: the solid's own local position until a builder re-aims it (see `grain`)
   const lp = new Float32Array(md.lpos ?? md.pos);

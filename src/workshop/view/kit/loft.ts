@@ -39,6 +39,12 @@ export interface LoftInput {
    * coordinates), so grain and brushing follow a swept part along its length.
    */
   lpos?: 'position' | 'path';
+  /**
+   * Wear band on the end caps: when a cap's edge ring sits within this distance of the last
+   * fillet (no profile ring already lies a band onto the face), the cap gets one inset ring
+   * so the edge's wear falls to zero across the band, not across the whole cap. 0 = none.
+   */
+  capBand?: number;
   /** Fill the ends of an open profile (default true; 'start'/'end' for one only, e.g. to skip a hidden base). */
   caps?: boolean | 'start' | 'end';
 }
@@ -107,7 +113,18 @@ export function loft(input: LoftInput, md = new MeshData()): MeshData {
       const s = profile[end]!;
       const F = frames[end]!;
       const sign = Math.abs(s.ny) > 0.3 ? Math.sign(s.ny) : end === 0 ? -1 : 1;
-      capRings(md, loops, rings.map((R) => R[end]!), F, sign);
+      // how far the cap's edge ring already is from the previous ring (a flat run of the face)
+      let inset = 0;
+      const band = input.capBand ?? 0;
+      if (band > 0) {
+        const step = end === 0 ? 1 : -1;
+        let k = end + step;
+        while (k >= 0 && k < K && Math.hypot(profile[k]!.o - s.o, profile[k]!.y - s.y) < 1e-9) k += step;
+        const q = profile[k];
+        const run = q ? Math.hypot(q.o - s.o, q.y - s.y) : 0;
+        if (q && run < band * 0.9) inset = band - run;
+      }
+      capRings(md, loops, rings.map((R) => R[end]!), F, sign, inset);
     }
   }
 
@@ -127,7 +144,7 @@ export function loft(input: LoftInput, md = new MeshData()): MeshData {
   return md;
 }
 
-function capRings(md: MeshData, loops: Loop[], rows: number[][], F: Frame, sign: number): void {
+function capRings(md: MeshData, loops: Loop[], rows: number[][], F: Frame, sign: number, inset = 0): void {
   // 2D coords in (u, v) for each ring, deduped
   const polys: Array<{ pts: Vector2[]; ids: number[] }> = [];
   loops.forEach((_loop, li) => {
@@ -152,12 +169,14 @@ function capRings(md: MeshData, loops: Loop[], rows: number[][], F: Frame, sign:
   const outer = polys[0];
   if (!outer || outer.pts.length < 3 || Math.abs(ShapeUtils.area(outer.pts)) < 1e-10) return;
   const holes = polys.slice(1).filter((h) => h.pts.length >= 3 && Math.abs(ShapeUtils.area(h.pts)) > 1e-10);
+  const nx = F.w[0] * sign, ny = F.w[1] * sign, nz = F.w[2] * sign;
+  // (a cap facing straight down, a base, is never seen: it gets no band ring)
+  if (inset > 0 && holes.length === 0 && ny > -0.9 && insetCap(md, outer, F, nx, ny, nz, inset)) return;
   const faces = ShapeUtils.triangulateShape(
     outer.pts.map((p) => p.clone()),
     holes.map((h) => h.pts.map((p) => p.clone())),
   );
   const allIds = [...outer.ids, ...holes.flatMap((h) => h.ids)];
-  const nx = F.w[0] * sign, ny = F.w[1] * sign, nz = F.w[2] * sign;
   const capId = new Map<number, number>();
   const get = (src: number): number => {
     let v = capId.get(src);
@@ -169,6 +188,58 @@ function capRings(md: MeshData, loops: Loop[], rows: number[][], F: Frame, sign:
     return v;
   };
   for (const f of faces) md.tri(get(allIds[f[0]!]!), get(allIds[f[1]!]!), get(allIds[f[2]!]!));
+}
+
+/**
+ * A cap with one inset ring `inset` in from its edge (mitred), the band between them as a
+ * strip and the inner polygon triangulated. Returns false (and adds nothing) if the polygon
+ * is too small for the ring.
+ */
+function insetCap(md: MeshData, outer: { pts: Vector2[]; ids: number[] }, F: Frame, nx: number, ny: number, nz: number, inset: number): boolean {
+  const P = outer.pts;
+  const N = P.length;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const q of P) {
+    minX = Math.min(minX, q.x); maxX = Math.max(maxX, q.x);
+    minY = Math.min(minY, q.y); maxY = Math.max(maxY, q.y);
+  }
+  if (inset > 0.3 * Math.min(maxX - minX, maxY - minY)) return false;
+  const sgn = ShapeUtils.area(P) > 0 ? 1 : -1; // > 0: counter-clockwise, interior on the left
+  const inward = (a: Vector2, b: Vector2): Vector2 => {
+    const d = b.clone().sub(a);
+    const l = d.length() || 1;
+    return new Vector2((-d.y / l) * sgn, (d.x / l) * sgn);
+  };
+  const Q: Vector2[] = [];
+  for (let i = 0; i < N; i++) {
+    const a = P[(i - 1 + N) % N]!, b = P[i]!, c = P[(i + 1) % N]!;
+    const n1 = inward(a, b), n2 = inward(b, c);
+    const m = n1.clone().add(n2);
+    const ml = m.length();
+    if (ml < 1e-6) m.copy(n1);
+    else m.divideScalar(ml);
+    const k = 1 / Math.max(0.35, m.dot(n1));
+    Q.push(b.clone().addScaledVector(m, inset * k));
+  }
+  const area = ShapeUtils.area(Q);
+  if (Math.sign(area) !== sgn || Math.abs(area) < 1e-10) return false;
+  const to3 = (q: Vector2): [number, number, number] => [
+    F.o[0] + F.u[0] * q.x + F.v[0] * q.y,
+    F.o[1] + F.u[1] * q.x + F.v[1] * q.y,
+    F.o[2] + F.u[2] * q.x + F.v[2] * q.y,
+  ];
+  const edge = outer.ids.map((src) => md.v(md.pos[src * 3]!, md.pos[src * 3 + 1]!, md.pos[src * 3 + 2]!, nx, ny, nz));
+  const inner = Q.map((q) => {
+    const [x, y, z] = to3(q);
+    return md.v(x, y, z, nx, ny, nz);
+  });
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    md.quad(edge[i]!, edge[j]!, inner[j]!, inner[i]!);
+  }
+  const faces = ShapeUtils.triangulateShape(Q.map((q) => q.clone()), []);
+  for (const f of faces) md.tri(inner[f[0]!]!, inner[f[1]!]!, inner[f[2]!]!);
+  return true;
 }
 
 function sideCap(md: MeshData, column: number[], profile: PSample[], tu: number, tv: number, frames: Frame[]): void {
