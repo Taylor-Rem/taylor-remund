@@ -8,6 +8,7 @@ import { crate, crateLabelKeys, catalogue, paintRanges, repaint, stencilInk } fr
 import { linear } from '../../../src/workshop/view/palette.ts';
 import { checkGeometry } from './helpers.ts';
 
+const NODES = { backend: 'nodes' } as const;
 const stub: Materials = {
   of: () => new MeshBasicMaterial() as Material,
   textured: () => new MeshBasicMaterial() as Material,
@@ -120,8 +121,8 @@ describe('crate', () => {
 
   it('repaint rewrites only the paint range of this object, and back to bare', () => {
     const p = crate({ size: 'S', seed: 9 });
-    const a = K.realize(p, stub);
-    const b = K.realize(p, stub); // shares geometry with a (the memo case)
+    const a = K.realize(p, stub, NODES); // repaint finds paint by part geometry: per-node backend until it reads kitSources (kit follow-up 4)
+    const b = K.realize(p, stub, NODES); // shares geometry with a (the memo case)
     const before = new Map<Mesh, Float32Array>();
     a.traverse((o: Object3D) => { const m = o as Mesh; if (m.isMesh) before.set(m, (m.geometry.getAttribute('color').array as Float32Array).slice()); });
     expect(repaint(a, 'cable-red')).toBeGreaterThan(0);
@@ -152,7 +153,7 @@ describe('crate', () => {
 
   it('paint is matte painted wood: no extra material; repaint moves only the stencil (dark paint swaps ink)', () => {
     const p = crate({ size: 'M', seed: 2 });
-    const o = K.realize(p, stub);
+    const o = K.realize(p, stub, NODES);
     const mats = new Set<string>();
     const pos: Array<[Mesh, Float32Array]> = [];
     o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh) { mats.add(String(m.userData['kitMaterial'])); pos.push([m, (m.geometry.getAttribute('position').array as Float32Array).slice()]); } });

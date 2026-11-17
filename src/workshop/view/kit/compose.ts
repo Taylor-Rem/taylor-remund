@@ -50,6 +50,13 @@ export function withVariant(p: PartsLike, variant: MaterialVariant): KitPart[] {
   return list;
 }
 
+/** Leave parts out of the shadow pass (tiny parts whose shadow nobody sees). In place; returns them. */
+export function noShadow(p: PartsLike): KitPart[] {
+  const list = flat(p);
+  for (const q of list) q.castShadow = false;
+  return list;
+}
+
 /** Shorthand: the 'large' variant (the bench top, the back wall). */
 export const large = (p: PartsLike): KitPart[] => withVariant(p, 'large');
 
@@ -238,12 +245,12 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
 
 /** Merge parts into one part per (material, variant, texture). Order of first appearance is kept. */
 export function merge(p: PartsLike): KitPart[] {
-  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; geoms: BufferGeometry[] }>();
+  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; noCast: boolean; geoms: BufferGeometry[] }>();
   for (const q of flat(p)) {
-    const key = `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}`;
+    const key = `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}${q.castShadow === false ? '|nocast' : ''}`;
     let g = groups.get(key);
     if (!g) {
-      g = { material: q.material, variant: q.variant, texture: q.texture, geoms: [] };
+      g = { material: q.material, variant: q.variant, texture: q.texture, noCast: q.castShadow === false, geoms: [] };
       groups.set(key, g);
     }
     g.geoms.push(q.geometry);
@@ -252,6 +259,7 @@ export function merge(p: PartsLike): KitPart[] {
     const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
     const out: KitPart = { material: g.material, geometry };
     if (g.variant) out.variant = g.variant;
+    if (g.noCast) out.castShadow = false;
     if (g.texture) out.texture = g.texture;
     return out;
   });
@@ -408,6 +416,15 @@ export interface Budget {
   byMaterial: Partial<Record<MaterialClass, number>>;
   /** One row per realised mesh (node × material × variant × texture), largest first. */
   rows: BudgetRow[];
+  /**
+   * Draw calls as `realize` (default backend) will make them: meshes, how many cast a shadow
+   * (each caster draws again in the shadow pass), calls = meshes + casting. `nodesCalls` is the
+   * same for the per-node backend, for comparison.
+   */
+  meshes: number;
+  casting: number;
+  calls: number;
+  nodesCalls: number;
   /** The cap it was checked against, if any, and whether it fits. */
   cap?: number | undefined;
   fits: boolean;
@@ -435,16 +452,35 @@ export function budget(p: Piece, cap?: number): Budget {
     for (const c of n.children ?? []) walk(c, `${path}/${c.name}`);
   };
   walk(p.root, p.root.name);
+  // draw calls: the skinned backend draws one mesh per (material, variant, texture, castShadow)
+  // for a multi-node piece; a single-node piece and the 'nodes' backend one per node × material
+  const casts = (q: { material: MaterialClass; texture?: string | undefined; castShadow?: false | undefined }): boolean =>
+    q.material !== 'bulb' && q.castShadow !== false && !(q.texture ?? '').startsWith('stencil');
+  const allParts: KitPart[] = [];
+  const gather = (n: PieceNode): void => {
+    allParts.push(...n.parts);
+    for (const c of n.children ?? []) gather(c);
+  };
+  gather(p.root);
+  const keyOf = (q: KitPart): string => `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}|${q.castShadow === false ? 'n' : ''}`;
+  const multi = (p.root.children?.length ?? 0) > 0;
+  const merged = new Map<string, KitPart>();
+  for (const q of allParts) if (!merged.has(keyOf(q))) merged.set(keyOf(q), q);
+  const drawn = multi ? [...merged.values()] : allParts;
+  const meshes = drawn.length;
+  const casting = drawn.filter(casts).length;
+  const nodesCalls = allParts.length + allParts.filter(casts).length;
   rows.sort((a, b) => b.triangles - a.triangles);
   const total = rows.reduce((s, r) => s + r.triangles, 0);
   const fits = cap === undefined || total <= cap;
   const pct = (t: number): string => `${((100 * t) / Math.max(1, total)).toFixed(0)}%`;
   const text = [
     `${p.name}: ${total} triangles${cap !== undefined ? ` / cap ${cap} ${fits ? 'ok' : 'OVER'}` : ''}`,
+    `draw calls: ${meshes + casting} (${meshes} meshes, ${casting} cast a shadow)${multi ? `; per-node backend would be ${nodesCalls}` : ''}`,
     `by material: ${Object.entries(byMaterial).sort((a, b) => b[1]! - a[1]!).map(([m, t]) => `${m} ${t} (${pct(t!)})`).join(', ')}`,
     `by node: ${Object.entries(byNode).sort((a, b) => b[1] - a[1]).map(([nd, t]) => `${nd} ${t}`).join(', ')}`,
   ].join('\n');
-  return { total, byNode, byMaterial, rows, cap, fits, text };
+  return { total, byNode, byMaterial, rows, meshes, casting, calls: meshes + casting, nodesCalls, cap, fits, text };
 }
 
 /** Axis-aligned bounds of a piece at rest, in its root space. */
