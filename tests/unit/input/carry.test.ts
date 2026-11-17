@@ -52,6 +52,20 @@ describe('carry target', () => {
     expect(down[down.length - 1]!).toBeCloseTo(0.65, 2);
   });
 
+  it('a part taken from the top of a stack stays clear of the crate it sat on until it has left its footprint', () => {
+    const plane = new CarryPlane(bench);
+    const under = [box(0, 0, 1.0, 0.3)];
+    // the top crate (bottom at 1.0, grip 0.3 above its bottom) is lifted off the one below
+    plane.begin({ kind: 'part', halfX: 0.25, halfZ: 0.25, gripAboveBottom: 0.3 }, [0, 1.3, 0], 0, under);
+    expect(plane.height).toBeCloseTo(1.65, 6);
+    // the pointer stays on the lifted grip (the ray through (0, 1.65, 0)): it must not sink into the crate below
+    for (let i = 1; i <= 30; i++) expect(plane.target(rayAt(0, 0, 1.65), i * 16, under)[1]).toBeCloseTo(1.65, 6);
+    // dragged well clear, it comes down to carry height over the bench
+    let h = 0;
+    for (let i = 31; i <= 120; i++) h = plane.target(rayAt(2.5, 0, 1.0), i * 16, under)[1];
+    expect(h).toBeCloseTo(0.65, 2);
+  });
+
   it('ignores what rests on top of the carried part (it is not under it)', () => {
     expect(floorUnder(0, 0, 0.3, 0.3, [box(0, 0, 2.0, 0.3, 1.2)], 0, 0.6)).toBe(0);
     expect(floorUnder(0, 0, 0.3, 0.3, [box(0, 0, 2.0, 0.3, 0)], 0, 0.6)).toBe(2.0);

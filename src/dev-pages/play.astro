@@ -408,7 +408,7 @@
       // ───────────────────────── boot ─────────────────────────
 
       const wideBox = new Box3(new Vector3(-5.2, -0.3, -5.0), new Vector3(6.4, 2.6, 5.0));
-      const phoneBox = new Box3(new Vector3(-2.2, 0, -0.6), new Vector3(3.6, 1.6, 2.6));
+      const phoneBox = new Box3(new Vector3(-3.3, 0, -0.4), new Vector3(3.5, 1.8, 2.6));
       const cluster = new Vector3(0.2, 0.5, 1.2);
       const ws = await bootWorkshop(canvas, {
         tier,
@@ -457,6 +457,12 @@
           return { x: ((s.x + 1) / 2) * canvas.clientWidth, y: ((1 - s.y) / 2) * canvas.clientHeight };
         },
         motion: (id: Id) => ws.world.motion(id),
+        /** Cut the camera to fit a box (close-up captures). */
+        frameBox(min: Vec3, max: Vec3) {
+          const b = new Box3(new Vector3(...min), new Vector3(...max));
+          ws.stage.camera.focusOn(b.getCenter(new Vector3()));
+          ws.stage.camera.cutTo(ws.stage.camera.frame(b));
+        },
         reset() {
           log.length = 0;
           intents.length = 0;

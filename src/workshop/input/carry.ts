@@ -168,9 +168,18 @@ export class CarryPlane {
     let goal = b.top + lift;
     const hx = s.halfX + T.footprintPad;
     const hz = s.halfZ + T.footprintPad;
+    // where the part is heading now, at the plane's current height: whatever it is already above stays under it
+    const now = rayAtHeight(ray, this.h, this.p);
+    const nx = clamp(now[0], b.minX - T.margin, b.maxX + T.margin);
+    const nz = clamp(now[2], b.minZ + s.halfZ, b.maxZ + T.margin);
+    const bottomNow = this.h - s.gripAboveBottom;
     for (const o of obstacles) {
       const hc = o.top + lift;
       if (hc <= goal) continue;
+      if (o.top <= bottomNow + BELOW_SLACK && !(o.maxX < nx - hx || o.minX > nx + hx || o.maxZ < nz - hz || o.minZ > nz + hz)) {
+        goal = hc;
+        continue;
+      }
       const q = rayAtHeight(ray, hc, this.p);
       const x = clamp(q[0], b.minX - T.margin, b.maxX + T.margin);
       const z = clamp(q[2], b.minZ + s.halfZ, b.maxZ + T.margin);
