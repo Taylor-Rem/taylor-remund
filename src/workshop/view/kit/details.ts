@@ -20,6 +20,7 @@ import { rng } from './rng.ts';
 import { transform } from './deform.ts';
 import { loft } from './loft.ts';
 import { grain } from './space.ts';
+import { hexHead, ridgedBand, stud } from './cheap.ts';
 import { finish } from './mesh.ts';
 import type { Loop, PSample } from './profile.ts';
 
@@ -33,7 +34,7 @@ export interface DetailOptions {
 const tri = (d: Detail | undefined, n: number, min = 4): number => segs(n, d, min);
 
 /** Hex bolt head (optionally on a washer). `af` = across flats. */
-export function hexBolt(o: DetailOptions & { af?: number; h?: number; washer?: boolean } = {}): KitPart[] {
+export function hexBolt(o: DetailOptions & { af?: number; h?: number; washer?: boolean; cheap?: boolean } = {}): KitPart[] {
   const af = o.af ?? 0.06;
   const h = o.h ?? af * 0.42;
   const R = af / Math.sqrt(3); // circumradius from across-flats
@@ -45,6 +46,12 @@ export function hexBolt(o: DetailOptions & { af?: number; h?: number; washer?: b
     y0 = wt;
   }
   const spin = rng(o.seed ?? 0).range(0, Math.PI / 3);
+  if (o.cheap) {
+    // the 30-triangle head (cheap.ts) for rows of bolts on a budget
+    const g = transform(hexHead(af, h, spin), new Matrix4().makeTranslation(0, y0, 0));
+    out.push(part(o.material ?? 'metal', g, o.token ?? 'steel', { seed: (o.seed ?? 0) + 1, jitter: 0.06 }));
+    return out;
+  }
   const head = extrude(ngon(6, R, spin), h, {
     axis: 'y',
     bevel: h * 0.32,
@@ -75,9 +82,10 @@ export function washer(o: DetailOptions & { od?: number; id?: number; t?: number
 }
 
 /** A dome-head rivet. */
-export function domeRivet(o: DetailOptions & { d?: number; h?: number } = {}): KitPart[] {
+export function domeRivet(o: DetailOptions & { d?: number; h?: number; cheap?: boolean } = {}): KitPart[] {
   const r = (o.d ?? 0.035) / 2;
   const h = o.h ?? r * 0.7;
+  if (o.cheap) return [part(o.material ?? 'brass', stud(r, h), o.token ?? 'brass', { seed: o.seed ?? 0, jitter: 0.07, warm: 0.04 })];
   const g = lathe(
     profile(0, 0)
       .to(r, 0, { sharp: true })
@@ -374,7 +382,12 @@ export function rubberFoot(o: DetailOptions & { d?: number; h?: number } = {}): 
  * A knurled band along +Y from y = 0: a ring of straight ridges (radius r,
  * height h) with chamfered ends. For knobs and thumbscrews.
  */
-export function knurledBand(o: DetailOptions & { r?: number; h?: number; ridges?: number; depth?: number } = {}): KitPart[] {
+export function knurledBand(o: DetailOptions & { r?: number; h?: number; ridges?: number; depth?: number; cheap?: boolean } = {}): KitPart[] {
+  if (o.cheap) {
+    // 4 triangles a ridge, open at both ends (sit it between two lips)
+    const r = o.r ?? 0.06, ridges = o.ridges ?? 22;
+    return [part(o.material ?? 'brass', ridgedBand(r, o.h ?? 0.05, ridges, o.depth ?? ((Math.PI * 2 * r) / ridges) * 0.32), o.token ?? 'brass', { seed: o.seed ?? 0, jitter: 0.04, warm: 0.03 })];
+  }
   return [part(o.material ?? 'brass', knurlGeom(o.r ?? 0.06, o.h ?? 0.05, o.ridges ?? 22, o.depth, o.detail), o.token ?? 'brass', { seed: o.seed ?? 0, jitter: 0.04, warm: 0.03 })];
 }
 
