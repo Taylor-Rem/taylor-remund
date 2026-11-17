@@ -80,6 +80,7 @@ test('a mouse drag lifts a crate within two frames of the press; a fling throws 
   await glide(page, at, { x: at.x + 40, y: at.y }, 4);
   await glide(page, { x: at.x + 40, y: at.y }, { x: at.x + 240, y: at.y - 20 }, 8);
   await page.mouse.up();
+  await page.waitForFunction(() => (window as any).__play.log.some((l: any) => l.e.type === 'part.released'), null, { timeout: 2000 });
   const released = await events(page, 'part.released');
   expect(released.at(-1).id).toBe('crate-3');
   expect(released.at(-1).speed).toBeGreaterThan(2);
