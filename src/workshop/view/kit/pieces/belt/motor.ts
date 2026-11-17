@@ -11,17 +11,15 @@
 import { Matrix4 } from 'three';
 import type { BufferGeometry } from 'three';
 import type { NodeBuilder } from '../../compose.ts';
-import { aim, chain, mat, part, place, T } from '../../compose.ts';
+import { chain, mat, part, place, T } from '../../compose.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab, torus } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { hexHead, ridgedBand, stud, bevelBox } from '../../cheap.ts';
 import { sweep, polylinePath } from '../../sweep.ts';
 import { transform, deform } from '../../deform.ts';
-import { grain, setFinish } from '../../space.ts';
+import { setFinish } from '../../space.ts';
 import type { Rng } from '../../rng.ts';
 import { BELT } from './dims.ts';
-
-const DEG = Math.PI / 180;
 
 /** The housing's side profile (z, y): front foot, top of the front, top of the desk, back. */
 export const HOUSING = {
@@ -243,7 +241,6 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
     const pts: Array<[number, number, number]> = [[hx, 0.5, 0.25], [hx - 0.06, 0.5, 0.21], [hx - 0.06, 0.5, -0.11], [hx, 0.5, -0.15]];
     b.add(part('metal', sweep(polylinePath(pts, 0.035, 2), { radius: 0.016, detail, segs: 6, ends: 'flat' }), 'steel', { seed: seed + 170 }));
   }
-  void grain;
   return {
     dial: dialAt,
     lever: leverAt,
@@ -271,7 +268,5 @@ export function oilCup(seed: number, detail: 'high' | 'low'): ReturnType<typeof 
   out.push(setFinish(part('brass', lid, 'brass', { seed: seed + 2, warm: 0.04 }), 0.6));
   // the flip tab at the front
   out.push(part('brass', transform(slab({ w: 0.022, d: 0.03, t: 0.006, r: 0.008, bevel: 0.002, detail: 'low', band: 0 }), chain(T(0, 0.13, 0.036), mat({ rot: [-30, 0, 0] }))), 'brass', { seed: seed + 3 }));
-  void aim;
-  void DEG;
   return out;
 }

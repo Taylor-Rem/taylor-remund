@@ -33,18 +33,18 @@
  */
 import { Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
-import type { KitOptions, KitPart, Piece } from '../../types.ts';
+import type { KitOptions, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import { aim, chain, mat, part, piece, place, T } from '../../compose.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { sweep, polylinePath, sections } from '../../sweep.ts';
-import { transform } from '../../deform.ts';
+import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { rng } from '../../rng.ts';
 import { bevelBox, hexHead, stud } from '../../cheap.ts';
 import { BELT } from './dims.ts';
-import { loopGeom, loopPoints, topRunS } from './loop.ts';
+import { loopGeom, loopPoints } from './loop.ts';
 import { buildMotor, dentKeep, oilCup } from './motor.ts';
 import { NAMED_POSES, posePiece } from './pose.ts';
 import type { BeltPose, RollerInfo } from './pose.ts';
@@ -185,6 +185,15 @@ export function belt(o: BeltOptions = {}): Piece {
     }
     const gd = 0.07;
     const gg = extrude(pts, gd, { radius: 0.03, bevel: 0.018, bevelBase: 0, caps: 'end', segs: 2, detail });
+    // pillow the face a little, so the lamp rolls across it instead of lying flat on it
+    deform(gg, (x, y, z) => {
+      const ex = ax - sx, ey = ay - sy;
+      const t = Math.max(0, Math.min(1, ((x - sx) * ex + (y - sy) * ey) / (ex * ex + ey * ey)));
+      const d = Math.hypot(x - (sx + ex * t), y - (sy + ey * t));
+      const rr = rb + (ra - rb) * t;
+      const f = Math.max(0, 1 - (d / rr) ** 2);
+      return [x, y, z + 0.016 * f * Math.max(0, z / gd)];
+    }, { keepSurf: true });
     transform(gg, T(0, 0, guardZ));
     dentKeep(gg, [sx + 0.05, sy - 0.06, guardZ + gd], [0.3, 0, 1], 0.06, 0.01);
     b.add(part('steel', gg, 'tape-yellow', { seed: seed + 40, shade: 0.9 }));
@@ -282,7 +291,7 @@ export function belt(o: BeltOptions = {}): Piece {
   }
   // the guard rail at the right end: a bent rod round the tail drum, below the carrying surface, on brass collars
   {
-    const y = drumR.y + 0.05;
+    const y = BELT.topY - 0.03;
     const xe = rails.x1 - 0.02;
     const reach = half + g.r + 0.2;
     const z0 = zo - 0.02;
@@ -330,8 +339,6 @@ export function belt(o: BeltOptions = {}): Piece {
     if (!p) throw new Error(`belt: no pose '${String(o.pose)}' (has: ${Object.keys(NAMED_POSES).join(', ')})`);
     posePiece(built.root, L, rollers, p);
   }
-  void topRunS;
-  void (null as unknown as KitPart);
   return built;
 }
 
