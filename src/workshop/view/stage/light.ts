@@ -54,8 +54,12 @@ export const RIG = {
    */
   fill: { hemi: 1.1, front: 3.0, frontPosition: [-3, 6, 16] as [number, number, number] },
   rim: { intensity: 2.4 },
-  /** What bounces: warm light off the lit bench, from just above the pool (lifts the lower wall and undersides). */
-  bounce: { intensity: 5, height: 1.1 },
+  /**
+   * What bounces: warm light off the lit bench, from above the pool (lifts the lower
+   * wall and undersides). Height 3 (was 1.1): at 1.1 it sat inside the Button's
+   * console top, 0.1 from the hazard plate, and blew it out into a bloom flare.
+   */
+  bounce: { intensity: 10, height: 3.0 },
   env: { intensity: 1.1 },
   /**
    * The sign's bulbs washing the back wall round them (warm, no shadows; high

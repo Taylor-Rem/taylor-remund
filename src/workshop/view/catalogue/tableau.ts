@@ -23,7 +23,7 @@ export const CLUSTER = { x: 0.3, z: 2.6 } as const;
 export const TABLEAU: Record<Role, Placement & { seed: number }> = {
   button: { x: CLUSTER.x, z: CLUSTER.z - 0.25, yaw: -5, seed: 1 },
   crate: { x: CLUSTER.x - 1.45, z: CLUSTER.z + 0.55, yaw: 23, seed: 3 },
-  fetch: { x: CLUSTER.x + 2.3, z: CLUSTER.z + 0.3, yaw: -26, seed: 2 },
+  fetch: { x: CLUSTER.x + 1.35, z: CLUSTER.z + 1.45, yaw: -30, seed: 2 },
 };
 
 /** Both Fetch designs side by side for a choice (`?shot=fetches`), the same pose. */
@@ -33,11 +33,13 @@ export const FETCHES: ReadonlyArray<Placement & { seed: number }> = [
 ];
 
 /**
- * The lamp for the early look: high over the back left, aimed at the cluster,
+ * The lamp for the early look: high over the left, a little in front of the
+ * group, aimed at the cluster, so all three stand in the pool and Fetch (front
+ * right) is on the lit side of the console rather than in its shadow;
  * with a tighter cone than the stage's whole-bench default so the pool's edge
  * falls inside the frame (the lamp's own prop does not exist yet: not faked).
  */
-export const LOOK_LAMP = { bulb: [-3.0, 5.6, -0.4] as const, aim: [CLUSTER.x + 0.8, 0, CLUSTER.z - 0.4] as const, angleDeg: 44 };
+export const LOOK_LAMP = { bulb: [-2.8, 5.8, 2.6] as const, aim: [CLUSTER.x + 0.4, 0, CLUSTER.z + 0.3] as const, angleDeg: 48 };
 
 /** A run of lane tape in front of the cluster, a little off square (bench-plane points, x z). */
 export const TAPE_RUN: ReadonlyArray<readonly [number, number]> = [
@@ -89,7 +91,7 @@ export function shotCamera(shot: Shot, boxes: Partial<Record<Role | 'fetchA' | '
       // the group low in the frame: the wall above, the bench nose and the dark below
       // (on a portrait phone the spare height goes to the bench and wall behind, not the dark below)
       f.set(f.x + (portrait ? 0.15 : 0.5), 0.6, CLUSTER.z - (portrait ? 1.5 : 0.1));
-      return { focus: f, distance: across(10, 5.4) };
+      return { focus: f, distance: across(8.8, 5.2) };
     }
     case 'button': {
       const f = c(boxes.button);

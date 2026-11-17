@@ -68,7 +68,8 @@ export function defaultFlags(): PassFlags {
 
 /** Tuned by eye on the stage dev page; see the W1 report. */
 export const LOOK = {
-  exposure: 1.0,
+  /** 1.1 (was 1.0): with the real, darker bench the frame read murky; the hot spot still stays below clipping on cream and wood. */
+  exposure: 1.1,
   toneMap: 'neutral' as ToneMap,
   /** `scale` is the AO resolution; `power` sharpens the occlusion curve; `strength` mixes it toward the teal occlusion colour. */
   gtao: { scale: 0.5, radius: 0.5, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 8, denoiseRadius: 6, strength: 1.0 },
@@ -89,8 +90,12 @@ export const LOOK = {
    * the teal's hue at its own luminance. `amount` 0..1 at full shadow;
    * `softness` widens the shadow-map lookup (texels); `bias` is the lookup's
    * depth bias. The colour is `stageColours().shadowTint`.
+   *
+   * Tuned with the real pieces: 0.55 painted cast shadows flat teal; a 2.5-texel,
+   * 0.0015-bias lookup stair-stepped the self-shadow on the Button's gloss dome
+   * and mottled penumbrae at close range.
    */
-  shadowTint: { amount: 0.55, softness: 2.5, bias: 0.0015, normalOffset: 0.03 },
+  shadowTint: { amount: 0.3, softness: 5, bias: 0.003, normalOffset: 0.05 },
 };
 
 const VERT = /* glsl */ `
