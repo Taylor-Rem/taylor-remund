@@ -19,7 +19,7 @@ export const POSE = {
   /** Cap travel, world units. */
   travel: 0.06,
   /** Guard angle about the hinge line, degrees: parked open (tilted back past vertical) and shut. */
-  guardOpenDeg: -106,
+  guardOpenDeg: -126,
   guardClosedDeg: 0,
   digits: 4,
 } as const;
