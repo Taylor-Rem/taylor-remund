@@ -26,7 +26,7 @@ import { loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
 import type { PhoneMessage, Plan, PlanOptions, Register, TapeColour } from './layout.ts';
 import { TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
-import { toTextureRows } from './raster.ts';
+import { halve, toTextureRows } from './raster.ts';
 import { rng } from './rng.ts';
 
 export { world } from './content.ts';
@@ -114,7 +114,9 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
     const { plan, painted } = build();
     const map = upload(painted.color, painted.w, painted.h, true, anisotropy);
     const normal = painted.normal ? upload(painted.normal, painted.w, painted.h, false, anisotropy) : null;
-    const rough = painted.rough ? upload(painted.rough, painted.w, painted.h, false, anisotropy) : null;
+    // Roughness varies slowly and the eye forgives it: half resolution, a quarter of the memory.
+    const half = painted.rough ? halve(painted.rough, painted.w, painted.h) : null;
+    const rough = half ? upload(half.data, half.w, half.h, false, anisotropy) : null;
     const per = textureBytes(painted.w, painted.h);
     made.set(key, {
       key,
@@ -127,7 +129,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       normal,
       rough,
       transparent: painted.alpha,
-      bytes: per * (1 + (normal ? 1 : 0) + (rough ? 1 : 0)),
+      bytes: per * (1 + (normal ? 1 : 0)) + (half ? textureBytes(half.w, half.h) : 0),
     });
     return key;
   };

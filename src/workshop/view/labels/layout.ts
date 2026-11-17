@@ -75,7 +75,7 @@ export const REGISTERS: Record<Register, RegisterSpec> = {
   stencil: { capHeight: 0.2, texelsPerUnit: 320, ruled: false },
   card: { capHeight: 0.1, texelsPerUnit: 480, ruled: false },
   slip: { capHeight: 0.085, texelsPerUnit: 480, ruled: false },
-  phone: { capHeight: 0.028, texelsPerUnit: 1400, ruled: false },
+  phone: { capHeight: 0.034, texelsPerUnit: 1150, ruled: false },
 };
 
 // ---- glyph placement -----------------------------------------------------
@@ -190,7 +190,7 @@ export const PROPORTIONS = {
   tape: { heightPerCap: 1.78, lead: 0.62, trail: 0.7, tracking: 0.2 },
   plate: { heightPerCap: 2.25, sidePad: 0.85, tracking: 0.16 },
   stencil: { heightPerCap: 1.5, sidePad: 0.38, tracking: 0.12 },
-  sign: { heightPerCap: 1.72, sidePad: 0.55, tracking: 0.07, shade: 0.085 },
+  sign: { heightPerCap: 1.76, sidePad: 0.55, tracking: 0.07, shade: 0.11 },
   card: { maxChars: 15, lineGap: 2.05, top: 2.3, bottom: 1.25, side: 1.4 },
   slip: { maxChars: 10, lineGap: 1.85, top: 1.8, bottom: 1.6, side: 1.05 },
 } as const;

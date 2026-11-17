@@ -164,6 +164,29 @@ export function toTextureRows(rgba: Uint8Array, w: number, h: number): Uint8Arra
   return rgba;
 }
 
+/** Halve an RGBA image (2x2 box filter; an odd last row/column is folded in). */
+export function halve(rgba: Uint8Array, w: number, h: number): { data: Uint8Array; w: number; h: number } {
+  const hw = Math.max(1, w >> 1);
+  const hh = Math.max(1, h >> 1);
+  const out = new Uint8Array(hw * hh * 4);
+  for (let y = 0; y < hh; y++) {
+    for (let x = 0; x < hw; x++) {
+      for (let c = 0; c < 4; c++) {
+        let s = 0;
+        let n = 0;
+        for (let yy = y * 2; yy < Math.min(h, y * 2 + (y === hh - 1 ? 3 : 2)); yy++) {
+          for (let xx = x * 2; xx < Math.min(w, x * 2 + (x === hw - 1 ? 3 : 2)); xx++) {
+            s += rgba[(yy * w + xx) * 4 + c]!;
+            n++;
+          }
+        }
+        out[(y * hw + x) * 4 + c] = Math.round(s / n);
+      }
+    }
+  }
+  return { data: out, w: hw, h: hh };
+}
+
 // ---- noise -------------------------------------------------------------
 
 export type Noise2 = (x: number, y: number) => number;

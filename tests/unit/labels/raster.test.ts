@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blur, displace, fbm, gray, heightToNormal, sample, shift, toTextureRows, valueNoise } from '../../../src/workshop/view/labels/raster.ts';
+import { blur, displace, fbm, gray, halve, heightToNormal, sample, shift, toTextureRows, valueNoise } from '../../../src/workshop/view/labels/raster.ts';
 import { hashString, jitter, rng } from '../../../src/workshop/view/labels/rng.ts';
 
 describe('rng', () => {
@@ -49,6 +49,14 @@ describe('raster', () => {
     for (let y = 0; y < 16; y++) for (let x = 0; x < 4; x++) down.d[y * 4 + x] = y / 16;
     const m = heightToNormal(down, 4);
     expect(m[(8 * 4 + 1) * 4 + 1]!).toBeGreaterThan(128);
+  });
+
+  it('halve averages 2x2 blocks and folds an odd edge in', () => {
+    const a = new Uint8Array(3 * 2 * 4);
+    for (let i = 0; i < 6; i++) a.fill(i * 10, i * 4, i * 4 + 4); // values 0,10,20 / 30,40,50
+    const h = halve(a, 3, 2);
+    expect([h.w, h.h]).toEqual([1, 1]);
+    expect(h.data[0]).toBe(25);
   });
 
   it('toTextureRows flips rows', () => {

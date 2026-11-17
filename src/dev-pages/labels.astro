@@ -47,7 +47,7 @@
         renderer.toneMappingExposure = 1.15;
         document.body.appendChild(renderer.domElement);
 
-        const labels = await createLabels({ anisotropy: renderer.capabilities.getMaxAnisotropy() }).catch((e) => fail(String(e)));
+        const labels = await createLabels({ anisotropy: renderer.capabilities.getMaxAnisotropy(), fontBase: q.get('fontBase') ?? undefined }).catch((e) => fail(String(e)));
         (window as any).__labels = labels;
 
         // The browser half of the fallback test: a glyph we did not subset must be caught.
@@ -171,7 +171,15 @@
         const mem = labels.memory();
         const px = (window as any).__pxPerUnit = innerWidth / across;
         const lines = labels.entries().map((e) => `${e.register.padEnd(7)} ${JSON.stringify(e.text).slice(0, 30).padEnd(31)} ${e.size.w.toFixed(2)} x ${e.size.h.toFixed(2)} u  cap ${e.capHeight.toFixed(3)} u = ${capPx(e.capHeight, 'front', { pxPerUnit: px, pitchDeg: 33 }).toFixed(1)} px  ${e.px.w}x${e.px.h}`);
-        status.textContent = `${mem.labels} labels, ${mem.textures} textures, ${(mem.bytes / 1048576).toFixed(1)} MiB GPU\n` + (q.has('table') ? lines.join('\n') : '');
+        // Every request this page made, by origin, and what the fonts cost on the wire.
+        const res = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+        const origins = [...new Set(res.map((e) => new URL(e.name).origin))];
+        const fonts = res.filter((e) => e.name.endsWith('.woff2')).map((e) => `${e.name.split('/').pop()} ${e.encodedBodySize || e.transferSize} B`);
+        const t = labels.entries();
+        status.textContent =
+          `${mem.labels} labels, ${mem.textures} textures, ${(mem.bytes / 1048576).toFixed(1)} MiB GPU\n` +
+          (q.has('table') ? `origins: ${origins.join(' ')}\nfonts: ${fonts.join(', ')}\n` + lines.join('\n') : '');
+        void t;
         if (q.has('nostatus')) status.style.display = 'none';
         requestAnimationFrame(() => {
           renderer.render(scene, camera);
