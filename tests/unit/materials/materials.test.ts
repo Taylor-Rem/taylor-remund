@@ -287,6 +287,14 @@ describe('materials', () => {
     expect(fs).toContain('u_faceWear * smoothstep(');
   });
 
+  it('keeps felt in its own hue: sheen and fuzz from the vertex colour, faded on dark felt', () => {
+    for (const k of ['sheenLift', 'darkLum', 'lightLum', 'darkSpec', 'dyeSat']) expect(CLASSES.felt.params[k], k).toBeDefined();
+    const fs = compile(mats.of('felt') as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('pSheen = min(col * u_sheenLift, vec3(0.95)) * u_sheen * lightK;');
+    expect(fs).toContain('pAlbedo = col * (1.0 + rim * u_fuzz * lightK);');
+    expect(mats.uniforms('felt').c_sheen).toBeUndefined();
+  });
+
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {
     const m = createMaterials({ tier: 'high' });
     const belt = m.uniforms('belt');
