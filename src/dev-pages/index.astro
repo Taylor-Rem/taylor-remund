@@ -1,6 +1,13 @@
 ---
 // Index of the dev-only pages. Served at /dev/ in `astro dev`, and in a build
 // only with WORKSHOP_DEV_PAGES=1 (integrations/dev-pages.ts).
+//
+// Two traps when adding a page here:
+// - The integration finds dev pages when the server starts: a NEW page is a
+//   404 until you restart `npm run dev` (edits to existing pages hot-reload).
+// - Astro scopes a page's <style> to the elements in its template, so DOM you
+//   build at runtime (an index table, a read-out) gets none of it: use
+//   <style is:global> on dev pages that create elements from script.
 import { join } from 'node:path';
 import { devPagePattern, listDevPages } from '../../integrations/dev-pages.ts';
 

@@ -15,6 +15,7 @@
 //   ?angle=<deg>  turntable yaw (0 = the good side to the camera)   ?spin=1  slow turntable
 //   ?lamp=0..1  ?tier=high|low  ?post=0|1  ?hud=0  ?manual=1 (no wall clock; drive with __workshop.advance)
 //   ?ground=none           no bench
+//   ?swatch=1              colour-check swatches in front (button-red gloss, paper, teal enamel, brass, tape)
 // Sets window.__ready after a settled frame; window.__workshop is the stage's debug object
 // (look, rig, relight, passes, stats, advance), window.__catalogue has materials.set etc.
 //
@@ -54,6 +55,7 @@
       import { listPieces, findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
       import { applyView, VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
       import { DISTANCES, pxPerUnit, type Distance } from '../workshop/view/catalogue/distances.ts';
+      import { swatchRow } from '../workshop/view/catalogue/swatches.ts';
 
       const q = new URLSearchParams(location.search);
       const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -118,6 +120,11 @@
         obj = s.add(piece, { yaw: angle });
         applyView(obj, view, s.clayMaterials);
         const box = s.boxOf(obj);
+        if (q.get('swatch') === '1') {
+          // colour-check swatches in front of the piece, framed with it
+          const sw = s.add(swatchRow(), { z: box.max.z + 0.35, blob: 0.6 });
+          box.union(s.boxOf(sw));
+        }
         s.look(box, dist);
         (window as unknown as { __catalogue: unknown }).__catalogue = { show: s, piece, entry, materials: s.materials, look: (d: Distance | number) => s.look(s.boxOf(obj!), d) };
 

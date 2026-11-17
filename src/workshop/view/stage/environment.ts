@@ -100,7 +100,7 @@ export function defaultPanels(opts: EnvOptions = {}): EnvPanel[] {
       halfH: 0.5,
       soft: 0.06,
       colour: c.envCool,
-      intensity: opts.windowIntensity ?? 20,
+      intensity: opts.windowIntensity ?? 10,
     },
   ];
 }
@@ -111,7 +111,7 @@ export function envData(opts: EnvOptions = {}): { data: Float32Array; width: num
   const height = width / 2;
   const c = stageColours();
   const panels = defaultPanels(opts);
-  const roomI = opts.roomIntensity ?? 3.5;
+  const roomI = opts.roomIntensity ?? 2.5;
   const data = new Float32Array(width * height * 4);
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
