@@ -271,6 +271,8 @@ export interface WorldView {
   holding(): Holding | null;
   /** What the world is doing with a part's body (also on `motion(id).mode`). */
   mode(id: Id): BodyMode | undefined;
+  /** A part's box: half extents in units, in its own frame (centred on `motion(id).pose`). Fetch (kind robot) included. */
+  halfExtents(id: Id): Vec3 | undefined;
   /** § E5 rule 5: the visitor has touched or changed this part; the crew leaves it alone. */
   touched(id: Id): boolean;
   /** The Button's own state. */
