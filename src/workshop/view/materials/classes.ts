@@ -362,22 +362,27 @@ ${DUST}
       fibreBump: p(0.0006, 0, 0.002), // micro-relief of open fibres
       poreBump: p(0.0004, 0, 0.002),
       grime: p(0.8, 0, 1.5),
-      dust: p(0.1, 0, 1),
-      // Painted wood (finish > 0): the vertex colour is the PAINT; the wood
-      // under it is the wood-light token. finish 1 = fully painted, 0.5 =
-      // half worn off, 0 = bare. Paint keeps the wood's relief and pores but
-      // only a quarter of its grain colour; it thins and lets the bare wood
-      // through where wear is high.
+      dust: p(0.0, 0, 1),
+      // Painted wood: surf.z (finish) on `wood` is paint COVERAGE, 0 bare ..
+      // 1 fully painted, and the vertex colour is then the paint token. The
+      // wood under the paint is the wood-light token, and the grain seed never
+      // reads the paint colour, so repainting does not change the grain. Paint
+      // keeps about half the grain's relief and pores but only a quarter of its
+      // colour contrast, takes no edge lightening, and is matte to low satin.
+      // Coverage between 0 and 1 thins the paint toward the wood in patches.
       paintGrain: p(0.25, 0, 1), // share of the grain's colour contrast that shows through paint
-      paintWear: p(1.1, 0, 3), // how readily wear takes the paint off
-      paintRough: p(0.68, 0.4, 0.95), // matte to low satin
-      paintSpec: p(0.5, 0, 1), // paint's specular energy: low, so the tint holds under the key
+      paintRelief: p(0.5, 0, 1), // share of the grain's relief kept under paint
+      paintWear: p(0.0, 0, 3), // wear taking paint off (0: the crate's geometry draws its own bare edges)
+      paintRough: p(0.65, 0.4, 0.95), // matte to low satin
+      paintSpec: p(0.25, 0, 1), // paint's specular energy: low, so the tint holds under the key
+      paintDeep: p(0.85, 0.5, 1), // pigment reads a little deeper than the token on wood
+      paintSat: p(1.15, 1, 1.6), // and a little richer, so lit tops keep their hue
     },
     colours: () => ({ grime: grime(), dust: dust(), bareWood: tok('wood-light') }),
     glsl: /* glsl */ `
 float painted = smoothstep(0.0, 0.02, pFinish);
 vec3 woodHue = mix(pBase, c_bareWood, painted);
-float sd = pHash(floor(vColor.rgb * 911.0) + 0.5);
+float sd = pHash(floor(woodHue * 911.0) + 0.5); // never the paint colour: repainting keeps the grain
 vec3 q = pP + vec3(sd * 17.0, sd * 0.37, sd * 0.53);
 vec4 L = pNoise4(q * vec3(u_warpLen, u_warpScale, u_warpScale));            // r warp, g long warp, b tone, a dust
 vec4 S = pNoise4(q * vec3(u_streakLen, u_streakFreq, u_streakFreq) + 2.0);   // r streaks, g coarse fibre, b wobble, a roughness
@@ -415,6 +420,7 @@ col *= 1.0 + (fibre - 0.5) * u_fibreContrast + (S.g - 0.5) * u_fibreContrast * 0
 col *= 1.0 - pores * u_pores * (0.5 + late);
 float endg = smoothstep(0.55, 0.85, abs(pN.x));
 col *= mix(1.0, u_endDark, endg);
+vec3 grainCol = col; // before edge lightening: paint takes none of it
 float wornE = smoothstep(0.15, 0.85, pWear) * u_edgeWear * (0.55 + 0.45 * E.r);
 col = mix(col, col * u_edgeLight, wornE);
 #if !defined(TIER_LOW) && !defined(LARGE)
@@ -424,21 +430,29 @@ col = mix(col, col * 1.45, sc * 0.6);
 pRough = u_roughness + late * u_lateGloss + endg * 0.1 - wornE * 0.2 + (fibre - 0.5) * 0.12
        + (S.a - 0.5) * u_roughVar + (L.b - 0.5) * u_roughVar * 0.8 + pores * 0.1;
 // paint over the wood: the grain's colour, cut to a quarter, rides on the paint
+float paintAmt = 0.0;
 {
-  vec3 grainMod = col / max(woodHue, vec3(1e-4));
-  vec3 paintCol = pBase * mix(vec3(1.0), grainMod, u_paintGrain) * (1.0 - pores * u_pores * 0.3);
-  float pn = L.g * 0.5 + S.b * 0.5;
+  vec3 grainMod = grainCol / max(woodHue, vec3(1e-4));
+  vec3 pig = pBase * u_paintDeep;
+  pig = max(mix(vec3(dot(pig, vec3(0.2126, 0.7152, 0.0722))), pig, u_paintSat), vec3(0.0));
+  vec3 paintCol = pig * mix(vec3(1.0), grainMod, u_paintGrain) * (1.0 - pores * u_pores * 0.3);
+  // blotchy, not along the grain: worn paint comes off in patches
+#ifdef LARGE
+  float pn = L.g;
+#else
+  float pn = E.b * 0.75 + Fb.r * 0.25;
+#endif
   float paintField = 0.55 + (pn - 0.5) * 0.8 - pWear * u_paintWear;
-  float paintAmt = smoothstep(1.0 - pFinish - 0.08, 1.0 - pFinish + 0.08, paintField) * painted;
+  paintAmt = smoothstep(1.0 - pFinish - 0.03, 1.0 - pFinish + 0.03, paintField) * painted;
   col = mix(col, paintCol, paintAmt);
-  pRough = mix(pRough, u_paintRough + (S.a - 0.5) * 0.08 + pores * 0.06, paintAmt);
+  pRough = mix(pRough + wornE * 0.2, u_paintRough + (S.a - 0.5) * 0.06 + pores * 0.05, paintAmt);
   pSpec = mix(1.0, u_paintSpec, paintAmt);
 }
 pAlbedo = col;
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
-pH = late * u_grainBump * (1.0 - endg) + fibre * u_fibreBump * fAA - pores * u_poreBump;
+pH = (late * u_grainBump * (1.0 - endg) + fibre * u_fibreBump * fAA - pores * u_poreBump) * mix(1.0, u_paintRelief, paintAmt);
 #endif
 `,
   },
