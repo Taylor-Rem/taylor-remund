@@ -174,8 +174,9 @@ vec3 pPerturb(vec3 surfPos, vec3 n, vec2 dB, float faceDir) {
  *        the camera), pFw (material units per pixel)
  *   out: pAlbedo, pRough, pMetal, pH (height in material units; the normal is
  *        bent by its screen-space slope), pDB (an explicit per-pixel height
- *        slope, added to pH's), pEmit, pSheen, pCoat/pCoatRough (clearcoat,
- *        physical classes with clearcoat only)
+ *        slope, added to pH's), pSpec (dielectric specular energy 0..1:
+ *        satin and matte paints turn their broad lobe down), pEmit, pSheen,
+ *        pCoat/pCoatRough (clearcoat, physical classes with clearcoat only)
  */
 export const FRAGMENT_OPEN = /* glsl */ `
 vec3 pBase = diffuseColor.rgb;
@@ -196,6 +197,7 @@ float pRough = roughness;
 float pMetal = metalness;
 float pH = 0.0;
 vec2 pDB = vec2(0.0);
+float pSpec = 1.0;
 #ifdef USE_CLEARCOAT
 float pCoat = clearcoat;
 float pCoatRough = clearcoatRoughness;
@@ -272,12 +274,29 @@ export const FRAGMENT_NORMAL = /* glsl */ `
 }
 `;
 
+/**
+ * Before <opaque_fragment>: classes that define CLAMP_GLINT cap their
+ * outgoing radiance (keeping its hue) at u_glintMax, so a polished corner
+ * under the key is a glint and never crosses the bloom threshold.
+ */
+export const FRAGMENT_GLINT = /* glsl */ `
+#ifdef CLAMP_GLINT
+{
+  float mx = max(outgoingLight.r, max(outgoingLight.g, outgoingLight.b));
+  if (mx > u_glintMax) outgoingLight *= u_glintMax / mx;
+}
+#endif
+`;
+
 export const FRAGMENT_EMISSIVE = /* glsl */ `
 totalEmissiveRadiance += pEmit;
 `;
 
-/** After <lights_physical_fragment>: per-pixel sheen and clearcoat. */
+/** After <lights_physical_fragment>: per-pixel specular energy, sheen and clearcoat. */
 export const FRAGMENT_SHEEN = /* glsl */ `
+material.specularColor *= pSpec;
+material.specularColorBlended = mix(material.specularColor, diffuseColor.rgb, metalnessFactor);
+material.specularF90 = mix(material.specularF90 * pSpec, 1.0, metalnessFactor);
 #ifdef USE_SHEEN
 material.sheenColor = pSheen;
 #endif

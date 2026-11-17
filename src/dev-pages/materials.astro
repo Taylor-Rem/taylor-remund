@@ -16,6 +16,8 @@
 //   ?t=3.5              simulation time for update() (belt scroll, bulb flicker)
 //   ?cam=x,y,z,tx,ty,tz,fov   override the camera
 //   ?debug=clay|wear|cavity|finish|lpos   the materials' own review views
+//   ?scene=paint        painted wood: bare, half and full coverage in blue, red and cream
+//   ?scene=bulbs        bulbs at both levels and polished brass under the REAL stage light and post (bloom)
 //   ?blobs=1            blob contact shadows under the swatches (materials.decal())
 ---
 <!doctype html>
@@ -48,6 +50,7 @@
       import type { MaterialClass } from '../workshop/view/kit/types.ts';
 
       const q = new URLSearchParams(location.search);
+      if (q.get('scene') !== 'bulbs') {
       const only = q.get('class') as MaterialClass | null;
       const sceneName = q.get('scene');
       const tokenOverride = q.get('token') as Token | null;
@@ -326,6 +329,17 @@
           addMesh(scene, testBlock('button-red', f, false), mats.of('steel'), (i - 1) * 0.85, 0, -0.75, 0.3);
         });
         dist = 5.4;
+      } else if (sceneName === 'paint') {
+        // painted wood: columns bare (0), half (0.5), full (1); rows blue, red, cream
+        const toks: Token[] = ['paint-blue', 'cable-red', 'paper'];
+        toks.forEach((tk, r) => {
+          [0, 0.5, 1].forEach((cov, c) => {
+            const g = setFinish(withLpos(colourise(roundedBox(0.7, 0.32, 0.42, 0.025, 3, 12), cov > 0 ? tk : 'wood-light', 0.05)), cov);
+            addMesh(scene, g, mats.of('wood'), (c - 1) * 0.95, 0, (r - 1) * 0.62, 0.1);
+          });
+        });
+        target.set(0, 0.15, 0);
+        dist = 6.6;
       } else if (sceneName === 'brass') {
         [0, 1].forEach((f, i) => {
           addMesh(scene, colourise(knob(f), 'brass', 0), mats.of('brass'), (i - 0.5) * 1.3 - 0.35, 0, 0.15, 0.4);
@@ -454,6 +468,46 @@
         hud.textContent += `\nframe ${res.ms} ms (mean of a busy run) @ ${res.w}x${res.h}`;
       }
       requestAnimationFrame(() => { renderer.render(scene, cam); requestAnimationFrame(() => { w.__ready = true; }); });
+      }
+    </script>
+    <script>
+      // ?scene=bulbs: the real stage (light rig, tone map, bloom) around a
+      // lamp bulb (finish 0), an indicator (finish 1) and polished brass.
+      import { Box3, BufferAttribute, LatheGeometry, Mesh, Vector2, Vector3 } from 'three';
+      import { createStage } from '../workshop/view/stage/index.ts';
+      import { createMaterials } from '../workshop/view/materials/index.ts';
+      import { linear, type Token } from '../workshop/view/palette.ts';
+      if (new URLSearchParams(location.search).get('scene') === 'bulbs') {
+        const canvas = document.getElementById('c') as HTMLCanvasElement;
+        const stage = createStage(canvas, { tier: 'high', reducedMotion: true, preserveDrawingBuffer: true });
+        const mats = createMaterials({ tier: 'high' });
+        const bulb = (finish: number, token: Token, r: number): Mesh => {
+          const pts: Vector2[] = [];
+          for (let i = 0; i <= 16; i++) { const a = (i / 16) * Math.PI; pts.push(new Vector2(Math.sin(a) * r, r - Math.cos(a) * r)); }
+          const g = new LatheGeometry(pts.reverse(), 32);
+          const n = g.attributes.position!.count;
+          const c = linear(token);
+          const col = new Float32Array(n * 3), surf = new Float32Array(n * 3);
+          for (let i = 0; i < n; i++) { col.set(c, i * 3); surf[i * 3] = 0.3; surf[i * 3 + 2] = finish; }
+          g.setAttribute('color', new BufferAttribute(col, 3));
+          g.setAttribute('surf', new BufferAttribute(surf, 3));
+          return new Mesh(g, mats.of(finish < 0 ? 'brass' : 'bulb'));
+        };
+        const lamp = bulb(0, 'amber-glow', 0.16); lamp.position.set(-0.6, 0, 0);
+        const ind = bulb(1, 'amber-glow', 0.07); ind.position.set(0, 0, 0);
+        const ind2 = bulb(1, 'cable-red', 0.07); ind2.position.set(0.3, 0, 0);
+        const knob = bulb(-1, 'brass', 0.14); knob.position.set(0.75, 0, 0); // finish -1 marks the brass test piece
+        const s = knob.geometry.attributes.surf!; for (let i = 0; i < s.count; i++) s.setZ(i, 1);
+        stage.scene.add(lamp, ind, ind2, knob);
+        (window as unknown as Record<string, unknown>).__stage = stage;
+        (window as unknown as Record<string, unknown>).__mats = mats;
+        const box = new Box3(new Vector3(-0.9, 0, -0.3), new Vector3(1.0, 0.35, 0.3));
+        stage.camera.setSubject(box);
+        stage.camera.cutTo(stage.camera.home());
+        let k = 0;
+        const tick = (): void => { stage.render({ dt: 1 / 60 }); if (++k === 30) (window as unknown as Record<string, unknown>).__ready = true; requestAnimationFrame(tick); };
+        tick();
+      }
     </script>
   </body>
 </html>

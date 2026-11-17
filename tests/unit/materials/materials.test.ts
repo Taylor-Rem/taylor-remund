@@ -218,8 +218,10 @@ describe('materials', () => {
 
   it('names the bulb levels and picks them by finish', () => {
     const u = mats.uniforms('bulb');
-    expect(u.u_lampLevel!.value).toBe(9);
-    expect(u.u_indicatorLevel!.value).toBe(5);
+    // bloom threshold 4.5 (knee 0.5): a lamp is far over, an indicator just over in its hot centre
+    expect(u.u_lampLevel!.value as number).toBeGreaterThan(10);
+    expect(u.u_indicatorLevel!.value as number).toBeGreaterThan(4.5);
+    expect(u.u_indicatorLevel!.value as number).toBeLessThan(9);
     expect(compile(mats.of('bulb') as MeshStandardMaterial).fragmentShader).toContain('mix(u_lampLevel, u_indicatorLevel, pFinish)');
   });
 
@@ -229,6 +231,31 @@ describe('materials', () => {
     expect(fs).toContain('float E = steelEdge(pWear);');
     expect(fs).toContain('u_cavityGuard');
     expect(fs).toContain('u_maxCover');
+  });
+
+  it('clamps brass and bare-steel glints below the bloom knee, and nothing else', () => {
+    for (const cls of ALL) {
+      const m = mats.of(cls) as MeshStandardMaterial;
+      const clamped = cls === 'brass' || cls === 'metal';
+      expect(m.defines?.CLAMP_GLINT !== undefined, cls).toBe(clamped);
+      if (clamped) expect(mats.uniforms(cls).u_glintMax!.value as number).toBeLessThan(4.0);
+    }
+    expect(compile(mats.of('brass') as MeshStandardMaterial).fragmentShader).toContain('outgoingLight *= u_glintMax / mx;');
+  });
+
+  it('paints wood by the finish channel without reading the paint into the grain seed', () => {
+    for (const k of ['paintGrain', 'paintRelief', 'paintRough', 'paintSpec']) expect(CLASSES.wood.params[k], k).toBeDefined();
+    const fs = compile(mats.of('wood') as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('pHash(floor(woodHue * 911.0) + 0.5)');
+    expect(fs).not.toContain('floor(vColor.rgb * 911.0)');
+    expect(mats.uniforms('wood').c_bareWood).toBeDefined();
+  });
+
+  it('turns the satin lobe down and leaves gloss to the coat; chips cluster', () => {
+    const fs = compile(mats.of('steel') as MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('pSpec = mix(mix(u_satinSpec, u_glossSpec, fin), 1.0, chip);');
+    expect(fs).toContain('material.specularColor *= pSpec;');
+    expect(fs).toContain('u_clusterClean');
   });
 
   it('advances the belt with simulation time and flickers bulbs deterministically', () => {

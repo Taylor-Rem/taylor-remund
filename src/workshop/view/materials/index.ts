@@ -22,6 +22,7 @@ import {
   DEBUG_PARS,
   FRAGMENT_CLOSE,
   FRAGMENT_EMISSIVE,
+  FRAGMENT_GLINT,
   FRAGMENT_METALNESS,
   FRAGMENT_NORMAL,
   FRAGMENT_OPEN,
@@ -179,6 +180,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
 
   const defines: Record<string, string> = {
     [`MAT_${cls.toUpperCase()}`]: '',
+    ...(def.params.glintMax ? { CLAMP_GLINT: '' } : {}),
     NOISE_INV_PERIOD: (1 / NOISE_PERIOD).toFixed(8),
   };
   if (tier === 'low') defines.TIER_LOW = '';
@@ -212,6 +214,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     fs = inject(fs, 'normal_fragment_maps', FRAGMENT_NORMAL, 'after');
     fs = inject(fs, 'emissivemap_fragment', FRAGMENT_EMISSIVE, 'after');
     fs = inject(fs, 'lights_physical_fragment', FRAGMENT_SHEEN, 'after');
+    fs = inject(fs, 'opaque_fragment', FRAGMENT_GLINT, 'before');
     shader.fragmentShader = fs;
   };
   return mat;
