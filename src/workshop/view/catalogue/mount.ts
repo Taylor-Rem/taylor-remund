@@ -27,7 +27,7 @@ import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { benchSubject, distanceFor, type Distance } from './distances.ts';
 import { benchStandIn, wallStandIn } from './ground.ts';
 import { findPiece, buildEntry } from './registry.ts';
-import { makeClay } from './views.ts';
+import { debugOf, type ViewMode } from './views.ts';
 
 export interface ShowcaseOptions {
   tier?: Tier;
@@ -58,13 +58,15 @@ export interface Placement {
   yaw?: number;
   /** Contact blob under the piece (0 for none). Default 1. */
   blob?: number;
+  /** Review view to draw this piece in (default beauty). */
+  view?: ViewMode;
 }
 
 export interface Showcase {
   readonly stage: Stage;
   readonly materials: WorkshopMaterials;
-  /** A second materials instance whose `paper` class is plain clay (review views). */
-  readonly clayMaterials: WorkshopMaterials;
+  /** The materials a review view is drawn with (beauty: `materials`; others: a debug instance, made on first use). */
+  materialsFor(view: ViewMode): WorkshopMaterials;
   readonly labels: WorkshopLabels;
   readonly loop: Loop;
   readonly hooks: WorkshopDebug;
@@ -72,6 +74,8 @@ export interface Showcase {
   readonly world: Group;
   /** Where the ground came from. */
   readonly groundSource: 'registry' | 'stand-in' | 'none';
+  /** Where the back wall came from (when asked for). */
+  readonly wallSource: 'registry' | 'stand-in' | 'none';
   /** Realize a piece and stand it on the bench. Returns its top object (a Group named after the piece). */
   add(piece: Piece, at?: Placement): Object3D;
   /** World bounds of an added object. */
@@ -104,8 +108,18 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
   });
   const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy() });
   const materials = createMaterials({ tier, labels });
-  const clayMaterials = createMaterials({ tier, labels });
-  makeClay(clayMaterials);
+  const debugMats = new Map<ViewMode, WorkshopMaterials>();
+  const materialsFor = (view: ViewMode): WorkshopMaterials => {
+    const debug = debugOf(view);
+    if (!debug) return materials;
+    let m = debugMats.get(view);
+    if (!m) {
+      m = createMaterials({ tier, labels, debug });
+      if (view === 'wire') for (const k of ['steel', 'brass', 'wood', 'rubber', 'paper', 'metal', 'glass', 'bulb', 'felt', 'tape', 'belt'] as const) (m.of(k) as unknown as { wireframe: boolean }).wireframe = true;
+      debugMats.set(view, m);
+    }
+    return m;
+  };
 
   const world = new Group();
   world.name = 'showcase';
@@ -132,7 +146,7 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
   };
 
   const realizeInto = (piece: Piece, at: Placement): Object3D => {
-    const obj = realize(piece, materials);
+    const obj = realize(piece, materialsFor(at.view ?? 'beauty'));
     obj.position.set(at.x ?? 0, at.y ?? 0, at.z ?? 0);
     obj.rotation.y = ((at.yaw ?? 0) * Math.PI) / 180;
     world.add(obj);
@@ -144,7 +158,7 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
   if ((opts.ground ?? 'bench') === 'bench') {
     const bench = await findPiece('bench');
     if (bench) {
-      const p = buildEntry(bench, null, { seed: 1 });
+      const p = buildEntry(bench, null, { seed: 1 }, labels);
       // the bench piece is built with its TOP at y = 0 (the plane things stand on), hanging below it
       realizeInto(p, {});
       groundSource = 'registry';
@@ -152,8 +166,17 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
       realizeInto(benchStandIn(), {}).traverse((m) => ((m as Mesh).castShadow = false));
       groundSource = 'stand-in';
     }
-    if (opts.wall) {
+  }
+  let wallSource: Showcase['wallSource'] = 'none';
+  if (opts.wall) {
+    const wall = await findPiece('back-wall');
+    if (wall) {
+      // its face is at z = 0: stand it at the bench's back edge
+      realizeInto(buildEntry(wall, null, { seed: 1, width: 21, height: 6.5 }, labels), { z: -5 });
+      wallSource = 'registry';
+    } else {
       realizeInto(wallStandIn(), {}).traverse((m) => ((m as Mesh).castShadow = false));
+      wallSource = 'stand-in';
     }
   }
 
@@ -196,7 +219,7 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
     render(info) {
       simTime = info.time;
       materials.update(simTime);
-      clayMaterials.update(simTime);
+      for (const m of debugMats.values()) m.update(simTime);
       opts.onFrame?.(info);
       stage.render({ dt: info.dt });
       frames++;
@@ -213,12 +236,13 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
   const show: Showcase = {
     stage,
     materials,
-    clayMaterials,
+    materialsFor,
     labels,
     loop,
     hooks,
     world,
     groundSource,
+    wallSource,
     add(piece, at = {}) {
       const obj = realizeInto(piece, at);
       added.push({ obj, blob: at.blob ?? 1 });
@@ -238,7 +262,7 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
       removeEventListener('resize', onResize);
       loop.dispose();
       materials.dispose();
-      clayMaterials.dispose();
+      for (const m of debugMats.values()) m.dispose();
       labels.dispose();
       world.traverse((o) => {
         const m = o as Mesh;

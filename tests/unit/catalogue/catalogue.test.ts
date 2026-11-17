@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { listPieces, findPiece, firstPiece, buildEntry } from '../../../src/workshop/view/catalogue/registry.ts';
 import { distanceFor, pxPerUnit, LENS, PHONE_SPAN, STATION_SPAN } from '../../../src/workshop/view/catalogue/distances.ts';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { TABLEAU, STAND_IN, shotBox, standInPiece } from '../../../src/workshop/view/catalogue/tableau.ts';
-import { debugColours } from '../../../src/workshop/view/catalogue/views.ts';
+import { TABLEAU, STAND_IN, shotCamera, standInPiece } from '../../../src/workshop/view/catalogue/tableau.ts';
+import { VIEW_MODES, debugOf } from '../../../src/workshop/view/catalogue/views.ts';
 
 const W = 1440;
 const H = 900;
@@ -86,32 +86,49 @@ describe('early-look tableau', () => {
     }
   });
 
-  it('puts the Button between the crate (left) and Fetch (right), in front of both', () => {
+  it('puts the crate left of the Button and a little forward (just dropped), Fetch to the right', () => {
     expect(TABLEAU.crate.x!).toBeLessThan(TABLEAU.button.x!);
     expect(TABLEAU.fetch.x!).toBeGreaterThan(TABLEAU.button.x!);
-    expect(TABLEAU.button.z!).toBeGreaterThan(TABLEAU.crate.z!);
+    expect(TABLEAU.crate.z!).toBeGreaterThan(TABLEAU.button.z!);
   });
 
-  it('frames the group around all three', () => {
+  it('frames the group wider than any portrait, at both aspects', () => {
     const boxes = {
-      button: new Box3(new Vector3(-0.3, 0, 0.3), new Vector3(0.8, 1.45, 1.4)),
-      crate: new Box3(new Vector3(-1.6, 0, 0.05), new Vector3(-1.0, 0.6, 0.65)),
-      fetch: new Box3(new Vector3(1.4, 0, 0.25), new Vector3(2.2, 1.3, 0.95)),
+      button: new Box3(new Vector3(-0.3, 0, 1.3), new Vector3(0.9, 1.45, 2.4)),
+      crate: new Box3(new Vector3(-1.4, 0, 2.2), new Vector3(-0.7, 0.6, 2.9)),
+      fetch: new Box3(new Vector3(1.3, 0, 1.9), new Vector3(2.1, 1.3, 2.6)),
     };
-    const b = shotBox('three', boxes);
-    for (const x of Object.values(boxes)) expect(b.containsBox(x)).toBe(true);
+    for (const aspect of [1440 / 900, 390 / 844]) {
+      const g = shotCamera('three', boxes, aspect).distance;
+      for (const s of ['button', 'crate', 'fetch'] as const) expect(shotCamera(s, boxes, aspect).distance).toBeLessThan(g);
+    }
   });
 });
 
-describe('debug colours', () => {
-  it('read surf.x as wear and lpos for bands, one colour per vertex', () => {
-    const p = standInPiece('crate');
-    const g = p.root.parts[0]!.geometry;
-    const n = g.getAttribute('position').count;
-    for (const m of ['clay', 'wear', 'cavity', 'lpos', 'wire'] as const) {
-      const c = debugColours(g, m);
-      expect(c.length).toBe(n * 3);
-      expect(c.every((v) => Number.isFinite(v) && v >= 0)).toBe(true);
-    }
+describe('review views', () => {
+  it('map onto the materials debug views (wire draws clay), beauty onto the real look', () => {
+    expect(debugOf('beauty')).toBeUndefined();
+    expect(debugOf('wire')).toBe('clay');
+    for (const m of ['clay', 'wear', 'cavity', 'finish', 'lpos'] as const) expect(debugOf(m)).toBe(m);
+    expect(VIEW_MODES).toContain('finish');
+  });
+});
+
+describe('labels hook', () => {
+  it('merges what an entry\'s hook returns into the build options, and builds blank without labels', () => {
+    const seen: Record<string, unknown>[] = [];
+    const e = {
+      name: 'probe',
+      build: (o: Record<string, unknown> = {}) => {
+        seen.push(o);
+        return standInPiece('crate');
+      },
+      variants: { M: { size: 'M' } },
+      labels: (_l: unknown, o: Record<string, unknown>) => ({ stencil: true, sawSize: o['size'] }),
+    };
+    buildEntry(e, 'M', { seed: 3 });
+    buildEntry(e, 'M', { seed: 3 }, {} as never);
+    expect(seen[0]).toEqual({ size: 'M', seed: 3 });
+    expect(seen[1]).toEqual({ size: 'M', seed: 3, stencil: true, sawSize: 'M' });
   });
 });

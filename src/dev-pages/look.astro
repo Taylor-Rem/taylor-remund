@@ -1,20 +1,24 @@
 ---
-// The early look (REWRITE.md § G P1 "The early look"; W1.5 brief § 3): three
-// objects under the lamp, as stills. The Button on its pedestal centre-front,
-// one crate to its left a little askew, Fetch to its right looking toward the
-// camera, the lit pool round them and the dark room beyond. Pieces come from
-// the kit registry by name; until one is registered a clay stand-in block of
-// its size holds its place (and the read-out says so). Dev-only; never shipped.
+// The early look (REWRITE.md § G P1 "The early look"; § B3): three objects
+// under the lamp, as stills. The Button at the centre, a crate dropped askew
+// to its left and a little forward (Fetch has just fumbled it), Fetch to the
+// right in its `offer` pose turned toward the visitor; a run of lane tape;
+// the real bench and back wall. Pieces come from the kit registry by name,
+// built through their labels hook so tape, plates and stencils carry text;
+// until one is registered a clay stand-in of its size holds its place (the
+// read-out says so). Dev-only; never shipped.
 //
 // Query:
-//   ?shot=three|button|crate|fetch   the group (default), or a close view of one
+//   ?shot=three|button|crate|fetch|fetches   the group (default), a portrait of one, or both Fetch designs side by side
 //   ?fetch=<name>                    which Fetch design (default: 'fetch', else the first 'fetch-…')
-//   ?crate=<variant>                 the crate's variant (default M when it has one)
+//   ?crate=<variant>                 the crate's variant (default M)
+//   ?pose=<name>                     Fetch's pose (default offer, when it has one)
 //   ?lamp=0..1  ?tier=high|low  ?post=0|1  ?hud=0  ?manual=1  ?seed=<n>
 //
 // Capture (from the repo root):
 //   node scripts/capture.ts "/dev/look/?hud=0" --out shots/<pkg>/look-three.png
 //   node scripts/capture.ts "/dev/look/?shot=button&hud=0" --out shots/<pkg>/look-button.png
+//   node scripts/capture.ts "/dev/look/?hud=0" --mobile --out shots/<pkg>/look-three-phone.png
 //   node scripts/capture.ts "/dev/look/?hud=0" --w 320 --h 200 --out shots/<pkg>/look-320.png
 ---
 <!doctype html>
@@ -24,7 +28,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <title>Early look</title>
-    <style>
+    <style is:global>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
       canvas { display: block; width: 100vw; height: 100vh; }
       #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.35 ui-monospace, monospace; color: #bfe3d8; opacity: 0.75; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
@@ -34,16 +38,16 @@
     <canvas id="c"></canvas>
     <div id="hud"></div>
     <script>
-      import { Vector3, type Box3, type Object3D } from 'three';
-      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
-      import { firstPiece, buildEntry, type Entry } from '../workshop/view/catalogue/registry.ts';
-      import { applyView } from '../workshop/view/catalogue/views.ts';
-      import { TABLEAU, standInPiece, shotBox, type Role, type Shot } from '../workshop/view/catalogue/tableau.ts';
+      import { Box3, Vector3, type Object3D } from 'three';
+      import { mountShowcase, type Placement } from '../workshop/view/catalogue/mount.ts';
+      import { firstPiece, listPieces, buildEntry, type Entry } from '../workshop/view/catalogue/registry.ts';
+      import { TABLEAU, FETCHES, LOOK_LAMP, TAPE_RUN, SHOTS, standInPiece, shotCamera, type Role, type Shot } from '../workshop/view/catalogue/tableau.ts';
+      import { laneTape } from '../workshop/view/kit/pieces/bench/index.ts';
 
       const q = new URLSearchParams(location.search);
       const canvas = document.getElementById('c') as HTMLCanvasElement;
       const hud = document.getElementById('hud')!;
-      const shot = (['three', 'button', 'crate', 'fetch'].includes(q.get('shot') ?? '') ? q.get('shot') : 'three') as Shot;
+      const shot = ((SHOTS as readonly string[]).includes(q.get('shot') ?? '') ? q.get('shot') : 'three') as Shot;
       const seed = q.get('seed') === null ? 1 : Number(q.get('seed'));
       const lampQ = q.get('lamp');
 
@@ -61,32 +65,47 @@
           manual: q.get('manual') === '1',
           wall: true,
         });
+        show.stage.lights.setBulb(LOOK_LAMP.bulb, LOOK_LAMP.aim);
+        show.stage.lights.key.angle = (LOOK_LAMP.angleDeg * Math.PI) / 180;
+        show.add(laneTape({ points: TAPE_RUN, seed: 4 }), { blob: 0 });
+
         const status: string[] = [];
-        const placed: Partial<Record<Role, Object3D>> = {};
-        for (const role of ['crate', 'button', 'fetch'] as const) {
-          const spot = TABLEAU[role];
-          const entry: Entry | undefined = await firstPiece(wanted[role]);
-          let obj: Object3D;
-          if (entry) {
-            const variant = role === 'crate' ? q.get('crate') ?? (entry.variants?.M ? 'M' : null) : null;
-            const piece = buildEntry(entry, variant, { seed: seed + spot.seed });
-            obj = show.add(piece, spot);
-            status.push(`${role}: ${entry.name}${variant ? ` [${variant}]` : ''} ${piece.triangles} tris`);
-          } else {
-            obj = show.add(standInPiece(role), spot);
-            applyView(obj, 'clay', show.clayMaterials);
+        const boxes: Partial<Record<Role | 'fetchA' | 'fetchB', Box3>> = {};
+        /** Build an entry for a role with its labels and pose, or a clay stand-in; place it. */
+        const place = (role: Role, entry: Entry | undefined, at: Placement & { seed: number }): Object3D => {
+          if (!entry) {
             status.push(`${role}: STAND-IN (no '${wanted[role].join("' or '")}' registered yet)`);
+            return show.add(standInPiece(role), { ...at, view: 'clay' });
           }
-          placed[role] = obj;
+          const opts: Record<string, unknown> = { seed: seed + at.seed };
+          let variant: string | null = null;
+          if (role === 'crate') variant = q.get('crate') ?? (entry.variants?.['M'] ? 'M' : null);
+          if (role === 'fetch') {
+            const pose = q.get('pose') ?? 'offer';
+            if (entry.poses?.includes(pose)) opts['pose'] = pose;
+          }
+          const piece = buildEntry(entry, variant, opts, show.labels);
+          status.push(`${role}: ${entry.name}${variant ? ` [${variant}]` : ''}${opts['pose'] ? ` pose ${String(opts['pose'])}` : ''}${entry.labels ? ' +labels' : ''}  ${piece.triangles} tris`);
+          return show.add(piece, at);
+        };
+
+        if (shot === 'fetches') {
+          const { entries } = await listPieces();
+          const designs = entries.filter((e) => e.name === 'fetch' || e.name.startsWith('fetch-')).slice(0, 2);
+          FETCHES.forEach((at, i) => {
+            const o = place('fetch', designs[i], at);
+            boxes[i === 0 ? 'fetchA' : 'fetchB'] = show.boxOf(o);
+          });
+        } else {
+          for (const role of ['button', 'crate', 'fetch'] as const) {
+            boxes[role] = show.boxOf(place(role, await firstPiece(wanted[role]), TABLEAU[role]));
+          }
         }
-        const boxes: Partial<Record<Role, Box3>> = {};
-        for (const [k, o] of Object.entries(placed)) boxes[k as Role] = show.boxOf(o);
-        const box = shotBox(shot, boxes as Record<Role, Box3>);
-        show.look(box, 'close');
-        // sharp where the eye goes: the Button in the group shot, the object itself in a close one
-        const target = shot === 'three' ? boxes.button! : boxes[shot]!;
-        show.stage.camera.focusOn(target.getCenter(new Vector3()));
-        (window as unknown as { __look: unknown }).__look = { show, placed, boxes };
+
+        const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+        const cam = shotCamera(shot, boxes, aspect);
+        show.look(new Box3().setFromCenterAndSize(cam.focus, new Vector3(1, 1, 1)), cam.distance, { focus: cam.focus });
+        (window as unknown as { __look: unknown }).__look = { show, boxes, cam, status };
 
         if (q.get('hud') !== '0') {
           let n = 0;
@@ -94,7 +113,7 @@
             if (++n % 15 === 0) {
               const st = show.stage.stats();
               const ft = show.hooks.stats().frameTimes;
-              hud.textContent = `early look · ${shot}  ground: ${show.groundSource}\n${status.join('\n')}\ndraw calls ${st.scene.calls}  tris ${st.scene.triangles}  frame ${ft.median.toFixed(1)} ms`;
+              hud.textContent = `early look · ${shot}  ground: ${show.groundSource}  wall: ${show.wallSource}\n${status.join('\n')}\ndraw calls ${st.scene.calls}  tris ${st.scene.triangles}  frame ${ft.median.toFixed(1)} ms`;
             }
             requestAnimationFrame(tick);
           };

@@ -7,7 +7,7 @@
 // Query:
 //   (no piece)             an index of every registered piece, with triangle counts
 //   ?piece=<name>          &variant=<name>  &seed=<n>  &pose=<name>
-//   ?view=beauty|clay|wear|cavity|lpos|wire   (default beauty)
+//   ?view=beauty|clay|wear|cavity|finish|lpos|wire   (default beauty; the materials module's debug views)
 //   ?dist=wide|station|close                  (default station)
 //        wide    whole-bench scale: the stage's home distance (~67 px per unit at 1440x900)
 //        station about 6 units across the frame
@@ -53,7 +53,7 @@
     <script>
       import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
       import { listPieces, findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
-      import { applyView, VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
+      import { VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
       import { DISTANCES, pxPerUnit, type Distance } from '../workshop/view/catalogue/distances.ts';
       import { swatchRow } from '../workshop/view/catalogue/swatches.ts';
 
@@ -77,7 +77,7 @@
           const link = (extra: string, label: string): string => `<a href="?piece=${encodeURIComponent(e.name)}${extra}">${label}</a>`;
           return `<tr><td>${link('', e.name)}</td><td>${tris} tris</td>`
             + `<td class="views">${DISTANCES.map((d) => link(`&dist=${d}`, d)).join('')}${link('&view=clay', 'clay')}${link('&view=wear', 'wear')}</td>`
-            + `<td>${v.map((x) => link(`&variant=${encodeURIComponent(x)}`, x)).join(' ')}</td>`
+            + `<td>${v.map((x) => link(`&variant=${encodeURIComponent(x)}`, x)).join(' ')}${(e.poses ?? []).map((p) => link(`&pose=${encodeURIComponent(p)}`, `pose ${p}`)).join(' ')}</td>`
             + `<td>${e.note ?? ''}</td></tr>`;
         });
         const div = document.createElement('div');
@@ -104,8 +104,6 @@
         const opts: Record<string, unknown> = {};
         if (q.get('seed') !== null) opts.seed = Number(q.get('seed'));
         if (q.get('pose') !== null) opts.pose = q.get('pose');
-        const piece = buildEntry(entry, q.get('variant'), opts);
-
         let obj: import('three').Object3D | null = null;
         const s = await mountShowcase(canvas, {
           tier: q.get('tier') === 'low' ? 'low' : 'high',
@@ -117,8 +115,9 @@
             if (spin && obj) obj.rotation.y = ((angle + info.time * 18) * Math.PI) / 180;
           },
         });
-        obj = s.add(piece, { yaw: angle });
-        applyView(obj, view, s.clayMaterials);
+        // labels exist now: the entry's hook (if any) gives its tape, stencils and plates their text
+        const piece = buildEntry(entry, q.get('variant'), opts, s.labels);
+        obj = s.add(piece, { yaw: angle, view });
         const box = s.boxOf(obj);
         if (q.get('swatch') === '1') {
           // colour-check swatches in front of the piece, framed with it

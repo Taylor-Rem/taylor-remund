@@ -77,7 +77,7 @@ export const LOOK = {
   grade: { saturation: 0.85, shadow: 0.6, light: 0.18, contrast: 1.04, lift: 0.15 },
   vignette: { amount: 0.3, inner: 0.42, outer: 1.18 },
   /** Below the bench top the world fades to the room over `drop` units; beyond |x| > `halfWidth` over `side`. */
-  fog: { drop: 2.2, halfWidth: 10.4, side: 3.0, strength: 1.0 },
+  fog: { drop: 0.9, halfWidth: 10.4, side: 3.0, strength: 1.0 },
 };
 
 const VERT = /* glsl */ `

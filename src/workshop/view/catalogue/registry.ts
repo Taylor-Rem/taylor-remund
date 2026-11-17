@@ -10,20 +10,12 @@
  * yet is simply an empty match, never a broken import.
  */
 import type { KitOptions, Piece } from '../kit/types.ts';
+import type { BuildOptions, CatalogueEntry } from '../kit/catalogue.ts';
+import type { Labels } from '../types.ts';
 
-/** Build options: the kit's own plus anything piece-specific (size, pose, label...). */
-export type BuildOptions = KitOptions & Record<string, unknown>;
-
-/** Structurally the kit's `CatalogueEntry` (kit/catalogue.ts). */
-export interface Entry {
-  name: string;
-  build(opts?: BuildOptions): Piece;
-  variants?: Record<string, BuildOptions>;
-  camera?: { distance?: number };
-  note?: string;
-  /** Named poses a piece can be shown in (passed back to `build` as `pose`). */
-  poses?: readonly string[];
-}
+export type { BuildOptions };
+/** A registered piece: the kit's `CatalogueEntry` (kit/catalogue.ts). */
+export type Entry = CatalogueEntry;
 
 interface KitRegistry {
   loadCatalogue(): Promise<Entry[]>;
@@ -100,9 +92,15 @@ export async function firstPiece(names: readonly string[]): Promise<Entry | unde
   return undefined;
 }
 
-/** Build an entry with a variant's options merged under explicit ones. */
-export function buildEntry(e: Entry, variant: string | null, opts: BuildOptions = {}): Piece {
+/**
+ * Build an entry: a variant's options under explicit ones, then, when `labels`
+ * is given and the entry has the hook, the label keys its tape, stencils and
+ * plates need (kit/catalogue.ts `labels`). Without labels it builds blank.
+ */
+export function buildEntry(e: Entry, variant: string | null, opts: BuildOptions = {}, labels?: Labels): Piece {
   const base = variant ? e.variants?.[variant] : undefined;
   if (variant && !base) throw new Error(`catalogue: ${e.name} has no variant '${variant}' (has: ${Object.keys(e.variants ?? {}).join(', ') || 'none'})`);
-  return e.build({ ...(base ?? {}), ...opts });
+  const o: BuildOptions = { ...(base ?? {}), ...opts };
+  const extra = labels && e.labels ? e.labels(labels, o) : {};
+  return e.build({ ...o, ...extra });
 }
