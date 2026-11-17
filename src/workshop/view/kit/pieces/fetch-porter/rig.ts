@@ -11,7 +11,7 @@
  *       ├ suspension          the coil spring: scales along its own Y when squashed
  *       └ body                the lunch-pail torso, riding on the spring
  *          ├ head             the swivel ring on the lid: yaw
- *          │  └ headTilt      the yoke pins: pitch, and a little roll
+ *          │  └ headTilt      the knuckle atop the periscope mast: pitch (a nod), and roll (a cock)
  *          │     └ eye        the front face of the turret (+Z out)
  *          │        ├ pupil   at the lens sphere's centre: gaze turns it so the iris slides over the lens
  *          │        ├ lidTop  at the same centre: rotates about X to close
@@ -27,13 +27,13 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 // ---- dimensions shared by the builder and the rig (world units, 1 = Fetch's body height) ----
 
 /** Tyre radius: the axle height. */
-export const WHEEL_R = 0.165;
+export const WHEEL_R = 0.155;
 /** Tyre width (fat). */
 export const WHEEL_W = 0.22;
 /** Fork crown top, above the axle. */
-export const CROWN_TOP = 0.225;
+export const CROWN_TOP = 0.212;
 /** Spring length at rest (crown top to the torso's mounting cup). */
-export const SPRING_L = 0.095;
+export const SPRING_L = 0.09;
 /** The torso's built-in forward rake on its spring (radians). */
 export const BODY_RAKE = 0.07;
 /** How much of the spring's length a full squash takes up. */
@@ -42,26 +42,29 @@ export const SQUASH_TRAVEL = 0.45;
 /** Torso, in body space (y = 0 is the mounting face under the torso). */
 export const TORSO = {
   /** nominal plan size at the top rim, and corner radius */
-  w: 0.58,
-  d: 0.42,
-  rPlan: 0.15,
+  w: 0.55,
+  d: 0.38,
+  rPlan: 0.145,
   /** bottom of the pail, top rim, lid crown */
   y0: 0.03,
-  y1: 0.25,
-  lidTop: 0.315,
+  y1: 0.235,
+  lidTop: 0.298,
 } as const;
 
 /** The turret's swivel: where the head node sits in body space. */
-export const SWIVEL = { y: 0.304, z: 0.065 } as const;
+export const SWIVEL = { y: 0.288, z: 0.055 } as const;
+/** The periscope mast: from the swivel up to the knuckle the turret nods on. */
+export const NECK = 0.078;
 /** Turret can: radius, depth, and the yoke pin height above the swivel. */
-export const CAN = { r: 0.18, depth: 0.25, pivot: 0.222, front: 0.118 } as const;
+/** Turret can: radius, depth, its centre above the knuckle, and its front face ahead of the centre. */
+export const CAN = { r: 0.185, depth: 0.25, c: 0.214, front: 0.118 } as const;
 /** Eye: lens sphere radius, opening radius at the face plane, and the derived dome height. */
-export const EYE = { rs: 0.16, a: 0.115 } as const;
+export const EYE = { rs: 0.162, a: 0.12 } as const;
 export const EYE_H = EYE.rs - Math.sqrt(EYE.rs * EYE.rs - EYE.a * EYE.a);
 /** The lens sphere's centre, in eye space (behind the face plane). */
 export const EYE_C = -(EYE.rs - EYE_H);
 /** Iris and pupil: angular radii on the lens sphere. */
-export const IRIS = { ang: 0.36, pupil: 0.15, lift: 0.003 } as const;
+export const IRIS = { ang: 0.4, pupil: 0.2, lift: 0.003 } as const;
 /** Lids: mid-surface radius, thickness, open angle (lip above the centre line). */
 export const LID = { r: EYE.rs + 0.0125, t: 0.008, open: 0.95, closed: 0.012 } as const;
 /** The angular radius of the bezel's opening, seen from the lens sphere's centre. */
@@ -70,11 +73,11 @@ export const BEZEL_OPEN = Math.asin((EYE.a - 0.008) / EYE.rs);
 export const GAZE_MAX = BEZEL_OPEN - IRIS.ang - 0.05;
 
 /** Shoulders, in body space. */
-export const SHOULDER = { x: 0.33, y: 0.15, z: 0.035 } as const;
-export const UPPER_ARM = 0.12;
-export const FOREARM = 0.125;
+export const SHOULDER = { x: 0.315, y: 0.15, z: 0.03 } as const;
+export const UPPER_ARM = 0.13;
+export const FOREARM = 0.13;
 /** Aerial: base in body space, segment lengths. */
-export const AERIAL = { x: -0.205, y: 0.29, z: -0.13, segs: [0.17, 0.15, 0.13] } as const;
+export const AERIAL = { x: -0.205, y: 0.275, z: -0.12, segs: [0.17, 0.15, 0.13] } as const;
 
 // ---- pose -----------------------------------------------------------------------------
 
@@ -131,17 +134,17 @@ const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: n
 /** The arm presets (tuned by eye on the renders). */
 export const PRESETS: Record<ArmPreset, Arms> = {
   // hanging a little forward and out, elbows soft, jaws ajar: ready
-  rest: { left: J(0.32, 0.16, 0.0, 0.62, 0.0, 0.25), right: J(0.3, 0.14, 0.0, 0.58, 0.0, 0.22) },
+  rest: { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.38, 0.18, -0.35, 0.9, -0.3, 0.25) },
   // forearms level in front, hands brought in to a crate's width, jaws open on its sides
   carry: { left: J(0.78, -0.2, -0.25, 0.85, 1.57, 0.55), right: J(0.78, -0.2, -0.25, 0.85, 1.57, 0.55) },
   // both hands held out and up to the visitor, jaws open like cupped palms
-  offer: { left: J(1.05, 0.02, 0.0, 0.55, 0.0, 0.95), right: J(1.0, 0.06, 0.0, 0.62, 0.0, 0.95) },
+  offer: { left: J(1.15, 0.1, -0.5, 0.45, -1.1, 1.0), right: J(1.1, 0.14, -0.5, 0.5, -1.1, 1.0) },
   // right hand to the cap's brim, left at rest
   salute: { left: J(0.3, 0.16, 0.0, 0.6, 0.0, 0.2), right: J(1.25, 0.92, 0.45, 2.15, 0.6, 0.1) },
   // upper arms out, forearms up, jaws open: "who, me?"
-  shrug: { left: J(0.15, 0.62, 0.0, 1.75, 0.0, 0.9), right: J(0.15, 0.62, 0.0, 1.75, 0.0, 0.9) },
+  shrug: { left: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9), right: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9) },
   // the fumble: arms up and everywhere, unequal
-  flail: { left: J(0.9, 1.25, 0.3, 0.55, 0.4, 1.0), right: J(-0.2, 0.95, -0.2, 1.35, -0.3, 0.85) },
+  flail: { left: J(1.6, 1.15, 0.4, 0.5, 0.6, 1.0), right: J(0.5, 1.45, -0.6, 1.5, -0.4, 0.85) },
 };
 
 /** A neutral pose: the rest the cavity is baked in. */
@@ -164,62 +167,68 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
  * the temperament: Fetch always tips a little forward, keen to go.
  */
 export const EXPRESSIONS = {
+  // head cocked hard, eye wide and on the visitor, one claw up at its "chin": hm?
   curious: {
-    lean: [0.07, -0.05],
-    headYaw: 0.12,
-    headPitch: 0.1,
-    headRoll: -0.3,
-    gaze: [0, 0],
+    lean: [0.09, -0.08],
+    squash: 0.15,
+    headYaw: 0.1,
+    headPitch: 0.36,
+    headRoll: -0.4,
+    gaze: [0.15, 0.3],
     lids: [0, 0],
-    arms: { rest: 0.7, offer: 0.3 },
-    aerial: [-0.25, 0.12],
+    arms: { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.75, 0.1, 0.5, 2.1, 0.4, 0.25) },
+    aerial: [-0.3, 0.35],
     flag: 0.6,
   },
+  // crouched on its spring and tipped forward, eye up and wide, hands up: let me, let me
   eager: {
-    lean: [0.17, 0],
-    squash: 0.35,
+    lean: [0.28, 0],
+    squash: 0.65,
     headYaw: 0,
-    headPitch: 0.16,
-    headRoll: 0.05,
-    gaze: [0, 0.25],
+    headPitch: 0.44,
+    headRoll: 0.08,
+    gaze: [0, 0.55],
     lids: [0, 0],
-    arms: { rest: 0.35, offer: 0.65 },
-    aerial: [-0.45, 0.05],
+    arms: { left: J(1.25, 0.35, -0.6, 1.25, -0.8, 1.0), right: J(1.3, 0.3, -0.6, 1.3, -0.8, 1.0) },
+    aerial: [-0.7, 0.05],
     flag: 1.4,
   },
+  // just fumbled: everything up, eye wide and straight down at the crate
   oops: {
-    lean: [0.12, 0.07],
-    squash: 0.5,
-    headYaw: 0.18,
-    headPitch: -0.34,
-    headRoll: 0.16,
-    gaze: [0.1, -0.85],
+    lean: [0.16, 0.12],
+    squash: 0.45,
+    headYaw: 0.15,
+    headPitch: -0.42,
+    headRoll: 0.22,
+    gaze: [0.05, -0.95],
     lids: [0, 0],
     arms: 'flail',
-    aerial: [0.4, -0.3],
+    aerial: [0.55, -0.45],
     flag: 2.6,
   },
+  // looking up at the visitor, both hands out, a sorry little tilt and a soft lower lid
   offer: {
-    lean: [0.05, 0],
-    squash: 0.1,
+    lean: [0.1, 0.03],
+    squash: 0.2,
     headYaw: 0,
-    headPitch: 0.24,
-    headRoll: 0.2,
-    gaze: [0, 0.45],
-    lids: [0.18, 0],
+    headPitch: 0.46,
+    headRoll: 0.26,
+    gaze: [-0.1, 0.5],
+    lids: [0.12, 0.32],
     arms: 'offer',
-    aerial: [-0.12, 0.08],
+    aerial: [-0.15, 0.2],
     flag: 0.3,
   },
+  // flat stare at the visitor, half-lidded, arms limp, aerial drooping over
   deadpan: {
-    lean: [-0.02, 0],
+    lean: [-0.03, 0],
     headYaw: 0,
-    headPitch: -0.04,
+    headPitch: 0.3,
     headRoll: 0,
-    gaze: [0, -0.1],
-    lids: [0.5, 0.3],
-    arms: 'rest',
-    aerial: [0.08, 0],
+    gaze: [0, 0.15],
+    lids: [0.56, 0.36],
+    arms: { left: J(0.05, 0.08, 0, 0.15, 0, 0.1), right: J(0.05, 0.08, 0, 0.15, 0, 0.1) },
+    aerial: [0.95, -0.6],
     flag: 0,
   },
 } satisfies Record<string, FetchPose>;
@@ -280,7 +289,7 @@ function limitArm(a: ArmJoints): ArmJoints {
 }
 
 /** Jaw opening angle for a grip value. */
-export const jawAngle = (grip: number): number => 0.05 + clamp(grip, 0, 1) * 0.55;
+export const jawAngle = (grip: number): number => 0.04 + clamp(grip, 0, 1) * 0.5;
 
 /**
  * Every moving node's local transform for a pose (missing fields are the
@@ -290,7 +299,7 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   const p = { ...NEUTRAL, ...pose };
   const fore = clamp(p.lean[0], -0.45, 0.45), side = clamp(p.lean[1], -0.35, 0.35);
   const squash = clamp(p.squash, 0, 1);
-  const yaw = clamp(p.headYaw, -1.4, 1.4), pitch = clamp(p.headPitch, -0.38, 0.38), roll = clamp(p.headRoll, -0.35, 0.35);
+  const yaw = clamp(p.headYaw, -1.4, 1.4), pitch = clamp(p.headPitch, -0.45, 0.5), roll = clamp(p.headRoll, -0.42, 0.42);
   let gx = p.gaze[0], gy = p.gaze[1];
   const gl = Math.hypot(gx, gy);
   if (gl > 1) {
@@ -312,8 +321,8 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   m.head = chain(T(0, SWIVEL.y, SWIVEL.z), RY(yaw));
   // + pitch looks up: the eye (+Z) turns toward +Y, which is a rotation of -pitch about X
   // (the body's rake is taken out here, so a pitch of 0 looks level)
-  m.headTilt = chain(T(0, CAN.pivot, 0), RZ(-roll), RX(-pitch - BODY_RAKE));
-  m.eye = T(0, 0, CAN.front);
+  m.headTilt = chain(T(0, NECK, 0), RZ(-roll), RX(-pitch - BODY_RAKE));
+  m.eye = T(0, CAN.c, CAN.front);
   const ga = GAZE_MAX;
   m.pupil = chain(T(0, 0, EYE_C), RY(gx * ga), RX(-gy * ga));
   // lids: their lips sit at +open (top) / -open (bottom) above/below the centre line when open
@@ -338,7 +347,7 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   const wts = [0.25, 0.35, 0.4];
   const segs = AERIAL.segs;
   // rest: the aerial rakes back and out a little
-  m.aerial = chain(T(AERIAL.x, AERIAL.y, AERIAL.z), RX(-0.2 + bx * wts[0]!), RZ(0.1 - bz * wts[0]!));
+  m.aerial = chain(T(AERIAL.x, AERIAL.y, AERIAL.z), RX(-0.22 + bx * wts[0]!), RZ(0.2 - bz * wts[0]!));
   m.aerial2 = chain(T(0, segs[0], 0), RX(bx * wts[1]!), RZ(-bz * wts[1]!));
   m.aerial3 = chain(T(0, segs[1], 0), RX(bx * wts[2]!), RZ(-bz * wts[2]!));
   // the pennant trails out to Fetch's right and back; it flutters about the aerial
