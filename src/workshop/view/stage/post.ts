@@ -68,7 +68,7 @@ export const LOOK = {
   exposure: 1.0,
   toneMap: 'aces' as ToneMap,
   /** `scale` is the AO resolution; `power` sharpens the occlusion curve; `strength` mixes it toward the teal occlusion colour. */
-  gtao: { scale: 0.5, radius: 0.8, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 6, denoiseRadius: 5, strength: 1.0 },
+  gtao: { scale: 0.5, radius: 0.8, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 8, denoiseRadius: 6, strength: 1.0 },
   bloom: { threshold: 3.0, knee: 1.2, strength: 0.65, radius: 0.85, levels: 5 },
   /** Focus: no blur within `range` (fraction of focus distance); `scale` px of blur per unit of |z−f|/z; capped at `max` px, both at 900 px tall; `far` scales the blur beyond the focus plane. */
   focus: { range: 0.03, scale: 46, max: 7, far: 0.55 },
@@ -167,6 +167,7 @@ uniform float focusMax;
 uniform float focusFar;
 uniform float aoStrength;
 uniform vec3 occlusion;
+uniform vec2 aoTexel;
 
 float depthAt(vec2 uv) { return texture2D(tDepth, uv).x; }
 
@@ -184,10 +185,25 @@ float cocAt(float d) {
   return min(focusMax, max(0.0, off - focusRange) * focusScale * k);
 }
 
+vec3 occludeBy(vec3 c, float ao) {
+  return c * mix(vec3(1.0), mix(occlusion, vec3(1.0), ao), aoStrength);
+}
+
 vec3 occlude(vec3 c, vec2 uv) {
 #ifdef USE_AO
-  float ao = texture2D(tAO, uv).r;
-  c *= mix(vec3(1.0), mix(occlusion, vec3(1.0), ao), aoStrength);
+  c = occludeBy(c, texture2D(tAO, uv).r);
+#endif
+  return c;
+}
+
+// Four bilinear taps a texel apart: a cheap last smoothing of the denoised AO.
+vec3 occludeSoft(vec3 c, vec2 uv) {
+#ifdef USE_AO
+  float ao = texture2D(tAO, uv + aoTexel * vec2(-0.75, -0.75)).r
+           + texture2D(tAO, uv + aoTexel * vec2( 0.75, -0.75)).r
+           + texture2D(tAO, uv + aoTexel * vec2(-0.75,  0.75)).r
+           + texture2D(tAO, uv + aoTexel * vec2( 0.75,  0.75)).r;
+  c = occludeBy(c, ao * 0.25);
 #endif
   return c;
 }
@@ -208,6 +224,7 @@ const focusUniforms = () => ({
   focusFar: { value: LOOK.focus.far },
   aoStrength: { value: LOOK.gtao.strength },
   occlusion: { value: new Vector3() },
+  aoTexel: { value: new Vector2(1, 1) },
 });
 
 /**
@@ -301,7 +318,7 @@ varying vec2 vUv;
 
 void main() {
   float d = depthAt(vUv);
-  vec3 col = occlude(texture2D(tColor, vUv).rgb, vUv);
+  vec3 col = occludeSoft(texture2D(tColor, vUv).rgb, vUv);
 
 #ifdef USE_FOCUS
   // Sharp where in focus, the half-resolution gather where not.
@@ -542,6 +559,7 @@ export class PostChain {
     u.focusMax!.value = LOOK.focus.max * k;
     u.focusFar!.value = LOOK.focus.far;
     u.aoStrength!.value = LOOK.gtao.strength;
+    (u.aoTexel!.value as Vector2).set(1 / Math.max(1, Math.round(this.width * LOOK.gtao.scale)), 1 / Math.max(1, Math.round(this.height * LOOK.gtao.scale)));
   }
 
   /** Draw one frame: the scene into the HDR target, then the passes, then the screen. */
