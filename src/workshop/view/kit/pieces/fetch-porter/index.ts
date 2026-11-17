@@ -295,7 +295,7 @@ function buildTorso(n: NodeBuilder, detail: 'high' | 'low', seed: number, R: Ret
   n.add(place(ring({ r: 0.05, inner: 0.036, h: 0.018, seed: seed + 37 }), aim([ux, uy, zf - 0.006], [0, 0, 1])));
   n.add(part('paper', transform(turn(profile(0, 0).to(0.043, 0, { sharp: true }).to(0.043, 0.004, { fillet: 0.002 }).to(0, 0.006), { segs: 20, detail, caps: 'end' }), aim([ux, uy, zf - 0.004], [0, 0, 1])), 'paper', { seed: seed + 38, shade: 0.92 }));
   const needleA = (R.range(32, 48) * DEG);
-  n.add(part('rubber', transform(roundedBox({ w: 0.0055, h: 0.036, d: 0.003, r: 0.0012, segs: 1, detail: 'low', band: 0 }), chain(T(ux, uy, zf + 0.004), new Matrix4().makeRotationZ(-needleA), T(0, -0.006, 0))), 'ink'));
+  n.add(part('rubber', transform(sweep(linePath([0, 0, 0], [0, 0.036, 0], 1), { radius: 0.0022, segs: 4, ends: 'flat', taper: (t) => 1 - 0.6 * t, step: 0.012 }), chain(T(ux, uy, zf + 0.004), new Matrix4().makeRotationZ(-needleA), T(0, -0.006, 0))), 'ink'));
   n.add(part('brass', transform(turn(profile(0, 0).to(0.006, 0, { sharp: true }).curve(0, 0.005, 0.006, 0.005, 2), { segs: 8, detail: 'low', caps: 'end' }), aim([ux, uy, zf + 0.004], [0, 0, 1])), 'brass'));
 
   // ---- lunch-pail clasps at the front corners, bridging body and lid ----

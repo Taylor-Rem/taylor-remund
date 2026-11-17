@@ -150,7 +150,8 @@ export const PRESETS: Record<ArmPreset, Arms> = {
   // both hands held out and up to the visitor, jaws open like cupped palms
   offer: { left: J(1.15, 0.1, -0.5, 0.45, -1.1, 1.0), right: J(1.1, 0.14, -0.5, 0.5, -1.1, 1.0) },
   // right hand to the cap's brim, left at rest
-  salute: { left: J(0.3, 0.16, 0.0, 0.6, 0.0, 0.2), right: J(1.25, 0.92, 0.45, 2.15, 0.6, 0.1) },
+  // (the arms are short: the claw comes up beside the turret's mast, and the head tips its peak to go with it)
+  salute: { left: J(0.3, 0.16, 0.0, 0.6, 0.0, 0.2), right: J(2.1, 0.4, 0.0, 1.1, 0.6, 0.1) },
   // upper arms out, forearms up, jaws open: "who, me?"
   shrug: { left: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9), right: J(0.2, 0.75, -0.9, 1.9, 0.0, 0.9) },
   // the fumble: arms up and everywhere, unequal
