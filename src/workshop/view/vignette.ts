@@ -46,13 +46,20 @@ const DEG = Math.PI / 180;
  */
 export const LAYOUT = {
   /** The sign's origin on the wall (x, height): over the board, clear of its crest. */
-  sign: { x: 1.4, y: 3.05 },
+  sign: { x: 1.6, y: 3.05 },
   /** The tool wall's origin on the wall (x, height): left of the lamp's clamp. */
-  toolwall: { x: -6.45, y: 0.3 },
+  toolwall: { x: -6.55, y: 0.3 },
   /** Where the lamp is clamped (its origin: on the bench top at the wall face). The key light follows from its bulb socket. */
-  lampPlace: [-2.05, 0, -5] as Vec3,
+  lampPlace: [-2.3, 0, -5] as Vec3,
   /** The key light when the lamp piece is missing. */
   bulb: { at: [-1.9, 5.2, -0.6] as const, aim: [0.6, 0, -0.1] as const },
+  /**
+   * Patch's stool: at the board's RIGHT end, beside the LAMP jack. Both Patch designs sit side-on with
+   * their own left toward the visitor, facing -X: the board must be on their front-left, so the stool
+   * stands right of the board, never in front of a jack tape. PROPOSED for the simulation's stool body
+   * (it has it at x -1.25, left of the board); the view stands it here meanwhile.
+   */
+  stool: { x: 3.6, z: -3.4 },
   /** The phone turns a little toward the visitor (its body is the simulation's). */
   phoneYaw: -16,
   /** The belt's length (its body is the simulation's). */
@@ -65,7 +72,7 @@ export const LAYOUT = {
 export const FRAMING = {
   wide: { min: [-6.0, 0, -5] as Vec3, max: [6.6, 4.5, 4.6] as Vec3 },
   /** Button, loose crate, phone and Patch, all four without panning. */
-  phone: { min: [-2.25, 0, -3.9] as Vec3, max: [3.45, 1.7, 2.9] as Vec3 },
+  phone: { min: [-1.6, 0, -3.9] as Vec3, max: [4.15, 1.9, 2.9] as Vec3 },
   /**
    * Where the focus is pinned at home: the middle of what a visitor plays with (the console's front,
    * Fetch's lane), so Fetch, the Button and the belt are sharp and only the wall's top and the very
@@ -202,7 +209,7 @@ export function fitPieces(scene: SceneDesc, pieces: { board?: Piece | null; stoo
   const jacks = { storefront: sj('storefront'), lamp: sj('lamp') };
   const cordRoot = socketAt(pieces.board ?? null, 'cord.root', boardAt) ?? ([bx, 0.9, boardAt.z + boardB.max.z] as Vec3);
   const stoolB = pieces.stool ? pieceBounds(pieces.stool) : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
-  const [sx, sz] = centreXZ(scene, 'stool', [-1.25, -3.35]);
+  const [sx, sz] = [LAYOUT.stool.x, LAYOUT.stool.z];
   const stoolAt: Placed = { x: sx, z: sz, yaw: 0 };
   const seat = socketAt(pieces.stool ?? null, 'seat', stoolAt) ?? ([sx, stoolB.max.y, sz] as Vec3);
   const phoneB = pieces.phone ? pieceBounds(pieces.phone) : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);

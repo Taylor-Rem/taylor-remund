@@ -87,7 +87,7 @@
         },
         patch: () => {
           const s = vig.fit.stool.seat;
-          return new Box3(new Vector3(s[0] - 1.0, 0, s[2] - 1.0), new Vector3(s[0] + 1.8, 2.0, s[2] + 0.6));
+          return new Box3(new Vector3(s[0] - 2.0, 0, s[2] - 1.0), new Vector3(s[0] + 0.9, 2.2, s[2] + 0.6));
         },
         cord: () => {
           const j = vig.fit.board.jacks;
@@ -214,6 +214,16 @@
           return { labels: measureLabels(), scene: st.scene, frame: st.frame, renderer: st.renderer, width: canvas.clientWidth, height: canvas.clientHeight };
         },
         project: (p: Vec3) => project(new Vector3(...p)),
+        /**
+         * Deterministic pictures (manual mode): run the simulation one step per frame up to `step`
+         * (so every view's motion is integrated as it would be live), then frame `shot`.
+         */
+        goto(step: number, shot = 'home') {
+          while (ws.world.step < step) ws.advance(1);
+          applyShot(shot);
+          for (let i = 0; i < 4; i++) ws.advance(0);
+          return { step: ws.world.step, fetch: ws.world.crew('fetch')?.state };
+        },
         /**
          * Two consecutive frames of a still scene (no simulation step, dt 0), read straight back:
          * any pixel that differs is flicker (z-fighting, shadow noise, temporal shimmer).

@@ -168,7 +168,7 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     // the bench and the wall (registered since W2)
     const bench = build(E.bench);
     if (bench) items.push({ piece: bench, at: I });
-    const wall = build(E.wall, { width: 21, height: 6.5 });
+    const wall = build(E.wall, { width: 21, height: 9 });
     if (wall) items.push({ piece: wall, at: new Matrix4().makeTranslation(0, 0, WALL_Z) });
 
     // Fetch's lane: a closed rectangle of tape round the runner's lane (it cannot leave it)

@@ -70,10 +70,11 @@ describe('the vignette on the simulation scene', () => {
     }
   });
 
-  it('seats Patch on the stool, beside the board', () => {
-    const s = body('stool');
+  it('seats Patch on the stool beside the board, clear of both jack tapes', () => {
+    const b = body('board');
     expect(fit.stool.seat[1]).toBeGreaterThan(0.5);
-    expect(fit.stool.seat[0]).toBeCloseTo(s.getCenter(new Vector3()).x, 6);
+    // the designs face -X, side-on: the board on their front-left, so the stool stands past the board's right end
+    expect(fit.stool.seat[0] - 0.3).toBeGreaterThan(b.max.x);
   });
 
   it('reports the pieces against the simulation', () => {
