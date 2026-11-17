@@ -1,0 +1,351 @@
+---
+// Swatch bench for view/materials (W1). Every MaterialClass on the same three
+// test forms, under a stand-in for the stage light (warm key spot with
+// shadows, cool fill, cool rim, RoomEnvironment). Dev-only; never shipped.
+//   ?class=steel        one class, close
+//   ?token=teal-panel   override every swatch's hue
+//   ?tier=low           low-tier shaders
+//   ?bench=1            measure frame cost (window.__bench); ?flat=1 swaps in plain materials for a baseline
+//   ?plain=wood,steel  swap those classes for a plain material (cost probing)
+      //   ?t=3.5              simulation time for update() (belt scroll, bulb flicker)
+//   ?cam=x,y,z,tx,ty,tz,fov   override the camera
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Materials bench</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.3 monospace; color: #9fb; opacity: 0.7; white-space: pre; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import {
+        BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, DirectionalLight, Fog, HemisphereLight, LatheGeometry, Mesh,
+        MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PMREMGenerator, Scene, SpotLight, SRGBColorSpace, Vector2, Vector3,
+        ACESFilmicToneMapping, Color, Object3D, WebGLRenderer, type Material, type Texture,
+      } from 'three';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { createMaterials, CLASS_NAMES } from '../workshop/view/materials/index.ts';
+      import { linear, palette, type Token } from '../workshop/view/palette.ts';
+      import type { MaterialClass } from '../workshop/view/kit/types.ts';
+      import type { Labels } from '../workshop/view/types.ts';
+
+      const q = new URLSearchParams(location.search);
+      const only = q.get('class') as MaterialClass | null;
+      const tokenOverride = q.get('token') as Token | null;
+      const tier = q.get('tier') === 'low' ? 'low' : 'high';
+      const bench = q.get('bench') === '1';
+      const flat = q.get('flat') === '1';
+      const simTime = Number(q.get('t') ?? '2.0');
+      const hud = document.getElementById('hud')!;
+      if (tokenOverride && !(tokenOverride in palette)) console.error(`unknown token ${tokenOverride}`);
+
+      // ---- seeded rng (no Math.random in the workshop; keep the habit here) ----
+      let seed = 1234567;
+      const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+
+      // ---- test geometry ---------------------------------------------------
+      const smooth = (a: number, b: number, x: number): number => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+      function colourise(g: BufferGeometry, token: Token, jitter = 0.04): void {
+        const n = g.attributes.position!.count;
+        const c = linear(token);
+        const k = 1 + (rnd() - 0.5) * jitter;
+        const arr = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { arr[i * 3] = c[0] * k; arr[i * 3 + 1] = c[1] * k; arr[i * 3 + 2] = c[2] * k; }
+        g.setAttribute('color', new BufferAttribute(arr, 3));
+      }
+
+      /** Rounded box with angle-spaced bevel vertices, wear/cavity from position. */
+      function roundedBox(w: number, h: number, d: number, r: number, bevelSegs = 4, mid = 10, cavFn?: (p: Vector3) => number): BufferGeometry {
+        const N = 2 * bevelSegs + mid;
+        const g = new BoxGeometry(1, 1, 1, N, N, N);
+        const pos = g.attributes.position!;
+        const nor = g.attributes.normal!;
+        const half = [w / 2, h / 2, d / 2];
+        const map = (c: number, hs: number): number => {
+          const i = Math.round((c + 0.5) * N);
+          if (i <= bevelSegs) { const t = r * Math.tan(((bevelSegs - i) / bevelSegs) * Math.PI / 4); return -hs + r - t; }
+          if (i >= N - bevelSegs) { const t = r * Math.tan(((i - (N - bevelSegs)) / bevelSegs) * Math.PI / 4); return hs - r + t; }
+          return -hs + r + ((i - bevelSegs) / mid) * (2 * hs - 2 * r);
+        };
+        const surf = new Float32Array(pos.count * 2);
+        const p = new Vector3(), inner = new Vector3(), dir = new Vector3();
+        for (let k = 0; k < pos.count; k++) {
+          p.set(map(pos.getX(k), half[0]!), map(pos.getY(k), half[1]!), map(pos.getZ(k), half[2]!));
+          inner.set(
+            Math.max(-half[0]! + r, Math.min(half[0]! - r, p.x)),
+            Math.max(-half[1]! + r, Math.min(half[1]! - r, p.y)),
+            Math.max(-half[2]! + r, Math.min(half[2]! - r, p.z)));
+          dir.subVectors(p, inner);
+          if (dir.lengthSq() < 1e-12) dir.set(0, 0, 1);
+          dir.normalize();
+          p.copy(inner).addScaledVector(dir, r);
+          pos.setXYZ(k, p.x, p.y + h / 2, p.z);
+          nor.setXYZ(k, dir.x, dir.y, dir.z);
+          const ds = [half[0]! - Math.abs(p.x), half[1]! - Math.abs(p.y), half[2]! - Math.abs(p.z)].sort((a, b) => a - b);
+          const band = r * 2.2;
+          let wear = 1 - smooth(0, band, ds[1]!);
+          wear = Math.min(1, wear * 0.85 + 0.35 * (1 - smooth(0, band, ds[2]!)));
+          if (p.y < -half[1]! + r * 1.5) wear *= 0.4; // bottom edges are not handled
+          let cav = 0.55 * (1 - smooth(0, r * 2.5, p.y + half[1]!)); // contact with the bench
+          if (cavFn) cav = Math.max(cav, cavFn(new Vector3(p.x, p.y + h / 2, p.z)));
+          surf[k * 2] = wear; surf[k * 2 + 1] = cav;
+        }
+        g.setAttribute('surf', new BufferAttribute(surf, 2));
+        return g;
+      }
+
+      /** Fillet the corners of a polyline (r, y) with arcs. */
+      function fillet(pts: Vector2[], rad: number, segs = 4): Vector2[] {
+        const out: Vector2[] = [pts[0]!];
+        for (let i = 1; i < pts.length - 1; i++) {
+          const a = pts[i - 1]!, b = pts[i]!, c = pts[i + 1]!;
+          const d1 = b.clone().sub(a), d2 = c.clone().sub(b);
+          const l1 = d1.length(), l2 = d2.length();
+          const rr = Math.min(rad, l1 * 0.45, l2 * 0.45);
+          const p0 = b.clone().addScaledVector(d1.normalize(), -rr);
+          const p2 = b.clone().addScaledVector(d2.normalize(), rr);
+          for (let s = 0; s <= segs; s++) {
+            const t = s / segs;
+            out.push(new Vector2(
+              (1 - t) * (1 - t) * p0.x + 2 * (1 - t) * t * b.x + t * t * p2.x,
+              (1 - t) * (1 - t) * p0.y + 2 * (1 - t) * t * b.y + t * t * p2.y));
+          }
+        }
+        out.push(pts[pts.length - 1]!);
+        return out;
+      }
+
+      /** A turned knob: flange, step, groove, body, shoulder, chamfered cap, dome. */
+      function knob(): BufferGeometry {
+        const raw = [
+          [0, 0], [0.3, 0], [0.3, 0.06], [0.225, 0.075], [0.225, 0.13], [0.19, 0.15], [0.19, 0.185], [0.225, 0.205],
+          [0.24, 0.36], [0.275, 0.385], [0.275, 0.45], [0.22, 0.49], [0.12, 0.515], [0, 0.522],
+        ].map(([r, y]) => new Vector2(r, y));
+        const pts = fillet(raw, 0.014, 4);
+        // signed turning per point, summed over a short arc window
+        const turn = pts.map((p, i) => {
+          if (i === 0 || i === pts.length - 1) return 0;
+          const d1 = p.clone().sub(pts[i - 1]!), d2 = pts[i + 1]!.clone().sub(p);
+          return Math.atan2(d1.x * d2.y - d1.y * d2.x, d1.dot(d2));
+        });
+        const arc: number[] = [0];
+        for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1]! + pts[i]!.distanceTo(pts[i - 1]!));
+        const win = 0.03;
+        const wearP = pts.map((_, i) => {
+          let s = 0;
+          for (let j = 0; j < pts.length; j++) { const dd = Math.abs(arc[j]! - arc[i]!); if (dd < win) s += turn[j]! * (1 - dd / win); }
+          return s;
+        });
+        const segs = 48;
+        const g = new LatheGeometry(pts, segs);
+        const n = g.attributes.position!.count;
+        const surf = new Float32Array(n * 2);
+        for (let k = 0; k < n; k++) {
+          const j = k % pts.length;
+          const s = wearP[j]!;
+          const y = pts[j]!.y;
+          surf[k * 2] = Math.min(1, Math.max(0, s / 1.0)) * (y < 0.03 ? 0.4 : 1);
+          surf[k * 2 + 1] = Math.min(1, Math.max(0, -s / 0.9)) + (y < 0.015 ? 0.5 : 0);
+        }
+        g.setAttribute('surf', new BufferAttribute(surf, 2));
+        return g;
+      }
+
+      // ---- renderer, scene, light -----------------------------------------
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight, false);
+      renderer.outputColorSpace = SRGBColorSpace;
+      renderer.toneMapping = ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = PCFShadowMap;
+      renderer.debug.checkShaderErrors = true;
+
+      const scene = new Scene();
+      const deep = new Color().fromArray(linear('teal-deep'));
+      scene.background = deep;
+      scene.fog = new Fog(deep, 30, 60);
+      const pmrem = new PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.3;
+
+      const amberGlow = new Color().fromArray(linear('amber-glow'));
+      const keyCol = amberGlow.clone().lerp(new Color().fromArray(linear('paper')), 0.35);
+      const key = new SpotLight(keyCol, only ? 110 : 420, 0, only ? Math.PI / 7 : Math.PI / 6, 0.8, 1.6);
+      key.position.set(only ? -3 : -7, only ? 6 : 12, only ? -2.5 : -5);
+      key.target.position.set(only ? 0 : 0.5, 0, only ? 0 : 0.5);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.radius = 5;
+      key.shadow.blurSamples = 16;
+      key.shadow.bias = -0.0002;
+      key.shadow.normalBias = 0.015;
+      key.shadow.camera.near = 2;
+      key.shadow.camera.far = 40;
+      scene.add(key, key.target);
+
+      const cool = new Color().fromArray(linear('teal-light')).lerp(new Color().fromArray(linear('steel')), 0.5);
+      const hemi = new HemisphereLight(cool, new Color().fromArray(linear('wood')), 0.35);
+      scene.add(hemi);
+      const fill = new DirectionalLight(cool, 0.35);
+      fill.position.set(2, 4, 10);
+      scene.add(fill);
+      const rim = new DirectionalLight(new Color().fromArray(linear('teal-light')).lerp(new Color().fromArray(linear('paper')), 0.6), 1.6);
+      rim.position.set(8, 6, -9);
+      scene.add(rim);
+
+      // ---- materials ---------------------------------------------------------
+      const fakeLabels: Labels = (() => {
+        const tex = new Map<string, Texture>();
+        const make = (text: string): string => {
+          const key = `tape:${text}`;
+          if (tex.has(key)) return key;
+          const cv = document.createElement('canvas');
+          cv.width = 512; cv.height = 128;
+          const x = cv.getContext('2d')!;
+          x.fillStyle = palette.ink; x.fillRect(0, 0, 512, 128);
+          x.fillStyle = palette.paper; x.font = 'bold 64px monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+          x.fillText(text, 256, 68);
+          const t = new CanvasTexture(cv); t.colorSpace = SRGBColorSpace; t.anisotropy = 4;
+          tex.set(key, t);
+          return key;
+        };
+        return {
+          tape: (t) => make(t), stencil: (t) => make(t), card: (t) => make(t), plate: (t) => make(t), sign: (t) => make(t),
+          size: () => ({ w: 1, h: 0.25 }), texture: (k) => tex.get(k)!, normalMap: () => null,
+        };
+      })();
+      const mats = createMaterials({ tier, labels: fakeLabels });
+      mats.update(simTime);
+      const flatMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
+      const plain = new Set((q.get('plain') ?? '').split(',').filter(Boolean));
+      const matOf = (cls: MaterialClass): Material => (flat || plain.has(cls) ? flatMat : mats.of(cls));
+
+      const defaultToken: Record<MaterialClass, Token> = {
+        steel: 'teal-panel', brass: 'brass', wood: 'wood-light', rubber: 'ink', paper: 'paper', metal: 'steel',
+        glass: 'teal-deep', bulb: 'amber-glow', felt: 'teal-light', tape: 'ink', belt: 'ink',
+      };
+
+      function addMesh(parent: Object3D, g: BufferGeometry, m: Material, x: number, y: number, z: number, ry = 0, rx = 0): Mesh {
+        const mesh = new Mesh(g, m);
+        mesh.position.set(x, y, z); mesh.rotation.set(rx, ry, 0);
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        parent.add(mesh);
+        return mesh;
+      }
+
+      function swatch(cls: MaterialClass, cx: number, cz: number): void {
+        const token = tokenOverride ?? defaultToken[cls];
+        const group = new Object3D();
+        group.position.set(cx, 0, cz);
+        scene.add(group);
+        // block with a raised plate on its face (cavity round the plate)
+        const plate = { w: 0.34, h: 0.2, y: 0.3 };
+        const blockCav = (p: Vector3): number => {
+          if (p.z < 0.24) return 0;
+          const dx = Math.max(0, Math.abs(p.x) - plate.w / 2), dy = Math.max(0, Math.abs(p.y - plate.y) - plate.h / 2);
+          return 0.9 * (1 - smooth(0, 0.05, Math.hypot(dx, dy)));
+        };
+        const block = roundedBox(0.72, 0.56, 0.5, 0.045, 4, 12, blockCav);
+        colourise(block, token);
+        const b = addMesh(group, block, matOf(cls), -0.85, 0, 0.05, 0.38);
+        const pl = roundedBox(plate.w, plate.h, 0.04, 0.012, 3, 6, (p) => 0.8 * (1 - smooth(0, 0.012, p.z + 0.02)));
+        colourise(pl, token, 0.08);
+        addMesh(b, pl, matOf(cls), 0, plate.y - plate.h / 2, 0.25);
+        // turned knob
+        const k = knob();
+        colourise(k, token);
+        addMesh(group, k, matOf(cls), 0.05, 0, 0.25, 0.4);
+        // flat panel standing on its edge
+        const panel = roundedBox(0.62, 0.46, 0.05, 0.018, 3, 10);
+        colourise(panel, token);
+        const panelMat = cls === 'tape' && !flat ? mats.textured('tape', fakeLabels.tape('DO NOT TOUCH')) : matOf(cls);
+        addMesh(group, panel, panelMat, 0.85, 0, -0.1, -0.3, -0.06);
+      }
+
+      // bench planks (wood) under everything
+      const benchW = only ? 6 : 13, benchD = only ? 3.4 : 8.2;
+      const planks = Math.round(benchD / 0.62);
+      for (let i = 0; i < planks; i++) {
+        const pd = benchD / planks;
+        const g = roundedBox(benchW, 0.14, pd - 0.012, 0.02, 3, 24);
+        colourise(g, 'wood', 0.22);
+        const m = addMesh(scene, g, matOf('wood'), 0, -0.14, -benchD / 2 + pd * (i + 0.5));
+        m.castShadow = false;
+      }
+
+      const classes = only ? [only] : CLASS_NAMES;
+      const cols = 4;
+      classes.forEach((cls, i) => {
+        if (only) { swatch(cls, 0, 0); return; }
+        const c = i % cols, r = Math.floor(i / cols);
+        swatch(cls, (c - (cols - 1) / 2) * 3.0, (r - 1) * 2.4);
+      });
+
+      // ---- camera ----------------------------------------------------------
+      const cam = new PerspectiveCamera(20, window.innerWidth / window.innerHeight, 0.5, 80);
+      const pitch = (33 * Math.PI) / 180;
+      const dist = only ? 6.2 : 24;
+      const target = new Vector3(0, only ? 0.22 : 0, only ? 0.05 : 0.2);
+      cam.position.set(target.x, target.y + Math.sin(pitch) * dist, target.z + Math.cos(pitch) * dist);
+      const camQ = q.get('cam');
+      if (camQ) {
+        const v = camQ.split(',').map(Number);
+        cam.position.set(v[0]!, v[1]!, v[2]!); target.set(v[3]!, v[4]!, v[5]!); if (v[6]) cam.fov = v[6];
+        cam.updateProjectionMatrix();
+      }
+      cam.lookAt(target);
+
+      // ---- compile, check, render ------------------------------------------
+      renderer.compile(scene, cam);
+      renderer.render(scene, cam);
+      const bad = (renderer.info.programs ?? []).filter((pr) => (pr as unknown as { diagnostics?: { runnable: boolean } }).diagnostics?.runnable === false);
+      if (bad.length) console.error(`materials: ${bad.length} program(s) failed to compile`);
+      hud.textContent = `tier ${tier}${flat ? ' FLAT' : ''} · ${renderer.info.programs?.length ?? 0} programs · ${renderer.info.render.calls} calls · ${renderer.info.render.triangles} tris`;
+
+      const w = window as unknown as Record<string, unknown>;
+      w.__mats = mats;
+      w.__renderer = renderer;
+      w.__render = () => renderer.render(scene, cam);
+      w.__scene = scene;
+      w.__flat = flatMat;
+      // Frame cost: keep the GPU busy (no per-frame sync, so its clocks stay up), sync once at the end.
+      const timeFrames = (n = 200): number => {
+        const gl = renderer.getContext();
+        const px = new Uint8Array(4);
+        for (let i = 0; i < 40; i++) renderer.render(scene, cam);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        const runs: number[] = [];
+        for (let k = 0; k < 5; k++) {
+          const t0 = performance.now();
+          for (let i = 0; i < n / 5; i++) { mats.update(simTime + i / 60); renderer.render(scene, cam); }
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          runs.push((performance.now() - t0) / (n / 5));
+        }
+        runs.sort((a, b) => a - b);
+        return +runs[2]!.toFixed(2);
+      };
+      w.__time = timeFrames;
+
+      if (bench) {
+        const ms = timeFrames();
+        const res = { tier, flat, ms, w: canvas.width, h: canvas.height };
+        w.__bench = res;
+        hud.textContent += `\nframe ${res.ms} ms (mean of a busy run) @ ${res.w}x${res.h}`;
+      }
+      requestAnimationFrame(() => { renderer.render(scene, cam); requestAnimationFrame(() => { w.__ready = true; }); });
+    </script>
+  </body>
+</html>
