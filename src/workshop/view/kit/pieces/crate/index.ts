@@ -147,7 +147,7 @@ interface PaintInfo {
   tone: Float32Array;
   /**
    * When the paint is its own material (enamel skins), bare means no paint at
-   * all: the skins fold to their centres (zero area) and unfold when painted.
+   * all: the skins sink into their planks, out of sight, and come back up when painted.
    * The unfolded positions of the ranges, in range order.
    */
   rest: Float32Array | null;
@@ -159,6 +159,8 @@ interface PaintInfo {
  * colour over the grain) reads as stain. See the W2-crate report.
  */
 const PAINT_CLASS = 'steel' as MaterialClass;
+/** How far a bare crate's paint skins sit inside their planks (less than any plank is thick). */
+const SKIN_SINK = 0.012;
 
 const PAINT = new WeakMap<BufferGeometry, PaintInfo>();
 
@@ -197,16 +199,17 @@ function writePaint(g: BufferGeometry, info: PaintInfo, paint: Token | null): vo
   }
   col.needsUpdate = true;
   if (info.rest) {
+    // bare: each skin sinks into its plank (hidden inside the wood); painted: back on the face
     const pos = g.getAttribute('position') as BufferAttribute;
+    const nrm = g.getAttribute('normal') as BufferAttribute;
     const p = pos.array as Float32Array;
+    const sink = paint ? 0 : SKIN_SINK;
     let j = 0;
     for (const [start, count] of info.ranges) {
-      const c = j; // the fan's centre is each skin's first vertex
       for (let i = start; i < start + count; i++, j++) {
-        const src = paint ? j : c;
-        p[i * 3] = info.rest[src * 3]!;
-        p[i * 3 + 1] = info.rest[src * 3 + 1]!;
-        p[i * 3 + 2] = info.rest[src * 3 + 2]!;
+        p[i * 3] = info.rest[j * 3]! - nrm.getX(i) * sink;
+        p[i * 3 + 1] = info.rest[j * 3 + 1]! - nrm.getY(i) * sink;
+        p[i * 3 + 2] = info.rest[j * 3 + 2]! - nrm.getZ(i) * sink;
       }
     }
     pos.needsUpdate = true;
@@ -491,7 +494,7 @@ export function crate(o: CrateOptions = {}): Piece {
         const za = sz > 0 ? D / 2 - bs : -D / 2 - e, zb = sz > 0 ? D / 2 + e : -D / 2 + bs;
         if (low && !top) continue; // far away, the bottom brackets are lost in the contact shadow
         const g = bevelBox({ min: [xa, ya, za], max: [xb, yb, zb], c: cB(0.0042), wear: 0.95 });
-        into(b, part('metal', g, 'steel', { seed: R.int(0, 1e6), shade: 0.6, jitter: 0.1 }));
+        into(b, part('metal', g, 'steel', { seed: R.int(0, 1e6), shade: 0.85, jitter: 0.1 }));
         if (low || (!top && size === 'L')) continue;
         const ym = (ya + yb) / 2 + (top ? 0.006 : -0.006);
         const rr = bs * 0.13;
@@ -649,7 +652,8 @@ export const catalogue: CatalogueEntry[] = [
         paint: asPaint(opts['paint']),
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
         ...(opts.detail ? { detail: opts.detail } : {}),
-        ...(opts['stencil'] === false ? { stencil: false } : {}),
+        // the stencil needs its textures made first (crateLabels); the catalogue page does not make them yet
+        ...(opts['stencil'] === true ? {} : { stencil: false }),
       }),
     variants: {
       M: { size: 'M' },

@@ -106,7 +106,7 @@ function darkenDown(g: BufferGeometry, yTop: number, yBottom: number, amount: nu
   return g;
 }
 
-function addSection(b: NodeBuilder, R: Rng, o: { x0: number; width: number; depth: number; thickness: number; apron: number; detail: 'high' | 'low'; joints: { left?: boolean; right?: boolean }; neighbours?: { left?: boolean; right?: boolean } }): void {
+function addSection(b: NodeBuilder, R: Rng, o: { x0: number; width: number; depth: number; thickness: number; apron: number; detail: 'high' | 'low'; joints: { left?: boolean; right?: boolean }; neighbours?: { left?: boolean; right?: boolean }; rows?: { widths: number[]; tones: number[] } }): void {
   const { x0, width, depth } = o;
   const x1 = x0 + width;
   const T = o.thickness;
@@ -116,9 +116,10 @@ function addSection(b: NodeBuilder, R: Rng, o: { x0: number; width: number; dept
   const nl = !!o.neighbours?.left, nr = !!o.neighbours?.right;
   const ends: Array<'nx' | 'px'> = [...(nl ? ['nx' as const] : []), ...(nr ? ['px' as const] : [])];
   // planks: wide, front to back; the front one carries the nose
-  const nP = Math.max(3, Math.round(depth / 1.15));
+  // the boards run on across sections: rows (widths, base tone) can be shared by the caller
+  const nP = o.rows ? o.rows.widths.length : Math.max(3, Math.round(depth / 1.15));
   const gap = 0.014;
-  const widths = Array.from({ length: nP }, () => 1 + R.spread(0.12));
+  const widths = o.rows ? o.rows.widths : Array.from({ length: nP }, () => 1 + R.spread(0.12));
   const sum = widths.reduce((s, w) => s + w, 0);
   const avail = depth - gap * (nP - 1);
   let z = zB;
@@ -127,7 +128,8 @@ function addSection(b: NodeBuilder, R: Rng, o: { x0: number; width: number; dept
   for (let i = 0; i < nP; i++) {
     const pw = (widths[i]! / sum) * avail;
     const za = z, zb = z + pw;
-    const tone = { seed: R.int(0, 1e6), jitter: 0.09, warm: 0.05 };
+    // a row keeps its board's tone across sections (a little drift where a new board starts)
+    const tone = o.rows ? { seed: o.rows.tones[i]! * 1000 + R.int(0, 3), jitter: 0.07, warm: 0.04 } : { seed: R.int(0, 1e6), jitter: 0.09, warm: 0.05 };
     if (i === nP - 1) {
       const g = nosePlank(x0, x1, za, zb, T, o.detail, { left: !nl, right: !nr });
       // a few knocks along the front edge, where things were dropped
@@ -195,8 +197,11 @@ export function bench(o: BenchOptions = {}): Piece {
   const n = Math.max(1, o.sections ?? 2);
   const width = o.width ?? 5, depth = o.depth ?? 10;
   const b = piece('bench', { detail, seed, ao: { distance: 0.25 } });
+  const RR = rng(seed);
+  const nP = Math.max(3, Math.round(depth / 1.15));
+  const rows = { widths: Array.from({ length: nP }, () => 1 + RR.spread(0.12)), tones: Array.from({ length: nP }, () => RR.int(0, 1e5)) };
   for (let i = 0; i < n; i++) {
-    addSection(b, rng(seed * 101 + i), { x0: -(n * width) / 2 + i * width, width, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: { left: i > 0 }, neighbours: { left: i > 0, right: i < n - 1 } });
+    addSection(b, rng(seed * 101 + i), { x0: -(n * width) / 2 + i * width, width, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: { left: i > 0 }, neighbours: { left: i > 0, right: i < n - 1 }, rows });
   }
   return b.build();
 }
@@ -384,10 +389,10 @@ export const SAMPLE_TAPE: ReadonlyArray<readonly [number, number]> = [[-2, -1.2]
 export const catalogue: CatalogueEntry[] = [
   {
     name: 'bench',
-    build: (opts = {}) => bench({ ...kit(opts), sections: num(opts['sections'], 2), width: num(opts['width'], 5), depth: num(opts['depth'], 10) }),
-    variants: { 'two sections': {}, 'one section': { sections: 1 }, low: { detail: 'low' } },
+    build: (opts = {}) => bench({ ...kit(opts), sections: num(opts['sections'], 3), width: num(opts['width'], 6.5), depth: num(opts['depth'], 10) }),
+    variants: { 'three sections': {}, 'one section': { sections: 1, width: 5 }, low: { detail: 'low' } },
     camera: { distance: 16 },
-    note: 'The bench top in bolted sections: wide planks, worn rounded nose, apron falling into the dark. Top at y = 0.',
+    note: 'Three bolted bench sections (x ±9.75, joints off-centre): wide planks, worn rounded nose, apron falling into the dark. Top at y = 0.',
   },
   {
     name: 'lane-tape',
