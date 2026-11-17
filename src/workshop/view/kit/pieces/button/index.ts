@@ -43,9 +43,20 @@ const DEG = Math.PI / 180;
 
 /** Dimensions shared with the tests and the view. */
 export const BUTTON = {
-  /** Height of the deck (the head's sloping top) at the centre, and its forward tilt in degrees. */
-  deckY: 0.73,
-  tilt: 10,
+  /** Height of the console's flat top (the deck), and the deck's forward tilt in degrees. */
+  deckY: 1.04,
+  tilt: 0,
+} as const;
+
+/** The console: width, its side profile (z of the front panel's foot and top, and of the back), where the cap and counter stand. */
+export const CONSOLE = {
+  w: 2.1,
+  frontBottomZ: 0.66,
+  frontTopZ: 0.37,
+  backZ: -0.76,
+  capX: 0.32,
+  capZ: -0.2,
+  counterX: -0.6,
 } as const;
 
 export interface ButtonOptions extends KitOptions {
@@ -75,65 +86,51 @@ export function button(o: ButtonOptions = {}): Piece {
   const b = piece('button', { detail, seed });
 
   // ======================================================================
-  // LARGE FORM: flange, body, waist, head
+  // LARGE FORM: a flared, bolted flange; a dark recessed plinth; a console
+  // whose broad front panel leans back toward the visitor; a flat deck on top
   // ======================================================================
   const yF = 0.11; // flange top
-  const yB0 = 0.1, yB1 = 0.53; // body
-  const bodyW = 0.98, bodyD = 0.84, bodyTopW = 0.95, bodyTopD = 0.8;
+  const yC0 = 0.15; // console body bottom
+  const W = CONSOLE.w;
+  const zFB = CONSOLE.frontBottomZ, zFT = CONSOLE.frontTopZ, zBack = CONSOLE.backZ;
+  const yTop = BUTTON.deckY;
+  const zMid = (zFB + zBack) / 2;
   {
-    const r = 0.2;
+    const r = 0.22;
     const flangeG = profiledBox(
-          { w: 1.36, d: 1.18, rPlan: r, detail },
-          profile(0, 0)
-            .to(r, 0, { sharp: true })
-            .to(r, 0.05, { fillet: 0.016, segs: 2 })
-            .to(r - 0.125, 0.058, { fillet: 0.02, segs: 2 })
-            .to(r - 0.14, yF, { fillet: 0.012 })
-            .to(0, yF),
-        );
+      { w: W + 0.3, d: zFB - zBack + 0.3, rPlan: r, detail },
+      profile(0, 0)
+        .to(r, 0, { sharp: true })
+        .to(r, 0.05, { fillet: 0.016, segs: 2 })
+        .to(r - 0.13, 0.058, { fillet: 0.02, segs: 2 })
+        .to(r - 0.15, yF, { fillet: 0.012 })
+        .to(0, yF),
+    );
+    transform(flangeG, T(0, 0, zMid));
     // the flange's front edge took a boot or two
-    dentKeep(flangeG, [-0.35 + R.spread(0.08), 0.05, 0.59], [0, 0.3, 1], 0.08, 0.01);
+    dentKeep(flangeG, [-0.6 + R.spread(0.15), 0.05, zFB + 0.15], [0, 0.3, 1], 0.1, 0.012);
     b.add(part('steel', flangeG, 'teal-panel', { seed, shade: 0.85, jitter: 0.03 }));
   }
-  b.add(
-    part(
-      'steel',
-      transform(taperBox({ w: bodyW, h: yB1 - yB0, d: bodyD, rPlan: 0.11, r: 0.03, rBottom: 0.01, topW: bodyTopW, topD: bodyTopD, detail, band: 0 }), T(0, yB0, 0)),
-      'teal-panel',
-      { seed: seed + 1, shade: 1.15, jitter: 0.03 },
-    ),
-  );
-  // the waist: a dark recessed band between body and head
+  // the plinth: a dark band set in under the console, so it sits a little proud of its flange
   {
-    const r = 0.09;
-    b.add(
-      part(
-        'steel',
-        transform(profiledBox({ w: 0.86, d: 0.7, rPlan: r, detail }, profile(0, 0).to(r, 0, { sharp: true }).to(r, 0.065, { sharp: true }).to(0, 0.065)), T(0, yB1 - 0.01, 0)),
-        'teal-panel',
-        { seed: seed + 2, shade: 0.55 },
-      ),
-    );
+    const r = 0.08;
+    const g = profiledBox({ w: W - 0.08, d: zFB - zBack - 0.1, rPlan: r, detail, band: 0 }, profile(0, 0).to(r, 0, { sharp: true }).to(r, 0.06, { sharp: true }).to(0, 0.06));
+    b.add(part('steel', transform(g, T(0, yF - 0.01, zMid - 0.02)), 'teal-panel', { seed: seed + 2, shade: 0.5 }));
+  }
+  {
+    // the console: its side profile (front foot, front top, back top, back foot) extruded across X
+    const outline: Array<[number, number]> = [[-zFB, yC0], [-zFT, yTop], [-zBack - 0.02, yTop], [-zBack, yC0]];
+    const g = extrude(outline, W, { radius: [0.03, 0.1, 0.07, 0.03], bevel: 0.045, segs: 3, detail });
+    transform(g, chain(T(-W / 2, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
+    // knocks: the front panel's lower left corner, the deck's right front edge
+    dentKeep(g, [-W / 2 + 0.06 + R.spread(0.03), yC0 + 0.1, zFB - 0.03], [1, 0, -1], 0.09, 0.014);
+    dentKeep(g, [W / 2 - 0.3 + R.spread(0.1), yTop - 0.02, zFT - 0.02], [0, 1, -1], 0.08, 0.01);
+    b.add(part('steel', g, 'teal-panel', { seed: seed + 1, shade: 1.12, jitter: 0.03 }));
   }
   const tilt = BUTTON.tilt * DEG;
-  const yH0 = yB1 + 0.045;
-  {
-    const r = 0.15;
-    const H = BUTTON.deckY - yH0;
-    const head = profiledBox(
-      { w: 1.1, d: 1.0, rPlan: r, detail },
-      profile(0, 0).to(r - 0.035, 0, { fillet: 0.012 }).to(r, 0.03, { fillet: 0.02 }).to(r, H - 0.06, { fillet: 0.014 }).to(r - 0.05, H, { fillet: 0.022 }).to(0, H),
-    );
-    transform(head, T(0, yH0, 0));
-    // shear so the top slopes toward the visitor; the bottom stays flat on the waist
-    deform(head, (x, y, z) => [x, y - Math.tan(tilt) * z * Math.max(0, (y - yH0) / H), z], { keepSurf: true });
-    // a knock on the front right corner of the head (seeded: where it was dropped once)
-    dentKeep(head, [0.5 + R.spread(0.03), yH0 + 0.05, 0.42], [-1, 0, -1], 0.07, 0.012);
-    b.add(part('steel', head, 'teal-panel', { seed: seed + 3, shade: 1.1 }));
-  }
 
-  // the deck frame: origin at the head's top centre, +Y its tilted normal, +Z toward the visitor
-  const deck = chain(T(0, BUTTON.deckY, 0), new Matrix4().makeRotationX(tilt));
+  // the deck frame: origin where the cap stands, +Y up its axis, +Z toward the visitor
+  const deck = chain(T(CONSOLE.capX, BUTTON.deckY, CONSOLE.capZ), new Matrix4().makeRotationX(tilt));
   const plateT = 0.026;
   const plateW = 1.04, plateD = 0.98;
 
@@ -158,7 +155,7 @@ export function button(o: ButtonOptions = {}): Piece {
 
   // brass ring with a knurled band; the cap sits in it
   const ringH = 0.062;
-  const rr0 = 0.022; // the guard's rod radius
+  const rr0 = 0.028; // the guard's rod radius
   const ringR = 0.455;
   {
     const ri = 0.38;
@@ -191,7 +188,8 @@ export function button(o: ButtonOptions = {}): Piece {
         .cubic(0, capH, rc + 0.004, 0.2, rc * 0.52, capH, hi ? 9 : 5),
       { detail, segs: hi ? 28 : 18, caps: false },
     );
-    cap.add(setFinish(part('steel', g, 'button-red', { seed: seed + 8 }), 1));
+    // thick wet enamel: a deeper cut of the token, so its lit side stays red under the gloss
+    cap.add(setFinish(part('steel', g, 'button-red', { seed: seed + 8, shade: 0.8 }), 1));
   }
 
   // ======================================================================
@@ -206,7 +204,7 @@ export function button(o: ButtonOptions = {}): Piece {
   const reach = 0.95; // hinge line to the front bar
   {
     // built in the hinge frame (x across, y up from the hinge line, z forward when shut), then into node space
-    const rr = 0.022;
+    const rr = 0.028;
     const segs = hi ? 6 : 5;
     const cs = hi ? 3 : 2;
     const rod = (pts: Array<[number, number, number]>, r: number, rad = rr): KitPart =>
@@ -220,8 +218,9 @@ export function button(o: ButtonOptions = {}): Piece {
     }
     // a back bar tying the ribs' feet together at the hinge line
     guard.add(rod([[-cageX + 0.02, 0, 0.03], [cageX - 0.02, 0, 0.03]], 0, rr * 0.9));
-    // a brass lift tab on the front bar: where a thumb flips it shut
-    guard.add(place([part('brass', transform(slab({ band: 0, w: 0.12, d: 0.05, t: 0.012, r: 0.02, bevel: 0.004, detail }), chain(T(0, -0.004, reach + 0.035), mat({ rot: [-25, 0, 0] }))), 'brass', { seed: seed + 11 })], toNode));
+    // a solid brass bar along the front (the top, parked open), with the lift tab a thumb flips it shut by
+    guard.add(place([part('brass', transform(roundedBox({ band: 0, w: cageX * 2 + 0.04, h: 0.03, d: 0.075, r: 0.012, rPlan: 0.02, segs: 2, detail }), T(0, 0.012, reach + 0.004)), 'brass', { seed: seed + 11, shade: 0.9 })], toNode));
+    guard.add(place([part('brass', transform(slab({ band: 0, w: 0.12, d: 0.05, t: 0.012, r: 0.02, bevel: 0.004, detail }), chain(T(0, 0.02, reach + 0.05), mat({ rot: [-25, 0, 0] }))), 'brass', { seed: seed + 11 })], toNode));
   }
   // the fixed halves of the hinges: brass brackets screwed to the plate, a barrel round the pin
   for (const x of [-cageX, cageX]) {
@@ -241,117 +240,113 @@ export function button(o: ButtonOptions = {}): Piece {
   }
 
   // ======================================================================
-  // MEDIUM: the front (hatch, tape), the counter, the cable
+  // MEDIUM: the front panel (tape), the sides (hatch, louvres), the counter
   // ======================================================================
-  const lean = Math.atan2((bodyD - bodyTopD) / 2, yB1 - yB0);
-  const zFront = (y: number): number => bodyD / 2 - (y - yB0) * Math.tan(lean);
-  /** A frame on the body's front face at (x, y), +Z out of the face. */
-  const front = (x: number, y: number, out = 0): Matrix4 => chain(T(x, y, zFront(y) + out), new Matrix4().makeRotationX(-lean));
+  const lean = Math.atan2(zFB - zFT, yTop - yC0);
+  const zFront = (y: number): number => zFB - (y - yC0) * Math.tan(lean);
+  /** A frame on the console's leaning front panel at (x, y), +Z out of the panel. */
+  const front = (x: number, y: number, out = 0): Matrix4 => chain(T(x, y, zFront(y) + out / Math.cos(lean)), new Matrix4().makeRotationX(-lean));
 
-  // the access hatch: a seam round a panel, two screws at the top
-  {
-    const hx = 0.425, y0 = 0.14, y1 = 0.5;
-    b.add(part('steel', transform(slab({ w: hx * 2, d: y1 - y0, t: 0.012, r: 0.045, bevel: 0.005, detail, open: true }), chain(front(0, (y0 + y1) / 2, -0.004), mat({ rot: [90, 0, 0] }))), 'teal-panel', { seed: seed + 24, shade: 1.04 }));
-    for (const x of [-hx + 0.042, hx - 0.042]) {
-      const s = R.int(0, 999);
-      b.small(() => place(slottedScrew({ d: 0.042, detail: 'low', seed: s }), chain(front(x, y1 - 0.042, 0.008), mat({ rot: [90, 0, 0] }))));
-    }
-  }
-
-  // the tape: DO NOT / TOUCH, stuck on by hand, crooked, the lower strip's corner lifting
+  // the tape: DO NOT / TOUCH, big, stuck on by hand, crooked, the lower strip overlapping and its corner lifting
   {
     const est = estimateLabels();
-    const strips = o.labels ? o.labels.tape : est.tape.map((s) => ({ key: '', ...s }));
-    const yTop = 0.405;
-    let y = yTop;
-    strips.forEach((s, i) => {
-      const ang = i === 0 ? R.range(1.5, 3.2) : -R.range(1.2, 2.6);
-      const x = (i === 0 ? -0.03 : 0.05) + R.spread(0.02);
-      const lift = i === strips.length - 1 ? (u: number, v: number) => 0.022 * Math.pow(Math.max(0, (u - 0.86) / 0.14), 2) * Math.max(0, 1 - v * 0.9) : () => 0;
-      // each strip goes on over the one before it
-      const at = chain(front(x, y, 0.0092 + 0.0016 * i), mat({ rot: [0, 0, ang] }));
+    const strips = o.labels ? o.labels.tape : est.tape.map((q) => ({ key: '', ...q }));
+    const total = strips.reduce((a, q) => a + q.h, 0) * 0.92;
+    const mid = (yC0 + yTop) / 2 + 0.01;
+    let y = mid + (total / 2 - strips[0]!.h / 2) * Math.cos(lean);
+    strips.forEach((st, i) => {
+      const ang = i === 0 ? R.range(1.2, 2.4) : -R.range(1.0, 2.0);
+      const x = (i === 0 ? -0.06 : 0.07) + R.spread(0.03);
       const lifting = i === strips.length - 1;
-      const face = transform(sheet({ w: s.w, h: s.h, lift, nx: lifting ? 6 : 1, ny: lifting ? 2 : 1 }), at);
-      if (o.labels && s.key) b.add(texturedPart('tape', face, s.key));
+      const lift = lifting ? (u: number, v: number) => 0.05 * Math.pow(Math.max(0, (u - 0.88) / 0.12), 2) * Math.max(0, 1 - v * 0.9) : () => 0;
+      // each strip goes on over the one before it
+      const at = chain(front(x, y, 0.003 + 0.002 * i), mat({ rot: [0, 0, ang] }));
+      const face = transform(sheet({ w: st.w, h: st.h, t: 0.004, lift, nx: lifting ? 8 : 1, ny: lifting ? 2 : 1 }), at);
+      if (o.labels && st.key) b.add(texturedPart('tape', face, st.key));
       else b.add(part('tape', face, 'ink'));
       // the back and the cut edge show only where it lifts
-      if (lifting) b.add(part('tape', transform(sheet({ w: s.w, h: s.h, lift, nx: 6, ny: 2, back: true }), at), 'ink', { shade: 0.8 }));
-      y -= s.h * 0.86 + 0.02;
+      if (lifting) b.add(part('tape', transform(sheet({ w: st.w, h: st.h, t: 0.004, lift, nx: 8, ny: 2, back: true }), at), 'ink', { shade: 0.8 }));
+      y -= st.h * 0.92 * Math.cos(lean);
     });
   }
 
-  // a short row of louvres pressed into the head's front band, under the cap
+  // the access hatch on the left side: a proud panel, two slotted screws
   {
-    const n = 3;
-    const yl = yH0 + 0.036;
-    const zl = 0.5 - Math.tan(tilt) * 0.0; // the head's front face, below where the shear starts to bite
-    b.add(part('metal', transform(slab({ band: 0, w: (n - 1) * 0.11 + 0.08, d: 0.014, t: 0.004, r: 0.006, bevel: 0.0015, detail: 'low' }), chain(T(0, yl - 0.005, zl - 0.008), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 0.5 }));
+    const side = chain(T(-W / 2, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2)); // +Z out of the left side
+    const hc = chain(side, T(0.05, 0.56, 0));
+    b.add(part('steel', transform(slab({ w: 0.62, d: 0.5, t: 0.012, r: 0.05, bevel: 0.005, detail, open: true, band: 0 }), chain(hc, T(0, 0, -0.004), mat({ rot: [90, 0, 0] }))), 'teal-panel', { seed: seed + 24, shade: 1.04 }));
+    for (const x of [-0.26, 0.26]) {
+      const sd = R.int(0, 999);
+      b.small(() => place(slottedScrew({ d: 0.05, detail: 'low', seed: sd }), chain(hc, T(x, 0.19, 0.008), mat({ rot: [90, 0, 0] }))));
+    }
+  }
+  // a short row of louvres on the right side, toward the front
+  {
+    const side = chain(T(W / 2, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)); // +Z out of the right side
+    const n = 4;
+    const at = chain(side, T(-0.1, 0.72, 0));
+    b.add(part('metal', transform(slab({ band: 0, w: 0.1, d: (n - 1) * 0.07 + 0.05, t: 0.004, r: 0.01, bevel: 0.0015, detail: 'low' }), chain(at, T(0, 0, -0.002), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 0.5 }));
     for (let i = 0; i < n; i++) {
-      const x = (i - (n - 1) / 2) * 0.11;
-      // a pressed hood, leaning out at the top, open (dark) underneath
-      const g = chamferedBox({ band: 0, w: 0.075, h: 0.024, d: 0.028, c: 0.007 });
-      b.add(part('steel', transform(g, chain(T(x, yl, zl - 0.018), mat({ rot: [-28, 0, 0] }))), 'teal-panel', { seed: seed + 40 + i, shade: 1.1 }));
+      const g = chamferedBox({ band: 0, w: 0.12, h: 0.03, d: 0.035, c: 0.008 });
+      b.add(part('steel', transform(g, chain(at, T(0, (i - (n - 1) / 2) * 0.07, -0.016), mat({ rot: [-28, 0, 0] }))), 'teal-panel', { seed: seed + 40 + i, shade: 1.1 }));
     }
   }
 
-  // ---- the press counter: a brass box on a bracket off the left side ---------
+  // ---- the press counter: a housing on the deck, left of the cap, its face leaned toward the visitor ----
   {
-    const cx = -0.68, cy = 0.44, cz = 0.2;
-    const W = 0.29, H = 0.16, Dp = 0.11;
-    const at = chain(T(cx, cy, cz), askew(seed + 19, 2.5));
-    // the bracket: a bent steel strap screwed to the body's side
-    const br = extrude(
-      [[0, 0], [0.26, 0], [0.26, 0.014], [0.014, 0.014], [0.014, 0.13], [0, 0.13]],
-      0.09,
-      { band: 0, bevel: 0.003, radius: [0.003, 0.003, 0.003, 0.012, 0.003, 0.003], segs: 1, detail },
-    );
-    b.add(part('steel', transform(br, chain(T(-bodyW / 2 + 0.012, cy - H / 2 - 0.014, cz - 0.075), mat({ rot: [0, 0, 0] }), new Matrix4().makeScale(-1, 1, 1))), 'teal-panel', { seed: seed + 20, shade: 0.8 }));
-    // the case: a brass box, and a thick front plate with the window cut through it
-    b.add(part('brass', transform(roundedBox({ band: 0, w: W - 0.006, h: H, d: Dp - 0.04, r: 0.016, rPlan: 0.02, detail }), chain(at, T(0, -H / 2, -Dp / 2 - 0.035))), 'brass', { seed: seed + 21, shade: 0.9 }));
-    const ww = 0.172, wh = 0.056;
-    const wy = 0.016;
-    const frontPlate = extrude(
-      [[-W / 2, -H / 2], [W / 2, -H / 2], [W / 2, H / 2], [-W / 2, H / 2]],
-      0.05,
-      { band: 0, holes: [[[-ww / 2, wy - wh / 2], [ww / 2, wy - wh / 2], [ww / 2, wy + wh / 2], [-ww / 2, wy + wh / 2]]], radius: 0.02, holeRadius: 0.006, bevel: 0.007, bevelBase: 0, caps: 'end', segs: 2, detail },
-    );
-    b.add(setFinish(part('brass', transform(frontPlate, chain(at, T(0, 0, -0.05))), 'brass', { seed: seed + 22, warm: 0.03 }), 0.35));
-    // the four wheels, each its own node turning about the axle (+X)
-    const wr = 0.046, wwid = 0.034, gap = 0.006;
-    const glyph = 0.022;
-    for (let i = 0; i < 4; i++) {
-      // digit0 is the units wheel, on the right
-      const x = (1.5 - i) * (wwid + gap);
-      const wheel = b.node(`digit${i}`, chain(at, T(x, wy, -0.007 - wr), new Matrix4().makeRotationZ(-Math.PI / 2)));
-      const body = lathe(profile(wr * 0.6, -wwid / 2).to(wr, -wwid / 2, { sharp: true }).to(wr, wwid / 2, { sharp: true }).to(wr * 0.6, wwid / 2), { segs: 6, caps: false, detail, band: 0 });
-      wheel.add(part('rubber', body, 'ink', { seed: seed + 23 + i, shade: 1.1 }));
-      const strokes: Array<ReadonlyArray<readonly [number, number]>> = [];
-      const g: BufferGeometry[] = [];
-      for (let d = 0; d < 10; d++) {
-        const st = DIGIT_STROKES[d]!.map((s) => s.map(([u, v]) => [(u - 0.3) * glyph, (v - 0.5) * glyph] as [number, number]));
-        g.push(cylinderRibbons(st, { r: wr, width: 0.0036, phi0: -d * ((Math.PI * 2) / 10) }));
-        strokes.push(...st);
-      }
-      for (const q of g) wheel.add(part('paper', transform(q, new Matrix4()), 'paper'));
+    const lean2 = 35 * DEG;
+    const hx = CONSOLE.counterX, hw = 0.74, slant = 0.42, z0 = 0.3;
+    const faceM = chain(T(hx, yTop, z0), new Matrix4().makeRotationX(-lean2));
+    const ct = Math.cos(lean2), sn = Math.sin(lean2);
+    const set = 0.06; // the housing's own face is set back behind the brass front plate
+    // the housing: a wedge, its side profile extruded across X
+    {
+      const fz = z0 - set * ct, fy = yTop - set * sn;
+      const tz = z0 - slant * sn - set * ct, ty = yTop + slant * ct - set * sn;
+      const outline: Array<[number, number]> = [[-fz, fy], [-tz, ty], [0.6, ty], [0.62, yTop - 0.02]];
+      const g = extrude(outline, hw - 0.02, { radius: [0.01, 0.03, 0.05, 0.01], bevel: 0.03, segs: 2, detail });
+      transform(g, chain(T(hx - (hw - 0.02) / 2, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
+      b.add(part('steel', g, 'teal-panel', { seed: seed + 20, shade: 0.95 }));
     }
-    // the engraved plate under the window
+    // the brass front plate with the window cut through it
+    const ww = 0.6, wh = 0.22, ws = 0.25;
+    const frontPlate = extrude(
+      [[-hw / 2, 0], [hw / 2, 0], [hw / 2, slant], [-hw / 2, slant]],
+      set,
+      { band: 0, holes: [[[-ww / 2, ws - wh / 2], [ww / 2, ws - wh / 2], [ww / 2, ws + wh / 2], [-ww / 2, ws + wh / 2]]], radius: 0.03, holeRadius: 0.012, bevel: 0.012, bevelBase: 0, caps: 'end', segs: 2, detail },
+    );
+    b.add(setFinish(part('brass', transform(frontPlate, chain(faceM, T(0, 0, -set))), 'brass', { seed: seed + 22, warm: 0.03 }), 0.2));
+    // the four wheels, each its own node turning about the axle (+X); digit0 is the units wheel, on the right
+    const wr = 0.3, wwid = 0.13, gap = 0.018;
+    const glyph = 0.17;
+    for (let i = 0; i < 4; i++) {
+      const x = (1.5 - i) * (wwid + gap);
+      const wheel = b.node(`digit${i}`, chain(faceM, T(x, ws, -0.012 - wr), new Matrix4().makeRotationZ(-Math.PI / 2)));
+      const body = lathe(profile(wr * 0.8, -wwid / 2).to(wr, -wwid / 2, { sharp: true }).to(wr, wwid / 2, { sharp: true }).to(wr * 0.8, wwid / 2), { segs: hi ? 30 : 20, caps: false, detail, band: 0 });
+      wheel.add(part('rubber', body, 'ink', { seed: seed + 23 + i, shade: 1.1 }));
+      for (let d = 0; d < 10; d++) {
+        const stks = DIGIT_STROKES[d]!.map((q) => q.map(([u, v]) => [(u - 0.3) * glyph, (v - 0.5) * glyph] as [number, number]));
+        wheel.add(part('paper', cylinderRibbons(stks, { r: wr, width: 0.016, lift: 0.001, phi0: -d * ((Math.PI * 2) / 10) }), 'paper'));
+      }
+    }
+    // the engraved plate under the window, a rivet either side
     const pl = o.labels?.plate ?? { key: '', ...estimateLabels().plate };
-    const plate = transform(sheet({ w: pl.w, h: pl.h, t: 0.002, nx: 1, ny: 1 }), chain(at, T(0, -0.04, 0.0005)));
+    const plate = transform(sheet({ w: pl.w, h: pl.h, t: 0.003, nx: 1, ny: 1 }), chain(faceM, T(0, 0.068, 0.0005)));
     if (o.labels && pl.key) b.add(texturedPart('brass', plate, pl.key));
     else b.add(part('brass', plate, 'brass', { shade: 0.9 }));
-    // two screws, and a knurled reset knob on the outboard end
-    for (const x of [-W / 2 + 0.024, W / 2 - 0.024]) {
-      const s = R.int(0, 999);
-      b.small(() => place(domeRivet({ d: 0.022, detail: 'low', seed: s }), chain(at, T(x, -0.04, 0.0), mat({ rot: [90, 0, 0] }))));
+    for (const x of [-hw / 2 + 0.04, hw / 2 - 0.04]) {
+      const sd = R.int(0, 999);
+      b.small(() => place(domeRivet({ d: 0.032, detail: 'low', seed: sd }), chain(faceM, T(x, 0.068, 0.0), mat({ rot: [90, 0, 0] }))));
     }
-    const knob = chain(at, T(-W / 2 + 0.004, 0.0, -0.05), new Matrix4().makeRotationZ(Math.PI / 2));
-    b.add(part('brass', transform(ridgedBand(0.022, 0.03, hi ? 14 : 8, 0.004), knob), 'brass', { seed: seed + 27 }));
-    b.add(part('brass', transform(lathe(profile(0, 0.03).to(0.02, 0.03, { sharp: true }).to(0.016, 0.036, { fillet: 0.004, segs: 1 }).to(0, 0.036), { segs: 10, detail, band: 0 }), knob), 'brass', { seed: seed + 27 }));
+    // a knurled reset knob on the housing's outboard end
+    const knob = chain(T(hx - hw / 2 + 0.01, yTop + 0.17, -0.1), new Matrix4().makeRotationZ(Math.PI / 2));
+    b.add(part('brass', transform(ridgedBand(0.045, 0.05, hi ? 16 : 10, 0.007), knob), 'brass', { seed: seed + 27 }));
+    b.add(part('brass', transform(lathe(profile(0, 0.05).to(0.04, 0.05, { sharp: true }).to(0.032, 0.06, { fillet: 0.006, segs: 1 }).to(0, 0.06), { segs: 10, detail, band: 0 }), knob), 'brass', { seed: seed + 27 }));
   }
 
   // ---- the cable: out of the right side through a gland, down, into the bench -
   {
-    const gx = bodyW / 2 - 0.004, gy = 0.27, gz = 0.08;
+    const gx = W / 2 - 0.004, gy = 0.42, gz = 0.12;
     const cr = 0.032;
     // the gland: a brass hex body, a domed cap nut, a rubber boot gripping the cable (a cheap cut of the kit's cableGland)
     {
@@ -365,12 +360,12 @@ export function button(o: ButtonOptions = {}): Piece {
       const boot = lathe(profile(cr * 1.42, y1).to(cr * 1.3, y1 + L * 0.5, { smooth: true }).to(cr * 1.06, y1 + L, { fillet: cr * 0.08, segs: 1 }).to(cr * 0.98, y1 + L), { segs: 9, caps: false, detail, band: 0 });
       b.add(part('rubber', transform(boot, glandAt), 'ink'));
     }
-    const pts: Array<[number, number, number]> = [[gx + 0.12, gy, gz], [gx + 0.26, gy - 0.02, gz + 0.02], [gx + 0.36, cr + 0.01, gz + 0.1], [gx + 0.7, cr, gz + 0.06], [gx + 0.98, cr, -0.2], [gx + 1.08, cr, -0.33]];
-    b.add(part('rubber', sweep(polylinePath(pts, 0.14, hi ? 4 : 2), { radius: cr, detail, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 29, shade: 1.2 }));
+    const pts: Array<[number, number, number]> = [[gx + 0.12, gy, gz], [gx + 0.24, gy - 0.05, gz + 0.03], [gx + 0.3, cr + 0.06, gz + 0.12], [gx + 0.4, cr, gz + 0.2], [gx + 0.58, cr, gz + 0.16], [gx + 0.66, cr, gz + 0.04], [gx + 0.86, cr, gz - 0.02], [gx + 1.0, cr, -0.22], [gx + 1.08, cr, -0.33]];
+    b.add(part('rubber', sweep(polylinePath(pts, 0.08, hi ? 3 : 2), { radius: cr, detail, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 29, shade: 1.2 }));
     // a P-clip screwed to the bench, holding it down
-    const clipAt: [number, number, number] = [gx + 0.62, 0, gz + 0.07];
+    const clipAt: [number, number, number] = [gx + 0.76, 0, gz + 0.01];
     const clip = sweep(polylinePath([[-0.055, 0.008, 0], [-0.034, 0.008, 0], [-0.034, cr * 2.15, 0], [0.034, cr * 2.15, 0], [0.034, 0.008, 0], [0.055, 0.008, 0]], 0.022, 1), { radius: 0.008, detail, segs: 5 });
-    b.add(part('metal', transform(clip, chain(T(...clipAt), new Matrix4().makeRotationY(Math.PI / 2 - 0.12))), 'steel', { seed: seed + 30 }));
+    b.add(part('metal', transform(clip, chain(T(...clipAt), new Matrix4().makeRotationY(Math.PI / 2 + 0.25))), 'steel', { seed: seed + 30 }));
     // where it goes into the bench: a squat brass bushing screwed down over a hole
     const gr = lathe(profile(0.075, 0).to(0.075, 0.012, { fillet: 0.006, segs: 1 }).to(0.055, 0.02, { fillet: 0.006, segs: 1 }).to(0.052, 0.07, { fillet: 0.012, segs: 2 }).to(0, 0.072), { segs: 12, detail, caps: 'end', band: 0 });
     b.add(part('brass', transform(gr, T(gx + 1.08, 0, -0.32)), 'brass', { seed: seed + 31 }));
@@ -378,16 +373,17 @@ export function button(o: ButtonOptions = {}): Piece {
 
   // ---- SMALL: flange bolts (one replaced with a brass one), washers ----------
   {
-    const pos: Array<[number, number]> = [[-0.57, -0.48], [0.57, -0.48], [-0.57, 0.48], [0.57, 0.48], [-0.62, 0], [0.62, 0]];
-    const replaced = R.int(0, 5);
+    const hxF = W / 2 + 0.07, zf = zFB + 0.08, zb = zBack - 0.08;
+    const pos: Array<[number, number]> = [[-hxF + 0.03, zb + 0.03], [hxF - 0.03, zb + 0.03], [-hxF + 0.03, zf - 0.03], [hxF - 0.03, zf - 0.03], [-0.36, zf], [0.36, zf], [-hxF, zMid], [hxF, zMid]];
+    const replaced = R.int(0, 7);
     pos.forEach(([x, z], i) => {
       const brass = i === replaced;
-      const g = transform(hexHead(0.08, 0.04, R.range(0, Math.PI / 3)), T(x, 0.056, z));
+      const g = transform(hexHead(0.1, 0.05, R.range(0, Math.PI / 3)), T(x, 0.056, z));
       b.add(brass ? part('brass', g, 'brass', { seed: seed + 50 + i }) : part('metal', g, 'steel', { seed: seed + 50 + i, jitter: 0.06 }));
     });
   }
 
-  b.socket('tape', mat({ at: [0, 0.38, bodyD / 2 + 0.01] }));
+  b.socket('tape', front(0, (yC0 + yTop) / 2, 0.01));
   b.socket('cap', chain(deck, T(0, plateT + ringH + capGap + capH, 0)));
   const built = b.build();
   if (o.pose) {
@@ -411,6 +407,6 @@ export const catalogue: Array<CatalogueEntry & { poses?: readonly string[] }> = 
     variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
     poses: Object.keys(NAMED_POSES),
     camera: { distance: 5 },
-    note: 'The Big Red Button on its pedestal: the reddest thing on the bench.',
+    note: 'The Big Red Button on its console: the reddest thing on the bench.',
   },
 ];
