@@ -99,7 +99,7 @@ describe('crate', () => {
     const blue = crate({ size: 'M', seed: 4, paint: 'paint-blue' });
     const ranges = paintRanges(bare);
     expect(ranges.length).toBeGreaterThan(0);
-    expect(ranges.every((r) => r.material === 'steel')).toBe(true);
+    expect(ranges.every((r) => r.material === 'wood')).toBe(true);
     const nb = nodes(bare), nc = nodes(blue);
     let inside = 0;
     nb.forEach((n, i) => n.parts.forEach((q, j) => {
@@ -146,24 +146,15 @@ describe('crate', () => {
     void Matrix4;
   });
 
-  it('bare, the paint skins hide inside the planks; repaint brings them to the face', () => {
+  it('paint is matte painted wood: no extra material, and repaint never moves geometry', () => {
     const p = crate({ size: 'M', seed: 2 });
     const o = K.realize(p, stub);
-    const steel: Mesh[] = [];
-    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh && m.userData['kitMaterial'] === 'steel') steel.push(m); });
-    expect(steel.length).toBe(2); // body and lid
-    const before = steel.map((m) => (m.geometry.getAttribute('position').array as Float32Array).slice());
+    const mats = new Set<string>();
+    const pos: Array<[Mesh, Float32Array]> = [];
+    o.traverse((x: Object3D) => { const m = x as Mesh; if (m.isMesh) { mats.add(String(m.userData['kitMaterial'])); pos.push([m, (m.geometry.getAttribute('position').array as Float32Array).slice()]); } });
+    expect(mats.has('steel')).toBe(false);
     repaint(o, 'paint-green');
-    steel.forEach((m, i) => {
-      const a = m.geometry.getAttribute('position').array as Float32Array, n = m.geometry.getAttribute('normal').array as Float32Array;
-      // every vertex moved out along its normal by the sink depth
-      for (let v = 0; v < a.length / 3; v++) {
-        const d = (a[v * 3]! - before[i]![v * 3]!) * n[v * 3]! + (a[v * 3 + 1]! - before[i]![v * 3 + 1]!) * n[v * 3 + 1]! + (a[v * 3 + 2]! - before[i]![v * 3 + 2]!) * n[v * 3 + 2]!;
-        expect(d).toBeCloseTo(0.012, 5);
-      }
-    });
-    repaint(o, null);
-    steel.forEach((m, i) => expect(Array.from(m.geometry.getAttribute('position').array as Float32Array)).toEqual(Array.from(before[i]!)));
+    for (const [m, before] of pos) expect(Array.from(m.geometry.getAttribute('position').array as Float32Array)).toEqual(Array.from(before));
   });
 
   it('is registered with its sizes and paints', () => {

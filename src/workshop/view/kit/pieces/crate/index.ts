@@ -154,11 +154,12 @@ interface PaintInfo {
 }
 
 /**
- * The paint's material class. 'steel' (enamel skins, folded away when bare)
- * reads as paint; 'wood' (skins merged into the planks, wearing the paint
- * colour over the grain) reads as stain. See the W2-crate report.
+ * The paint's material class. 'wood' (the default): skins merged into the
+ * planks, wearing the paint colour over the grain: matte painted wood.
+ * 'steel' (enamel skins that sink into the planks when bare) reflected the
+ * room like chrome under the lamp on lit tops; kept for comparison.
  */
-const PAINT_CLASS = 'steel' as MaterialClass;
+const PAINT_CLASS = 'wood' as MaterialClass;
 /** How far a bare crate's paint skins sit inside their planks (less than any plank is thick). */
 const SKIN_SINK = 0.012;
 
