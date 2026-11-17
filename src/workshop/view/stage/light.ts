@@ -40,13 +40,26 @@ export interface LightRigOptions {
 
 /** Tuned by eye on the stage dev page; see the W1 report for what each does. */
 export const RIG = {
-  key: { intensity: 240, angle: MathUtils.degToRad(48), penumbra: 0.92, decay: 2 },
-  shadow: { mapSize: 2048, radius: 5, blurSamples: 8, bias: -0.0004, normalBias: 0.025 },
-  fill: { hemi: 0.35, front: 0.6 },
+  key: { intensity: 230, angle: MathUtils.degToRad(60), penumbra: 1.0, decay: 2 },
+  /**
+   * `focus` narrows the shadow camera below the (wide, soft) cone: its field
+   * is 2 × angle × focus, so a wide pool does not spread the 2048 map thin.
+   * Outside that field things are simply lit (the bench ends, beyond the cluster).
+   */
+  shadow: { mapSize: 2048, radius: 4, blurSamples: 8, bias: -0.0004, normalBias: 0.025, focus: 0.8 },
+  /** `frontPosition`: low, so the front fill lights the faces the camera sees and only grazes the tops. */
+  fill: { hemi: 1.1, front: 3.0, frontPosition: [-3, 2.2, 16] as [number, number, number] },
   rim: { intensity: 2.4 },
   /** What bounces: warm light off the lit bench, from just above the pool (lifts the lower wall and undersides). */
   bounce: { intensity: 5, height: 1.1 },
-  env: { intensity: 0.8 },
+  env: { intensity: 1.1 },
+  /**
+   * The sign's bulbs washing the back wall round them (warm, no shadows; high
+   * tier only): what lets a sign and a pegboard on the wall read when the
+   * key's pool is on the bench. `night` is the share it keeps at lamp level 0
+   * (the sign's bulbs stay lit when the lamp is off).
+   */
+  wash: { intensity: 14, position: [0.4, 5.2, -2.4] as [number, number, number], distance: 11, decay: 2, night: 0.6 },
   /** What each part keeps at night (level 0), as a fraction of its day value. */
   night: { fill: 0.1, rim: 0.3, env: 0.12 },
 };
@@ -65,6 +78,8 @@ export class LightRig {
   readonly front: DirectionalLight;
   readonly rim: DirectionalLight;
   readonly bounce: PointLight;
+  /** The sign's wall wash (high tier only; null on low). */
+  readonly wash: PointLight | null;
   private readonly keyColour = new Color();
   private readonly defaultKey = new Color();
   private lamp: LampState = { level: 1, colour: null };
@@ -95,6 +110,7 @@ export class LightRig {
     key.shadow.blurSamples = RIG.shadow.blurSamples;
     key.shadow.bias = RIG.shadow.bias;
     key.shadow.normalBias = RIG.shadow.normalBias;
+    key.shadow.focus = RIG.shadow.focus;
     this.key = key;
     this.root.add(key, key.target);
     this.fitShadow(opts.shadowBox ?? new Box3(new Vector3(-10, -0.6, -5), new Vector3(10, 6, 5)));
@@ -104,7 +120,7 @@ export class LightRig {
     this.hemi.name = 'fill-hemi';
     this.front = new DirectionalLight(toColor(c.fill), RIG.fill.front);
     this.front.name = 'fill-front';
-    this.front.position.set(-2, 7, 16);
+    this.front.position.set(...RIG.fill.frontPosition);
     this.front.target.position.set(0, 0, 0);
     this.root.add(this.hemi, this.front, this.front.target);
 
@@ -120,6 +136,16 @@ export class LightRig {
     this.bounce.name = 'bounce';
     this.bounce.position.set(aim[0], RIG.bounce.height, aim[2]);
     this.root.add(this.bounce);
+
+    // WASH: the sign's bulbs on the back wall. High tier only.
+    if (opts.tier === 'high') {
+      this.wash = new PointLight(toColor(c.wash), RIG.wash.intensity, RIG.wash.distance, RIG.wash.decay);
+      this.wash.name = 'wash';
+      this.wash.position.set(...RIG.wash.position);
+      this.root.add(this.wash);
+    } else {
+      this.wash = null;
+    }
   }
 
   /**
@@ -215,6 +241,13 @@ export class LightRig {
     this.key.shadow.radius = RIG.shadow.radius;
     this.key.shadow.bias = RIG.shadow.bias;
     this.key.shadow.normalBias = RIG.shadow.normalBias;
+    this.key.shadow.focus = RIG.shadow.focus;
+    if (this.wash) {
+      this.wash.position.set(...RIG.wash.position);
+      this.wash.distance = RIG.wash.distance;
+      this.wash.decay = RIG.wash.decay;
+    }
+    this.front.position.set(...RIG.fill.frontPosition);
     this.apply();
   }
 
@@ -227,6 +260,7 @@ export class LightRig {
     this.front.intensity = RIG.fill.front * nf;
     this.rim.intensity = RIG.rim.intensity * MathUtils.lerp(RIG.night.rim, 1, l);
     this.bounce.intensity = RIG.bounce.intensity * l;
+    if (this.wash) this.wash.intensity = RIG.wash.intensity * MathUtils.lerp(RIG.wash.night, 1, l);
     this.envIntensity = RIG.env.intensity * MathUtils.lerp(RIG.night.env, 1, l);
     if (this.scene) this.scene.environmentIntensity = this.envIntensity * this.envScale;
   }
