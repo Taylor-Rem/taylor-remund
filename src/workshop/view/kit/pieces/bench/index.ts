@@ -359,7 +359,7 @@ export function backWall(o: BackWallOptions = {}): Piece {
     const g = bevelBox({ min: [0, xa, -t + lift * 0], max: [height + R.spread(0.02), xb, 0], c: low ? 0.006 : 0.01, omit: ['nz', 'nx'], wear: 0.6 });
     transform(g, new Matrix4().set(0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)); // (x, y, z) -> (-y, x, z): X up
     transform(g, new Matrix4().makeScale(-1, 1, 1)); // back to +X to the right (winding fixed by transform)
-    b.add(large(part('wood', g, 'teal-deep', { seed: R.int(0, 1e6), jitter: 0.18, shade: 1.3, warm: 0.06 })));
+    b.add(large(part('wood', g, 'teal-deep', { seed: R.int(0, 1e6), jitter: 0.18, shade: 0.95, warm: 0.06 })));
     if (!low) for (const yy of [1.35, 3.9]) nails.push([(xa + xb) / 2 + R.spread(0.05), yy + R.spread(0.04)]);
     x += bw;
   }
