@@ -15,6 +15,8 @@
 //   ?benchtop=normal    draw the bench with the full wood shader instead of its 'large' path
 //   ?t=3.5              simulation time for update() (belt scroll, bulb flicker)
 //   ?cam=x,y,z,tx,ty,tz,fov   override the camera
+//   ?debug=clay|wear|cavity|finish|lpos   the materials' own review views
+//   ?blobs=1            blob contact shadows under the swatches (materials.decal())
 ---
 <!doctype html>
 <html lang="en">
@@ -34,13 +36,13 @@
     <div id="hud"></div>
     <script>
       import {
-        BoxGeometry, BufferAttribute, BufferGeometry, DirectionalLight, Fog, HemisphereLight, LatheGeometry, Matrix4, Mesh,
+        BoxGeometry, BufferAttribute, BufferGeometry, DirectionalLight, InstancedMesh, Fog, HemisphereLight, LatheGeometry, Matrix4, Mesh,
         MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Scene, SpotLight, SRGBColorSpace, Vector2, Vector3,
         ACESFilmicToneMapping, Color, Object3D, WebGLRenderer, type Material,
       } from 'three';
       import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
       import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-      import { createMaterials, CLASS_NAMES } from '../workshop/view/materials/index.ts';
+      import { createMaterials, CLASS_NAMES, DEBUG_VIEWS, type DebugView } from '../workshop/view/materials/index.ts';
       import { createLabels, world } from '../workshop/view/labels/index.ts';
       import { linear, palette, type Token } from '../workshop/view/palette.ts';
       import type { MaterialClass } from '../workshop/view/kit/types.ts';
@@ -252,7 +254,9 @@
 
       // ---- materials and the real labels -----------------------------------
       const labels = await createLabels({ anisotropy: renderer.capabilities.getMaxAnisotropy() });
-      const mats = createMaterials({ tier, labels });
+      const debugQ = q.get('debug') as DebugView | null;
+      if (debugQ && !DEBUG_VIEWS.includes(debugQ)) console.error(`unknown debug view ${debugQ}`);
+      const mats = createMaterials({ tier, labels, debug: debugQ ?? undefined });
       mats.update(simTime);
       const flatMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
       const plain = new Set((q.get('plain') ?? '').split(',').filter(Boolean));
@@ -378,6 +382,26 @@
           swatch(cls, (c - (cols - 1) / 2) * 3.0, (r - 1) * 2.4);
         });
         if (!only) { target.set(0, 0, 0.2); dist = 24; }
+      }
+
+      if (q.get('blobs') === '1') {
+        // blob contact shadows on the decal material: a quad per blob, strength in the instance colour's red
+        const plane = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+        const spots: [number, number, number, number][] = [];
+        scene.traverse((o) => {
+          if ((o as Mesh).isMesh && o.parent && o.parent !== scene && o.parent.parent === scene) {
+            const p = new Vector3();
+            o.getWorldPosition(p);
+            spots.push([p.x, p.z, 0.75, 0.8]);
+          }
+        });
+        const blobs = new InstancedMesh(plane, mats.decal(), Math.max(1, spots.length));
+        spots.forEach(([x, z, r, k], i) => {
+          blobs.setMatrixAt(i, new Matrix4().compose(new Vector3(x, 0.003, z), new Object3D().quaternion, new Vector3(r, 1, r * 0.8)));
+          blobs.setColorAt(i, new Color().setScalar(k));
+        });
+        blobs.renderOrder = -1;
+        scene.add(blobs);
       }
 
       // ---- camera ----------------------------------------------------------
