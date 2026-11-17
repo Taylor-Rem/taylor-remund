@@ -681,7 +681,7 @@ pRough = 0.12;
   // Felt / flocking (Patch): soft, matte, a fuzzy rim. 3 fetches.
   felt: {
     kind: 'physical',
-    props: { roughness: 0.95, metalness: 0, envMapIntensity: 0.4, sheen: 1, sheenRoughness: 0.55, specularIntensity: 0.25 },
+    props: { roughness: 0.95, metalness: 0, envMapIntensity: 0.3, sheen: 1, sheenRoughness: 0.55, specularIntensity: 0.12 },
     params: {
       roughness: p(0.95, 0.8, 1),
       fibreScale: p(260, 60, 600),
@@ -690,20 +690,33 @@ pRough = 0.12;
       clumpScale: p(16, 4, 50),
       clump: p(0.16, 0, 0.4),
       clumpBump: p(0.0008, 0, 0.003),
-      fuzz: p(0.8, 0, 1.5), // grazing-angle lift (light-dependent; not emission)
-      sheen: p(1.0, 0, 1.5),
+      // Felt keeps its own hue in the light. The soft grazing rim (fuzz) and
+      // the sheen are the fabric's OWN colour, a little lighter, never toward
+      // white, and both fade out on dark felt: their strength rides on the
+      // albedo's luminance between darkLum (none) and lightLum (full).
+      fuzz: p(0.6, 0, 1.5), // grazing-angle lift of light felt (light-dependent; not emission)
+      sheen: p(0.8, 0, 1.5),
+      sheenLift: p(1.35, 1, 2), // the sheen is the felt's colour times this, clamped below white
+      darkLum: p(0.02, 0, 0.2), // linear luminance below which felt gets no fuzz or sheen
+      lightLum: p(0.3, 0.05, 1), // linear luminance at which fuzz and sheen are full
+      darkSpec: p(0.35, 0, 1), // share of the (already low) specular a dark felt keeps
       cavDark: p(0.45, 0, 1),
+      dyeSat: p(0.82, 0.5, 1.2),
     },
-    colours: () => ({ sheen: tok('paper') }),
+    colours: () => ({}),
     glsl: /* glsl */ `
 float f1 = pNoise(pP * u_fibreScale);
 float fAA = pAA(u_fibreScale, pFw);
 float clumps = pFbm4(pP * u_clumpScale).r;
 vec3 col = pBase * (1.0 + (f1 - 0.5) * u_fibreContrast * fAA + (clumps - 0.5) * u_clump * 2.0);
 col *= 1.0 - pCav * u_cavDark;
-float fuzz = pow(1.0 - pFacing, 2.0) * u_fuzz;
-pAlbedo = col * (1.0 + fuzz);
-pSheen = mix(col, c_sheen, 0.45) * u_sheen;
+float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+col = mix(vec3(lum), col, u_dyeSat); // dyed wool reads a touch greyer than enamel of the same token
+float lightK = smoothstep(u_darkLum, u_lightLum, lum);
+float rim = pow(1.0 - pFacing, 2.0);
+pAlbedo = col * (1.0 + rim * u_fuzz * lightK);
+pSheen = min(col * u_sheenLift, vec3(0.95)) * u_sheen * lightK;
+pSpec = mix(u_darkSpec, 1.0, lightK);
 pRough = u_roughness;
 #ifndef TIER_LOW
 pH = f1 * u_fibreBump * fAA + clumps * u_clumpBump;
