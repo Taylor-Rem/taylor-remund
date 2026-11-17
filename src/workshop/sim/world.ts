@@ -54,13 +54,15 @@ export const LOOSE_TUNING = {
   /** Levelling: how fast the held part turns toward level (1/s) and its angular speed limit. */
   levelRate: 9,
   levelSpeed: 10,
+  /** Yaw is held toward its value at the grab at this fraction of the levelling rate: it keeps facing the way it was picked up, with sway but no slow spin. */
+  yawHold: 0.3,
   /** Lean into the motion: radians per unit/s of horizontal speed, and the most it leans. */
   lean: 0.035,
   leanMax: 0.28,
   /** Held parts keep this much angular velocity each step (sway), the rest is the levelling drive. */
   sway: 0.55,
   /** Throws are clamped to this speed, units/s. */
-  throwMax: 9,
+  throwMax: 7.5,
   /** Tumble on release: spin per unit/s of throw about the axis across the throw. */
   tumble: 0.7,
   /** A free part counts as disturbed above these speeds. */
@@ -75,6 +77,14 @@ export const LOOSE_TUNING = {
   restSameAngle: 0.01,
   /** Impulse onset that counts as a hit (simulation units). */
   hitMin: 0.04,
+  /**
+   * A release this soon after the grab (seconds), this slow (units/s) and this close to where the part
+   * rests (horizontal units) is a cancelled pick-up: the part goes back exactly to its rest pose and
+   * nothing is committed.
+   */
+  cancelTime: 0.25,
+  cancelSpeed: 0.6,
+  cancelDistance: 0.2,
   /** Spacing of returns up the chute when several fall at once, seconds. */
   chuteGap: 0.6,
 } as const;
@@ -129,6 +139,10 @@ interface Loose {
   chuteAt: number;
   /** Where it is held, in its own frame. */
   grip: Vec3;
+  /** Its yaw when it was picked up (held toward while carried). */
+  grabYaw: number;
+  /** The step it was picked up. */
+  grabStep: number;
   /** Where the hand wants the grip point. */
   target: Vec3;
   /** Last step's impulse per contact partner, for hit onsets. */
@@ -226,7 +240,7 @@ export function createWorld(opts: WorldOptions): World {
       validators.set(vkey(spec.id, f), PART_VALIDATORS[f]);
     }
     physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: spec.pose, mass, friction: m.friction, restitution: m.restitution, linearDamping: m.linearDamping, angularDamping: m.angularDamping, ccd: true });
-    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: 'free', pose: spec.pose, prev: spec.pose, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, chuteAt: 0, grip: [0, 0, 0], target: spec.pose.p, contacts: new Map() });
+    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: 'free', pose: spec.pose, prev: spec.pose, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: spec.pose.p, contacts: new Map() });
     registry.add({
       id: spec.id,
       station: spec.station,
@@ -335,13 +349,35 @@ export function createWorld(opts: WorldOptions): World {
     const local = rotate(qconj(pose.q), sub(grip, pose.p));
     l.grip = [Math.max(-l.half[0], Math.min(l.half[0], local[0])), Math.max(-l.half[1], Math.min(l.half[1], local[1])), Math.max(-l.half[2], Math.min(l.half[2], local[2]))];
     l.target = add(add(pose.p, rotate(pose.q, l.grip)), [0, T.lift, 0]);
+    l.grabYaw = yawOf(pose.q);
+    l.grabStep = clock.step;
     touchedSet.add(id);
     held = { kind: 'part', id };
     emit({ type: 'part.grabbed', id });
     return true;
   }
 
+  /** A pick-up let go of at once, at rest, where it was: put it back exactly; nothing moved, so nothing commits. */
+  function cancelledPickUp(l: Loose, velocity: Vec3): boolean {
+    if (clock.step - l.grabStep > steps(T.cancelTime) || length(velocity) > T.cancelSpeed) return false;
+    const loc = store.get(l.id, 'location') as Location;
+    if (loc.at !== 'rest') return false;
+    const p = physics.pose(l.id).p;
+    if (Math.hypot(p[0] - loc.pose.p[0], p[2] - loc.pose.p[2]) > T.cancelDistance) return false;
+    physics.setPose(l.id, loc.pose);
+    release(l, [0, 0, 0], [0, 0, 0]);
+    physics.sleep(l.id);
+    l.unsettled = false; // it is where its location says: no rest to commit
+    l.chargeTo = null;
+    l.pose = loc.pose;
+    l.prev = loc.pose;
+    held = null;
+    emit({ type: 'part.released', id: l.id, speed: 0 });
+    return true;
+  }
+
   function letGoOfPart(l: Loose, velocity: Vec3, kind: 'release' | 'place'): void {
+    if (kind === 'release' && cancelledPickUp(l, velocity)) return;
     const v = clampLength(velocity, T.throwMax);
     const spin = scale(cross([0, 1, 0], v), T.tumble);
     const current = physics.state(l.id).angvel;
@@ -378,7 +414,10 @@ export function createWorld(opts: WorldOptions): World {
       goal = qmul(qaxis(axis, Math.min(T.leanMax, hs * T.lean)), level);
     }
     const err = rotationVector(qmul(goal, qconj(st.pose.q)));
-    const wGoal = clampLength(scale(err, T.levelRate), T.levelSpeed);
+    // and back toward the yaw it had when picked up, gently
+    let dyaw = l.grabYaw - yawOf(st.pose.q);
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    const wGoal = clampLength(add(scale(err, T.levelRate), [0, dyaw * T.levelRate * T.yawHold, 0]), T.levelSpeed);
     const w = add(scale(st.angvel, T.sway), scale(wGoal, 1 - T.sway));
     physics.setVelocity(l.id, v, w);
   }
@@ -490,7 +529,7 @@ export function createWorld(opts: WorldOptions): World {
     for (const l of loose.values()) if (l.mode !== 'chute') m.set(l.id, physics.pose(l.id));
     return m;
   }
-  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, chuteAt: l.chuteAt, grip: l.grip, target: l.target, contacts: new Map(l.contacts) });
+  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
 
   // ── machines and crew ──
   let units: Unit[] = [];
@@ -772,6 +811,7 @@ export function createWorld(opts: WorldOptions): World {
     },
     holding: () => held,
     mode: (id) => loose.get(id)?.mode,
+    halfExtents: (id) => loose.get(id)?.half,
     touched: (id) => touchedSet.has(id),
     button: () => button.view(),
     cord: (id) => (id === scene.cord.id ? cord.view() : undefined),

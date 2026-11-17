@@ -108,6 +108,8 @@ export interface PhysicsPort {
   /** Where a kinematic body should be at the end of the next step (velocity-based, so it pushes dynamic bodies). */
   driveKinematic(id: Id, pose: Pose): void;
   wake(id: Id): void;
+  /** Put a body to sleep where it is (it wakes when something touches it). */
+  sleep(id: Id): void;
 
   /** Ids of the dynamic bodies overlapping a sensor after the last step, sorted. */
   sensorContents(id: Id): Id[];
