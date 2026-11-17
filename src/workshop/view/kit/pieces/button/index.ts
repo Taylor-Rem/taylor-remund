@@ -141,7 +141,7 @@ export function button(o: ButtonOptions = {}): Piece {
   {
     const r = 0.09;
     const plate = profiledBox({ w: plateW, d: plateD, rPlan: r, detail, band: 0 }, profile(0, 0).to(r, 0, { sharp: true }).to(r, plateT, { fillet: 0.009, segs: 2 }).to(0, plateT));
-    b.add(part('steel', transform(plate, deck), 'tape-yellow', { seed: seed + 4, shade: 0.72, jitter: 0.03 }));
+    b.add(part('steel', transform(plate, deck), 'tape-yellow', { seed: seed + 4, shade: 0.9, jitter: 0.03 }));
     const polys = stripes(plateW / 2 - 0.035, plateD / 2 - 0.035, 0.085, 0.18, [Math.SQRT1_2, -Math.SQRT1_2], R.range(0, 0.15));
     for (const poly of polys) {
       // skip what the brass ring hides completely
