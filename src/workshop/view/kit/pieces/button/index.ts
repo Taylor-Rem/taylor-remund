@@ -55,6 +55,18 @@ export interface ButtonOptions extends KitOptions {
   pose?: string | ButtonPose;
 }
 
+/** A dent that keeps the solid's wear and cavity (the kit's `dent` recomputes them without the wear band). */
+function dentKeep(g: BufferGeometry, at: [number, number, number], dir: [number, number, number], r: number, d: number): void {
+  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+  const nx = dir[0] / l, ny = dir[1] / l, nz = dir[2] / l;
+  deform(g, (x, y, z) => {
+    const q = Math.hypot(x - at[0], y - at[1], z - at[2]) / r;
+    if (q >= 1) return [x, y, z];
+    const w = (1 - q * q) * (1 - q * q) * d;
+    return [x - nx * w, y - ny * w, z - nz * w];
+  }, { keepSurf: true });
+}
+
 export function button(o: ButtonOptions = {}): Piece {
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
@@ -70,10 +82,7 @@ export function button(o: ButtonOptions = {}): Piece {
   const bodyW = 0.98, bodyD = 0.84, bodyTopW = 0.95, bodyTopD = 0.8;
   {
     const r = 0.2;
-    b.add(
-      part(
-        'steel',
-        profiledBox(
+    const flangeG = profiledBox(
           { w: 1.36, d: 1.18, rPlan: r, detail },
           profile(0, 0)
             .to(r, 0, { sharp: true })
@@ -81,11 +90,10 @@ export function button(o: ButtonOptions = {}): Piece {
             .to(r - 0.125, 0.058, { fillet: 0.02, segs: 2 })
             .to(r - 0.14, yF, { fillet: 0.012 })
             .to(0, yF),
-        ),
-        'teal-panel',
-        { seed, shade: 0.85, jitter: 0.03 },
-      ),
-    );
+        );
+    // the flange's front edge took a boot or two
+    dentKeep(flangeG, [-0.35 + R.spread(0.08), 0.05, 0.59], [0, 0.3, 1], 0.08, 0.01);
+    b.add(part('steel', flangeG, 'teal-panel', { seed, shade: 0.85, jitter: 0.03 }));
   }
   b.add(
     part(
@@ -118,7 +126,9 @@ export function button(o: ButtonOptions = {}): Piece {
     );
     transform(head, T(0, yH0, 0));
     // shear so the top slopes toward the visitor; the bottom stays flat on the waist
-    deform(head, (x, y, z) => [x, y - Math.tan(tilt) * z * Math.max(0, (y - yH0) / H), z]);
+    deform(head, (x, y, z) => [x, y - Math.tan(tilt) * z * Math.max(0, (y - yH0) / H), z], { keepSurf: true });
+    // a knock on the front right corner of the head (seeded: where it was dropped once)
+    dentKeep(head, [0.5 + R.spread(0.03), yH0 + 0.05, 0.42], [-1, 0, -1], 0.07, 0.012);
     b.add(part('steel', head, 'teal-panel', { seed: seed + 3, shade: 1.1 }));
   }
 
