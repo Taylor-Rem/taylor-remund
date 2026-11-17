@@ -1,0 +1,592 @@
+---
+// The stage's look test (W1-stage): a CLAY tableau standing in for the
+// vignette's composition, so the light, the camera and the post chain can be
+// judged before the real objects exist. Dev-only; never shipped.
+//
+// Query: ?tier=high|low  ?post=0  ?pass=gtao,bloom,… | ?pass=-gtao,…
+//        ?lamp=0..1  ?view=wide|phone|close|fetch|board  ?tm=agx|aces|neutral
+//        ?manual=1  ?shadows=0  ?debug=ao|coc  ?sync=1  ?timer=1 (GPU ms per pass in __workshop.stats())
+// Debug: window.__workshop (advance, setView, passes, stats, setLamp, dip).
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Stage — clay tableau</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <script>
+      import {
+        Box3, CatmullRomCurve3, Color, CylinderGeometry, DoubleSide, Group, InstancedMesh, LatheGeometry, Matrix4,
+        Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Object3D, SphereGeometry, TorusGeometry, TubeGeometry, Vector2, Vector3,
+      } from 'three';
+      import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+      import { hex, type Token } from '../workshop/view/palette.ts';
+      import { createStage } from '../workshop/view/stage/index.ts';
+      import { createLoop } from '../workshop/view/stage/loop.ts';
+      import { installDebugHooks, parseStageQuery } from '../workshop/view/stage/debug.ts';
+      import { BlobShadows, type Blob } from '../workshop/view/effects/blob-shadows.ts';
+      import type { View } from '../workshop/view/stage/camera.ts';
+
+      const q = parseStageQuery(location.search);
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const stage = createStage(canvas, {
+        tier: q.tier,
+        reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        passes: q.passes,
+        post: q.post,
+        syncGpu: q.sync,
+        gpuTimer: new URLSearchParams(location.search).get('timer') === '1',
+        ...(q.toneMap ? { toneMap: q.toneMap } : {}),
+      });
+      if (!q.shadows) stage.setShadows(false);
+      stage.debugView = q.debug;
+      const high = q.tier === 'high';
+
+      // ── clay materials: plain MeshStandardMaterial in palette tokens ──
+      const col = (t: Token, k = 1): Color => new Color(hex(t)).multiplyScalar(k);
+      const mix = (a: Token, b: Token, t: number): Color => new Color(hex(a)).lerp(new Color(hex(b)), t);
+      const clay = (c: Color, rough = 0.62, metal = 0): MeshStandardMaterial => new MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+      const M = {
+        bench: clay(col('wood'), 0.7),
+        benchB: clay(mix('wood', 'wood-light', 0.12), 0.72),
+        benchC: clay(mix('wood', 'teal-deep', 0.12), 0.7),
+        wall: clay(mix('wood', 'teal-deep', 0.5), 0.8),
+        wallB: clay(mix('wood', 'teal-deep', 0.58), 0.82),
+        enamel: clay(col('teal-panel'), 0.45),
+        enamelLight: clay(col('teal-light'), 0.42),
+        crate: clay(col('wood-light'), 0.7),
+        crateDark: clay(mix('wood-light', 'wood', 0.35), 0.72),
+        paper: clay(col('paper'), 0.85),
+        cream: clay(col('paper'), 0.45),
+        rubber: clay(col('ink'), 0.92),
+        steel: clay(col('steel'), 0.38, 0.85),
+        brass: clay(col('brass'), 0.3, 1),
+        glass: new MeshPhysicalMaterial({ color: col('ink'), roughness: 0.06, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04 }),
+        red: new MeshPhysicalMaterial({ color: col('button-red'), roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.12 }),
+        glossy: new MeshPhysicalMaterial({ color: col('teal-light'), roughness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.1 }),
+        yellow: clay(col('tape-yellow'), 0.55),
+        fur: clay(mix('steel', 'teal-panel', 0.45), 0.92),
+        muzzle: clay(col('paper'), 0.9),
+        cord: clay(col('cable-red'), 0.85),
+        shade: new MeshStandardMaterial({ color: col('teal-panel'), roughness: 0.45, side: DoubleSide }),
+        bulb: new MeshStandardMaterial({ color: col('amber-glow'), emissive: col('amber-glow'), emissiveIntensity: 9, roughness: 0.4 }),
+        bulbDim: new MeshStandardMaterial({ color: col('amber-glow'), emissive: col('amber'), emissiveIntensity: 5, roughness: 0.4 }),
+        lampOff: clay(mix('amber', 'ink', 0.75), 0.3),
+        screen: new MeshStandardMaterial({ color: col('ink'), emissive: mix('paper', 'teal-light', 0.2), emissiveIntensity: 0.55, roughness: 0.2 }),
+        paints: [clay(col('cable-red'), 0.5), clay(col('paint-green'), 0.5), clay(col('paint-violet'), 0.5), clay(col('paint-blue'), 0.5), clay(col('paint-orange'), 0.5), clay(col('tape-yellow'), 0.5)],
+      };
+
+      const world = new Group();
+      world.name = 'tableau';
+      stage.scene.add(world);
+      const blobs: Blob[] = [];
+
+      function place(o: Object3D, x: number, y: number, z: number, ry = 0, parent: Object3D = world): Object3D {
+        o.position.set(x, y, z);
+        o.rotation.y = ry;
+        parent.add(o);
+        return o;
+      }
+      function mesh(g: import('three').BufferGeometry, m: import('three').Material, shadow = true): Mesh {
+        const me = new Mesh(g, m);
+        me.castShadow = shadow;
+        me.receiveShadow = true;
+        return me;
+      }
+      /** A rounded box standing on its base at y = 0. */
+      function rbox(w: number, h: number, d: number, r: number, m: import('three').Material, seg = 3): Mesh {
+        const g = new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2, h / 2, d / 2));
+        g.translate(0, h / 2, 0);
+        return mesh(g, m);
+      }
+      /** A turned profile from [radius, y] pairs, bottom to top. */
+      function lathe(pts: [number, number][], m: import('three').Material, seg = 48): Mesh {
+        return mesh(new LatheGeometry(pts.map(([r, y]) => new Vector2(r, y)), seg), m);
+      }
+      /** A filleted profile: each corner of the polyline is rounded with a small arc. */
+      function fillet(pts: [number, number][], r: number, n = 3): [number, number][] {
+        const out: [number, number][] = [pts[0]!];
+        for (let i = 1; i < pts.length - 1; i++) {
+          const p0 = new Vector2(...pts[i - 1]!), p1 = new Vector2(...pts[i]!), p2 = new Vector2(...pts[i + 1]!);
+          const a = p0.clone().sub(p1), b = p2.clone().sub(p1);
+          const ra = Math.min(r, a.length() / 2), rb = Math.min(r, b.length() / 2);
+          const s = p1.clone().add(a.normalize().multiplyScalar(ra));
+          const e = p1.clone().add(b.normalize().multiplyScalar(rb));
+          for (let k = 0; k <= n; k++) {
+            const t = k / n;
+            // quadratic Bézier through the corner
+            const x = (1 - t) * (1 - t) * s.x + 2 * (1 - t) * t * p1.x + t * t * e.x;
+            const y = (1 - t) * (1 - t) * s.y + 2 * (1 - t) * t * p1.y + t * t * e.y;
+            out.push([x, y]);
+          }
+        }
+        out.push(pts[pts.length - 1]!);
+        return out;
+      }
+      function blobUnder(o: Object3D, strength = 0.9, grow = 1.25): void {
+        o.updateWorldMatrix(true, true);
+        const b = new Box3().setFromObject(o);
+        const c = b.getCenter(new Vector3());
+        const s = b.getSize(new Vector3());
+        blobs.push({ x: c.x, z: c.z, rx: (s.x / 2) * grow, rz: (s.z / 2) * grow, strength, y: Math.max(0, b.min.y) });
+      }
+
+      // ── the bench: planks left to right, a rounded front edge, an apron ──
+      {
+        const plankD = 10 / 8;
+        for (let i = 0; i < 8; i++) {
+          const m = [M.bench, M.benchB, M.benchC][i % 3]!;
+          const p = rbox(20, 0.42, plankD - 0.025, 0.05, m, 2);
+          place(p, 0, -0.42, -5 + plankD * (i + 0.5));
+          p.castShadow = false;
+        }
+        const nose = mesh(new CylinderGeometry(0.21, 0.21, 20, 24), M.bench);
+        nose.rotation.z = Math.PI / 2;
+        place(nose, 0, -0.21, 5.0);
+        const apron = rbox(19.6, 0.85, 0.32, 0.06, M.benchC);
+        place(apron, 0, -1.25, 4.72);
+        // mending plates over a section joint
+        for (const z of [-2.2, 1.6]) {
+          const plate = rbox(0.5, 0.025, 0.9, 0.02, M.steel, 2);
+          place(plate, -8.0, 0, z);
+        }
+        // lane tape
+        for (const [x, z, w, d] of [[-4.2, 3.35, 7.4, 0.09], [-4.2, 4.55, 7.4, 0.09]] as const) {
+          const t = rbox(w, 0.012, d, 0.004, M.yellow, 1);
+          place(t, x, 0, z, 0.004);
+          t.castShadow = false;
+        }
+      }
+
+      // ── the back wall: dark boards, darker than the machines ──
+      {
+        const n = 16;
+        const bw = 20 / n;
+        for (let i = 0; i < n; i++) {
+          const b = rbox(bw - 0.03, 7.2, 0.22, 0.03, i % 2 ? M.wall : M.wallB, 2);
+          place(b, -10 + bw * (i + 0.5), -0.1, -5.2);
+          b.castShadow = false;
+        }
+        const backing = rbox(20.4, 7.4, 0.1, 0.02, clay(mix('teal-deep', 'ink', 0.5), 0.9));
+        place(backing, 0, -0.2, -5.4);
+        const rail = rbox(20, 0.22, 0.18, 0.05, M.benchC);
+        place(rail, 0, 2.9, -5.02);
+      }
+
+      // ── the sign: wood frame, dark enamel face, paper capitals, bulbs ──
+      {
+        const sign = new Group();
+        const frame = rbox(6.6, 1.55, 0.2, 0.07, M.bench);
+        place(frame, 0, 0, 0, 0, sign);
+        const face = rbox(6.2, 1.2, 0.1, 0.03, clay(mix('ink', 'teal-deep', 0.4), 0.5));
+        place(face, 0, 0.17, 0.12, 0, sign);
+        // capital stand-ins, ~0.9 tall
+        for (let i = 0; i < 6; i++) {
+          const L = rbox(0.6, 0.86, 0.07, 0.04, M.cream);
+          place(L, -2.25 + i * 0.9, 0.34, 0.19, 0, sign);
+          const shade = rbox(0.6, 0.86, 0.04, 0.03, clay(col('amber'), 0.6));
+          place(shade, -2.25 + i * 0.9 + 0.045, 0.3, 0.16, 0, sign);
+        }
+        for (let i = 0; i < 12; i++) {
+          const x = -3.0 + i * (6.0 / 11);
+          for (const y of [0.06, 1.48]) {
+            const sock = lathe(fillet([[0, 0], [0.07, 0], [0.07, 0.07], [0.05, 0.09], [0, 0.09]], 0.015), M.brass, 16);
+            sock.rotation.x = Math.PI / 2;
+            place(sock, x, y, 0.1, 0, sign);
+            const bulb = mesh(new SphereGeometry(0.055, 16, 12), M.bulb, false);
+            place(bulb, x, y, 0.22, 0, sign);
+          }
+        }
+        place(sign, 0.4, 4.25, -4.95);
+      }
+
+      // ── tool wall: pegboard with six painted tool stand-ins ──
+      {
+        const board = new Group();
+        place(rbox(4.4, 3.0, 0.12, 0.04, M.crate), 0, 0, 0, 0, board);
+        place(rbox(4.6, 3.2, 0.08, 0.04, M.bench), 0, -0.1, -0.06, 0, board);
+        for (let i = 0; i < 6; i++) {
+          const x = -1.75 + i * 0.7;
+          const head = rbox(0.12, 0.9, 0.06, 0.03, M.steel);
+          place(head, x, 1.4, 0.12, 0, board);
+          const handle = rbox(0.2, 0.75, 0.1, 0.06, M.paints[i]!);
+          place(handle, x, 0.55, 0.13, 0, board);
+          const peg = mesh(new CylinderGeometry(0.025, 0.025, 0.18, 8), M.steel);
+          peg.rotation.x = Math.PI / 2;
+          place(peg, x, 2.42, 0.1, 0, board);
+        }
+        place(board, -6.9, 1.3, -4.95);
+      }
+
+      // ── the switchboard: enamel cabinet in a wood frame, jacks, two lens lamps ──
+      {
+        const sb = new Group();
+        place(rbox(3.6, 2.9, 1.1, 0.08, M.bench), 0, 0, 0, 0, sb);
+        place(rbox(3.3, 2.5, 0.12, 0.05, M.enamel), 0, 0.3, 0.52, 0, sb);
+        // keyshelf
+        place(rbox(3.5, 0.16, 0.9, 0.05, M.bench), 0, 0.95, 0.75, 0, sb);
+        place(rbox(3.2, 0.5, 0.7, 0.05, M.enamel), 0, 0.45, 0.8, 0, sb);
+        // jack field (instanced)
+        const jackG = new LatheGeometry(fillet([[0, 0], [0.065, 0], [0.065, 0.05], [0.045, 0.07], [0.03, 0.07], [0.03, 0.02], [0, 0.02]], 0.01).map(([r, y]) => new Vector2(r, y)), 20);
+        jackG.rotateX(Math.PI / 2);
+        const jacks = new InstancedMesh(jackG, M.brass, 40);
+        jacks.castShadow = true;
+        jacks.receiveShadow = true;
+        let k = 0;
+        const m4 = new Matrix4();
+        for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) {
+          m4.makeTranslation(-1.35 + c * 0.3, 1.75 + r * 0.26, 0.58);
+          jacks.setMatrixAt(k++, m4);
+        }
+        sb.add(jacks);
+        for (const [x, lit] of [[-0.6, true], [0.6, false]] as const) {
+          const jack = lathe(fillet([[0, 0], [0.13, 0], [0.13, 0.08], [0.09, 0.12], [0.05, 0.12], [0.05, 0.03], [0, 0.03]], 0.02), M.brass, 32);
+          jack.rotation.x = Math.PI / 2;
+          place(jack, x, 1.25, 0.58, 0, sb);
+          const bezel = mesh(new TorusGeometry(0.09, 0.03, 12, 28), M.brass);
+          place(bezel, x + 0.32, 1.25, 0.6, 0, sb);
+          const lens = mesh(new SphereGeometry(0.075, 20, 14), lit ? M.bulbDim : M.lampOff, false);
+          lens.scale.z = 0.6;
+          place(lens, x + 0.32, 1.25, 0.6, 0, sb);
+        }
+        place(sb, 1.4, 0, -4.15);
+        blobUnder(sb, 0.85, 1.08);
+      }
+
+      // ── Patch stand-in on a stool ──
+      {
+        const p = new Group();
+        const seat = lathe(fillet([[0, 0.9], [0.42, 0.9], [0.44, 0.98], [0.4, 1.02], [0, 1.02]], 0.03), M.bench, 40);
+        p.add(seat);
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2 + 0.3;
+          const leg = mesh(new CylinderGeometry(0.045, 0.06, 0.92, 12), M.bench);
+          leg.position.set(Math.cos(a) * 0.3, 0.45, Math.sin(a) * 0.3);
+          leg.rotation.set(Math.sin(a) * 0.08, 0, -Math.cos(a) * 0.08);
+          p.add(leg);
+        }
+        const body = lathe(fillet([[0, 1.0], [0.36, 1.02], [0.42, 1.3], [0.34, 1.62], [0.22, 1.74], [0, 1.76]], 0.12, 5), M.fur, 40);
+        p.add(body);
+        const head = mesh(new SphereGeometry(0.3, 32, 24), M.fur);
+        head.scale.set(1.15, 0.92, 1);
+        head.position.set(0, 2.0, 0.04);
+        p.add(head);
+        const muzzle = mesh(new SphereGeometry(0.14, 24, 16), M.muzzle);
+        muzzle.scale.set(1.2, 0.8, 1);
+        muzzle.position.set(0, 1.93, 0.3);
+        p.add(muzzle);
+        for (const s of [-1, 1]) {
+          const ear = mesh(new SphereGeometry(0.1, 16, 12), M.fur);
+          ear.scale.set(0.8, 1.2, 0.5);
+          ear.position.set(s * 0.22, 2.27, -0.02);
+          p.add(ear);
+          const cup = lathe(fillet([[0, 0], [0.11, 0], [0.11, 0.06], [0, 0.07]], 0.02), M.brass, 24);
+          cup.rotation.z = (s * Math.PI) / 2;
+          cup.position.set(s * 0.33, 2.02, 0.02);
+          p.add(cup);
+        }
+        const band = mesh(new TorusGeometry(0.34, 0.02, 8, 32, Math.PI), M.brass);
+        band.position.set(0, 2.02, 0.02);
+        p.add(band);
+        const tail = mesh(new TubeGeometry(new CatmullRomCurve3([new Vector3(0, 1.1, -0.3), new Vector3(0.1, 0.8, -0.5), new Vector3(0.2, 0.4, -0.45), new Vector3(0.25, 0.15, -0.3)]), 24, 0.09, 12), M.fur);
+        p.add(tail);
+        place(p, 2.75, 0, -2.75, -0.5);
+        blobUnder(p, 0.8, 1.0);
+      }
+
+      // ── the lamp: brass clamp at the back, two arm sections, a bell shade, the bulb ──
+      const bulbPos = new Vector3(-3.6, 5.2, -0.6);
+      const aimPos = new Vector3(0.6, 0, -0.1);
+      {
+        const base = lathe(fillet([[0, 0], [0.32, 0], [0.32, 0.12], [0.16, 0.2], [0.1, 0.5], [0, 0.5]], 0.04), M.brass, 32);
+        place(base, -4.4, 0, -4.4);
+        const elbow = new Vector3(-4.9, 4.4, -3.4);
+        const arm1 = mesh(new TubeGeometry(new CatmullRomCurve3([new Vector3(-4.4, 0.45, -4.4), new Vector3(-4.75, 2.4, -4.0), elbow]), 32, 0.055, 10), M.steel);
+        world.add(arm1);
+        const knuckle = mesh(new SphereGeometry(0.12, 16, 12), M.brass);
+        knuckle.position.copy(elbow);
+        world.add(knuckle);
+        const neck = bulbPos.clone().add(new Vector3(-0.35, 0.55, -0.35));
+        const arm2 = mesh(new TubeGeometry(new CatmullRomCurve3([elbow, new Vector3(-4.4, 5.5, -2.0), neck]), 32, 0.05, 10), M.steel);
+        world.add(arm2);
+        // bell shade around the bulb, opening toward the aim point
+        const shade = lathe(fillet([[0.62, 0], [0.52, 0.12], [0.3, 0.45], [0.16, 0.62], [0.08, 0.7], [0, 0.7]], 0.06, 4), M.shade, 40);
+        shade.castShadow = false;
+        const holder = new Group();
+        holder.add(shade);
+        shade.position.y = -0.18;
+        holder.position.copy(bulbPos);
+        const dir = aimPos.clone().sub(bulbPos).normalize();
+        holder.quaternion.setFromUnitVectors(new Vector3(0, -1, 0), dir);
+        world.add(holder);
+        const bulb = mesh(new SphereGeometry(0.16, 24, 16), M.bulb, false);
+        bulb.position.copy(bulbPos);
+        world.add(bulb);
+        stage.lights.setBulb([bulbPos.x, bulbPos.y + 0.0, bulbPos.z], [aimPos.x, aimPos.y, aimPos.z]);
+      }
+
+      // ── the Button: flared pedestal, hazard plate, brass collar, red mushroom cap ──
+      {
+        const b = new Group();
+        const ped = lathe(fillet([[0, 0], [0.66, 0], [0.66, 0.1], [0.5, 0.18], [0.38, 0.34], [0.36, 0.78], [0.5, 0.92], [0.5, 1.02], [0, 1.02]], 0.05, 3), M.enamel, 56);
+        b.add(ped);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + 0.2;
+          const bolt = lathe(fillet([[0, 0], [0.06, 0], [0.06, 0.04], [0.035, 0.065], [0, 0.07]], 0.012), M.brass, 12);
+          bolt.position.set(Math.cos(a) * 0.56, 0.1, Math.sin(a) * 0.56);
+          b.add(bolt);
+        }
+        const plate = rbox(1.15, 0.05, 1.15, 0.05, M.yellow, 2);
+        plate.position.y = 1.02;
+        plate.rotation.y = 0.03;
+        b.add(plate);
+        const collar = lathe(fillet([[0.3, 1.07], [0.44, 1.07], [0.44, 1.14], [0.36, 1.2], [0.3, 1.2]], 0.02), M.brass, 48);
+        b.add(collar);
+        const cap = lathe(fillet([[0, 1.14], [0.28, 1.14], [0.28, 1.2], [0.44, 1.22], [0.46, 1.28], [0.4, 1.38], [0.2, 1.43], [0, 1.44]], 0.05, 4), M.red, 56);
+        b.add(cap);
+        const tape = rbox(0.62, 0.11, 0.015, 0.008, M.rubber, 1);
+        tape.position.set(0, 0.62, 0.37);
+        tape.rotation.z = -0.04;
+        b.add(tape);
+        place(b, 0.2, 0, 1.6, 0.05);
+        blobUnder(b, 0.9, 1.0);
+      }
+
+      // ── crates: a stack of three (L, M, S) and a loose M ──
+      function crate(s: number, m: MeshStandardMaterial): Group {
+        const g = new Group();
+        g.add(rbox(s, s, s, s * 0.06, m));
+        // proud battens round an inset front panel, to catch the light on bevels
+        const t = s * 0.1;
+        for (const [x, y, w, h] of [[0, 0, s * 1.02, t], [0, s - t, s * 1.02, t], [-(s - t) / 2, 0, t, s], [(s - t) / 2, 0, t, s]] as const) {
+          const bat = rbox(w, h, 0.05, 0.02, M.crateDark, 2);
+          bat.position.set(x, y, s / 2);
+          g.add(bat);
+        }
+        return g;
+      }
+      {
+        const L = crate(0.8, M.crate);
+        place(L, -5.3, 0, 0.7, 0.04);
+        const Mc = crate(0.6, M.crate);
+        place(Mc, -5.25, 0.8, 0.72, -0.05);
+        const S = crate(0.45, M.crate);
+        place(S, -5.32, 1.4, 0.7, 0.07);
+        blobUnder(L, 0.9, 1.05);
+        const loose = crate(0.6, M.crate);
+        place(loose, -3.5, 0, 1.9, 0.28);
+        blobUnder(loose, 0.9, 1.05);
+      }
+
+      // ── the belt along the front ──
+      {
+        const belt = new Group();
+        const len = 11.5;
+        for (const z of [-0.55, 0.55]) place(rbox(len, 0.26, 0.12, 0.04, M.enamel), 0, 0.5, z, 0, belt);
+        place(rbox(len - 0.1, 0.07, 1.0, 0.03, M.rubber, 2), 0, 0.66, 0, 0, belt);
+        for (const x of [-len / 2 + 0.2, len / 2 - 0.2]) {
+          const roller = mesh(new CylinderGeometry(0.13, 0.13, 1.12, 24), M.steel);
+          roller.rotation.x = Math.PI / 2;
+          place(roller, x, 0.6, 0, 0, belt);
+          for (const z of [-0.6, 0.6]) {
+            const cap = mesh(new CylinderGeometry(0.08, 0.08, 0.06, 16), M.brass);
+            cap.rotation.x = Math.PI / 2;
+            place(cap, x, 0.6, z, 0, belt);
+          }
+        }
+        for (const x of [-5.2, -1.8, 1.8, 5.2]) for (const z of [-0.5, 0.5]) {
+          place(rbox(0.14, 0.52, 0.14, 0.04, M.enamel), x, 0, z, 0, belt);
+          place(rbox(0.3, 0.05, 0.26, 0.02, M.enamel), x, 0, z, 0, belt);
+        }
+        place(rbox(0.9, 0.7, 0.8, 0.08, M.enamel), len / 2 + 0.35, 0, -0.75, 0, belt);
+        place(belt, -1.4, 0, 3.95);
+        blobUnder(belt, 0.6, 1.0);
+      }
+
+      // ── Fetch stand-in: one fat tyre in a fork, a cream head-body, one big eye ──
+      {
+        const f = new Group();
+        const tyre = mesh(new TorusGeometry(0.16, 0.09, 16, 32), M.rubber);
+        tyre.rotation.y = Math.PI / 2;
+        tyre.position.y = 0.25;
+        f.add(tyre);
+        const hub = mesh(new CylinderGeometry(0.1, 0.1, 0.14, 20), M.brass);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.y = 0.25;
+        f.add(hub);
+        for (const s of [-1, 1]) {
+          const fork = rbox(0.05, 0.3, 0.12, 0.02, M.enamel);
+          fork.position.set(s * 0.13, 0.25, 0);
+          f.add(fork);
+        }
+        const bodyM = M.cream;
+        const body = lathe(fillet([[0, 0.42], [0.32, 0.44], [0.4, 0.62], [0.38, 0.86], [0.24, 0.98], [0, 1.0]], 0.1, 5), bodyM, 48);
+        f.add(body);
+        const band = lathe([[0.405, 0.56], [0.415, 0.6], [0.415, 0.66], [0.405, 0.7]], M.enamelLight, 48);
+        f.add(band);
+        const bezel = mesh(new TorusGeometry(0.15, 0.035, 14, 36), M.brass);
+        bezel.position.set(0, 0.78, 0.33);
+        f.add(bezel);
+        const lens = mesh(new SphereGeometry(0.15, 28, 18), M.glass, false);
+        lens.scale.z = 0.45;
+        lens.position.set(0, 0.78, 0.31);
+        f.add(lens);
+        const iris = mesh(new SphereGeometry(0.05, 16, 12), M.bulbDim, false);
+        iris.scale.z = 0.4;
+        iris.position.set(0.02, 0.78, 0.375);
+        f.add(iris);
+        const aerial = mesh(new CylinderGeometry(0.012, 0.016, 0.7, 6), M.steel);
+        aerial.position.set(-0.16, 1.28, -0.08);
+        aerial.rotation.z = 0.12;
+        f.add(aerial);
+        const flag = rbox(0.18, 0.1, 0.012, 0.004, M.paints[4]!, 1);
+        flag.position.set(-0.13, 1.5, -0.08);
+        f.add(flag);
+        for (const s of [-1, 1]) {
+          const arm = mesh(new CylinderGeometry(0.04, 0.035, 0.3, 10), M.enamel);
+          arm.position.set(s * 0.43, 0.62, 0.08);
+          arm.rotation.set(0.5, 0, s * 0.35);
+          f.add(arm);
+        }
+        place(f, 3.0, 0, 1.25, -0.35);
+        blobUnder(f, 1.0, 0.8);
+      }
+
+      // ── the phone on a brass easel ──
+      {
+        const ph = new Group();
+        const easel = rbox(0.5, 0.06, 0.3, 0.02, M.brass, 2);
+        ph.add(easel);
+        const body = rbox(0.44, 0.74, 0.08, 0.06, M.rubber);
+        body.position.set(0, 0.04, 0);
+        const screen = rbox(0.36, 0.6, 0.01, 0.02, M.screen, 1);
+        screen.position.set(0, 0.11, 0.045);
+        const tilt = new Group();
+        tilt.add(body, screen);
+        tilt.rotation.x = -0.25;
+        tilt.position.z = -0.02;
+        ph.add(tilt);
+        place(ph, -1.7, 0, 0.0, 0.18);
+        blobUnder(ph, 0.8, 1.2);
+      }
+
+      // ── environment judges: a brass sphere, a glossy enamel can ──
+      {
+        const ball = mesh(new SphereGeometry(0.28, 48, 32), M.brass);
+        place(ball, -0.95, 0.28, 2.1);
+        // a near-mirror steel ball: shows the generated environment plainly
+        const mirror = mesh(new SphereGeometry(0.16, 48, 32), clay(mix('steel', 'paper', 0.5), 0.06, 1));
+        place(mirror, -1.55, 0.16, 2.3);
+        blobUnder(mirror, 1.0, 0.9);
+        blobUnder(ball, 1.0, 0.9);
+        const can = lathe(fillet([[0, 0], [0.34, 0], [0.36, 0.06], [0.36, 0.5], [0.3, 0.6], [0.12, 0.72], [0.1, 0.9], [0.13, 0.94], [0, 0.95]], 0.04, 4), M.glossy, 48);
+        place(can, 5.0, 0, 0.6);
+        blobUnder(can, 0.9, 1.0);
+      }
+
+      // ── contact shadows: the low tier's only grounding; faint helpers on high ──
+      const blobFx = new BlobShadows(64, high ? 0.35 : 0.85).addTo(world);
+      blobFx.set(blobs);
+
+      // ── views ──
+      // Zoom 0 is the whole vignette on a wide screen; on a portrait phone it is
+      // the centre cluster, fitted by the narrow side, sliding toward the visitor
+      // so the spare height shows bench instead of the room below it.
+      const wideBox = new Box3(new Vector3(-7.6, -0.4, -5.0), new Vector3(6.8, 5.6, 4.6));
+      const phoneBox = new Box3(new Vector3(-2.4, 0, -0.6), new Vector3(3.8, 1.6, 2.6));
+      const edge = { y: 0, z: 5.2 };
+      const setSubject = (): void => {
+        if (innerWidth < innerHeight) stage.camera.setSubject(phoneBox, { edge, bounds: wideBox });
+        else stage.camera.setSubject(wideBox, { edge });
+      };
+      setSubject();
+      const boxes: Record<string, Box3> = {
+        close: new Box3(new Vector3(-0.7, 0, 0.9), new Vector3(1.1, 1.5, 2.3)),
+        fetch: new Box3(new Vector3(2.2, 0, 0.6), new Vector3(3.8, 1.6, 1.9)),
+        board: new Box3(new Vector3(-0.6, 0, -5), new Vector3(3.6, 3.2, -2.2)),
+        brass: new Box3(new Vector3(-1.5, 0, 1.6), new Vector3(-0.3, 0.8, 2.6)),
+        crates: new Box3(new Vector3(-6.0, 0, 0.0), new Vector3(-2.8, 2.0, 2.4)),
+      };
+      const views: Record<string, View> = {};
+      const refreshViews = (): void => {
+        views.wide = stage.camera.home();
+        views.phone = stage.camera.home();
+        for (const [k, b] of Object.entries(boxes)) views[k] = stage.camera.frame(b);
+      };
+      refreshViews();
+      const pickView = (name: string | null): View => (name && views[name]) || stage.camera.home();
+      // What is sharp is the page's choice: the centre cluster for the whole view, the box for a close one.
+      const cluster = new Vector3(0.4, 0.5, 1.2);
+      const focusFor = (name: string | null): void => {
+        const b = name ? boxes[name] : undefined;
+        stage.camera.focusOn(b ? b.getCenter(new Vector3()) : cluster);
+      };
+      focusFor(q.view);
+      stage.camera.cutTo(pickView(q.view));
+      addEventListener('resize', () => {
+        setSubject();
+        refreshViews();
+        stage.camera.cutTo(pickView(q.view));
+      });
+
+      if (q.lamp !== null) stage.lights.setLamp({ level: q.lamp });
+
+      // ── loop and hooks ──
+      let frames = 0;
+      const loop = createLoop({
+        manual: q.manual,
+        step() {},
+        render(info) {
+          stage.render({ dt: info.dt });
+          frames++;
+          if (frames === 8) {
+            // A settled frame: shaders compiled, environment built, shadows drawn.
+            requestAnimationFrame(() => { window.__ready = true; });
+          }
+        },
+      });
+      const hooks = installDebugHooks(stage, loop, views);
+      (window as unknown as { __stageViews: unknown }).__stageViews = { pickView };
+      if (q.manual) {
+        hooks.advance(1);
+        for (let i = 0; i < 8; i++) loop.advance(0);
+      } else {
+        loop.start();
+      }
+      // simple controls for looking around by hand
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        const ndc = { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 };
+        stage.camera.zoomBy(Math.exp(e.deltaY * 0.0015), ndc);
+        // focus follows what the pointer zoomed toward
+        const p = stage.camera.benchPoint(ndc, 0.5);
+        if (p) stage.camera.focusOn(p);
+      }, { passive: false });
+      let drag: { x: number } | null = null;
+      canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX }; });
+      addEventListener('pointerup', () => { drag = null; });
+      addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        stage.camera.panBy(-(e.clientX - drag.x) * stage.camera.distance * 0.0012);
+        drag.x = e.clientX;
+      });
+      addEventListener('keydown', (e) => {
+        if (e.key === 'd') stage.lights.dip();
+        if (e.key === 's') stage.camera.shake(0.08);
+        if (e.key === 'Escape') {
+          stage.camera.focusOn(cluster);
+          stage.camera.easeTo(stage.camera.home());
+        }
+      });
+    </script>
+  </body>
+</html>
