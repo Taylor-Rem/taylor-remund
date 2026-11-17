@@ -162,7 +162,7 @@ export function louvre(o: DetailOptions & { w?: number; h?: number; count?: numb
     bevel: depth * 0.4,
     bevelBase: 0,
     caps: 'end',
-    segs: 2,
+    segs: 3,
     detail: o.detail ?? 'high',
   });
   const iw = w - border * 2, ih = h - border * 2;
@@ -361,7 +361,7 @@ export function rubberFoot(o: DetailOptions & { d?: number; h?: number } = {}): 
       .groove(r * 0.07, h * 0.12, h * 0.04, h * 0.02)
       .to(r * 0.86, h, { fillet: h * 0.14, segs: 2 })
       .to(0, h),
-    { segs: tri(o.detail, 10, 6), support: false, caps: 'end' },
+    { segs: tri(o.detail, 9, 6), support: false, caps: 'end' },
   );
   return [part(o.material ?? 'rubber', g, o.token ?? 'ink', { seed: o.seed ?? 0, jitter: 0.08 })];
 }

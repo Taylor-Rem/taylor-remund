@@ -13,7 +13,7 @@ import { BufferAttribute, BufferGeometry, Matrix3, Matrix4 } from 'three';
 import { linear } from '../palette.ts';
 import type { Token } from '../palette.ts';
 import { ATTR } from './types.ts';
-import { rng } from './rng.ts';
+import { hash2, rng } from './rng.ts';
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (a: number, b: number, x: number): number => {
@@ -115,7 +115,7 @@ export function surfFromCurvature(g: BufferGeometry, opts: { wear?: [number, num
     for (let a = 0; a < ks.length; a++) {
       for (let b = a + 1; b < ks.length; b++) {
         const d = es[a * 3]! * es[b * 3]! + es[a * 3 + 1]! * es[b * 3 + 1]! + es[a * 3 + 2]! * es[b * 3 + 2]!;
-        if (d > -0.3) continue;
+        if (d > -0.6) continue;
         const ka = ks[a]!, kb = ks[b]!;
         const cv = Math.min(ka, kb), cc = Math.min(-ka, -kb);
         if (cv > c2) c2 = cv;
@@ -314,7 +314,7 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
     const a = s * 2.399963229728653;
     dirs.push(r * Math.cos(a), r * Math.sin(a), Math.sqrt(1 - u));
   }
-  const R = rng(opts.seed ?? 7);
+  const seed = opts.seed ?? 7;
   list.forEach(({ geometry }, gi) => {
     const { p, nr } = spaces[gi]!;
     const surf = geometry.getAttribute(ATTR.surf) as BufferAttribute;
@@ -345,7 +345,8 @@ export function bakeCavity(items: ReadonlyArray<BufferGeometry | { geometry: Buf
       const tl = Math.hypot(tx, ty, tz) || 1;
       tx /= tl; ty /= tl; tz /= tl;
       const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
-      const rot = R() * Math.PI * 2;
+      // the ray set's rotation comes from the position, so copies of one vertex (seams, poles) agree
+      const rot = (hash2(Math.round(p[i * 3]! * 1e4) ^ (Math.round(p[i * 3 + 1]! * 1e4) * 7919), Math.round(p[i * 3 + 2]! * 1e4) + seed) / 4294967296) * Math.PI * 2;
       const cr = Math.cos(rot), sr = Math.sin(rot);
       // origins: the vertex, then its ring points (only those that are far enough away to matter)
       const origins: number[] = [p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!];

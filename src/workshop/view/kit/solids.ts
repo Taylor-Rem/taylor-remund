@@ -42,6 +42,8 @@ export interface RoundedBoxOptions extends DetailOpt {
   rBottom?: number;
   /** Most fillet segments per 90° (default: from each radius, 1 + 45·r, at most 6). */
   segs?: number;
+  /** Leave the base open (no bottom fillet, no bottom face): for parts mounted flush on a surface, whose base is never seen. */
+  open?: boolean;
 }
 
 /** A box with every edge filleted. Base on y = 0. */
@@ -52,11 +54,9 @@ export function roundedBox(o: RoundedBoxOptions): BufferGeometry {
   const rb = Math.min(o.rBottom ?? r, rp, o.h / 2);
   const s = o.segs ?? 6;
   const loop = rectLoop(o.w / 2 - rp, o.d / 2 - rp, segs(autoSegs(rp, s), o.detail, 2));
-  const p = profile(0, 0)
-    .to(rp, 0, rb > 0 ? { fillet: rb } : { sharp: true })
-    .to(rp, o.h, rt > 0 ? { fillet: rt } : { sharp: true })
-    .to(0, o.h);
-  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s }) }));
+  const p = o.open ? profile(rp, 0) : profile(0, 0).to(rp, 0, rb > 0 ? { fillet: rb } : { sharp: true });
+  p.to(rp, o.h, rt > 0 ? { fillet: rt } : { sharp: true }).to(0, o.h);
+  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s }), caps: o.open ? 'end' : true }));
 }
 
 export interface ProfiledBoxOptions extends DetailOpt {
@@ -205,7 +205,7 @@ export interface ExtrudeOptions extends DetailOpt {
   caps?: boolean | 'start' | 'end';
   /** 'round' fillet (default) or crisp 'chamfer'. */
   style?: 'round' | 'chamfer';
-  /** Holes, as outlines in the same coordinates. */
+  /** Holes, as outlines in the same coordinates. Keep the web between a hole and the edge wider than 2 × bevel. */
   holes?: ReadonlyArray<ReadonlyArray<readonly [number, number]>>;
   holeRadius?: number;
   /**
@@ -223,13 +223,15 @@ export function extrude(outline: ReadonlyArray<readonly [number, number]>, depth
   const b = Math.min(o.bevelBase ?? bb, depth - bb - 1e-5);
   const flipV = axis === 'z';
   const conv = (pts: ReadonlyArray<readonly [number, number]>): Array<[number, number]> => pts.map((p) => [p[0], flipV ? -p[1] : p[1]]);
-  const s = segs(o.segs ?? autoSegs(typeof o.radius === 'number' ? o.radius : Math.max(b, bb) * 1.1 + 0.004, 5), o.detail, 1);
+  const s = segs(o.segs ?? 5, o.detail, 1);
   const lo: OutlineOptions = { radius: o.radius ?? Math.max(b, bb) * 1.1 + 0.004, segs: s, support: o.support ? Math.max(0.004, Math.min(Math.max(b, bb) * 0.8, 0.012)) : 0 };
   const loops: Loop[] = [outlineLoop(conv(outline), lo)];
-  for (const h of o.holes ?? []) loops.push(outlineLoop(conv(h), { ...lo, radius: o.holeRadius ?? lo.radius!, hole: true }));
+  const holeR = o.holeRadius ?? (typeof lo.radius === 'number' ? lo.radius * 0.5 : 0.004);
+  for (const h of o.holes ?? []) loops.push(outlineLoop(conv(h), { ...lo, radius: holeR, hole: true }));
   const corner = (r: number) => (r <= 0 ? { sharp: true } : o.style === 'chamfer' ? { chamfer: r } : { fillet: r });
-  const p = b > 0 ? profile(-b * 1.6, 0).to(0, 0, corner(b)) : profile(0, 0);
-  p.to(0, depth, corner(bb)).to(-Math.max(bb, 1e-4) * 1.6, depth);
+  // the faces end just past the bevel's tangent line, so a web between outline and hole needs to be wider than 2 × bevel
+  const p = b > 0 ? profile(-b * 1.05, 0).to(0, 0, corner(b)) : profile(0, 0);
+  p.to(0, depth, corner(bb)).to(-Math.max(bb, 1e-4) * 1.05, depth);
   const input: Parameters<typeof loft>[0] = { loops, profile: p.expand({ detail: dmul(o.detail), segs: 5, support: o.support ?? false }) };
   if (o.caps !== undefined) input.caps = o.caps;
   const g = finish(loft(input));
@@ -246,13 +248,15 @@ export interface SlabOptions extends DetailOpt {
   r?: number;
   /** Edge bevel (default 30% of thickness). */
   bevel?: number;
+  /** Leave the underside open (a plate mounted flush on a surface). */
+  open?: boolean;
 }
 
 /** A slab / plate lying flat with a rounded outline and rounded edges (a rounded box with independent plan radius). */
 export function slab(o: SlabOptions): BufferGeometry {
   const rp = o.r ?? Math.min(o.w, o.d) * 0.15;
   const b = Math.min(o.bevel ?? o.t * 0.3, o.t / 2, rp);
-  return roundedBox({ w: o.w, h: o.t, d: o.d, rPlan: rp, r: b, detail: o.detail });
+  return roundedBox({ w: o.w, h: o.t, d: o.d, rPlan: rp, r: b, detail: o.detail, open: o.open ?? false });
 }
 
 // ---- soft forms ------------------------------------------------------------
@@ -360,12 +364,36 @@ export function superellipsoid(o: SuperellipsoidOptions): BufferGeometry {
     const gy = b * Math.sign(Y) * Math.pow(Math.abs(Y), b - 1) / o.ry;
     return [gx, gy, gz];
   };
+  // sample the parameters so points are spread evenly along the surface (the corners of a
+  // squarish superellipsoid would otherwise get almost none)
+  const remap = (a0: number, a1: number, n: number, curve: (t: number) => [number, number]): number[] => {
+    const M = 512;
+    const len = [0];
+    let prev = curve(a0);
+    for (let k = 1; k <= M; k++) {
+      const c = curve(a0 + ((a1 - a0) * k) / M);
+      len.push(len[k - 1]! + Math.hypot(c[0] - prev[0], c[1] - prev[1]));
+      prev = c;
+    }
+    const total = len[M]!;
+    const out: number[] = [];
+    let k = 0;
+    for (let i = 0; i <= n; i++) {
+      const target = (total * i) / n;
+      while (k < M - 1 && len[k + 1]! < target) k++;
+      const f = (target - len[k]!) / Math.max(1e-12, len[k + 1]! - len[k]!);
+      out.push(a0 + ((a1 - a0) * (k + f)) / M);
+    }
+    return out;
+  };
+  const us = remap(0, Math.PI * 2, nu, (t) => [o.rx * spow(Math.cos(t), e2), o.rz * spow(Math.sin(t), e2)]);
+  const vs = remap(-Math.PI / 2, Math.PI / 2, nv, (t) => [Math.max(o.rx, o.rz) * spow(Math.cos(t), e1), o.ry * spow(Math.sin(t), e1)]);
   const ids: number[][] = [];
   for (let j = 0; j <= nv; j++) {
-    const v = -Math.PI / 2 + (j / nv) * Math.PI;
+    const v = vs[j]!;
     const row: number[] = [];
     for (let i = 0; i < nu; i++) {
-      const u = (i / nu) * Math.PI * 2;
+      const u = us[i]!;
       const p = P(u, v);
       let n = j === 0 ? ([0, -1, 0] as [number, number, number]) : j === nv ? ([0, 1, 0] as [number, number, number]) : N(p[0], p[1], p[2]);
       if (!Number.isFinite(n[0] + n[1] + n[2]) || Math.hypot(...n) < 1e-9) n = [p[0], p[1] - o.ry, p[2]];

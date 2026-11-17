@@ -5,7 +5,7 @@ import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { MaterialClass } from '../../../src/workshop/view/kit/types.ts';
 import { testBlock } from '../../../src/workshop/view/kit/pieces/test-block.ts';
-import { checkGeometry } from './solids.test.ts';
+import { checkGeometry } from './helpers.ts';
 
 describe('profile DSL', () => {
   it('a fillet becomes an arc of the requested radius with the requested segments, with analytic normals', () => {

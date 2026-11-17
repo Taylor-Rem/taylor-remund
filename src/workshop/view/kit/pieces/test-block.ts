@@ -17,7 +17,7 @@ import { sweep, polylinePath } from '../sweep.ts';
 import {
   cableGland, domeRivet, flange, handle, hexBolt, hinge, knurlGeom, louvre, rubberFoot, seam, slottedScrew, collar, weldBead,
 } from '../details.ts';
-import { aim, chain, mat, part, piece, place, T } from '../compose.ts';
+import { aim, alongEdge, chain, mat, part, piece, place, T } from '../compose.ts';
 import { askew, rng } from '../rng.ts';
 import { transform } from '../deform.ts';
 
@@ -74,7 +74,7 @@ export function testBlock(o: KitOptions = {}): Piece {
   // ---- medium: louvre panel (left), brass plate, hatch (right) --------------
   const panelX = -0.235, panelY = 0.43;
   const proud = 0.022;
-  b.add(part('steel', transform(slab({ w: 0.44, d: 0.34, t: proud, r: 0.04, bevel: 0.009, detail }), chain(T(panelX, panelY, zF - 0.002), mat({ rot: [90, 0, 0] }))), 'teal-panel', { seed: seed + 3, shade: 0.92 }));
+  b.add(part('steel', transform(slab({ w: 0.44, d: 0.34, t: proud, r: 0.04, bevel: 0.009, detail, open: true }), chain(T(panelX, panelY, zF - 0.002), mat({ rot: [90, 0, 0] }))), 'teal-panel', { seed: seed + 3, shade: 0.92 }));
   b.add(place(louvre({ w: 0.34, h: 0.22, count: 5, depth: 0.026, detail, seed: seed + 4 }), T(panelX, panelY - 0.11, zF + proud - 0.004)));
   for (const [dx, dy] of [[-0.19, -0.14], [0.19, -0.14], [-0.19, 0.14], [0.19, 0.14]] as const) {
     const s = R.int(0, 999);
@@ -83,7 +83,7 @@ export function testBlock(o: KitOptions = {}): Piece {
 
   // brass maker's plate, a degree and a half off true, four rivets
   const plateM = chain(T(-0.235, 0.68, zF - 0.002), askew(seed + 5, 2.5), mat({ rot: [90, 0, 0] }));
-  b.add(part('brass', transform(slab({ w: 0.3, d: 0.1, t: 0.012, r: 0.018, bevel: 0.005, detail }), plateM), 'brass', { seed: seed + 6, warm: 0.04 }));
+  b.add(part('brass', transform(slab({ w: 0.3, d: 0.1, t: 0.012, r: 0.018, bevel: 0.005, detail, open: true }), plateM), 'brass', { seed: seed + 6, warm: 0.04 }));
   for (const [dx, dz] of [[-0.128, -0.032], [0.128, -0.032], [-0.128, 0.032], [0.128, 0.032]] as const) {
     const s = R.int(0, 999);
     b.small(() => place(domeRivet({ d: 0.022, detail, seed: s }), chain(plateM, T(dx, 0.011, dz))));
@@ -104,7 +104,7 @@ export function testBlock(o: KitOptions = {}): Piece {
   b.add(place(collar({ r: 0.07, inner: 0.03, h: 0.03, detail, seed: seed + 10 }), knobAt));
   const knob = b.node('knob', chain(knobAt, T(0, 0.028, 0), new Matrix4().makeRotationY(R.range(0, Math.PI * 2))));
   knob.add(part('brass', lathe(profile(0, 0).to(0.05, 0, { fillet: 0.006, segs: 2 }).to(0.058, 0.014, { fillet: 0.006, segs: 2 }).to(0.046, 0.016).to(0, 0.016), { segs: 22, detail, support: false, caps: 'end' }), 'brass', { seed: seed + 11 }));
-  knob.add(part('brass', transform(knurlGeom(0.054, 0.042, 22, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }));
+  knob.add(part('brass', transform(knurlGeom(0.054, 0.042, 18, undefined, detail), T(0, 0.014, 0)), 'brass', { seed: seed + 12 }));
   knob.add(
     part(
       'rubber',
@@ -136,6 +136,13 @@ export function testBlock(o: KitOptions = {}): Piece {
     b.small(() => weldBead(polylinePath([[x0, yP1 + 0.003, zF + 0.003], [x1, yP1 + 0.003, zF + 0.003]], 0), { r: 0.009, seed: seed + 17 + x0 * 10, detail }));
   }
   b.small(() => seam({ path: polylinePath([[W / 2 + 0.001, yP1 + 0.06, -0.16], [W / 2 * 0.975 + 0.001, yB1 - 0.06, -0.16]], 0), up: [1, 0, 0], width: 0.02 }));
+
+  // a riveted strap up the plain left side, a little off-centre
+  // the body's sides lean in (its top is 3% narrower), so the strap leans with them
+  const lean = Math.atan2((W / 2) * 0.03, yB1 - yP1 - 0.02);
+  const strapM = chain(T(-W / 2 + 0.0005, yP1 + 0.02, 0.07 + R.spread(0.02)), new Matrix4().makeRotationZ(-lean), mat({ rot: [0, 0, 90] }));
+  b.add(part('steel', transform(slab({ w: 0.56, d: 0.07, t: 0.012, r: 0.02, bevel: 0.005, detail, open: true }), chain(strapM, T(0.28, 0, 0))), 'teal-panel', { seed: seed + 19, shade: 0.9 }));
+  b.small(() => alongEdge(domeRivet({ d: 0.02, detail, seed: seed + 20 }), [0.05, 0.0115, 0], [0.51, 0.0115, 0], 4).map((q) => ({ ...q, geometry: transform(q.geometry, strapM) })));
 
   b.socket('label', mat({ at: [-0.235, 0.68, zF + 0.012] }));
   return b.build();

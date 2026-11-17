@@ -531,7 +531,7 @@ export function chamferRectLoop(hx: number, hz: number): Loop {
 export interface OutlineOptions {
   /** Corner radius: one for all corners, or one per input point. 0 = sharp (creased). */
   radius?: number | number[];
-  /** Segments per 90° of corner. */
+  /** Most segments per 90° of corner (each corner gets 1 + 45·r of them, up to this). */
   segs?: number;
   /** This loop is a hole (its normals face into the hole). */
   hole?: boolean;
@@ -582,7 +582,7 @@ export function outlineLoop(points: ReadonlyArray<readonly [number, number]>, op
     const cross = d0[0] * d1[1] - d0[1] * d1[0];
     const L = cross > 0 ? [-d0[1], d0[0]] : [d0[1], -d0[0]];
     const cx = ax + L[0]! * rho, cz = az + L[1]! * rho;
-    const n = Math.max(1, Math.round((segs * theta) / (Math.PI / 2)));
+    const n = Math.max(1, Math.round((Math.min(segs, autoSegs(rho, segs)) * theta) / (Math.PI / 2)));
     const a0 = Math.atan2(az - cz, ax - cx);
     let a1 = Math.atan2(P[1] + d1[1] * t - cz, P[0] + d1[0] * t - cx);
     while (a1 - a0 > Math.PI) a1 -= 2 * Math.PI;
