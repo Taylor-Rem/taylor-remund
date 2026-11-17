@@ -1,7 +1,7 @@
 import { Box3, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { listPieces, findPiece, firstPiece, buildEntry } from '../../../src/workshop/view/catalogue/registry.ts';
-import { distanceFor, pxPerUnit, LENS, STATION_SPAN } from '../../../src/workshop/view/catalogue/distances.ts';
+import { distanceFor, pxPerUnit, LENS, PHONE_SPAN, STATION_SPAN } from '../../../src/workshop/view/catalogue/distances.ts';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
 import { TABLEAU, STAND_IN, shotBox, standInPiece } from '../../../src/workshop/view/catalogue/tableau.ts';
 import { debugColours } from '../../../src/workshop/view/catalogue/views.ts';
@@ -60,6 +60,13 @@ describe('review distances at 1440x900, with the stage lens', () => {
     expect(ppu).toBeGreaterThan(450);
     expect(ppu).toBeLessThan(900);
     expect(d).toBeLessThan(distanceFor('station', ASPECT, unitBox));
+  });
+
+  it('wide on a portrait phone frames the centre cluster across the narrow width', () => {
+    const aspect = 390 / 844;
+    const d = distanceFor('wide', aspect, unitBox);
+    const ppu = pxPerUnit(d, 844);
+    expect(390 / ppu).toBeCloseTo(PHONE_SPAN, 5);
   });
 
   it('uses the stage defaults for lens and pitch', () => {
