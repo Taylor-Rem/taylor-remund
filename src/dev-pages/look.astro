@@ -83,6 +83,7 @@
           if (role === 'fetch') {
             const pose = q.get('pose') ?? 'offer';
             if (entry.poses?.includes(pose)) opts['pose'] = pose;
+            else if (entry.variants?.[pose]) variant = pose; // a design that lists its expressions as variants
           }
           const piece = buildEntry(entry, variant, opts, show.labels);
           status.push(`${role}: ${entry.name}${variant ? ` [${variant}]` : ''}${opts['pose'] ? ` pose ${String(opts['pose'])}` : ''}${entry.labels ? ' +labels' : ''}  ${piece.triangles} tris`);

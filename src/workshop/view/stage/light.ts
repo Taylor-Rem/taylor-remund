@@ -47,8 +47,12 @@ export const RIG = {
    * Outside that field things are simply lit (the bench ends, beyond the cluster).
    */
   shadow: { mapSize: 2048, radius: 4, blurSamples: 8, bias: -0.0004, normalBias: 0.025, focus: 0.8 },
-  /** `frontPosition`: low, so the front fill lights the faces the camera sees and only grazes the tops. */
-  fill: { hemi: 1.1, front: 3.0, frontPosition: [-3, 2.2, 16] as [number, number, number] },
+  /**
+   * `frontPosition`: low (about 20 degrees), so the front fill lights the faces the
+   * camera sees and only grazes the tops; not lower, or its glossy reflection off
+   * front-facing label tape (camera 33 degrees above) turns black tape pale.
+   */
+  fill: { hemi: 1.1, front: 3.0, frontPosition: [-3, 6, 16] as [number, number, number] },
   rim: { intensity: 2.4 },
   /** What bounces: warm light off the lit bench, from just above the pool (lifts the lower wall and undersides). */
   bounce: { intensity: 5, height: 1.1 },

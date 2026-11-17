@@ -22,8 +22,8 @@ export const CLUSTER = { x: 0.3, z: 2.6 } as const;
 
 export const TABLEAU: Record<Role, Placement & { seed: number }> = {
   button: { x: CLUSTER.x, z: CLUSTER.z - 0.25, yaw: -5, seed: 1 },
-  crate: { x: CLUSTER.x - 1.1, z: CLUSTER.z + 0.4, yaw: 23, seed: 3 },
-  fetch: { x: CLUSTER.x + 1.25, z: CLUSTER.z + 0.1, yaw: -22, seed: 2 },
+  crate: { x: CLUSTER.x - 1.45, z: CLUSTER.z + 0.55, yaw: 23, seed: 3 },
+  fetch: { x: CLUSTER.x + 2.3, z: CLUSTER.z + 0.3, yaw: -26, seed: 2 },
 };
 
 /** Both Fetch designs side by side for a choice (`?shot=fetches`), the same pose. */
@@ -37,7 +37,7 @@ export const FETCHES: ReadonlyArray<Placement & { seed: number }> = [
  * with a tighter cone than the stage's whole-bench default so the pool's edge
  * falls inside the frame (the lamp's own prop does not exist yet: not faked).
  */
-export const LOOK_LAMP = { bulb: [-3.0, 5.6, -0.4] as const, aim: [CLUSTER.x + 0.2, 0, CLUSTER.z - 0.6] as const, angleDeg: 42 };
+export const LOOK_LAMP = { bulb: [-3.0, 5.6, -0.4] as const, aim: [CLUSTER.x + 0.8, 0, CLUSTER.z - 0.4] as const, angleDeg: 44 };
 
 /** A run of lane tape in front of the cluster, a little off square (bench-plane points, x z). */
 export const TAPE_RUN: ReadonlyArray<readonly [number, number]> = [
@@ -88,8 +88,8 @@ export function shotCamera(shot: Shot, boxes: Partial<Record<Role | 'fetchA' | '
       // look a little behind and below the Button: the group sits low, the lit bench and wall above
       // the group low in the frame: the wall above, the bench nose and the dark below
       // (on a portrait phone the spare height goes to the bench and wall behind, not the dark below)
-      f.set(f.x + 0.15, 0.6, CLUSTER.z - (portrait ? 1.5 : 0.1));
-      return { focus: f, distance: across(11.5, 5.6) };
+      f.set(f.x + 0.5, 0.6, CLUSTER.z - (portrait ? 1.5 : 0.1));
+      return { focus: f, distance: across(10, 5.4) };
     }
     case 'button': {
       const f = c(boxes.button);
