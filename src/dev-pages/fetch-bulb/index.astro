@@ -69,7 +69,9 @@
 
       const sheet = dist === 'sheet';
       const poses: Array<Partial<FetchPose>> = sheet
-        ? (['curious', 'eager', 'oops', 'offer', 'deadpan'] as Expression[]).map((e) => EXPRESSIONS[e])
+        ? q.get('set') === 'arms'
+          ? (['rest', 'carry', 'offer', 'salute', 'shrug', 'flail'] as const).map((a) => ({ arms: a }))
+          : (['curious', 'eager', 'oops', 'offer', 'deadpan'] as Expression[]).map((e) => EXPRESSIONS[e])
         : [poseName in EXPRESSIONS ? EXPRESSIONS[poseName as Expression] : {}];
       const fetches: Object3D[] = [];
       let tris = 0;
@@ -78,7 +80,7 @@
         tris = piece.triangles;
         const o = K.realize(piece, materials);
         poseFetch(o, p);
-        const x = sheet ? fx + (i - 2) * 1.08 : fx;
+        const x = sheet ? fx + (i - (poses.length - 1) / 2) * 1.08 : fx;
         o.position.set(x, 0, fz);
         o.rotation.y = angle;
         if (view === 'clay') o.traverse((m) => { if ((m as Mesh).isMesh && (m as Mesh).userData['kitMaterial'] !== 'bulb') (m as Mesh).material = clay; });

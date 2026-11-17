@@ -44,7 +44,7 @@ export function bulbOutline(n = 1): PSample[] {
   const pts: P2[] = [];
   // the neck rises nearly straight, then swells into the bulb: a cubic, vertical at the equator
   const P0: P2 = [neckR, neckY], P1: P2 = [neckR + 0.02, neckY + 0.06], P2: P2 = [rMax, eqY - 0.12], P3: P2 = [rMax, eqY];
-  const nl = Math.max(5, Math.round(8 * n));
+  const nl = Math.max(5, Math.round(7 * n));
   for (let i = 0; i <= nl; i++) {
     const t = i / nl, u = 1 - t;
     pts.push([
@@ -53,7 +53,7 @@ export function bulbOutline(n = 1): PSample[] {
     ]);
   }
   // the dome: a superellipse quarter, fuller than a sphere (a bulb, not a ball)
-  const nu = Math.max(6, Math.round(10 * n));
+  const nu = Math.max(6, Math.round(9 * n));
   const k = 2.15;
   for (let i = 1; i <= nu; i++) {
     const a = (i / nu) * (Math.PI / 2);
@@ -132,7 +132,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .to(R0, hw - 0.042, { smooth: true })
         .to(R0 * 0.82, hw, { fillet: 0.036 })
         .to(R0 * 0.57, hw - 0.016, { fillet: 0.028 }),
-      { segs: S(32, 16), detail, caps: false },
+      { segs: S(28, 14), detail, caps: false },
     );
     // moulded tread: staggered blocks across the crown, pressed out of the round
     const lugs = 16;
@@ -156,13 +156,13 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .to(R0 * 0.6, hw - 0.012, { fillet: 0.008 })
         .to(0.044, hw - 0.034, { fillet: 0.012 })
         .to(0, hw - 0.034),
-      { segs: S(24, 12), detail },
+      { segs: S(20, 10), detail },
     );
     N.wheel.add(part('steel', hub, 'teal-light', { seed: seed + 2, jitter: 0.03 }));
     for (const s of [1, -1]) {
       const cap = lathe(profile(0, 0).to(0.034, 0, { sharp: true }).to(0.034, 0.01, { fillet: 0.006 }).to(0.024, 0.024, { fillet: 0.008 }).to(0, 0.028), { segs: S(14, 8), detail, caps: 'end' });
       N.wheel.add(setFinish(place([part('brass', cap, 'brass', { seed: seed + 3 + s, jitter: 0.05 })], aim([0, s * (hw - 0.036), 0], [0, s, 0])), 0.5));
-      N.wheel.small(() => ring(hexBolt({ af: 0.022, detail: HW, seed: seed + 6 + s }), 0.066, 3, { frame: aim([0, s * (hw - 0.03), 0], [0, s, 0]), phase: R.range(0, 1) }));
+      N.wheel.small(() => ring(hexBolt({ af: 0.022, detail: HW, seed: seed + 6 + s }), 0.066, 2, { frame: aim([0, s * (hw - 0.03), 0], [0, s, 0]), phase: R.range(0, 1) }));
     }
   }
 
@@ -172,20 +172,20 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
     for (const s of [1, -1]) {
       const x0 = s * DIM.forkX;
       const path = polylinePath([[x0, -0.014, 0], [x0 + s * 0.014, top * 0.5, -0.004], [x0 * 0.9, top - 0.035, 0]], 0.08, 4);
-      const leg = sweep(path, { section: sections.roundRect(0.009, 0.03, 2), radius: 0.018, taper: (t) => 1.1 - 0.16 * t, step: 0.04, detail, ends: 'round', up: [1, 0, 0] });
+      const leg = sweep(path, { section: sections.roundRect(0.009, 0.03, 1), radius: 0.018, taper: (t) => 1.1 - 0.16 * t, step: 0.04, detail, ends: 'round', up: [1, 0, 0] });
       N.lean.add(part('steel', leg, 'teal-panel', { seed: seed + 10 + s, jitter: 0.04 }));
       // the axle stub: a brass spacer to the hub, a fat nut outside the leg
       N.lean.add(place([part('brass', lathe(profile(0, 0).to(0.032, 0, { sharp: true }).to(0.032, DIM.forkX - DIM.tyreW / 2 - 0.02, { fillet: 0.006, segs: 1 }).to(0, DIM.forkX - DIM.tyreW / 2 - 0.02), { segs: S(12, 8), detail, caps: false }), 'brass', { seed: seed + 12 + s, jitter: 0.05 })], aim([s * (DIM.tyreW / 2 - 0.012), 0, 0], [s, 0, 0])));
-      N.lean.add(place(hexBolt({ af: 0.05, h: 0.024, washer: true, detail: HW, seed: seed + 14 + s }), aim([x0 + s * 0.028, 0, 0], [s, 0, 0])));
+      N.lean.add(place(hexBolt({ af: 0.05, h: 0.024, washer: false, detail: HW, seed: seed + 14 + s }), aim([x0 + s * 0.028, 0, 0], [s, 0, 0])));
     }
     // the crown: a cast bridge over the tyre, with a brass seat for the spring
     const crown = lathe(
       profile(0, top - 0.07).to(0.074, top - 0.07, { fillet: 0.022 }).to(0.094, top - 0.012, { fillet: 0.02 }).to(0.05, top, { fillet: 0.012 }).to(0, top),
-      { segs: S(18, 10), detail },
+      { segs: S(14, 8), detail },
     );
     const bridge = sweep(
       polylinePath([[-DIM.forkX * 0.92, top - 0.054, 0], [-0.07, top - 0.034, 0], [0.07, top - 0.034, 0], [DIM.forkX * 0.92, top - 0.054, 0]], 0.08, 4),
-      { section: sections.roundRect(0.009, 0.034, 2), radius: 0.016, detail, ends: 'round', up: [0, 1, 0] },
+      { section: sections.roundRect(0.009, 0.034, 1), radius: 0.016, detail, ends: 'round', up: [0, 1, 0] },
     );
     N.lean.add(part('steel', crown, 'teal-panel', { seed: seed + 16, jitter: 0.04 }), part('steel', bridge, 'teal-panel', { seed: seed + 17, jitter: 0.04 }));
     N.lean.add(place(collar({ r: 0.052, inner: 0.026, h: 0.014, detail: HW, seed: seed + 18 }), T(0, top - 0.002, 0)));
@@ -194,7 +194,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
   // ===== the neck: a coil spring (scaled by squash) round a sliding post ======================
   {
     const h = DIM.bodyY - DIM.crownTop;
-    N.spring.add(coilSpring({ r: 0.046, wire: 0.0095, turns: 3.4, pitch: (h - 0.012) / 3.6, detail: 'low', seed: seed + 20, material: 'metal', token: 'steel' }));
+    N.spring.add(coilSpring({ r: 0.046, wire: 0.0095, turns: 3, pitch: (h - 0.012) / 3.2, detail: 'low', seed: seed + 20, material: 'metal', token: 'steel' }));
     const post = lathe(profile(0, -0.06).to(0.022, -0.06, { sharp: true }).to(0.022, h + 0.01, { sharp: true }).to(0, h + 0.01), { segs: S(12, 8), detail, caps: false });
     N.suspension.add(setFinish(part('metal', post, 'steel', { seed: seed + 21 }), 0.8));
   }
@@ -205,41 +205,28 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
       profile(0.11, 0.064)
         .to(0.11, 0.02, { sharp: true })
         .to(0.03, 0.0, { sharp: true })
-        .to(0.03, -0.02, { fillet: 0.006 })
-        .to(0.1, -0.03, { fillet: 0.024 })
-        .to(0.162, 0.01, { fillet: 0.03 })
-        .to(0.164, 0.05, { fillet: 0.012 })
-        .to(0.136, 0.068, { fillet: 0.008 })
+        .to(0.03, -0.02, { fillet: 0.006, segs: 1 })
+        .to(0.1, -0.03, { fillet: 0.024, segs: 2 })
+        .to(0.162, 0.01, { fillet: 0.03, segs: 2 })
+        .to(0.164, 0.05, { fillet: 0.012, segs: 2 })
+        .to(0.136, 0.068, { fillet: 0.008, segs: 1 })
         .close(),
-      { segs: S(24, 12), detail },
+      { segs: S(20, 10), detail },
     );
     N.body.add(part('steel', yoke, 'teal-panel', { seed: seed + 30, jitter: 0.04 }));
     for (const s of [1, -1]) {
       const sh = DIM.shoulder;
       const housing = lathe(
-        profile(0, -0.03).to(0.05, -0.03, { sharp: true }).to(0.056, 0.022, { fillet: 0.014 }).to(0.046, 0.044, { fillet: 0.012 }).to(0, 0.044),
-        { segs: S(14, 8), detail, caps: 'end' },
+        profile(0, -0.03).to(0.05, -0.03, { sharp: true }).to(0.056, 0.022, { fillet: 0.014, segs: 2 }).to(0.046, 0.044, { fillet: 0.012, segs: 2 }).to(0, 0.044),
+        { segs: S(11, 8), detail, caps: 'end' },
       );
       N.body.add(place([part('steel', housing, 'teal-panel', { seed: seed + 31 + s, jitter: 0.04 })], chain(T(s * (sh.x - 0.06), sh.y, sh.z), s > 0 ? toX : toNegX)));
-      N.body.small(() => ring(domeRivet({ d: 0.012, detail: HW, seed: seed + 33 + s, material: 'metal', token: 'steel' }), 0.034, 2, { frame: chain(T(s * (sh.x - 0.016), sh.y, sh.z), s > 0 ? toX : toNegX), phase: 0.4 }));
-    }
-    // three bolts round the yoke's lip, front: one of them a brass replacement
-    const replaced = R.int(0, 2);
-    for (let i = 0; i < 3; i++) {
-      const a = (90 + (i - 1) * 34) * DEG;
-      const br = i === replaced;
-      N.body.small(() =>
-        place(
-          hexBolt({ af: 0.026, h: 0.012, detail: HW, seed: seed + 40 + i, ...(br ? { material: 'brass' as const, token: 'brass' as const } : {}) }),
-          aim([Math.cos(a) * 0.162, 0.03, Math.sin(a) * 0.162], [Math.cos(a), 0.12, Math.sin(a)]),
-        ),
-      );
     }
   }
 
   // ===== the head: the bulb, its screw base, the band, the face ===========================
   {
-    const bulb = lathe(bulbOutline(hi ? 1 : 0.6), { segs: S(40, 20), detail, caps: false });
+    const bulb = lathe(bulbOutline(hi ? 1 : 0.6), { segs: S(38, 18), detail, caps: false });
     deform(bulb, pressFace);
     // a knock on the back of the dome, from some earlier delivery
     dent(bulb, [-0.2, 0.5, -0.17], [-0.6, 0.6, -0.5], 0.075, 0.009);
@@ -255,7 +242,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .to(nr - 0.004, 0.03)
         .to(nr - 0.002, DIM.bulb.neckY + 0.006, { fillet: 0.004 })
         .to(0, DIM.bulb.neckY + 0.006),
-      { segs: S(22, 10), detail, caps: false },
+      { segs: S(18, 10), detail, caps: false },
     );
     N.head.add(setFinish(part('brass', base, 'brass', { seed: seed + 51, jitter: 0.04 }), 0.2));
 
@@ -266,13 +253,13 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
       .to(bulbR((y0 + y1) / 2) + 0.013, (y0 + y1) / 2, { smooth: true })
       .to(bulbR(y1) + 0.008, y1 - 0.004, { fillet: 0.004 })
       .to(bulbR(y1) - 0.004, y1);
-    const band = deform(lathe(bandP, { segs: S(36, 18), detail, caps: false }), pressFace);
+    const band = deform(lathe(bandP, { segs: S(26, 14), detail, caps: false }), pressFace);
     N.head.add(part('steel', band, 'teal-light', { seed: seed + 52, jitter: 0.03 }));
     // rivets along the band's sides and back
     N.head.small(() => {
       const out: KitPart[] = [];
-      for (let i = 0; i < 7; i++) {
-        const a = (48 + i * 44) * DEG;
+      for (let i = 0; i < 3; i++) {
+        const a = (75 + i * 105) * DEG;
         if (Math.cos(a) > 0.6) continue; // the barrel is there
         const q = onBulb((y0 + y1) / 2, a, 0.013);
         out.push(...place(domeRivet({ d: 0.019, detail: HW, seed: seed + 60 + i, material: 'metal', token: 'steel' }), aim(q.p, q.n)));
@@ -284,7 +271,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
     const hq0 = onBulb(DIM.bulb.top - 0.05, 150 * DEG, -0.004);
     const hatchM = chain(aim(hq0.p, hq0.n, 0), new Matrix4().makeRotationY(-0.5));
     const curve = (x: number, z: number): number => (x * x + z * z) * 0.95;
-    const hatch = extrude([[-0.085, -0.055], [0.085, -0.055], [0.085, 0.055], [-0.085, 0.055]], 0.016, { axis: 'y', bevel: 0.006, radius: 0.032, detail, caps: 'end', bevelBase: 0 });
+    const hatch = extrude([[-0.085, -0.055], [0.085, -0.055], [0.085, 0.055], [-0.085, 0.055]], 0.016, { axis: 'y', bevel: 0.006, radius: 0.032, detail, caps: 'end', bevelBase: 0, band: 0 });
     N.head.add(place([part('steel', deform(hatch, (x, y, z) => [x, y - curve(x, z), z]), 'teal-light', { seed: seed + 70, jitter: 0.04 })], hatchM));
     const vents: KitPart[] = [];
     for (let i = 0; i < 3; i++) {
@@ -293,7 +280,6 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
       vents.push(part('steel', transform(slot, T(0, 0.015 - curve(0, z), z)), 'teal-deep', { seed: seed + 71 + i }));
     }
     N.head.add(place(vents, hatchM));
-    N.head.small(() => [[-0.07, -0.04], [0.07, 0.04]].flatMap(([x, z], i) => place(domeRivet({ d: 0.016, detail: HW, seed: seed + 76 + i, material: 'metal', token: 'steel' }), chain(hatchM, T(x!, 0.016 - curve(x!, z!), z!)))));
 
     // a carry handle on the back of the dome
     const hq = onBulb(0.2, Math.PI, 0);
@@ -302,14 +288,14 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
     // a riveted repair patch low on the left cheek (the visitor's right)
     const pq = onBulb(0.2, 44 * DEG, 0.001);
     const patchM = aim(pq.p, pq.n, 14);
-    const patch = extrude([[-0.05, -0.036], [0.047, -0.041], [0.052, 0.035], [-0.046, 0.032]], 0.008, { axis: 'y', bevel: 0.003, radius: 0.008, detail, caps: 'end', bevelBase: 0 });
+    const patch = extrude([[-0.05, -0.036], [0.047, -0.041], [0.052, 0.035], [-0.046, 0.032]], 0.008, { axis: 'y', bevel: 0.003, radius: 0.008, detail, caps: 'end', bevelBase: 0, band: 0 });
     N.head.add(place([part('steel', transform(patch, T(0, -0.004, 0)), 'paper', { seed: seed + 85, shade: 0.9, warm: 0.05 })], patchM));
     N.head.small(() => [[-0.038, -0.025], [0.04, 0.024], [-0.035, 0.022]].flatMap(([x, z], i) => place(domeRivet({ d: 0.012, detail: HW, seed: seed + 86 + i, material: 'metal', token: 'steel' }), chain(patchM, T(x!, 0.004, z!)))));
 
     // the aerial's mount: a brass boss on the bulb's back-left shoulder
     const { dir } = aerialFrame();
     const ab = DIM.aerial.base;
-    N.head.add(place(collar({ r: 0.036, inner: 0.012, h: 0.034, detail, seed: seed + 90 }), aim([ab[0] - dir.x * 0.026, ab[1] - dir.y * 0.026, ab[2] - dir.z * 0.026], [dir.x, dir.y, dir.z])));
+    N.head.add(place(collar({ r: 0.036, inner: 0.012, h: 0.034, detail: HW, seed: seed + 90 }), aim([ab[0] - dir.x * 0.026, ab[1] - dir.y * 0.026, ab[2] - dir.z * 0.026], [dir.x, dir.y, dir.z])));
   }
 
   // ===== the eye (eye space: origin at the lens sphere's centre, +Z out along its axis) ===========
@@ -325,7 +311,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .bead(0.008, 0.016, 3)
         .to(rb, zb - 0.006, { fillet: 0.009 })
         .to(0, zb - 0.006),
-      { segs: S(28, 14), detail, caps: false },
+      { segs: S(26, 12), detail, caps: false },
     );
     N.eye.add(part('steel', transform(barrel, toZ), 'paper', { seed: seed + 100, jitter: 0.02, warm: 0.02 }));
     // the bezel: a turned brass ring with a chamfered bore
@@ -337,27 +323,36 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .to(e.boreR + 0.012, e.zFront, { fillet: 0.005, segs: 1 })
         .to(e.boreR, e.zFront - 0.012, { fillet: 0.003, segs: 1 })
         .close(),
-      { segs: S(32, 16), detail },
+      { segs: S(26, 12), detail },
     );
     N.eye.add(setFinish(part('brass', transform(bezel, toZ), 'brass', { seed: seed + 101, jitter: 0.04, warm: 0.03 }), 0.55));
     // a dark rubber gasket in the gap the lids slide through
-    const gasket = lathe(profile(e.lensBaseR - 0.006, zb - 0.008).to(e.boreR + 0.01, zb - 0.008, { sharp: true }).to(e.boreR + 0.01, zb - 0.003, { sharp: true }).to(e.lensBaseR - 0.006, zb - 0.003).close(), { segs: S(24, 12), detail });
+    const gasket = lathe(profile(e.lensBaseR - 0.006, zb - 0.008).to(e.boreR + 0.01, zb - 0.008, { sharp: true }).to(e.boreR + 0.01, zb - 0.003, { sharp: true }).to(e.lensBaseR - 0.006, zb - 0.003).close(), { segs: S(20, 10), detail });
     N.eye.add(part('rubber', transform(gasket, toZ), 'ink'));
     // the lens: dark glass, a sphere cap
-    const ln = hi ? 9 : 6;
+    const ln = hi ? 7 : 5;
     const lensS: PSample[] = [];
     for (let i = 0; i <= ln; i++) {
       const t = e.cap * (1 - i / ln);
       lensS.push({ o: e.R * Math.sin(t), y: e.R * Math.cos(t) - (i === 0 ? 0.002 : 0), no: Math.sin(t), ny: Math.cos(t) });
     }
-    N.eye.add(setFinish(part('glass', transform(lathe(lensS, { segs: S(28, 14), detail, caps: false }), toZ), 'ink'), 0.75));
+    N.eye.add(setFinish(part('glass', transform(lathe(lensS, { segs: S(26, 12), detail, caps: false }), toZ), 'ink'), 0.75));
     // hinge bosses for the lid shutters, either side of the bezel
     for (const s of [1, -1]) {
       const boss = lathe(profile(0, 0).to(0.028, 0, { sharp: true }).to(0.028, 0.012, { fillet: 0.006 }).to(0.018, 0.024, { fillet: 0.006 }).to(0, 0.026), { segs: S(12, 8), detail, caps: 'end' });
       N.eye.add(setFinish(place([part('brass', boss, 'brass', { seed: seed + 104 + s, jitter: 0.05 })], chain(T(s * (e.bezelR + 0.004), 0, zb - 0.034), s > 0 ? toX : toNegX)), 0.6));
     }
     // screws round the bezel face
-    N.eye.small(() => ring(domeRivet({ d: 0.016, detail: HW, seed: seed + 108, material: 'brass', token: 'brass' }), (e.boreR + e.bezelR) / 2 - 0.004, 4, { frame: chain(T(0, 0, e.zFront - 0.003), toZ), phase: 0.13, spin: (i) => i * 0.7 }));
+    // four fixings round the bezel face: brass rivets, and one steel nut where a rivet was replaced
+    const replaced = R.int(0, 3);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + 0.6;
+      const rr = (e.boreR + e.bezelR) / 2 - 0.003;
+      const at = chain(T(Math.cos(a) * rr, Math.sin(a) * rr, e.zFront - 0.004), toZ);
+      N.eye.small(() =>
+        place(i === replaced ? hexBolt({ af: 0.02, h: 0.008, detail: HW, seed: seed + 108 + i }) : domeRivet({ d: 0.017, detail: HW, seed: seed + 108 + i, material: 'brass', token: 'brass' }), at),
+      );
+    }
 
     // ---- the pupil node: the lit iris, its brass aperture ring and the dark pupil ----
     const sphereRing = (r: number, a0: number, a1: number, n: number): PSample[] => {
@@ -369,13 +364,14 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
       return out;
     };
     const aI = Math.asin(e.irisR / e.R), aP = Math.asin(e.pupilR / e.R);
-    const iris = lathe(sphereRing(e.R + 0.0025, aP - 0.01, aI, hi ? 4 : 3), { segs: S(28, 14), detail, caps: false });
-    N.pupil.add(part('bulb', transform(iris, toZ), 'amber-glow'));
+    const iris = lathe(sphereRing(e.R + 0.0025, aP - 0.01, aI, hi ? 4 : 3), { segs: S(24, 12), detail, caps: false });
+    // the iris is lit like an indicator lamp (finish 1), not a bulb: it reads as lit without blooming into a blob
+    N.pupil.add(setFinish(part('bulb', transform(iris, toZ), 'amber-glow'), 1));
     const rim = lathe(
       profile(e.R * Math.sin(aI - 0.012) + 0.0005, e.R * Math.cos(aI - 0.012) + 0.003)
         .to(e.R * Math.sin(aI + 0.03) + 0.004, e.R * Math.cos(aI + 0.03) + 0.002, { fillet: 0.003 })
         .to(e.R * Math.sin(aI + 0.03), e.R * Math.cos(aI + 0.03) - 0.002),
-      { segs: S(28, 14), detail, caps: false },
+      { segs: S(24, 12), detail, caps: false },
     );
     N.pupil.add(setFinish(part('brass', transform(rim, toZ), 'brass', { seed: seed + 110 }), 0.7));
     const pup = lathe(sphereRing(e.R + 0.0045, 0, aP, hi ? 3 : 2), { segs: S(20, 10), detail, caps: false });
@@ -394,7 +390,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
         .close();
       const e0 = top ? -1.2 * DEG : -118 * DEG, e1 = top ? 118 * DEG : 1.2 * DEG;
       // lathe about Y, then Y onto X: the lathe angle φ lands at elevation φ − 90° above the eye's axis
-      const g = transform(lathe(p, { segs: S(12, 8), detail, from: Math.PI / 2 + e0, to: Math.PI / 2 + e1 }), toX);
+      const g = transform(lathe(p, { segs: S(10, 6), detail, from: Math.PI / 2 + e0, to: Math.PI / 2 + e1 }), toX);
       const parts: KitPart[] = [part('steel', g, 'paper', { seed: seed + (top ? 120 : 121), jitter: 0.02 })];
       // the lip on the leading edge, so the lid has a thickness you can see
       const el = top ? -1.2 * DEG : 1.2 * DEG;
@@ -411,7 +407,7 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
   for (const side of ['L', 'R'] as const) {
     const s = side === 'L' ? 1 : -1;
     const arm = N[`arm${side}`], fore = N[`forearm${side}`], hand = N[`hand${side}`];
-    const knob = (r: number): BufferGeometry => lathe(profile(0, -r).to(r * 0.8, -r * 0.85, { fillet: r * 0.5 }).to(r, 0, { smooth: true }).to(r * 0.8, r * 0.85, { fillet: r * 0.5 }).to(0, r), { segs: S(10, 6), detail });
+    const knob = (r: number): BufferGeometry => lathe(profile(0, -r).to(r * 0.8, -r * 0.85, { fillet: r * 0.5 }).to(r, 0, { smooth: true }).to(r * 0.8, r * 0.85, { fillet: r * 0.5 }).to(0, r), { segs: S(8, 6), detail });
     arm.add(part('brass', transform(knob(0.044), toX), 'brass', { seed: seed + 130 + s, jitter: 0.05 }));
     const upper = sweep(linePath([0, -0.012, 0], [0, -DIM.upperArm + 0.01, 0], 2), { radius: 0.038, taper: (t) => 1 - 0.12 * t, step: 0.06, segs: 9, ends: 'round', detail });
     arm.add(part('steel', upper, 'teal-panel', { seed: seed + 132 + s, jitter: 0.04 }));
@@ -427,17 +423,14 @@ export function buildFetchBulb(o: FetchBuildOptions = {}): Piece {
     for (const [jn, zs] of [[`pincer${side}a`, 1], [`pincer${side}b`, -1]] as const) {
       const jaw = sweep(polylinePath([[0, 0.008, zs * 0.02], [0, -0.04, zs * 0.048], [0, -0.09, zs * 0.012]], 0.04, 4), { radius: 0.018, taper: (t) => 1.1 - 0.3 * t, step: 0.03, segs: 7, ends: 'round', detail, up: [1, 0, 0] });
       N[jn as NodeName].add(part('metal', jaw, 'steel', { seed: seed + 142 + zs, jitter: 0.05 }));
-      const pad = lathe(profile(0, -0.016).to(0.015, -0.008, { fillet: 0.006 }).to(0.015, 0.008, { fillet: 0.006 }).to(0, 0.016), { segs: S(8, 6), detail });
-      N[jn as NodeName].add(part('rubber', transform(pad, T(0, -0.088, zs * 0.009)), 'ink'));
     }
   }
 
   // ===== the aerial (segment spaces: +Y along the aerial) and its flag =======================
   {
     const seg = DIM.aerial.seg;
-    N.aerial.add(coilSpring({ r: 0.014, wire: 0.0048, turns: 3, pitch: 0.011, detail: 'low', seed: seed + 150, material: 'metal', token: 'steel' }));
-    const rod = (r0: number, r1: number, y0: number, y1: number): BufferGeometry => sweep(linePath([0, y0, 0], [0, y1, 0], 1), { radius: r0, taper: (t) => 1 - (1 - r1 / r0) * t, step: 0.07, segs: 7, ends: 'round', detail });
-    N.aerial.add(setFinish(part('metal', rod(0.009, 0.008, 0.01, seg + 0.006), 'steel', { seed: seed + 151 }), 0.6));
+    const rod = (r0: number, r1: number, y0: number, y1: number): BufferGeometry => sweep(linePath([0, y0, 0], [0, y1, 0], 1), { radius: r0, taper: (t) => 1 - (1 - r1 / r0) * t, step: 0.14, segs: 6, ends: 'round', detail });
+    N.aerial.add(setFinish(part('metal', rod(0.0095, 0.008, -0.03, seg + 0.006), 'steel', { seed: seed + 151 }), 0.6));
     N.aerial2.add(setFinish(part('metal', rod(0.0075, 0.0065, 0, seg + 0.006), 'steel', { seed: seed + 152 }), 0.6));
     N.aerial3.add(setFinish(part('metal', rod(0.0062, 0.0052, 0, seg), 'steel', { seed: seed + 153 }), 0.6));
     for (const n of ['aerial2', 'aerial3'] as const) {

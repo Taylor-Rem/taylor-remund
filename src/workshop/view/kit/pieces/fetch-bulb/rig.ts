@@ -42,7 +42,7 @@ export const DIM = {
   /** The eye, in head space: centre of the lens sphere, its radius, its cap, and how far its axis looks up. */
   eye: { y: 0.3, z: 0.258, R: 0.18, capDeg: 51, upDeg: 14 },
   /** Arms: shoulder pivot (body space, +X side), segment lengths. */
-  shoulder: { x: 0.24, y: 0.03, z: 0.035 },
+  shoulder: { x: 0.24, y: 0.03, z: 0.07 },
   upperArm: 0.14,
   forearm: 0.14,
   hand: 0.09,
@@ -58,8 +58,8 @@ export function eyeDims() {
   const cap = DIM.eye.capDeg * DEG;
   const lensBaseR = R * Math.sin(cap);
   const zb = R * Math.cos(cap) + 0.001; // the bezel's rear plane (just in front of the lens base)
-  const lidTopR = R + 0.009;
-  const lidBotR = R + 0.0045;
+  const lidTopR = R + 0.011;
+  const lidBotR = R + 0.0065;
   const lip = 0.0055;
   const boreR = Math.sqrt((lidTopR + lip) ** 2 - zb * zb) + 0.004;
   return {
@@ -201,17 +201,17 @@ const J = (swing: number, out: number, twist: number, elbow: number, wrist: numb
 /** The arm presets, [left, right]. Left is Fetch's left: the +X side, the visitor's right. */
 export const ARM_PRESETS: Record<ArmPreset, readonly [ArmJoints, ArmJoints]> = {
   // hanging a little forward, elbows bent, pincers loosely shut
-  rest: [J(26, 28, 16, 62, 14, 0.25), J(22, 25, 10, 68, 10, 0.3)],
+  rest: [J(28, 26, 16, 60, 14, 0.25), J(24, 24, 10, 66, 10, 0.3)],
   // forearms level and forward, hands at crate width
-  carry: [J(24, 4, -8, 72, -6, 0.35), J(24, 4, -8, 72, -6, 0.35)],
-  // both hands out to the visitor, a little up, pincers open
-  offer: [J(58, 14, -14, 24, -26, 0.85), J(54, 12, -12, 28, -24, 0.8)],
+  carry: [J(30, 6, -8, 70, -6, 0.35), J(30, 6, -8, 70, -6, 0.35)],
+  // both hands out to the visitor, out past the eye, a little up, pincers open
+  offer: [J(95, 30, -30, 22, -36, 0.9), J(90, 28, -28, 26, -34, 0.85)],
   // right hand up to the eye's brim; left at rest
-  salute: [J(26, 28, 16, 62, 14, 0.25), J(28, 96, -78, 112, 4, 0.0)],
+  salute: [J(28, 26, 16, 60, 14, 0.25), J(5, 128, 40, 62, 20, 0.0)],
   // elbows out, forearms up, open hands
-  shrug: [J(10, 62, -70, 96, -18, 0.95), J(10, 60, -70, 98, -18, 0.95)],
+  shrug: [J(14, 72, -76, 100, -22, 0.95), J(14, 70, -76, 102, -22, 0.95)],
   // up and everywhere, not symmetric
-  flail: [J(128, 46, 20, 34, -10, 1.0), J(62, 82, -40, 76, 20, 0.6)],
+  flail: [J(40, 105, -50, 70, -10, 1.0), J(15, 80, -30, 35, 25, 0.7)],
 };
 
 export interface FetchPose {
@@ -231,6 +231,8 @@ export interface FetchPose {
   gaze: [number, number];
   /** Lid shutters, 0 open .. 1 closed (top and bottom meet at 1, 1). */
   lids: [number, number];
+  /** Slant of each lid's edge about the eye's axis (radians, + lowers its +X end): a brow without a brow. Optional. */
+  lidTilt: [number, number];
   /** Arms: a preset, a weighted blend of presets, or explicit joints [left, right]. */
   arms: ArmPreset | Partial<Record<ArmPreset, number>> | readonly [ArmJoints, ArmJoints];
   /** Aerial bend at its base: [toward +X (about Z), toward +Z (about X)] in radians; spread over its three segments. */
@@ -249,6 +251,7 @@ export const REST: Readonly<FetchPose> = {
   headRoll: 0,
   gaze: [0, 0],
   lids: [0.34, 0.16],
+  lidTilt: [0, 0],
   arms: 'rest',
   aerial: [0, 0],
   flag: 0,
@@ -258,22 +261,22 @@ export const REST: Readonly<FetchPose> = {
 export const REST_TIP = 7 * DEG;
 export const REST_LEAN = 4 * DEG;
 /** How far the pupil can travel (radians about the lens centre) at |gaze| = 1. */
-export const GAZE_MAX = 22 * DEG;
+export const GAZE_MAX = 21 * DEG;
 
 export type Expression = 'curious' | 'eager' | 'oops' | 'offer' | 'deadpan';
 
 /** The named expressions, as poses. Each must read in a still. */
 export const EXPRESSIONS: Record<Expression, Partial<FetchPose>> = {
-  // head cocked, lids wide, pupil toward the camera (which is in front and above)
-  curious: { lean: [-2 * DEG, 3 * DEG], headYaw: -10 * DEG, headPitch: 8 * DEG, headRoll: 13 * DEG, gaze: [0.18, 0.42], lids: [0, 0], arms: { rest: 0.7, offer: 0.3 }, aerial: [-0.12, -0.06], flag: 0.6 },
-  // tipped forward on the wheel, lids wide, arms a little raised, aerial blown back
-  eager: { lean: [11 * DEG, 0], squash: 0.45, headPitch: 4 * DEG, gaze: [0, 0.2], lids: [0, 0], arms: { carry: 0.45, offer: 0.55 }, aerial: [0.05, -0.32], flag: 1.4 },
-  // just fumbled: rocked back, lids wide, looking down at the crate, arms flung
-  oops: { lean: [-9 * DEG, -4 * DEG], squash: 0.15, headPitch: -14 * DEG, headYaw: 6 * DEG, headRoll: -6 * DEG, gaze: [0.1, -1], lids: [0, 0], arms: 'flail', aerial: [-0.25, 0.3], flag: 2.6 },
-  // looking up at the visitor, both hands out, a sorry little tilt
-  offer: { lean: [5 * DEG, -2 * DEG], headPitch: 16 * DEG, headRoll: -9 * DEG, gaze: [-0.05, 0.85], lids: [0.2, 0.18], arms: 'offer', aerial: [0.08, 0.1], flag: 0.2 },
+  // head cocked, one "brow" up, lids wide, pupil toward the camera (in front and above)
+  curious: { lean: [-2 * DEG, 3 * DEG], headYaw: -12 * DEG, headPitch: 9 * DEG, headRoll: 15 * DEG, gaze: [0.22, 0.5], lids: [0.1, 0], lidTilt: [-0.28, 0], arms: { rest: 0.6, offer: 0.4 }, aerial: [-0.14, -0.06], flag: 0.6 },
+  // tipped forward on the wheel, spring loaded, bottom lid up (a grin), arms up, aerial blown back
+  eager: { lean: [13 * DEG, 0], squash: 0.5, headPitch: 6 * DEG, gaze: [0, 0.3], lids: [0, 0.34], arms: { carry: 0.35, offer: 0.65 }, aerial: [0.05, -0.36], flag: 1.4 },
+  // just fumbled: rocked back, eye wide, looking down at the crate, arms flung up
+  oops: { lean: [-10 * DEG, -5 * DEG], squash: 0.15, headPitch: -16 * DEG, headYaw: 8 * DEG, headRoll: -7 * DEG, gaze: [0.12, -1], lids: [0, 0], arms: 'flail', aerial: [-0.3, 0.32], flag: 2.6 },
+  // looking up at the visitor, both hands out, the top lid slanted: sorry about that
+  offer: { lean: [6 * DEG, -2 * DEG], headPitch: 18 * DEG, headRoll: -10 * DEG, gaze: [-0.05, 0.85], lids: [0.26, 0.2], lidTilt: [0.3, -0.1], arms: 'offer', aerial: [0.08, 0.12], flag: 0.2 },
   // half-lidded, level, unbothered
-  deadpan: { lean: [-1 * DEG, 0], headPitch: -2 * DEG, gaze: [0, -0.05], lids: [0.56, 0.2], arms: { rest: 1 }, aerial: [0.02, 0], flag: 0 },
+  deadpan: { lean: [-1 * DEG, 0], headPitch: -2 * DEG, gaze: [0, -0.05], lids: [0.58, 0.24], arms: { rest: 1 }, aerial: [0.02, 0], flag: 0 },
 };
 
 /** Resolve the arms field to explicit joints [left, right]. */
@@ -319,6 +322,7 @@ export function resolvePose(p: Partial<FetchPose> = {}): FetchPose {
     headRoll: clamp(r.headRoll, -0.35, 0.35),
     gaze: [gx, gy],
     lids: [clamp(r.lids[0], 0, 1), clamp(r.lids[1], 0, 1)],
+    lidTilt: [clamp(r.lidTilt[0], -0.45, 0.45), clamp(r.lidTilt[1], -0.45, 0.45)],
     aerial: [clamp(r.aerial[0], -0.9, 0.9), clamp(r.aerial[1], -0.9, 0.9)],
   };
 }
@@ -353,8 +357,8 @@ export function poseMatrices(pose: Partial<FetchPose> = {}): Record<NodeName, Ma
   out.pupil = rel('pupil').multiply(euler(-p.gaze[1] * GAZE_MAX, p.gaze[0] * GAZE_MAX, 0, 'YXZ'));
   const e = eyeDims();
   // lids are built shut (edges on the eye's horizon); opening turns them away from it
-  out.lidTop = rel('lidTop').multiply(new Matrix4().makeRotationX(-(1 - p.lids[0]) * e.lidOpen));
-  out.lidBottom = rel('lidBottom').multiply(new Matrix4().makeRotationX((1 - p.lids[1]) * e.lidOpen));
+  out.lidTop = rel('lidTop').multiply(new Matrix4().makeRotationZ(-p.lidTilt[0])).multiply(new Matrix4().makeRotationX(-(1 - p.lids[0]) * e.lidOpen));
+  out.lidBottom = rel('lidBottom').multiply(new Matrix4().makeRotationZ(-p.lidTilt[1])).multiply(new Matrix4().makeRotationX((1 - p.lids[1]) * e.lidOpen));
   const [L, R] = armJoints(p.arms);
   for (const [side, j, s] of [['L', L, 1], ['R', R, -1]] as const) {
     out[`arm${side}`] = rel(`arm${side}`)
