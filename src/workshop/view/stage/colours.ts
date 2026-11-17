@@ -69,6 +69,8 @@ export interface StageColours {
   envFloor: RGB;
   /** Blob contact shadows: a deep teal, darker than the room. */
   blob: RGB;
+  /** The sign's bulbs on the wall: amber-glow, a touch deeper than the lamp. Unit luminance. */
+  wash: RGB;
 }
 
 export function stageColours(): StageColours {
@@ -108,5 +110,6 @@ export function stageColours(): StageColours {
     envRoom: mix(tealDeep, tealPanel, 0.35),
     envFloor: scale(mix(wood, woodLight, 0.35), 0.45),
     blob: scale(tealDeep, 0.35),
+    wash: unitLuminance(mix(amberGlow, amber, 0.3)),
   };
 }

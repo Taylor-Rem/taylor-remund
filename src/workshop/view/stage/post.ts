@@ -66,14 +66,16 @@ export function defaultFlags(): PassFlags {
 /** Tuned by eye on the stage dev page; see the W1 report. */
 export const LOOK = {
   exposure: 1.0,
-  toneMap: 'aces' as ToneMap,
+  toneMap: 'neutral' as ToneMap,
   /** `scale` is the AO resolution; `power` sharpens the occlusion curve; `strength` mixes it toward the teal occlusion colour. */
-  gtao: { scale: 0.5, radius: 0.8, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 8, denoiseRadius: 6, strength: 1.0 },
-  bloom: { threshold: 3.0, knee: 1.2, strength: 0.65, radius: 0.85, levels: 5 },
+  gtao: { scale: 0.5, radius: 0.5, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 8, denoiseRadius: 6, strength: 1.0 },
+  /** Threshold sits above lit paper at the hot spot (about 2-2.5 linear) and below the bulbs (indicator 5, lamp 9 in materials): only bulbs glow; a brass glint at most catches a small halo. */
+  bloom: { threshold: 4.5, knee: 0.5, strength: 0.5, radius: 0.85, levels: 5 },
   /** Focus: no blur within `range` (fraction of focus distance); `scale` px of blur per unit of |z−f|/z; capped at `max` px, both at 900 px tall; `far` scales the blur beyond the focus plane. */
-  focus: { range: 0.03, scale: 46, max: 7, far: 0.55 },
-  grade: { saturation: 1.1, shadow: 0.6, light: 0.18, contrast: 1.04, lift: 0.45 },
-  vignette: { amount: 0.55, inner: 0.42, outer: 1.18 },
+  /** Blur grows with |z-f|/z, so it is naturally subtle at wide and station (long distance) and stronger at close. */
+  focus: { range: 0.035, scale: 18, max: 9, far: 0.55 },
+  grade: { saturation: 0.85, shadow: 0.6, light: 0.18, contrast: 1.04, lift: 0.15 },
+  vignette: { amount: 0.3, inner: 0.42, outer: 1.18 },
   /** Below the bench top the world fades to the room over `drop` units; beyond |x| > `halfWidth` over `side`. */
   fog: { drop: 2.2, halfWidth: 10.4, side: 3.0, strength: 1.0 },
 };

@@ -1,0 +1,486 @@
+---
+// /dev/play/ (W2-play): the first playable page. The simulation's vignette
+// on a bench stand-in, the loose-parts view, and stand-ins of this page's own
+// for the Button, the jacks and plug, and Fetch, so every intent can be
+// exercised end to end. The real station views replace the stand-ins later.
+// Dev-only; never shipped.
+//
+// Query: ?debug=1 (overlay: frame ms, steps, hovered/held, last events, input latency)
+//        ?tier=high|low  ?seed=N  ?manual=1  ?physics=stub  ?view=wide|phone
+// Hooks: window.__workshop (stage debug hooks: advance, loop, stats),
+//        window.__play (the workshop handle, events, metrics, throws)
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Play</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
+      canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+      #debug {
+        position: fixed; left: 8px; top: 8px; max-width: 46ch; padding: 8px 10px; border-radius: 6px;
+        background: rgba(10, 20, 22, 0.78); color: #efe6d2; font: 11px/1.45 ui-monospace, Menlo, monospace;
+        white-space: pre; pointer-events: none; display: none;
+      }
+      /* debug only: where the pointer is (screen recordings do not show the cursor) */
+      #cursor {
+        position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -8px 0 0 -8px; border-radius: 50%;
+        border: 2px solid #ffd27a; box-shadow: 0 0 0 1px #12292c; pointer-events: none; display: none;
+      }
+      #cursor.down { background: rgba(255, 210, 122, 0.5); }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="debug"></div>
+    <div id="cursor"></div>
+    <script>
+      import { Box3, Group, Quaternion, Vector3, type Object3D } from 'three';
+      import { bootWorkshop, type BootStation, type Workshop } from '../workshop/shell/boot.ts';
+      import { createPartsView } from '../workshop/view/stations/parts.ts';
+      import { installDebugHooks } from '../workshop/view/stage/debug.ts';
+      import { createStubPhysics, DT } from '../workshop/sim/index.ts';
+      import type { Id, Intent, Part, SimEvent, Vec3, WorldView } from '../workshop/sim/index.ts';
+      import { defaultHalfExtents } from '../workshop/sim/parts.ts';
+      import * as K from '../workshop/view/kit/index.ts';
+      import type { Frame, StationView } from '../workshop/view/types.ts';
+      import type { View } from '../workshop/view/stage/camera.ts';
+
+      const q = new URLSearchParams(location.search);
+      const debug = q.get('debug') === '1';
+      const tier = q.get('tier') === 'low' ? 'low' : 'high';
+      const manual = q.get('manual') === '1';
+      const seed = Number(q.get('seed') ?? 1);
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+
+      // the world's per-part sizes (until the simulation exposes them through WorldView)
+      let worldRef: WorldView | null = null;
+      const halfOf = (part: Part): Vec3 => worldRef?.scene.parts.find((s) => s.id === part.id)?.half ?? defaultHalfExtents(part.kind, part.size);
+
+      // ───────────────────────── stand-ins (this page only) ─────────────────────────
+
+      /** The bench, the back wall, the board and the belt bed: kit boxes on the scene's static boxes. */
+      const benchView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'bench-stand-in';
+        ctx.scene.add(root);
+        let built = false;
+        const build = (w: WorldView): void => {
+          built = true;
+          for (const s of w.scene.statics) {
+            if (s.shape.type !== 'box' || s.id === 'button-pedestal') continue;
+            const [hx, hy, hz] = s.shape.half;
+            const b = K.piece(`static-${s.id}`, { ao: false });
+            if (s.id === 'bench') {
+              b.add(K.large(K.part('wood', K.roundedBox({ w: hx * 2, h: hy * 2, d: hz * 2, r: 0.06, segs: 2 }), 'wood', { seed: 3 })));
+            } else if (s.id === 'back-wall') {
+              b.add(K.large(K.part('wood', K.roundedBox({ w: hx * 2, h: hy * 2, d: hz * 2, r: 0.04, segs: 2 }), 'wood', { seed: 4, shade: 0.55 })));
+            } else if (s.id === 'belt-bed') {
+              b.add(K.part('steel', K.roundedBox({ w: hx * 2, h: hy * 2 - 0.05, d: hz * 2, r: 0.05 }), 'teal-panel', { seed: 5 }));
+              b.add(K.place(K.part('rubber', K.roundedBox({ w: hx * 2 - 0.1, h: 0.05, d: hz * 2 - 0.06, r: 0.02 }), 'ink'), K.T(0, hy * 2 - 0.05, 0)));
+            } else {
+              b.add(K.part('steel', K.roundedBox({ w: hx * 2, h: hy * 2, d: hz * 2, r: 0.06 }), 'teal-panel', { seed: 6 }));
+            }
+            const o = ctx.realize(b.build());
+            o.position.set(s.pose.p[0], s.pose.p[1] - hy, s.pose.p[2]);
+            o.quaternion.set(s.pose.q[0], s.pose.q[1], s.pose.q[2], s.pose.q[3]);
+            root.add(o);
+          }
+          // lane tape for Fetch
+          const lane = w.scene.runner.lane;
+          const len = Math.hypot(lane.b[0] - lane.a[0], lane.b[1] - lane.a[1]) + 0.9;
+          for (const dz of [-0.36, 0.36]) {
+            const t = K.piece('lane-tape', { ao: false });
+            t.add(K.part('tape', K.roundedBox({ w: len, h: 0.008, d: 0.07, r: 0.003, segs: 1 }), 'tape-yellow'));
+            const o = ctx.realize(t.build());
+            o.position.set((lane.a[0] + lane.b[0]) / 2, 0, (lane.a[1] + lane.b[1]) / 2 + dz);
+            root.add(o);
+          }
+        };
+        return {
+          root,
+          update(frame: Frame) {
+            if (!built) build(frame.world);
+          },
+          dispose() {
+            root.removeFromParent();
+          },
+        };
+      };
+
+      /** The Big Red Button: a pedestal and a cap that dips when pressed; a lamp shows the rung's phase. */
+      const buttonView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'button-stand-in';
+        ctx.scene.add(root);
+        let cap: Object3D | null = null;
+        let lampOn: Object3D | null = null;
+        let lampOff: Object3D | null = null;
+        let dip = 0;
+        let built = false;
+        const build = (w: WorldView): void => {
+          built = true;
+          const ped = w.scene.statics.find((s) => s.id === 'button-pedestal');
+          if (!ped || ped.shape.type !== 'box') return;
+          const [hx, hy, hz] = ped.shape.half;
+          const b = K.piece('button-stand-in');
+          b.add(K.part('steel', K.roundedBox({ w: hx * 2, h: hy * 2, d: hz * 2, r: 0.07 }), 'teal-panel', { seed: 8 }));
+          b.add(K.place(K.part('tape', K.roundedBox({ w: hx * 1.7, h: 0.02, d: hz * 1.7, r: 0.02 }), 'tape-yellow'), K.T(0, hy * 2, 0)));
+          b.add(K.place(K.part('brass', K.lathe(K.profile(0, 0).to(0.3, 0, { fillet: 0.01 }).to(0.3, 0.06, { fillet: 0.02 }).to(0.22, 0.08).to(0, 0.08)), 'brass'), K.T(0, hy * 2 + 0.02, 0)));
+          const c = b.node('cap', K.T(0, hy * 2 + 0.09, 0));
+          c.add(K.part('steel', K.lathe(K.profile(0, 0).to(0.27, 0, { fillet: 0.02 }).to(0.29, 0.08, { fillet: 0.04 }).to(0.22, 0.17, { fillet: 0.06 }).to(0, 0.19)), 'button-red', { seed: 9 }));
+          const on = b.node('lamp-on', K.T(hx * 0.55, hy * 1.45, hz + 0.005));
+          on.add(K.place(K.part('bulb', K.ellipsoid({ rx: 0.06, ry: 0.06, rz: 0.035 }), 'amber-glow'), K.T(0, -0.06, 0)));
+          const off = b.node('lamp-off', K.T(hx * 0.55, hy * 1.45, hz + 0.005));
+          off.add(K.place(K.part('glass', K.ellipsoid({ rx: 0.06, ry: 0.06, rz: 0.035 }), 'ink'), K.T(0, -0.06, 0)));
+          const o = ctx.realize(b.build());
+          o.position.set(ped.pose.p[0], ped.pose.p[1] - hy, ped.pose.p[2]);
+          root.add(o);
+          cap = o.getObjectByName('cap') ?? null;
+          capY = cap?.position.y ?? 0;
+          lampOn = o.getObjectByName('lamp-on') ?? null;
+          lampOff = o.getObjectByName('lamp-off') ?? null;
+          ctx.pickable(w.button().id, o);
+        };
+        let capY = 0;
+        return {
+          root,
+          update(frame: Frame) {
+            const w = frame.world;
+            if (!built) build(w);
+            for (const e of frame.events) {
+              if (e.type === 'button.pressed') dip = 1;
+              if (e.type === 'rung.started') {
+                ctx.stage.lights.dip();
+                ctx.stage.camera.shake(0.04);
+              }
+            }
+            const b = w.button();
+            if (!cap) return;
+            // the cap goes down at once and comes back up over the rung
+            const goal = b.phase === 'idle' ? 0 : b.phase === 'playing' ? 0.07 : 0.07 * (1 - Math.min(1, b.phaseTime / 1.2));
+            dip = Math.max(goal / 0.07, dip - frame.dt * 6);
+            cap.position.y = capY - 0.07 * Math.max(dip, goal / 0.07);
+            const lit = b.phase === 'playing' || (b.phase === 'rewinding' && Math.floor(b.phaseTime * 2.4) % 2 === 0);
+            if (lampOn) lampOn.visible = lit;
+            if (lampOff) lampOff.visible = !lit;
+          },
+          dispose() {
+            root.removeFromParent();
+          },
+        };
+      };
+
+      const PLUG_OUT = 0.03;
+      /** The two jacks on the board, their lamps, and the cord's plug (draggable, snaps into a jack). */
+      const cordView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'cord-stand-in';
+        ctx.scene.add(root);
+        let built = false;
+        let plug: Object3D | null = null;
+        const lamps = new Map<Id, { on: Object3D; off: Object3D }>();
+        const at = new Vector3();
+        const goal = new Vector3();
+        const build = (w: WorldView): void => {
+          built = true;
+          const cord = w.scene.cord;
+          for (const j of cord.jacks) {
+            const b = K.piece(`jack-${j.id}`);
+            const socket = K.lathe(K.profile(0, 0).to(0.13, 0, { fillet: 0.01 }).to(0.13, 0.05, { fillet: 0.015 }).to(0.08, 0.07).to(0.05, 0.07).to(0.05, 0.02).to(0, 0.02));
+            b.add(K.place(K.part('brass', socket, 'brass'), K.Rdeg(90, 0, 0)));
+            const on = b.node('on', K.T(0.26, 0, 0));
+            on.add(K.part('bulb', K.ellipsoid({ rx: 0.055, ry: 0.055, rz: 0.04 }), 'amber-glow'));
+            const off = b.node('off', K.T(0.26, 0, 0));
+            off.add(K.part('glass', K.ellipsoid({ rx: 0.055, ry: 0.055, rz: 0.04 }), 'ink'));
+            const o = ctx.realize(b.build());
+            o.position.set(j.at[0], j.at[1], j.at[2] - 0.05);
+            root.add(o);
+            lamps.set(j.id, { on: o.getObjectByName('on')!, off: o.getObjectByName('off')! });
+            ctx.pickable(j.id, o);
+          }
+          const p = K.piece('plug');
+          // built along +Y with the tip below 0, then turned so the tip points into the board (−Z)
+          const body = K.part('rubber', K.lathe(K.profile(0, 0.08).to(0.07, 0.08, { fillet: 0.02 }).to(0.075, 0.3, { fillet: 0.03 }).to(0.04, 0.36, { fillet: 0.02 }).to(0, 0.37)), 'cable-red');
+          const tip = K.part('brass', K.lathe(K.profile(0, -0.06).to(0.03, -0.06, { fillet: 0.01 }).to(0.035, 0.08).to(0.06, 0.08, { fillet: 0.01 }).to(0.06, 0.1).to(0, 0.1)), 'brass');
+          p.add(K.place([body, tip], K.Rdeg(90, 0, 0)));
+          plug = ctx.realize(p.build());
+          root.add(plug);
+          ctx.pickable(cord.id, plug);
+          const v = w.cord(cord.id)!;
+          const j = cord.jacks.find((k) => k.id === v.jack)!;
+          plug.position.set(j.at[0], j.at[1], j.at[2] + PLUG_OUT);
+          at.copy(plug.position);
+        };
+        return {
+          root,
+          update(frame: Frame) {
+            const w = frame.world;
+            if (!built) build(w);
+            const id = w.scene.cord.id;
+            const v = w.cord(id);
+            if (!v || !plug) return;
+            for (const [jid, l] of lamps) {
+              const lit = jid === v.jack && !v.lifted;
+              l.on.visible = lit;
+              l.off.visible = !lit;
+            }
+            if (v.lifted && v.plugAt) goal.set(v.plugAt[0], v.plugAt[1], v.plugAt[2] + PLUG_OUT);
+            else {
+              const j = w.scene.cord.jacks.find((k) => k.id === v.jack)!;
+              goal.set(j.at[0], j.at[1], j.at[2] + PLUG_OUT);
+            }
+            // a hand-held plug follows quickly; seating snaps in
+            const k = v.lifted ? 1 - Math.exp(-30 * frame.dt) : 1 - Math.exp(-40 * frame.dt);
+            at.lerp(goal, k);
+            plug.position.copy(at);
+            const hov = frame.hovered === id && !v.lifted ? 0.04 : 0;
+            plug.position.z += hov;
+          },
+          dispose() {
+            root.removeFromParent();
+          },
+        };
+      };
+
+      /** Fetch: a 1-unit capsule with an eye, where its body is (interpolated); it can be picked up like any part. */
+      const fetchView: BootStation = (ctx) => {
+        const root = new Group();
+        root.name = 'fetch-stand-in';
+        ctx.scene.add(root);
+        let body: Object3D | null = null;
+        const pa = new Vector3();
+        const pb = new Vector3();
+        const qa = new Quaternion();
+        const qb = new Quaternion();
+        return {
+          root,
+          update(frame: Frame) {
+            const w = frame.world;
+            const id = w.scene.runner.id;
+            if (!body) {
+              const b = K.piece('fetch-stand-in');
+              b.add(K.part('steel', K.capsule({ r: 0.28, h: 1.0 }), 'paper', { seed: 11 }));
+              b.add(K.place(K.part('glass', K.ellipsoid({ rx: 0.12, ry: 0.12, rz: 0.06 }), 'ink'), K.T(0, 0.66, 0.24)));
+              b.add(K.place(K.part('bulb', K.ellipsoid({ rx: 0.04, ry: 0.04, rz: 0.02 }), 'amber-glow'), K.T(0, 0.7, 0.29)));
+              b.add(K.place(K.part('rubber', K.roundedBox({ w: 0.2, h: 0.1, d: 0.3, r: 0.04 }), 'ink'), K.T(0, 0, 0)));
+              const inner = ctx.realize(b.build());
+              inner.position.y = -0.5;
+              body = new Group();
+              body.add(inner);
+              root.add(body);
+              ctx.pickable(id, body);
+            }
+            const m = w.motion(id);
+            if (!m || m.mode === 'chute') {
+              body.visible = false;
+              return;
+            }
+            body.visible = true;
+            const P = m.pose;
+            const Q = m.prev;
+            pa.set(Q.p[0], Q.p[1], Q.p[2]);
+            pb.set(P.p[0], P.p[1], P.p[2]);
+            qa.set(Q.q[0], Q.q[1], Q.q[2], Q.q[3]);
+            qb.set(P.q[0], P.q[1], P.q[2], P.q[3]);
+            if (Q !== P) {
+              pa.lerp(pb, frame.alpha);
+              qa.slerp(qb, frame.alpha);
+            } else {
+              pa.copy(pb);
+              qa.copy(qb);
+            }
+            body.position.copy(pa);
+            body.quaternion.copy(qa);
+            if (frame.hovered === id && !m.held) body.position.y += 0.03;
+          },
+          dispose() {
+            root.removeFromParent();
+          },
+        };
+      };
+
+      // ───────────────────────── measuring ─────────────────────────
+
+      interface Logged { step: number; e: SimEvent }
+      const log: Logged[] = [];
+      const intents: { t: number; intent: Intent }[] = [];
+      const throws: { id: Id; speed: number; from: Vec3; to?: Vec3; distance?: number; restSeconds?: number; releasedAt: number; offBench?: boolean }[] = [];
+      const lag: { t: number; px: number; speed: number }[] = [];
+      let grip: { id: Id; local: Vector3 } | null = null;
+      const tmpQ = new Quaternion();
+      const tmpV = new Vector3();
+      const tmpP = new Vector3();
+      let lastPointerPx: { x: number; y: number; t: number } | null = null;
+      let pointerSpeed = 0;
+      canvas.addEventListener('pointermove', (e) => {
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        const y = e.clientY - r.top;
+        if (lastPointerPx && e.timeStamp > lastPointerPx.t) pointerSpeed = Math.hypot(x - lastPointerPx.x, y - lastPointerPx.y) / ((e.timeStamp - lastPointerPx.t) / 1000);
+        lastPointerPx = { x, y, t: e.timeStamp };
+      });
+      canvas.addEventListener('pointerdown', (e) => {
+        const r = canvas.getBoundingClientRect();
+        lastPointerPx = { x: e.clientX - r.left, y: e.clientY - r.top, t: e.timeStamp };
+        pointerSpeed = 0;
+      });
+
+      const overlay = document.getElementById('debug')!;
+      const cursorDot = document.getElementById('cursor')!;
+      if (debug) {
+        overlay.style.display = 'block';
+        cursorDot.style.display = 'block';
+        addEventListener('pointermove', (e) => cursorDot.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`);
+        addEventListener('pointerdown', () => cursorDot.classList.add('down'));
+        addEventListener('pointerup', () => cursorDot.classList.remove('down'));
+      }
+      const fmt = (n: number | undefined): string => (n === undefined ? '-' : n.toFixed(1));
+
+      function onFrame(frame: Frame, ws: Workshop): void {
+        const w = frame.world;
+        for (const e of frame.events) {
+          log.push({ step: w.step, e });
+          if (log.length > 4000) log.shift();
+          if (e.type === 'part.released') {
+            const m = w.motion(e.id);
+            if (m) throws.push({ id: e.id, speed: e.speed, from: m.pose.p, releasedAt: w.step });
+          }
+          if (e.type === 'part.returned') {
+            const t = [...throws].reverse().find((x) => x.id === e.id && x.to === undefined);
+            if (t) t.offBench = true;
+          }
+          if (e.type === 'part.rested') {
+            const t = [...throws].reverse().find((x) => x.id === e.id && x.to === undefined);
+            const m = w.motion(e.id);
+            if (t && m) {
+              t.to = m.pose.p;
+              t.distance = Math.hypot(t.to[0] - t.from[0], t.to[2] - t.from[2]);
+              t.restSeconds = (w.step - t.releasedAt) * DT;
+            }
+          }
+        }
+        // cursor-to-grip distance while carrying, in CSS px
+        const held = w.holding();
+        if (held?.kind === 'part' && grip?.id === held.id && lastPointerPx && ws.gestures.state === 'carry') {
+          const m = w.motion(held.id)!;
+          tmpP.set(m.prev.p[0], m.prev.p[1], m.prev.p[2]).lerp(tmpV.set(m.pose.p[0], m.pose.p[1], m.pose.p[2]), frame.alpha);
+          tmpQ.set(m.pose.q[0], m.pose.q[1], m.pose.q[2], m.pose.q[3]);
+          const g = grip.local.clone().applyQuaternion(tmpQ).add(tmpP);
+          const s = ws.stage.camera.worldToScreen(g);
+          const px = ((s.x + 1) / 2) * canvas.clientWidth;
+          const py = ((1 - s.y) / 2) * canvas.clientHeight;
+          lag.push({ t: performance.now(), px: Math.hypot(px - lastPointerPx.x, py - lastPointerPx.y), speed: pointerSpeed });
+          if (lag.length > 5000) lag.shift();
+        }
+        if (debug && w.step % 3 === 0) {
+          const ft = ws.loop.frameTimes().slice(-30);
+          const ms = ft.length ? ft.reduce((a, b) => a + b, 0) / ft.length : 0;
+          const L = ws.latency.report();
+          const lat = (k: string): string => `${k.padEnd(7)} step ${fmt(L.step[k]?.median)}  frame ${fmt(L.frame[k]?.median)}  (n ${L.step[k]?.n ?? 0})`;
+          const recent = lag.slice(-20);
+          const lagNow = recent.length ? Math.max(...recent.map((x) => x.px)) : 0;
+          overlay.textContent = [
+            `frame ${ms.toFixed(1)} ms   step ${w.step}   ${ws.stage.stats().renderer.slice(0, 22)}`,
+            `hovered ${frame.hovered ?? '-'}   held ${frame.held ?? '-'}   gesture ${ws.gestures.state}${w.bracketed ? '   BRACKETED' : ''}`,
+            `cursor→grip ${held ? lagNow.toFixed(1) + ' px' : '-'}`,
+            'latency, ms from the DOM event (median):',
+            lat('grab'), lat('carry'), lat('release'), lat('press'), lat('unplug'), lat('plug'), lat('place'),
+            'last events:',
+            ...log.slice(-10).map((l) => `  ${l.step}  ${describe(l.e)}`),
+          ].join('\n');
+        }
+      }
+      function describe(e: SimEvent): string {
+        switch (e.type) {
+          case 'part.hit': return `hit ${e.id}${e.other ? '×' + e.other : ''} ${e.strength.toFixed(2)}`;
+          case 'part.released': return `released ${e.id} ${e.speed.toFixed(2)}`;
+          case 'effect': return `effect ${e.effect.target}.${e.effect.field}`;
+          case 'crew.state': return `crew ${e.id} ${e.from}→${e.state}`;
+          default: return `${e.type} ${'id' in e ? e.id : 'rung' in e ? 'rung ' + e.rung : 'jack' in e ? e.jack : ''}`;
+        }
+      }
+
+      // ───────────────────────── boot ─────────────────────────
+
+      const wideBox = new Box3(new Vector3(-5.2, -0.3, -5.0), new Vector3(6.4, 2.6, 5.0));
+      const phoneBox = new Box3(new Vector3(-3.3, 0, -0.4), new Vector3(3.5, 1.8, 2.6));
+      const cluster = new Vector3(0.2, 0.5, 1.2);
+      const ws = await bootWorkshop(canvas, {
+        tier,
+        reducedMotion,
+        seed,
+        manual,
+        stations: [benchView, createPartsView({ half: halfOf }), buttonView, cordView, fetchView],
+        ...(q.get('physics') === 'stub' ? { physics: async () => createStubPhysics() } : {}),
+        frameCamera(stage, scene) {
+          const edge = { y: scene.bench.top, z: scene.bench.maxZ };
+          const portrait = innerWidth < innerHeight || q.get('view') === 'phone';
+          stage.camera.setSubject(portrait ? phoneBox : wideBox, { edge, bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 4, scene.bench.maxZ)) });
+          stage.camera.focusOn(cluster);
+          stage.camera.cutTo(stage.camera.home());
+        },
+        onFrame,
+        onIntent(intent, t) {
+          intents.push({ t, intent });
+          if (intents.length > 4000) intents.shift();
+          if (intent.type === 'grab') {
+            const m = worldRef?.motion(intent.id);
+            if (m) {
+              const inv = new Quaternion(m.pose.q[0], m.pose.q[1], m.pose.q[2], m.pose.q[3]).invert();
+              grip = { id: intent.id, local: new Vector3(intent.grip[0] - m.pose.p[0], intent.grip[1] - m.pose.p[1], intent.grip[2] - m.pose.p[2]).applyQuaternion(inv) };
+            }
+          }
+        },
+        onFrameRequest(_id, stage) {
+          // a hook only: framing a station belongs to the stations
+          stage.camera.shake(0.02);
+        },
+      });
+      worldRef = ws.world;
+      const views: Record<string, View> = { wide: ws.stage.camera.home(), phone: ws.stage.camera.home() };
+      installDebugHooks(ws.stage, ws.loop, views);
+
+      // the stand-in can be framed by a box the page knows (for captures)
+      (window as unknown as { __play: unknown }).__play = {
+        ws,
+        log,
+        intents,
+        throws,
+        lag,
+        project(p: Vec3) {
+          const s = ws.stage.camera.worldToScreen({ x: p[0], y: p[1], z: p[2] });
+          return { x: ((s.x + 1) / 2) * canvas.clientWidth, y: ((1 - s.y) / 2) * canvas.clientHeight };
+        },
+        motion: (id: Id) => ws.world.motion(id),
+        /** Cut the camera to fit a box (close-up captures). */
+        frameBox(min: Vec3, max: Vec3) {
+          const b = new Box3(new Vector3(...min), new Vector3(...max));
+          ws.stage.camera.focusOn(b.getCenter(new Vector3()));
+          ws.stage.camera.cutTo(ws.stage.camera.frame(b));
+        },
+        reset() {
+          log.length = 0;
+          intents.length = 0;
+          throws.length = 0;
+          lag.length = 0;
+          ws.latency.reset();
+        },
+      };
+      let frames = 0;
+      const ready = (): void => {
+        frames++;
+        if (frames === 10) window.__ready = true;
+        else requestAnimationFrame(ready);
+      };
+      if (manual) {
+        for (let i = 0; i < 10; i++) ws.advance(1);
+        window.__ready = true;
+      } else requestAnimationFrame(ready);
+    </script>
+  </body>
+</html>
