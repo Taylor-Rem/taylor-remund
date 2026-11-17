@@ -89,7 +89,7 @@ const SPECS: Record<CrateSize, Spec> = {
   L: {
     w: 0.8, h: 0.75, d: 0.74, post: 0.09, postC: 0.014, proud: 0.044, railH: 0.086, railProud: 0.03, railC: 0.01,
     plankT: 0.028, plankC: 0.008, gap: 0.012, planks: 3, lidPlanks: 3, lidT: 0.036, cleatT: 0.028, cleatW: 0.086,
-    skid: 0.072, bracket: 0.124, rope: false, brace: true, nails: false, arrowCap: 0.085, letterCap: 0.2, skinPts: 10,
+    skid: 0.072, bracket: 0.124, rope: false, brace: true, nails: false, arrowCap: 0.08, letterCap: 0.15, skinPts: 10,
   },
 };
 
@@ -387,13 +387,15 @@ export function crate(o: CrateOptions = {}): Piece {
         const aw = STENCIL_W.arrows! * S.arrowCap, ah = STENCIL_H * S.arrowCap;
         const lw = STENCIL_W[size]! * S.letterCap, lh = STENCIL_H * S.letterCap;
         let ax: number, ay: number, lxp: number, lyp: number;
+        const mid = (bd: readonly [number, number]): number => (bd[0] + bd[1]) / 2;
         if (S.brace) {
           // the brace runs bottom-left to top-right: arrows above it, the letter below
-          ax = -pw * 0.2; ay = panelY0 + ph2 * 0.74;
-          lxp = pw * 0.22; lyp = panelY0 + ph2 * 0.27;
+          ax = -pw * 0.22; ay = mid(bands[n - 1]!);
+          lxp = pw * 0.24; lyp = mid(bands[0]!) + 0.012;
         } else {
-          ax = R.spread(0.01); ay = panelY0 + ph2 * 0.73;
-          lxp = R.spread(0.012); lyp = panelY0 + ph2 * 0.34;
+          // one plank: arrows over the letter; more: arrows on the top plank, the letter on the bottom one
+          ax = R.spread(0.01); ay = n === 1 ? panelY0 + ph2 * 0.73 : mid(bands[n - 1]!);
+          lxp = R.spread(0.012); lyp = n === 1 ? panelY0 + ph2 * 0.34 : mid(bands[0]!) + 0.015;
         }
         const zs = 0.0042;
         for (const [key, cx, cy, w, h] of [[keys.arrows, ax, ay, aw, ah], [keys.letter, lxp, lyp, lw, lh]] as const) {
@@ -464,8 +466,8 @@ export function crate(o: CrateOptions = {}): Piece {
     const xIn = W / 2 - P;
     const zf = zP(D / 2);
     const ya = panelY0, yb = panelY1;
-    const bw = S.railH * 1.0;
-    const slope = (2 * xIn - bw * 0.2) / (yb - ya);
+    const bw = S.railH * 1.65; // measured across X: the sheared board is cos(angle) of that across its face
+    const slope = (2 * xIn - bw * 0.55) / (yb - ya);
     const g = bevelBox({ min: [-bw / 2, ya, zf - 0.004], max: [bw / 2, yb, zf + S.railProud - 0.002], c: cB(S.railC), omit: ['py', 'ny', 'nz'], wear: 0.8 });
     const ym = (ya + yb) / 2;
     deform(g, (x, yy, z) => [x + (yy - ym) * slope, yy, z], { keepSurf: true });
