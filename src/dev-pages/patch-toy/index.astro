@@ -1,0 +1,95 @@
+---
+// Review page for Patch, take "the enamel figurine", on a stand-in stool under the real stage light.
+// Query: ?view=beauty|clay|sil  ?dist=wide|station|close|face|sheet|<number>
+//        ?pose=unimpressed|amused|the-look|working|checking|neutral  ?yaw=<deg> (Patch's turn on the stool)
+//        ?set=a,b,c (sheet: which poses)  ?detail=low  ?seed=  ?board=1 (a dark stand-in board behind)
+// Debug: window.__patch = { pose(p), objs }.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Patch, the enamel figurine</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script>
+      import { Box3, Color, MeshBasicMaterial, Vector3 } from 'three';
+      import type { Mesh, Object3D } from 'three';
+      import { mountShowcase } from '../../workshop/view/catalogue/mount.ts';
+      import { hex } from '../../workshop/view/palette.ts';
+      import * as K from '../../workshop/view/kit/index.ts';
+      import { patchToy, posePatch, EXPRESSIONS, SEAT_H } from '../../workshop/view/kit/pieces/patch-toy/index.ts';
+      import type { ExpressionName, PatchPose } from '../../workshop/view/kit/pieces/patch-toy/index.ts';
+
+      const q = new URLSearchParams(location.search);
+      const view = q.get('view') ?? 'beauty';
+      const dist = q.get('dist') ?? 'station';
+      const yaw = Number(q.get('yaw') ?? 0);
+      const detail = q.get('detail') === 'low' ? 'low' : 'high';
+      const seed = Number(q.get('seed') ?? 1);
+      const sheet = dist === 'sheet';
+      const names = sheet ? (q.get('set') ?? 'unimpressed,amused,the-look,working,checking').split(',') : [q.get('pose') ?? 'unimpressed'];
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const s = await mountShowcase(canvas, { post: view !== 'sil', ground: view === 'sil' ? 'none' : 'bench' });
+
+      // a stand-in stool (until the switchboard engineer's `stool` lands): turned seat, three splayed legs
+      function stool(): K.Piece {
+        const b = K.piece('stool-standin', { seed: 3 });
+        const seat = K.lathe(K.profile(0, SEAT_H - 0.07).to(0.27, SEAT_H - 0.07, { fillet: 0.02 }).to(0.28, SEAT_H, { fillet: 0.025 }).to(0, SEAT_H), { segs: 32 });
+        b.add(K.part('wood', K.grain(seat, 'x'), 'wood-light', { seed: 4 }));
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2 + 0.5;
+          const top: [number, number, number] = [Math.cos(a) * 0.17, SEAT_H - 0.07, Math.sin(a) * 0.17];
+          const bot: [number, number, number] = [Math.cos(a) * 0.25, 0, Math.sin(a) * 0.25];
+          b.add(K.part('wood', K.sweep(K.linePath(top, bot, 2), { radius: 0.03, segs: 8 }), 'wood-light', { seed: 5 + i }));
+        }
+        return b.build();
+      }
+
+      const black = new MeshBasicMaterial({ color: 0x000000 });
+      const objs: Object3D[] = [];
+      let box: Box3 | null = null;
+      const spacing = 1.25;
+      names.forEach((nm, i) => {
+        const x = sheet ? (i - (names.length - 1) / 2) * spacing : 0;
+        const st = s.add(stool(), { x, z: 0, yaw: 0, blob: 0.8, view: view === 'clay' ? 'clay' : 'beauty' });
+        const p = patchToy({ seed, detail });
+        const o = s.add(p, { x, y: SEAT_H, z: 0, yaw, blob: 0, view: view === 'clay' ? 'clay' : 'beauty' });
+        posePatch(o, nm in EXPRESSIONS ? EXPRESSIONS[nm as ExpressionName] : {});
+        if (view === 'sil') for (const t of [o, st]) t.traverse((m) => { if ((m as Mesh).isMesh) (m as Mesh).material = black; });
+        objs.push(o);
+        const b = s.boxOf(o).union(s.boxOf(st));
+        box = box ? box.union(b) : b;
+      });
+      if (view === 'sil') {
+        s.stage.scene.background = new Color(hex('paper'));
+        s.stage.scene.fog = null;
+      }
+      const B = box as unknown as Box3;
+      const focus = B.getCenter(new Vector3());
+      if (dist === 'face') {
+        const f = new Vector3(0, SEAT_H + 0.75, 0.1);
+        s.look(new Box3(f.clone().addScalar(-0.42), f.clone().addScalar(0.42)), 'close', { focus: f });
+      } else if (dist === 'close') {
+        focus.y = SEAT_H + 0.45;
+        s.look(new Box3(new Vector3(-0.5, SEAT_H - 0.35, -0.4), new Vector3(0.5, SEAT_H + 1.15, 0.5)), 'close', { focus });
+      } else if (sheet) {
+        focus.y = SEAT_H + 0.5;
+        s.look(B, Number(q.get('d') ?? 13), { focus });
+      } else if (!Number.isNaN(Number(dist))) {
+        s.look(B, Number(dist), { focus });
+      } else {
+        s.look(B, dist as 'wide' | 'station');
+      }
+      (window as unknown as { __patch: unknown }).__patch = { pose: (p: PatchPose) => objs.forEach((o) => posePatch(o, p)), objs, show: s };
+      s.start();
+    </script>
+  </body>
+</html>
