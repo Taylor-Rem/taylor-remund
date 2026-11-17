@@ -391,6 +391,62 @@ export function countTriangles(p: Piece | PieceNode): number {
   return n;
 }
 
+export interface BudgetRow {
+  /** Node path from the root, e.g. 'root/hatch'. */
+  node: string;
+  material: MaterialClass;
+  variant?: MaterialVariant | undefined;
+  texture?: string | undefined;
+  triangles: number;
+}
+
+export interface Budget {
+  total: number;
+  /** Triangles per node (its own parts only), keyed by node path. */
+  byNode: Record<string, number>;
+  /** Triangles per material class, over the whole piece. */
+  byMaterial: Partial<Record<MaterialClass, number>>;
+  /** One row per realised mesh (node × material × variant × texture), largest first. */
+  rows: BudgetRow[];
+  /** The cap it was checked against, if any, and whether it fits. */
+  cap?: number | undefined;
+  fits: boolean;
+  /** A few lines for a HUD or a console. */
+  text: string;
+}
+
+/**
+ * Where a piece's triangles go: per node, per material class, per mesh, largest first. For
+ * builders fighting their cap (hero pieces ~11k at high; see the brief for yours).
+ */
+export function budget(p: Piece, cap?: number): Budget {
+  const rows: BudgetRow[] = [];
+  const byNode: Record<string, number> = {};
+  const byMaterial: Partial<Record<MaterialClass, number>> = {};
+  const walk = (n: PieceNode, path: string): void => {
+    let own = 0;
+    for (const q of n.parts) {
+      const t = triangleCount(q.geometry);
+      own += t;
+      byMaterial[q.material] = (byMaterial[q.material] ?? 0) + t;
+      rows.push({ node: path, material: q.material, variant: q.variant, texture: q.texture, triangles: t });
+    }
+    byNode[path] = own;
+    for (const c of n.children ?? []) walk(c, `${path}/${c.name}`);
+  };
+  walk(p.root, p.root.name);
+  rows.sort((a, b) => b.triangles - a.triangles);
+  const total = rows.reduce((s, r) => s + r.triangles, 0);
+  const fits = cap === undefined || total <= cap;
+  const pct = (t: number): string => `${((100 * t) / Math.max(1, total)).toFixed(0)}%`;
+  const text = [
+    `${p.name}: ${total} triangles${cap !== undefined ? ` / cap ${cap} ${fits ? 'ok' : 'OVER'}` : ''}`,
+    `by material: ${Object.entries(byMaterial).sort((a, b) => b[1]! - a[1]!).map(([m, t]) => `${m} ${t} (${pct(t!)})`).join(', ')}`,
+    `by node: ${Object.entries(byNode).sort((a, b) => b[1] - a[1]).map(([nd, t]) => `${nd} ${t}`).join(', ')}`,
+  ].join('\n');
+  return { total, byNode, byMaterial, rows, cap, fits, text };
+}
+
 /** Axis-aligned bounds of a piece at rest, in its root space. */
 export function pieceBounds(p: Piece): Box3 {
   const box = new Box3();
