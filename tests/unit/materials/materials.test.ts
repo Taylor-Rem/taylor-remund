@@ -26,10 +26,14 @@ function fakeLabels(): Labels & { made: string[] } {
   };
   return {
     made,
-    tape: key, stencil: key, card: key, plate: key, sign: key,
+    tape: key, stencil: key, card: key, plate: key, sign: key, slip: key,
+    phone: (m) => key(m.map((x) => x.text).join(' ')),
     size: () => ({ w: 1, h: 0.2 }),
+    capHeight: () => 0.2,
     texture: (k) => tex.get(k)!,
     normalMap: () => null,
+    roughnessMap: () => null,
+    transparent: () => false,
   };
 }
 

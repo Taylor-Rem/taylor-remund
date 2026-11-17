@@ -37,13 +37,23 @@ export type MaterialClass =
  * Vertex attributes every kit geometry carries:
  *  - position, normal  (normals already finished: weighted/creased as the piece needs)
  *  - color   vec3, LINEAR rgb of a palette token (use `tint`), may be jittered per plank/panel
- *  - surf    vec2: x = wear   0..1  how exposed/convex (edges, corners, raised rims)
+ *  - surf    vec3: x = wear   0..1  how exposed/convex (edges, corners, raised rims)
  *                  y = cavity 0..1  how enclosed/concave (creases, recesses, under overhangs)
- *  - uv      vec2, optional. For wood, u runs along the grain. For textured
- *            quads (labels, cards, plates) the usual 0..1.
+ *                  z = finish 0..1  0 is the class's normal finish; 1 is high gloss / polished
+ *                                   (the Button's cap, a lens rim, a polished brass knob)
+ *  - lpos    vec3: MATERIAL-SPACE position: where this vertex sits in its own part's
+ *            local frame, with +X along the part's length (the grain of a plank, the
+ *            brushing of a brass strip, the travel of the belt). It is written when a
+ *            solid is made and is NOT changed when the part is placed, merged or
+ *            animated; each part also gets a seeded offset, so two identical parts
+ *            never show the same chips or grain. Materials evaluate every procedural
+ *            detail in lpos space (never in merged object space, where a plank turned
+ *            90 degrees would have its grain running the wrong way).
+ *  - uv      vec2, optional. For textured quads (labels, cards, plates) the usual
+ *            0..1. For the belt, uv.x runs along the loop in world units.
  * Geometry is indexed or not as the builder prefers; `merge` must accept both.
  */
-export const ATTR = { color: 'color', surf: 'surf' } as const;
+export const ATTR = { color: 'color', surf: 'surf', lpos: 'lpos' } as const;
 
 /** A lump of one material. */
 export interface KitPart {

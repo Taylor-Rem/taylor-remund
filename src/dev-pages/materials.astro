@@ -224,7 +224,9 @@
         };
         return {
           tape: (t) => make(t), stencil: (t) => make(t), card: (t) => make(t), plate: (t) => make(t), sign: (t) => make(t),
-          size: () => ({ w: 1, h: 0.25 }), texture: (k) => tex.get(k)!, normalMap: () => null,
+          slip: (t) => make(t), phone: (m) => make(m.map((x) => x.text).join(' ')),
+          size: () => ({ w: 1, h: 0.25 }), capHeight: () => 0.2, texture: (k) => tex.get(k)!, normalMap: () => null,
+          roughnessMap: () => null, transparent: () => false,
         };
       })();
       const mats = createMaterials({ tier, labels: fakeLabels });
