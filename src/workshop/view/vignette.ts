@@ -28,7 +28,7 @@ import type { Piece } from './kit/types.ts';
 import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
 import { pieceBounds } from './kit/compose.ts';
 import { createPartsView } from './stations/parts.ts';
-import { createSetView, flatten, mergedPiece, type Placed } from './stations/set.ts';
+import { createSetView, flatten, mergedPiece, type Placed, type StaticPool } from './stations/set.ts';
 import { createBeltView } from './stations/belt.ts';
 import { createCordView } from './stations/cord.ts';
 import { createPatchView } from './stations/patch.ts';
@@ -50,7 +50,12 @@ export const LAYOUT = {
   /** The crate stack: ground position of the bottom crate. Left of the Button, in the lamp's pool. */
   stack: { x: -3.05, z: -0.25 },
   /** Fetch's lane: in FRONT of the Button (behind it, a 1-unit robot vanishes behind a 1.5-unit console). */
-  lane: { a: [-3.7, 2.35] as const, b: [3.9, 2.35] as const, halfW: 0.52 },
+  lane: { a: [-3.7, 2.25] as const, b: [3.9, 2.25] as const, halfW: 0.52 },
+  /**
+   * Where Fetch fumbles (world x): just right of the console, so Fetch and the crate end up beside
+   * the Button, never in front of its DO NOT TOUCH tape (from 33° up, a crate in front of the console covers it).
+   */
+  fumbleX: 2.5,
   /** Where on the lane Fetch starts (0..1). */
   fetchStart: 0.22,
   /** The fumbled crate's launch: forward along Fetch's travel (+X) so it lands beside the Button, not on the belt. */
@@ -62,7 +67,7 @@ export const LAYOUT = {
   /** The phone on its easel: right of centre, between the board and the Button. */
   phone: { x: 2.75, z: -1.55, yaw: -16 },
   /** A length of belt along the front (its centre). */
-  belt: { x: 3.35, z: 3.85, length: 6 },
+  belt: { x: 3.5, z: 4.05, length: 6 },
   /** The sign, hung on the wall above the board (its origin height). */
   sign: { x: 1.05, y: 3.05 },
   /** The tool wall, back left on the wall (its origin height). */
@@ -156,7 +161,18 @@ export interface Fit {
   board: { at: Placed; bounds: Box3; jacks: Record<'storefront' | 'lamp', Vec3>; cordRoot: Vec3 };
   stool: { at: Placed; bounds: Box3; seat: Vec3 };
   phone: { at: Placed; bounds: Box3 };
-  belt: { at: Placed; bounds: Box3; top: number };
+  /** The belt: placement, its whole bounds, the carrying bed's collider and the motor housing's (piece space). */
+  belt: { at: Placed; bounds: Box3; top: number; bed: Box3; motor: Box3 | null };
+}
+
+/** Constants the pieces export (their modules), for colliders tighter than the bounds. */
+export interface FitConstants {
+  /** The Button's `CONSOLE` and `BUTTON` (the console body: w, frontBottomZ, backZ; the deck height). */
+  console?: { w: number; frontBottomZ: number; backZ: number } | undefined;
+  deckY?: number | undefined;
+  /** The belt's `BELT` (topY, width). */
+  belt?: { topY: number; width: number } | undefined;
+  beltLength?: number;
 }
 
 const box = (w: number, h: number, d: number): Box3 => new Box3(new Vector3(-w / 2, 0, -d / 2), new Vector3(w / 2, h, d / 2));
@@ -179,8 +195,10 @@ export function againstWall(b: Box3): number {
 }
 
 /** The measurements of the vignette's pieces (blank builds, no labels: sizes and sockets only). */
-export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null }): Fit {
-  const B = pieces.button ? pieceBounds(pieces.button) : new Box3(new Vector3(-1.05, 0, -0.76), new Vector3(1.05, 1.5, 0.66));
+export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null }, k: FitConstants = {}): Fit {
+  // the console body (not the guard, the counter's bracket or the cable): what a crate bumps into
+  const C = k.console ?? { w: 2.1, frontBottomZ: 0.66, backZ: -0.76 };
+  const B = new Box3(new Vector3(-C.w / 2, 0, C.backZ), new Vector3(C.w / 2, k.deckY ?? 1.04, C.frontBottomZ));
   const boardB = pieces.board ? pieceBounds(pieces.board) : box(STAND_IN.board.w, STAND_IN.board.h, STAND_IN.board.d);
   const boardAt: Placed = { x: LAYOUT.board.x, z: againstWall(boardB), yaw: LAYOUT.board.yaw };
   const sb = STAND_IN.board;
@@ -200,7 +218,14 @@ export function fitPieces(pieces: { button?: Piece | null; board?: Piece | null;
     board: { at: boardAt, bounds: boardB, jacks, cordRoot },
     stool: { at: stoolAt, bounds: stoolB, seat },
     phone: { at: { x: LAYOUT.phone.x, z: LAYOUT.phone.z, yaw: LAYOUT.phone.yaw }, bounds: phoneB },
-    belt: { at: { x: LAYOUT.belt.x, z: LAYOUT.belt.z, yaw: 0 }, bounds: beltB, top: beltTop(pieces.belt ?? null, beltB) },
+    belt: (() => {
+      const top = k.belt?.topY ?? beltTop(pieces.belt ?? null, beltB);
+      const len = k.beltLength ?? LAYOUT.belt.length;
+      const hw = (k.belt?.width ?? STAND_IN.belt.d) / 2 + 0.06; // the rails stand just outside the belt
+      const bed = new Box3(new Vector3(-len / 2, 0, -hw), new Vector3(len / 2, top, hw));
+      const motor = pieces.belt && beltB.min.x < -len / 2 - 0.05 ? new Box3(new Vector3(beltB.min.x, 0, beltB.min.z), new Vector3(-len / 2, beltB.max.y, beltB.max.z)) : null;
+      return { at: { x: LAYOUT.belt.x, z: LAYOUT.belt.z, yaw: 0 }, bounds: beltB, top, bed, motor };
+    })(),
   };
 }
 
@@ -234,16 +259,14 @@ function staticBox(id: Id, b: Box3, at: Placed): SceneDesc['statics'][number] {
 export function vignetteScene(fit: Fit, base: SceneDesc = SIM_VIGNETTE): SceneDesc {
   const L = LAYOUT;
   const bx = L.button.x, bz = L.button.z;
-  const B = fit.button;
+
   // the console's collider: the body up to the deck (the cap and the parked guard are not obstacles worth a body)
-  const deck = Math.min(B.max.y, 1.06);
-  const pedestal = staticBox('button-pedestal', new Box3(new Vector3(B.min.x, 0, B.min.z), new Vector3(B.max.x, deck, B.max.z)), { x: bx, z: bz });
+  const pedestal = staticBox('button-pedestal', fit.button, { x: bx, z: bz });
   const board = staticBox('board', fit.board.bounds, fit.board.at);
-  const beltBody = new Box3(new Vector3(fit.belt.bounds.min.x, 0, fit.belt.bounds.min.z), new Vector3(fit.belt.bounds.max.x, fit.belt.top, fit.belt.bounds.max.z));
-  const belt = { ...staticBox('belt-bed', beltBody, fit.belt.at), friction: 0.9 };
-  const stool = staticBox('stool', fit.stool.bounds, fit.stool.at);
-  const phone = staticBox('phone', fit.phone.bounds, fit.phone.at);
-  const statics = base.statics.map((s) => (s.id === 'button-pedestal' ? pedestal : s.id === 'board' ? board : s.id === 'belt-bed' ? belt : s)).concat([stool, phone]);
+  const belt = { ...staticBox('belt-bed', fit.belt.bed, fit.belt.at), friction: 0.9 };
+  const extra = [staticBox('stool', fit.stool.bounds, fit.stool.at), staticBox('phone', fit.phone.bounds, fit.phone.at)];
+  if (fit.belt.motor) extra.push(staticBox('belt-motor', fit.belt.motor, fit.belt.at));
+  const statics = base.statics.map((s) => (s.id === 'button-pedestal' ? pedestal : s.id === 'board' ? board : s.id === 'belt-bed' ? belt : s)).concat(extra);
 
   // the stack: large, medium, small, each a little off true (as the simulation has it), at the new spot
   const size = (id: Id): number => {
@@ -279,7 +302,7 @@ export function vignetteScene(fit: Fit, base: SceneDesc = SIM_VIGNETTE): SceneDe
       ...runner,
       lane,
       start: L.fetchStart,
-      fumbleAt: Math.min(0.95, Math.max(0.05, (bx - lane.a[0]) / (lane.b[0] - lane.a[0]))),
+      fumbleAt: Math.min(0.95, Math.max(0.05, (L.fumbleX - lane.a[0]) / (lane.b[0] - lane.a[0]))),
       toss: { linvel: L.toss.linvel, angvel: L.toss.angvel },
     },
   };
@@ -303,6 +326,13 @@ export function layoutForSim(scene: SceneDesc): Record<string, unknown> {
     board: st('board') && { centre: rv(st('board')!.p), half: rv(st('board')!.half) },
     jacks: Object.fromEntries(scene.cord.jacks.map((j) => [j.id, rv(j.at)])),
     belt: st('belt-bed') && { centre: rv(st('belt-bed')!.p), half: rv(st('belt-bed')!.half) },
+    beltMotor: st('belt-motor') && { centre: rv(st('belt-motor')!.p), half: rv(st('belt-motor')!.half) },
+    loose: (() => {
+      const c = scene.parts.find((p) => p.id === scene.runner.carrying);
+      return c ? rv(c.pose.p) : null;
+    })(),
+    chute: { p: rv(scene.chute.pose.p), linvel: rv(scene.chute.linvel) },
+    bench: scene.bench,
     stool: st('stool') && { centre: rv(st('stool')!.p), half: rv(st('stool')!.half) },
     phone: st('phone') && { centre: rv(st('phone')!.p), half: rv(st('phone')!.half) },
   };
@@ -375,18 +405,27 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
 
   // ── measure (blank builds: sizes and sockets) ──
   const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Piece | null => (e ? buildEntry(e, null, { seed, ...opts }) : null);
-  const fit = fitPieces({
-    button: blank(E.button),
-    board: blank(E.board),
-    stool: blank(E.stool),
-    phone: blank(E.phone),
-    belt: blank(E.belt, { length: LAYOUT.belt.length }),
-  });
+  const buttonMod = await pieceModule('button');
+  const beltMod = await pieceModule('belt');
+  const fit = fitPieces(
+    {
+      board: blank(E.board),
+      stool: blank(E.stool),
+      phone: blank(E.phone),
+      belt: blank(E.belt, { length: LAYOUT.belt.length }),
+    },
+    {
+      console: buttonMod?.['CONSOLE'] as FitConstants['console'],
+      deckY: (buttonMod?.['BUTTON'] as { deckY?: number } | undefined)?.deckY,
+      belt: beltMod?.['BELT'] as FitConstants['belt'],
+      beltLength: LAYOUT.belt.length,
+    },
+  );
   const scene = vignetteScene(fit);
 
   // ── modules with the pose helpers ──
   const mods = {
-    button: await pieceModule('button'),
+    button: buttonMod,
     fetch: E.fetch ? await pieceModule(E.fetch.name) : null,
     board: await pieceModule('switchboard'),
     patch: E.patch ? await pieceModule(E.patch.name) : null,
@@ -431,20 +470,23 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
         : {}),
     })(ctx);
 
+  // the belt and the board hand their bodies to the set, so they are built first
+  const pool: StaticPool = { items: [] };
   const stations: StationViewFactory[] = [
     watcher,
+    createBeltView({ entry: E.belt, module: beltMod, fit, seed, pool }),
+    createCordView({ board: E.board, plug: E.plug, boardModule: mods.board, fit, seed, pool }),
     createSetView({
       entries: E,
       tools,
       scene,
       seed,
+      pool,
       lampBody: true,
       standIn: STAND_IN,
       at: { sign: LAYOUT.sign, toolwall: LAYOUT.toolwall, lamp: LAYOUT.lamp, phone: fit.phone.at, stool: fit.stool.at },
     }),
     partsView,
-    createBeltView({ entry: E.belt, fit, seed }),
-    createCordView({ board: E.board, plug: E.plug, boardModule: mods.board, fit, seed }),
     createPatchView({ entry: E.patch, module: mods.patch, fit, seed }),
     views.button ?? standInButton({ entry: E.button, module: mods.button, seed }),
     views.fetch ?? standInFetch({ entry: E.fetch, module: mods.fetch, seed }),

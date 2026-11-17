@@ -55,6 +55,40 @@ export function flatten(items: ReadonlyArray<{ piece: Piece; at: Matrix4; skip?:
   return out;
 }
 
+/**
+ * Static parts other station views hand to the set to be merged with it
+ * (the belt's body, the board's cabinet): one pool per vignette. The views
+ * that feed it must be constructed before the set.
+ */
+export interface StaticPool {
+  items: Array<{ piece: Piece; at: Matrix4; skip?: ReadonlySet<string> }>;
+}
+
+/**
+ * Split a piece into what never moves (handed to the pool, placed at `at`)
+ * and what does: a copy of the tree keeping only the nodes `moving` matches
+ * and their ancestors (the ancestors without their parts), for the view to
+ * realize and drive. Node names and transforms are kept, so pose helpers
+ * still find everything by name.
+ */
+export function splitStatic(p: Piece, at: Matrix4, moving: (name: string) => boolean, pool: StaticPool): Piece {
+  const skip = new Set<string>();
+  const keep = (n: PieceNode): PieceNode | null => {
+    if (moving(n.name)) {
+      skip.add(n.name);
+      return n;
+    }
+    const kids = (n.children ?? []).map(keep).filter((c): c is PieceNode => c !== null);
+    if (!kids.length) return null;
+    const out: PieceNode = { name: n.name, parts: [], children: kids };
+    if (n.transform) out.transform = n.transform;
+    return out;
+  };
+  pool.items.push({ piece: p, at, skip });
+  const root = keep(p.root) ?? { name: p.root.name, parts: [] };
+  return { ...p, root };
+}
+
 /** One merged piece from flattened parts (no second cavity bake: each piece baked its own). */
 export function mergedPiece(name: string, parts: KitPart[]): Piece {
   const b = piece(name, { ao: false });
@@ -103,6 +137,8 @@ export interface SetOptions {
   seed: number;
   /** Build the lamp's body here (false when a lamp view of its own does). */
   lampBody: boolean;
+  /** Static parts other views handed over to be merged with the set (they must be built first). */
+  pool?: StaticPool;
   /** Stand-in sizes for pieces that have not landed. */
   standIn: Record<'sign' | 'toolwall' | 'lamp' | 'phone' | 'stool', { w: number; h: number; d: number }>;
 }
@@ -199,6 +235,7 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     items.push({ piece: phone ?? clay('phone', ph.w, ph.h, ph.d), at: placedMatrix(o.at.phone) });
     items.push({ piece: stool ?? clay('stool', st.w, st.h, st.d), at: placedMatrix(o.at.stool) });
 
+    if (o.pool) items.push(...o.pool.items);
     const merged = mergedPiece('set', flatten(items));
     const root = new Group();
     root.name = 'set';

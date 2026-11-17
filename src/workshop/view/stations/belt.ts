@@ -12,16 +12,16 @@
  * lurch reads on the surface and the rollers alike. With reduced motion
  * the belt stands still (§ B10: "the belt and crew start still").
  */
-import { Group, type Object3D } from 'three';
+import { Group, type Box3, type Object3D } from 'three';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
-import { part, piece, place, T } from '../kit/compose.ts';
+import { part, piece, pieceBounds, place, T } from '../kit/compose.ts';
 import { roundedBox, lathe } from '../kit/solids.ts';
 import { profile } from '../kit/profile.ts';
 import { beltLoop } from '../kit/details.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import type { Fit } from '../vignette.ts';
-import { placedMatrix } from './set.ts';
+import { placedMatrix, splitStatic, type StaticPool } from './set.ts';
 
 /** Tune here. Speeds in units per simulation second. */
 export const BELT_FEEL = {
@@ -40,8 +40,12 @@ export const BELT_FEEL = {
 
 export interface BeltViewOptions {
   entry: Entry | undefined;
+  /** The belt piece's module: `poseBelt(root, length, rollers, { travel })` and `beltRollers(length)`. */
+  module?: Record<string, unknown> | null;
   fit: Fit;
   seed: number;
+  /** Hand the belt's body to the set to be merged (only the rollers, the seam and the lamp stay here). */
+  pool?: StaticPool;
 }
 
 interface Uniforms {
@@ -67,14 +71,19 @@ function standInBelt(length: number): Piece {
 export function createBeltView(o: BeltViewOptions): StationViewFactory {
   return (ctx: ViewContext): StationView => {
     const length = 6;
-    const p = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length }, ctx.labels) : standInBelt(length);
+    const whole = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length }, ctx.labels) : standInBelt(length);
+    const p = o.pool ? splitStatic(whole, placedMatrix(o.fit.belt.at), (n) => /^roller\d+$/.test(n) || n === 'seam' || n === 'lamp', o.pool) : whole;
     const obj = ctx.realize(p);
     const root = new Group();
     root.name = 'belt';
     root.applyMatrix4(placedMatrix(o.fit.belt.at));
     root.add(obj);
     ctx.scene.add(root);
-    ctx.pickable('belt', obj);
+    // the belt answers the pointer over its whole length (a proxy box: its body is merged into the set)
+    const picking = (ctx as unknown as { picking?: { add(id: string, o: Object3D, opts?: { box?: Box3 }): void } }).picking;
+    const pb = pieceBounds(whole);
+    if (picking) picking.add('belt', obj, { box: pb });
+    else ctx.pickable('belt', obj);
 
     // rollers: roller0..n, turning about their local Z
     const rollers: Object3D[] = [];
@@ -83,6 +92,10 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     });
     const rest = rollers.map((r) => r.quaternion.clone());
     const rollerR = BELT_FEEL.rollerR;
+    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number }) => void;
+    const poseBelt = o.entry ? ((o.module?.['poseBelt'] as PoseBelt | undefined) ?? null) : null;
+    const beltRollers = o.module?.['beltRollers'] as ((length: number) => readonly unknown[]) | undefined;
+    const rollerInfo = poseBelt && beltRollers ? beltRollers(length) : null;
 
     const uniforms = (): Uniforms | null => {
       const m = ctx.materials as unknown as { uniforms?: (cls: 'belt') => Uniforms };
@@ -117,6 +130,10 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
         phase += v * dt;
         angle -= (v / rollerR) * dt;
         if (u?.u_offset) u.u_offset.value = phase;
+        if (poseBelt && rollerInfo) {
+          poseBelt(obj, length, rollerInfo, { travel: phase });
+          return;
+        }
         for (let i = 0; i < rollers.length; i++) {
           const r = rollers[i]!;
           r.quaternion.copy(rest[i]!);

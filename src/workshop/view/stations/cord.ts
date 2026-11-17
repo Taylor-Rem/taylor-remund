@@ -30,7 +30,7 @@ import { profile } from '../kit/profile.ts';
 import { MeshData, finish } from '../kit/mesh.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import type { Fit } from '../vignette.ts';
-import { clay, placedMatrix } from './set.ts';
+import { clay, placedMatrix, splitStatic, type StaticPool } from './set.ts';
 
 /** Tune here: lengths in units, rates in 1/s. */
 export const CORD_FEEL = {
@@ -66,6 +66,8 @@ export interface CordViewOptions {
   boardModule: Record<string, unknown> | null;
   fit: Fit;
   seed: number;
+  /** Hand the board's cabinet to the set to be merged (the lamps and drawers stay here). */
+  pool?: StaticPool;
 }
 
 /** The stand-in board: a clay cabinet with two brass jack rings and a lens lamp beside each (nodes `lamp.<jack>` with `on`/`off`). */
@@ -223,7 +225,9 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     const boardM = placedMatrix(fit.board.at);
 
     // ── the board ──
-    const boardPiece = o.board ? buildEntry(o.board, null, { seed: o.seed }, ctx.labels) : standInBoard(fit);
+    const boardWhole = o.board ? buildEntry(o.board, null, { seed: o.seed }, ctx.labels) : standInBoard(fit);
+    const moving = (n: string): boolean => /^lamp[.-]|\.lamp$|^drawer|^on$|^off$/.test(n);
+    const boardPiece = o.pool ? splitStatic(boardWhole, boardM, moving, o.pool) : boardWhole;
     const board = ctx.realize(boardPiece);
     board.applyMatrix4(boardM);
     root.add(board);
