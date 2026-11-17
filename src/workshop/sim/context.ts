@@ -57,6 +57,8 @@ export interface SimContext {
 
   // loose parts, for the crew and the Button
   mode(id: Id): BodyMode | undefined;
+  /** A part's box (half extents, own frame). */
+  halfExtents(id: Id): Vec3 | undefined;
   /** Current pose of a part's body. */
   pose(id: Id): Pose | undefined;
   /** Has a free part come to rest (not moving since it was last disturbed)? */

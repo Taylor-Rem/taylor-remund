@@ -57,9 +57,17 @@ export interface FetchSpec {
   readonly start: number;
   /** The crate in its hands at the start, if any. */
   readonly carrying: Id | null;
-  /** Where on the lane (0..1) it fumbles: the point nearest the Button. */
+  /** Where on the lane (0..1) it fumbles. */
   readonly fumbleAt: number;
-  /** The fumbled crate's launch, world space. */
+  /** The heading it turns to while winding up the fumble (radians about +Y; 0 faces +Z, the camera). */
+  readonly fumbleHeading: number;
+  /** The heading it turns to after letting go, for the offer (0 faces +Z, the camera). */
+  readonly offerHeading: number;
+  /**
+   * The fumbled crate's launch, in WORLD space (not Fetch's frame): Fetch always turns to
+   * `fumbleHeading` first, so the crate leaves the same hands-pose with the same velocity
+   * whichever way Fetch was travelling, and lands in the same place.
+   */
   readonly toss: { readonly linvel: Vec3; readonly angvel: Vec3 };
   /** Where the visitor is, for "looks out at the visitor". */
   readonly outward: Vec3;
@@ -68,6 +76,8 @@ export interface FetchSpec {
 export interface ButtonSpec {
   readonly id: Id;
   readonly name: string;
+  /** Where the Button's cap is (world), for picking and the crew's eyes. */
+  readonly at: Vec3;
   /** Crates the flinch may knock off (the stack); the top one that is free goes. */
   readonly stack: readonly Id[];
   /** Interactables that misfire at level 1 in rung 1 (the lamp dips, the belt lurches). */
