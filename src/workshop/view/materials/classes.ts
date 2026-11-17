@@ -67,7 +67,7 @@ const GRIME = /* glsl */ `
 
 const DUST = /* glsl */ `
 {
-  float d = smoothstep(0.3, 0.95, pUp) * u_dust * smoothstep(0.3, 0.75, dN) * (1.0 - 0.7 * pWear);
+  float d = smoothstep(0.3, 0.95, pUp) * u_dust * smoothstep(0.15, 0.95, dN) * (1.0 - 0.7 * pWear);
   pAlbedo = mix(pAlbedo, c_dust, d * 0.5);
   pRough = mix(pRough, 0.95, d);
 }
@@ -83,7 +83,7 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       roughVar: p(0.14, 0, 0.3), // slow roughness drift
       toneScale: p(2.6, 0.5, 8), // tonal drift frequency (per unit)
       toneVar: p(0.07, 0, 0.3), // tonal drift strength
-      dirt: p(0.2, 0, 0.6), // fine mottled dirt over the whole surface
+      dirt: p(0.09, 0, 0.6), // fine mottled dirt over the whole surface
       dirtScale: p(22, 5, 80),
       chipAmount: p(0.72, 0, 1.2), // how much wear turns into chips
       chipScale: p(15, 4, 40), // chip noise frequency: bigger = smaller chips
@@ -99,7 +99,7 @@ export const CLASSES: Record<MaterialClass, ClassDef> = {
       rust: p(0.5, 0, 1),
       scratch: p(0.85, 0, 1),
       scratchScale: p(9, 2, 40), // scratch cells per unit (a scratch is up to ~0.8 cell long)
-      scratchDensity: p(0.55, 0, 1), // share of cells holding a scratch
+      scratchDensity: p(0.42, 0, 1), // share of cells holding a scratch
       scratchWidth: p(0.0018, 0.0002, 0.01), // object units
       grime: p(0.95, 0, 1.5),
       dust: p(0.22, 0, 1),
@@ -120,7 +120,7 @@ vec4 F = pNoise4(pP * u_fleckScale + 11.0);    // r flecks, g bare variation, b 
 float gN = D.g;
 float dN = T.a;
 vec3 paint = pBase * (1.0 + (T.r - 0.5) * u_toneVar * 2.0 + (T.g - 0.5) * u_toneVar);
-float dirtM = smoothstep(0.35, 0.8, D.r) * u_dirt;
+float dirtM = smoothstep(0.3, 0.95, D.r) * u_dirt;
 paint *= 1.0 - dirtM;
 
 // chips: one ragged field from wear and noise; flecks are a finer second population
@@ -494,17 +494,17 @@ pH = f1 * u_fibreBump * fAA + clumps * u_clumpBump;
       grain: p(0.00006, 0, 0.001),
       grainScale: p(160, 40, 400),
       grime: p(0.5, 0, 1.5),
-      dust: p(0.1, 0, 1),
+      dust: p(0.03, 0, 1), // dust shows hard on glossy black: keep it a trace
     },
     colours: () => ({ grime: grime(), dust: dust() }),
     glsl: /* glsl */ `
 vec4 N = pNoise4(pP * 30.0);   // r tone, g scuff var, b grime var, a dust
 float gN = N.b;
-float dN = N.a;
+float dN = pFbm4(pP * 4.0).r;
 float scuff = smoothstep(0.3, 0.9, pWear) * u_edgeScuff * (0.5 + 0.5 * N.g);
 pAlbedo = pBase * (0.96 + 0.08 * N.r);
 pAlbedo = mix(pAlbedo, pAlbedo * 0.7 + c_dust * 0.25, scuff);
-pRough = u_roughness + (N.r - 0.5) * 0.06 + scuff * 0.35;
+pRough = u_roughness + (N.r - 0.5) * 0.015 + scuff * 0.35;
 ${GRIME}
 ${DUST}
 #ifndef TIER_LOW
