@@ -125,7 +125,7 @@ export async function mountShowcase(canvas: HTMLCanvasElement, opts: ShowcaseOpt
   world.name = 'showcase';
   stage.scene.add(world);
 
-  const blobFx = new BlobShadows(64, tier === 'high' ? 0.35 : 0.85).addTo(world);
+  const blobFx = new BlobShadows(materials.decal(), 64, tier === 'high' ? 0.35 : 0.85).addTo(world);
   const added: Added[] = [];
   const refreshBlobs = (): void => {
     const blobs: Blob[] = [];
