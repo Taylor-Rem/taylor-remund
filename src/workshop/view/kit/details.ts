@@ -12,7 +12,8 @@ import type { KitPart, MaterialClass } from './types.ts';
 import { lathe, extrude, segs } from './solids.ts';
 import type { Detail } from './solids.ts';
 import { ngon, outlineLoop, profile } from './profile.ts';
-import { sweep, polylinePath, helixPath } from './sweep.ts';
+import { sweep, polylinePath, helixPath, sections } from './sweep.ts';
+import { Vector3 } from 'three';
 import type { Path } from './sweep.ts';
 import { aim, part, place, ring, T } from './compose.ts';
 import { rng } from './rng.ts';
@@ -462,3 +463,32 @@ export function collar(o: DetailOptions & { r?: number; inner?: number; h?: numb
 }
 
 
+
+/**
+ * A conveyor belt loop for the `belt` class (kit/types.ts: uv.x runs along the
+ * loop in world units, so the material scrolls it by the belt's travel).
+ * The rollers' axes are at (+-span/2, 0, 0) along Z; the loop wraps them at
+ * radius `r` (to the belt's middle), `width` across Z, `thickness` thick, with
+ * rounded edges. The top run travels +X (work flows left to right).
+ * uv.y runs across the width (-width/2..width/2). lpos.x equals uv.x.
+ */
+export function beltLoop(o: DetailOptions & { span?: number; r?: number; width?: number; thickness?: number } = {}): KitPart[] {
+  const span = o.span ?? 1.6, r = o.r ?? 0.06, width = o.width ?? 0.4, t = o.thickness ?? 0.016;
+  const c = Math.min(t * 0.45, width * 0.1);
+  const n = o.detail === 'low' ? 8 : 14;
+  const pts: Vector3[] = [];
+  const runs = Math.max(2, Math.ceil(span / 0.1));
+  for (let i = 0; i < runs; i++) pts.push(new Vector3(-span / 2 + (span * i) / runs, r, 0));
+  for (let i = 0; i < n; i++) {
+    const a = Math.PI / 2 - (Math.PI * i) / n;
+    pts.push(new Vector3(span / 2 + Math.cos(a) * r, Math.sin(a) * r, 0));
+  }
+  for (let i = 0; i < runs; i++) pts.push(new Vector3(span / 2 - (span * i) / runs, -r, 0));
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 - (Math.PI * i) / n;
+    pts.push(new Vector3(-span / 2 + Math.cos(a) * r, Math.sin(a) * r, 0));
+  }
+  // section: first axis (N = +Z, the `up` hint) across the width, second through the thickness
+  const g = sweep({ points: pts, closed: true }, { section: sections.roundRect(width / 2 - c, t / 2 - c, 2), radius: c, up: [0, 0, 1], uv: true });
+  return [part(o.material ?? 'belt', g, o.token ?? 'ink', { seed: o.seed ?? 0 })];
+}

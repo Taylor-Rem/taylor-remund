@@ -14,6 +14,7 @@ import type { Frame } from './loft.ts';
 import { autoSegs, chamferRectLoop, circleLoop, outlineLoop, profile, rectLoop } from './profile.ts';
 import type { Loop, OutlineOptions, Profile, PSample } from './profile.ts';
 import { bulge, deform, transform } from './deform.ts';
+import { grain } from './space.ts';
 
 export type Detail = 'high' | 'low';
 export interface DetailOpt {
@@ -187,7 +188,8 @@ export function lathe(p: Profile | PSample[], o: LatheOptions = {}): BufferGeome
   const closed = !Array.isArray(p) && p.closed;
   const input: Parameters<typeof loft>[0] = { loops: [loop], profile: samples, closedProfile: closed };
   if (o.caps !== undefined) input.caps = o.caps;
-  return finish(loft(input), o.finish);
+  // material space: +X runs along the lathe's axis
+  return grain(finish(loft(input), o.finish), 'y');
 }
 
 // ---- extrude ---------------------------------------------------------------
@@ -235,7 +237,7 @@ export function extrude(outline: ReadonlyArray<readonly [number, number]>, depth
   const input: Parameters<typeof loft>[0] = { loops, profile: p.expand({ detail: dmul(o.detail), segs: 5, support: o.support ?? false }) };
   if (o.caps !== undefined) input.caps = o.caps;
   const g = finish(loft(input));
-  if (axis === 'z') transform(g, new Matrix4().makeRotationX(Math.PI / 2));
+  if (axis === 'z') grain(transform(g, new Matrix4().makeRotationX(Math.PI / 2)), 'x');
   return g;
 }
 
@@ -281,7 +283,7 @@ export interface EllipsoidOptions extends DetailOpt {
 export function ellipsoid(o: EllipsoidOptions): BufferGeometry {
   const n = segs(o.segs ?? 32, o.detail, 8);
   const g = finish(loft({ loops: [circleLoop(n)], profile: sphereSamples(Math.round(n / 2)) }));
-  return transform(g, new Matrix4().makeScale(o.rx, o.ry, o.rz));
+  return grain(transform(g, new Matrix4().makeScale(o.rx, o.ry, o.rz)), 'x');
 }
 
 export interface CapsuleOptions extends DetailOpt {

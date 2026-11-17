@@ -24,4 +24,7 @@ export {
 } from './compose.ts';
 export type { PartsLike, Placement, PieceOptions } from './compose.ts';
 export { realize } from './realize.ts';
+export { grain, setFinish, lposOf, offsetLpos } from './space.ts';
+export { LPOS_OFFSET } from './compose.ts';
+export type { CatalogueEntry, BuildOptions } from './catalogue.ts';
 export type { RealizeOptions } from './realize.ts';

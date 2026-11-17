@@ -233,6 +233,8 @@ export interface SweepOptions extends DetailOpt {
   segs?: number;
   /** A hint for which way the section's first axis points at the start. */
   up?: V3;
+  /** Also write uv: u = distance along the path in world units, v = the section's first coordinate (for the belt: across its width). */
+  uv?: boolean;
   /** Most distance between rings along the path (default: path length / 48 when tapered, else only the path's own points). */
   step?: number;
   /** A custom profile along the path, in (offset, distance along path from 0 to the path length). Overrides radius/ends. */
@@ -315,6 +317,8 @@ export function sweep(pathIn: Path, o: SweepOptions = {}): BufferGeometry {
       profile: rings,
       frame: (s) => frameAt(R, s.y),
       caps: !path.closed,
+      lpos: 'path',
     }),
+    o.uv ? { uvFromLpos: true } : {},
   );
 }

@@ -1,7 +1,7 @@
 /**
  * The low-level mesh builder every kit solid writes into, and the step that
  * turns it into a BufferGeometry carrying the kit attributes (position,
- * normal, color, surf, optional uv; see kit/types.ts).
+ * normal, color, surf, lpos, optional uv; see kit/types.ts).
  *
  * Triangles are auto-oriented: a triangle is wound so its geometric normal
  * agrees with the sum of its vertex normals. Builders therefore only have to
@@ -15,6 +15,8 @@ import { surfFromCurvature } from './surface.ts';
 export class MeshData {
   pos: number[] = [];
   nrm: number[] = [];
+  /** Optional material-space positions (one vec3 per vertex); when absent, lpos = position. */
+  lpos: number[] | null = null;
   uv: number[] | null = null;
   idx: number[] = [];
 
@@ -28,7 +30,22 @@ export class MeshData {
     this.pos.push(x, y, z);
     this.nrm.push(nx / l, ny / l, nz / l);
     if (this.uv) this.uv.push(u, w);
+    if (this.lpos) this.lpos.push(x, y, z);
     return this.pos.length / 3 - 1;
+  }
+
+  /** Keep a material-space position per vertex (initialised to the positions so far). */
+  withLpos(): this {
+    if (!this.lpos) this.lpos = this.pos.slice();
+    return this;
+  }
+
+  /** Set vertex i's material-space position. */
+  setL(i: number, x: number, y: number, z: number): void {
+    const l = this.withLpos().lpos!;
+    l[i * 3] = x;
+    l[i * 3 + 1] = y;
+    l[i * 3 + 2] = z;
   }
 
   withUv(): this {
@@ -78,6 +95,10 @@ export class MeshData {
       if (o.uv) this.uv!.push(...o.uv);
       else this.uv!.push(...new Array<number>(o.vertexCount * 2).fill(0));
     }
+    if (this.lpos || o.lpos) {
+      this.withLpos();
+      this.lpos!.push(...(o.lpos ?? o.pos));
+    }
     for (const i of o.idx) this.idx.push(i + base);
   }
 }
@@ -87,11 +108,14 @@ export interface FinishOptions {
   wear?: [number, number];
   /** Concave curvature at which cavity starts / is full. */
   cavity?: [number, number];
+  /** Write uv from lpos: u = lpos.x (along the part, world units), v = lpos.y (sweeps: across the section, along its first axis). */
+  uvFromLpos?: boolean;
 }
 
 /**
  * Turn builder data into a kit geometry: position, normal, color (white
- * until tinted), surf (wear and cavity from curvature), uv if present.
+ * until tinted), surf (wear and cavity from curvature, finish 0), lpos
+ * (material space: the local position unless the builder supplied its own), uv if present.
  */
 export function finish(md: MeshData, opts: FinishOptions = {}): BufferGeometry {
   const g = new BufferGeometry();
@@ -102,7 +126,18 @@ export function finish(md: MeshData, opts: FinishOptions = {}): BufferGeometry {
   if (md.uv) g.setAttribute('uv', new BufferAttribute(new Float32Array(md.uv), 2));
   const index = n > 65535 ? new Uint32Array(md.idx) : new Uint16Array(md.idx);
   g.setIndex(new BufferAttribute(index, 1));
-  g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g, opts), 2));
+  g.setAttribute(ATTR.surf, new BufferAttribute(surfFromCurvature(g, opts), 3));
+  // material space: the solid's own local position until a builder re-aims it (see `grain`)
+  const lp = new Float32Array(md.lpos ?? md.pos);
+  g.setAttribute(ATTR.lpos, new BufferAttribute(lp, 3));
+  if (opts.uvFromLpos) {
+    const uv = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      uv[i * 2] = lp[i * 3]!;
+      uv[i * 2 + 1] = lp[i * 3 + 1]!;
+    }
+    g.setAttribute('uv', new BufferAttribute(uv, 2));
+  }
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;

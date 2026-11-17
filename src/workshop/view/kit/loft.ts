@@ -33,6 +33,12 @@ export interface LoftInput {
   closedProfile?: boolean;
   /** Frame for each profile sample (by index). Default: planFrame(sample.y). */
   frame?: (s: PSample, i: number) => Frame;
+  /**
+   * Material space (lpos): 'position' (default: the vertex's local position) or 'path'
+   * (x = the profile's y, i.e. the distance along a sweep's path; y, z = the cross-section
+   * coordinates), so grain and brushing follow a swept part along its length.
+   */
+  lpos?: 'position' | 'path';
   /** Fill the ends of an open profile (default true; 'start'/'end' for one only, e.g. to skip a hidden base). */
   caps?: boolean | 'start' | 'end';
 }
@@ -44,6 +50,8 @@ export function loft(input: LoftInput, md = new MeshData()): MeshData {
   const frameOf = input.frame ?? ((s: PSample) => planFrame(s.y));
   const K = profile.length;
   const frames = profile.map((s, i) => frameOf(s, i));
+  const pathL = input.lpos === 'path';
+  if (pathL) md.withLpos();
   // ring vertex indices: rings[loop][k][j]
   const rings: number[][][] = loops.map((loop) => {
     const J = loopLength(loop);
@@ -62,7 +70,9 @@ export function loft(input: LoftInput, md = new MeshData()): MeshData {
         const nx = s.no * (nu * F.u[0] + nv * F.v[0]) + s.ny * F.w[0];
         const ny = s.no * (nu * F.u[1] + nv * F.v[1]) + s.ny * F.w[1];
         const nz = s.no * (nu * F.u[2] + nv * F.v[2]) + s.ny * F.w[2];
-        row.push(md.v(x, y, z, nx, ny, nz));
+        const id = md.v(x, y, z, nx, ny, nz);
+        if (pathL) md.setL(id, s.y, pu, pv);
+        row.push(id);
       }
       perK.push(row);
     }
@@ -153,6 +163,7 @@ function capRings(md: MeshData, loops: Loop[], rows: number[][], F: Frame, sign:
     let v = capId.get(src);
     if (v === undefined) {
       v = md.v(md.pos[src * 3]!, md.pos[src * 3 + 1]!, md.pos[src * 3 + 2]!, nx, ny, nz);
+      if (md.lpos) md.setL(v, md.lpos[src * 3]!, md.lpos[src * 3 + 1]!, md.lpos[src * 3 + 2]!);
       capId.set(src, v);
     }
     return v;
@@ -181,6 +192,7 @@ function sideCap(md: MeshData, column: number[], profile: PSample[], tu: number,
     let v = map.get(src);
     if (v === undefined) {
       v = md.v(md.pos[src * 3]!, md.pos[src * 3 + 1]!, md.pos[src * 3 + 2]!, nx, ny, nz);
+      if (md.lpos) md.setL(v, md.lpos[src * 3]!, md.lpos[src * 3 + 1]!, md.lpos[src * 3 + 2]!);
       map.set(src, v);
     }
     return v;
