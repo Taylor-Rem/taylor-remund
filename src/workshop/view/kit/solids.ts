@@ -15,10 +15,24 @@ import { autoSegs, chamferRectLoop, circleLoop, outlineLoop, profile, rectLoop }
 import type { Loop, OutlineOptions, Profile, PSample } from './profile.ts';
 import { bulge, deform, transform } from './deform.ts';
 import { grain } from './space.ts';
+import { WEAR_BAND } from './surface.ts';
 
 export type Detail = 'high' | 'low';
 export interface DetailOpt {
   detail?: Detail | undefined;
+  /**
+   * Wear band (units): how far edge wear reaches onto the faces beside an edge (one ring of
+   * vertices per face run carries it). Default WEAR_BAND, scaled down on small parts so it
+   * never covers a whole small face; 0 turns it off. Always off at detail 'low'.
+   */
+  band?: number | undefined;
+}
+
+/** The band a solid of this smallest size gets. */
+export function bandFor(o: DetailOpt, size: number): number {
+  if (o.detail === 'low') return 0;
+  const b = Math.min(o.band ?? WEAR_BAND, size * 0.2);
+  return b < 0.008 ? 0 : b;
 }
 
 /** Segment count scaled for detail, never below `min`. */
@@ -54,10 +68,12 @@ export function roundedBox(o: RoundedBoxOptions): BufferGeometry {
   const rt = Math.min(o.rTop ?? r, rp, o.h / 2);
   const rb = Math.min(o.rBottom ?? r, rp, o.h / 2);
   const s = o.segs ?? 6;
-  const loop = rectLoop(o.w / 2 - rp, o.d / 2 - rp, segs(autoSegs(rp, s), o.detail, 2));
+  // a plate's faces are as big as its plan, however thin it is
+  const band = bandFor(o, Math.min(o.w, o.d));
+  const loop = rectLoop(o.w / 2 - rp, o.d / 2 - rp, segs(autoSegs(rp, s), o.detail, 2), band);
   const p = o.open ? profile(rp, 0) : profile(0, 0).to(rp, 0, rb > 0 ? { fillet: rb } : { sharp: true });
   p.to(rp, o.h, rt > 0 ? { fillet: rt } : { sharp: true }).to(0, o.h);
-  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s }), caps: o.open ? 'end' : true }));
+  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s, band }), caps: o.open ? 'end' : true, capBand: band }), { band });
 }
 
 export interface ProfiledBoxOptions extends DetailOpt {
@@ -78,8 +94,9 @@ export interface ProfiledBoxOptions extends DetailOpt {
  */
 export function profiledBox(o: ProfiledBoxOptions, p: Profile): BufferGeometry {
   const rp = Math.min(o.rPlan, o.w / 2 - 1e-4, o.d / 2 - 1e-4);
-  const loop = rectLoop(o.w / 2 - rp, o.d / 2 - rp, segs(autoSegs(rp, 6), o.detail, 2));
-  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail) }), closedProfile: p.closed }));
+  const band = bandFor(o, Math.min(o.w, o.d));
+  const loop = rectLoop(o.w / 2 - rp, o.d / 2 - rp, segs(autoSegs(rp, 6), o.detail, 2), band);
+  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), band }), closedProfile: p.closed, capBand: band }), { band });
 }
 
 export interface ChamferedBoxOptions extends DetailOpt {
@@ -147,14 +164,15 @@ export function tray(o: TrayOptions): BufferGeometry {
   const C = Math.min(wall + ri + 0.01, o.w / 2 - 1e-3, o.d / 2 - 1e-3);
   const rb = Math.min(o.rBottom ?? wall, C);
   const s = o.segs ?? 6;
-  const loop = rectLoop(o.w / 2 - C, o.d / 2 - C, segs(autoSegs(C, s), o.detail, 2));
+  const band = bandFor(o, Math.min(o.w, o.h, o.d));
+  const loop = rectLoop(o.w / 2 - C, o.d / 2 - C, segs(autoSegs(C, s), o.detail, 2), band);
   const p = profile(0, 0)
     .to(C, 0, { fillet: rb })
     .to(C, o.h, { fillet: wall / 2 })
     .to(C - wall, o.h, { fillet: wall / 2 })
     .to(C - wall, floor, { fillet: ri })
     .to(0, floor);
-  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s }) }));
+  return finish(loft({ loops: [loop], profile: p.expand({ detail: dmul(o.detail), segs: s, band }), capBand: band }), { band });
 }
 
 // ---- lathe -----------------------------------------------------------------
@@ -180,16 +198,24 @@ export interface LatheOptions extends DetailOpt {
  * axis at the top (material on the left). See profile.ts for the DSL.
  */
 export function lathe(p: Profile | PSample[], o: LatheOptions = {}): BufferGeometry {
-  const samples = Array.isArray(p) ? p : p.expand({ detail: dmul(o.detail), segs: o.filletSegs ?? 6, support: o.support ?? false });
+  // small details pass support: false and get no band (they are cheap and all edge anyway)
+  let band = 0;
+  if (!Array.isArray(p) && o.support !== false) {
+    const raw = p.expand({ detail: 1 });
+    const r = raw.reduce((m, s) => Math.max(m, s.o), 0);
+    const h = raw.reduce((m, s) => Math.max(m, s.y), -Infinity) - raw.reduce((m, s) => Math.min(m, s.y), Infinity);
+    band = bandFor(o, Math.min(2 * r, h));
+  }
+  const samples = Array.isArray(p) ? p : p.expand({ detail: dmul(o.detail), segs: o.filletSegs ?? 6, support: o.support ?? false, band });
   const maxR = samples.reduce((m, s) => Math.max(m, s.o), 0);
   const sweepFrac = Math.abs((o.to ?? Math.PI * 2) - (o.from ?? 0)) / (Math.PI * 2);
   const n = segs(o.segs ?? Math.max(8, Math.min(40, Math.round(maxR * 220 * sweepFrac))), o.detail, 6);
   const loop = circleLoop(n, o.from ?? 0, o.to ?? Math.PI * 2);
   const closed = !Array.isArray(p) && p.closed;
-  const input: Parameters<typeof loft>[0] = { loops: [loop], profile: samples, closedProfile: closed };
+  const input: Parameters<typeof loft>[0] = { loops: [loop], profile: samples, closedProfile: closed, capBand: band };
   if (o.caps !== undefined) input.caps = o.caps;
   // material space: +X runs along the lathe's axis
-  return grain(finish(loft(input), o.finish), 'y');
+  return grain(finish(loft(input), { ...o.finish, band }), 'y');
 }
 
 // ---- extrude ---------------------------------------------------------------
@@ -226,7 +252,10 @@ export function extrude(outline: ReadonlyArray<readonly [number, number]>, depth
   const flipV = axis === 'z';
   const conv = (pts: ReadonlyArray<readonly [number, number]>): Array<[number, number]> => pts.map((p) => [p[0], flipV ? -p[1] : p[1]]);
   const s = segs(o.segs ?? 5, o.detail, 1);
-  const lo: OutlineOptions = { radius: o.radius ?? Math.max(b, bb) * 1.1 + 0.004, segs: s, support: o.support ? Math.max(0.004, Math.min(Math.max(b, bb) * 0.8, 0.012)) : 0 };
+  let ox0 = Infinity, ox1 = -Infinity, oy0 = Infinity, oy1 = -Infinity;
+  for (const q of outline) { ox0 = Math.min(ox0, q[0]); ox1 = Math.max(ox1, q[0]); oy0 = Math.min(oy0, q[1]); oy1 = Math.max(oy1, q[1]); }
+  const band = o.support === false ? 0 : bandFor(o, Math.min(ox1 - ox0, oy1 - oy0, depth * 3));
+  const lo: OutlineOptions = { radius: o.radius ?? Math.max(b, bb) * 1.1 + 0.004, segs: s, support: band > 0 ? band : o.support ? Math.max(0.004, Math.min(Math.max(b, bb) * 0.8, 0.012)) : 0 };
   const loops: Loop[] = [outlineLoop(conv(outline), lo)];
   const holeR = o.holeRadius ?? (typeof lo.radius === 'number' ? lo.radius * 0.5 : 0.004);
   for (const h of o.holes ?? []) loops.push(outlineLoop(conv(h), { ...lo, radius: holeR, hole: true }));
@@ -234,9 +263,9 @@ export function extrude(outline: ReadonlyArray<readonly [number, number]>, depth
   // the faces end just past the bevel's tangent line, so a web between outline and hole needs to be wider than 2 × bevel
   const p = b > 0 ? profile(-b * 1.05, 0).to(0, 0, corner(b)) : profile(0, 0);
   p.to(0, depth, corner(bb)).to(-Math.max(bb, 1e-4) * 1.05, depth);
-  const input: Parameters<typeof loft>[0] = { loops, profile: p.expand({ detail: dmul(o.detail), segs: 5, support: o.support ?? false }) };
+  const input: Parameters<typeof loft>[0] = { loops, profile: p.expand({ detail: dmul(o.detail), segs: 5, support: o.support ?? false, band }), capBand: band };
   if (o.caps !== undefined) input.caps = o.caps;
-  const g = finish(loft(input));
+  const g = finish(loft(input), { band });
   if (axis === 'z') grain(transform(g, new Matrix4().makeRotationX(Math.PI / 2)), 'x');
   return g;
 }

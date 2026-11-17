@@ -1,0 +1,147 @@
+---
+// The parts catalogue (REWRITE.md § E3; W1.5 brief § 2): every registered kit
+// piece on the bench, under the real stage (light rig, lens, post chain) with
+// the real materials and labels. The page every object builder judges their
+// work on. Dev-only; never shipped.
+//
+// Query:
+//   (no piece)             an index of every registered piece, with triangle counts
+//   ?piece=<name>          &variant=<name>  &seed=<n>  &pose=<name>
+//   ?view=beauty|clay|wear|cavity|lpos|wire   (default beauty)
+//   ?dist=wide|station|close                  (default station)
+//        wide    whole-bench scale: the stage's home distance (~67 px per unit at 1440x900)
+//        station about 6 units across the frame
+//        close   the piece fills the frame
+//   ?angle=<deg>  turntable yaw (0 = the good side to the camera)   ?spin=1  slow turntable
+//   ?lamp=0..1  ?tier=high|low  ?post=0|1  ?hud=0  ?manual=1 (no wall clock; drive with __workshop.advance)
+//   ?ground=none           no bench
+// Sets window.__ready after a settled frame; window.__workshop is the stage's debug object
+// (look, rig, relight, passes, stats, advance), window.__catalogue has materials.set etc.
+//
+// The five standard pictures an object builder hands in (from the repo root;
+// replace <name>, and <pkg> with your package's shots folder):
+//   node scripts/capture.ts "/dev/catalogue/?piece=<name>&dist=wide&hud=0"     --out shots/<pkg>/<name>-wide.png
+//   node scripts/capture.ts "/dev/catalogue/?piece=<name>&dist=station&hud=0"  --out shots/<pkg>/<name>-station.png
+//   node scripts/capture.ts "/dev/catalogue/?piece=<name>&dist=close&hud=0"    --out shots/<pkg>/<name>-close.png
+//   node scripts/capture.ts "/dev/catalogue/?piece=<name>&dist=station&view=clay&hud=0" --out shots/<pkg>/<name>-clay.png
+//   node scripts/capture.ts "/dev/catalogue/?piece=<name>&dist=station&hud=0" --w 320 --h 200 --out shots/<pkg>/<name>-320.png
+// (each starts its own dev server; with one already running on your port, pass
+//  http://localhost:<port>/dev/catalogue/?… instead of the /path.)
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Parts catalogue</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; background: #12292c; color: #cfe3df; font: 14px/1.5 ui-monospace, monospace; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.35 ui-monospace, monospace; color: #bfe3d8; opacity: 0.75; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
+      #index { padding: 24px 32px; max-width: 960px; }
+      #index a { color: #ffd27a; }
+      #index td { padding: 2px 14px 2px 0; vertical-align: top; }
+      #index a { margin-right: 10px; }
+      .err { color: #f2a93b; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
+      import { listPieces, findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
+      import { applyView, VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
+      import { DISTANCES, pxPerUnit, type Distance } from '../workshop/view/catalogue/distances.ts';
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+      const name = q.get('piece');
+
+      async function index(): Promise<void> {
+        canvas.style.display = 'none';
+        document.body.style.overflow = 'auto';
+        const { entries, source } = await listPieces();
+        const rows = entries.map((e) => {
+          let tris = '?';
+          try {
+            tris = String(buildEntry(e, null, {}).triangles);
+          } catch (err) {
+            tris = `build failed: ${String(err)}`;
+          }
+          const v = Object.keys(e.variants ?? {});
+          const link = (extra: string, label: string): string => `<a href="?piece=${encodeURIComponent(e.name)}${extra}">${label}</a>`;
+          return `<tr><td>${link('', e.name)}</td><td>${tris} tris</td>`
+            + `<td class="views">${DISTANCES.map((d) => link(`&dist=${d}`, d)).join('')}${link('&view=clay', 'clay')}${link('&view=wear', 'wear')}</td>`
+            + `<td>${v.map((x) => link(`&variant=${encodeURIComponent(x)}`, x)).join(' ')}</td>`
+            + `<td>${e.note ?? ''}</td></tr>`;
+        });
+        const div = document.createElement('div');
+        div.id = 'index';
+        div.innerHTML = `<h1>Parts catalogue</h1><p>${entries.length} piece(s), from the ${source === 'registry' ? 'kit registry' : source === 'folders' ? 'piece folders (no registry yet)' : 'fallback list'}.</p><table>${rows.join('')}</table>`;
+        document.body.appendChild(div);
+        window.__ready = true;
+      }
+
+      async function show(): Promise<void> {
+        const entry = await findPiece(name!);
+        if (!entry) {
+          hud.innerHTML = `<span class="err">no piece called '${name}'. <a href="?">index</a></span>`;
+          hud.style.pointerEvents = 'auto';
+          console.warn(`catalogue: no piece '${name}'`);
+          window.__ready = true;
+          return;
+        }
+        const view = (VIEW_MODES as readonly string[]).includes(q.get('view') ?? '') ? (q.get('view') as ViewMode) : 'beauty';
+        const dist = (DISTANCES as readonly string[]).includes(q.get('dist') ?? '') ? (q.get('dist') as Distance) : 'station';
+        const angle = Number(q.get('angle') ?? '0') || 0;
+        const spin = q.get('spin') === '1';
+        const lampQ = q.get('lamp');
+        const opts: Record<string, unknown> = {};
+        if (q.get('seed') !== null) opts.seed = Number(q.get('seed'));
+        if (q.get('pose') !== null) opts.pose = q.get('pose');
+        const piece = buildEntry(entry, q.get('variant'), opts);
+
+        let obj: import('three').Object3D | null = null;
+        const s = await mountShowcase(canvas, {
+          tier: q.get('tier') === 'low' ? 'low' : 'high',
+          post: q.get('post') !== '0',
+          lamp: lampQ === null ? null : Math.min(1, Math.max(0, Number(lampQ))),
+          manual: q.get('manual') === '1',
+          ground: q.get('ground') === 'none' ? 'none' : 'bench',
+          onFrame(info) {
+            if (spin && obj) obj.rotation.y = ((angle + info.time * 18) * Math.PI) / 180;
+          },
+        });
+        obj = s.add(piece, { yaw: angle });
+        applyView(obj, view, s.clayMaterials);
+        const box = s.boxOf(obj);
+        s.look(box, dist);
+        (window as unknown as { __catalogue: unknown }).__catalogue = { show: s, piece, entry, materials: s.materials, look: (d: Distance | number) => s.look(s.boxOf(obj!), d) };
+
+        if (q.get('hud') !== '0') {
+          let n = 0;
+          const tick = (): void => {
+            if (++n % 15 === 0) {
+              const st = s.stage.stats();
+              const ft = s.hooks.stats().frameTimes;
+              const ppu = pxPerUnit(s.stage.camera.distance, canvas.clientHeight);
+              hud.textContent = `${piece.name}${q.get('variant') ? ` [${q.get('variant')}]` : ''}  ${piece.triangles} tris  ${view} · ${dist} (${ppu.toFixed(0)} px/unit)\n`
+                + `draw calls ${st.scene.calls}  frame ${ft.median.toFixed(1)} ms (p95 ${ft.p95.toFixed(1)})  ground: ${s.groundSource}`;
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+        }
+        s.start();
+      }
+
+      (name ? show() : index()).catch((e: unknown) => {
+        console.error(e);
+        hud.textContent = String(e);
+      });
+    </script>
+  </body>
+</html>
