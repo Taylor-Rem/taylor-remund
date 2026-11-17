@@ -257,7 +257,7 @@ export function measured(scene: SceneDesc, fit: Fit, k: { console?: { w: number;
   const s = sim('console');
   if (C && s) {
     const hz = Math.max(-C.backZ, C.frontBottomZ);
-    out['console'] = { sim: s, centredOnOrigin: { c: rv([s.c[0]!, (k.deckY ?? 1.04) / 2, s.c[2]!]), half: rv([C.w / 2, (k.deckY ?? 1.04) / 2, hz]) } };
+    out['console'] = { sim: s, centredOnOrigin: { c: rv([s.c[0]!, (k.deckY ?? 1.04) / 2, s.c[2]! - (C.frontBottomZ + C.backZ) / 2]), half: rv([C.w / 2, (k.deckY ?? 1.04) / 2, hz]) } };
   }
   return out;
 }
