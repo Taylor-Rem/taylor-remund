@@ -3,8 +3,9 @@
  * transform setting; no simulation logic, no easing, no springs (the view
  * drives it, overshoot included: `press` may go a little below 0).
  */
-import { Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
+import type { PieceNode } from '../../types.ts';
 
 export interface ButtonPose {
   /** 0 at rest .. 1 fully pressed (the cap travels POSE.travel down its axis). Clamped to -0.3..1 (a little overshoot up). */
@@ -80,4 +81,38 @@ export function poseButton(root: Object3D, pose: ButtonPose): void {
     const w = root.getObjectByName(`digit${i}`);
     if (w) turn(w, -wheelDigit(count, i) * ((Math.PI * 2) / 10));
   }
+}
+
+/** Named poses for the catalogue (`?pose=`): what the view will show. */
+export const NAMED_POSES: Readonly<Record<string, ButtonPose>> = {
+  rest: {},
+  pressed: { press: 1 },
+  shut: { guard: 1 },
+  'shut-pressed': { guard: 1, press: 1 },
+  'count-1234': { count: 1234 },
+  rolling: { count: 1299.5 },
+};
+
+/**
+ * The same pose applied to a Piece description (its node transforms), for a
+ * still built in a pose. Same moves as `poseButton`; the cavity bake stays at rest.
+ */
+export function posePiece(root: PieceNode, pose: ButtonPose): void {
+  const press = Math.max(-0.3, Math.min(1, pose.press ?? 0));
+  const guardT = Math.max(0, Math.min(1, pose.guard ?? 0));
+  const turnM = (n: PieceNode, angle: number): void => {
+    n.transform = (n.transform ?? new Matrix4()).clone().multiply(new Matrix4().makeRotationY(angle));
+  };
+  const walk = (n: PieceNode): void => {
+    if (n.name === 'cap' && press !== 0) {
+      const m = n.transform ?? new Matrix4();
+      const axis = new Vector3(0, 1, 0).transformDirection(m).multiplyScalar(-POSE.travel * press);
+      n.transform = new Matrix4().makeTranslation(axis.x, axis.y, axis.z).multiply(m);
+    }
+    if (n.name === 'guard' && guardT !== 0) turnM(n, (POSE.guardClosedDeg - POSE.guardOpenDeg) * guardT * DEG);
+    const d = /^digit(\d)$/.exec(n.name);
+    if (d && pose.count) turnM(n, -wheelDigit(pose.count, Number(d[1])) * ((Math.PI * 2) / 10));
+    for (const c of n.children ?? []) walk(c);
+  };
+  walk(root);
 }

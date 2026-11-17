@@ -115,7 +115,7 @@ describe('the Button', () => {
     const cap = o.getObjectByName('cap')!;
     const guard = o.getObjectByName('guard')!;
     const capRest = cap.getWorldPosition(new Vector3());
-    const tab = new Vector3(0, 0.4, 0);
+    const tab = new Vector3(0, 0, 0.9); // the front bar, in the guard's node space (local Y is the hinge line)
     const guardRest = guard.localToWorld(tab.clone());
     poseButton(o, { press: 1, guard: 1, count: 42 });
     const moved = new Set(['cap', 'guard', 'digit0', 'digit1', 'digit2', 'digit3']);
@@ -167,6 +167,20 @@ describe('the Button', () => {
   it('takes its tape words from the content, in two strips', () => {
     expect(tapeStrips().join(' ')).toBe(world.tape.doNotTouch);
     expect(tapeStrips().length).toBe(2);
+  });
+
+  it('builds in a named pose, matching poseButton', () => {
+    const posed = button({ pose: 'shut-pressed' });
+    const a = K.realize(posed, stub);
+    const b = K.realize(button(), stub);
+    poseButton(b, { guard: 1, press: 1 });
+    a.updateMatrixWorld(true);
+    b.updateMatrixWorld(true);
+    for (const n of ['cap', 'guard']) {
+      const ea = a.getObjectByName(n)!.matrixWorld.elements, eb = b.getObjectByName(n)!.matrixWorld.elements;
+      ea.forEach((v, i) => expect(v).toBeCloseTo(eb[i]!, 6));
+    }
+    expect(() => button({ pose: 'nonsense' })).toThrow();
   });
 
   it('is registered in the catalogue', () => {
