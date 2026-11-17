@@ -1,0 +1,347 @@
+/**
+ * Composition: parts, placing, arraying, mirroring, merging by material,
+ * and the Piece builder (named nodes for what moves, sockets, triangle
+ * count, size, and the ambient-occlusion cavity bake).
+ */
+import { Box3, BufferAttribute, BufferGeometry, Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import type { Token } from '../palette.ts';
+import type { KitPart, MaterialClass, Piece, PieceNode } from './types.ts';
+import { ATTR } from './types.ts';
+import { bakeCavity, tint } from './surface.ts';
+import type { AoOptions, TintOptions } from './surface.ts';
+import { transform } from './deform.ts';
+import { triangleCount } from './mesh.ts';
+import type { V3 } from './loft.ts';
+
+export type PartsLike = KitPart | ReadonlyArray<PartsLike>;
+
+/** Flatten nested part lists. */
+export function flat(p: PartsLike): KitPart[] {
+  if (Array.isArray(p)) return (p as ReadonlyArray<PartsLike>).flatMap(flat);
+  return [p as KitPart];
+}
+
+/** A part: a geometry of one material, tinted with a palette token. */
+export function part(material: MaterialClass, geometry: BufferGeometry, token?: Token, t?: TintOptions): KitPart {
+  if (token) tint(geometry, token, t);
+  return { material, geometry };
+}
+
+/** A textured part (label tape, card, plate): `texture` is a key made by view/labels. */
+export function texturedPart(material: MaterialClass, geometry: BufferGeometry, texture: string): KitPart {
+  return { material, geometry, texture };
+}
+
+/** Recolour parts with a token (in place). */
+export function paint(p: PartsLike, token: Token, t?: TintOptions): KitPart[] {
+  const list = flat(p);
+  for (const q of list) tint(q.geometry, token, t);
+  return list;
+}
+
+// ---- matrices ------------------------------------------------------------------
+
+const DEG = Math.PI / 180;
+
+export interface Placement {
+  at?: V3;
+  /** Euler rotation in DEGREES (XYZ order). */
+  rot?: V3;
+  scale?: number | V3;
+}
+
+/** A transform matrix from position, rotation in degrees, and scale. */
+export function mat(p: Placement = {}): Matrix4 {
+  const s = p.scale === undefined ? [1, 1, 1] : typeof p.scale === 'number' ? [p.scale, p.scale, p.scale] : p.scale;
+  const r = p.rot ?? [0, 0, 0];
+  const q = new Quaternion().setFromEuler(new Euler(r[0] * DEG, r[1] * DEG, r[2] * DEG));
+  const a = p.at ?? [0, 0, 0];
+  return new Matrix4().compose(new Vector3(a[0], a[1], a[2]), q, new Vector3(s[0], s[1], s[2]));
+}
+
+/** Shorthand: translate. */
+export const T = (x: number, y: number, z: number): Matrix4 => new Matrix4().makeTranslation(x, y, z);
+/** Shorthand: rotation in degrees about X, Y, Z (applied X then Y then Z). */
+export const Rdeg = (x: number, y: number, z: number): Matrix4 => mat({ rot: [x, y, z] });
+
+/** Matrix product left-to-right as written: chain(A, B, C) = A·B·C (C applies first). */
+export function chain(...ms: Matrix4[]): Matrix4 {
+  const out = new Matrix4();
+  for (const m of ms) out.multiply(m);
+  return out;
+}
+
+/**
+ * Orientation that turns the kit's +Y (the axis every lathe and solid is
+ * built along) to point along `dir`, then moves it to `at`.
+ */
+export function aim(at: V3, dir: V3, spin = 0): Matrix4 {
+  const d = new Vector3(dir[0], dir[1], dir[2]).normalize();
+  const q = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), d);
+  const qs = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), spin * DEG);
+  return new Matrix4().compose(new Vector3(at[0], at[1], at[2]), q.multiply(qs), new Vector3(1, 1, 1));
+}
+
+/** Place a copy of the parts under a transform (geometry is cloned). */
+export function place(p: PartsLike, m: Matrix4 | Placement): KitPart[] {
+  const M = m instanceof Matrix4 ? m : mat(m);
+  return flat(p).map((q) => {
+    const g = transform(q.geometry.clone(), M);
+    return q.texture ? { material: q.material, geometry: g, texture: q.texture } : { material: q.material, geometry: g };
+  });
+}
+
+/** Transform parts in place (no copy). */
+export function apply(p: PartsLike, m: Matrix4 | Placement): KitPart[] {
+  const M = m instanceof Matrix4 ? m : mat(m);
+  const list = flat(p);
+  for (const q of list) transform(q.geometry, M);
+  return list;
+}
+
+/** `count` copies, the i-th placed by `step(i)` (a matrix) or offset by i × step (a vector). */
+export function array(p: PartsLike, count: number, step: V3 | ((i: number) => Matrix4 | Placement)): KitPart[] {
+  const out: KitPart[] = [];
+  for (let i = 0; i < count; i++) {
+    const m = typeof step === 'function' ? step(i) : T(step[0] * i, step[1] * i, step[2] * i);
+    out.push(...place(p, m));
+  }
+  return out;
+}
+
+/** A mirrored copy across the plane through the origin normal to `axis` (winding corrected). */
+export function mirror(p: PartsLike, axis: 'x' | 'y' | 'z'): KitPart[] {
+  const s: V3 = [axis === 'x' ? -1 : 1, axis === 'y' ? -1 : 1, axis === 'z' ? -1 : 1];
+  return place(p, new Matrix4().makeScale(s[0], s[1], s[2]));
+}
+
+/**
+ * `count` copies evenly along the segment a→b (inset from both ends by
+ * `inset`), each oriented by `orient` (an extra matrix applied before the
+ * move, e.g. aiming a bolt along a surface normal). Seeded `jitter` (in
+ * radians about the part's own Y) makes a row look hand-set.
+ */
+export function alongEdge(p: PartsLike, a: V3, b: V3, count: number, opts: { inset?: number; orient?: Matrix4; spin?: (i: number) => number } = {}): KitPart[] {
+  const A = new Vector3(...a), B = new Vector3(...b);
+  const L = A.distanceTo(B);
+  const inset = opts.inset ?? 0;
+  const out: KitPart[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0.5 : i / (count - 1);
+    const d = inset + (L - 2 * inset) * t;
+    const P = A.clone().lerp(B, L > 0 ? d / L : 0);
+    const spin = opts.spin ? new Matrix4().makeRotationY(opts.spin(i)) : new Matrix4();
+    const m = T(P.x, P.y, P.z).multiply(opts.orient ?? new Matrix4()).multiply(spin);
+    out.push(...place(p, m));
+  }
+  return out;
+}
+
+/** `count` copies round a circle of `radius` in the XZ plane (or in a plane given by `frame`). */
+export function ring(p: PartsLike, radius: number, count: number, opts: { phase?: number; frame?: Matrix4; spin?: (i: number) => number } = {}): KitPart[] {
+  const out: KitPart[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = (opts.phase ?? 0) + (i / count) * Math.PI * 2;
+    const spin = opts.spin ? opts.spin(i) : 0;
+    const m = (opts.frame ?? new Matrix4()).clone().multiply(T(Math.cos(a) * radius, 0, Math.sin(a) * radius)).multiply(new Matrix4().makeRotationY(-a + spin));
+    out.push(...place(p, m));
+  }
+  return out;
+}
+
+/** An nx × nz grid of copies in the XZ plane, centred, spaced dx/dz. */
+export function grid(p: PartsLike, nx: number, nz: number, dx: number, dz: number, frame?: Matrix4): KitPart[] {
+  const out: KitPart[] = [];
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < nz; j++) {
+      const m = (frame ?? new Matrix4()).clone().multiply(T((i - (nx - 1) / 2) * dx, 0, (j - (nz - 1) / 2) * dz));
+      out.push(...place(p, m));
+    }
+  return out;
+}
+
+// ---- merging -------------------------------------------------------------------
+
+/** Concatenate geometries (indexed or not) into one indexed geometry, keeping position, normal, color, surf and uv. */
+export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometry {
+  let nv = 0;
+  let ni = 0;
+  let anyUv = false;
+  for (const g of geoms) {
+    const c = g.getAttribute('position').count;
+    nv += c;
+    ni += g.index ? g.index.count : c;
+    if (g.getAttribute('uv')) anyUv = true;
+  }
+  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), surf = new Float32Array(nv * 2);
+  const uv = anyUv ? new Float32Array(nv * 2) : null;
+  const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let vo = 0, io = 0;
+  for (const g of geoms) {
+    const c = g.getAttribute('position').count;
+    pos.set(g.getAttribute('position').array as Float32Array, vo * 3);
+    const n = g.getAttribute('normal');
+    if (n) nrm.set(n.array as Float32Array, vo * 3);
+    const cl = g.getAttribute(ATTR.color);
+    if (cl) col.set(cl.array as Float32Array, vo * 3);
+    else col.fill(1, vo * 3, (vo + c) * 3);
+    const s = g.getAttribute(ATTR.surf);
+    if (s) surf.set(s.array as Float32Array, vo * 2);
+    const u = g.getAttribute('uv');
+    if (uv && u) uv.set(u.array as Float32Array, vo * 2);
+    if (g.index) {
+      const a = g.index.array;
+      for (let i = 0; i < a.length; i++) idx[io + i] = a[i]! + vo;
+      io += a.length;
+    } else {
+      for (let i = 0; i < c; i++) idx[io + i] = vo + i;
+      io += c;
+    }
+    vo += c;
+  }
+  const out = new BufferGeometry();
+  out.setAttribute('position', new BufferAttribute(pos, 3));
+  out.setAttribute('normal', new BufferAttribute(nrm, 3));
+  out.setAttribute(ATTR.color, new BufferAttribute(col, 3));
+  out.setAttribute(ATTR.surf, new BufferAttribute(surf, 2));
+  if (uv) out.setAttribute('uv', new BufferAttribute(uv, 2));
+  out.setIndex(new BufferAttribute(idx, 1));
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
+
+/** Merge parts into one part per (material, texture). Order of first appearance is kept. */
+export function merge(p: PartsLike): KitPart[] {
+  const groups = new Map<string, { material: MaterialClass; texture?: string | undefined; geoms: BufferGeometry[] }>();
+  for (const q of flat(p)) {
+    const key = `${q.material}|${q.texture ?? ''}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { material: q.material, texture: q.texture, geoms: [] };
+      groups.set(key, g);
+    }
+    g.geoms.push(q.geometry);
+  }
+  return [...groups.values()].map((g) => {
+    const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
+    return g.texture ? { material: g.material, geometry, texture: g.texture } : { material: g.material, geometry };
+  });
+}
+
+// ---- the Piece builder -------------------------------------------------------------
+
+export class NodeBuilder {
+  readonly name: string;
+  transform: Matrix4 | undefined;
+  readonly parts: KitPart[] = [];
+  readonly children: NodeBuilder[] = [];
+  /** The piece's detail level; 'low' skips parts added with `small`. */
+  readonly detail: 'high' | 'low';
+
+  constructor(name: string, transform?: Matrix4, detail: 'high' | 'low' = 'high') {
+    this.name = name;
+    this.transform = transform;
+    this.detail = detail;
+  }
+
+  /** Add parts to this node. */
+  add(...p: PartsLike[]): this {
+    for (const q of p) this.parts.push(...flat(q));
+    return this;
+  }
+
+  /** Add the smallest parts (rivets, screws, tack welds): dropped at detail 'low'. Pass a thunk to skip building them too. */
+  small(...p: Array<PartsLike | (() => PartsLike)>): this {
+    if (this.detail === 'low') return this;
+    for (const q of p) this.parts.push(...flat(typeof q === 'function' ? q() : q));
+    return this;
+  }
+
+  /** A child node (something that moves relative to this one). Its parts are built in its own local space. */
+  node(name: string, transform?: Matrix4 | Placement): NodeBuilder {
+    const n = new NodeBuilder(name, transform === undefined ? undefined : transform instanceof Matrix4 ? transform : mat(transform), this.detail);
+    this.children.push(n);
+    return n;
+  }
+}
+
+export interface PieceOptions {
+  /** Bake ambient-occlusion cavity across the whole piece at rest (default true). */
+  ao?: AoOptions | false;
+  /** Detail level: 'low' drops parts added with `small` (default 'high'). */
+  detail?: 'high' | 'low';
+}
+
+export class PieceBuilder extends NodeBuilder {
+  readonly pieceName: string;
+  private readonly sockets: Record<string, Matrix4> = {};
+  private readonly opts: PieceOptions;
+
+  constructor(name: string, opts: PieceOptions = {}) {
+    super('root', undefined, opts.detail ?? 'high');
+    this.pieceName = name;
+    this.opts = opts;
+  }
+
+  socket(name: string, m: Matrix4 | Placement): this {
+    this.sockets[name] = m instanceof Matrix4 ? m : mat(m);
+    return this;
+  }
+
+  build(): Piece {
+    const all: Array<{ geometry: BufferGeometry; matrix: Matrix4 }> = [];
+    let triangles = 0;
+    const box = new Box3();
+    const walk = (b: NodeBuilder, parent: Matrix4): PieceNode => {
+      const world = parent.clone().multiply(b.transform ?? new Matrix4());
+      const parts = merge(b.parts);
+      for (const p of parts) {
+        triangles += triangleCount(p.geometry);
+        all.push({ geometry: p.geometry, matrix: world });
+        p.geometry.computeBoundingBox();
+        const bb = p.geometry.boundingBox;
+        if (bb && !bb.isEmpty()) box.union(bb.clone().applyMatrix4(world));
+      }
+      const node: PieceNode = { name: b.name, parts };
+      if (b.transform) node.transform = b.transform.clone();
+      if (b.children.length) node.children = b.children.map((c) => walk(c, world));
+      return node;
+    };
+    const root = walk(this, new Matrix4());
+    if (this.opts.ao !== false) bakeCavity(all, this.opts.ao ?? {});
+    const size = box.isEmpty() ? { x: 0, y: 0, z: 0 } : { x: box.max.x - box.min.x, y: box.max.y - box.min.y, z: box.max.z - box.min.z };
+    const piece: Piece = { name: this.pieceName, root, size, triangles };
+    if (Object.keys(this.sockets).length) piece.sockets = { ...this.sockets };
+    return piece;
+  }
+}
+
+/** Start building a Piece. */
+export function piece(name: string, opts?: PieceOptions): PieceBuilder {
+  return new PieceBuilder(name, opts);
+}
+
+/** Triangles in a piece (recount from the tree). */
+export function countTriangles(p: Piece | PieceNode): number {
+  const node = 'root' in p ? p.root : p;
+  let n = 0;
+  for (const q of node.parts) n += triangleCount(q.geometry);
+  for (const c of node.children ?? []) n += countTriangles(c);
+  return n;
+}
+
+/** Axis-aligned bounds of a piece at rest, in its root space. */
+export function pieceBounds(p: Piece): Box3 {
+  const box = new Box3();
+  const walk = (n: PieceNode, parent: Matrix4): void => {
+    const w = parent.clone().multiply(n.transform ?? new Matrix4());
+    for (const q of n.parts) {
+      q.geometry.computeBoundingBox();
+      if (q.geometry.boundingBox) box.union(q.geometry.boundingBox.clone().applyMatrix4(w));
+    }
+    for (const c of n.children ?? []) walk(c, w);
+  };
+  walk(p.root, new Matrix4());
+  return box;
+}

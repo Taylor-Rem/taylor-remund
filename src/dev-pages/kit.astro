@@ -1,0 +1,258 @@
+---
+// The kit review page (seed of the parts catalogue, REWRITE.md § E3).
+// Query: ?view=clay|raw|color|wear|cavity|surf|wire|normals  ?piece=all|test-block|solids|details
+//        ?az=<deg> (camera azimuth)  ?el=<deg> (pitch)  ?zoom=<k>  ?at=x,y,z (look-at)  ?spin=1  ?detail=low
+// Throwaway lights and materials live here; they are not the stage's.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Kit</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #12292c; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 12px/1.3 monospace; color: #efe6d2; opacity: 0.75; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import {
+        ACESFilmicToneMapping, BufferAttribute, Color, DirectionalLight, Group, HemisphereLight, Mesh, MeshBasicMaterial,
+        MeshNormalMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PlaneGeometry, Scene, SpotLight,
+        SRGBColorSpace, Vector3, WebGLRenderer, Material, Object3D, Box3,
+      } from 'three';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { PMREMGenerator } from 'three';
+      import { linear } from '../workshop/view/palette.ts';
+      import type { Token } from '../workshop/view/palette.ts';
+      import type { Materials } from '../workshop/view/types.ts';
+      import type { MaterialClass, Piece } from '../workshop/view/kit/types.ts';
+      import * as K from '../workshop/view/kit/index.ts';
+      import { testBlock } from '../workshop/view/kit/pieces/test-block.ts';
+
+      const q = new URLSearchParams(location.search);
+      const view = q.get('view') ?? 'clay';
+      const which = q.get('piece') ?? 'all';
+      const detail = (q.get('detail') === 'low' ? 'low' : 'high') as 'high' | 'low';
+      const col = (t: Token, k = 1): Color => { const [r, g, b] = linear(t); return new Color(r * k, g * k, b * k); };
+
+      // ---- throwaway materials (a stand-in for view/materials) ----------------
+      function withSurf(m: MeshStandardMaterial, cavity: number, wear: number): MeshStandardMaterial {
+        m.onBeforeCompile = (s) => {
+          s.vertexShader = s.vertexShader
+            .replace('#include <common>', '#include <common>\nattribute vec2 surf;\nvarying vec2 vSurf;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurf = surf;');
+          s.fragmentShader = s.fragmentShader
+            .replace('#include <common>', '#include <common>\nvarying vec2 vSurf;')
+            .replace('#include <color_fragment>', `#include <color_fragment>\n diffuseColor.rgb *= mix(1.0, ${(1 - cavity).toFixed(2)}, vSurf.y);\n diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.6 + 0.04, vSurf.x * ${wear.toFixed(2)});`);
+        };
+        m.customProgramCacheKey = () => `surf${cavity}${wear}`;
+        return m;
+      }
+      const clay = withSurf(new MeshStandardMaterial({ color: col('paper', 0.62), roughness: 0.62, metalness: 0 }), view === 'raw' ? 0 : 0.55, 0);
+      const debugMat = new MeshBasicMaterial({ vertexColors: true });
+      const normalMat = new MeshNormalMaterial();
+      const classProps: Record<MaterialClass, { r: number; m: number; e?: boolean }> = {
+        steel: { r: 0.45, m: 0.15 }, brass: { r: 0.32, m: 1 }, wood: { r: 0.7, m: 0 }, rubber: { r: 0.92, m: 0 },
+        paper: { r: 0.95, m: 0 }, metal: { r: 0.38, m: 0.9 }, glass: { r: 0.08, m: 0.2 }, bulb: { r: 0.4, m: 0, e: true },
+        felt: { r: 1, m: 0 }, tape: { r: 0.3, m: 0 }, belt: { r: 0.85, m: 0 },
+      };
+      const colored = new Map<MaterialClass, Material>();
+      const materials: Materials = {
+        of(cls) {
+          if (view === 'normals') return normalMat;
+          if (view === 'wear' || view === 'cavity' || view === 'surf') return debugMat;
+          if (view === 'color') {
+            let m = colored.get(cls);
+            if (!m) {
+              const p = classProps[cls];
+              m = withSurf(new MeshStandardMaterial({ vertexColors: true, roughness: p.r, metalness: p.m }), 0.6, cls === 'steel' ? 0.5 : 0.25);
+              colored.set(cls, m);
+            }
+            return m;
+          }
+          return clay;
+        },
+        textured(cls) { return this.of(cls); },
+        update() {},
+        dispose() {},
+      };
+
+      // ---- what to show ---------------------------------------------------------
+      type Item = { name: string; build: () => Piece };
+      const pc = (name: string, parts: K.PartsLike): Piece => K.piece(name).add(parts).build();
+      const P = (m: MaterialClass, g: import('three').BufferGeometry, t: Token) => K.part(m, g, t);
+      const solids: Item[] = [
+        { name: 'roundedBox', build: () => pc('roundedBox', P('steel', K.roundedBox({ w: 0.5, h: 0.4, d: 0.4, r: 0.05, detail }), 'teal-panel')) },
+        { name: 'roundedBox top', build: () => pc('rb2', P('steel', K.roundedBox({ w: 0.5, h: 0.35, d: 0.4, rPlan: 0.12, rTop: 0.1, rBottom: 0.02, detail }), 'teal-light')) },
+        { name: 'chamferedBox', build: () => pc('chamferedBox', P('steel', K.chamferedBox({ w: 0.45, h: 0.35, d: 0.4, c: 0.05 }), 'paint-orange')) },
+        { name: 'taperBox', build: () => pc('taperBox', P('steel', K.taperBox({ w: 0.5, h: 0.4, d: 0.4, r: 0.04, topW: 0.3, topD: 0.3, shiftX: 0.05, detail }), 'paint-blue')) },
+        { name: 'slab', build: () => pc('slab', P('wood', K.slab({ w: 0.5, d: 0.4, t: 0.06, detail }), 'wood-light')) },
+        { name: 'tray', build: () => pc('tray', P('steel', K.tray({ w: 0.5, h: 0.2, d: 0.4, wall: 0.035, detail }), 'paint-green')) },
+        { name: 'lathe', build: () => pc('lathe', P('brass', K.lathe(K.profile(0, 0).to(0.2, 0, { fillet: 0.02 }).to(0.2, 0.05, { fillet: 0.015 }).to(0.12, 0.08, { fillet: 0.03 }).groove(0.015, 0.03).to(0.09, 0.28, { fillet: 0.02 }).to(0.15, 0.3, { fillet: 0.01 }).to(0.15, 0.34, { fillet: 0.015 }).to(0, 0.34), { detail }), 'brass')) },
+        { name: 'bell shade', build: () => pc('shade', P('steel', K.lathe(K.profile(0.04, 0.4).to(0.07, 0.4, { fillet: 0.01 }).to(0.07, 0.34, { fillet: 0.03 }).cubic(0.24, 0.02, 0.09, 0.2, 0.22, 0.1).to(0.25, 0, { fillet: 0.008 }).to(0.235, 0, { fillet: 0.008 }).cubic(0.06, 0.32, 0.2, 0.1, 0.075, 0.2).to(0.04, 0.33).close(), { detail }), 'teal-panel')) },
+        { name: 'extrude', build: () => pc('extrude', P('metal', K.extrude([[-0.22, 0], [0.22, 0], [0.22, 0.08], [0.06, 0.12], [0.06, 0.32], [-0.06, 0.32], [-0.06, 0.12], [-0.22, 0.08]], 0.06, { radius: [0.02, 0.02, 0.03, 0.03, 0.05, 0.05, 0.03, 0.03], bevel: 0.012, holes: [K.ngon(14, 0.03, 0).map(([x, y]) => [x, y + 0.24] as [number, number])], detail }), 'steel')) },
+        { name: 'sweep', build: () => pc('sweep', P('metal', K.sweep(K.polylinePath([[-0.2, 0.05, 0], [-0.2, 0.3, 0], [0.2, 0.3, 0], [0.2, 0.05, 0.1]], 0.08), { radius: 0.03, detail }), 'steel')) },
+        { name: 'knob', build: () => pc('knob', [K.part('rubber', K.lathe(K.profile(0, 0).to(0.12, 0, { fillet: 0.01 }).to(0.13, 0.03, { fillet: 0.015 }).to(0.13, 0.07, { fillet: 0.02 }).arc(0.05, 0.13, 0.12).to(0.045, 0.16, { fillet: 0.01 }).to(0, 0.16), { detail }), 'ink'), K.knurledBand({ r: 0.135, h: 0.04, ridges: 30, detail }).map((q) => ({ ...q, geometry: K.transform(q.geometry, K.T(0, 0.025, 0)) }))]) },
+        { name: 'wheel hub', build: () => pc('hub', K.place([K.part('metal', K.lathe(K.profile(0, 0).to(0.2, 0, { fillet: 0.01 }).to(0.2, 0.05, { fillet: 0.012 }).to(0.16, 0.06, { fillet: 0.01 }).to(0.08, 0.07, { fillet: 0.02 }).to(0.07, 0.12, { fillet: 0.01 }).to(0.04, 0.12, { fillet: 0.006 }).to(0.04, 0.09).to(0, 0.09), { detail }), 'steel'), ...K.ring(K.hexBolt({ af: 0.035, detail }), 0.12, 5, { frame: K.T(0, 0.062, 0) })], K.T(0, 0, 0))) },
+        { name: 'stool leg', build: () => pc('leg', K.part('wood', K.lathe(K.profile(0, 0).to(0.035, 0, { fillet: 0.006 }).to(0.04, 0.05, { fillet: 0.01 }).to(0.03, 0.09, { fillet: 0.006 }).bead(0.012, 0.03).to(0.032, 0.4, { smooth: true }).to(0.045, 0.45, { fillet: 0.008 }).groove(0.008, 0.02).to(0.05, 0.52, { fillet: 0.01 }).to(0.035, 0.55, { fillet: 0.006 }).to(0, 0.55), { detail }), 'wood-light')) },
+        { name: 'S-bend cable', build: () => pc('sbend', K.part('rubber', K.sweep(K.sBendPath([-0.25, 0.03, 0.1], [0.25, 0.03, -0.1], [1, 0, 0]), { radius: 0.025, detail }), 'cable-red')) },
+        { name: 'ellipsoid', build: () => pc('ellipsoid', P('felt', K.ellipsoid({ rx: 0.22, ry: 0.16, rz: 0.18, detail }), 'teal-light')) },
+        { name: 'capsule', build: () => pc('capsule', P('rubber', K.capsule({ r: 0.1, h: 0.4, detail }), 'ink')) },
+        { name: 'torus', build: () => pc('torus', P('brass', K.torus({ R: 0.16, r: 0.05, detail }), 'brass')) },
+        { name: 'superellipsoid', build: () => pc('superellipsoid', P('steel', K.superellipsoid({ rx: 0.2, ry: 0.18, rz: 0.18, e1: 0.35, e2: 0.35, detail }), 'cable-red')) },
+        { name: 'squircle', build: () => pc('squircle', P('steel', K.squircle({ w: 0.45, h: 0.42, d: 0.4, detail }), 'paper')) },
+      ];
+      const details: Item[] = [
+        { name: 'hexBolt', build: () => pc('hexBolt', K.hexBolt({ af: 0.1, washer: true, detail })) },
+        { name: 'slottedScrew', build: () => pc('slottedScrew', K.slottedScrew({ d: 0.1, detail })) },
+        { name: 'domeRivet', build: () => pc('domeRivet', K.domeRivet({ d: 0.08, detail })) },
+        { name: 'washer', build: () => pc('washer', K.washer({ od: 0.12, detail })) },
+        { name: 'wingNut', build: () => pc('wingNut', K.wingNut({ size: 0.14, detail })) },
+        { name: 'louvre', build: () => pc('louvre', K.louvre({ w: 0.36, h: 0.26, detail })) },
+        { name: 'seam', build: () => pc('seam', [K.part('steel', K.roundedBox({ w: 0.4, h: 0.04, d: 0.2, r: 0.01, detail }), 'teal-panel'), K.seam({ length: 0.36, width: 0.03 }).map((p) => ({ ...p, geometry: K.transform(p.geometry, K.T(0, 0.04, 0)) }))]) },
+        { name: 'hinge', build: () => { const h = K.hinge({ length: 0.3, r: 0.03, detail }); return pc('hinge', K.place([...h.fixed, ...h.moving], K.chain(K.T(0, 0.02, 0), K.Rdeg(-90, 0, 0)))); } },
+        { name: 'handle', build: () => pc('handle', K.place(K.handle({ span: 0.3, reach: 0.09, r: 0.018, detail }), K.chain(K.T(0, 0, 0), K.Rdeg(-90, 0, 0)))) },
+        { name: 'cableGland', build: () => pc('cableGland', K.cableGland({ cable: 0.04, detail })) },
+        { name: 'rubberFoot', build: () => pc('rubberFoot', K.rubberFoot({ d: 0.18, detail })) },
+        { name: 'knurledBand', build: () => pc('knurledBand', K.knurledBand({ r: 0.1, h: 0.08, detail })) },
+        { name: 'weldBead', build: () => pc('weldBead', [K.part('metal', K.roundedBox({ w: 0.36, h: 0.04, d: 0.2, r: 0.01 }), 'steel'), K.weldBead(K.polylinePath([[-0.16, 0.045, 0], [0.16, 0.045, 0]], 0), { r: 0.014 })]) },
+        { name: 'spring', build: () => pc('spring', K.spring({ r: 0.07, wire: 0.012, turns: 6, detail })) },
+        { name: 'flange', build: () => pc('flange', K.flange({ od: 0.3, t: 0.03, bolts: 6, detail })) },
+        { name: 'collar', build: () => pc('collar', K.collar({ r: 0.09, detail })) },
+      ];
+
+      const scene = new Scene();
+      scene.background = col('teal-deep');
+      const root = new Group();
+      scene.add(root);
+      let tris = 0;
+      const add = (p: Piece, x: number, z: number, ry = 0): Object3D => {
+        const o = K.realize(p, materials);
+        o.position.set(x, 0, z);
+        o.rotation.y = ry;
+        root.add(o);
+        tris += p.triangles;
+        return o;
+      };
+      const t0 = performance.now();
+      let focus = new Vector3(0, 0.35, 0);
+      let span = 2.2;
+      if (which === 'test-block' || which === 'all') {
+        const tb = testBlock({ detail, seed: Number(q.get('seed') ?? 1) });
+        add(tb, which === 'all' ? -1.6 : 0, 0);
+        (window as unknown as { __tb: Piece }).__tb = tb;
+        if (which === 'test-block') { focus = new Vector3(0.1, 0.4, 0); span = 2.1; }
+      }
+      const layout = (items: Item[], cols: number, x0: number, z0: number, dx: number, dz: number) => {
+        items.forEach((it, i) => add(it.build(), x0 + (i % cols) * dx, z0 + Math.floor(i / cols) * dz));
+      };
+      if (which === 'solids') { layout(solids, 5, -1.5, -1.1, 0.75, 0.75); focus = new Vector3(0, 0.15, 0); span = 4.3; }
+      if (which === 'details') { layout(details, 6, -1.05, -0.42, 0.42, 0.42); focus = new Vector3(0, 0.05, 0); span = 2.8; }
+      if (which.startsWith('one:')) {
+        const it = [...solids, ...details].find((x) => x.name === which.slice(4));
+        if (it) {
+          add(it.build(), 0, 0);
+          const b = new Box3().setFromObject(root);
+          focus = b.getCenter(new Vector3());
+          span = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) * 2.2;
+        }
+      }
+      if (which === 'all') { layout(solids, 5, 0.0, -1.0, 0.62, 0.62); layout(details, 8, -2.3, 1.0, 0.42, 0.42); focus = new Vector3(0, 0.2, 0.1); span = 5.4; }
+      const buildMs = performance.now() - t0;
+
+      if (view === 'wear' || view === 'cavity' || view === 'surf') {
+        root.traverse((o) => {
+          if ((o as Mesh).isMesh) {
+            const m = o as Mesh;
+            const g = m.geometry.clone();
+            g.setAttribute('color', new BufferAttribute(K.surfDebugColors(g, view === 'surf' ? 'both' : view), 3));
+            m.geometry = g;
+          }
+        });
+      }
+      if (view === 'wire') {
+        root.traverse((o) => { if ((o as Mesh).isMesh) (o as Mesh).material = new MeshBasicMaterial({ color: col('paper', 0.5), wireframe: true }); });
+        const solid = root.clone();
+        solid.traverse((o) => { if ((o as Mesh).isMesh) (o as Mesh).material = clay; });
+        scene.add(solid);
+        root.traverse((o) => { if ((o as Mesh).isMesh) { (o as Mesh).material = new MeshBasicMaterial({ color: col('ink'), wireframe: true }); } });
+      }
+
+      // ground
+      const ground = new Mesh(new PlaneGeometry(40, 40), new MeshStandardMaterial({ color: col('wood', 0.55), roughness: 0.9 }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // lights: warm key spot from upper back-left, cool fill, cool rim
+      const key = new SpotLight(col('amber-glow').lerp(new Color(1, 1, 1), 0.35), 90, 0, 0.5, 0.6, 1.4);
+      // review light: the key is high front-left so the good side reads (the stage's lamp is back-left)
+      const keyDir = q.get('key') === 'back' ? new Vector3(-3.2, 5.5, -1.6) : new Vector3(-3.4, 5.2, 3.0);
+      key.position.copy(keyDir).add(focus);
+      key.target.position.copy(focus);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.radius = 4;
+      key.shadow.bias = -0.0005;
+      key.shadow.normalBias = 0.02;
+      key.shadow.camera.near = 2;
+      key.shadow.camera.far = 14;
+      scene.add(key, key.target);
+      const fill = new HemisphereLight(col('teal-light', 1.4), col('wood', 1.2), 0.9);
+      scene.add(fill);
+      const front = new DirectionalLight(col('steel', 1.2), 0.9);
+      front.position.set(1, 2, 5);
+      scene.add(front);
+      const rim = new DirectionalLight(col('teal-light', 2.2), 1.6);
+      rim.position.set(4, 3, -4);
+      scene.add(rim);
+
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const renderer = new WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+      renderer.setSize(innerWidth, innerHeight, false);
+      renderer.outputColorSpace = SRGBColorSpace;
+      renderer.toneMapping = ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = PCFShadowMap;
+      if (view === 'color') {
+        const pm = new PMREMGenerator(renderer);
+        scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+        scene.environmentIntensity = 0.35;
+      }
+
+      const camera = new PerspectiveCamera(20, innerWidth / innerHeight, 0.1, 100);
+      const az = Number(q.get('az') ?? -18) * Math.PI / 180;
+      const el = Number(q.get('el') ?? 30) * Math.PI / 180;
+      const zoom = Number(q.get('zoom') ?? 1);
+      const atq = q.get('at');
+      if (atq) { const [x, y, z] = atq.split(',').map(Number); focus = new Vector3(x, y, z); }
+      const dist = (span / zoom) / (2 * Math.tan((20 * Math.PI) / 360)) * Math.max(1, (innerHeight / innerWidth) * 1.6);
+      const place = (a: number) => {
+        camera.position.set(focus.x + Math.sin(a) * Math.cos(el) * dist, focus.y + Math.sin(el) * dist, focus.z + Math.cos(a) * Math.cos(el) * dist);
+        camera.lookAt(focus);
+      };
+      place(az);
+      const bb = new Box3().setFromObject(root);
+      (document.getElementById('hud') as HTMLElement).textContent =
+        `view=${view} piece=${which} detail=${detail}  triangles=${tris}  build=${buildMs.toFixed(0)}ms  bounds=${bb.min.toArray().map((v) => v.toFixed(2))}..${bb.max.toArray().map((v) => v.toFixed(2))}`;
+      const spin = q.get('spin') === '1';
+      let frames = 0;
+      const loop = (t: number) => {
+        if (spin) place(az + t * 0.0003);
+        renderer.render(scene, camera);
+        if (++frames === 3) (window as unknown as { __ready: boolean }).__ready = true;
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+      addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+    </script>
+  </body>
+</html>
