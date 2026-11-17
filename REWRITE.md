@@ -951,9 +951,10 @@ The rule that makes this maintainable: **the simulation does not know it is
 being drawn.**
 
 ```
-src/content/     facts: projects, roles, skills, services, toy claims
+src/content/     facts: projects, roles, skills, services, toy claims (JSON; each fact with a source)
 src/pages/       index, resume, ai, privacy, terms, sms, career-send, 404
 src/layouts/     Paper (the conventional pages), Stage (the home page)
+src/dev-pages/   development-only pages (parts catalogue, look tests); absent from a normal build
 src/workshop/
   sim/           world, parts, history, machines/, crew/, physics adapter, clock, rng
   view/          kit/, materials, light, camera, labels, effects, one view per station
@@ -963,9 +964,19 @@ src/workshop/
   shell/         boot, capability tiers, picture-to-stage handoff, fallback, saved state
 tests/           unit/, scenario/ (headless simulation), browser/ (Playwright)
 scripts/         verify, check-urls, check-legal, check-claims, budget, poster
+integrations/    local Astro integrations: CNAME into the output, dev-only pages, the legacy passthrough
 legal-reference/ the approved text of record for the four compliance pages
-public/          CNAME, assets/ at their old paths, the still picture, fonts, robots.txt
+legacy/          the old site as it stood on `main`, kept for migration (P3)
+public/          assets/ at their old paths, the still picture, fonts, robots.txt
 ```
+
+As built in P0 (2026-11-17): `CNAME` stays at the repository root, untouched,
+and an integration copies it into the output. Until P3 migrates them,
+`/resume/` and `/ai/` are served byte for byte from `legacy/`; the budget
+check prints them as exempt so the debt stays visible. TypeScript is pinned
+at 6.x (`@astrojs/check` does not accept 7 yet). Rapier is the plain
+`@dimforge/rapier3d` package; its wasm is a separate file of about 1.2 MB
+gzipped.
 
 | layer | owns | must not |
 |---|---|---|
