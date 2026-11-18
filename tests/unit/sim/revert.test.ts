@@ -235,6 +235,48 @@ describe('Revert goes home (S7)', () => {
   });
 });
 
+describe('Revert between presses (S7)', () => {
+  test('presses in quick succession: when a rung\'s rewind ends it stands by, idle, even as the next rung plays', () => {
+    const { world } = benchStub();
+    run(world, 5);
+    const ev = rung(world);
+    expect(R(world).state).toBe('crank'); // the rung's last step: the crank's last turn
+    // the next press lands at once; through that rung, after the first rewind, it is never left cranking
+    ev.push(...press(world, 'button'));
+    let crankingIdle = 0;
+    while (world.bracketed) {
+      ev.push(...run(world, 1));
+      const r = R(world);
+      if (r.state === 'crank' && !r.cranking) crankingIdle++;
+    }
+    expect(crankingIdle).toBe(0);
+    const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
+    expect(seq.filter((s) => s === 'crank').length).toBe(2);
+    ev.push(...run(world, 1));
+    expect(states(ev).at(-1)).toBe('idle');
+  });
+
+  test('a press during the rewind\'s last moment: the crank stops when the rewind does, in the bracket of the next rung', () => {
+    const { world } = benchStub();
+    run(world, 5);
+    press(world, 'button');
+    while (world.bracketed) run(world, 1);
+    run(world, 1);
+    expect(R(world).state).toBe('idle');
+    // crank into the next rung: an undo crank that outlasts the press
+    world.dispatch({ type: 'turn', id: 'belt-dial', value: 0 });
+    run(world, 2);
+    press(world, 'undo-lever');
+    run(world, 1);
+    expect(R(world).state).toBe('crank');
+    press(world, 'button');
+    expect(world.bracketed).toBe(true);
+    for (let i = 0; i < steps(REVERT_TUNING.undoCrank.max) + 2; i++) run(world, 1);
+    expect(world.bracketed).toBe(true);
+    expect(R(world)).toMatchObject({ state: 'idle', cranking: false });
+  });
+});
+
 describe('Revert in the hand', () => {
   test('picked up it goes limp; put down it rights itself where it lies and carries on', () => {
     const { world, physics } = benchStub();

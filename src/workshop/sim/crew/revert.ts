@@ -40,7 +40,9 @@
  *   catches up when the rung ends. A rung's `revert` beat calls it like any
  *   other call: down (stowed) it rises; sinking, it rises again from where
  *   its lift is. A rung without that beat (reduced motion) leaves the lift
- *   alone: a sinking Revert finishes sinking during it.
+ *   alone: a sinking Revert finishes sinking during it. When the rewind ends
+ *   and it has nothing to do it stands by (`idle`), even if the next rung is
+ *   already playing, and the next rung's beats start its next act from there.
  *
  * Its view is a `MachineView` of kind `revert` (see `RevertView`); its body
  * is the loose part `spec.body` (kind robot).
@@ -621,6 +623,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         speed = 0;
         turning = 0;
         if (cranking && (state === 'idle' || state === 'park' || state === 'trundle' || state === 'fit')) enter('crank');
+        if (state === 'crank' && !cranking) doneCranking(); // the rewind is over: it stands by, even into the next rung
         return;
       }
 
