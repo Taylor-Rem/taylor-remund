@@ -56,8 +56,8 @@ export const BUTTON_TUNING = {
   coverHiccupAt: 0.6,
   /** Rung 4: the used stations misfire, the stack comes down a beat later, the warning lamp turns until the rewind. */
   works: { misfire: 0.15, stack: 0.45, warning: 4.6 },
-  /** How long Revert takes to fit the cover after rung 3 (the Button takes no press meanwhile): its trip from the hatch and the screwing. */
-  fit: 4,
+  /** How long the cover takes to be fitted after rung 3: Revert's trip from its hatch and the screwing. A press meanwhile is not refused: it plays, and the fitting carries on after. */
+  fit: 6.5,
   /** Reduced motion: the dip, then the card. */
   reduced: { play: 0.9, rewind: 0.3 },
   /** Rung 4's stack: each crate leaves the stack's middle at this speed (units/s), and this fast upward. */
@@ -356,7 +356,7 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
         ctx.emit({ type: 'handle.worked', id: coverId });
         return true;
       }
-      if (cover === 'fitting') return false; // Revert's hands are on it; a moment
+      // while it is being fitted there is no cover to lift yet: a press plays (never a dead Button)
       if (cover === 'shut') {
         // a press on a shut cover lifts it (at once, one click): the next press plays
         setCover('open');

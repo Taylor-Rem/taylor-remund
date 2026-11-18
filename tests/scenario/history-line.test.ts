@@ -19,6 +19,8 @@ import type { Checker } from './standins/replay.ts';
 
 const PARTS = BENCH.parts.map((p) => p.id);
 const VISIBLE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch'] as const;
+/** What the visitor may pick up: the crates, Fetch, and Revert once it has come up (S4). */
+const HANDLED = [...VISIBLE, 'revert'] as const;
 const JACKS = BENCH.cord.jacks.map((j) => j.id);
 const only = process.env.LINE_SEED !== undefined ? Number(process.env.LINE_SEED) : null;
 const seeds = (n: number, base: number): number[] => (only !== null ? [only] : Array.from({ length: n }, (_, i) => base + i));
@@ -84,7 +86,7 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
   const start = b.world.durable();
   const w = b.world;
   let actions = 0;
-  const grabbable = (crew: boolean): Id[] => VISIBLE.filter((id) => (crew || id !== 'fetch') && ['free', 'crew', 'machine'].includes(w.mode(id) ?? ''));
+  const grabbable = (crew: boolean): Id[] => HANDLED.filter((id) => (crew || (id !== 'fetch' && id !== 'revert')) && ['free', 'crew', 'machine'].includes(w.mode(id) ?? ''));
   const act = (): void => {
     const k = r.int(100);
     const visitor = o.maxActions === undefined || actions < o.maxActions;
@@ -121,7 +123,8 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
       w.dispatch({ type: 'press', id: PHONE });
       b.run(1);
     } else if (k < 72) {
-      w.dispatch({ type: 'undo' });
+      // the UNDO lever itself (S4), or the U key: the same undo
+      w.dispatch(r.chance(0.5) ? { type: 'press', id: 'undo-lever' } : { type: 'undo' });
       b.run(1);
     } else if (k < 75) {
       w.dispatch({ type: 'press', id: 'button' });

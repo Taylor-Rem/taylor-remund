@@ -53,8 +53,10 @@ export const REVERT_TUNING = {
   doors: 0.3,
   /** Its hatch covered: it rattles the doors this long, then stays down. */
   stuck: 1.2,
+  /** ...and does not try to come up to tidy again for this long. */
+  stuckRetry: 20,
   /** Trundling: top speed, acceleration, turning on the spot. */
-  speed: 1.1,
+  speed: 1.4,
   accel: 3,
   turn: 2.6,
   /** Close enough to a waypoint, units; facing closely enough to drive, radians. */
@@ -170,7 +172,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let stowed = false;
   let resetting = false;
   let tidySince = ctx.clock.step;
-  let lastAway = -Infinity;
+  /** No put-away before this step (one every `awayGap`; longer after its hatch was found covered). */
+  let nextAway = -Infinity;
   let glareUntil = -1;
   const lastStir = new Map<Id, number>();
 
@@ -417,7 +420,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const to = destination(s.part);
     ctx.emit({ type: 'revert.sweep', id: body, part: s.part, from: pose, to });
     ctx.putAway(s.part, to);
-    lastAway = ctx.clock.step;
+    nextAway = ctx.clock.step + steps(spec.awayGap);
   }
 
   /** What it does when nothing calls it. */
@@ -430,7 +433,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       else goTo(spec.button, 'cover');
       return;
     }
-    if (now - lastAway >= steps(spec.awayGap)) {
+    if (now >= nextAway) {
       const c = clutter();
       if (c !== null) {
         sweeping = { part: c, stir: stirred(c) };
@@ -567,7 +570,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.min(1, lift + dt / T.rise);
         if (lift >= 1) enter(cranking ? 'crank' : 'idle');
       }
-      if (state === 'stuck' && inState() >= steps(T.stuck)) enter('below');
+      if (state === 'stuck' && inState() >= steps(T.stuck)) {
+        nextAway = Math.max(nextAway, now + steps(T.stuckRetry));
+        enter('below');
+      }
       const onHatch = Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
       const doorsWant = state === 'rising' || (up() && onHatch) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
@@ -629,6 +635,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           turning = 0;
       }
       if (up()) think();
+      else if (state === 'below' && now >= nextAway && clutter() !== null) rise(); // it comes up to tidy
       place(false);
     },
 
@@ -647,7 +654,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       lift = spec.start === 'up' ? 1 : 0;
       hatch = 0;
       tidySince = ctx.clock.step;
-      lastAway = -Infinity;
+      nextAway = -Infinity;
       glareUntil = -1;
       beat.reset();
       enter(spec.start === 'up' ? 'idle' : 'below');
