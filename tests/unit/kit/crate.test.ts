@@ -75,10 +75,10 @@ describe('crate', () => {
     const names = nodes(p).map((n) => n.name);
     expect(names).toEqual(['root', 'lid', 'latch']);
     expect(Object.keys(p.sockets ?? {}).sort()).toEqual(['grip', 'label']);
-    // the label sits on the front top rail, facing the visitor
+    // the label sits on the front panel under the top rail, facing the visitor
     const at = new Vector3().setFromMatrixPosition(p.sockets!['label']!);
-    expect(at.z).toBeGreaterThan(p.size.z / 2 - 0.05);
-    expect(at.y).toBeGreaterThan(p.size.y * 0.75);
+    expect(at.z).toBeGreaterThan(p.size.z / 2 - 0.07);
+    expect(at.y).toBeGreaterThan(p.size.y * 0.7);
     // the lid's hinge axis (its local +Y) runs along world X, at the back
     const lid = nodes(p).find((n) => n.name === 'lid')!;
     const yAxis = new Vector3(0, 1, 0).transformDirection(lid.transform!);
