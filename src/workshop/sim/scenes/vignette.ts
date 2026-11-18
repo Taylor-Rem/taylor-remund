@@ -16,6 +16,8 @@ import type { Pose, Vec3 } from '../types.ts';
 import type { SceneDesc, StaticSpec } from '../scene.ts';
 import { CRATE_EDGE } from '../parts.ts';
 import { qyaw } from '../math.ts';
+import { lanePath } from '../path.ts';
+import { FETCH_TUNING } from '../crew/fetch.ts';
 
 /** A static box: centre and half extents. */
 interface Box {
@@ -44,7 +46,7 @@ export const AT = {
   belt: { c: [3.5, 0.25, 4.05], half: [3.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-0.06, 0.63, 4.15], half: [0.56, 0.63, 0.79] } as Box,
   /** Fetch's lane of yellow tape (x, z): in front of the console, behind the belt. */
-  lane: { a: [-3.7, 2.25] as const, b: [3.9, 2.25] as const },
+  lane: { points: [[-3.7, 2.25], [3.9, 2.25]] as const },
   /** Where along the lane (0 at a, 1 at b) Fetch starts, with the loose crate in its hands. */
   fetchStart: 0.22,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
@@ -67,8 +69,11 @@ const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
 const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
 const box = (id: string, b: Box, extra: Partial<StaticSpec> = {}): StaticSpec => ({ id, shape: { type: 'box', half: b.half }, pose: pose(b.c), ...extra });
-const laneT = (x: number): number => (x - AT.lane.a[0]) / (AT.lane.b[0] - AT.lane.a[0]);
-const lanePoint = (t: number): [number, number] => [AT.lane.a[0] + (AT.lane.b[0] - AT.lane.a[0]) * t, AT.lane.a[1] + (AT.lane.b[1] - AT.lane.a[1]) * t];
+/** Fetch's lane as the path it rides (S5 round 2: runs of tape, corners rounded): fractions along it, and points on it. */
+const LANE_PATH = lanePath(AT.lane.points, FETCH_TUNING.cornerRadius);
+/** The fraction of the path at the point of it nearest x on its first run (for a mark given as an x). */
+const laneT = (x: number): number => LANE_PATH.nearest(x, AT.lane.points[0][1]) / LANE_PATH.length;
+const lanePoint = (t: number): [number, number] => LANE_PATH.at(t * LANE_PATH.length);
 const [fx, fz] = lanePoint(AT.fetchStart);
 
 /** Unpainted wood: a fresh crate's colour. Not one of the eight paints. */
@@ -123,7 +128,7 @@ export const vignette: SceneDesc = {
   },
   runner: {
     id: 'fetch',
-    lane: { a: AT.lane.a, b: AT.lane.b },
+    lane: { points: AT.lane.points },
     start: AT.fetchStart,
     carrying: 'crate-4',
     fumbleAt: laneT(AT.fumbleX),
