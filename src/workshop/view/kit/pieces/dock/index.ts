@@ -36,9 +36,10 @@
  * middle of the sill, door frame), `bell`, `lamp`.
  */
 import { Matrix4, Vector3 } from 'three';
+import type { BufferAttribute, BufferGeometry } from 'three';
 import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
-import { aim, chain, part, piece, T } from '../../compose.ts';
+import { aim, chain, mat, part, piece, T } from '../../compose.ts';
 import { extrude, lathe, profiledBox, roundedBox } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { sweep, polylinePath, sections } from '../../sweep.ts';
@@ -72,6 +73,14 @@ export function rampRollers(g: RampGeom = rampGeom()): number[] {
   const n = Math.max(2, Math.round((g.length - 0.12) / DOCK.rollerPitch));
   for (let i = 0; i <= n; i++) out.push(0.06 + ((g.length - 0.14) * i) / n);
   return out;
+}
+
+/** Write cavity (surf.y) at least `v` on every vertex: a recess the bake would not find (the inside of the bay). */
+function fullCavity(g: BufferGeometry, v: number): BufferGeometry {
+  const sf = g.getAttribute('surf') as BufferAttribute;
+  for (let i = 0; i < sf.count; i++) sf.setY(i, Math.max(sf.getY(i), v));
+  sf.needsUpdate = true;
+  return g;
 }
 
 const Z_UP = new Matrix4().makeRotationX(Math.PI / 2); // a slab's +Y turned to face +Z
@@ -157,7 +166,8 @@ export function dock(o: DockOptions = {}): Piece {
       bay.add(part('steel', transform(grain(rib, 'z'), rf), 'teal-panel', { seed: seed + 7, shade: 1.0 }));
     }
     // the dark: a box seen from inside, from the shutter back
-    bay.add(part('rubber', innerBox([-W / 2 - 0.02, 0.0, zBack + 0.05], [W / 2 + 0.02, yTop - 0.03, jz0]), 'ink', { shade: 0.14 }));
+    // at full cavity and in the room's own darkest colour, so the bench light cannot lift it
+    bay.add(part('steel', fullCavity(innerBox([-W / 2 - 0.02, 0.0, zBack + 0.05], [W / 2 + 0.02, yTop - 0.03, jz0]), 1), 'teal-deep', { shade: 0.3 }));
   }
 
   // ======================================================================
@@ -219,14 +229,34 @@ export function dock(o: DockOptions = {}): Piece {
     // the housing's front: a seam where its lid lifts off, a row of screws under it
     const ySeam = hY0 + 0.1;
     bay.add(part('rubber', bevelBox({ min: [-hx + 0.04, ySeam - 0.006, hz1 - 0.001], max: [hx - 0.04, ySeam + 0.006, hz1 + 0.004], c: 0.002, omit: ['nz'] }), 'ink', { shade: 0.6 }));
-    const n = hi ? 7 : 5;
+    const n = hi ? 5 : 4;
     for (let i = 0; i < n; i++) {
       const x = -hx + 0.12 + ((2 * hx - 0.24) * i) / (n - 1);
       bay.small(() => [part('metal', transform(stud(0.016, 0.009, 6), aim([x, hY0 + 0.05, hz1], [0, 0, 1])), 'steel', { seed: seed + 36 + i, shade: 0.9, jitter: 0.1 })]);
     }
   }
   {
-    // the bay wall toward the visitor: an inset panel, a rivet row along its foot and its top
+    {
+    // the housing's top, where the camera looks down: an access hatch (inset panel, four screws, a brass ring pull) and a blank brass maker's plate
+    const yT = hY1;
+    const hxc = 0.2, hzc = -0.05, hw = 0.64, hd = 0.26;
+    const lid = roundedBox({ w: hw, h: 0.018, d: hd, r: 0.006, rPlan: 0.03, detail: 'low', open: true });
+    bay.add(part('steel', transform(lid, T(hxc, yT - 0.004, hzc)), 'teal-panel', { seed: seed + 44, shade: 1.3, jitter: 0.03 }));
+    // its hinge line at the back: a dark seam, two knuckles
+    bay.add(part('rubber', bevelBox({ min: [hxc - hw / 2, yT, hzc - hd / 2 - 0.012], max: [hxc + hw / 2, yT + 0.004, hzc - hd / 2 - 0.002] }), 'ink', { shade: 0.6 }));
+    for (const dx of [-0.2, 0.2]) bay.add(part('brass', transform(lathe(profile(0, 0).to(0.014, 0, { sharp: true }).to(0.014, 0.08, { sharp: true }).to(0, 0.08), { segs: 6, detail, band: 0 }), aim([hxc + dx - 0.04, yT + 0.012, hzc - hd / 2 - 0.006], [1, 0, 0])), 'brass', { seed: seed + 45 }));
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      bay.small(() => [part('metal', transform(stud(0.014, 0.007, 6), T(hxc + sx * (hw / 2 - 0.04), yT + 0.014, hzc + sz * (hd / 2 - 0.04))), 'steel', { seed: seed + 46, shade: 0.9 })]);
+    }
+    // the ring pull, lying flat in its recess
+    const ring = sweep({ points: Array.from({ length: 9 }, (_, i) => { const a = (i / 8) * Math.PI * 2; return new Vector3(hxc + Math.cos(a) * 0.04, yT + 0.022, hzc + 0.06 + Math.sin(a) * 0.04); }), closed: true }, { radius: 0.007, segs: 5, detail: 'low' });
+    bay.add(setFinish(part('brass', ring, 'brass', { seed: seed + 47, warm: 0.04 }), 0.6));
+    // the blank plate, a little crooked, two rivets
+    const pl = roundedBox({ w: 0.3, h: 0.008, d: 0.13, r: 0.003, rPlan: 0.02, detail: 'low', open: true });
+    bay.add(setFinish(part('brass', transform(pl, chain(T(-0.32, yT - 0.001, -0.06), mat({ rot: [0, 3.5, 0] }))), 'brass', { seed: seed + 48, warm: 0.03 }), 0.35));
+    for (const dx of [-0.12, 0.12]) bay.small(() => [part('brass', transform(stud(0.01, 0.007, 6), T(-0.32 + dx, yT + 0.007, -0.06 - dx * 0.06)), 'brass', { seed: seed + 49 })]);
+  }
+  // the bay wall toward the visitor: an inset panel, a rivet row along its foot and its top
     const x = wallX;
     const z0 = zBack + 0.1, z1 = zWallF - 0.1;
     const pTop = yWallB - 0.14;
@@ -254,7 +284,7 @@ export function dock(o: DockOptions = {}): Piece {
         nd.add(setFinish(part('brass', pull, 'brass', { seed: seed + 51, warm: 0.04 }), 0.6));
         for (const sx of [-1, 1]) nd.add(part('brass', transform(stud(0.03, 0.014, 8), aim([sx * 0.13, 0.055, 0.03], [0, 0, 1])), 'brass', { seed: seed + 52 }));
       } else {
-        const g = slatGeom(sw, s.h, 0.024, 0.012, hi ? 5 : 3);
+        const g = slatGeom(sw, s.h, 0.024, 0.012, hi ? 4 : 3);
         if (i === 4) dentKeep(g, [-0.3 + R.spread(0.1), s.h * 0.5, 0.03], [0.2, 0, 1], 0.13, 0.018);
         if (i === 11) dentKeep(g, [0.42 + R.spread(0.08), s.h * 0.6, 0.03], [0, -0.3, 1], 0.09, 0.013);
         nd.add(part('metal', g, 'steel', { seed: seed + 60 + i, shade: 1.0 + R.spread(0.07), jitter: 0.03 }));
@@ -271,7 +301,7 @@ export function dock(o: DockOptions = {}): Piece {
     const fh = H - 0.16;
     for (let i = 0; i < n; i++) {
       const x = -fw / 2 + sw / 2 + i * (sw + gap);
-      fl.add(part('rubber', bevelBox({ min: [x - sw / 2, -fh, -0.012], max: [x + sw / 2, 0, 0.012], c: 0.005, omit: ['py', 'nz'] }), 'ink', { seed: seed + 70 + i, shade: 0.9, jitter: 0.08 }));
+      fl.add(part('rubber', bevelBox({ min: [x - sw / 2, -fh, -0.012], max: [x + sw / 2, 0, 0.012], c: 0.005, omit: ['py', 'nz'] }), 'ink', { seed: seed + 70 + i, shade: 0.55, jitter: 0.08 }));
       fl.add(part('steel', bevelBox({ min: [x - sw / 2 + 0.002, -fh + 0.002, 0.011], max: [x + sw / 2 - 0.002, -fh + 0.08, 0.016], c: 0.003, omit: ['nz'] }), 'tape-yellow', { seed: seed + 74, shade: 0.8 }));
     }
     bay.add(part('metal', transform(bevelBox({ min: [-fw / 2 - 0.02, -0.03, -0.025], max: [fw / 2 + 0.02, 0.02, 0.025], c: 0.008 }), T(0, yTop - 0.02, fz)), 'steel', { seed: seed + 75, shade: 0.6 }));
@@ -301,8 +331,10 @@ export function dock(o: DockOptions = {}): Piece {
     bell.add(part('brass', lathe(profile(0, -h + 0.04).to(r - 0.02, -h + 0.012, { sharp: true }), { segs: hi ? 12 : 8, detail, band: 0, caps: false }), 'brass', { shade: 0.25 }));
     bell.add(part('brass', lathe(profile(0, -0.014).to(0.032, -0.014, { sharp: true }).to(0.032, 0.01, { fillet: 0.008, segs: 1 }).to(0.018, 0.03, { fillet: 0.01, segs: 1 }).to(0, 0.04), { segs: 8, detail, band: 0 }), 'brass', { seed: seed + 84 }));
     const cl = bell.node('bell.clapper', T(0, -0.03, 0));
-    cl.add(part('metal', sweep(polylinePath([[0, 0, 0], [0, -h + 0.07, 0]], 0, 1), { radius: 0.007, segs: 5, detail, ends: 'flat' }), 'steel', { shade: 0.7 }));
-    cl.add(part('metal', transform(lathe(profile(0, -0.025).to(0.022, -0.02, { fillet: 0.012, segs: 1 }).to(0.022, 0.0, { fillet: 0.012, segs: 1 }).to(0, 0.005), { segs: 8, detail, band: 0 }), T(0, -h + 0.07, 0)), 'steel', { seed: seed + 85, shade: 0.8 }));
+    // the clapper hangs below the lip, so a swing (and a ring) shows in a still
+    const cy = -h - 0.07;
+    cl.add(part('metal', sweep(polylinePath([[0, 0, 0], [0, cy + 0.03, 0]], 0, 1), { radius: 0.008, segs: 5, detail, ends: 'flat' }), 'steel', { shade: 0.7 }));
+    cl.add(setFinish(part('brass', transform(lathe(profile(0, -0.04).to(0.036, -0.03, { fillet: 0.018, segs: 1 }).to(0.036, 0.0, { fillet: 0.018, segs: 1 }).to(0, 0.01), { segs: 8, detail, band: 0 }), T(0, cy, 0)), 'brass', { seed: seed + 85, shade: 0.9 }), 0.6));
   }
 
   // ---- the station lamp: in a wire cage on the housing's top, toward the belt ----

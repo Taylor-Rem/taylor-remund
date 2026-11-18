@@ -3,67 +3,73 @@
  * off comes back up the return chute; § D 7: a tool or a robot comes back
  * up the chute). Registry name `chute`. ART-P2 § 5 "THE RETURN CHUTE".
  *
- * A sheet-metal duct that comes up through the bench top at its front-left
- * corner (out of a bolted collar: what falls off the edge goes down into
- * the dark and is sent back up this), rises, bends over and ends in a
- * flared, rolled mouth aimed down onto the bench. A sprung `tape-yellow`
- * flap hangs in the mouth; a part pops out of it with a clunk. A riveted
- * seam along its back, a dent, a wire bale handle on the bend, a brass
- * maker's plate.
+ * What the story says: things fall off the bench and come back UP. A
+ * galvanised square duct about 0.86 across rises out of the dark below the
+ * bench, climbs the outside of the front apron at the front-left corner
+ * (bolted to it by two straps), bends over the bench's rounded front edge,
+ * runs back over the bench on a pair of bolted strap legs, turns to look
+ * along the bench (+X) and tips its mouth up, so the visitor looks into a
+ * dark throat. The mouth flares, with a `tape-yellow` enamel lip, and
+ * stays open: no flap (a lid read as a mailbox, and a mailbox comes later).
+ * A big stencilled up-arrow on the riser's face says which way things go.
  *
- * Frame: the origin is the middle of the duct where it comes through the
- * bench top (y = 0). The mouth looks along `CHUTE.aim`: +X turned
- * CHUTE.yaw degrees toward the visitor, and CHUTE.droop degrees down, so
- * the camera sees into the flare and the part comes out toward the open
- * bench. Place it with no yaw.
+ * Frame: the origin is on the bench's front edge line at the duct's x
+ * (y = 0 the bench top, z = 0 the front edge; the apron's face is at
+ * z = -0.05 and runs from y = -0.36 to -1.11). Place it at (x, 0, 5) for a
+ * bench whose front edge is z = 5, with no yaw. Below the apron the riser
+ * goes on down into the dark (to y = CHUTE.bottom) and is built plain.
  *
- * Moving node: `flap` (pose.ts `poseChute`), hinged along the mouth's top
- * edge: its local X is the hinge; 0 shut (hanging in the mouth), + kicked
- * open (swung out and up).
+ * Nothing moves: a part pops out of the mouth and the view gives the duct
+ * a shake (the whole piece) with the clunk.
  *
- * Sockets: `mouth` (the middle of the opening; its +Z points out along the
- * duct), `land` (where a part that pops out comes to rest on the bench),
- * `collar` (the duct at the bench top).
+ * Sockets: `mouth` (the middle of the opening; +Z points out of it),
+ * `land` (where a part that pops out comes to rest on the bench top),
+ * `apron` (where the riser's back meets the apron, the duct's centre line
+ * at the apron's middle height), `edge` (where the duct passes over the
+ * bench's front edge), `bottom` (the riser's foot in the dark, where a
+ * fallen part enters).
  */
-import { Matrix4, Vector3 } from 'three';
+import { BufferAttribute, Matrix4, Vector3 } from 'three';
+import type { BufferGeometry } from 'three';
 import type { KitOptions, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
-import { aim, chain, part, piece, T } from '../../compose.ts';
-import { lathe, profiledBox, roundedBox } from '../../solids.ts';
-import { profile } from '../../profile.ts';
-import { sweep, polylinePath, sections, joinPaths, linePath, arcPath } from '../../sweep.ts';
-import { deform, transform } from '../../deform.ts';
-import { setFinish } from '../../space.ts';
-import { rng } from '../../rng.ts';
-import { bevelBox, hexHead, stud } from '../../cheap.ts';
-import { NAMED_POSES, poseChute } from './pose.ts';
 import type { Labels } from '../../../types.ts';
 import { world } from '../../../labels/content.ts';
-import { sheet } from '../../cheap.ts';
-import { texturedPart } from '../../compose.ts';
-import type { ChutePose } from './pose.ts';
-
-export { poseChute, NAMED_POSES } from './pose.ts';
-export type { ChutePose } from './pose.ts';
+import { aim, chain, part, piece, T, texturedPart } from '../../compose.ts';
+import { profile } from '../../profile.ts';
+import { sweep, sections } from '../../sweep.ts';
+import { deform, transform } from '../../deform.ts';
+import { grain } from '../../space.ts';
+import { rng } from '../../rng.ts';
+import { bevelBox, hexHead, sheet, stud } from '../../cheap.ts';
+import { tint } from '../../surface.ts';
 
 const DEG = Math.PI / 180;
 
 export const CHUTE = {
-  /** The mouth's heading: +X turned this many degrees toward the visitor (+Z)... */
-  yaw: 42,
-  /** ...and tipped down this many degrees. */
-  droop: 8,
-  /** The duct's core section half-sizes (across, front-to-back of the section) and its wall offset. */
-  hx: 0.11,
-  hz: 0.11,
+  /** The duct's core half-size and the wall offset (outer half-size = core + wall = 0.43). */
+  core: 0.36,
   wall: 0.07,
-  /** The flare at the mouth: the offset grows to this. */
-  flare: 0.16,
-  /** Height the duct rises to before it bends, and the bend's radius. */
-  rise: 0.45,
-  bend: 0.24,
-  /** Straight run after the bend, to the lip. */
-  run: 0.12,
+  /** The flare: the offset grows to this at the lip (outer half-size 0.6). */
+  flare: 0.24,
+  /** The riser's centre, out from the front edge (its back face clears the edge's nose). */
+  riserZ: 0.48,
+  /** Where the riser starts, in the dark under the bench. */
+  bottom: -3.0,
+  /** The first bend (over the edge), its radius; the run back over the bench ends at runZ. */
+  bend1: 0.5,
+  runY: 1.08,
+  runZ: -0.75,
+  /** The second bend (turning to look along +X), and the third (tipping the mouth up by `pitch`). */
+  bend2: 0.5,
+  bend3: 0.45,
+  pitch: 30,
+  /** The straight before the lip. */
+  lead: 0.18,
+  /** The bench's section, as bench/frame.ts builds it: the apron's face, its top and bottom. */
+  apronZ: -0.05,
+  apronTop: -0.36,
+  apronBottom: -1.11,
 } as const;
 
 export interface ChuteLabelRefs {
@@ -72,13 +78,12 @@ export interface ChuteLabelRefs {
 }
 
 export interface ChuteOptions extends KitOptions {
-  pose?: string | ChutePose;
   /** From `chuteLabels(labels)`; without it the riser carries no stencil (clay, tests). */
   labels?: ChuteLabelRefs;
 }
 
-/** The arrow's capital height. */
-export const ARROW_CAP = 0.24;
+/** The arrow's capital height (world units): 27 px at 60 px a unit. */
+export const ARROW_CAP = 0.45;
 
 /** Make the chute's stencil (the crates' own up-arrow, from world.json) and return its key and size. */
 export function chuteLabels(labels: Labels): ChuteLabelRefs {
@@ -86,23 +91,91 @@ export function chuteLabels(labels: Labels): ChuteLabelRefs {
   return { arrow: { key, ...labels.size(key) } };
 }
 
-/** The duct's centre line: up from below the bench, over the bend, out to the lip; and its frame at the lip. */
-function ductPath(): { points: Vector3[]; end: Vector3; dir: Vector3; side: Vector3 } {
-  const yaw = CHUTE.yaw * DEG;
-  const h = new Vector3(Math.cos(yaw), 0, Math.sin(yaw)); // horizontal heading
-  const turn = (90 + CHUTE.droop) * DEG; // the bend turns the duct from straight up to droop below horizontal
-  const r = CHUTE.bend;
-  const up = linePath([0, -0.35, 0], [0, CHUTE.rise, 0], 2);
-  // the arc in the vertical plane through h: centre at rise + h * r
-  const c = new Vector3(0, CHUTE.rise, 0).addScaledVector(h, r);
-  const arc = arcPath([c.x, c.y, c.z], r, Math.PI, Math.PI - turn, 8, [h.x, h.y, h.z], [0, 1, 0]);
-  const last = arc.points[arc.points.length - 1]!;
-  const dir = new Vector3().addScaledVector(h, Math.cos(-CHUTE.droop * DEG)).add(new Vector3(0, Math.sin(-CHUTE.droop * DEG), 0)).normalize();
-  const end = last.clone().addScaledVector(dir, CHUTE.run);
-  const run = linePath(last, end, 2);
-  const path = joinPaths(up, arc, run);
-  const side = new Vector3().crossVectors(dir, new Vector3(0, 1, 0)).normalize();
-  return { points: path.points, end, dir, side };
+/** The duct's centre line, as points, with the distance along it where each stretch starts. */
+export function ductPath(): { points: Vector3[]; sBend1: number; sRun: number; sBend2: number; sBend3: number; sLead: number; length: number; end: Vector3; dir: Vector3 } {
+  const C = CHUTE;
+  const pts: Vector3[] = [];
+  const push = (p: Vector3): void => {
+    if (!pts.length || pts[pts.length - 1]!.distanceTo(p) > 1e-6) pts.push(p);
+  };
+  const yR = C.runY - C.bend1;
+  // the riser: one long straight (it is in the dark below the apron), a ring at the apron's foot
+  push(new Vector3(0, C.bottom, C.riserZ));
+  push(new Vector3(0, C.apronBottom - 0.2, C.riserZ));
+  push(new Vector3(0, yR, C.riserZ));
+  // bend 1: up and over the edge, to run back (-Z)
+  for (let i = 1; i <= 6; i++) {
+    const a = (i / 6) * (Math.PI / 2);
+    push(new Vector3(0, yR + C.bend1 * Math.sin(a), C.riserZ - C.bend1 + C.bend1 * Math.cos(a)));
+  }
+  const zB = C.runZ;
+  push(new Vector3(0, C.runY, zB));
+  // bend 2: in the horizontal, from -Z round to +X
+  for (let i = 1; i <= 6; i++) {
+    const a = (i / 6) * (Math.PI / 2);
+    push(new Vector3(C.bend2 - C.bend2 * Math.cos(a), C.runY, zB - C.bend2 * Math.sin(a)));
+  }
+  // bend 3: tip up by `pitch`
+  const x3 = C.bend2, z3 = zB - C.bend2, p = C.pitch * DEG;
+  for (let i = 1; i <= 3; i++) {
+    const a = (i / 3) * p;
+    push(new Vector3(x3 + C.bend3 * Math.sin(a), C.runY + C.bend3 * (1 - Math.cos(a)), z3));
+  }
+  const dir = new Vector3(Math.cos(p), Math.sin(p), 0);
+  const last = pts[pts.length - 1]!.clone();
+  const end = last.clone().addScaledVector(dir, C.lead);
+  push(end);
+  const L = (a: number, b: number): number => {
+    let s = 0;
+    for (let i = a + 1; i <= b; i++) s += pts[i]!.distanceTo(pts[i - 1]!);
+    return s;
+  };
+  const sBend1 = L(0, 2), sRun = sBend1 + C.bend1 * (Math.PI / 2);
+  const sBend2 = sRun + (C.riserZ - C.bend1 - zB);
+  const sBend3 = sBend2 + C.bend2 * (Math.PI / 2);
+  const sLead = sBend3 + C.bend3 * p;
+  return { points: pts, sBend1, sRun, sBend2, sBend3, sLead, length: L(0, pts.length - 1), end, dir };
+}
+
+/** A point and the tangent at distance s along a polyline. */
+function along(points: readonly Vector3[], s: number): { p: Vector3; tan: Vector3 } {
+  let acc = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!, c = points[i]!;
+    const l = a.distanceTo(c);
+    if (acc + l >= s) return { p: a.clone().lerp(c, (s - acc) / l), tan: c.clone().sub(a).normalize() };
+    acc += l;
+  }
+  const n = points.length;
+  return { p: points[n - 1]!.clone(), tan: points[n - 1]!.clone().sub(points[n - 2]!).normalize() };
+}
+
+/** Darken the duct's inner wall (its normal faces the axis): the throat goes dark, darker the deeper. */
+function darkenThroat(g: BufferGeometry, points: readonly Vector3[], end: Vector3, dir: Vector3): void {
+  const pos = g.getAttribute('position'), nrm = g.getAttribute('normal'), col = g.getAttribute('color') as BufferAttribute;
+  const v = new Vector3(), q = new Vector3(), nn = new Vector3(), ab = new Vector3(), c = new Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    let best = Infinity;
+    for (let k = 1; k < points.length; k++) {
+      const a0 = points[k - 1]!;
+      ab.copy(points[k]!).sub(a0);
+      const tt = Math.max(0, Math.min(1, c.copy(v).sub(a0).dot(ab) / ab.lengthSq()));
+      c.copy(a0).addScaledVector(ab, tt);
+      const d2 = c.distanceToSquared(v);
+      if (d2 < best) {
+        best = d2;
+        q.copy(c);
+      }
+    }
+    nn.fromBufferAttribute(nrm, i);
+    if (nn.dot(c.copy(v).sub(q)) < 0) {
+      const depth = Math.max(0, c.copy(end).sub(v).dot(dir));
+      const k = 0.35 * Math.max(0.12, 1 - depth / 0.35);
+      col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+    }
+  }
+  col.needsUpdate = true;
 }
 
 export function chute(o: ChuteOptions = {}): Piece {
@@ -110,207 +183,151 @@ export function chute(o: ChuteOptions = {}): Piece {
   const detail = o.detail ?? 'high';
   const hi = detail === 'high';
   const R = rng(seed);
+  const C = CHUTE;
   const b = piece('chute', { detail, seed });
   const dp = ductPath();
-  const L = dp.points.reduce((s, p, i) => (i ? s + p.distanceTo(dp.points[i - 1]!) : 0), 0);
-  const w = CHUTE.wall, f = CHUTE.flare, t = 0.016;
-  // the mouth's frame: +Z out along the duct, +Y the section's "up" (the duct's outer side over the bend), X across
-  const mz = dp.dir.clone(), mx = dp.side.clone().negate();
+  const L = dp.length;
+  const w = C.wall, f = C.flare, t = 0.02;
+  const half = C.core + w;
+  const sec = sections.roundRect(C.core, C.core, hi ? 2 : 1);
+  const up: [number, number, number] = [1, 0, 0];
+  // the mouth's frame: +Z out along the duct, X across (horizontal), Y the section's up
+  const mz = dp.dir.clone();
+  const mx = new Vector3().crossVectors(new Vector3(0, 1, 0), mz).normalize();
   const my = new Vector3().crossVectors(mz, mx).normalize();
   const mouthM = new Matrix4().makeBasis(mx, my, mz).setPosition(dp.end);
 
-  const frameAt = (s: number): { p: Vector3; tan: Vector3 } => {
-    let acc = 0;
-    for (let i = 1; i < dp.points.length; i++) {
-      const a = dp.points[i - 1]!, c = dp.points[i]!;
-      const l = a.distanceTo(c);
-      if (acc + l >= s) return { p: a.clone().lerp(c, (s - acc) / l), tan: c.clone().sub(a).normalize() };
-      acc += l;
-    }
-    const n = dp.points.length;
-    return { p: dp.points[n - 1]!.clone(), tan: dp.points[n - 1]!.clone().sub(dp.points[n - 2]!).normalize() };
-  };
-  // where the gore seams go: one on the riser, two across the bend, one on the run
-  const sBend = 0.35 + CHUTE.rise;
-  const arcL = CHUTE.bend * (90 + CHUTE.droop) * DEG;
-  const gores = [0.2, sBend + arcL / 3, sBend + (2 * arcL) / 3, sBend + arcL + 0.01];
   // ======================================================================
   // LARGE: the duct, flaring to a rolled lip, its wall turning inside
   // ======================================================================
   {
     const p = profile(w, 0)
-      .to(w, L - 0.3, { smooth: true })
-      .to(w + 0.02, L - 0.16, { smooth: true })
-      .to(f, L, { fillet: 0.02, segs: 2 })
-      .to(f - t, L - 0.002, { fillet: 0.006, segs: 1 })
-      .to(w + 0.01 - t, L - 0.17, { smooth: true })
-      .to(w - t, L - 0.34);
-    const g = sweep({ points: dp.points }, { section: sections.roundRect(CHUTE.hx, CHUTE.hz, hi ? 2 : 1), profile: p, up: [dp.side.x, 0, dp.side.z], detail });
-    // a knock on the bend's outer side, where something came up hard
-    const dentAt = new Vector3(0, CHUTE.rise + 0.16, 0).addScaledVector(new Vector3(Math.cos(CHUTE.yaw * DEG), 0, Math.sin(CHUTE.yaw * DEG)), 0.03);
-    deform(g, (x, y, z) => {
-      const q = Math.hypot(x - dentAt.x, y - (dentAt.y + 0.12), z - (dentAt.z + 0.12)) / 0.1;
-      if (q >= 1) return [x, y, z];
-      const k = (1 - q * q) ** 2 * 0.018;
-      return [x, y - k * 0.6, z - k * 0.8];
-    }, { keepSurf: true });
-    part('metal', g, 'steel', { seed: seed + 1, shade: 1.05, jitter: 0.03 });
-    // the throat goes dark: the inner wall (its normal faces the duct's axis) is darkened, more the deeper it goes
-    {
-      const pos = g.getAttribute('position'), nrm = g.getAttribute('normal'), col = g.getAttribute('color');
-      const v = new Vector3(), q = new Vector3(), nn = new Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        let best = Infinity;
-        for (let k = 1; k < dp.points.length; k++) {
-          const a0 = dp.points[k - 1]!, a1 = dp.points[k]!;
-          const ab = a1.clone().sub(a0);
-          const tt = Math.max(0, Math.min(1, v.clone().sub(a0).dot(ab) / ab.lengthSq()));
-          const c = a0.clone().addScaledVector(ab, tt);
-          const d2 = c.distanceToSquared(v);
-          if (d2 < best) { best = d2; q.copy(c); }
-        }
-        nn.fromBufferAttribute(nrm, i);
-        if (nn.dot(v.clone().sub(q)) < 0) {
-          const depth = Math.max(0, dp.end.clone().sub(v).dot(dp.dir));
-          const k = 0.45 * Math.max(0.15, 1 - depth / 0.3);
-          col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
-        }
-      }
-      col.needsUpdate = true;
-    }
-    b.add({ material: 'metal', geometry: g });
-    // gore seams: the elbow is made of lengths joined by rolled bands
-    for (const s of gores) {
-      const { p, tan } = frameAt(s);
-      const band = sweep({ points: [p.clone().addScaledVector(tan, -0.016), p.clone().addScaledVector(tan, 0.016)] }, { section: sections.roundRect(CHUTE.hx, CHUTE.hz, 1), radius: w + 0.01, up: [dp.side.x, 0, dp.side.z], detail, ends: 'flat' });
-      b.add(part('metal', band, 'steel', { seed: seed + 10, shade: 0.88 }));
-    }
-    // the dark down the throat: a plug deep inside, where the inner wall ends
-    const plug = roundedBox({ w: 2 * (CHUTE.hx + w - t) - 0.01, h: 0.01, d: 2 * (CHUTE.hz + w - t) - 0.01, r: 0.004, rPlan: 0.05, detail: 'low', open: true });
-    b.add(part('metal', transform(plug, chain(mouthM, T(0, 0, -0.33), new Matrix4().makeRotationX(Math.PI / 2))), 'ink', { shade: 0.15 }));
-  }
-  // the collar: a square flange bolted down where the duct comes through the bench top
-  {
-    const cw = 2 * (CHUTE.hx + w) + 0.16, cd = 2 * (CHUTE.hz + w) + 0.16;
-    const r = 0.06;
-    const g = profiledBox({ w: cw, d: cd, rPlan: 0.06, detail, band: 0 }, profile(0, 0).to(r, 0, { sharp: true }).to(r, 0.025, { fillet: 0.01, segs: 1 }).to(r - 0.04, 0.05, { fillet: 0.02, segs: 1 }).to(0, 0.05));
-    b.add(part('steel', transform(g, new Matrix4().makeRotationY(CHUTE.yaw * DEG * 0)), 'teal-panel', { seed: seed + 2, shade: 1.0, jitter: 0.04 }));
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-      b.small(() => [part('metal', transform(hexHead(0.04, 0.02, R.range(0, 1)), T(sx * (cw / 2 - 0.05), 0.03, sz * (cd / 2 - 0.05))), 'steel', { seed: seed + 3, jitter: 0.08 })]);
-    }
-  }
-
-  // ======================================================================
-  // MEDIUM / SMALL: the seam and its rivets, bands, the bale handle, the plate
-  // ======================================================================
-  const h = new Vector3(Math.cos(CHUTE.yaw * DEG), 0, Math.sin(CHUTE.yaw * DEG));
-  // the outward side of the bend (away from its centre): toward -h when vertical, +Y when over the top
-  const outer = (tan: Vector3): Vector3 => {
-    const n = new Vector3().crossVectors(new Vector3().crossVectors(h, new Vector3(0, 1, 0)), tan).normalize();
-    return n.dot(h) > 0.01 || n.y < -0.01 ? n.negate() : n;
-  };
-  {
-    // rivets beside each seam, on the face toward the visitor and on top
-    for (const [gi, s0] of gores.entries()) {
-      const { p, tan } = frameAt(s0 + 0.04);
-      const d = CHUTE.hx + w + 0.002;
-      const sd = new Vector3(dp.side.x, 0, dp.side.z);
-      const up2 = new Vector3().crossVectors(tan, sd).normalize();
-      for (const u of [-0.07, 0.07]) {
-        const at = p.clone().addScaledVector(sd, d).addScaledVector(up2, u);
-        b.small(() => [part('metal', transform(stud(0.015, 0.008, 6), aim([at.x, at.y, at.z], [sd.x, sd.y, sd.z])), 'steel', { seed: seed + 12 + gi, shade: 0.9, jitter: 0.1 })]);
-      }
-    }
-  }
-  {
-    // the bale handle: a bent wire loop on two lugs on the bend's top, lying back
-    const { p, tan } = frameAt(0.42 + Math.PI * CHUTE.bend * 0.5 * 0.55);
-    const out = outer(tan);
-    const across = new Vector3().crossVectors(tan, out).normalize();
-    const d = CHUTE.hz + w;
-    const base = p.clone().addScaledVector(out, d);
-    const span = CHUTE.hx + 0.02;
-    const pts: Array<[number, number, number]> = [];
-    const at = (u: number, lift: number, back: number): [number, number, number] => {
-      const q = base.clone().addScaledVector(across, u).addScaledVector(out, lift).addScaledVector(tan, -back);
-      return [q.x, q.y, q.z];
+      .to(w, L - 0.34, { smooth: true })
+      .to(w + 0.03, L - 0.17, { smooth: true })
+      .to(f, L, { fillet: 0.03, segs: 2 })
+      .to(f - t, L - 0.004, { fillet: 0.008, segs: 1 })
+      .to(w + 0.02 - t, L - 0.2, { smooth: true })
+      .to(w - t, L - 0.5);
+    const g = sweep({ points: dp.points }, { section: sec, profile: p, up, detail });
+    // a knock on the riser's face, a shallower one on the bend
+    const knock = (at: Vector3, dir: Vector3, r: number, d: number): void => {
+      deform(g, (x, y, z) => {
+        const q = Math.hypot(x - at.x, y - at.y, z - at.z) / r;
+        if (q >= 1) return [x, y, z];
+        const k = (1 - q * q) ** 2 * d;
+        return [x - dir.x * k, y - dir.y * k, z - dir.z * k];
+      }, { keepSurf: true });
     };
-    pts.push(at(-span, 0.03, 0), at(-span, 0.06, 0.1), at(span, 0.06, 0.1), at(span, 0.03, 0));
-    b.add(part('metal', sweep(polylinePath(pts, 0.05, hi ? 4 : 2), { radius: 0.012, segs: 6, detail, ends: 'round' }), 'steel', { seed: seed + 20, shade: 1.1 }));
-    for (const u of [-span, span]) {
-      const q = at(u, 0, 0);
-      b.add(part('brass', transform(lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.026, 0.02, { fillet: 0.006, segs: 1 }).to(0.016, 0.036, { fillet: 0.008, segs: 1 }).to(0, 0.036), { segs: 8, detail, band: 0 }), aim(q, [out.x, out.y, out.z])), 'brass', { seed: seed + 21 }));
+    knock(new Vector3(0.22 + R.spread(0.04), 0.2, C.riserZ + half), new Vector3(0, 0, 1), 0.16, 0.025);
+    knock(new Vector3(-0.1, C.runY + half, -0.35), new Vector3(0, 1, 0), 0.14, 0.018);
+    tint(g, 'steel', { seed: seed + 1, shade: 1.08, jitter: 0.03 });
+    // below the apron's foot the riser falls into the dark: a gradient, so it sinks rather than stops
+    {
+      const pos = g.getAttribute('position'), col = g.getAttribute('color') as BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        if (y >= C.apronBottom) continue;
+        const k = Math.max(0.12, 1 - (C.apronBottom - y) / 1.6);
+        col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+      }
+    }
+    darkenThroat(g, dp.points, dp.end, dp.dir);
+    b.add({ material: 'metal', geometry: g });
+    // the dark down the throat: a plug where the inner wall ends
+    const plug = bevelBox({ min: [-C.core - w + t, -C.core - w + t, -0.002], max: [C.core + w - t, C.core + w - t, 0.002] });
+    b.add(part('metal', transform(plug, chain(mouthM, T(0, 0, -0.5))), 'ink', { shade: 0.12 }));
+  }
+  // the lip: a rolled rim of yellow enamel round the mouth (the read from across the bench)
+  {
+    const o2 = half + (f - w) - 0.012;
+    const n = hi ? 20 : 14;
+    const pts: Vector3[] = [];
+    const rc = 0.13; // the rim's corner radius, as the section's rounded corners at the flare
+    const hx = o2 - rc;
+    for (let i = 0; i < n; i++) {
+      // a rounded square of half-size o2, walked by angle
+      const a = (i / n) * Math.PI * 2;
+      const cx = Math.cos(a), cy = Math.sin(a);
+      const s = Math.max(Math.abs(cx), Math.abs(cy));
+      let x = (cx / s) * hx, y = (cy / s) * hx;
+      x += Math.sign(cx) * rc * Math.abs(cx);
+      y += Math.sign(cy) * rc * Math.abs(cy);
+      pts.push(new Vector3(x, y, 0).applyMatrix4(mouthM));
+    }
+    const rim = sweep({ points: pts, closed: true }, { radius: 0.032, segs: hi ? 5 : 4, detail });
+    b.add(part('steel', rim, 'tape-yellow', { seed: seed + 5, shade: 0.95, jitter: 0.03 }));
+  }
+
+  // ======================================================================
+  // MEDIUM: gore seams, the straps (to the apron and down to the bench top)
+  // ======================================================================
+  {
+    const gores = [C.apronBottom - 0.2 - C.bottom, dp.sBend1 + (dp.sRun - dp.sBend1) / 2, dp.sRun + 0.05, dp.sBend2 + (dp.sBend3 - dp.sBend2) / 2];
+    for (const s of gores) {
+      const { p, tan } = along(dp.points, s);
+      const band = sweep({ points: [p.clone().addScaledVector(tan, -0.02), p.clone().addScaledVector(tan, 0.02)] }, { section: sec, radius: w + 0.014, up: Math.abs(tan.y) > 0.9 ? up : [0, 1, 0], detail, ends: 'flat' });
+      b.add(part('metal', band, 'steel', { seed: seed + 10, shade: 0.9 }));
+    }
+    // rivets beside the visible gores, on the faces toward the visitor
+    for (const s of gores.slice(1)) {
+      const { p, tan } = along(dp.points, s + 0.05);
+      // the face toward the visitor: +Z on the riser, +Y on the run (seen from above)
+      const n = Math.abs(tan.y) > 0.7 ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0);
+      const acr = new Vector3().crossVectors(tan, n).normalize();
+      for (const u of [-0.24, 0.24]) {
+        const at = p.clone().addScaledVector(n, half + 0.002).addScaledVector(acr, u);
+        b.small(() => [part('metal', transform(stud(0.018, 0.01, 6), aim([at.x, at.y, at.z], [n.x, n.y, n.z])), 'steel', { seed: seed + 12, shade: 0.85, jitter: 0.1 })]);
+      }
     }
   }
   {
-    // a brass maker's plate on the duct's front face (toward the visitor), low down
-    const { p } = frameAt(0.3);
-    const fz = new Vector3(-h.z, 0, h.x); // horizontal, toward +Z side of the heading
-    const d = CHUTE.hz + w + 0.001;
-    const plate = roundedBox({ w: 0.16, h: 0.006, d: 0.09, r: 0.002, rPlan: 0.014, detail: 'low', open: true });
-    const M = new Matrix4().makeBasis(h, new Vector3(0, 0, 0).add(fz).cross(h).negate().normalize(), fz);
-    void M;
-    b.add(setFinish(part('brass', transform(plate, chain(aim([p.x + fz.x * d, p.y, p.z + fz.z * d], [fz.x, fz.y, fz.z]), new Matrix4().makeRotationY(Math.PI / 2))), 'brass', { seed: seed + 30, warm: 0.03 }), 0.3));
-    for (const sx of [-1, 1]) b.small(() => [part('brass', transform(stud(0.008, 0.006, 6), aim([p.x + fz.x * (d + 0.006) + h.x * 0, p.y + sx * 0.062, p.z + fz.z * (d + 0.006)], [fz.x, 0, fz.z])), 'brass', { seed: seed + 31 })]);
+    // two straps hold the riser to the apron: a steel band round its sides and front, ears bolted back to the apron
+    for (const y of [C.apronTop - 0.16, C.apronBottom + 0.14]) {
+      const z0 = C.riserZ - half, z1 = C.riserZ + half + 0.02;
+      for (const sx of [-1, 1]) {
+        // the side bar runs from the front band back to the apron, where an ear turns out flat against it
+        const side = bevelBox({ min: [sx > 0 ? half : -half - 0.02, y - 0.05, C.apronZ], max: [sx > 0 ? half + 0.02 : -half, y + 0.05, z1], c: 0.008, omit: ['nz'] });
+        b.add(part('steel', side, 'teal-panel', { seed: seed + 20, shade: 0.9 }));
+        const ear = bevelBox({ min: [sx > 0 ? half + 0.02 : -half - 0.14, y - 0.05, C.apronZ], max: [sx > 0 ? half + 0.14 : -half - 0.02, y + 0.05, C.apronZ + 0.02], c: 0.006, omit: ['nz', 'nx', 'px'] });
+        b.add(part('steel', ear, 'teal-panel', { seed: seed + 21, shade: 0.85 }));
+        b.small(() => [part('metal', transform(hexHead(0.04, 0.02, R.range(0, 1)), aim([sx * (half + 0.08), y, C.apronZ + 0.02], [0, 0, 1])), 'steel', { seed: seed + 22 })]);
+      }
+      b.add(part('steel', bevelBox({ min: [-half - 0.02, y - 0.05, z1 - 0.02], max: [half + 0.02, y + 0.05, z1], c: 0.008, omit: ['nz'] }), 'teal-panel', { seed: seed + 23, shade: 0.95 }));
+    }
+    // two strap legs under the run back over the bench: flat bars from the duct's sides to feet bolted to the bench top
+    for (const s of [dp.sRun + 0.2, dp.sBend2 - 0.12]) {
+      const { p } = along(dp.points, s);
+      for (const sx of [-1, 1]) {
+        const x = sx * (half + 0.012);
+        const leg = bevelBox({ min: [x - 0.012, 0.02, p.z - 0.045], max: [x + 0.012, p.y + 0.05, p.z + 0.045], c: 0.006, omit: ['ny', 'py', 'nz'] });
+        b.add(part('steel', grain(leg, 'y'), 'teal-panel', { seed: seed + 24, shade: 0.85 }));
+        const foot = bevelBox({ min: [x - 0.012 + (sx > 0 ? 0 : -0.09), 0, p.z - 0.06], max: [x + 0.012 + (sx > 0 ? 0.09 : 0), 0.022, p.z + 0.06], c: 0.006, omit: ['ny', 'nz'] });
+        b.add(part('steel', foot, 'teal-panel', { seed: seed + 25, shade: 0.8 }));
+        b.small(() => [part('metal', transform(stud(0.022, 0.012, 6), T(x + sx * 0.06, 0.022, p.z)), 'steel', { seed: seed + 26 })]);
+      }
+    }
   }
-
   if (o.labels) {
-    // a stencilled up-arrow on the riser's face under the mouth: what went down comes back up here
+    // the stencilled up-arrow on the riser's face, between the straps: what fell comes back up here
     const a = o.labels.arrow;
-    const d = CHUTE.hz + w + 0.003;
-    const sd = dp.side;
-    const y = 0.09 + a.h / 2 + 0.02;
     const g = sheet({ w: a.w, h: a.h, t: 0.001, nx: 1, ny: 1 });
-    transform(g, chain(T(sd.x * d, y, sd.z * d), new Matrix4().makeRotationY(Math.atan2(sd.x, sd.z)), new Matrix4().makeRotationZ(R.spread(4) * DEG)));
+    // high on the riser, where the camera sees it over the bench's edge: from just below the top to the bend
+    const y = Math.min(CHUTE.runY - CHUTE.bend1 - a.h / 2 - 0.02, 0.24);
+    transform(g, chain(T(R.spread(0.03), y, C.riserZ + half + 0.003), new Matrix4().makeRotationZ(R.spread(3) * DEG)));
     b.add(texturedPart('metal', g, a.key));
-  }
-
-  // ======================================================================
-  // THE FLAP: a sprung steel plate in yellow enamel, hinged on the lip's top edge
-  // ======================================================================
-  {
-    const ay = CHUTE.hz + f; // the lip's top edge, in the mouth frame (+Y)
-    const ax = CHUTE.hx + f;
-    const hinge = chain(mouthM, T(0, ay - 0.01, 0.012));
-    const fl = b.node('flap', hinge);
-    // the plate hangs down (-Y) from the hinge, a little in front of the lip
-    const fw = 2 * ax - 0.06, fh = 2 * ay - 0.05;
-    // a bevelled plate: its wear lives on the chamfer, so the paint chips at the edges, not across the face
-    const g = bevelBox({ min: [-fw / 2, -fh - 0.01, -0.009], max: [fw / 2, -0.01, 0.009], c: 0.007, band: 0.025, wear: 0.8 });
-    // a pressed rib across it
-    fl.add(part('steel', g, 'tape-yellow', { seed: seed + 40, shade: 0.95, jitter: 0.03 }));
-    const rib = bevelBox({ min: [-fw / 2 + 0.06, -fh * 0.55 - 0.02, 0.009], max: [fw / 2 - 0.06, -fh * 0.55 + 0.02, 0.022], c: 0.009, omit: ['nz'] });
-    fl.add(part('steel', rib, 'tape-yellow', { seed: seed + 41, shade: 1.05 }));
-    // the hinge knuckles (fixed on the lip, moving on the flap), a pin, and a coil spring
-    const knuckle = (x: number, len: number): ReturnType<typeof lathe> => transform(lathe(profile(0, 0).to(0.02, 0, { sharp: true }).to(0.02, len, { sharp: true }).to(0, len), { segs: 8, detail, band: 0 }), aim([x - len / 2, 0, 0], [1, 0, 0]));
-    fl.add(part('brass', knuckle(-fw * 0.2, fw * 0.24), 'brass', { seed: seed + 42 }));
-    fl.add(part('brass', knuckle(fw * 0.2, fw * 0.24), 'brass', { seed: seed + 42 }));
-    b.add(part('brass', transform(knuckle(0, fw * 0.14), hinge), 'brass', { seed: seed + 43, shade: 0.9 }));
-    b.add(part('brass', transform(knuckle(-fw / 2 - 0.02, 0.06), hinge), 'brass', { seed: seed + 43, shade: 0.9 }));
-    b.add(part('brass', transform(knuckle(fw / 2 + 0.02, 0.06), hinge), 'brass', { seed: seed + 43, shade: 0.9 }));
-    // the spring: a coil on the pin beside the near knuckle, its tail on the flap
-    const coil = sweep({ points: Array.from({ length: 19 }, (_, i) => { const a = (i / 18) * Math.PI * 2 * 3; return new Vector3(fw * 0.36 + (i / 18) * 0.06, Math.sin(a) * 0.026, Math.cos(a) * 0.026); }) }, { radius: 0.006, segs: 4, detail, ends: 'flat' });
-    b.add(part('metal', transform(coil, hinge), 'steel', { seed: seed + 44, shade: 0.8 }));
-    // a brass knob at its foot, where the part pushes it
-    fl.add(setFinish(part('brass', transform(lathe(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.015, { fillet: 0.006, segs: 1 }).to(0.02, 0.03, { fillet: 0.01, segs: 1 }).to(0, 0.032), { segs: 8, detail, band: 0 }), aim([0, -fh + 0.05, 0.009], [0, 0, 1])), 'brass', { seed: seed + 45 }), 0.6));
   }
 
   // ======================================================================
   // SOCKETS
   // ======================================================================
   b.socket('mouth', mouthM);
-  const land = dp.end.clone().addScaledVector(h, 0.45);
-  b.socket('land', chain(T(land.x, 0, land.z), new Matrix4().makeRotationY(-CHUTE.yaw * DEG)));
-  b.socket('collar', T(0, 0, 0));
+  const land = dp.end.clone().addScaledVector(new Vector3(1, 0, 0), 0.7);
+  b.socket('land', T(land.x, 0, land.z));
+  b.socket('apron', T(0, (C.apronTop + C.apronBottom) / 2, C.apronZ));
+  b.socket('edge', T(0, 0, 0));
+  b.socket('bottom', T(0, C.bottom, C.riserZ));
 
-  const built = b.build();
-  if (o.pose) {
-    const p = typeof o.pose === 'string' ? NAMED_POSES[o.pose] : o.pose;
-    if (!p) throw new Error(`chute: no pose '${String(o.pose)}' (has: ${Object.keys(NAMED_POSES).join(', ')})`);
-    poseChute(built.root, p);
-  }
-  return built;
+  return b.build();
 }
 
 export const catalogue: CatalogueEntry[] = [
@@ -320,13 +337,11 @@ export const catalogue: CatalogueEntry[] = [
       chute({
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
         ...(opts.detail ? { detail: opts.detail } : {}),
-        ...(typeof opts['pose'] === 'string' ? { pose: opts['pose'] } : {}),
         ...(opts['labels'] ? { labels: opts['labels'] as ChuteLabelRefs } : {}),
       }),
     labels: (labels) => ({ labels: chuteLabels(labels) }),
     variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
-    poses: Object.keys(NAMED_POSES),
-    camera: { distance: 3 },
-    note: 'The return chute: a duct up through the bench, a flared mouth, a sprung flap. What falls off comes back here.',
+    camera: { distance: 6 },
+    note: 'The return chute: a duct up out of the dark, over the bench edge, its yellow-lipped mouth open along the bench.',
   },
 ];

@@ -829,6 +829,22 @@ camera.
 | Tool wall | `#tools` | back left | tools on a shadow board |
 | Mailbox | `#contact` | front right | a flag |
 
+*As built in P2 (2026-11-18), settled by rendering the whole bench.* The
+bench is 18 units wide and 10 deep, not 20: at 20 the camera pulls back
+until the crew is too small to have character. The crew is drawn 1.5
+times the size the sketch assumed (Fetch about 1.5 units tall), the
+machines and crates at the size approved at G1. Both reserved bays are in
+the left third, one behind the other; the right-centre of the bench is
+kept for the shipped pallets of P4, with the mailbox and the clipboard at
+the front right where nothing stands in front of them. Revert comes up
+through a hatch in the bench top, on a lift, not out of a cupboard: the
+camera sees the top of the bench far better than its front. The belt
+feeds the dock by a short curved roller ramp, so the dock can stand
+turned toward the visitor. The return chute rises from below the bench's
+front-left corner. The home view shows the bench's whole front edge and
+about a hundred pixels of what is under it; panned to an end, the
+bench's corner, its legs and the room beyond.
+
 **How attention is guided without a path.** The lamp makes the centre the
 brightest place. Motion draws the eye left to right along the belt. Tells
 (§ B3) point at whatever is nearest and untouched.
