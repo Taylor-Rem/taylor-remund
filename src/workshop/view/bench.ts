@@ -26,7 +26,8 @@ import { bevelBox } from './kit/cheap.ts';
 import { laneTape } from './kit/pieces/bench/index.ts';
 import { signLabels } from './kit/pieces/sign/index.ts';
 import { createPartsView } from './stations/parts.ts';
-import { createSetView, placedMatrix, splitStatic, type StaticPool } from './stations/set.ts';
+import { createSetView, flatten, placedMatrix, splitStatic, type StaticPool } from './stations/set.ts';
+import type { KitPart } from './kit/types.ts';
 import { createCordView } from './stations/cord.ts';
 import { createPatchView } from './stations/patch.ts';
 import { createButtonView } from './stations/button.ts';
@@ -54,14 +55,25 @@ export interface Spot {
   readonly h: number;
   /** Turn about +Y, degrees (0: good side toward the visitor, +Z). */
   readonly yaw: number;
-  /** What fills it now: a registered piece, clay of its size, or a taped rectangle. */
-  readonly fill: 'piece' | 'clay' | 'tape';
+  /** What fills it now: a registered piece, clay of its size, a taped rectangle, or a zone blocked in by its own table (`SHIPPED`). */
+  readonly fill: 'piece' | 'clay' | 'tape' | 'zone';
 }
 
 const spot = (x: number, z: number, w: number, d: number, h: number, o: { y?: number; yaw?: number; fill?: Spot['fill'] } = {}): Spot => ({ x, z, y: o.y ?? 0, w, d, h, yaw: o.yaw ?? 0, fill: o.fill ?? 'clay' });
 
-/** The crew are drawn this much bigger than their P1 pieces (ART-P2 § 2). */
-export const CREW_SCALE = 1.25;
+/**
+ * The crew are drawn this much bigger than their P1 pieces (ART-P2 § 2). The layout is sized for this
+ * value (Fetch's lane, Revert and its hatch) and stays clear at every smaller one; `/dev/bench/?crew=`
+ * draws another for comparison.
+ */
+export const CREW_SCALE = 1.5;
+
+/** Revert at the crew's 1.25× (ART-P2 § 5: 1.45 wide, 1.1 deep, 0.9 tall); scaled with the crew. */
+export const REVERT_AT_125 = { w: 1.45, d: 1.1, h: 0.9 } as const;
+const revert = { w: (REVERT_AT_125.w / 1.25) * CREW_SCALE, d: (REVERT_AT_125.d / 1.25) * CREW_SCALE, h: (REVERT_AT_125.h / 1.25) * CREW_SCALE };
+
+/** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
+export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.25 } as const;
 
 /** The sign's capitals (units): TAYLOR REMUND on one line. The 12 px rule at the 1440×900 home is met with room to spare (see check-bench). */
 export const SIGN_CAP_BENCH = 0.5;
@@ -82,54 +94,113 @@ export const LAYOUT = {
   wall: { width: 21, height: 9 },
   stations: {
     // ── on the wall ──
-    /** Pegboard and its six tools (the real piece, 5.56 × 4.06). */
-    toolwall: spot(-6.35, -5, 5.56, 0.4, 4.06, { y: 0.3, fill: 'piece' }),
-    /** The lamp's clamp on the wall rail; its arm reaches over the centre and its bulb is the key light. */
-    lamp: spot(-3.4, -5, 0.5, 0.5, 4.7, { fill: 'piece' }),
+    /** Pegboard and its six tools (the real piece, 5.56 × 4.06); it hangs past the bench's left end. */
+    toolwall: spot(-7.35, -5, 5.56, 0.4, 4.06, { y: 0.3, fill: 'piece' }),
+    /** The lamp's clamp on the wall rail, 1.47 right of the pegboard (P1's gap); its bulb is the key light. */
+    lamp: spot(-3.1, -5, 0.5, 0.5, 4.7, { fill: 'piece' }),
     /** The sign, TAYLOR REMUND on one line, hung over the board (bottom edge at y). */
-    sign: spot(0.8, -5, 8.6, 0.57, 2.9, { y: 3.3, fill: 'piece' }),
+    sign: spot(1.1, -5, 8.6, 0.57, 2.9, { y: 3.3, fill: 'piece' }),
     /** The window with its cut-out mountains: the cool light's source (clay frame on the wall). */
     window: spot(7.0, -5, 2.8, 0.3, 2.3, { y: 2.9 }),
     // ── the back row ──
     board: spot(0.55, -4.335, 4.6, 1.31, 3.11, { fill: 'piece' }),
     stool: spot(3.15, -3.35, 0.65, 0.65, 1.15, { fill: 'piece' }),
-    storefront: spot(7.05, -3.25, 2.3, 0.9, 2.1),
+    storefront: spot(7.05, -3.6, 2.3, 0.9, 2.1),
     // ── the middle row ──
-    bayLeft: spot(-6.7, -2.3, 2.6, 1.8, 0, { fill: 'tape' }),
+    bayA: spot(-7.75, -2.55, 1.9, 1.5, 0, { fill: 'tape' }),
+    bayB: spot(-5.65, -2.55, 1.9, 1.5, 0, { fill: 'tape' }),
     undo: spot(-3.7, -1.9, 0.7, 0.7, 1.5),
     phone: spot(2.2, -1.35, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
-    platen: spot(4.75, -2.0, 1.6, 1.4, 1.4),
+    platen: spot(4.5, -2.0, 1.6, 1.4, 1.4),
+    /** Shipped (P4): four pallets of crates, the mailbox on its post, the clipboard hanging from it (`SHIPPED`). */
+    shipped: spot(7.05, -0.2, 3.2, 2.8, 1.3, { fill: 'zone' }),
     // ── the Button's row ──
-    hatch: spot(-3.6, 0.35, 1.8, 1.4, 0.04),
+    hatch: spot(-3.6, 0.35, revert.w + 0.2, revert.d + 0.2, 0.04),
+    /** Revert, parked on its hatch (clay at the crew's scale). */
+    revert: spot(-3.6, 0.35, revert.w, revert.d, revert.h),
     button: spot(-0.05, 0.55, 2.1, 1.52, 1.98, { fill: 'piece' }),
-    bayRight: spot(7.05, 0.3, 2.6, 1.7, 0, { fill: 'tape' }),
     // ── the front ──
-    stack: spot(-7.65, 1.15, 0.8, 0.8, 1.85, { fill: 'piece' }),
-    lane: spot(-1.575, 2.0, 11.05, 1.04, 0, { fill: 'tape' }),
-    /** The belt piece at length 10 (the bed x -5.4..4.6) with its motor housing at the left end: the whole piece's footprint. */
-    belt: spot(-0.83, 3.7, 11.4, 1.6, 1.25, { fill: 'piece' }),
-    control: spot(-7.05, 4.3, 0.9, 0.5, 0.75),
-    striker: spot(4.15, 2.78, 0.6, 0.44, 1.7),
-    dock: spot(7.35, 3.25, 1.7, 1.2, 1.6, { yaw: -50 }),
+    stack: spot(-6.6, 1.0, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    lane: spot(-1.1, 2.2, 8.2 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
+    /** The belt piece at length 10 (the bed x -5.9..4.1) with its motor housing (dial plate and lever plate on its panel) at the left end: the whole piece's footprint. */
+    belt: spot(-1.33, 3.995, 11.4, 1.6, 1.25, { fill: 'piece' }),
+    striker: spot(3.5, 3.15, 0.6, 0.44, 1.7),
+    dock: spot(5.25, 3.65, 1.7, 1.2, 1.6, { yaw: -50 }),
     chute: spot(-8.1, 3.3, 0.9, 1.1, 0.9),
-    pallets: spot(6.75, 4.68, 3.5, 0.56, 0.15),
   },
 } as const;
 
 export type StationKey = keyof typeof LAYOUT.stations;
 
+/** A crate on a pallet: its size, and where its bottom-front-centre sits on the pallet (dx across, y up; fronts flush with the pallet's front). */
+export interface ShippedCrate {
+  readonly size: 'S' | 'M' | 'L';
+  readonly dx: number;
+  readonly y: number;
+}
+export const CRATE_EDGE_VIEW = { S: 0.45, M: 0.6, L: 0.8 } as const;
+const PALLET = { w: 1.1, d: 1.0, h: 0.15 } as const;
+
+/**
+ * The Shipped zone blocked in (P4 builds it): four pallets in two rows. The back row carries the tall
+ * stacks (up to 1.2), the front row low ones (0.6), with 0.7 between the rows, so every crate's front
+ * shows over the row in front of it; the front row stands right of the dock's line of sight. The
+ * mailbox stands at the back right on its post, the clipboard hangs on the post's front.
+ */
+export const SHIPPED = {
+  pallet: PALLET,
+  pallets: [
+    { x: 6.0, z: -1.05, crates: [{ size: 'M', dx: -0.25, y: 0 }, { size: 'S', dx: -0.25, y: 0.6 }, { size: 'S', dx: 0.3, y: 0 }] },
+    { x: 7.3, z: -1.05, crates: [{ size: 'M', dx: 0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0.6 }, { size: 'S', dx: -0.3, y: 0 }, { size: 'S', dx: -0.3, y: 0.45 }] },
+    { x: 6.9, z: 0.65, crates: [{ size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 8.1, z: 0.65, crates: [{ size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: 0.27, y: 0 }] },
+  ] as ReadonlyArray<{ x: number; z: number; crates: readonly ShippedCrate[] }>,
+  mailbox: { x: 8.3, z: -1.25, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 } },
+  clipboard: { w: 0.3, h: 0.4, t: 0.03, y: 0.45 },
+} as const;
+
+/** Each pallet's whole mass (pallet and stack) as a box: the bodies, and the test's blockers. */
+export function shippedBoxes(): Array<{ id: string; box: Box3 }> {
+  const out: Array<{ id: string; box: Box3 }> = [];
+  const P = SHIPPED.pallet;
+  SHIPPED.pallets.forEach((p, i) => {
+    let top: number = P.h;
+    for (const c of p.crates) top = Math.max(top, P.h + c.y + CRATE_EDGE_VIEW[c.size]);
+    out.push({ id: `pallet-${'abcd'[i]}`, box: new Box3(new Vector3(p.x - P.w / 2, 0, p.z - P.d / 2), new Vector3(p.x + P.w / 2, top, p.z + P.d / 2)) });
+  });
+  const m = SHIPPED.mailbox;
+  out.push({ id: 'mailbox', box: new Box3(new Vector3(m.x - m.box.w / 2, 0, m.z - m.box.d / 2), new Vector3(m.x + m.box.w / 2, m.postH + m.box.h, m.z + m.box.d / 2)) });
+  return out;
+}
+
+/** Every shipped crate's front face (world): centre and size, for the visibility test. */
+export function shippedCrateFronts(): Array<{ c: Vector3; w: number; h: number }> {
+  const P = SHIPPED.pallet;
+  const out: Array<{ c: Vector3; w: number; h: number }> = [];
+  for (const p of SHIPPED.pallets)
+    for (const k of p.crates) {
+      const e = CRATE_EDGE_VIEW[k.size];
+      out.push({ c: new Vector3(p.x + k.dx, P.h + k.y + e / 2, p.z + P.d / 2), w: e, h: e });
+    }
+  return out;
+}
+
 /** The camera's homes (§ B6): the whole bench on a wide screen; the centre cluster on an upright phone (§ B3). */
 export const FRAMING = {
   /**
-   * Not the bench's box but the box the rig fits about its centre so that `MUST_SEE` (the bench's front
-   * corners with a little apron and room, the sign's hook, the tool wall, the window) all just fit, as large
-   * as they can. The rig centres the box and fits every corner. At 16:10 the front corners bind across, so
-   * the box is wide and shallow and sits forward; at 16:9 and wider the height binds, so it is tall and
-   * narrow. Found by search against `MUST_SEE`; tests/unit/view/bench.test.ts holds them.
+   * Not the bench's box but the box the rig fits about its centre, with the `edge` its pan limit keeps the
+   * frame's bottom from running past. Found by search (tests/unit/view/bench.test.ts holds the result):
+   * every station and `MUST_SEE` in frame, the bench's front corners about 30 px inside the sides and
+   * 60-80 px of apron and under-bench dark below the front edge, Fetch as large as that leaves it. At
+   * 16:10 the front corners bind across: the box is wide and shallow and sits forward. At 16:9 the
+   * height binds: the box is tall and narrow, and the pan limit's edge drops under the bench so the
+   * apron can show.
    */
-  wide: { min: [-9.8, -2.5, 2] as Vec3, max: [9.8, 2, 3.5] as Vec3 },
+  wide: { min: [-10.6, -2.5, 2] as Vec3, max: [10.6, 1.5, 3] as Vec3 },
+  wideEdge: { y: 0, z: 5 },
   /** 16:9 and wider (above `widerFrom`). */
-  wider: { min: [-9.6, -2, 2] as Vec3, max: [9.6, 4, 3] as Vec3 },
+  wider: { min: [-1, -3, -5] as Vec3, max: [1, 5, 3] as Vec3 },
+  widerEdge: { y: -0.6, z: 5 },
   widerFrom: 1.7,
   /** Button, loose crate, phone and Patch, all four without panning. */
   phone: { min: [-1.6, 0, -3.9] as Vec3, max: [4.0, 2.3, 2.9] as Vec3 },
@@ -138,26 +209,31 @@ export const FRAMING = {
   /** Where the focus is pinned at home: the console's front and Fetch's lane. */
   focus: [0, 0.6, 1.2] as Vec3,
   blur: { range: 0.075, scale: 12, max: 6, far: 0.5 },
-  /** The pan limits: the bench and a little room past its ends. */
-  bounds: { min: [-9.6, -1, -5] as Vec3, max: [9.6, 6, 5] as Vec3 },
+  /** The pan limits: the bench and a little room past its ends and under its front (so the home can show the apron). */
+  bounds: { min: [-9.6, -1, -5] as Vec3, max: [9.6, 6, 7] as Vec3 },
 } as const;
 
 /**
- * What the home framing must show on a wide screen, whatever its shape: the bench's front corners with the
- * apron and a strip of the room below, the sign's hook, the tool wall's top-left, the window's top-right,
- * the bench's back corners.
+ * What the home framing must show on a wide screen, whatever its shape: the bench's front corners, the
+ * sign's hook, the tool wall's top-left, the window's top-right, the bench's back corners.
  */
 export const MUST_SEE: readonly Vec3[] = [
-  [-8.75, -0.35, 5.05], [8.75, -0.35, 5.05], [0, -0.45, 5.08],
-  [-3.5, 6.25, -4.95], [5.1, 6.25, -4.95],
-  [-9.15, 4.4, -4.9], [8.45, 5.25, -4.7],
+  [-9, 0, 5], [9, 0, 5],
+  [-3.2, 6.25, -4.95], [5.4, 6.25, -4.95],
+  [-10.15, 4.4, -4.9], [8.45, 5.25, -4.7],
   [-9, 0, -5], [9, 0, -5],
 ];
+/** At 1440×900: the front corners at least this far inside the frame's sides, and the front edge this high over its bottom (px). */
+export const FRAME_PX = { corners: 30, under: [60, 80] as const };
 
 /** The camera's home box for a viewport of this aspect (width / height; under 1: the phone framing). */
 export function homeBox(aspect: number): Box3 {
   const f = aspect < 1 ? FRAMING.phone : aspect > FRAMING.widerFrom ? FRAMING.wider : FRAMING.wide;
   return new Box3(new Vector3(...f.min), new Vector3(...f.max));
+}
+/** The bench edge the home's pan limit holds (the phone: the front edge itself, as approved). */
+export function homeEdge(aspect: number, bench: { top: number; maxZ: number }): { y: number; z: number } {
+  return aspect < 1 ? { y: bench.top, z: bench.maxZ } : aspect > FRAMING.widerFrom ? { ...FRAMING.widerEdge } : { ...FRAMING.wideEdge };
 }
 
 /** A spot's footprint as a world box (yaw applied: the box round the turned footprint). */
@@ -179,11 +255,11 @@ const WALL_Z = -5;
  * resting on y = 0, good side +Z. Plain on purpose: it says "a thing this
  * big goes here", nothing about what it looks like.
  */
-export function clayBlock(name: string, w: number, h: number, d: number): Piece {
+export function clayBlock(name: string, w: number, h: number, d: number, shade = 0.45): Piece {
   const b = piece(`stand-in-${name}`, { ao: false });
   const c = Math.max(0.005, Math.min(w, h, d) * 0.1);
-  // 44 triangles: clay is counted in the budget (twice, with the shadow pass) like everything else
-  b.add(part('paper', bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, h, d / 2], c, omit: ['ny'] }), 'steel', { shade: 0.45 }));
+  // 40 triangles: clay is counted in the budget (twice, with the shadow pass) like everything else
+  b.add(part('paper', bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, h, d / 2], c, omit: ['ny'] }), 'steel', { shade }));
   return b.build();
 }
 
@@ -193,11 +269,34 @@ function tapedRect(s: Spot, seed: number): Piece {
   return laneTape({ seed, points: [[s.x - hw, s.z - hd], [s.x + hw, s.z - hd + 0.012], [s.x + hw, s.z + hd], [s.x - hw, s.z + hd - 0.01], [s.x - hw, s.z - hd]] });
 }
 
-/** The clay and tape of every station still being built, as pool items for the set to merge. */
-export function standIns(seed: number): Array<{ piece: Piece; at: Matrix4 }> {
+/** The Shipped zone in clay: pallets (lighter), crates (mid), the mailbox and the clipboard. */
+function shippedClay(): Array<{ piece: Piece; at: Matrix4 }> {
+  const out: Array<{ piece: Piece; at: Matrix4 }> = [];
+  const P = SHIPPED.pallet;
+  SHIPPED.pallets.forEach((p, i) => {
+    out.push({ piece: clayBlock(`pallet-${i}`, P.w, P.h, P.d, 0.6), at: placedMatrix({ x: p.x, z: p.z }) });
+    for (const [j, c] of p.crates.entries()) {
+      const e = CRATE_EDGE_VIEW[c.size];
+      out.push({ piece: clayBlock(`shipped-crate-${i}-${j}`, e - 0.02, e - 0.02, e - 0.02, 0.5), at: placedMatrix({ x: p.x + c.dx, y: P.h + c.y, z: p.z + P.d / 2 - e / 2 }) });
+    }
+  });
+  const m = SHIPPED.mailbox;
+  out.push({ piece: clayBlock('mailbox-post', m.post, m.postH, m.post), at: placedMatrix({ x: m.x, z: m.z }) });
+  out.push({ piece: clayBlock('mailbox', m.box.w, m.box.h, m.box.d, 0.55), at: placedMatrix({ x: m.x, y: m.postH, z: m.z }) });
+  const k = SHIPPED.clipboard;
+  out.push({ piece: clayBlock('clipboard', k.w, k.h, k.t, 0.7), at: placedMatrix({ x: m.x, y: k.y, z: m.z + m.post / 2 + k.t / 2 + 0.01 }) });
+  return out;
+}
+
+/** The clay and tape of every station still being built, and Fetch's lane tape, as pool items for the set to merge. */
+export function standIns(seed: number, lane: { a: readonly [number, number]; b: readonly [number, number] }, crewScale = CREW_SCALE): Array<{ piece: Piece; at: Matrix4 }> {
   const out: Array<{ piece: Piece; at: Matrix4 }> = [];
   const I = new Matrix4();
   for (const [name, s] of Object.entries(LAYOUT.stations) as Array<[StationKey, Spot]>) {
+    if (s.fill === 'zone') {
+      out.push(...shippedClay());
+      continue;
+    }
     if (s.fill === 'tape') {
       if (name !== 'lane') out.push({ piece: tapedRect(s, seed + hashSeed(name)), at: I });
       continue;
@@ -205,10 +304,17 @@ export function standIns(seed: number): Array<{ piece: Piece; at: Matrix4 }> {
     if (s.fill !== 'clay') continue;
     const onWall = s.z <= WALL_Z;
     const at = placedMatrix({ x: s.x, y: s.y, z: onWall ? WALL_Z + s.d / 2 + 0.01 : s.z, yaw: s.yaw });
-    out.push({ piece: clayBlock(name, s.w, Math.max(s.h, 0.02), s.d), at });
+    // Revert is drawn at the crew's scale of this page (the layout is sized for CREW_SCALE)
+    const k = name === 'revert' ? crewScale / CREW_SCALE : 1;
+    out.push({ piece: clayBlock(name, s.w * k, Math.max(s.h * k, 0.02), s.d * k, name === 'revert' ? 0.62 : 0.45), at });
     // the hatch is a trapdoor with a tape-yellow border
     if (name === 'hatch') out.push({ piece: tapedRect({ ...s, w: s.w + 0.16, d: s.d + 0.16 }, seed + 11), at: I });
   }
+  // Fetch's lane: a closed rectangle of tape round the runner's lane, wide enough for the bigger Fetch
+  const hw = LANE_TAPE.half, px = LANE_TAPE.past;
+  const x0 = Math.min(lane.a[0], lane.b[0]) - px, x1 = Math.max(lane.a[0], lane.b[0]) + px;
+  const zc = (lane.a[1] + lane.b[1]) / 2;
+  out.push({ piece: laneTape({ seed: seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }), at: I });
   return out;
 }
 
@@ -325,6 +431,8 @@ export interface BenchOptions {
   /** The scene the world boots from (`sim/scenes/bench.ts` `bench`; the page passes it). */
   scene: SceneDesc;
   seed?: number;
+  /** The crew's drawing scale (default CREW_SCALE; the page's ?crew= compares others). */
+  crewScale?: number;
 }
 
 export interface Bench {
@@ -332,8 +440,14 @@ export interface Bench {
   stations: StationViewFactory[];
   fit: Fit;
   measured: Record<string, unknown>;
-  /** Fetch's piece bounds at rest (piece space, before the crew scale), for measuring its height on screen. */
+  /** Fetch's piece bounds at rest (piece space, before the crew scale), for measuring its height on screen; and without its aerial and pennant. */
   fetchBounds: Box3 | null;
+  fetchBodyBounds: Box3 | null;
+  /** Patch's piece bounds (seat space, before the crew scale). */
+  patchBounds: Box3 | null;
+  /** The belt's control plates (world matrices of its `dial` and `lever` sockets) and their sizes. */
+  handles: { dial: Matrix4 | null; lever: Matrix4 | null };
+  crewScale: number;
   /** The key light (the lamp's bulb and aim). */
   bulb: { at: Vec3; aim: Vec3 } | null;
   world(): Frame['world'] | null;
@@ -375,6 +489,14 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const meas = measured(scene, fit);
   const fetchPiece = blank(E.fetch);
   const fetchBounds = fetchPiece ? pieceBounds(fetchPiece) : null;
+  const fetchBodyBounds = fetchPiece ? partsBounds(flatten([{ piece: fetchPiece, at: new Matrix4(), skip: new Set(['aerial']) }])) : null;
+  const patchPiece = blank(E.patch, { standIn: false });
+  const patchBounds = patchPiece ? pieceBounds(patchPiece) : null;
+  const crewScale = o.crewScale ?? CREW_SCALE;
+  const beltPiece = blank(E.belt, { length: LAYOUT.beltLength });
+  const beltAt = placedMatrix(fit.belt.at);
+  const sock = (n: string): Matrix4 | null => (beltPiece?.sockets?.[n] ? beltAt.clone().multiply(beltPiece.sockets[n]!) : null);
+  const handles = { dial: sock('dial'), lever: sock('lever') };
 
   // the key light, from the real lamp clamped at its spot
   type KeyLight = (p: Piece, place: Vec3) => { position: Vec3; aim: Vec3 };
@@ -408,7 +530,7 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const pool: StaticPool = { items: [] };
   const clayAndTape: StationViewFactory = () => {
     // runs before the set: hand the stand-ins to its pool so they merge with it
-    pool.items.push(...standIns(seed));
+    pool.items.push(...standIns(seed, scene.runner.lane, crewScale));
     return { root: new Group(), update() {}, dispose() {} };
   };
   const stations: StationViewFactory[] = [
@@ -419,7 +541,9 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
     createSetView({
       entries: { ...E, sign },
       tools,
-      scene,
+      // the set draws P1's lane tape round the runner's lane; the bench draws its own, wider (standIns), so the
+      // set is handed the lane far off the bench. PROPOSED: a lane half-width option on SetOptions.
+      scene: { ...scene, runner: { ...scene.runner, lane: { a: [-60, -60], b: [-60, -60] } } },
       seed,
       pool,
       lampBody: false,
@@ -428,12 +552,22 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
       at: { sign: { x: S.sign.x, y: S.sign.y }, toolwall: { x: S.toolwall.x, y: S.toolwall.y }, lamp: { x: S.lamp.x, z: S.lamp.z }, phone: fit.phone.at, stool: fit.stool.at },
     }),
     partsView,
-    scaledPatch(createPatchView({ entry: E.patch, module: mods.patch, fit, seed }), CREW_SCALE),
+    scaledPatch(createPatchView({ entry: E.patch, module: mods.patch, fit, seed }), crewScale),
     createButtonView(),
     // after the parts: Fetch re-seats the carried crate in its claws
-    scaledFetch(createFetchView({ seed: 7 }), CREW_SCALE),
+    scaledFetch(createFetchView({ seed: 7 }), crewScale),
     createLampView(),
     createCardView(),
   ];
-  return { scene, stations, fit, measured: meas, fetchBounds, bulb, world: () => worldRef };
+  return { scene, stations, fit, measured: meas, fetchBounds, fetchBodyBounds, patchBounds, handles, crewScale, bulb, world: () => worldRef };
+}
+
+/** The bounds of flattened parts. */
+function partsBounds(parts: readonly KitPart[]): Box3 {
+  const b = new Box3();
+  for (const q of parts) {
+    q.geometry.computeBoundingBox();
+    if (q.geometry.boundingBox) b.union(q.geometry.boundingBox);
+  }
+  return b;
 }

@@ -12,7 +12,7 @@
  * `tests/unit/view/bench.test.ts`.
  *
  * Conventions (art-direction § 2): 1 unit = Fetch's P1 body height (it is
- * drawn 1.25× this phase); bench top y = 0; +X to the visitor's right;
+ * drawn bigger this phase: view/bench.ts CREW_SCALE); bench top y = 0; +X to the visitor's right;
  * +Z toward the visitor; the back wall's face at z = -5. Statics are centre
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
@@ -49,9 +49,19 @@ export const AT = {
   /** The phone on its easel. */
   phone: { c: [2.2, 0.36, -1.35], half: [0.21, 0.36, 0.15] } as Box,
   /** The platen (stand-in): the tray under the nozzle, its tank behind. */
-  platen: { c: [4.75, 0.7, -2.0], half: [0.8, 0.7, 0.7] } as Box,
+  platen: { c: [4.5, 0.7, -2.0], half: [0.8, 0.7, 0.7] } as Box,
   /** The storefront (stand-in): a shop front facing the visitor. */
-  storefront: { c: [7.05, 1.05, -3.25], half: [1.15, 1.05, 0.45] } as Box,
+  storefront: { c: [7.05, 1.05, -3.6], half: [1.15, 1.05, 0.45] } as Box,
+  /** Shipped (P4, clay): each pallet with its stack as one box (the back row up to 1.2 high, the front row 0.6), and the mailbox on its post. */
+  pallets: [
+    { c: [6.0, 0.6, -1.05], half: [0.55, 0.6, 0.5] },
+    { c: [7.3, 0.6, -1.05], half: [0.55, 0.6, 0.5] },
+    { c: [6.9, 0.3, 0.65], half: [0.55, 0.3, 0.5] },
+    { c: [8.1, 0.3, 0.65], half: [0.55, 0.3, 0.5] },
+  ] as readonly Box[],
+  mailbox: { c: [8.3, 0.65, -1.25], half: [0.21, 0.65, 0.16] } as Box,
+  /** Revert parked on its hatch (clay; the crew's 1.5×: 1.74 wide, 1.32 deep, 1.08 tall). */
+  revert: { c: [-3.6, 0.54, 0.35], half: [0.87, 0.54, 0.66] } as Box,
 
   // ── the Button's row ──
   /** The Button's console (the body only). Deck top at y 1.04. */
@@ -61,23 +71,23 @@ export const AT = {
 
   // ── the front: the lane, the belt and its ends ──
   /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. */
-  stack: [-7.65, 1.15] as const,
+  stack: [-6.6, 1.0] as const,
   /** Fetch's lane of yellow tape (x, z): in front of the console, behind the belt. */
-  lane: { a: [-6.55, 2.0] as const, b: [3.4, 2.0] as const },
+  lane: { a: [-5.2, 2.2] as const, b: [3.0, 2.2] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
-  fetchStart: 0.53,
+  fetchStart: 0.48,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
-  looseCrate: [-1.27, 0.225, 2.5] as Vec3,
+  looseCrate: [-1.26, 0.225, 2.85] as Vec3,
   /** Where on the lane Fetch fumbles (x): right of the console. */
   fumbleX: 2.25,
   fumble: { heading: -Math.PI / 2, linvel: [-1.0, 2.0, 0] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its motor housing at the left end. Belt length 10. */
-  belt: { c: [-0.4, 0.25, 3.6], half: [5.0, 0.25, 0.52] } as Box,
-  beltMotor: { c: [-5.96, 0.63, 3.7], half: [0.56, 0.63, 0.79] } as Box,
+  belt: { c: [-0.9, 0.25, 3.9], half: [5.0, 0.25, 0.52] } as Box,
+  beltMotor: { c: [-6.46, 0.63, 4.0], half: [0.56, 0.63, 0.79] } as Box,
   /** The striker (stand-in): its post on the belt's far rail; the arm passes clear over the belt. */
-  striker: { c: [4.15, 0.85, 2.78], half: [0.3, 0.85, 0.22] } as Box,
+  striker: { c: [3.5, 0.85, 3.15], half: [0.3, 0.85, 0.22] } as Box,
   /** The dock (stand-in): its portal turned toward the camera. */
-  dock: { c: [7.35, 0.8, 3.25], half: [0.85, 0.8, 0.6], yaw: -50 } as Box,
+  dock: { c: [5.25, 0.8, 3.65], half: [0.85, 0.8, 0.6], yaw: -50 } as Box,
   /** The return chute's mouth, front left, and how parts come out of it. */
   chute: { p: [-8.05, 0.45, 3.2] as Vec3, linvel: [2.4, 0.6, -0.9] as Vec3 },
 } as const;
@@ -112,6 +122,9 @@ export const bench: SceneDesc = {
     box('storefront', AT.storefront),
     box('striker', AT.striker),
     box('dock', AT.dock),
+    ...AT.pallets.map((p, i) => box(`pallet-${'abcd'[i]}`, p)),
+    box('mailbox', AT.mailbox),
+    box('revert', AT.revert),
   ],
   parts: [
     { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx, e.L / 2, sz], 0.04) },
