@@ -232,14 +232,24 @@ export class CameraRig {
     return { focus: [this.focus.x, this.focus.y, this.focus.z], zoom: this.zoom };
   }
 
-  /** Jump to a view. */
-  cutTo(v: View): void {
+  /**
+   * Jump to a view. `hold`: take it exactly, outside the pan limits if need be, and keep it
+   * until the visitor pans, zooms or the camera eases somewhere (adopting a poster's view:
+   * the limits depend on the aspect, and near 1.85-1.95:1 the range at the live aspect can
+   * exclude a view that was valid where the picture was framed).
+   */
+  cutTo(v: View, o: { hold?: boolean } = {}): void {
     this.ease = null;
     this.focus.set(v.focus[0], v.focus[1], v.focus[2]);
     this.zoom = v.zoom;
-    this.clampState();
+    this.held = !!o.hold;
+    if (this.held) this.zoom = MathUtils.clamp(this.zoom, 0, 1);
+    else this.clampState();
     this.apply();
   }
+
+  /** True while a held view (cutTo with `hold`) is in force. */
+  private held = false;
 
   /** Glide to a view (a cut when reduced motion is on). */
   easeTo(v: View, seconds = 0.7): void {
@@ -247,12 +257,14 @@ export class CameraRig {
       this.cutTo(v);
       return;
     }
+    this.held = false;
     this.ease = { from: this.view(), to: { focus: [...v.focus] as [number, number, number], zoom: v.zoom }, t: 0, dur: seconds };
   }
 
   /** Slide the focus along the bench (world units; +x right, +z toward the visitor). */
   panBy(dx: number, dz = 0): void {
     this.ease = null;
+    this.held = false;
     // Past a limit the drag meets resistance: only the give is let through.
     const r = this.panRange();
     const over = (v: number, lo: number, hi: number): number => (v < lo ? lo - v : v > hi ? v - hi : 0);
@@ -271,6 +283,7 @@ export class CameraRig {
   zoomBy(f: number, towardNdc?: { x: number; y: number }): void {
     if (!(f > 0)) return;
     this.ease = null;
+    this.held = false;
     const before = towardNdc ? this.benchPoint(towardNdc, this.focus.y) : null;
     this.zoom = MathUtils.clamp(this.zoomForDistance(this.distance * f), 0, 1);
     this.apply();
@@ -354,7 +367,7 @@ export class CameraRig {
       if (e.t >= 1) this.ease = null;
       this.clampState();
     }
-    if (!this.ease && this.stretched) {
+    if (!this.ease && !this.held && this.stretched) {
       // The rubber band springs back to the pan range.
       const r = this.panRange();
       const k = 1 - Math.exp(-14 * step);
@@ -387,7 +400,7 @@ export class CameraRig {
    * it (z): the focus stays over the bounds and the frame's bottom edge (the
    * bench plane under the bottom of the picture) does not run past the front.
    * When the view already shows the whole width there is nowhere to go: the
-   * range collapses onto the home focus. Home is always inside the range.
+   * range collapses onto the home focus.
    */
   panRange(): { x: [number, number]; z: [number, number] } {
     const d = this.distance;
@@ -396,10 +409,7 @@ export class CameraRig {
     const halfW = tanV * this.aspect * d;
     const mx = halfW * 2 * PAN_MARGIN;
     const home = this.homeFocus;
-    // home is always a valid focus, and with nowhere to pan the range IS home. Clamping home into
-    // [hi, lo] (and clamping it out of a range that had only just opened) moved an adopted view
-    // by up to ~27 px at aspects near 1.85-2.0, where lo crosses hi.
-    const range = (lo: number, hi: number, h: number): [number, number] => (lo <= hi ? [Math.min(lo, h), Math.max(hi, h)] : [h, h]);
+    const range = (lo: number, hi: number, h: number): [number, number] => (lo <= hi ? [lo, hi] : [MathUtils.clamp(h, hi, lo), MathUtils.clamp(h, hi, lo)]);
     const x = range(b.min.x + halfW - mx, b.max.x - halfW + mx, home.x);
     // The bench point under the bottom of the frame, relative to the focus (translation-invariant).
     const planeY = this.subjectOpts.edge?.y ?? this.subject.min.y;
