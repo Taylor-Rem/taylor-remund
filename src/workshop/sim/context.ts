@@ -73,7 +73,10 @@ export interface SimContext {
   pose(id: Id): Pose | undefined;
   /** Has a free part come to rest (not moving since it was last disturbed)? */
   settled(id: Id): boolean;
-  /** Take a free part out of physics into crew control (kinematic). Refused for a part the visitor touched (rule 5), unless it is the crew member itself. */
+  /**
+   * Take a free part out of physics into crew control (kinematic). Refused for a part the visitor touched (rule 5), unless it is the crew
+   * member itself. (S6) A part a machine holds (mode `machine`: the platen's tray) is taken from it: the machine hears `lost(id, 'crew')`.
+   */
   attach(id: Id, by: Id): boolean;
   /** Drive an attached (crew) or taken (machine) part to this pose by the end of the step (`teleport`: put it there now). */
   drive(id: Id, pose: Pose, teleport?: boolean): void;
@@ -123,7 +126,7 @@ export interface SimContext {
 }
 
 /** Why the world took a part out of a unit's hands (`Unit.lost`). */
-export type LostReason = 'grab' | 'undo' | 'reset' | 'away';
+export type LostReason = 'grab' | 'undo' | 'reset' | 'away' | 'crew';
 
 /** A machine or crew member as the world runs it, in a fixed order every step. */
 export interface Unit {

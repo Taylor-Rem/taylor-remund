@@ -24,6 +24,18 @@
  * for it (puts a crate on the belt while it is empty-handed, or takes the
  * crate out of its hands) it looks at its empty hands and salutes.
  *
+ * Attract mode's lap (S6, § B3; `FetchSpec.attract`): until the visitor's
+ * first action, on a bench where its tape reaches the stack, the platen's
+ * tray, the phone and the belt's drop, it takes a crate off the stack (the
+ * first lap: the one in its hands) to the tray, taps the phone (`tap`: the
+ * crew's text goes down the PLATEN line; Patch moves the cord, paints it,
+ * replies, puts the cord back), takes the painted crate off the tray to the
+ * belt, and watches it ride and ship; when the stack has its fresh crate the
+ * next lap begins (`attract()`, `ATTRACT_TIMELINE`, `attract.beat` events).
+ * The fumble comes once, in the first lap. Everything it does is `crew`. At
+ * the first action it goes on with its rounds, taking a crate it left on the
+ * tray to the belt first if nobody has touched it.
+ *
  * Knocked (S5; `fetch-knock.ts`): a free part that hits it (or the crate in
  * its hands) with speed shoves it along the part's line and spins it, by
  * one of three strengths from the part's momentum; the slide is cut short
@@ -42,7 +54,8 @@
  * `carry` in the brief is not a separate state: `carrying` is set while it
  * rolls, idles or skids with a crate in its hands.
  */
-import type { Cause, CrewMember, FetchKnock, FetchState, Gaze, Id, Pose, Quat, SimEvent, Vec3 } from '../types.ts';
+import type { AttractBeat, AttractView, Cause, CrewMember, FetchKnock, FetchState, Gaze, Id, Pose, Quat, SimEvent, Vec3 } from '../types.ts';
+import { deskOf } from '../machines/line.ts';
 import type { SimContext, Unit } from '../context.ts';
 import { HZ, steps } from '../clock.ts';
 import { qnormalize, qyaw, yawOf } from '../math.ts';
@@ -140,10 +153,32 @@ function scaled(t: typeof FETCH_TUNING, k: number): typeof FETCH_TUNING {
 }
 
 /** Why it is rolling: a lap (or nothing in particular), to fumble, to fetch back the fumbled crate, to take one off the stack, to set one down, to stretch for one. */
-type Purpose = 'lap' | 'fumble' | 'retrieve' | 'take' | 'place' | 'stretch';
+type Purpose = 'lap' | 'fumble' | 'retrieve' | 'take' | 'place' | 'stretch' | 'collect' | 'tap';
+
+/**
+ * S6: attract mode's lap as data a view can follow (§ B3): its beats in order, a nominal length for each
+ * (seconds, measured on the bench: the real lengths come from the crew's own states, published as they
+ * go), and whose view state shows it (`fetch`: `CrewMember`; `patch`: `PatchView.plan`; `line`: the belt,
+ * the striker and the dock and their events).
+ */
+export const ATTRACT_TIMELINE: readonly { readonly beat: AttractBeat; readonly nominal: number; readonly follow: 'fetch' | 'patch' | 'line' }[] = [
+  { beat: 'fetch-crate', nominal: 2.5, follow: 'fetch' },
+  { beat: 'to-tray', nominal: 3, follow: 'fetch' },
+  { beat: 'tap', nominal: 1.5, follow: 'fetch' },
+  { beat: 'patch', nominal: 6.5, follow: 'patch' },
+  { beat: 'collect', nominal: 1.5, follow: 'fetch' },
+  { beat: 'to-belt', nominal: 4, follow: 'fetch' },
+  { beat: 'ride', nominal: 9, follow: 'line' },
+];
+/** After the lap's crate ships, the lap waits this long (seconds) for the stack's fresh crate before it ends anyway (the dock's restock comes 1.4 s after). */
+const LAP_RESTOCK_WAIT = 2;
+/** Fetch's tap on the phone: it reaches out, taps (the text goes at `at`), and draws back. Seconds. */
+export const TAP = { at: 0.45, length: 0.9 } as const;
 
 export interface FetchUnit extends Unit {
   member(): CrewMember;
+  /** S6: attract mode's lap, as data the view can follow. */
+  attract(): AttractView;
 }
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
@@ -274,7 +309,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   // ── S5 ──
   /** The part it is going for (pickup, reach), and what for. */
   let goal: Id | null = null;
-  let goalWhy: 'retrieve' | 'take' = 'take';
+  let goalWhy: 'retrieve' | 'take' | 'collect' = 'take';
   /** The crate coming into its hands: from where, since when. */
   let gather: { from: Pose; at: number } | null = null;
   /** Setting a crate down: the drop pose (bottom of the crate at the mouth's drop point), and whether it has let go. */
@@ -406,7 +441,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const why = purpose;
     purpose = why === 'retrieve' ? 'retrieve' : 'lap';
     if (why === 'fumble') enter('fumble');
-    else if (why === 'retrieve' || why === 'take') enter('pickup');
+    else if (why === 'retrieve' || why === 'take' || why === 'collect') enter('pickup');
+    else if (why === 'tap') enter('tap');
     else if (why === 'place') enter('place');
     else if (why === 'stretch') enter('reach');
     else {
@@ -424,7 +460,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     carrying !== null &&
     !ctx.playMode &&
     ctx.idleSteps() >= steps(T.fumbleAfter) &&
-    (lastFumble === null || ctx.clock.step - lastFumble >= steps(T.fumbleEvery));
+    // S6: running attract mode's lap, it fumbles once, inside the first lap, and never again
+    (lapOn() ? lastFumble === null && lap === 1 : lastFumble === null || ctx.clock.step - lastFumble >= steps(T.fumbleEvery));
 
   function roll(): void {
     const dt = 1 / HZ;
@@ -516,7 +553,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     return true;
   }
   /** Go for a part: to the nearest point of its tape, then take it, or stretch for it if it is past reach. */
-  function goFor(part: Id, why: 'retrieve' | 'take'): void {
+  function goFor(part: Id, why: 'retrieve' | 'take' | 'collect'): void {
     const p = ctx.pose(part);
     if (!p) return;
     goal = part;
@@ -525,10 +562,142 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const [lx, lz] = at(sl);
     rollTo(sl, Math.hypot(p.p[0] - lx, p.p[2] - lz) <= R ? why : 'stretch');
   }
+  // ── S6: attract mode's lap (§ B3): stack → the platen's tray → tap the phone → Patch → collect → the belt ──
+
+  const lapSpec = spec.attract ?? null;
+  /** Can this scene run the lap at all (every place within reach of the tape)? Else Fetch laps its lane as in P1. */
+  let lapPossible: boolean | null = null;
+  function lapReach(): boolean {
+    if (lapPossible !== null) return lapPossible;
+    const tray = lapSpec ? ctx.mouth(lapSpec.tray) : undefined;
+    const d = drop();
+    if (!lapSpec || !rounds || !tray || !d || !deskOf(ctx)) return (lapPossible = false);
+    const within = (px: number, pz: number): boolean => {
+      const [lx, lz] = at(nearest(px, pz));
+      return Math.hypot(px - lx, pz - lz) <= R;
+    };
+    lapPossible = within(rounds.stack[0], rounds.stack[1]) && within(tray.drop[0], tray.drop[2]) && within(lapSpec.phone[0], lapSpec.phone[2]) && within(d[0], d[2]);
+    return lapPossible;
+  }
+  const lapOn = (): boolean => !ctx.playMode && lapReach();
+  let beat: AttractBeat = 'fetch-crate';
+  let lap = 1;
+  let lapFrom = ctx.clock.step;
+  let beatFrom = ctx.clock.step;
+  /** This lap's crate, its text's number on the line, and how far the lap has got. */
+  let lapCrate: Id | null = null;
+  let textN: number | null = null;
+  let replied = false;
+  let shippedLap = false;
+  /** When the lap's crate shipped: the lap ends when the stack has its fresh crate, or (the stack full) a moment later. */
+  let shippedAt = 0;
+  function endLap(): void {
+    laps.push({ lap, start: lapFrom / HZ, end: ctx.clock.step / HZ });
+    lap += 1;
+    lapFrom = ctx.clock.step;
+    lapCrate = null;
+    textN = null;
+    replied = false;
+    shippedLap = false;
+    setBeat('fetch-crate');
+  }
+  const laps: { lap: number; start: number; end: number }[] = [];
+  /** Where a crate is being set down: the tray's seat (null: the belt's drop, with the rounds' checks). */
+  let placeAt: Vec3 | null = null;
+  const setBeat = (b: AttractBeat): void => {
+    if (b === beat) return;
+    beat = b;
+    beatFrom = ctx.clock.step;
+    ctx.emit({ type: 'attract.beat', lap, beat: b });
+  };
+  const inMouth = (id: Id | null, mouth: Id): boolean => {
+    const l = id ? ctx.part(id)?.location : undefined;
+    return l?.at === 'in' && l.mouth === mouth;
+  };
+  const landing = (id: Id | null): boolean => !!id && ctx.mode(id) === 'free' && !ctx.settled(id);
+
+  /** Idle in attract mode: the lap's next step. True if it set off. */
+  function lapStep(): boolean {
+    if (!lapSpec || !rounds) return false;
+    const tray = ctx.mouth(lapSpec.tray);
+    if (!tray) return false;
+    switch (beat) {
+      case 'fetch-crate': {
+        if (carrying) {
+          lapCrate = carrying;
+          setBeat('to-tray');
+          return lapStep();
+        }
+        if (landing(lapCrate)) return false;
+        const top = lapCrate && fresh(lapCrate) ? lapCrate : stackTop();
+        if (!top) return false;
+        lapCrate = top;
+        goFor(top, 'take');
+        return true;
+      }
+      case 'to-tray':
+        if (!carrying) {
+          if (inMouth(lapCrate, lapSpec.tray)) {
+            setBeat('tap');
+            return lapStep();
+          }
+          if (landing(lapCrate)) return false;
+          setBeat('fetch-crate');
+          return false;
+        }
+        placeAt = tray.drop;
+        rollTo(nearest(tray.drop[0], tray.drop[2]), 'place');
+        return true;
+      case 'tap':
+        if (textN !== null) {
+          setBeat('patch');
+          return false;
+        }
+        rollTo(nearest(lapSpec.phone[0], lapSpec.phone[2]), 'tap');
+        return true;
+      case 'patch':
+        if (!replied) return false;
+        setBeat('collect');
+        return lapStep();
+      case 'collect':
+        if (carrying) {
+          setBeat('to-belt');
+          return lapStep();
+        }
+        if (lapCrate && inMouth(lapCrate, lapSpec.tray) && ctx.mode(lapCrate) === 'machine') {
+          goFor(lapCrate, 'collect');
+          return true;
+        }
+        setBeat('fetch-crate');
+        return false;
+      case 'to-belt': {
+        if (!carrying) {
+          if (lapCrate && rounds.inPlay.some((m) => inMouth(lapCrate, m))) setBeat('ride');
+          else if (!landing(lapCrate)) setBeat('fetch-crate');
+          return false;
+        }
+        const d = drop();
+        if (!d || !feeding() || !dropClear()) return false;
+        placeAt = null;
+        rollTo(nearest(d[0], d[2]), 'place');
+        return true;
+      }
+      case 'ride':
+        // shipped and restocked: the lap is over (`heard`); a crate that came off the line some other way starts it again
+        if (lapCrate && !shippedLap && ctx.part(lapCrate)?.location.at === 'rest' && !landing(lapCrate)) setBeat('fetch-crate');
+        return false;
+    }
+  }
+
   /** Idle in play mode with its rounds: what next? True if it set off. */
   function nextJob(): boolean {
     if (!rounds) return false;
     const now = ctx.clock.step;
+    // S6: the crate attract mode left on the platen's tray, if nobody has touched it: it finishes the job
+    if (!carrying && lapSpec && lapCrate && inMouth(lapCrate, lapSpec.tray) && ctx.mode(lapCrate) === 'machine' && !ctx.touched(lapCrate)) {
+      goFor(lapCrate, 'collect');
+      return true;
+    }
     if (carrying) {
       if (!gather && feeding() && now - lastPlaced >= steps(rounds.every) && inPlay() <= rounds.cap && dropClear()) {
         const d = drop() as Vec3;
@@ -743,6 +912,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
     heard(events) {
       hear(events);
+      if (lapSpec && !ctx.playMode)
+        for (const e of events) {
+          if ((e.type === 'line.reply' || e.type === 'line.refused') && e.n === textN) replied = true;
+          if (e.type === 'shipped' && e.part === lapCrate) {
+            shippedLap = true;
+            shippedAt = ctx.clock.step;
+          }
+          // the lap is over: the crate shipped and the stack has its fresh one
+          if (e.type === 'restocked' && shippedLap) endLap();
+        }
+      // (or the stack was full, and the dock kept its spare: the time a restock takes, and a little)
+      if (lapSpec && !ctx.playMode && shippedLap && ctx.clock.step - shippedAt > steps(LAP_RESTOCK_WAIT)) endLap();
       if (!rounds) return;
       for (const e of events) {
         // the visitor did its job for it: a crate of theirs taken in by the belt while it is empty-handed
@@ -832,17 +1013,25 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (carrying && d) turnToward(yawTo(d));
             break;
           }
+          if (lapOn()) {
+            // S6: attract mode's lap
+            if (inState() >= Math.min(idleFor, steps(0.3)) && lapStep()) break;
+            if (beat === 'patch' && lapSpec) lookAt = ctx.mouth(lapSpec.tray)?.drop ?? null;
+            if (beat === 'ride' && lapCrate) lookAt = ctx.pose(lapCrate)?.p ?? null;
+            break;
+          }
           if (inState() >= idleFor) rollTo(Math.abs(s - stopA) < Math.abs(s - stopB) ? stopB : stopA, 'lap');
           break;
         }
         case 'roll':
-          if (purpose === 'lap' && fumbleDue()) {
+          if ((purpose === 'lap' || (purpose === 'place' && lapOn())) && fumbleDue()) {
             // change of plan mid-run: head for the fumble mark (turning round if it is behind)
             target = clampLane(spec.fumbleAt * laneLen);
             rollDir = Math.sign(target - s) || rollDir;
             purpose = 'fumble';
           }
           if ((purpose === 'take' || purpose === 'retrieve' || purpose === 'stretch') && (goal === null || ctx.mode(goal) !== 'free' || ctx.touched(goal))) purpose = 'lap'; // gone from under its nose
+          if (purpose === 'collect' && (goal === null || ctx.mode(goal) !== 'machine' || ctx.touched(goal))) purpose = 'lap';
           roll();
           laneXZ();
           break;
@@ -899,7 +1088,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (inState() < steps(T.pickup)) break;
             goal = null;
             if (g === fumbled) fumbled = null;
-            const ok = p && !ctx.touched(g) && ctx.mode(g) === 'free' && ctx.settled(g) && Math.hypot(p.p[0] - x, p.p[2] - z) <= R;
+            // (S6) collecting from the platen's tray: the crate is in the platen's hands until Fetch takes it
+            const takeable = goalWhy === 'collect' ? ctx.mode(g) === 'machine' : ctx.mode(g) === 'free' && ctx.settled(g);
+            const ok = p && !ctx.touched(g) && takeable && Math.hypot(p.p[0] - x, p.p[2] - z) <= R;
             if (ok && ctx.attach(g, spec.id)) {
               carrying = g;
               gather = { from: p, at: now };
@@ -939,8 +1130,24 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           }
           break;
         }
+        case 'tap': {
+          // S6: attract mode: it reaches out and taps the phone; the crew's text goes down the line
+          v = 0;
+          const phone = lapSpec?.phone;
+          if (phone) {
+            lookAt = phone;
+            turnToward(yawTo(phone));
+          }
+          if (inState() === steps(TAP.at) && lapSpec && textN === null) {
+            const n = deskOf(ctx)?.crewText(lapSpec.say, lapSpec.words, lapSpec.jack) ?? null;
+            textN = n ?? -1;
+            if (n === null) replied = true; // the line would not take it: on with the lap
+          }
+          if (inState() >= steps(TAP.length)) toIdle();
+          break;
+        }
         case 'place': {
-          const d = drop();
+          const d = placeAt ?? drop();
           if ((!carrying && !placing?.let) || !d || !rounds) {
             placing = null;
             toIdle();
@@ -957,8 +1164,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (!placing.from) {
             turnToward(yawTo(placing.to.p));
             if (t < steps(T.place.turn)) break;
-            // last look before reaching out: the belt still running forward, the drop still clear
-            if (!feeding() || !dropClear() || inPlay() > rounds.cap) {
+            // last look before reaching out: the belt still running forward, the drop still clear (the belt only)
+            if (placeAt === null && (!feeding() || !dropClear() || inPlay() > rounds.cap)) {
               placing = null;
               toIdle();
               break;
@@ -979,6 +1186,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           }
           if (placing.let && sinceOut >= steps(T.place.out) + steps(T.place.lower) + steps(T.place.back)) {
             placing = null;
+            placeAt = null;
             toIdle();
           }
           break;
@@ -1018,7 +1226,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         if (now < nudge.until && ctx.pose(nudge.id)) lookAt = ctx.pose(nudge.id)?.p ?? null;
         else nudge = null;
       }
-      if (state === 'idle' || state === 'shrug' || state === 'salute' || state === 'fumble' || state === 'offer' || state === 'pickup' || state === 'place' || state === 'reach') v = 0;
+      if (state === 'idle' || state === 'shrug' || state === 'salute' || state === 'fumble' || state === 'offer' || state === 'pickup' || state === 'place' || state === 'reach' || state === 'tap') v = 0;
       if (ctx.mode(spec.id) === 'crew') ctx.drive(spec.id, bodyPose());
       if (carrying) ctx.drive(carrying, cratePose());
     },
@@ -1029,6 +1237,21 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     },
 
     crewView: () => ({ kind: 'fetch', id: spec.id, body: spec.id, member: unit.member() }),
+
+    attract(): AttractView {
+      const now = ctx.clock.step;
+      return {
+        on: lapOn(),
+        lap,
+        beat,
+        beatTime: (now - beatFrom) / HZ,
+        lapTime: (now - lapFrom) / HZ,
+        crate: lapCrate,
+        text: textN !== null && textN > 0 ? textN : null,
+        laps,
+        timeline: ATTRACT_TIMELINE,
+      };
+    },
 
     member(): CrewMember {
       const facing = Math.cos(heading - laneYaw) >= 0 ? 1 : -1;

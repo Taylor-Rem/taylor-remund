@@ -57,7 +57,7 @@ describe('seam 2: one grab', () => {
   test("the lamp's shade: one grab, the arm follows the hand, one transaction when it is let go", () => {
     const { world } = benchStub();
     const lamp = () => world.machine('lamp') as LampView;
-    const home = lamp().bulb;
+    const home = lamp().aim;
     world.dispatch({ type: 'grab', id: 'lamp', grip: home });
     run(world, 1);
     expect(world.holding()).toEqual({ kind: 'unit', id: 'lamp' });
@@ -77,7 +77,7 @@ describe('seam 2: one grab', () => {
     expect(world.setting('lamp', 'x')).not.toBe(home[0]);
     world.dispatch({ type: 'undo' });
     run(world, 1);
-    expect(lamp().bulb[0]).toBeCloseTo(home[0], 6);
+    expect(lamp().aim[0]).toBeCloseTo(home[0], 6);
   });
 
   test('while the hand holds a unit nothing else can be picked up, and the Button does not play', () => {

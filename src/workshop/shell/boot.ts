@@ -262,7 +262,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       opts.onFrameRequest?.(id, stage);
     },
   };
-  const controls = createControls({ world: () => world, dispatch, camera, undoId: opts.undoId ?? null });
+  const controls = createControls({ world: () => world, dispatch, camera, undoId: opts.undoId ?? world.undoId ?? null });
   const dom: DomInput = attachInput(canvas, gestures, {
     intent: dispatch,
     pan(from, to) {
