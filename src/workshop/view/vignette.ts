@@ -265,10 +265,6 @@ export function measured(scene: SceneDesc, fit: Fit, k: { console?: { w: number;
 // ───────────────────────── loading the vignette ─────────────────────────
 
 export interface VignetteOptions {
-  /** Which Patch design (`patch-toy` | `patch-felt`); default patch-felt, else whichever is registered. */
-  patch?: string | null;
-  /** Which Fetch design; default `fetch-porter`, else the first `fetch-…`. */
-  fetch?: string | null;
   seed?: number;
 }
 
@@ -295,13 +291,6 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
   const scene = SIM_VIGNETTE;
   const { entries } = await listPieces();
   const find = (name: string): Entry | undefined => entries.find((e) => e.name === name);
-  const firstOf = (names: readonly string[]): Entry | undefined => {
-    for (const n of names) {
-      const hit = n.endsWith('*') ? entries.find((e) => e.name.startsWith(n.slice(0, -1))) : find(n);
-      if (hit) return hit;
-    }
-    return undefined;
-  };
   const seed = o.seed ?? 1;
   const slots: Slot[] = [];
   const slot = (name: string, e: Entry | undefined | null, standIn = 'stand-in'): void => {
@@ -315,7 +304,7 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     tape: find('lane-tape'),
     crate: find('crate'),
     button: find('button'),
-    fetch: o.fetch ? find(o.fetch) : firstOf(['fetch-porter', 'fetch', 'fetch-*']),
+    fetch: find('fetch-porter'),
     board: find('switchboard'),
     stool: find('stool'),
     plug: find('cord-plug'),
@@ -324,7 +313,7 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     phone: find('phone'),
     sign: find('sign'),
     toolwall: find('toolwall'),
-    patch: o.patch ? find(o.patch) : firstOf(['patch-felt', 'patch-toy', 'patch', 'patch-*']),
+    patch: find('patch-felt'),
   };
   const tools = entries.filter((e) => e.name.startsWith('tool-'));
   for (const [k, e] of Object.entries(E)) slot(k, e);
