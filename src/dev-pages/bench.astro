@@ -127,7 +127,8 @@
             dispose() {},
           }),
         ],
-        stage: { preserveDrawingBuffer: q.get('preserve') === '1', camera: plan ? { fov: 1.2, pitch: 89.6, margin: 0.03 } : { ...FRAMING.lens } },
+        // measurement switches (scripts/perf.ts, H1): ?timer=1 GPU ms per pass, ?gpusync=1 wait for the GPU each frame
+        stage: { preserveDrawingBuffer: q.get('preserve') === '1', gpuTimer: q.get('timer') === '1', syncGpu: q.get('gpusync') === '1', camera: plan ? { fov: 1.2, pitch: 89.6, margin: 0.03 } : { ...FRAMING.lens } },
         ...(q.get('physics') === 'stub' ? { physics: async () => createStubPhysics() } : {}),
         frameCamera(stage, scene) {
           if (plan) {

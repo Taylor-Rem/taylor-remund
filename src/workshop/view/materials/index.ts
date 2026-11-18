@@ -18,6 +18,7 @@ import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
 import { createNoiseTexture, NOISE_PERIOD } from './noise.ts';
+import { LAMP_GLOW } from './lamp-glow.ts';
 import {
   DEBUG_PARS,
   FRAGMENT_CLOSE,
@@ -60,8 +61,9 @@ export type ClassUniforms = Record<string, { value: number | Color }>;
  * 'large': the cheap path for big flat surfaces that fill the screen (the
  * bench top): fewer layers, no scratch pass. Only `wood` has one today; other
  * classes return their normal material.
+ * 'lamp': the lamp's own lit parts, tinted with the lamp's colour (lamp-glow.ts). Only `bulb`.
  */
-export type MaterialVariant = 'large';
+export type MaterialVariant = 'large' | 'lamp';
 
 export interface WorkshopMaterials extends Materials {
   readonly tier: Tier;
@@ -114,6 +116,8 @@ interface Variant {
   /** How a label's alpha is used: cut the shape (tape ends, slips) or blend it on (sprayed stencil). */
   alpha?: 'cut' | 'spray';
   large?: boolean;
+  /** The lamp's own lit parts: the bulb class reads LAMP_GLOW (materials/lamp-glow.ts). */
+  lampGlow?: boolean;
 }
 
 /** Classes with a cheaper 'large' path (a LARGE define in their GLSL). */
@@ -192,6 +196,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   if (variant.map && variant.normalMap) defines.LABEL_LOCAL_FRAME = '';
   if (variant.alpha === 'spray') defines.LABEL_SPRAY = '';
   if (variant.large) defines.LARGE = '';
+  if (variant.lampGlow) defines.LAMP_GLOW = '';
   if (debug) {
     defines.DEBUG_VIEW = '';
     defines[`DEBUG_${debug.toUpperCase()}`] = '';
@@ -200,12 +205,12 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
 
   const key = [
     'workshop', cls, tier,
-    variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '',
+    variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '', variant.lampGlow ? 'lamp' : '',
     debug ?? '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -216,7 +221,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -297,12 +302,14 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
 
   const of = (cls: MaterialClass, variant?: MaterialVariant): Pbr => {
     const large = variant === 'large' && HAS_LARGE.has(cls);
-    const k = large ? `${cls}:large` : cls;
+    const lampGlow = variant === 'lamp' && cls === 'bulb';
+    const k = large ? `${cls}:large` : lampGlow ? `${cls}:lamp` : cls;
     let m = shared.get(k);
     if (!m) {
       const def = CLASSES[cls];
       if (!def) throw new Error(`materials: unknown class ${String(cls)}`);
-      m = build(cls, def, sh, uniformsOf(cls), { large });
+      m = build(cls, def, sh, uniformsOf(cls), { large, lampGlow });
+      if (lampGlow) m.name = `workshop/${cls}/lamp`;
       shared.set(k, m);
     }
     return m;
