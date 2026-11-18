@@ -115,7 +115,59 @@ describe('seam 2: one grab', () => {
   });
 });
 
-describe('seam 3: reduced motion at run time; the saved Button; the undo id', () => {
+describe('seam 4: the ladder knows every station', () => {
+  const ladder = bench.button.ladder!;
+
+  test('the platen, the storefront, the lamp, the phone line and the switchboard (the cord) are on it, each a live interactable', () => {
+    const { world } = benchStub();
+    const ids = ladder.stations.map((s) => s.id);
+    for (const id of ['platen', 'storefront', 'lamp', 'line', 'cord']) expect(ids).toContain(id);
+    for (const id of ids) expect(world.interactable(id), id).toBeDefined();
+  });
+
+  test('each misfire is one transient beat of its verb: a misfire event, a beat its view shows, nothing durable', () => {
+    const { world } = benchStub();
+    run(world, 2);
+    const before = world.durable();
+    for (const id of ['platen', 'storefront', 'lamp', 'line', 'cord']) {
+      world.interactable(id)!.misfire(1);
+      const ev = run(world, 1);
+      expect(ev).toContainEqual({ type: 'misfire', id, level: 1 });
+      expect(ev.some((e) => e.type === 'effect'), id).toBe(false);
+      const shown = id === 'cord' ? world.cord('cord')!.misfire : world.machine(id)!.misfire;
+      expect(shown, id).toMatchObject({ level: 1 });
+      expect(shown!.since).toBeLessThan(0.1);
+    }
+    expect(world.durable()).toEqual(before);
+  });
+
+  test('a rung can misfire a Patchlamp station: rung 2 picks the nearest unused one, and it plays once', () => {
+    const { world } = benchStub();
+    run(world, 10);
+    const at = bench.button.at;
+    const nearest = ladder.stations
+      .filter((s) => s.id !== ladder.lamp && !bench.button.flinch.includes(s.id))
+      .map((s) => ({ id: s.id, d: Math.hypot(s.at[0] - at[0], s.at[2] - at[2]) }))
+      .sort((a, b) => a.d - b.d)[0]!.id;
+    expect(['line', 'platen', 'storefront', 'cord', 'undo-lever', 'striker', 'dock', 'chute']).toContain(nearest);
+    for (const _ of [1, 2]) {
+      world.dispatch({ type: 'press', id: 'button' });
+      run(world, 1);
+      for (let i = 0; i < 2000 && world.bracketed; i++) run(world, 1);
+    }
+    expect(world.button().rung).toBe(2);
+    expect(world.button().targets).toEqual([nearest]);
+  });
+
+  test('a text sent counts as using the phone line; nothing the crew does counts', () => {
+    const { world } = benchStub();
+    world.dispatch({ type: 'text', text: 'help' });
+    run(world, 2);
+    expect(world.button().used).toEqual(['line']);
+  });
+});
+
+describe('seam 3:reduced motion at run time; the saved Button; the undo id', () => {
   const press = (w: World): void => {
     w.dispatch({ type: 'press', id: 'button' });
     run(w, 1);

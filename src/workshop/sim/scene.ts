@@ -150,6 +150,8 @@ export interface LadderSpec {
   /** The station that is the UNDO lever (an undo `by: 'lever'` uses it, the `U` key included), and the one that is the cord (unplugging uses it). */
   readonly lever?: Id;
   readonly cord?: Id;
+  /** S6: the station that is the phone line (sending a text uses it). */
+  readonly line?: Id;
   /** The crate stack's ground point (x, z) and radius: rung 4 brings down every crate standing inside it. */
   readonly stackAt: readonly [number, number];
   readonly stackRadius: number;

@@ -283,8 +283,9 @@ export type SimEvent =
   | { readonly type: 'misfire'; readonly id: Id; readonly level: 1 | 2 }
   | { readonly type: 'tell'; readonly id: Id }
   | { readonly type: 'card'; readonly by: Id; readonly content: string } // a printed card or slip
-  | { readonly type: 'cord.unplugged'; readonly cord: Id; readonly jack: Id }
-  | { readonly type: 'cord.plugged'; readonly cord: Id; readonly jack: Id }
+  /** The plug left its jack, or was pushed into one. (S6) `by: 'crew'` when Patch moved it in attract mode (not the visitor's use). */
+  | { readonly type: 'cord.unplugged'; readonly cord: Id; readonly jack: Id; readonly by?: 'crew' | 'system' }
+  | { readonly type: 'cord.plugged'; readonly cord: Id; readonly jack: Id; readonly by?: 'crew' | 'system' }
   | { readonly type: 'crew.state'; readonly id: Id; readonly state: string; readonly from: string }
   | { readonly type: 'effect'; readonly effect: Effect }
   /**
@@ -370,7 +371,7 @@ export type SimEvent =
    * A text went down the line (`n` numbers the visit's texts from 1) into `jack` (a scene jack id;
    * `line` its name: storefront, platen, belt or lamp). `text` is the visitor's own words, as typed.
    */
-  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string; readonly by?: 'crew'; readonly content?: string }
   /** Patch has picked text `n` up and is on it: the job's stages are `PatchView.state`. */
   | { readonly type: 'line.working'; readonly n: number }
   /** Patch texts back (reply ids, sim/instruct `Reply`): the change it made and checked, or help, who, thanks, "undo that". */
@@ -751,6 +752,8 @@ export interface CordView {
   /** Where the lifted plug is heading (world space), or null when it is in its jack. */
   readonly plugAt: Vec3 | null;
   readonly jacks: readonly Id[];
+  /** S6: the last Button misfire, as one beat of its verb: the plug jumps in its jack and reseats (null before the first). */
+  readonly misfire: { readonly level: 1 | 2; readonly since: number } | null;
 }
 
 // ───────────────────────── the crew, as the view sees it ─────────────────────────

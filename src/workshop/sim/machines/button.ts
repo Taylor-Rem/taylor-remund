@@ -136,7 +136,7 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
   const coverId: Id = ladder?.cover ?? `${spec.id}-cover`;
   /** Where each station is; without a ladder, the flinch's (all at the Button: equally near). */
   const stations: readonly { readonly id: Id; readonly at: Vec3 }[] = ladder?.stations ?? spec.flinch.map((id) => ({ id, at: spec.at }));
-  const used = createUsed(ctx, stations.map((s) => s.id), { lever: ladder?.lever ?? null, cord: ladder?.cord ?? null, saved: saved?.used });
+  const used = createUsed(ctx, stations.map((s) => s.id), { lever: ladder?.lever ?? null, cord: ladder?.cord ?? null, line: ladder?.line ?? null, saved: saved?.used });
 
   let presses = saved?.presses ?? 0;
   let rung = saved?.rung ?? 0;

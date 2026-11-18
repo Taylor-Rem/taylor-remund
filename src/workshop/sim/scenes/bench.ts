@@ -393,6 +393,21 @@ const PATCHLAMP_UNITS = [
   lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach, follow: 0.6 }),
 ];
 
+// ───────────── S6: the simulation joined up (every number read from AT or from the blocks above) ─────────────
+
+/**
+ * The Button's ladder knows every station (§ B4 rungs 2 to 4): the Patchlamp station's, besides the line's
+ * and the lever's above. The cord (the switchboard's handle) is already listed by S4; the lamp too.
+ */
+const S6_LADDER = {
+  stations: [
+    { id: 'line', at: AT.phone.c },
+    { id: 'platen', at: PATCHLAMP.seat },
+    { id: 'storefront', at: AT.storefront.c },
+  ],
+  line: 'line',
+};
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -437,7 +452,7 @@ export const bench: SceneDesc = {
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
-    ladder: S4_LADDER,
+    ladder: { ...S4_LADDER, stations: [...S4_LADDER.stations, ...S6_LADDER.stations], line: S6_LADDER.line },
   },
   cord: {
     id: 'cord',
