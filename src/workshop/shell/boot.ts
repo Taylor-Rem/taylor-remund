@@ -172,7 +172,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   measure('stage', t0);
   progress('stage', 1, 1);
   const tl = now();
-  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), ...opts.labels });
+  // start-up labels are painted in workers while the views are built (T1); awaited below
+  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), workers: true, ...opts.labels });
   const materials = createMaterials({ tier: opts.tier, labels });
   measure('labels+materials', tl);
   progress('labels', 1, 1);
@@ -203,6 +204,9 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   }
 
   // 4. the world
+  const tlw = now();
+  await labels.ready();
+  measure('labels wait', tlw);
   const tp = now();
   const physics = await physicsReady;
   measure('physics wait', tp);
@@ -461,6 +465,71 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       stage.dispose();
     },
   };
+  // ─── AU1 sound (src/workshop/audio): this block, and nothing else in this file ──────────────────
+  // The audio context is made on the visitor's first click, tap or key and never before, and the
+  // sound's code is loaded then too (§ E6 step 4). M mutes, remembered in the browser (§ B9). Every
+  // frame reaches it through the caller's `onFrame`, wrapped here; the events of the frames between
+  // the first gesture and the code's arrival are kept, so the first pick-up is heard. `dispose`
+  // closes it. The sound reads the world and never writes it.
+  {
+    type SoundModule = typeof import('../audio/index.ts');
+    let sound: import('../audio/index.ts').Sound | null = null;
+    let mod: Promise<SoundModule> | null = null;
+    let early: Frame['events'][number][] | null = null;
+    let gone = false;
+    const load = (): Promise<SoundModule> => (mod ??= import('../audio/index.ts'));
+    const editable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const first = (): void => {
+      removeEventListener('pointerdown', first, true);
+      removeEventListener('keydown', first, true);
+      const Ctx = globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx || gone) return;
+      let context: AudioContext;
+      try {
+        context = new Ctx({ latencyHint: 'interactive' });
+      } catch {
+        return; // no sound on this browser; the workshop carries on silent
+      }
+      early = [];
+      load()
+        .then((m) => {
+          if (gone) return void context.close();
+          sound = m.createSound(context);
+          if (early && early.length > 0) sound.frame({ world, events: early });
+          early = null;
+        })
+        .catch(() => {
+          early = null;
+        });
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key !== 'm' && e.key !== 'M') || editable(e.target)) return;
+      void load().then((m) => m.toggleMuted());
+    };
+    addEventListener('pointerdown', first, true);
+    addEventListener('keydown', first, true);
+    addEventListener('keydown', onKey);
+    const callerFrame = opts.onFrame;
+    opts = {
+      ...opts,
+      onFrame(frame, ws) {
+        if (sound) sound.frame(frame);
+        else if (early && early.length < 2000) early.push(...frame.events);
+        callerFrame?.(frame, ws);
+      },
+    };
+    const disposeWorkshop = workshop.dispose;
+    workshop.dispose = () => {
+      gone = true;
+      removeEventListener('pointerdown', first, true);
+      removeEventListener('keydown', first, true);
+      removeEventListener('keydown', onKey);
+      sound?.dispose();
+      disposeWorkshop();
+    };
+  }
+  // ─── end AU1 sound ─────────────────────────────────────────────────────────────────────────────
+
   // The first frame is drawn only now that `workshop` exists: `onFrame` hands it to the page.
   if (opts.manual) {
     // the first frame (the loop draws its own once started)

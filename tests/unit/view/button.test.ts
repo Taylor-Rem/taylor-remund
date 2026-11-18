@@ -41,6 +41,8 @@ function stubLabels(): Labels {
     normalMap: () => null,
     roughnessMap: () => null,
     transparent: () => false,
+    region: (name, size) => ({ key: mk('region', name, size.w, size.h), px: { w: 1, h: 1 }, size, draw: () => {}, put: () => {} }),
+    ready: () => Promise.resolve(),
   };
 }
 

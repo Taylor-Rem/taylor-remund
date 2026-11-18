@@ -162,7 +162,7 @@ describe('Fetch view: the performer (W4 § A)', () => {
     expect(range(after.map((s) => s.out.pose.wheel!))).toBeGreaterThan(0.5);
   });
 
-  test('held: the wheel spins in the air, the spring hangs, the eye is wide', () => {
+  test('held: the wheel spins in the air and runs down, the spring hangs, the eye is wide', () => {
     const { world } = stubWorld();
     const intents = (step: number, w: typeof world): Intent[] => {
       if (step === 10) return [{ type: 'grab', id: 'fetch', grip: w.motion('fetch')!.pose.p }];
@@ -172,7 +172,10 @@ describe('Fetch view: the performer (W4 § A)', () => {
     const run = drive(world, new FetchPerformer(7), 80, { intents });
     const held = run.filter((s) => s.state === 'held' && s.stateTime > 0.6);
     expect(held.length).toBeGreaterThan(10);
-    for (let i = 1; i < held.length; i++) expect(Math.abs(held[i]!.out.pose.wheel! - held[i - 1]!.out.pose.wheel!)).toBeGreaterThan(0.3);
+    const turn = (i: number): number => Math.abs(held[i]!.out.pose.wheel! - held[i - 1]!.out.pose.wheel!);
+    for (let i = 1; i < held.length; i++) expect(turn(i)).toBeGreaterThan(0.15);
+    // slowing on its bearing, never speeding up
+    for (let i = 2; i < held.length; i++) expect(turn(i)).toBeLessThanOrEqual(turn(i - 1) + 1e-9);
     expect(held[0]!.out.pose.squash).toBeLessThan(-0.4);
     expect(held[0]!.out.pose.lids![0]).toBeLessThan(0.05);
   });

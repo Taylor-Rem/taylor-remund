@@ -1,15 +1,15 @@
-/** The dock (station `line`), at rest and static until its view lands: its ramp fitted to the belt's end (DOCK_REACH). */
-import { dock } from '../../kit/pieces/dock/index.ts';
+/**
+ * The dock (station `line`), alive: its ramp fitted to the belt's end (DOCK_REACH), its body merged into the
+ * set; the shutter, the ramp's rollers, the curtain, the bell and the lamp driven by `view/stations/dock.ts`.
+ */
+import { createDockView } from '../../stations/dock.ts';
 import { DOCK_REACH, LAYOUT, origin } from '../../bench.ts';
-import { ORDER, at, staticStation, type BenchStation } from '../station.ts';
+import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'dock',
   order: ORDER.pool,
   make(k) {
-    return staticStation(k, () => {
-      const [x, z] = origin(LAYOUT.stations.dock);
-      return [{ piece: dock({ seed: k.seed, reach: DOCK_REACH }), at: at(x, 0, z) }];
-    });
+    return createDockView({ at: origin(LAYOUT.stations.dock), reach: DOCK_REACH, seed: k.seed, pool: k.pool });
   },
 };
