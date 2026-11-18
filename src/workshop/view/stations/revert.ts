@@ -27,11 +27,11 @@
  * reached on short critically damped springs (one place: `R`).
  *
  * The card's words are content (any `card` event by Revert's body; text
- * from `src/content/`): one Revert is realised with its first card, and a
- * different card is the same paper mesh given that card's label, its node
- * scaled to the label's size (only while the card is stowed in the slot).
+ * from `src/content/`): Revert's card is a redrawable region of the label
+ * atlas; while the card is stowed in its slot the next card's label is
+ * copied into it and the card node is scaled to that label's size.
  */
-import { Group, Matrix4, Quaternion, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { Group, Matrix4, Quaternion, Vector3, type Object3D, type Texture } from 'three';
 import type { Id, Pose, RevertView, SimEvent, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { contentById } from '../labels/content.ts';
@@ -172,8 +172,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     hatchObj.position.set(opts.hatch[0], 0, opts.hatch[1]);
     root.add(hatchObj);
 
-    // Revert, with its first card (the longest of the rung lines: the others are scaled to it)
-    const card0 = revertCard(ctx.labels, 'rung1');
+    // Revert, its card a region of the label atlas the size of its first card (the longest rung line):
+    // each card it holds up is that card's label, copied into the region; the node is scaled to the
+    // card's own size, so a card of another size shows at its own proportions
+    const first = revertCard(ctx.labels, 'rung1');
+    const region = ctx.labels.region('revert-card', { w: first.w, h: first.h });
+    const card0 = { key: region.key, w: first.w, h: first.h };
     const body = new Group();
     body.name = 'revert';
     body.matrixAutoUpdate = false;
@@ -182,12 +186,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     obj.scale.setScalar(S);
     body.add(obj);
     const cardNode = obj.getObjectByName('card');
-    let paperMesh: Mesh | null = null;
-    const paper0 = ctx.materials.textured('paper', card0.key);
-    obj.traverse((o) => {
-      const mesh = o as Mesh;
-      if ((mesh as { isMesh?: boolean }).isMesh && mesh.material === paper0) paperMesh = mesh;
-    });
+    const regionPx = new Uint8Array(region.px.w * region.px.h * 4);
 
     // ── state ──
     let placed = false;
@@ -257,10 +256,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     /** Switch the card's words (only ever while it is stowed in the slot). */
     const useCard = (content: string): void => {
       cardContent = content;
-      if (!paperMesh) return;
       const key = ctx.labels.card(contentById(content).text, { capHeight: CARD_CAP });
       const sz = ctx.labels.size(key);
-      (paperMesh as Mesh).material = ctx.materials.textured('paper', key) as Material;
+      copyLabel(ctx.labels.texture(key), region.px.w, region.px.h, regionPx);
+      region.put(regionPx);
       cardSize.w = sz.w;
       cardSize.h = sz.h;
       cardScale.x = sz.w / card0.w;
@@ -696,6 +695,36 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
 
     return view;
   };
+}
+
+/**
+ * A label's pixels (its region of an atlas page, or a texture of its own), resampled bilinearly to
+ * `w` × `h` texels, rows top-down, into `out` (RGBA): what `LabelRegion.put` takes.
+ */
+function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array): void {
+  const img = tex.image as { data?: ArrayLike<number>; width: number; height: number } | undefined;
+  const data = img?.data;
+  if (!img || !data) return;
+  const W = img.width, H = img.height;
+  const u0 = tex.offset.x, v0 = tex.offset.y, du = tex.repeat.x, dv = tex.repeat.y;
+  for (let j = 0; j < h; j++) {
+    // rows top-down out; the page's rows run bottom-up (v up)
+    const v = 1 - (j + 0.5) / h;
+    const fy = Math.min(H - 1, Math.max(0, (v0 + v * dv) * H - 0.5));
+    const y0 = Math.floor(fy), y1 = Math.min(H - 1, y0 + 1), ty = fy - y0;
+    for (let i = 0; i < w; i++) {
+      const u = (i + 0.5) / w;
+      const fx = Math.min(W - 1, Math.max(0, (u0 + u * du) * W - 0.5));
+      const x0 = Math.floor(fx), x1 = Math.min(W - 1, x0 + 1), tx = fx - x0;
+      const a = (y0 * W + x0) * 4, b = (y0 * W + x1) * 4, c = (y1 * W + x0) * 4, d = (y1 * W + x1) * 4;
+      const o = (j * w + i) * 4;
+      for (let k = 0; k < 4; k++) {
+        const top = data[a + k]! + (data[b + k]! - data[a + k]!) * tx;
+        const bot = data[c + k]! + (data[d + k]! - data[c + k]!) * tx;
+        out[o + k] = top + (bot - top) * ty;
+      }
+    }
+  }
 }
 
 function jointsOf(j: ArmJoints): number[] {
