@@ -71,6 +71,39 @@ describe('the return chute', () => {
     expect(p.root.children ?? []).toHaveLength(0);
   });
 
+  it('run and aim: inside the cap at the longest run, and the sockets follow', () => {
+    for (const o of [{ run: CHUTE.runMax }, { run: CHUTE.runMax, aim: CHUTE.aimMax }, { aim: CHUTE.aimMax }]) {
+      const q = chute(o);
+      const b = K.budget(q, CAP);
+      if (process.env['CHUTE_TRIS']) console.warn(JSON.stringify(o), b.text.split('\n')[0]);
+      expect(q.triangles).toBeLessThanOrEqual(CAP);
+      expect(b.meshes).toBeLessThanOrEqual(2);
+      const walk = (n: PieceNode): void => {
+        for (const part of n.parts) checkGeometry(part.geometry);
+        for (const c of n.children ?? []) walk(c);
+      };
+      walk(q.root);
+    }
+    const near = at(chute().sockets!['mouth']!), far = at(chute({ run: 3 }).sockets!['mouth']!);
+    expect(near.z - far.z).toBeCloseTo(3 - CHUTE.run, 1);
+    // aim swings the mouth and where a part lands toward -Z
+    const m40 = chute({ aim: 40 }).sockets!;
+    const out40 = new Vector3(0, 0, 1).transformDirection(m40['mouth']!);
+    expect(Math.atan2(-out40.z, out40.x) * (180 / Math.PI)).toBeCloseTo(40, 0);
+    const land0 = at(p.sockets!['land']!), land40 = at(m40['land']!);
+    expect(land40.z).toBeLessThan(land0.z - 0.3);
+    // out of range is clamped
+    expect(chute({ run: 9 }).triangles).toBe(chute({ run: CHUTE.runMax }).triangles);
+  });
+
+  it('the throat faces the camera at aim 0, and turns edge-on to it by about 40', () => {
+    const toCamera = new Vector3(0.29, 0.52, 0.8).normalize();
+    const facing = (aim: number): number => new Vector3(0, 0, 1).transformDirection(chute({ aim }).sockets!['mouth']!).dot(toCamera);
+    if (process.env['CHUTE_TRIS']) console.warn([0, 10, 20, 30, 40].map((a) => `${a}: ${facing(a).toFixed(2)}`).join('  '));
+    expect(facing(0)).toBeGreaterThan(0.45);
+    expect(facing(40)).toBeLessThan(0.05);
+  });
+
   it('is in the catalogue', () => {
     expect(catalogue.map((e) => e.name)).toEqual(['chute']);
   });

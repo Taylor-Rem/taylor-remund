@@ -1,0 +1,34 @@
+{
+  "panel": {
+    "name": { "text": "Phone: texting Patch", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 3 (text a change: tap the phone)" },
+    "who": { "text": "Patch", "kind": "ui", "source": "REWRITE.md § B5 (the crew: Patch)" },
+    "close": { "text": "Put down", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 3 (the panel is the phone, picked up)" },
+    "closeName": { "text": "Put the phone down", "kind": "ui", "provisional": true, "source": "REWRITE.md § E9 (every control has a name)" }
+  },
+  "lines": {
+    "storefront": { "text": "Storefront line", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the STOREFRONT jack)" },
+    "platen": { "text": "Platen line", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the PLATEN jack)" },
+    "belt": { "text": "Belt line", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the BELT jack)" },
+    "lamp": { "text": "Lamp line", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the LAMP jack)" },
+    "none": { "text": "Not plugged in", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the phone talks to whatever the cord is plugged into)" }
+  },
+  "conversation": {
+    "name": { "text": "Texts with Patch", "kind": "ui", "provisional": true, "source": "REWRITE.md § B3 (the phone's screen keeps that conversation)" },
+    "you": { "text": "You:", "kind": "ui", "provisional": true, "source": "REWRITE.md § E9 (screen-reader names for each message)" },
+    "patch": { "text": "Patch:", "kind": "ui", "provisional": true, "source": "REWRITE.md § E9 (screen-reader names for each message)" },
+    "working": { "text": "Patch is on it.", "kind": "voice", "provisional": true, "source": "REWRITE.md § D 3 (Patch opens the folder drawer, makes the change, checks it, replies)" }
+  },
+  "ready": {
+    "name": { "text": "Ready-made texts", "kind": "ui", "provisional": true, "source": "REWRITE.md § B10 (ready-made texts first)" }
+  },
+  "compose": {
+    "label": { "text": "Your text to Patch", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 3 (type one)" },
+    "placeholder": { "text": "Text Patch", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 3 (type one)" },
+    "unplugged": { "text": "Plug the cord into a jack", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the phone talks to whatever the cord is plugged into)" },
+    "send": { "text": "Send", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 3" },
+    "left": { "text": "{count} left", "kind": "ui", "provisional": true, "source": "the text field takes 240 characters (U brief § 3)" }
+  },
+  "announce": {
+    "line": { "text": "Now on the {line}.", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (move the cord and the phone talks to something else)" }
+  }
+}

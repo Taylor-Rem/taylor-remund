@@ -4,11 +4,11 @@
  * they meet through this context: parts, the commit funnel, the event bus
  * (REWRITE.md § E4 invariant 2).
  */
-import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Location, Part, Pose, Restore, SimEvent, Value, Vec3 } from './types.ts';
+import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Location, Machine, MachineView, Part, Pose, Restore, SimEvent, Value, Vec3, Writer } from './types.ts';
 import type { Clock } from './clock.ts';
 import type { Rng } from './rng.ts';
 import type { Change, HistoryHooks, UndoOutcome, UndoRequest } from './history.ts';
-import type { SceneDesc } from './scene.ts';
+import type { MouthSpec, SceneDesc } from './scene.ts';
 
 export type { BodyMode, Holding } from './types.ts';
 
@@ -37,11 +37,19 @@ export interface SimContext {
   commit(changes: readonly Change[], cause: Cause): CommitResult;
 
   part(id: Id): Part | undefined;
+  /** Every loose part's id, in scene order. */
+  parts(): readonly Id[];
   setting(target: Id, field: string): Value | undefined;
+  /** Who last wrote a durable field (§ E5 rule 6). */
+  writer(target: Id, field: string): Writer | undefined;
   /** Declare a setting with its starting value and the rule every value must satisfy. */
   defineSetting(target: Id, field: string, initial: Value, valid: (v: Value) => boolean): void;
   register(i: Interactable): void;
   interactable(id: Id): Interactable | undefined;
+  /** A machine of this world by unit id (for the switchboard's `instruct`; machines never call each other). */
+  machine(id: Id): Machine | undefined;
+  /** A mouth of the scene. */
+  mouth(id: Id): MouthSpec | undefined;
 
   readonly playMode: boolean;
   readonly bracketed: boolean;
@@ -65,10 +73,32 @@ export interface SimContext {
   settled(id: Id): boolean;
   /** Take a free part out of physics into crew control (kinematic). Refused for a part the visitor touched (rule 5), unless it is the crew member itself. */
   attach(id: Id, by: Id): boolean;
-  /** Drive an attached part to this pose by the end of the step (`teleport`: put it there now). */
+  /** Drive an attached (crew) or taken (machine) part to this pose by the end of the step (`teleport`: put it there now). */
   drive(id: Id, pose: Pose, teleport?: boolean): void;
   /** Hand an attached part back to physics with this launch; when it rests, the rest is charged to `cause`. */
   detach(id: Id, linvel: Vec3, angvel: Vec3, cause: Cause | null): void;
+
+  // loose parts, for machines (§ B1 law 2: a machine acts on whatever is in its mouth, the visitor's things included)
+  /**
+   * Take a free part into machine `by`'s custody (kinematic, mode `machine`): it stops being physics and
+   * moves only where `drive` puts it. The world gives it back through `Unit.lost` if the visitor picks
+   * it up, or an undo or a reset puts it somewhere else. Refused (false) for a part that is not free.
+   */
+  take(id: Id, by: Id): boolean;
+  /**
+   * Give a taken part back to physics with this launch; when it rests, the rest is charged to `cause`.
+   * Set down still (zero velocities), it counts as at rest at once: the next mouth is offered it in this step.
+   */
+  release(id: Id, linvel: Vec3, angvel: Vec3, cause: Cause | null): void;
+  /**
+   * Take a part out of the world (mode `gone`: no body, not drawn): shipped. `exit` is where it went
+   * out (the door): an undo that brings it back draws the hop from there.
+   */
+  stow(id: Id, exit: Pose): void;
+  /** Send a gone part back up the return chute: it pops out after the scene's chute delay, and its rest is charged to `cause`. */
+  toChute(id: Id, cause: Cause | null): void;
+  /** Bring a gone part into the world at `pose`, moving: its rest is charged to `cause` (restocking). */
+  launch(id: Id, pose: Pose, linvel: Vec3, angvel: Vec3, cause: Cause | null): void;
   /** Give a free part a change of velocity (the Button's shove). */
   shove(id: Id, dv: Vec3): void;
   /** Say which crew member speaks for a part (Fetch for `fetch`). */
@@ -90,9 +120,20 @@ export interface SimContext {
   endBracket(): void;
 }
 
+/** Why the world took a part out of a unit's hands (`Unit.lost`). */
+export type LostReason = 'grab' | 'undo' | 'reset' | 'away';
+
 /** A machine or crew member as the world runs it, in a fixed order every step. */
 export interface Unit {
   readonly id: Id;
+  /**
+   * The world took `part` out of this unit's custody (`take`/`attach`): the visitor picked it up
+   * (`grab`), an undo or a reset put it somewhere else, or Revert put it away. Forget it; do not release
+   * it (the world already has). Pending work for it under a transaction is cancelled separately (rule 10).
+   */
+  lost?(part: Id, why: LostReason): void;
+  /** Every event of this step, at its end (the one bus, § E4 invariant 2). Listen; never commit from here. */
+  heard?(events: readonly SimEvent[]): void;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */
   intent?(intent: Intent): boolean;
   /** Before physics. */
@@ -102,9 +143,25 @@ export interface Unit {
   /** The Button's bracket opened or closed (the crew freezes). */
   bracket?(on: boolean): void;
   /**
+   * "Reset the workshop" is about to put every durable field back to its start: drop every transient
+   * job and timer (work under the crew or the system too) and go idle. `restored` follows.
+   */
+  reset?(): void;
+  /**
    * An undo or a reset has just put these fields back (§ E5 rules 8-11), all in this step. A machine
    * whose mouth a part was restored `in`, or the dock for a part restored from `shipped`, takes it back
    * here; its pending work for an undone transaction was already dropped through its job's `abort`.
    */
   restored?(restores: readonly Restore[]): void;
 }
+
+/**
+ * A machine: a unit with a mouth (§ E4 `Machine`). It is its own registry entry: the world registers
+ * it as an interactable when the unit is made, and offers it whatever comes to rest in a mouth whose
+ * `machine` is its id. `view()` is what `WorldView.machine(id)` returns.
+ */
+export interface MachineUnit extends Unit, Machine {
+  view(): MachineView;
+}
+
+export const isMachine = (u: Unit): u is MachineUnit => typeof (u as Partial<MachineUnit>).accept === 'function' && typeof (u as Partial<MachineUnit>).view === 'function';

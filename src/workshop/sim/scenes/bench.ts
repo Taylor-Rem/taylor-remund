@@ -17,9 +17,15 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { SceneDesc, StaticSpec } from '../scene.ts';
-import { CRATE_EDGE } from '../parts.ts';
+import type { MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
+import { belt } from '../machines/belt.ts';
+import { striker } from '../machines/striker.ts';
+import { dock } from '../machines/dock.ts';
+import { chute } from '../machines/chute.ts';
+import { rampAt, rampDoor, rampLength } from '../ramp.ts';
+import type { RampSpec } from '../ramp.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -117,6 +123,74 @@ const [fx, fz] = lanePoint(AT.fetchStart);
 /** Unpainted wood: a fresh crate's colour. */
 export const BARE = 'bare';
 
+// ───────────── the line (S2): derived from AT, never a number of its own except where noted ─────────────
+
+/** The crew's size against P1's (ART-P2 § 2: drawn 1.5× since L1 round 2). Fetch's body and tuning scale by it. */
+export const CREW_SCALE = 1.5;
+const FETCH_HALF = defaultHalfExtents('robot', 'M').map((h) => h * CREW_SCALE) as unknown as Vec3;
+
+const beltTop = AT.belt.c[1] + AT.belt.half[1];
+const beltEnd = AT.belt.c[0] + AT.belt.half[0];
+
+/**
+ * The dock's roller ramp (sim/ramp.ts), owned here. Its shape constants are the dock piece's (DOCK in
+ * view/kit/pieces/dock/dims.ts: a 40° turn, the lead and lip, the sill, the first roller 0.12 past the
+ * belt's bed); it starts at the belt's far end and is fitted, the piece's way (`fitRamp`), to bring the
+ * door as near the dock's spot in `AT` as a bend no tighter than 0.75 allows. The door then stands at
+ * `LINE.door.origin`: that is where the dock piece goes (placed with no yaw, `turn` 40).
+ */
+const RAMP_SHAPE = { turn: 40, lead: 0.12, lipZ: 0.24, sillY: 0.1, gap: 0.12, width: 0.92 } as const;
+const RAMP: RampSpec = (() => {
+  const t = RAMP_SHAPE.turn * DEG;
+  const start: Vec3 = [beltEnd + RAMP_SHAPE.gap, beltTop, AT.belt.c[2]];
+  const d = RAMP_SHAPE.lead + RAMP_SHAPE.lipZ;
+  const radius = Math.max(0.75, Math.min(2.2, (start[2] - AT.dock.c[2] - d * Math.sin(t)) / (1 - Math.cos(t))));
+  const approach = Math.max(0, AT.dock.c[0] - start[0] - radius * Math.sin(t) - d * Math.cos(t));
+  return { start, approach, radius, turn: RAMP_SHAPE.turn, lead: RAMP_SHAPE.lead, lipZ: RAMP_SHAPE.lipZ, topY: beltTop, sillY: RAMP_SHAPE.sillY, width: RAMP_SHAPE.width };
+})();
+const DOOR = rampDoor(RAMP);
+
+/** Where the line's machines stand and what they reach, all read from `AT`. */
+export const LINE = {
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2] },
+  /** The striker's arm crosses the belt at its post's x. */
+  strikerX: AT.striker.c[0],
+  /** The roller ramp from the belt's far end to the dock's sill. */
+  ramp: RAMP,
+  /** The dock's door: its origin (where the dock piece stands), the middle of its sill, and the way in. */
+  door: DOOR,
+} as const;
+
+/** The ramp's colliders: a bridge over the gap from the belt's bed, then short yawed slabs along its centre line, each at its middle's height. */
+const RAMP_STATICS: readonly StaticSpec[] = (() => {
+  const n = 5;
+  const len = rampLength(RAMP);
+  const bridge: StaticSpec = { id: 'dock-ramp-0', shape: { type: 'box', half: [RAMP_SHAPE.gap / 2 + 0.04, beltTop / 2, RAMP.width / 2] }, pose: pose([beltEnd + RAMP_SHAPE.gap / 2, beltTop / 2, AT.belt.c[2]]), friction: 0.9 };
+  return [bridge, ...Array.from({ length: n }, (_, i) => {
+    const m = rampAt(RAMP, ((i + 0.5) * len) / n);
+    const top = m.p[1];
+    return { id: `dock-ramp-${i + 1}`, shape: { type: 'box' as const, half: [len / n / 2 + 0.04, top / 2, RAMP.width / 2] as Vec3 }, pose: { p: [m.p[0], top / 2, m.p[2]] as Vec3, q: qyaw(Math.atan2(-m.hz, m.hx)) }, friction: 0.9 };
+  })];
+})();
+
+const L = LINE.belt;
+/** The ramp's footprint (x, z bounds of its centre line, widened by half its width). */
+const rampBox = (() => {
+  const pts = Array.from({ length: 33 }, (_, i) => rampAt(RAMP, (rampLength(RAMP) * i) / 32).p);
+  const w = RAMP.width / 2;
+  return { minX: Math.min(...pts.map((p) => p[0])) - w * 0.2, maxX: Math.max(...pts.map((p) => p[0])) + w * 0.5, minZ: Math.min(...pts.map((p) => p[2])) - w, maxZ: Math.max(...pts.map((p) => p[2])) + w };
+})();
+/** The mouths (§ B1 law 2). A part rests in one when its centre is inside. */
+const MOUTHS: readonly MouthSpec[] = [
+  // the belt: its whole carrying surface, anything resting on it (centre above the surface)
+  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + 0.8, L.top, L.z] },
+  // the dock: its ramp from the belt's end to the sill (and the bench either side of it)
+  { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + rampBox.maxX) / 2, 1.3, (rampBox.minZ + rampBox.maxZ) / 2], half: [(rampBox.maxX - L.to) / 2, 1.3, (rampBox.maxZ - rampBox.minZ) / 2], drop: rampAt(RAMP, 0.2).p },
+];
+
+/** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
+const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -141,17 +215,18 @@ export const bench: SceneDesc = {
     ...AT.pallets.flatMap((p, i) => [box(`pallet-${'abcd'[i]}`, p), box(`pallet-${'abcd'[i]}-stack`, AT.stacks[i]!)]),
     box('mailbox', AT.mailbox),
     box('revert', AT.revert),
+    ...RAMP_STATICS,
   ],
   parts: [
     { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx, e.L / 2, sz], 0.04) },
     { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
     { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx - 0.03, e.L + e.M + e.S / 2, sz + 0.02], 0.13) },
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
-    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, 0.5, fz]), mass: 0.9 },
+    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
+    ...SPARES,
   ],
   fixtures: [
     { id: 'lamp', station: 'top', name: 'name.lamp', affordances: [] },
-    { id: 'belt', station: 'line', name: 'name.belt', affordances: [] },
   ],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
   button: {
@@ -183,4 +258,12 @@ export const bench: SceneDesc = {
     toss: { linvel: AT.fumble.linvel, angvel: AT.fumble.angvel },
     outward: [0, 1.6, 14],
   },
+  crewScale: CREW_SCALE,
+  mouths: MOUTHS,
+  units: [
+    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
+    striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack }),
+    chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+  ],
 };
