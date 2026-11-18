@@ -307,7 +307,23 @@ export type SimEvent =
   /** The return chute's flap kicks open: a part pops out (`part`), or a misfire (null). */
   | { readonly type: 'flap'; readonly id: Id; readonly part: Id | null }
   /** A plain crate shipped and a fresh one is set on the crate stack in its place (dropped on from above, as `system`). */
-  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id };
+  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id }
+  // ── S4: the Button's ladder, Revert, the UNDO lever ──
+  /**
+   * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
+   * concerns (the hiccup's one, the works' every used one, the crates the stack drops), `level` its
+   * strength, `duration` seconds. The view performs the ones the simulation does not (sparks, warning,
+   * shake), and may re-time anything from `ButtonView.script`.
+   */
+  | { readonly type: 'rung.beat'; readonly rung: number; readonly beat: RungBeatKind; readonly ids: readonly Id[]; readonly level: 1 | 2; readonly duration: number }
+  /** The Button's flip-up cover changed (`state`): fitted by Revert, lifted, or shut. `id` is the cover's handle. */
+  | { readonly type: 'cover'; readonly id: Id; readonly state: CoverState }
+  /**
+   * Revert (`id`, its body) puts `part` away (§ E5 rule 14): `from` is where the part was, `to` where
+   * it goes (onto the crate stack, or `shipped`: down the hatch, a spare). The world's `put-away`
+   * follows in the same step; the view draws the hop into the dustpan from `from`.
+   */
+  | { readonly type: 'revert.sweep'; readonly id: Id; readonly part: Id; readonly from: Pose; readonly to: Location };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
@@ -380,20 +396,149 @@ export interface ChuteView extends MachineViewBase {
   readonly waiting: number;
 }
 
+// ── S4: the Button's ladder, Revert, the UNDO lever (§ B4, § B5, § B2 X3) ──
+
+/**
+ * One beat of a rung, timed from the press (`at`, seconds). The simulation does the beats that move
+ * things (`flinch`, `dip`, `shove`, `hiccup`, `works`, `stack`); the view performs the rest from the
+ * script and the `rung.beat` event. `ids` (on the event) names who it concerns.
+ * - `flinch`: the lamp dips and the belt lurches back (rung 1's misfires, `ButtonSpec.flinch`).
+ * - `dip`: the lamp dips only (every rung has one; with reduced motion it is all there is, with the card).
+ * - `shove`: the top crate of the stack slides off.
+ * - `revert`: Revert is called (comes up through its hatch if it is down; cranks during the rewind).
+ * - `hiccup`: one station the visitor has not used misfires once (rungs 2 and 3: `targets`).
+ * - `works`: every station the visitor has used misfires together, harder (rung 4: `targets`).
+ * - `sparks`: sparks fly at those stations (view only).
+ * - `warning`: a turning warning lamp for `duration` seconds (view only).
+ * - `shake`: the camera shakes a little, `level` 1 or 2 (view only; never with reduced motion).
+ * - `stack`: the crate stack comes down.
+ * - `rewind`: the recording starts to play backwards, for `duration` seconds.
+ * - `card`: the rung ends; Revert's card (`ButtonView.card`).
+ * - `cover`: Revert fits the flip-up cover over the Button, over `duration` seconds.
+ */
+export type RungBeatKind = 'flinch' | 'dip' | 'shove' | 'revert' | 'hiccup' | 'works' | 'sparks' | 'warning' | 'shake' | 'stack' | 'rewind' | 'card' | 'cover';
+export interface RungBeat {
+  readonly at: number;
+  readonly kind: RungBeatKind;
+  readonly level?: 1 | 2;
+  readonly duration?: number;
+}
+/** A rung as data (`sim/machines/button.ts` `scriptFor`): the view performs it. */
+export interface RungScript {
+  readonly rung: 1 | 2 | 3 | 4;
+  /** Seconds it plays before the rewind, and how long the rewind lasts. The card comes at `play + rewind`. */
+  readonly play: number;
+  readonly rewind: number;
+  readonly beats: readonly RungBeat[];
+  /** Reduced motion: the card and the lamp dip only. */
+  readonly reduced: boolean;
+}
+/** The flip-up cover over the Button: not there yet, being fitted by Revert, shut, or lifted ready for a press. */
+export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
+
+/**
+ * Revert, the caretaker (§ B5). `below`: in its hatch, unseen, the doors shut. `rising`: the lift
+ * brings it up (it may already be cranking). `idle`: up, awake, flat-lidded. `trundle`: driving on its
+ * treads (`speed`). `crank`: turning its crank while a change runs backwards. `fit`: screwing the
+ * cover on the Button. `sweep`: putting a part away (`sweeping`). `park`: asleep in the window's light,
+ * one eye open. `stuck`: its hatch is covered by something; the doors rattle, it stays down. `held`:
+ * in the visitor's hand, limp. `loose`: put down (or on the belt, or shipped): it waits to come to
+ * rest, rights itself and carries on.
+ */
+export type RevertState = 'below' | 'rising' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
+
+/**
+ * Revert's state, published as a machine view (`world.machine(<its unit id>)`, kind `revert`) because
+ * the world's `crew()` knows only Fetch. Its body is a loose part (`body`, kind robot): draw Revert from
+ * these fields while `drawn` is true (x, z, heading on the bench; `lift` 0 is down in the hatch, 1 is
+ * standing on the bench: y = (lift - 1) × its height); while `drawn` is false (held, falling, riding
+ * the belt) draw it from `motion(body)`.
+ */
+export interface RevertView extends MachineViewBase {
+  readonly kind: 'revert';
+  readonly body: Id;
+  readonly state: RevertState;
+  /** Seconds since `state` was entered. */
+  readonly stateTime: number;
+  readonly x: number;
+  readonly z: number;
+  /** Radians about +Y; 0 faces +Z (the visitor). */
+  readonly heading: number;
+  /** 0 down in its hatch .. 1 standing on the bench. */
+  readonly lift: number;
+  /** The hatch's two leaf doors, 0 shut .. 1 open. */
+  readonly hatch: number;
+  /** The crank's angle, radians (it turns while a change runs backwards). */
+  readonly crank: number;
+  readonly cranking: boolean;
+  /** Tread speed, units per second (signed: backwards is negative); turning on the spot shows as `turning`. */
+  readonly speed: number;
+  readonly turning: number;
+  /** The face: flat-lidded (deadpan), open (working), glare (at the visitor), one (asleep, one eye open), rolled (limp). */
+  readonly eyes: 'flat' | 'open' | 'glare' | 'one' | 'rolled';
+  /** The card it holds up in its clip, and for how long it has held it. */
+  readonly card: { readonly content: string; readonly since: number } | null;
+  /** The part it is putting away, while it sweeps. */
+  readonly sweeping: Id | null;
+  readonly drawn: boolean;
+}
+
+/**
+ * The UNDO lever (§ B2 X3, § D 8). A pull is answered in the same step (the undo is already done);
+ * `travel` is the scripted travel (0 home .. 1 pulled; the view adds the spring's overshoot), `latch`
+ * the catch squeezed, `phase` where in the pull it is. `armed`: something on the stack to take back
+ * (the piece's lamp). `result`: what the last pull did.
+ */
+export interface UndoLeverView extends MachineViewBase {
+  readonly kind: 'undo-lever';
+  readonly travel: number;
+  readonly latch: number;
+  readonly phase: 'rest' | 'pull' | 'hold' | 'return';
+  /** Seconds since the last pull (or misfire) began; Infinity before the first. */
+  readonly since: number;
+  readonly armed: boolean;
+  readonly result: 'undone' | 'kept' | 'nothing' | null;
+}
+
 /** Every machine's view state; narrow on `kind`. A new machine adds its interface here. */
-export type MachineView = BeltView | StrikerView | DockView | ChuteView;
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView;
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
 
-/** The Big Red Button's own state (§ B4). Kept outside the history (§ E5 rule 13). */
+/**
+ * The Big Red Button's own state (§ B4). Kept outside the history (§ E5 rule 13). Everything a rung
+ * does is in `script` (its beats, as data, timed from the press); `phaseTime` during `playing` is the
+ * time into it, during `rewinding` the time into the rewind. Saving keeps `reached`, `presses`,
+ * `cover` (a cover once fitted stays), `used` and `deck`.
+ */
 export interface ButtonView {
   readonly id: Id;
-  /** Rung reached (0 before the first press). */
+  /** The rung playing now, or the one played last (0 before the first press). From the deck, 2 to 4. */
   readonly rung: number;
+  /** The highest rung of the ladder reached (0 to 4). At 4 the deck takes over. */
+  readonly reached: number;
   readonly presses: number;
   readonly phase: RungPhase;
   /** Seconds since `phase` began. */
   readonly phaseTime: number;
+  /** The rung playing (or last played): its beats in time order. Null before the first press. */
+  readonly script: RungScript | null;
+  /** The card that rung ends with (a content id, Revert's), or null. */
+  readonly card: string | null;
+  /** The stations the rung misfires (rung 2 and 3: the one; rung 4: every used one), nearest first. */
+  readonly targets: readonly Id[];
+  /** The flip-up cover over the Button (from rung 3 on). */
+  readonly cover: CoverState;
+  /** Seconds since `cover` last changed. */
+  readonly coverTime: number;
+  /** The cover's handle id (a `press` on it lifts or lowers it). */
+  readonly coverId: Id;
+  /** Stations the visitor has used (`sim/used.ts`), in the order first used. */
+  readonly used: readonly Id[];
+  /** The deck after the ladder: the cards still to draw (ids), top first, and the last one drawn. */
+  readonly deck: { readonly left: readonly Id[]; readonly last: Id | null };
+  /** Rungs are the card and the lamp dip only (§ B4, § B10). */
+  readonly reducedMotion: boolean;
 }
 
 /** The switchboard cord (§ B2 X1). */

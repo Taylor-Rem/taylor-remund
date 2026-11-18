@@ -26,6 +26,8 @@ import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
+import { undoLever } from '../machines/undo-lever.ts';
+import { revert } from '../crew/revert.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -177,6 +179,74 @@ const MOUTHS: readonly MouthSpec[] = [
 /** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
 const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
 
+// ───────────── S4: the Button's ladder, Revert, the UNDO lever (numbers from AT, plus Revert's own places) ─────────────
+
+/**
+ * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
+ * its hatch (`AT.revert`); `button` is behind the console, facing it, the cap within its arm's reach;
+ * `park` is right of centre, in front of the phone and the platen, where the window's light falls
+ * across the bench. The track threads behind the console (clear of the lever, the console and the
+ * phone by a few hundredths at Revert's 1.74 x 1.32 footprint).
+ */
+const REVERT_BEHIND_CONSOLE = AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05;
+const REVERT = {
+  home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
+  button: { x: AT.buttonCap[0], z: REVERT_BEHIND_CONSOLE, heading: 0 },
+  park: { x: 3.3, z: 0.45, heading: -0.35 },
+  path: [
+    [AT.revert.c[0], AT.revert.c[2]],
+    [-2.5, -0.8],
+    [AT.buttonCap[0], REVERT_BEHIND_CONSOLE],
+    [1.1, -0.85],
+    [3.3, 0.45],
+  ] as readonly (readonly [number, number])[],
+} as const;
+
+/** Revert's body: a loose part (kind robot), heavy; it starts down its hatch (its durable place is on the hatch). */
+const S4_PARTS = [
+  { id: 'revert', kind: 'robot' as const, size: 'L' as const, material: 'metal' as const, colour: 'steel', label: '', station: 'button' as const, name: 'name.revert', pose: pose(AT.revert.c), half: AT.revert.half, mass: 3 },
+];
+
+/** Rungs 2 to 4: every station a rung may misfire, at a point on it; "nearest" is from the Button's cap. */
+const S4_LADDER = {
+  stations: [
+    { id: 'undo-lever', at: AT.undo.c },
+    { id: 'striker', at: AT.striker.c },
+    { id: 'cord', at: AT.jacks.storefront },
+    { id: 'belt', at: AT.belt.c },
+    { id: 'dock', at: AT.dock.c },
+    { id: 'chute', at: AT.chute.p },
+    { id: 'lamp', at: AT.jacks.lamp },
+  ],
+  lamp: 'lamp',
+  lever: 'undo-lever',
+  cord: 'cord',
+  stackAt: AT.stack,
+  stackRadius: 0.6,
+  cover: 'button-cover',
+  coverName: 'name.button.cover',
+};
+
+const S4_UNITS = [
+  undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }),
+  revert({
+    id: 'revert-crew',
+    body: 'revert',
+    station: 'button',
+    name: 'name.revert',
+    home: REVERT.home,
+    button: REVERT.button,
+    park: REVERT.park,
+    path: REVERT.path,
+    stack: { at: AT.stack, radius: 0.6, max: 3 },
+    start: 'below',
+    crowded: 4,
+    aWhile: 90,
+    parkAfter: 120,
+    awayGap: 4,
+  }),
+];
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -198,7 +268,6 @@ export const bench: SceneDesc = {
     box('dock', AT.dock),
     ...AT.pallets.map((p, i) => box(`pallet-${'abcd'[i]}`, p)),
     box('mailbox', AT.mailbox),
-    box('revert', AT.revert),
     ...RAMP_STATICS,
   ],
   parts: [
@@ -208,6 +277,7 @@ export const bench: SceneDesc = {
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
+    ...S4_PARTS,
   ],
   fixtures: [
     { id: 'lamp', station: 'top', name: 'name.lamp', affordances: [] },
@@ -221,6 +291,7 @@ export const bench: SceneDesc = {
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
+    ladder: S4_LADDER,
   },
   cord: {
     id: 'cord',
@@ -249,5 +320,6 @@ export const bench: SceneDesc = {
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+    ...S4_UNITS,
   ],
 };

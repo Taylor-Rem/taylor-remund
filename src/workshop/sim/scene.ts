@@ -113,6 +113,26 @@ export interface ButtonSpec {
   readonly shove: Vec3;
   /** Who prints the card (Revert, when it arrives). */
   readonly cardBy: Id;
+  /** Rungs 2 to 4 (S4, `machines/button.ts`). Without it, the stations are `flinch` and the stack is `stack`. */
+  readonly ladder?: LadderSpec;
+}
+
+/** What the Button's ladder needs from the scene (§ B4): the stations it can misfire, where they are, the stack, the cover. */
+export interface LadderSpec {
+  /** Every station a rung may misfire, with a point on it (world): "nearest" is measured from the Button's cap. */
+  readonly stations: readonly { readonly id: Id; readonly at: Vec3 }[];
+  /** The interactable that is the lamp: every rung dips it. */
+  readonly lamp: Id;
+  /** The station that is the UNDO lever (an undo `by: 'lever'` uses it, the `U` key included), and the one that is the cord (unplugging uses it). */
+  readonly lever?: Id;
+  readonly cord?: Id;
+  /** The crate stack's ground point (x, z) and radius: rung 4 brings down every crate standing inside it. */
+  readonly stackAt: readonly [number, number];
+  readonly stackRadius: number;
+  /** The flip-up cover's handle id. */
+  readonly cover: Id;
+  /** Its content id (the controls list's name). */
+  readonly coverName: string;
 }
 
 export interface CordSpec {
