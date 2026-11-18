@@ -40,7 +40,7 @@
  * Every curve runs on `frame.time`. Bulbs everywhere dim with the lamp
  * during a dip (same circuit) when the materials expose the bulb dimmer.
  */
-import { Box3, Color, Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 import type { Id, LampView as SimLampView, SimEvent, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import type { Token } from '../palette.ts';
@@ -48,8 +48,6 @@ import { palette } from '../palette.ts';
 import type { Piece } from '../kit/types.ts';
 import { HOME, JOINTS, aimLamp, armFrames, type Joint, type LampPose } from '../kit/pieces/lamp/aim.ts';
 import { nodeTransforms } from '../kit/pieces/lamp/pose.ts';
-import { lampColourFrom, stageColours } from '../stage/colours.ts';
-import { RIG } from '../stage/light.ts';
 import { Spring, clamp, lerp, smoothstep } from '../anim/index.ts';
 
 /** Tune here. Times in seconds. */
@@ -66,10 +64,6 @@ export const LAMP_FEEL = {
   steps: [0.3, 0.6, 1, 1.3, 1.6] as readonly number[],
   /** The shade's liner and bulb glow (the piece's three lit levels) for each step. */
   glow: [1, 2, 3, 3, 3] as readonly (1 | 2 | 3)[],
-  /** How far a paint's light is pushed from white past the stage's own tint (1: the stage's colour as it is). */
-  tint: 3,
-  /** A new colour crosses over at this rate (1/s): about a third of a second. */
-  colourRate: 9,
   /** Switched on, the filament catches once: as it warms, it sags this deep between these times (s), then comes on. */
   catch: { from: 0.07, to: 0.19, depth: 0.6 },
 } as const;
@@ -164,19 +158,6 @@ interface Dimmable {
   set?(cls: 'bulb', param: string, value: number): void;
 }
 
-/** The light's colour for a setting: its own warm, or a paint (linear RGB). */
-function colourOf(c: Token | 'warm' | null, out: Color): Color {
-  if (!(c && c !== 'warm' && c in palette)) return out.fromArray(stageColours().key);
-  // the stage's lamp colour for a paint, pushed away from white (the tone mapping washes a tinted key out:
-  // "make it blue" must turn the bench blue, not a cool white), kept at the same luminance
-  const [r, g, b] = lampColourFrom(c);
-  const k = LAMP_FEEL.tint;
-  const sat = (v: number): number => Math.max(0.04, 1 + (v - 1) * k);
-  const R = sat(r), G = sat(g), B = sat(b);
-  const lum = 0.2126 * R + 0.7152 * G + 0.0722 * B;
-  return out.setRGB(R / lum, G / lum, B / lum);
-}
-
 export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) => LampView {
   return (ctx) => {
     const id = opts.id ?? 'lamp';
@@ -203,10 +184,6 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
     const dim = ctx.materials as unknown as Dimmable;
 
     // the light's colour, crossing over (only with the simulation's lamp: the stage's own colour otherwise)
-    const colNow = new Color();
-    const colWant = new Color();
-    let colourSet: string | null = null;
-    let colourInit = false;
     // on / off: when it was last switched on (the catch), and whether the shade shows lit
     let wasOn: boolean | null = null;
     let onAt = -Infinity;
@@ -290,27 +267,13 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
         const caught = reduced ? 1 : catchCurve(now - onAt);
         level = base * caught * env * wow;
 
-        // the rig takes 0..1; a step brighter than the approved light is carried by the key alone
-        const rigLevel = Math.min(1, level);
-        if (Math.abs(rigLevel - lastSent) > 1e-4 || (!lv && colour !== lastColour)) {
-          lights.setLamp(!lv && colour !== lastColour ? { level: rigLevel, colour } : { level: rigLevel });
+        // the rig takes 0..2 (above 1 only the key brightens) and owns the colour: the key, the fill
+        // following a little, the environment's lamp panel and the lamp's own glow, crossing over (stage/light.ts)
+        const rigLevel = level;
+        if (Math.abs(rigLevel - lastSent) > 1e-4 || colour !== lastColour) {
+          lights.setLamp(colour !== lastColour ? { level: rigLevel, colour } : { level: rigLevel });
           lastSent = rigLevel;
           lastColour = colour;
-        }
-        if (lv && lights.key) {
-          // the colour crosses over (the rig's own colour stays its warm: this view owns the key's colour here)
-          const want = colour ?? 'warm';
-          if (want !== colourSet) {
-            colourOf(want, colWant);
-            if (!colourInit) colNow.copy(colWant);
-            colourSet = want;
-            colourInit = true;
-          }
-          const k = reduced ? 1 : 1 - Math.exp(-LAMP_FEEL.colourRate * dt);
-          colNow.lerp(colWant, k);
-          lights.key.color.copy(colNow);
-          const eff = (lights as { effectiveLevel?: number }).effectiveLevel ?? rigLevel;
-          lights.key.intensity = RIG.key.intensity * eff * Math.max(1, level);
         }
         const bulb = LAMP_FEEL.bulbFloor + (1 - LAMP_FEEL.bulbFloor) * env;
         if (dim.set && Math.abs(bulb - lastBulb) > 1e-4) {
@@ -373,8 +336,6 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
   const lights = ctx.stage.lights;
   const pos = new Vector3(), q = new Quaternion(), scl = new Vector3();
   const bulbW = new Vector3(), aimW = new Vector3();
-  const shadowBox = new Box3(new Vector3(-10, -0.6, -5), new Vector3(10, 6, 5));
-  const fitAt = new Vector3(Infinity, 0, 0);
 
   // the body: built (cached) from the registry, realized skinned at its clamp
   void (async () => {
@@ -475,11 +436,7 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
       bulbW.copy(f.bulb).add(place);
       aimW.copy(f.bulb).addScaledVector(f.axis, ARM_FEEL.reach).add(place);
       lights.setBulb([bulbW.x, bulbW.y, bulbW.z], [aimW.x, aimW.y, aimW.z]);
-      // the shadow camera's near and far follow the bulb (it may swing a long way from where they were fitted)
-      if (bulbW.distanceToSquared(fitAt) > 0.25 && 'fitShadow' in lights) {
-        (lights as { fitShadow(b: Box3): void }).fitShadow(shadowBox);
-        fitAt.copy(bulbW);
-      }
+      // (the rig refits the shadow camera itself when the bulb has moved far enough: stage/light.ts setBulb)
       grip.matrix.copy(placeM).multiply(f.head);
       grip.matrixWorldNeedsUpdate = true;
 
