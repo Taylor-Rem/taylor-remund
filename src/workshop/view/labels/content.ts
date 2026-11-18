@@ -3,11 +3,13 @@
  * `world.sign`, `world.tape.doNotTouch`, ... and never type a visible string.
  */
 import worldJson from '../../../content/world.json';
+import lineJson from '../../../content/line.json';
 import { assertContent } from '../../../content/schema.ts';
 import type { Entry } from '../../../content/schema.ts';
 import type { PhoneMessage } from './layout.ts';
 
 const raw = assertContent(worldJson, 'src/content/world.json');
+const line = assertContent(lineJson, 'src/content/line.json');
 
 const isFrom = (v: unknown): v is PhoneMessage['from'] => v === 'owner' || v === 'patch';
 
@@ -64,6 +66,14 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.cord': raw.names.cord as Entry,
   'name.jack.storefront': raw.names.jack.storefront as Entry,
   'name.jack.lamp': raw.names.jack.lamp as Entry,
+  // the line (S2: src/content/line.json)
+  'name.belt.dial': line.names.dial as Entry,
+  'name.belt.lever': line.names.lever as Entry,
+  'name.striker': line.names.striker as Entry,
+  'name.dock': line.names.dock as Entry,
+  'name.chute': line.names.chute as Entry,
+  'mark.shipped': line.marks.shipped as Entry,
+  'mark.return': line.marks.return as Entry,
 };
 
 /** Every content id this module resolves. */
