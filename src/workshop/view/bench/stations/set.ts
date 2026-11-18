@@ -32,8 +32,9 @@ export const station: BenchStation = {
     return createSetView({
       entries: { bench, wall, sign, toolwall: E('toolwall'), lamp: E('lamp'), phone: E('phone'), stool: E('stool') },
       tools: k.entries.filter((e) => e.name.startsWith('tool-')),
-      // the set draws P1's lane tape round the runner's lane; the bench draws its own (lane.ts), so the set is handed the lane far off the bench
-      scene: { ...k.scene, runner: { ...k.scene.runner, lane: { a: [-60, -60], b: [-60, -60] } } },
+      // the bench tapes its own lanes (lane.ts)
+      scene: k.scene,
+      laneTape: false,
       seed: k.seed,
       pool: k.pool,
       lampBody: false,

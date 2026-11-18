@@ -141,6 +141,11 @@ export interface SetOptions {
   bulb?: { at: readonly [number, number, number]; aim: readonly [number, number, number] };
   /** Static parts other views handed over to be merged with the set (they must be built first). */
   pool?: StaticPool;
+  /**
+   * Fetch's lane tape round the runner's lane: its half-width and how far it runs past each end (default
+   * 0.52 and 0.55, P1's); false draws none (a page that tapes its own lanes).
+   */
+  laneTape?: { half: number; past: number } | false;
   /** Stand-in sizes for pieces that have not landed. */
   standIn: Record<'sign' | 'toolwall' | 'lamp' | 'phone' | 'stool', { w: number; h: number; d: number }>;
 }
@@ -172,14 +177,16 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     if (wall) items.push({ piece: wall, at: new Matrix4().makeTranslation(0, 0, WALL_Z) });
 
     // Fetch's lane: a closed rectangle of tape round the runner's lane (it cannot leave it)
-    const lane = o.scene.runner.lane;
-    const hw = 0.52;
-    const x0 = Math.min(lane.a[0], lane.b[0]) - 0.55, x1 = Math.max(lane.a[0], lane.b[0]) + 0.55;
-    const zc = (lane.a[1] + lane.b[1]) / 2;
-    items.push({
-      piece: laneTape({ seed: o.seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }),
-      at: I,
-    });
+    if (o.laneTape !== false) {
+      const lane = o.scene.runner.lane;
+      const hw = o.laneTape?.half ?? 0.52, past = o.laneTape?.past ?? 0.55;
+      const x0 = Math.min(lane.a[0], lane.b[0]) - past, x1 = Math.max(lane.a[0], lane.b[0]) + past;
+      const zc = (lane.a[1] + lane.b[1]) / 2;
+      items.push({
+        piece: laneTape({ seed: o.seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }),
+        at: I,
+      });
+    }
 
     // the sign, hung above the board; its wash socket places the wall wash
     let washAt: Vector3 | null = null;
