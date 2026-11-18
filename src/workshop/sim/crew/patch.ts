@@ -34,6 +34,7 @@
  */
 import type { Cause, Id, Intent, Outcome, PatchAnswer, PatchState, PatchView, Pose, SimEvent, StationId, Vec3 } from '../types.ts';
 import type { LostReason, MachineUnit, SimContext } from '../context.ts';
+import type { Job } from '../history.ts';
 import type { UnitFactory } from '../scene.ts';
 import type { Call } from '../machines/line.ts';
 import { deskOf } from '../machines/line.ts';
@@ -137,7 +138,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let lookAt: Vec3 | null = null;
   let at: Vec3 = spec.seat;
   let heading = spec.facing;
-  let holding: { id: Id; cause: Cause | null } | null = null;
+  /** A caught part, the throw it is charged to, and the job that keeps that throw on the stack while Patch has it (rule 4, rule 10). */
+  let holding: { id: Id; cause: Cause | null; job: Job | null } | null = null;
+  /** A caught part set down: its throw stays on the stack until the part has come to rest (and that rest is the throw's). */
+  const finishing: { job: Job; part: Id; until: number }[] = [];
   let cancelledAt = -1;
   const watched: Watched[] = [];
 
@@ -151,6 +155,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     state = s;
     since = ctx.clock.step - Math.round(elapsed * HZ);
     length_ = len;
+    if (isJob(s)) lookAt = jobLook(s);
     if (from !== s) ctx.emit({ type: 'crew.state', id, state: s, from });
   }
 
@@ -213,6 +218,15 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     ctx.release(part, [0, 0, 0], [0, 0, 0], cause);
   }
 
+  /** Set the caught part down on the shelf: its rest is the throw's (committed this step); the job ends after it. */
+  function letGoOfCatch(): void {
+    const h = holding;
+    holding = null;
+    if (!h) return;
+    setDown(h.id, h.cause);
+    if (h.job) finishing.push({ job: h.job, part: h.id, until: ctx.clock.step + steps(3) });
+  }
+
   /** Watch the parts in flight; answer one coming at it. */
   function watch(): void {
     const now = ctx.clock.step;
@@ -229,18 +243,19 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const r = spec.body.radius + Math.max(...(ctx.halfExtents(w.id) ?? [0.3, 0.3, 0.3]));
       if (w.answer === null) {
         if (!seatedOrWorking()) continue;
-        // where is it going? the first moment of its fall that meets Patch's body
-        let hit: { t: number; p: Vec3 } | null = null;
+        // where is it going? when its fall first meets Patch's body, and where it passes nearest its middle
+        let hit: number | null = null;
+        let nearest: { d: number; p: Vec3 } = { d: Infinity, p: pose.p };
         for (let k = 1; k <= Math.round(T.horizon * HZ); k++) {
           const t = k / HZ;
           const p: Vec3 = [pose.p[0] + v[0] * t, pose.p[1] + v[1] * t + 0.5 * g * t * t, pose.p[2] + v[2] * t];
-          if (dist(p, c) < r) {
-            hit = { t, p };
-            break;
-          }
+          const d = dist(p, c);
+          if (d < r && hit === null) hit = t;
+          if (d < nearest.d) nearest = { d, p };
+          else if (hit !== null) break;
         }
-        if (!hit || hit.t > T.lead) continue;
-        const y = hit.p[1] - spec.seat[1];
+        if (hit === null || hit > T.lead) continue;
+        const y = nearest.p[1] - spec.seat[1];
         const size = ctx.part(w.id)?.size;
         const answer: PatchAnswer = y > spec.body.head ? 'duck' : y >= spec.body.hands && size !== 'L' && length(v) < T.catchMax && holding === null ? 'catch' : 'bonk';
         w.answer = answer;
@@ -256,7 +271,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       if (dist(pose.p, c) > r) continue;
       watched.splice(watched.indexOf(w), 1);
       if (w.answer === 'catch' && state === 'catch' && holding === null && ctx.take(w.id, id)) {
-        holding = { id: w.id, cause: w.cause };
+        const part = w.id;
+        const cause = w.cause;
+        // the throw stays on the stack while Patch holds what it threw (the window let go of it at the take)
+        const job = cause !== null && cause !== 'crew' && cause !== 'system' ? ctx.history.work(cause, id, () => {
+          if (holding?.id === part) holding = null; // undone (rule 10): the world puts the part back
+        }) : null;
+        holding = { id: part, cause, job };
       } else {
         const n = sub(pose.p, c);
         const ln = length(n) || 1;
@@ -284,8 +305,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       if (state !== 'held') {
         interrupt();
         if (holding) {
-          setDown(holding.id, holding.cause);
-          holding = null;
+          letGoOfCatch();
         }
         for (const w of watched) w.answer = null;
         lookAt = spec.visitor;
@@ -307,7 +327,18 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     abort() {},
 
     lost(part: Id, _why: LostReason) {
-      if (holding?.id === part) holding = null;
+      if (holding?.id === part) {
+        holding.job?.done();
+        holding = null;
+      }
+    },
+
+    post() {
+      for (const f of [...finishing])
+        if (ctx.settled(f.part) || ctx.mode(f.part) !== 'free' || ctx.clock.step > f.until) {
+          finishing.splice(finishing.indexOf(f), 1);
+          f.job.done();
+        }
     },
 
     heard(events: readonly SimEvent[]) {
@@ -384,13 +415,15 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           if (holding) {
             const hands: Vec3 = add(spec.seat, [0, spec.body.hands + 0.15, 0.35]);
             const h = ctx.halfExtents(holding.id)?.[1] ?? 0.3;
-            const p = t < T.catchHold ? hands : add(hands, scale(sub([spec.shelf[0], spec.shelf[1] + h + 0.01, spec.shelf[2]], hands), Math.min(1, (t - T.catchHold) / T.catchSet)));
-            ctx.drive(holding.id, { p, q: ctx.pose(holding.id)?.q ?? [0, 0, 0, 1] } as Pose);
+            const goal = t < T.catchHold ? hands : add(hands, scale(sub([spec.shelf[0], spec.shelf[1] + h + 0.01, spec.shelf[2]], hands), Math.min(1, (t - T.catchHold) / T.catchSet)));
+            // into its hands quickly but not in one jump; then along the way to the shelf
+            const cur = ctx.pose(holding.id) ?? { p: goal, q: [0, 0, 0, 1] };
+            const p = add(cur.p, scale(sub(goal, cur.p), t < T.catchHold ? 0.3 : 0.6));
+            ctx.drive(holding.id, { p, q: cur.q } as Pose);
             lookAt = p;
           }
           if (t >= length_) {
-            if (holding) setDown(holding.id, holding.cause);
-            holding = null;
+            letGoOfCatch();
             carryOn();
           }
           break;
@@ -426,6 +459,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       call = null;
       resume = null;
       holding = null;
+      finishing.length = 0;
       watched.length = 0;
       lookAt = null;
       at = spec.seat;
