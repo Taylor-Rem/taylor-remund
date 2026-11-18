@@ -1,6 +1,6 @@
 /**
  * Something on the tray, for review pictures only (the brief: "show it with a
- * crate on the tray and with a 1.25-unit stand-in robot"): an L crate, flattened
+ * crate on the tray and with a stand-in robot", 1.6 tall and 1.25 wide since the crew may be drawn up to 1.5x): an L crate, flattened
  * into the tray's `load` node, or a plain stand-in for Fetch at its P2 size (a
  * fat tyre in a fork under a round head, 1.6 tall and 1.25 wide). The view never uses
  * these: on the bench the real crate and the real Fetch ride the `seat` socket.
