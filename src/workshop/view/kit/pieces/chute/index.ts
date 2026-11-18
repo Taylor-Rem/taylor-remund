@@ -56,11 +56,17 @@ export const CHUTE = {
   riserZ: 0.48,
   /** Where the riser starts, in the dark under the bench. */
   bottom: -3.0,
-  /** The first bend (over the edge), its radius; the run back over the bench ends at runZ. */
+  /** The first bend (over the edge), its radius, and the height the duct runs back at. */
   bend1: 0.5,
   runY: 1.08,
-  runZ: -0.75,
-  /** The second bend (turning to look along +X), and the third (tipping the mouth up by `pitch`). */
+  /** How far back from the front edge the run goes before it turns (the `run` option): default, least, most. */
+  run: 1.25,
+  runMin: 1.0,
+  runMax: 3.0,
+  /** The mouth's heading in plan (the `aim` option), degrees from +X toward -Z: default, most. */
+  aim: 0,
+  aimMax: 40,
+  /** The second bend (turning to look along the aim), and the third (tipping the mouth up by `pitch`). */
   bend2: 0.5,
   bend3: 0.45,
   pitch: 30,
@@ -78,6 +84,10 @@ export interface ChuteLabelRefs {
 }
 
 export interface ChuteOptions extends KitOptions {
+  /** How far back from the front edge the duct runs before it turns (CHUTE.run; CHUTE.runMin..runMax). Strap legs are added as it grows. */
+  run?: number;
+  /** The mouth's heading in plan, degrees from +X toward -Z (CHUTE.aim; 0..CHUTE.aimMax). */
+  aim?: number;
   /** From `chuteLabels(labels)`; without it the riser carries no stencil (clay, tests). */
   labels?: ChuteLabelRefs;
 }
@@ -92,7 +102,7 @@ export function chuteLabels(labels: Labels): ChuteLabelRefs {
 }
 
 /** The duct's centre line, as points, with the distance along it where each stretch starts. */
-export function ductPath(): { points: Vector3[]; sBend1: number; sRun: number; sBend2: number; sBend3: number; sLead: number; length: number; end: Vector3; dir: Vector3 } {
+export function ductPath(runIn: number = CHUTE.run, aimIn: number = CHUTE.aim): { points: Vector3[]; sBend1: number; sRun: number; sBend2: number; sBend3: number; sLead: number; length: number; end: Vector3; dir: Vector3; heading: Vector3 } {
   const C = CHUTE;
   const pts: Vector3[] = [];
   const push = (p: Vector3): void => {
@@ -108,20 +118,26 @@ export function ductPath(): { points: Vector3[]; sBend1: number; sRun: number; s
     const a = (i / 6) * (Math.PI / 2);
     push(new Vector3(0, yR + C.bend1 * Math.sin(a), C.riserZ - C.bend1 + C.bend1 * Math.cos(a)));
   }
-  const zB = C.runZ;
+  const run = Math.max(C.runMin, Math.min(C.runMax, runIn));
+  const aim = Math.max(0, Math.min(C.aimMax, aimIn)) * DEG;
+  // the straight run ends where bend 2 starts: the turn's own reach makes up the rest of `run`
+  const zB = -(run - C.bend2);
   push(new Vector3(0, C.runY, zB));
-  // bend 2: in the horizontal, from -Z round to +X
-  for (let i = 1; i <= 6; i++) {
-    const a = (i / 6) * (Math.PI / 2);
+  // bend 2: in the horizontal, from -Z turning right by phi, to look along the aim
+  const phi = Math.PI / 2 - aim;
+  const n2 = Math.max(3, Math.round((6 * phi) / (Math.PI / 2)));
+  for (let i = 1; i <= n2; i++) {
+    const a = (i / n2) * phi;
     push(new Vector3(C.bend2 - C.bend2 * Math.cos(a), C.runY, zB - C.bend2 * Math.sin(a)));
   }
-  // bend 3: tip up by `pitch`
-  const x3 = C.bend2, z3 = zB - C.bend2, p = C.pitch * DEG;
+  // bend 3: tip up by `pitch`, in the vertical plane of the heading
+  const h = new Vector3(Math.sin(phi), 0, -Math.cos(phi));
+  const b3 = pts[pts.length - 1]!.clone(), p = C.pitch * DEG;
   for (let i = 1; i <= 3; i++) {
     const a = (i / 3) * p;
-    push(new Vector3(x3 + C.bend3 * Math.sin(a), C.runY + C.bend3 * (1 - Math.cos(a)), z3));
+    push(b3.clone().addScaledVector(h, C.bend3 * Math.sin(a)).add(new Vector3(0, C.bend3 * (1 - Math.cos(a)), 0)));
   }
-  const dir = new Vector3(Math.cos(p), Math.sin(p), 0);
+  const dir = h.clone().multiplyScalar(Math.cos(p)).add(new Vector3(0, Math.sin(p), 0));
   const last = pts[pts.length - 1]!.clone();
   const end = last.clone().addScaledVector(dir, C.lead);
   push(end);
@@ -132,9 +148,9 @@ export function ductPath(): { points: Vector3[]; sBend1: number; sRun: number; s
   };
   const sBend1 = L(0, 2), sRun = sBend1 + C.bend1 * (Math.PI / 2);
   const sBend2 = sRun + (C.riserZ - C.bend1 - zB);
-  const sBend3 = sBend2 + C.bend2 * (Math.PI / 2);
+  const sBend3 = sBend2 + C.bend2 * phi;
   const sLead = sBend3 + C.bend3 * p;
-  return { points: pts, sBend1, sRun, sBend2, sBend3, sLead, length: L(0, pts.length - 1), end, dir };
+  return { points: pts, sBend1, sRun, sBend2, sBend3, sLead, length: L(0, pts.length - 1), end, dir, heading: h };
 }
 
 /** A point and the tangent at distance s along a polyline. */
@@ -185,7 +201,7 @@ export function chute(o: ChuteOptions = {}): Piece {
   const R = rng(seed);
   const C = CHUTE;
   const b = piece('chute', { detail, seed });
-  const dp = ductPath();
+  const dp = ductPath(o.run, o.aim);
   const L = dp.length;
   const w = C.wall, f = C.flare, t = 0.02;
   const half = C.core + w;
@@ -263,6 +279,9 @@ export function chute(o: ChuteOptions = {}): Piece {
   // ======================================================================
   {
     const gores = [C.apronBottom - 0.2 - C.bottom, dp.sBend1 + (dp.sRun - dp.sBend1) / 2, dp.sRun + 0.05, dp.sBend2 + (dp.sBend3 - dp.sBend2) / 2];
+    // a longer run is made of more lengths: a seam every metre or so
+    const straight = dp.sBend2 - dp.sRun;
+    for (let k = 1; k < Math.floor(straight / 1.0); k++) gores.push(dp.sRun + (straight * k) / Math.floor(straight / 1.0));
     for (const s of gores) {
       const { p, tan } = along(dp.points, s);
       const band = sweep({ points: [p.clone().addScaledVector(tan, -0.02), p.clone().addScaledVector(tan, 0.02)] }, { section: sec, radius: w + 0.014, up: Math.abs(tan.y) > 0.9 ? up : [0, 1, 0], detail, ends: 'flat' });
@@ -295,7 +314,11 @@ export function chute(o: ChuteOptions = {}): Piece {
       b.add(part('steel', bevelBox({ min: [-half - 0.02, y - 0.05, z1 - 0.02], max: [half + 0.02, y + 0.05, z1], c: 0.008, omit: ['nz'] }), 'teal-panel', { seed: seed + 23, shade: 0.95 }));
     }
     // two strap legs under the run back over the bench: flat bars from the duct's sides to feet bolted to the bench top
-    for (const s of [dp.sRun + 0.2, dp.sBend2 - 0.12]) {
+    // strap legs along the run: two pairs at the default run, one more pair per 0.9 or so as it grows
+    const straight = dp.sBend2 - dp.sRun;
+    const nLegs = Math.max(2, Math.ceil((straight - 0.32) / 0.9) + 1);
+    const legS = Array.from({ length: nLegs }, (_, i) => dp.sRun + 0.2 + ((straight - 0.32) * i) / (nLegs - 1));
+    for (const s of legS) {
       const { p } = along(dp.points, s);
       for (const sx of [-1, 1]) {
         const x = sx * (half + 0.012);
@@ -321,7 +344,7 @@ export function chute(o: ChuteOptions = {}): Piece {
   // SOCKETS
   // ======================================================================
   b.socket('mouth', mouthM);
-  const land = dp.end.clone().addScaledVector(new Vector3(1, 0, 0), 0.7);
+  const land = dp.end.clone().addScaledVector(dp.heading, 0.7);
   b.socket('land', T(land.x, 0, land.z));
   b.socket('apron', T(0, (C.apronTop + C.apronBottom) / 2, C.apronZ));
   b.socket('edge', T(0, 0, 0));
@@ -337,10 +360,12 @@ export const catalogue: CatalogueEntry[] = [
       chute({
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
         ...(opts.detail ? { detail: opts.detail } : {}),
+        ...(typeof opts['run'] === 'number' ? { run: opts['run'] } : {}),
+        ...(typeof opts['aim'] === 'number' ? { aim: opts['aim'] } : {}),
         ...(opts['labels'] ? { labels: opts['labels'] as ChuteLabelRefs } : {}),
       }),
     labels: (labels) => ({ labels: chuteLabels(labels) }),
-    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 }, 'run 3': { run: 3 }, 'aim 40': { aim: 40 }, 'run 3 aim 40': { run: 3, aim: 40 }, 'aim 20': { aim: 20 } },
     camera: { distance: 6 },
     note: 'The return chute: a duct up out of the dark, over the bench edge, its yellow-lipped mouth open along the bench.',
   },
