@@ -1,0 +1,306 @@
+---
+// /dev/room/ (V, the room; ART-P2 § 5): the bench at its full size (18 × 10,
+// back wall at z = -5) with its body, the wall running on, the window, the
+// floor, the dim things past each end and the two reserved bays, composed
+// with the P1 pieces stood at their places in the P2 plan (ART-P2 § 3), under
+// the real stage. Static: nothing moves. Dev-only; never shipped.
+//
+// Query:
+//   ?room=1|0        with the room (default) or without it (the bench top and the 21-wide wall, as P1 built them)
+//   ?shot=home|left|right|window|apron|bay   home: the wide framing; left/right: panned to each end;
+//                    window, apron, bay: close views
+//   ?fog=new|old     the room fall-off (default: new with the room, old without); see FOG below
+//   ?winlight=1      prototype: a faint cool light from the window (the stage has none); ?wli=N its intensity
+//   ?env=room        prototype: the environment's cool panel where the window really is
+//   ?ctx=0           only the room and the bench, no P1 pieces
+//   ?hatch=shut|open|down Revert's hatch (down: doors open, the lift down, the shaft empty) in a hole through the bench top (open: Revert risen on the lift); ?shot=hatch for close
+//   ?below=N         home framing that also takes in N units below the bench top (the apron; legs)
+//   ?w=…             nothing; use capture's --w/--h
+//   ?hud=0  ?tier=high|low  ?manual=1  ?view=beauty|clay|...  ?gtao=0 (diagnosis)  ?bulbs=N (every bulb dimmed, as in the lamp dip)
+// Hooks: window.__room = { triangles, meshes, measure() } (label capitals in px, per piece triangles)
+//
+// Capture (from the repo root):
+//   node scripts/capture.ts "/dev/room/?hud=0" --out shots/room/with.png
+//   node scripts/capture.ts "/dev/room/?hud=0&room=0" --out shots/room/without.png
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Room</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 11px/1.35 ui-monospace, monospace; color: #bfe3d8; opacity: 0.75; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import { Box3, Matrix4, PointLight, Vector3, Color, type Object3D, type Mesh, type BufferAttribute } from 'three';
+      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
+      import { findPiece, buildEntry, type Entry } from '../workshop/view/catalogue/registry.ts';
+      import { VIEW_MODES, type ViewMode } from '../workshop/view/catalogue/views.ts';
+      import { LOOK } from '../workshop/view/stage/index.ts';
+      import { buildEnvironment } from '../workshop/view/stage/environment.ts';
+      import { pieceBounds } from '../workshop/view/kit/compose.ts';
+      import type { Piece } from '../workshop/view/kit/types.ts';
+      import { ROOM, roomWall } from '../workshop/view/kit/pieces/room/index.ts';
+      import { laneTape, benchHole } from '../workshop/view/kit/pieces/bench/index.ts';
+      import { OPENING, liftHeight } from '../workshop/view/kit/pieces/revert-hatch/index.ts';
+      import { keyLight } from '../workshop/view/kit/pieces/lamp/index.ts';
+      import { SIDE_ON } from '../workshop/view/kit/pieces/patch-felt/index.ts';
+      import { linear } from '../workshop/view/palette.ts';
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+      const withRoom = q.get('room') !== '0';
+      const shot = q.get('shot') ?? 'home';
+      const ctx = q.get('ctx') !== '0';
+      const view = ((VIEW_MODES as readonly string[]).includes(q.get('view') ?? '') ? q.get('view') : 'beauty') as ViewMode;
+
+      /** The room fall-off. old: the stage's (P1: everything below y -1.25 is gone). new: proposed for the bench page. */
+      const FOG = {
+        old: { ...LOOK.fog },
+        new: { drop: 5.5, halfWidth: 10.4, side: 3.0, strength: 1.0 },
+      };
+      const fogName = q.get('fog') ?? (withRoom ? 'new' : 'old');
+      Object.assign(LOOK.fog, fogName === 'new' ? FOG.new : FOG.old);
+
+      /** The P1 pieces at their places in the P2 plan (ART-P2 § 3), for context only. */
+      const PLAN = {
+        toolwall: { x: -6.55, y: 0.3 },
+        lamp: { x: -3.4, z: -5 },
+        sign: { x: 0.6, y: 3.05 },
+        board: { x: 0.6 },
+        stool: { x: 3.4, z: -3.4 },
+        phone: { x: 2.2, z: -1.6, yaw: -16 },
+        button: { x: 0, z: 0.6 },
+        belt: { x: -0.5, z: 3.3, length: 10 },
+        fetch: { x: 1.4, z: 2.0, yaw: -20 },
+        crates: [
+          { size: 'L', x: -8.5, y: 0, z: -1.2, yaw: 4 },
+          { size: 'M', x: -8.45, y: 0.8, z: -1.25, yaw: -7 },
+          { size: 'S', x: -7.4, y: 0, z: 1.75, yaw: 12 },
+          { size: 'M', x: -1.9, y: 0, z: -1.3, yaw: 18 },
+        ],
+        /** Revert's hatch (its piece, scaled from the 1.25 crew to the 1.5), and Revert on its lift. */
+        hatch: { x: -3.6, z: 0.35, scale: 1.2 },
+        lane: { x0: -5.0, x1: 4.2, z: 2.0, hw: 0.52 },
+      };
+
+      async function main(): Promise<void> {
+        const s = await mountShowcase(canvas, { tier: q.get('tier') === 'low' ? 'low' : 'high', manual: q.get('manual') === '1', ground: 'none', ...(q.get('gtao') === '0' ? { passes: { gtao: false } } : {}) });
+        const tri: Record<string, number> = {};
+        const objs: Record<string, Object3D> = {};
+        const add = async (name: string, opts: Record<string, unknown>, at: { x?: number; y?: number; z?: number; yaw?: number; blob?: number }, tag = name): Promise<Piece | null> => {
+          const e: Entry | undefined = await findPiece(name);
+          if (!e) return null;
+          const p = buildEntry(e, null, { seed: 1, ...opts }, s.labels);
+          tri[tag] = (tri[tag] ?? 0) + p.triangles;
+          objs[tag] = s.add(p, { blob: 0, view, ...at });
+          return p;
+        };
+        const wallZ = -5;
+        const againstWall = (p: Piece): number => wallZ + 0.012 - pieceBounds(p).min.z;
+
+        // ── the bench and the wall ──
+        const B = ROOM.bench;
+        // ?hatch=shut|open: Revert's hatch in a hole through the bench top (open: doors open, Revert risen on the lift)
+        const hatchPose = q.get('hatch');
+        const H = PLAN.hatch;
+        const hole = hatchPose ? [benchHole(H.x, H.z, OPENING.w * H.scale, OPENING.d * H.scale)] : [];
+        await add('bench', { sections: B.sections, width: B.width, depth: B.depth, ...(hole.length ? { openings: hole } : {}) }, {});
+        if (hatchPose) {
+          const hp = await add('revert-hatch', { pose: hatchPose === 'open' ? 'open' : hatchPose === 'down' ? { doors: 1, lift: 0 } : 'shut' }, { x: H.x, z: H.z, blob: 0 }, 'hatch');
+          objs['hatch']?.scale.setScalar(H.scale);
+          if (hp && hatchPose === 'open') {
+            await add('revert', {}, { x: H.x, y: liftHeight(1) * H.scale, z: H.z, blob: 0 }, 'revert');
+            objs['revert']?.scale.setScalar(H.scale);
+          }
+        }
+        if (withRoom) {
+          await add('back-wall', roomWall(), { z: wallZ }, 'wall');
+          await add('bench-frame', { sections: B.sections, width: B.width, depth: B.depth, floor: ROOM.floorY }, {}, 'frame');
+          await add('floor', { width: ROOM.floor.width, z0: ROOM.floor.z0, z1: ROOM.floor.z1 }, { y: ROOM.floorY });
+          await add('window', {}, { ...ROOM.window });
+          await add('room-left', { floor: ROOM.floorY }, { ...ROOM.ends.left });
+          await add('room-right', { floor: ROOM.floorY }, { ...ROOM.ends.right });
+          for (const [i, bay] of ROOM.bays.entries()) await add('reserved-bay', { which: bay.which, w: bay.w, d: bay.d, seed: 3 + i }, { x: bay.x, z: bay.z }, `bay.${bay.which}`);
+        } else {
+          await add('back-wall', { width: 21, height: 9 }, { z: wallZ }, 'wall');
+        }
+
+        // ── the P1 pieces, for context ──
+        if (ctx) {
+          const tw = await findPiece('toolwall');
+          if (tw) {
+            const p = buildEntry(tw, null, { seed: 1 }, s.labels);
+            tri['ctx'] = (tri['ctx'] ?? 0) + p.triangles;
+            s.add(p, { x: PLAN.toolwall.x, y: PLAN.toolwall.y, z: againstWall(p), blob: 0, view });
+          }
+          const sg = await findPiece('sign');
+          if (sg) {
+            const p = buildEntry(sg, null, { seed: 1 }, s.labels);
+            s.add(p, { x: PLAN.sign.x, y: PLAN.sign.y, z: againstWall(p), blob: 0, view });
+            const w = p.sockets?.['wash'];
+            if (w && s.stage.lights.wash) s.stage.lights.wash.position.setFromMatrixPosition(new Matrix4().makeTranslation(PLAN.sign.x, PLAN.sign.y, againstWall(p)).multiply(w));
+          }
+          const bd = await findPiece('switchboard');
+          if (bd) {
+            const p = buildEntry(bd, null, { seed: 1 }, s.labels);
+            s.add(p, { x: PLAN.board.x, z: againstWall(p), blob: 0, view });
+          }
+          const lampE = await findPiece('lamp');
+          if (lampE) {
+            const p = buildEntry(lampE, null, { seed: 1 }, s.labels);
+            s.add(p, { x: PLAN.lamp.x, z: PLAN.lamp.z, blob: 0, view });
+            const k = keyLight(p, [PLAN.lamp.x, 0, PLAN.lamp.z]);
+            s.stage.lights.setBulb(k.position, k.aim);
+          }
+          const stoolE = await findPiece('stool');
+          let seat: Vector3 | null = null;
+          if (stoolE) {
+            const p = buildEntry(stoolE, null, { seed: 1 }, s.labels);
+            s.add(p, { x: PLAN.stool.x, z: PLAN.stool.z, view });
+            const m = p.sockets?.['seat'];
+            if (m) seat = new Vector3().setFromMatrixPosition(m).add(new Vector3(PLAN.stool.x, 0, PLAN.stool.z));
+          }
+          const patchE = await findPiece('patch-felt');
+          if (patchE && seat) {
+            const p = buildEntry(patchE, null, { seed: 1, standIn: false }, s.labels);
+            const o = s.add(p, { x: seat.x, y: seat.y, z: seat.z, blob: 0, view });
+            o.rotation.y = SIDE_ON;
+          }
+          await add('phone', {}, { ...PLAN.phone, blob: 1 }, 'ctx.phone');
+          await add('button', {}, { ...PLAN.button, blob: 1 }, 'ctx.button');
+          await add('belt', { length: PLAN.belt.length }, { x: PLAN.belt.x, z: PLAN.belt.z, blob: 1 }, 'ctx.belt');
+          await add('fetch-porter', {}, { ...PLAN.fetch, blob: 1 }, 'ctx.fetch');
+          for (const [i, c] of PLAN.crates.entries()) await add('crate', { size: c.size, seed: 11 + i, paint: i === 3 ? 'paint-blue' : null }, { x: c.x, y: c.y, z: c.z, yaw: c.yaw, blob: c.y > 0 ? 0 : 1 }, `ctx.crate${i}`);
+          const L = PLAN.lane;
+          s.add(laneTape({ seed: 5, points: [[L.x0, L.z - L.hw], [L.x1, L.z - L.hw + 0.015], [L.x1, L.z + L.hw], [L.x0, L.z + L.hw - 0.01], [L.x0, L.z - L.hw]] }), { blob: 0, view });
+        }
+
+        // ── prototype: the environment's cool panel moved to where the window really is (?env=room) ──
+        if (q.get('env') === 'room') {
+          const w = ROOM.window;
+          const env = buildEnvironment(s.stage.renderer, { lampDir: [s.stage.lights.key.position.x, s.stage.lights.key.position.y, s.stage.lights.key.position.z], windowDir: [w.x, w.y + 1.35 - 0.5, w.z] });
+          s.stage.scene.environment = env.texture;
+        }
+        // ── prototype: a faint cool light from the window (not in the stage rig) ──
+        if (q.get('winlight') === '1') {
+          const c = linear('teal-light');
+          const wl = new PointLight(new Color(c[0], c[1], c[2]).lerp(new Color(...linear('paper')), 0.35), Number(q.get('wli') ?? 3.5), 9, 2);
+          wl.position.set(ROOM.window.x, ROOM.window.y + 1.4, ROOM.window.z + 0.6);
+          s.stage.scene.add(wl);
+        }
+
+        // ── the camera: the bench page's home framing (the whole bench), or a station view ──
+        const cam = s.stage.camera;
+        // ?below=N: a home framing that also takes in N units under the bench top at the front (the apron, the legs' tops)
+        const below = Number(q.get('below') ?? 0);
+        const subject = new Box3(new Vector3(-9.2, -below, -5), new Vector3(9.2, 4.6, 5));
+        // ?limits=room: the pan limits proposed for the bench page (1.8 past each end, the frame's foot down to the apron's)
+        const roomLimits = q.get('limits') === 'room';
+        const edge = roomLimits ? { y: -1.25, z: 5 } : { y: 0, z: 5 };
+        const frame = (): void => {
+          cam.stationSize = 1.6;
+          // the bench page's limits: pan only over the bench's footprint, the frame's bottom never past its front edge
+          const benchBounds = roomLimits ? new Box3(new Vector3(-10.8, -1, -5), new Vector3(10.8, 5, 5)) : new Box3(new Vector3(-9, -1, -5), new Vector3(9, 5, 5));
+          cam.setSubject(subject, { edge, bounds: benchBounds });
+          const home = cam.home();
+          // left/right: as far as a visitor can pan at that zoom, toward the front (the rig clamps); the rest are close looks for review only
+          const panned: Record<string, { focus: [number, number, number]; zoom: number }> = {
+            left: { focus: [-30, 0.6, 30], zoom: Number(q.get('zoom') ?? 0.3) },
+            right: { focus: [30, 0.6, 30], zoom: Number(q.get('zoom') ?? 0.3) },
+          };
+          const close: Record<string, { focus: [number, number, number]; zoom: number }> = {
+            window: { focus: [ROOM.window.x, ROOM.window.y + 0.9, -4.6], zoom: 0.86 },
+            apron: { focus: [-4.2, -1.5, 4.7], zoom: 0.62 },
+            bay: { focus: [7.1, 0, -0.1], zoom: 0.8 },
+            edge: { focus: [-1.2, -0.1, 4.6], zoom: 0.88 },
+            bays: { focus: [-6.6, 0, -1.4], zoom: 0.72 },
+            hatch: { focus: [-3.6, 0.3, 0.35], zoom: 0.8 },
+            endleft: { focus: [-10.5, 0.0, -1.5], zoom: 0.45 },
+            endright: { focus: [10.5, 0.0, -1.5], zoom: 0.45 },
+          };
+          const pv = panned[shot];
+          const cv = close[shot];
+          if (pv) {
+            cam.cutTo(pv);
+            const f = cam.view().focus;
+            cam.focusOn({ x: f[0], y: f[1], z: f[2] });
+          } else if (cv) {
+            // a review-only view: no pan limits, no front-edge rule
+            cam.setSubject(subject, { bounds: new Box3(new Vector3(-30, -8, -8), new Vector3(30, 8, 14)) });
+            cam.cutTo(cv);
+            cam.focusOn({ x: cv.focus[0], y: cv.focus[1], z: cv.focus[2] });
+          } else {
+            cam.cutTo(home);
+            cam.focusOn({ x: 0.4, y: 0.6, z: 1.4 });
+          }
+        };
+        frame();
+        Object.assign(LOOK.focus, { range: 0.075, scale: 12, max: 6, far: 0.5 });
+        addEventListener('resize', frame);
+
+        // ── measuring: label capitals in px at this view; triangles and meshes ──
+        const measure = (): Array<{ key: string; px: number }> => {
+          const out: Array<{ key: string; px: number }> = [];
+          const W = canvas.clientWidth, H = canvas.clientHeight;
+          const pr = (p: Vector3): { x: number; y: number } => {
+            const v = p.clone().project(cam.camera);
+            return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+          };
+          s.stage.scene.updateMatrixWorld(true);
+          s.stage.scene.traverse((o) => {
+            const m = o as Mesh;
+            if (!m.isMesh || !m.name.includes('|')) return;
+            const key = m.name.slice(m.name.indexOf('.tape.') + 6);
+            if (!key.startsWith('tape')) return;
+            const g = m.geometry;
+            const pos = g.getAttribute('position') as BufferAttribute;
+            const uv = g.getAttribute('uv') as BufferAttribute | undefined;
+            if (!uv || !g.index) return;
+            // the cap height in px: screen length of one unit of v times the cap's share of the label's height
+            const cap = s.labels.capHeight(key), size = s.labels.size(key);
+            const i0 = g.index.getX(0), i1 = g.index.getX(1), i2 = g.index.getX(2);
+            const P = [i0, i1, i2].map((i) => pr(new Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld)));
+            const du1 = uv.getX(i1) - uv.getX(i0), dv1 = uv.getY(i1) - uv.getY(i0), du2 = uv.getX(i2) - uv.getX(i0), dv2 = uv.getY(i2) - uv.getY(i0);
+            const det = du1 * dv2 - du2 * dv1;
+            if (Math.abs(det) < 1e-9) return;
+            const ax = P[1]!.x - P[0]!.x, ay = P[1]!.y - P[0]!.y, bx = P[2]!.x - P[0]!.x, by = P[2]!.y - P[0]!.y;
+            const jvx = (-du2 * ax + du1 * bx) / det, jvy = (-du2 * ay + du1 * by) / det;
+            out.push({ key, px: Math.round(Math.hypot(jvx, jvy) * (cap / size.h) * 10) / 10 });
+          });
+          return out;
+        };
+        let meshes = 0;
+        s.world.traverse((o) => {
+          if ((o as Mesh).isMesh) meshes++;
+        });
+        (window as unknown as { __room: unknown }).__room = { triangles: tri, meshes, measure };
+        if (q.get('hud') !== '0') {
+          const room = Object.entries(tri).filter(([k]) => !k.startsWith('ctx')).map(([k, v]) => `${k} ${v}`).join('  ');
+          hud.textContent = `room ${withRoom ? 'on' : 'off'} · fog ${fogName} · ${shot}\n${room}`;
+        }
+        // ?bulbs=N: every bulb dimmed as the lamp's dip does it (the window's sky must not follow)
+        if (q.get('bulbs') !== null) s.materials.set('bulb', 'intensity', Number(q.get('bulbs')));
+        s.start();
+        // ?measure=1: the tape labels' capitals in px at this view, on the read-out (after the first frames)
+        if (q.get('measure') === '1') {
+          await s.ready;
+          hud.textContent += '\n' + measure().map((m) => `${m.key.split('|').pop()} ${m.px}px`).join('  ');
+        }
+      }
+      main().catch((e: unknown) => {
+        console.error(e);
+        hud.textContent = String(e);
+      });
+    </script>
+  </body>
+</html>

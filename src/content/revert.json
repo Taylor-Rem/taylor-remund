@@ -1,0 +1,8 @@
+{
+  "cards": {
+    "rung1": { "text": "WELL, THAT WAS UNNECESSARY.", "kind": "voice", "source": "REWRITE.md § B4, rung 1 (Revert's card)" },
+    "rung2": { "text": "AGAIN.", "kind": "voice", "source": "REWRITE.md § B4, rung 2 (Revert's card)" },
+    "rung3": { "text": "IT SAYS DO NOT.", "kind": "voice", "source": "REWRITE.md § B4, rung 3 (Revert's card)" },
+    "rung4": { "text": "I JUST CLEANED THAT.", "kind": "voice", "source": "REWRITE.md § B4, rung 4 (Revert's card)" }
+  }
+}
