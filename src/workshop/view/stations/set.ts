@@ -234,7 +234,8 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     const merged = mergedPiece('set', flatten(items));
     const root = new Group();
     root.name = 'set';
-    const obj = ctx.realize(merged);
+    // the set is merged in world space and never moves: what no allowed camera can see the front of is left out (kit/realize.ts)
+    const obj = ctx.realize(merged, { fixedView: true });
     root.add(obj);
     ctx.scene.add(root);
     let meshes = 0;
