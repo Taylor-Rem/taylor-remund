@@ -105,7 +105,8 @@ export class Beats {
   }
 
   #restores(rs: readonly Restore[], how: StationBeat['how']): void {
-    for (const r of [...rs].reverse()) if (this.#owns(r.target, r.field)) this.#add(r.target, r.field, r.from, r.to, how);
+    // in the order to be seen running backwards (most recent change first, § E5 rule 11)
+    for (const r of rs) if (this.#owns(r.target, r.field)) this.#add(r.target, r.field, r.from, r.to, how);
   }
 
   /** Read this step's events (call from `heard`). */
