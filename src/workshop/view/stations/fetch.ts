@@ -614,6 +614,31 @@ export class FetchPerformer {
         turnOk = false;
         break;
       }
+      case 'tap': {
+        // attract mode: it taps the phone (sim TAP: the text goes at 0.45 s of 0.9). The claw nearer the phone
+        // comes up and out, cocks back a hair, jabs once (with a dip of the body behind it), and draws back;
+        // a quick look out at the visitor after the tap: "did you see that?"
+        const ph = lookAt ?? ahead(0.8, 0.4);
+        const rel = ph.clone().sub(P);
+        const leftSide = rel.dot(side) > 0;
+        const up = smoothstep(0, 0.28, st) * (1 - smoothstep(0.62, 0.88, st));
+        const cock = smoothstep(0.24, 0.36, st) * (1 - smoothstep(0.36, 0.43, st));
+        const jab = smoothstep(0.36, 0.44, st) * (1 - smoothstep(0.5, 0.64, st));
+        const point = J(lerp(0.42, 1.35, up) - 0.25 * cock + 0.3 * jab, lerp(0.2, 0.25, up), 0, lerp(0.95, 0.35, up) + 0.3 * cock - 0.3 * jab, 0, lerp(0.3, 0.05, up));
+        arms = leftSide ? { left: point, right: PRESETS.rest.right } : { left: PRESETS.rest.left, right: point };
+        armOmega = st > 0.3 && st < 0.6 ? 28 : 14;
+        fore = 0.04 + 0.1 * jab - 0.04 * cock;
+        squash = 0.12 * jab;
+        const glance = smoothstep(0.55, 0.65, st) * (1 - smoothstep(0.82, 0.9, st));
+        look = ph.clone().lerp(visitor, glance);
+        brow = lerp(0.3, -0.45, glance);
+        lids = [lerp(0.2, 0.05, glance), lerp(0.25, 0.4, glance)];
+        pupil = lerp(0.95, 1.2, glance);
+        pointerOk = false;
+        blinkOk = false;
+        turnOk = true;
+        break;
+      }
       case 'frozen':
         break;
     }
@@ -871,9 +896,17 @@ export class FetchPerformer {
       }
       root.compose(pos, q, new Vector3(1, 1, 1));
     } else {
-      const off = new Vector3(0, -i.half[1], 0).applyQuaternion(Q);
-      root.compose(P.clone().add(off), Q, new Vector3(1, 1, 1));
+      // in the hand it hangs from the hand and twists round to face the visitor (a slow pendulum twist that
+      // overshoots and settles); let go, it twists back to however it falls
+      const fq = new Vector3(0, 0, 1).applyQuaternion(Q);
+      const rel = inHand ? wrapAngle(Math.atan2(visitor.x - P.x, visitor.z - P.z) - Math.atan2(fq.x, fq.z)) : 0;
+      if (rm) this.twist.set(rel);
+      else this.twist.step(this.twist.x + wrapAngle(rel - this.twist.x), dt);
+      const tq = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), this.twist.x);
+      const off = new Vector3(0, -i.half[1], 0).applyQuaternion(Q).applyQuaternion(tq);
+      root.compose(P.clone().add(off), tq.multiply(Q), new Vector3(1, 1, 1));
     }
+    if (grounded) this.twist.set(0);
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
 
     // contact shadow: under the tyre where the pose puts it (a lean, a hop), fading as it leaves the bench
@@ -896,6 +929,7 @@ export class FetchPerformer {
   private extraWheel = 0;
   private lastHeld: FetchPose | null = null;
   private readonly heldW = new Spring(0, { omega: 22, zeta: 1 });
+  private readonly twist = new Spring(0, { omega: 4.5, zeta: 0.32 });
   private readonly handV = new Vector3();
   private lastY: number | null = null;
   private huWas = false;
@@ -953,6 +987,8 @@ export class FetchPerformer {
 // ───────────────────────── the view ─────────────────────────
 
 export interface FetchViewOptions {
+  /** The scale it is drawn at (the bench's crew scale): its contact shadow is sized to match. Default 1. */
+  scale?: number;
   /** Seed for its own variation (blinks, glances, balance) and the piece's wear. */
   seed?: number;
   /** Contact shadow strength (0 = none). Default: strong on the low tier, faint on high. */
@@ -1073,7 +1109,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           nearHeld,
           sights,
           events: frame.events,
-          reducedMotion: ctx.reducedMotion,
+          reducedMotion: ctx.reducedMotion || w.reducedMotion === true,
         });
         body.matrix.copy(out.root);
         body.matrixWorldNeedsUpdate = true;
@@ -1138,7 +1174,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         if (shadows) {
           blob.x = out.shadow.x;
           blob.z = out.shadow.z;
-          blob.rx = blob.rz = out.shadow.r;
+          blob.rx = blob.rz = out.shadow.r * (opts.scale ?? 1);
           blob.strength = out.shadow.strength;
           shadows.set(blob.strength > 0.03 ? [blob] : []);
         }

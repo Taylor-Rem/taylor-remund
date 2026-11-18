@@ -66,6 +66,8 @@ export const LAMP_FEEL = {
   steps: [0.3, 0.6, 1, 1.3, 1.6] as readonly number[],
   /** The shade's liner and bulb glow (the piece's three lit levels) for each step. */
   glow: [1, 2, 3, 3, 3] as readonly (1 | 2 | 3)[],
+  /** How far a paint's light is pushed from white past the stage's own tint (1: the stage's colour as it is). */
+  tint: 3,
   /** A new colour crosses over at this rate (1/s): about a third of a second. */
   colourRate: 9,
   /** Switched on, the filament catches once: as it warms, it sags this deep between these times (s), then comes on. */
@@ -85,6 +87,8 @@ export const ARM_FEEL = {
   zeta: { swivel: 1, lean: 1, shoulder: 1, elbow: 0.95, wrist: 0.8, pan: 0.8 } as Record<Joint, number>,
   /** On letting go: the arm sags on its springs (rad/s kicked into the shoulder and the elbow) and the shade nods. */
   sag: { shoulder: -0.35, elbow: 0.25, wrist: 0.9 },
+  /** Hovered: the shade nods (rad, added to the wrist's tilt and, toward the pointer, its pan). */
+  nod: { wrist: -0.035, pan: 0.025 },
   /** A target that jumps this far (lamp units) without a hand on it is an undo or a reset: swing home. */
   jump: 0.05,
   /** Below this joint motion (rad) the arm is at rest and nothing is recomputed. */
@@ -162,7 +166,15 @@ interface Dimmable {
 
 /** The light's colour for a setting: its own warm, or a paint (linear RGB). */
 function colourOf(c: Token | 'warm' | null, out: Color): Color {
-  return c && c !== 'warm' && c in palette ? out.fromArray(lampColourFrom(c)) : out.fromArray(stageColours().key);
+  if (!(c && c !== 'warm' && c in palette)) return out.fromArray(stageColours().key);
+  // the stage's lamp colour for a paint, pushed away from white (the tone mapping washes a tinted key out:
+  // "make it blue" must turn the bench blue, not a cool white), kept at the same luminance
+  const [r, g, b] = lampColourFrom(c);
+  const k = LAMP_FEEL.tint;
+  const sat = (v: number): number => Math.max(0.04, 1 + (v - 1) * k);
+  const R = sat(r), G = sat(g), B = sat(b);
+  const lum = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  return out.setRGB(R / lum, G / lum, B / lum);
 }
 
 export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) => LampView {
@@ -172,7 +184,8 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
     root.name = 'lamp';
     ctx.scene.add(root);
     const lights = ctx.stage.lights;
-    const reduced = ctx.reducedMotion;
+    // reduced motion (the boot's option, or the world's at run time): honoured here and in the arm, nowhere else
+    let reduced = ctx.reducedMotion;
 
     let asked = 1;
     let askedColour: Token | null = null;
@@ -199,7 +212,7 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
     let onAt = -Infinity;
 
     // the arm (bench), or the standing body (vignette)
-    const arm = opts.arm ? createArm(ctx, root, opts.arm, reduced) : null;
+    const arm = opts.arm ? createArm(ctx, root, opts.arm) : null;
     if (!arm && (opts.body ?? true)) void standBody(ctx, root);
 
     const view: LampView = {
@@ -219,6 +232,8 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
       update(frame: Frame) {
         const w = frame.world;
         const now = frame.time;
+        reduced = ctx.reducedMotion || w.reducedMotion === true;
+        if (arm) arm.reduced = reduced;
         if (pendingDip) {
           pendingDip = false;
           dipAt = now;
@@ -306,7 +321,7 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
         // the arm, and the key light at its drawn filament
         if (arm) {
           arm.lit = on ? level > 0.06 : level > 0.15;
-          arm.update(lv, frame.events, dt);
+          arm.update(lv, frame.events, dt, frame.hovered === id && !w.bracketed && !(lv?.dragging) ? frame.pointer : null);
         }
       },
       dispose() {
@@ -320,16 +335,19 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
 // ───────────────────────── the arm ─────────────────────────
 
 interface Arm {
+  /** Reduced motion now: the arm cuts to its pose. */
+  reduced: boolean;
   /** The shade shows lit (the filament is glowing), and which of its three glows. */
   lit: boolean;
   glow: 1 | 2 | 3;
-  update(lv: SimLampView | null, events: readonly SimEvent[], dt: number): void;
+  /** `hover`: where the pointer is while it is over the shade (null: not over it). */
+  update(lv: SimLampView | null, events: readonly SimEvent[], dt: number, hover: Vec3 | null): void;
 }
 
 /** The shade's pick box in the head's frame (+X out of the mouth): wrist hub to rim, the bell's radius and the grip. */
 const SHADE_BOX = new Box3(new Vector3(-0.3, -0.72, -0.72), new Vector3(1.32, 0.72, 0.72));
 
-function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: number }, reduced: boolean): Arm {
+function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: number }): Arm {
   const place = new Vector3(...o.place);
   const placeM = new Matrix4().makeTranslation(place.x, place.y, place.z);
   const springs = {} as Record<Joint, Spring>;
@@ -337,6 +355,9 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
   const want: Record<Joint, number> = { ...HOME };
   const pose: LampPose & Record<Joint, number> = { ...HOME, on: true, level: 3 };
   let mode: 'drag' | 'free' | 'home' = 'free';
+  const nod = new Spring(0, { omega: 26, zeta: 0.55 });
+  let hoverSide = 1;
+  let lastNod = 0;
   let wasDragging = false;
   let started = false;
   const tAim = new Vector3(Infinity, 0, 0);
@@ -382,9 +403,11 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
   })();
 
   const arm: Arm = {
+    reduced: ctx.reducedMotion,
     lit: true,
     glow: 3,
-    update(lv, events, dt) {
+    update(lv, events, dt, hover) {
+      const reduced = arm.reduced;
       // where the beam is to go (lamp space): the simulation's aim, else home
       const aim = lv?.aim ?? lv?.home?.aim ?? null;
       const dragging = !!lv?.dragging;
@@ -423,6 +446,19 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
         pose[j] = s.x;
         moved = Math.max(moved, Math.abs(s.x - before));
       }
+      // the hover answer (§ B1): the shade nods toward the pointer, a degree or two, eased; its rim catches the light
+      if (hover) {
+        // which way across the arm's plane the pointer lies, seen from the bulb
+        const f0 = armFrames(pose);
+        hoverSide = Math.sign((hover[0] - place.x - f0.bulb.x) * f0.pin.x + (hover[2] - place.z - f0.bulb.z) * f0.pin.z) || 1;
+      }
+      const hv = reduced ? (hover ? 1 : 0) : nod.step(hover ? 1 : 0, dt);
+      if (Math.abs(hv) > 1e-4 || Math.abs(nod.v) > 1e-4) {
+        pose.wrist += ARM_FEEL.nod.wrist * hv;
+        pose.pan += ARM_FEEL.nod.pan * hv * hoverSide;
+        moved = Math.max(moved, Math.abs(hv - lastNod));
+      }
+      lastNod = hv;
       if (mode === 'home' && JOINTS.every((j) => springs[j].settled(want[j], 2e-4))) mode = 'free';
       started = true;
       if (shownLit !== arm.lit || shownGlow !== arm.glow) {
