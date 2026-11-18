@@ -340,6 +340,8 @@ export interface Bench {
   stations: StationViewFactory[];
   /** The station files that made views, in order. */
   names: string[];
+  /** Triangles each station handed the set to merge (all, and those that cast), once the views are made. */
+  statics: Record<string, { triangles: number; casting: number }>;
   fit: Fit;
   measured: Record<string, unknown>;
   /** Fetch's piece bounds at rest (piece space, before the crew scale), for measuring its height on screen; and without its aerial and pennant. */
@@ -414,13 +416,28 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const kit: BenchKit = { scene, seed, crewScale, room: o.room ?? true, fit, pool: { items: [] }, bulb, entries, entry: find, module: pieceModule, world: () => worldRef };
   const made: StationViewFactory[] = [];
   const names: string[] = [];
+  const statics: Record<string, { triangles: number; casting: number }> = {};
   for (const s of await benchStations()) {
     const v = await s.make(kit);
     if (!v) continue;
-    made.push(...(typeof v === 'function' ? [v] : v));
+    // each view, as it is made, is charged with the static pieces it hands the set (the page's census)
+    made.push(...(typeof v === 'function' ? [v] : v).map((f): StationViewFactory => (ctx) => {
+      const n0 = kit.pool.items.length;
+      const out = f(ctx);
+      const added = kit.pool.items.slice(n0);
+      if (added.length) {
+        const t = (statics[s.name] ??= { triangles: 0, casting: 0 });
+        for (const q of flatten(added)) {
+          const n = (q.geometry.index ? q.geometry.index.count : q.geometry.getAttribute('position').count) / 3;
+          t.triangles += n;
+          if (q.castShadow !== false) t.casting += n;
+        }
+      }
+      return out;
+    }));
     names.push(s.name);
   }
-  return { scene, stations: [watcher, ...made], names, fit, measured: meas, fetchBounds, fetchBodyBounds, patchBounds, handles, crewScale, bulb, world: () => worldRef };
+  return { scene, stations: [watcher, ...made], names, statics, fit, measured: meas, fetchBounds, fetchBodyBounds, patchBounds, handles, crewScale, bulb, world: () => worldRef };
 }
 
 /** Every station file under `bench/stations/`, in the order their views are made (ORDER, then file name). */

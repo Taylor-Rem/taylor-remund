@@ -424,6 +424,8 @@
         },
       };
       (window as unknown as { __bench: typeof api }).__bench = api;
+      // the census (`npm run perf -- --census`) drives any page through the vignette's hook names
+      (window as unknown as { __vignette: typeof api }).__vignette = api;
 
       const shotName = q.get('shot');
       if (shotName && shotName !== 'home') applyShot(shotName);
