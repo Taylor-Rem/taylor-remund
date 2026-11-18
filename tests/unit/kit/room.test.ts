@@ -167,7 +167,7 @@ describe('the room', () => {
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i), y = pos.getY(i);
         const inside = x > hole.x0 + 1e-3 && x < hole.x1 - 1e-3 && y > hole.y0 + 1e-3 && y < hole.y1 - 1e-3;
-        if (inside) throw new Error(`inside the hole: ${q.material} at ${x.toFixed(3)}, ${pos.getY(i).toFixed(4)}, ${z.toFixed(3)}`);
+        expect(inside).toBe(false);
       }
     }
   });
