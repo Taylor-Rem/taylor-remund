@@ -65,8 +65,8 @@ export const DOCK_TUNING = {
   /** A misfire jumps the door open for this long (per level); an undo's return opens it for this long. */
   misfireOpen: 0.45,
   unshipOpen: 0.9,
-  /** A restocked crate is let go this far above whatever is on the stack. */
-  restockDrop: 0.3,
+  /** A restocked crate is set down this far above whatever is on the stack (a hair: dropped from higher, it toppled the stack). */
+  restockDrop: 0.02,
 } as const;
 
 export interface DockSpec {

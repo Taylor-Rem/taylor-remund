@@ -140,12 +140,20 @@ describe('the belt carries whatever is put on it', () => {
     const placers = ['crate-3', 'crate-2'].map((id) => w.writer(id, 'location'));
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0 });
     t.run(1);
+    const leverStep = w.step;
     expect((w.machine('belt') as BeltView).direction).toBe('backward');
     const watch = rideWatch();
     let overlap = 0;
+    /** Where the deflector set each down (Fetch's lane ends close by and may knock it on afterwards: see the hand-in). */
+    const setDown = new Map<string, readonly [number, number, number]>();
     for (let i = 0; i < 14 * HZ; i++) {
-      watch(t.run(1), w.step);
-      const r = (w.machine('belt') as BeltView).riding;
+      const ev = t.run(1);
+      watch(ev, w.step);
+      // the moment the belt lets it go (no longer riding), where it was set down
+      const riding = (w.machine('belt') as BeltView).riding;
+      for (const id of ['crate-3', 'crate-2']) if (!setDown.has(id) && !riding.includes(id) && w.mode(id) === 'free') setDown.set(id, w.motion(id)!.pose.p);
+      // on the belt itself (a part going off the back over the deflector has left its width)
+      const r = (w.machine('belt') as BeltView).riding.filter((id) => Math.abs(w.motion(id)!.pose.p[2] - LINE.belt.z) < LINE.belt.halfWidth);
       for (let j = 1; j < r.length; j++) {
         const a = w.motion(r[j - 1]!)!.pose.p[0] + w.halfExtents(r[j - 1]!)![0];
         const b = w.motion(r[j]!)!.pose.p[0] - w.halfExtents(r[j]!)![0];
@@ -156,15 +164,17 @@ describe('the belt carries whatever is put on it', () => {
     const spot = LINE.belt.offBack;
     for (const [i, id] of ['crate-3', 'crate-2'].entries()) {
       expect(w.part(id)!.location.at, id).toBe('rest');
-      const at = w.motion(id)!.pose.p;
-      // off the back (toward -Z), at the spot (the second beside the first, further from the belt)
+      const at = setDown.get(id)!;
+      expect(at, id).toBeDefined();
+      // off the back (toward -Z), at the slide's foot, each in a free place along it
       expect(at[2], id).toBeLessThan(LINE.belt.z - LINE.belt.halfWidth);
-      expect(Math.abs(at[0] - spot[0]), id).toBeLessThan(0.3);
-      expect(at[2], id).toBeLessThanOrEqual(spot[2] + 0.3);
-      expect(w.writer(id, 'location'), id).toBe(placers[i]);
+      expect(Math.abs(at[2] - spot[2]), id).toBeLessThan(0.05);
+      expect(at[0] - spot[0], id).toBeGreaterThan(-0.05);
+      expect(at[0] - spot[0], id).toBeLessThan(2); // (on the spot, or along the foot when something stands there: Fetch's lane ends here)
+      // where it was set down is the placing's (Fetch may knock it on afterwards, which is not the visitor's)
+      const first = t.of('effect').find((x) => x.step > leverStep && x.e.effect.target === id && x.e.effect.field === 'location');
+      expect(first?.e.effect.cause, id).toBe(placers[i]);
     }
-    // set down still: neither tumbled off the spot afterwards
-    expect(t.of('part.rested').filter((x) => x.e.id === 'crate-3').length).toBeLessThanOrEqual(2);
     expect((w.machine('belt') as BeltView).riding).toEqual([]);
     w.dispose();
   }, 60_000);

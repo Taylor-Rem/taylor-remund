@@ -25,7 +25,6 @@ import { belt, BELT_FIELDS, BELT_TUNING } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
-import { FETCH_TUNING } from '../crew/fetch.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -158,29 +157,21 @@ const DOOR = rampDoor(RAMP);
 
 /** Where the line's machines stand and what they reach, all read from `AT`. */
 /**
- * Where the motor end's deflector sets a reversed part down (the belt's `offBack`): off the BACK of the
- * belt (-Z), a crate's room clear of its bed, and left of the furthest Fetch reaches at its lane's motor
- * end (its stop, overshoot, body, hands and an L crate, at crew scale: a crate set inside that reach was
- * swept away by Fetch's next lap); then drawn up to a unit toward the crate stack (never nearer it than
- * 0.9, the stack's own room). Derived from AT and Fetch's tuning: it follows them as they move.
+ * The motor end's deflector, as the simulation owns it (the belt piece draws it: `DEFLECT` in
+ * view/kit/pieces/belt/dims.ts; tests/unit/sim/deflector.test.ts holds the two together). In belt space
+ * (x from the belt's left end, z from its centre line): the deflector crosses the belt from the near rail
+ * at x 0.95 to the far edge at x 0.07; a reversed part meets it about `meet` from the end, goes off the
+ * BACK through the 1.0 gap in the far rail and down the slide, and comes to rest at `rest`. Nothing may be
+ * dropped onto the belt within `clear` of the end (that is the deflector's).
  */
-const OFF_BACK: Vec3 = (() => {
-  const from = AT.belt.c[0] - AT.belt.half[0];
-  const k = CREW_SCALE;
-  const fetchReach = Math.min(AT.lane.a[0], AT.lane.b[0]) + (FETCH_TUNING.inset - FETCH_TUNING.overshoot - FETCH_TUNING.bodyHalfDepth - FETCH_TUNING.handGap) * k - CRATE_EDGE.L;
-  const p0: [number, number] = [Math.min(from + 0.2, fetchReach - CRATE_EDGE.L / 2 - 0.15), AT.belt.c[2] - AT.belt.half[2] - CRATE_EDGE.L / 2 - 0.2];
-  const dx = AT.stack[0] - p0[0];
-  const dz = AT.stack[1] - p0[1];
-  const d = Math.hypot(dx, dz);
-  const t = d > 0 ? Math.min(1.0, Math.max(0, d - 0.9)) / d : 0;
-  return [p0[0] + dx * t, 0, p0[1] + dz * t];
-})();
+const DEFLECTOR = { meet: 0.29, rest: [0.5, -1.32] as const, clear: 1.1 } as const;
+const OFF_BACK: Vec3 = [AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.rest[0], 0, AT.belt.c[2] + DEFLECTOR.rest[1]];
 
 /** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */
 const beltFeed = (ctx: SimContext): number => (ctx.setting('belt', BELT_FIELDS.running) === true ? (BELT_TUNING.speeds[(ctx.setting('belt', BELT_FIELDS.speed) as number) - 1] ?? 0) : 0);
 
 export const LINE = {
-  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK },
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK, deflectAt: AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.meet },
   /** The striker's arm crosses the belt at its post's x. */
   strikerX: AT.striker.c[0],
   /** The roller ramp from the belt's far end to the dock's sill. */
@@ -211,7 +202,7 @@ const rampBox = (() => {
 /** The mouths (§ B1 law 2). A part rests in one when its centre is inside. */
 const MOUTHS: readonly MouthSpec[] = [
   // the belt: its whole carrying surface, anything resting on it (centre above the surface)
-  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + 0.8, L.top, L.z] },
+  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + DEFLECTOR.clear, L.top, L.z] },
   // the dock: its ramp from the belt's end to the sill (and the bench either side of it)
   { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + rampBox.maxX) / 2, 1.3, (rampBox.minZ + rampBox.maxZ) / 2], half: [(rampBox.maxX - L.to) / 2, 1.3, (rampBox.maxZ - rampBox.minZ) / 2], drop: rampAt(RAMP, 0.2).p },
 ];

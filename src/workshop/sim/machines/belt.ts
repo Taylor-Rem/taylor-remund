@@ -91,6 +91,8 @@ export interface BeltSpec {
   readonly lever: { readonly id: Id; readonly name: string };
   /** Running backward, parts leave the motor end off the back of the belt and are set down still here (bench point, y the bench top). */
   readonly offBack: Vec3;
+  /** The x at which a part riding backward meets the deflector (its near face). */
+  readonly deflectAt: number;
 }
 
 export interface BeltUnit extends MachineUnit {
@@ -238,8 +240,8 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
   }
 
   /**
-   * Where a part guided off the back is set down: the scene's spot, or, if something lies there, the next
-   * free place a part's width further from the belt (up to three); failing those, on top at the spot.
+   * Where a part guided off the back is set down: the scene's spot (the slide's foot), or, if something
+   * lies there, the next free place a part's width along the foot (+X, up to three); failing those, on top.
    */
   function offBackFor(r: Ride): Vec3 {
     const [x0, y0, z0] = spec.offBack;
@@ -260,9 +262,8 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
     };
     const step = 2 * Math.max(r.ex, r.ez) + 0.1;
     for (let k = 0; k < 4; k++) {
-      const z = z0 - k * step;
-      if (z - Math.max(r.ex, r.ez) < ctx.scene.bench.minZ) break;
-      if (!near(x0, z).taken) return [x0, y0 + h + 0.005, z];
+      const x = x0 + k * step;
+      if (!near(x, z0).taken) return [x, y0 + h + 0.005, z0];
     }
     return [x0, near(x0, z0).top + h + 0.005, z0];
   }
@@ -281,7 +282,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         next = Math.max(next, r.x); // held, it waits where it is; it is never pushed backward
       } else {
         if (ahead) next = Math.max(next, ahead.x + ahead.ex + T.gap + r.ex);
-        else if (guiding) next = Math.max(next, spec.from + r.ex);
+        else if (guiding) next = Math.max(next, spec.deflectAt + r.ex);
         next = Math.min(next, r.x);
       }
       if (fwd && !ahead && surface > 0 && (ctx.pose(r.id)?.p[0] ?? r.x) > spec.to + T.exit) {
@@ -290,9 +291,9 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         ctx.release(r.id, [0, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
         continue;
       }
-      if (!fwd && !ahead && !guiding && next - r.ex <= spec.from) {
-        // the motor end: the deflector guides it off the back of the belt
-        next = spec.from + r.ex;
+      if (!fwd && !ahead && !guiding && next - r.ex <= spec.deflectAt) {
+        // the motor end: the deflector guides it off the back of the belt, down the slide
+        next = spec.deflectAt + r.ex;
         r.guide = { t: 0, a: [next, r.y, r.z], b: offBackFor(r) };
       }
       r.x = next;
@@ -309,10 +310,11 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
       }
       g.t = Math.min(T.guide, g.t + dt);
       const u = g.t / T.guide;
-      const e = u * u * (3 - 2 * u);
-      // round the deflector: back (toward -Z) first, then along to the spot
-      const zu = Math.min(1, e * 1.6);
-      const p: Vec3 = [g.a[0] + (g.b[0] - g.a[0]) * e, g.a[1] + (g.b[1] - g.a[1]) * e, g.a[2] + (g.b[2] - g.a[2]) * zu];
+      const ease = (v: number): number => v * v * (3 - 2 * v);
+      // along the deflector off the back first (toward -Z), then down the slide to the spot
+      const zu = ease(Math.min(1, u * 2));
+      const xu = ease(Math.max(0, u * 2 - 1));
+      const p: Vec3 = [g.a[0] + (g.b[0] - g.a[0]) * xu, g.a[1] + (g.b[1] - g.a[1]) * xu, g.a[2] + (g.b[2] - g.a[2]) * zu];
       r.x = p[0];
       r.z = p[2];
       ctx.drive(r.id, { p, q: r.q });

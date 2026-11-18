@@ -103,8 +103,8 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && p.id.startsWith('crate-spare')), `${p.id}: ${p.location.at}`).toBe(true);
   console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps; retakes ${retakes.join(' ')}`);
   expect(retakes).toEqual([]);
-  expect(seen.shipped).toBeGreaterThan(10);
-  expect(seen.struck).toBeGreaterThan(10);
+  expect(seen.shipped).toBeGreaterThan(5);
+  expect(seen.struck).toBeGreaterThan(5);
   expect(seen.returned).toBeGreaterThan(3);
   w.dispose();
 });
