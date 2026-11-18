@@ -26,6 +26,7 @@ import { bevelBox } from './kit/cheap.ts';
 import { laneTape } from './kit/pieces/bench/index.ts';
 import { ROOM, roomWall } from './kit/pieces/room/index.ts';
 import { WINDOW } from './kit/pieces/window/index.ts';
+import { dock } from './kit/pieces/dock/index.ts';
 import { signLabels } from './kit/pieces/sign/index.ts';
 import { createPartsView } from './stations/parts.ts';
 import { createSetView, flatten, placedMatrix, splitStatic, type StaticPool } from './stations/set.ts';
@@ -59,9 +60,15 @@ export interface Spot {
   readonly yaw: number;
   /** What fills it now: a registered piece, clay of its size, a taped rectangle, or a zone blocked in by its own table (`SHIPPED`). */
   readonly fill: 'piece' | 'clay' | 'tape' | 'zone';
+  /** Where the piece's own origin stands, when that is not the footprint's centre (a real piece whose bounds are off its origin). */
+  readonly at?: readonly [number, number];
 }
 
-const spot = (x: number, z: number, w: number, d: number, h: number, o: { y?: number; yaw?: number; fill?: Spot['fill'] } = {}): Spot => ({ x, z, y: o.y ?? 0, w, d, h, yaw: o.yaw ?? 0, fill: o.fill ?? 'clay' });
+const spot = (x: number, z: number, w: number, d: number, h: number, o: { y?: number; yaw?: number; fill?: Spot['fill']; at?: readonly [number, number] } = {}): Spot => ({ x, z, y: o.y ?? 0, w, d, h, yaw: o.yaw ?? 0, fill: o.fill ?? 'clay', ...(o.at ? { at: o.at } : {}) });
+
+/** A real piece's spot from its origin and its bounds there (min/max x and z, height): the footprint is the bounds'. */
+const real = (ox: number, oz: number, b: { x: readonly [number, number]; z: readonly [number, number]; h: number }): Spot =>
+  spot(ox + (b.x[0] + b.x[1]) / 2, oz + (b.z[0] + b.z[1]) / 2, b.x[1] - b.x[0], b.z[1] - b.z[0], b.h, { fill: 'piece', at: [ox, oz] });
 
 /**
  * The crew are drawn this much bigger than their P1 pieces (ART-P2 § 2). The layout is sized for this
@@ -70,9 +77,27 @@ const spot = (x: number, z: number, w: number, d: number, h: number, o: { y?: nu
  */
 export const CREW_SCALE = 1.5;
 
-/** Revert at the crew's 1.25× (ART-P2 § 5: 1.45 wide, 1.1 deep, 0.9 tall); scaled with the crew. */
-export const REVERT_AT_125 = { w: 1.45, d: 1.1, h: 0.9 } as const;
-const revert = { w: (REVERT_AT_125.w / 1.25) * CREW_SCALE, d: (REVERT_AT_125.d / 1.25) * CREW_SCALE, h: (REVERT_AT_125.h / 1.25) * CREW_SCALE };
+/** Revert and its hatch were built at the crew's 1.25×: drawn at CREW_SCALE / 1.25. */
+export const REVERT_SCALE = CREW_SCALE / 1.25;
+
+/**
+ * The real pieces' bounds about their own origins (measured from the pieces at rest; the test re-measures):
+ * the storefront, the platen, the dock with its ramp fitted to the belt (`DOCK_REACH`), Revert idle and its
+ * hatch open (both at REVERT_SCALE).
+ */
+export const BOUNDS = {
+  storefront: { x: [-2.27, 1.21], z: [-0.47, 0.6], h: 2.83 },
+  platen: { x: [-1.7, 1.31], z: [-1.26, 1.09], h: 2.99 },
+  dock: { x: [-1.21, 1.38], z: [-1.35, 1.2], h: 2.29 },
+  revert: { x: [-0.84 * REVERT_SCALE, 0.87 * REVERT_SCALE], z: [-0.58 * REVERT_SCALE, 0.7 * REVERT_SCALE], h: 1.12 * REVERT_SCALE },
+  hatch: { x: [-1.3 * REVERT_SCALE, 1.3 * REVERT_SCALE], z: [-0.81 * REVERT_SCALE, 0.81 * REVERT_SCALE], h: 0.87 * REVERT_SCALE },
+} as const;
+
+/** The dock's ramp start from the door's origin [dx, dz] (dims.ts `fitRamp`): short, so the door stands at (5.42, 3.45), left of the Shipped zone's front row. */
+export const DOCK_REACH: readonly [number, number] = [-1.2, 0.45];
+/** The belt's bed end and the dock's door (its origin): the ramp's first roller sits DOCK.beltGap (0.12) past the bed. */
+const BED_END: readonly [number, number] = [-0.9 + 5, 3.9];
+const DOOR: readonly [number, number] = [BED_END[0] + 0.12 - DOCK_REACH[0], BED_END[1] - DOCK_REACH[1]];
 
 /** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
 export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.25 } as const;
@@ -108,20 +133,24 @@ export const LAYOUT = {
     // ── the back row ──
     board: spot(0.55, -4.335, 4.6, 1.31, 3.11, { fill: 'piece' }),
     stool: spot(3.05, -3.35, 0.65, 0.65, 1.15, { fill: 'piece' }),
-    storefront: spot(7.05, -3.6, 2.3, 0.9, 2.1),
+    /** The storefront (real; its jack box and conduit run off its left side). */
+    storefront: real(7.6, -3.6, BOUNDS.storefront),
     // ── the middle row ──
     /** The reserved bays (the room's pieces, their labels flat on the bench): the plain one at the back, INSPECTION in front of it, nearer the belt. */
     bayNext: spot(-6.6, -2.6, 3.0, 1.8, 0, { fill: 'piece' }),
-    bayInspection: spot(-6.8, 0.25, 3.6, 2.0, 0, { fill: 'piece' }),
-    undo: spot(-3.7, -1.9, 0.7, 0.7, 1.5),
+    bayInspection: spot(-6.85, 0.25, 3.6, 2.0, 0, { fill: 'piece' }),
+    /** The UNDO lever: near the middle now, in the lamp's pool, clear of Revert's line of sight. */
+    undo: spot(-2.2, -1.9, 0.7, 0.7, 1.5),
     phone: spot(2.2, -1.35, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
-    platen: spot(4.5, -2.0, 1.6, 1.4, 1.4),
-    /** Shipped (P4): four pallets of crates, the mailbox on its post, the clipboard hanging from it (`SHIPPED`). */
-    shipped: spot(7.05, -0.2, 3.2, 2.8, 1.3, { fill: 'zone' }),
+    /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Its column stands right of Patch's line of sight. */
+    platen: real(4.4, -0.9, BOUNDS.platen),
+    /** Shipped (P4): four pallets of crates (`SHIPPED`). */
+    shipped: spot(7.88, -0.4, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
-    hatch: spot(-3.6, 0.35, revert.w + 0.2, revert.d + 0.2, 0.04),
-    /** Revert, parked on its hatch (clay at the crew's scale). */
-    revert: spot(-3.6, 0.35, revert.w, revert.d, revert.h),
+    /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top has no hole yet: the hatch stands on the planks. */
+    hatch: real(-3.45, 0.35, BOUNDS.hatch),
+    /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
+    revert: real(-3.45, 0.35, BOUNDS.revert),
     button: spot(-0.05, 0.55, 2.1, 1.52, 1.98, { fill: 'piece' }),
     // ── the front ──
     stack: spot(-8.5, -1.2, 0.8, 0.8, 1.85, { fill: 'piece' }),
@@ -129,7 +158,10 @@ export const LAYOUT = {
     /** The belt piece at length 10 (the bed x -5.9..4.1) with its motor housing (dial plate and lever plate on its panel) at the left end: the whole piece's footprint. */
     belt: spot(-1.33, 3.995, 11.4, 1.6, 1.25, { fill: 'piece' }),
     striker: spot(3.7, 3.22, 0.6, 0.44, 1.7),
-    dock: spot(5.25, 3.65, 1.7, 1.2, 1.6, { yaw: -50 }),
+    /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
+    dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
+    /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
+    mailbox: spot(7.7, 3.75, 0.42, 0.36, 1.3),
     chute: spot(-8.1, 3.3, 0.9, 1.1, 0.9),
   },
 } as const;
@@ -143,38 +175,49 @@ export interface ShippedCrate {
   readonly y: number;
 }
 export const CRATE_EDGE_VIEW = { S: 0.45, M: 0.6, L: 0.8 } as const;
-const PALLET = { w: 1.1, d: 1.0, h: 0.15 } as const;
+const PALLET = { w: 1.0, d: 1.0, h: 0.15 } as const;
 
 /**
  * The Shipped zone blocked in (P4 builds it): four pallets in two rows. The back row carries the tall
  * stacks (up to 1.2), the front row low ones (0.6), with 0.7 between the rows, so every crate's front
  * shows over the row in front of it; the front row stands right of the dock's line of sight. The
- * mailbox stands at the back right on its post, the clipboard hangs on the post's front.
+ * pallets are 1.0 × 1.0 and stand two by two in the dock's lee: at 1.2 wide, or with a pallet further
+ * left, the dock's portal hides the foot of a back-row crate.
  */
 export const SHIPPED = {
   pallet: PALLET,
   pallets: [
-    { x: 6.0, z: -1.05, crates: [{ size: 'M', dx: -0.25, y: 0 }, { size: 'S', dx: -0.25, y: 0.6 }, { size: 'S', dx: 0.3, y: 0 }] },
-    { x: 7.3, z: -1.05, crates: [{ size: 'M', dx: 0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0.6 }, { size: 'S', dx: -0.3, y: 0 }, { size: 'S', dx: -0.3, y: 0.45 }] },
-    { x: 6.9, z: 0.65, crates: [{ size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: 0.27, y: 0 }] },
-    { x: 8.1, z: 0.65, crates: [{ size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 7.4, z: -1.25, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 8.45, z: -1.25, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
+    { x: 7.48, z: 0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 8.5, z: 0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
   ] as ReadonlyArray<{ x: number; z: number; crates: readonly ShippedCrate[] }>,
-  mailbox: { x: 8.3, z: -1.25, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 } },
-  clipboard: { w: 0.3, h: 0.4, t: 0.03, y: 0.45 },
 } as const;
 
-/** Each pallet's whole mass (pallet and stack) as a box: the bodies, and the test's blockers. */
+/** The mailbox on its post and the résumé clipboard hanging from the post's front (clay; P4). */
+export const MAILBOX = { x: 7.7, z: 3.75, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 }, clipboard: { w: 0.34, h: 0.44, t: 0.03, y: 0.42 } } as const;
+
+/** Each pallet as two boxes, the pallet and its stack of crates: the bodies. */
 export function shippedBoxes(): Array<{ id: string; box: Box3 }> {
   const out: Array<{ id: string; box: Box3 }> = [];
   const P = SHIPPED.pallet;
   SHIPPED.pallets.forEach((p, i) => {
-    let top: number = P.h;
-    for (const c of p.crates) top = Math.max(top, P.h + c.y + CRATE_EDGE_VIEW[c.size]);
-    out.push({ id: `pallet-${'abcd'[i]}`, box: new Box3(new Vector3(p.x - P.w / 2, 0, p.z - P.d / 2), new Vector3(p.x + P.w / 2, top, p.z + P.d / 2)) });
+    const id = `pallet-${'abcd'[i]}`;
+    out.push({ id, box: new Box3(new Vector3(p.x - P.w / 2, 0, p.z - P.d / 2), new Vector3(p.x + P.w / 2, P.h, p.z + P.d / 2)) });
+    const stack = new Box3();
+    for (const c of p.crates) {
+      const e = CRATE_EDGE_VIEW[c.size];
+      stack.union(new Box3(new Vector3(p.x + c.dx - e / 2, P.h + c.y, p.z + P.d / 2 - e), new Vector3(p.x + c.dx + e / 2, P.h + c.y + e, p.z + P.d / 2)));
+    }
+    out.push({ id: `${id}-stack`, box: stack });
   });
-  const m = SHIPPED.mailbox;
-  out.push({ id: 'mailbox', box: new Box3(new Vector3(m.x - m.box.w / 2, 0, m.z - m.box.d / 2), new Vector3(m.x + m.box.w / 2, m.postH + m.box.h, m.z + m.box.d / 2)) });
   return out;
+}
+
+/** The mailbox (with its post) as a box. */
+export function mailboxBox(): Box3 {
+  const m = MAILBOX;
+  return new Box3(new Vector3(m.x - m.box.w / 2, 0, m.z - m.box.d / 2), new Vector3(m.x + m.box.w / 2, m.postH + m.box.h, m.z + m.box.d / 2));
 }
 
 /** Every shipped crate's front face (world): centre and size, for the visibility test. */
@@ -283,16 +326,21 @@ function shippedClay(): Array<{ piece: Piece; at: Matrix4 }> {
       out.push({ piece: clayBlock(`shipped-crate-${i}-${j}`, e - 0.02, e - 0.02, e - 0.02, 0.5), at: placedMatrix({ x: p.x + c.dx, y: P.h + c.y, z: p.z + P.d / 2 - e / 2 }) });
     }
   });
-  const m = SHIPPED.mailbox;
-  out.push({ piece: clayBlock('mailbox-post', m.post, m.postH, m.post), at: placedMatrix({ x: m.x, z: m.z }) });
-  out.push({ piece: clayBlock('mailbox', m.box.w, m.box.h, m.box.d, 0.55), at: placedMatrix({ x: m.x, y: m.postH, z: m.z }) });
-  const k = SHIPPED.clipboard;
-  out.push({ piece: clayBlock('clipboard', k.w, k.h, k.t, 0.7), at: placedMatrix({ x: m.x, y: k.y, z: m.z + m.post / 2 + k.t / 2 + 0.01 }) });
   return out;
 }
 
+/** The mailbox on its post and the clipboard on the post's front, in clay. */
+function mailboxClay(): Array<{ piece: Piece; at: Matrix4 }> {
+  const m = MAILBOX, k = MAILBOX.clipboard;
+  return [
+    { piece: clayBlock('mailbox-post', m.post, m.postH, m.post), at: placedMatrix({ x: m.x, z: m.z }) },
+    { piece: clayBlock('mailbox', m.box.w, m.box.h, m.box.d, 0.55), at: placedMatrix({ x: m.x, y: m.postH, z: m.z }) },
+    { piece: clayBlock('clipboard', k.w, k.h, k.t, 0.7), at: placedMatrix({ x: m.x, y: k.y, z: m.z + m.post / 2 + k.t / 2 + 0.01 }) },
+  ];
+}
+
 /** The clay and tape of every station still being built, and Fetch's lane tape, as pool items for the set to merge. */
-export function standIns(seed: number, lane: { a: readonly [number, number]; b: readonly [number, number] }, crewScale = CREW_SCALE): Array<{ piece: Piece; at: Matrix4 }> {
+export function standIns(seed: number, lane: { a: readonly [number, number]; b: readonly [number, number] }): Array<{ piece: Piece; at: Matrix4 }> {
   const out: Array<{ piece: Piece; at: Matrix4 }> = [];
   const I = new Matrix4();
   for (const [name, s] of Object.entries(LAYOUT.stations) as Array<[StationKey, Spot]>) {
@@ -305,13 +353,13 @@ export function standIns(seed: number, lane: { a: readonly [number, number]; b: 
       continue;
     }
     if (s.fill !== 'clay') continue;
+    if (name === 'mailbox') {
+      out.push(...mailboxClay());
+      continue;
+    }
     const onWall = s.z <= WALL_Z;
     const at = placedMatrix({ x: s.x, y: s.y, z: onWall ? WALL_Z + s.d / 2 + 0.01 : s.z, yaw: s.yaw });
-    // Revert is drawn at the crew's scale of this page (the layout is sized for CREW_SCALE)
-    const k = name === 'revert' ? crewScale / CREW_SCALE : 1;
-    out.push({ piece: clayBlock(name, s.w * k, Math.max(s.h * k, 0.02), s.d * k, name === 'revert' ? 0.62 : 0.45), at });
-    // the hatch is a trapdoor with a tape-yellow border
-    if (name === 'hatch') out.push({ piece: tapedRect({ ...s, w: s.w + 0.16, d: s.d + 0.16 }, seed + 11), at: I });
+    out.push({ piece: clayBlock(name, s.w, Math.max(s.h, 0.02), s.d), at });
   }
   // Fetch's lane: a closed rectangle of tape round the runner's lane, wide enough for the bigger Fetch
   const hw = LANE_TAPE.half, px = LANE_TAPE.past;
@@ -436,6 +484,11 @@ export interface BenchOptions {
   seed?: number;
   /** The crew's drawing scale (default CREW_SCALE; the page's ?crew= compares others). */
   crewScale?: number;
+  /**
+   * A test of a lower seat (the switchboard's seat-height option is coming): the P1 stool is sunk into the
+   * bench so its seat top stands at this height, and Patch with it. Review only.
+   */
+  seat?: number;
   /** The room round the bench (frame, floor, wall run on and cut for the window, the room's ends); false: P1's bench top and 21-wide wall. Default true. */
   room?: boolean;
 }
@@ -491,6 +544,11 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Piece | null => (e ? buildEntry(e, null, { seed, ...opts }) : null);
   const S = LAYOUT.stations;
   const fit = fitPieces(scene, { board: blank(E.board), stool: blank(E.stool), phone: blank(E.phone), belt: blank(E.belt, { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+  if (o.seat !== undefined) {
+    const sink = fit.stool.seat[1] - o.seat;
+    fit.stool.at = { ...fit.stool.at, y: -sink };
+    fit.stool.seat = [fit.stool.seat[0], o.seat, fit.stool.seat[2]];
+  }
   const meas = measured(scene, fit);
   const fetchPiece = blank(E.fetch);
   const fetchBounds = fetchPiece ? pieceBounds(fetchPiece) : null;
@@ -536,13 +594,27 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const withRoom = o.room ?? true;
   const clayAndTape: StationViewFactory = (ctx: ViewContext) => {
     // runs before the set: hand the stand-ins and the room's pieces to its pool so they merge with it
-    pool.items.push(...standIns(seed, scene.runner.lane, crewScale));
+    pool.items.push(...standIns(seed, scene.runner.lane));
     const at = (x = 0, y = 0, z = 0): Matrix4 => new Matrix4().makeTranslation(x, y, z);
     const put = (name: string, opts: Record<string, unknown>, m: Matrix4): void => {
       const e = find(name);
       if (e) pool.items.push({ piece: buildEntry(e, null, { seed, ...opts }, ctx.labels), at: m });
     };
     const S2 = LAYOUT.stations;
+    // the real pieces at rest, static (no behaviour yet): placed at their own origins
+    const S3 = LAYOUT.stations;
+    const origin = (sp: Spot): [number, number] => [sp.at?.[0] ?? sp.x, sp.at?.[1] ?? sp.z];
+    const scaled = (sp: Spot, k: number): Matrix4 => {
+      const [x, z] = origin(sp);
+      return at(x, 0, z).multiply(new Matrix4().makeScale(k, k, k));
+    };
+    put('storefront', {}, at(origin(S3.storefront)[0], 0, origin(S3.storefront)[1]));
+    put('platen', {}, at(origin(S3.platen)[0], 0, origin(S3.platen)[1]));
+    pool.items.push({ piece: dock({ seed, reach: DOCK_REACH }), at: at(origin(S3.dock)[0], 0, origin(S3.dock)[1]) });
+    // Revert and its hatch were built at the crew's 1.25×: drawn at the page's crew scale / 1.25
+    const rk = crewScale / 1.25;
+    put('revert-hatch', { pose: 'open' }, scaled(S3.hatch, rk));
+    put('revert', { pose: 'idle' }, scaled(S3.revert, rk));
     put('reserved-bay', { which: 'next', w: S2.bayNext.w, d: S2.bayNext.d, seed: 3 }, at(S2.bayNext.x, 0, S2.bayNext.z));
     put('reserved-bay', { which: 'inspection', w: S2.bayInspection.w, d: S2.bayInspection.d, seed: 4 }, at(S2.bayInspection.x, 0, S2.bayInspection.z));
     if (withRoom) {

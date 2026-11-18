@@ -10,6 +10,7 @@
 //   ?plan=1            straight down, near-orthographic, with a unit grid, coordinates and every footprint
 //   ?names=0           no stand-in names
 //   ?crew=1.25         draw the crew at another scale (default view/bench.ts CREW_SCALE)
+//   ?seat=0.65         test a lower seat: the P1 stool sunk into the bench so its top stands this high, Patch on it
 //   ?room=0            without the room (P1's bench top and 21-wide wall, the stage's fall-off)
 //   ?shot=left|right   panned as far as a visitor can to each end at the home zoom
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
@@ -70,7 +71,7 @@
       const NAMES: Record<StationKey, string> = {
         toolwall: 'tool wall', lamp: 'lamp clamp', sign: 'sign', window: 'WINDOW', board: 'switchboard', stool: 'stool',
         storefront: 'STOREFRONT', bayNext: 'RESERVED bay', bayInspection: 'RESERVED: INSPECTION bay', undo: 'UNDO lever', phone: 'phone', platen: 'PLATEN',
-        shipped: 'SHIPPED (P4): pallets, mailbox, clipboard', hatch: "REVERT's hatch", revert: 'REVERT', button: 'Button', stack: 'crate stack',
+        shipped: 'SHIPPED (P4): pallets', mailbox: 'MAILBOX + résumé clipboard (P4)', hatch: "REVERT's hatch", revert: 'REVERT', button: 'Button', stack: 'crate stack',
         lane: "Fetch's lane", belt: 'belt', striker: 'STRIKER', dock: 'DOCK', chute: 'RETURN CHUTE',
       };
 
@@ -78,7 +79,8 @@
       const withRoom = q.get('room') !== '0';
       // the room shows (ROOM brief: at the stage's 0.9 everything below the bench top is erased and the bench floats)
       if (withRoom) Object.assign(LOOK.fog, { drop: 5.5 });
-      const bench = await loadBench({ scene: BENCH_SCENE, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}) });
+      const seat = q.get('seat') ? Number(q.get('seat')) : undefined;
+      const bench = await loadBench({ scene: BENCH_SCENE, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}), ...(seat !== undefined ? { seat } : {}) });
       const portrait = (): boolean => !plan && (q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight));
 
       const shots: Record<string, () => Box3> = {
@@ -245,12 +247,23 @@
           const tag = `.${mat}.`;
           const at = m.name.indexOf(tag);
           if (at < 0) return;
-          const key = m.name.slice(at + tag.length);
+          let key = m.name.slice(at + tag.length);
           if (!key.includes('|')) return;
+          // a material variant may follow the key (".noshadow"): take the longest prefix the labels know
+          let cap = 0, size = { w: 0, h: 0 };
+          for (;;) {
+            try {
+              cap = ws.labels.capHeight(key);
+              size = ws.labels.size(key);
+              break;
+            } catch {
+              const cut = key.lastIndexOf('.');
+              if (cut <= key.indexOf('|')) return;
+              key = key.slice(0, cut);
+            }
+          }
           const register = key.split(/[:@|]/)[0]!;
           const text = key.slice(key.indexOf('|') + 1);
-          const cap = ws.labels.capHeight(key);
-          const size = ws.labels.size(key);
           const g = m.geometry;
           const pos = g.getAttribute('position') as BufferAttribute;
           const uv = g.getAttribute('uv') as BufferAttribute | undefined;
