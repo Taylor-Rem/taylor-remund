@@ -1,16 +1,24 @@
 /**
- * The boot (REWRITE.md § E6, W2 brief § 4): from a canvas to a running
+ * The boot (REWRITE.md § E6, W2 brief § 4, B1): from a canvas to a running
  * workshop. In order:
  *
- *   1. the stage (renderer, light, camera, post) and picking;
- *   2. the physics module starts loading after the first animation frame
- *      (its wasm never blocks the first paint), while the label fonts load;
- *   3. materials, the `ViewContext`, every station view the caller listed;
- *      one frame is drawn;
+ *   1. the physics module starts loading AT ONCE: its wasm downloads and
+ *      compiles off the main thread while the scene is built (§ E6 "the
+ *      stage script and, in parallel, the physics file");
+ *   2. the stage (renderer, light, camera, post) and picking; the label fonts;
+ *   3. materials, the `ViewContext`, every station view the caller listed,
+ *      yielding to the browser between views so the page keeps painting and
+ *      answering (the dim picture brightening, the strip's links);
  *   4. the world, from the scene and the seed;
  *   5. input on the canvas → intents → `world.dispatch`; the camera
  *      gestures → the rig;
- *   6. the fixed-step loop: input, steps, frame, views, render.
+ *   6. the shaders compile without blocking (KHR_parallel_shader_compile)
+ *      and one frame is drawn;
+ *   7. the fixed-step loop: input, steps, frame, views, render.
+ *
+ * Every phase leaves a `b1:` performance mark or measure (scripts/loadtime.ts
+ * prints them) and reports progress (`onProgress`), which the loader turns
+ * into the picture's warmth.
  *
  * The shell knows no station: it takes the list (`check-layers`).
  */
@@ -70,6 +78,41 @@ export interface BootOptions {
   carry?: Partial<CarryTuning>;
   /** Hit-area minimum on screen, CSS px: mouse and touch (§ E9: at least 44 on touch). */
   hitPx?: { mouse: number; touch: number };
+  /** Progress: `done` of `total` units of the named phase are finished (the loader's warmth). */
+  onProgress?(phase: BootPhase, done: number, total: number): void;
+  /** Yield to the browser between station views (default true). */
+  yieldBetweenViews?: boolean;
+}
+
+export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
+
+/** A `b1:` performance mark (scripts/loadtime.ts reads them), when the platform has marks. */
+export function mark(name: string): void {
+  if (typeof performance !== 'undefined' && typeof performance.mark === 'function') performance.mark(`b1:${name}`);
+}
+
+/** A `b1:` performance measure from `start` (performance.now() ms) to now. */
+export function measure(name: string, start: number): void {
+  if (typeof performance === 'undefined' || typeof performance.measure !== 'function') return;
+  try {
+    performance.measure(`b1:${name}`, { start, end: performance.now() });
+  } catch {
+    /* no options form of measure: no measure */
+  }
+}
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
+
+/**
+ * Give the browser a turn: paint, answer input, run a CSS transition.
+ * `scheduler.yield()` where there is one (the continuation keeps its
+ * priority), else a macrotask. Never an animation frame: those stop in a
+ * hidden tab and the load would stall.
+ */
+export function yieldToBrowser(): Promise<void> {
+  const s = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (typeof s?.yield === 'function') return s.yield();
+  return new Promise((r) => setTimeout(r, 0));
 }
 
 export interface Workshop {
@@ -93,18 +136,31 @@ export interface Workshop {
   dispose(): void;
 }
 
-const nextFrame = (): Promise<void> => new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
-
 export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions): Promise<Workshop> {
-  // 1. the stage
+  const progress = opts.onProgress ?? ((): void => {});
+  const yieldBetween = opts.yieldBetweenViews ?? true;
+  const t0 = now();
+  mark('boot');
+
+  // 1. physics at once
+  const physicsReady = (opts.physics ?? createRapierPhysics)().then((p) => {
+    mark('physics-ready');
+    progress('physics', 1, 1);
+    return p;
+  });
+  // handled where it is awaited; this keeps an early rejection from being reported as unhandled meanwhile
+  physicsReady.catch(() => {});
+
+  // 2. the stage, the fonts
   const stage = createStage(canvas, { ...opts.stage, tier: opts.tier, reducedMotion: opts.reducedMotion });
   const picking = new Picking();
-  stage.render();
-
-  // 2. physics after the first frame, fonts meanwhile
-  const physicsReady = nextFrame().then(() => (opts.physics ?? createRapierPhysics)());
+  measure('stage', t0);
+  progress('stage', 1, 1);
+  const tl = now();
   const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), ...opts.labels });
   const materials = createMaterials({ tier: opts.tier, labels });
+  measure('labels+materials', tl);
+  progress('labels', 1, 1);
 
   // 3. the views
   const ctx: BootViewContext = {
@@ -118,17 +174,30 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     stage,
     picking,
   };
-  const views = opts.stations.map((f) => f(ctx));
-  stage.render();
+  const views: StationView[] = [];
+  const n = opts.stations.length;
+  for (let i = 0; i < n; i++) {
+    if (yieldBetween) await yieldToBrowser();
+    const tv = now();
+    const view = opts.stations[i]!(ctx);
+    views.push(view);
+    measure(`view ${i} ${view.root.name || opts.stations[i]!.name || 'station'}`, tv);
+    progress('views', i + 1, n);
+  }
 
   // 4. the world
+  const tp = now();
   const physics = await physicsReady;
+  measure('physics wait', tp);
+  const tw = now();
   const world: World = createWorld({ seed: opts.seed, physics, ...(opts.scene ? { scene: opts.scene } : {}) });
   const scene = world.scene;
   const frameCamera = opts.frameCamera ?? defaultFraming;
   frameCamera(stage, scene);
   const onResize = (): void => frameCamera(stage, scene);
   addEventListener('resize', onResize);
+  measure('world', tw);
+  progress('world', 1, 1);
 
   // 5. input
   const hitPx = opts.hitPx ?? { mouse: 14, touch: 44 };
@@ -234,6 +303,15 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     onFrame: (frame) => opts.onFrame?.(frame, workshop),
   });
   driverRef.d = driver;
+
+  // 6. the shaders, without blocking
+  if (yieldBetween) await yieldToBrowser();
+  const tc = now();
+  await compileShaders(stage);
+  measure('compile', tc);
+  progress('compile', 1, 1);
+
+  // 7. the loop
   const loop = createLoop({
     manual: opts.manual ?? false,
     step() {
@@ -242,6 +320,14 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     },
     render: (info) => driver.render(info),
   });
+  if (opts.manual) {
+    // the first frame (the loop draws its own once started)
+    const tf = now();
+    loop.advance(0);
+    measure('first frame', tf);
+  }
+  progress('frame', 1, 1);
+  mark('booted');
   if (!opts.manual) loop.start();
 
   const workshop: Workshop = {
@@ -273,8 +359,23 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   return workshop;
 }
 
+/**
+ * Compile every material the scene will draw without stalling the main
+ * thread on each program's link (three's `compileAsync` polls
+ * KHR_parallel_shader_compile). The post chain's passes and the shadow depth
+ * programs still compile on the first frame.
+ */
+async function compileShaders(stage: Stage): Promise<void> {
+  try {
+    stage.scene.updateMatrixWorld(true);
+    await stage.renderer.compileAsync(stage.scene, stage.camera.camera);
+  } catch {
+    /* the first frame compiles whatever is left */
+  }
+}
+
 /** The default framing: the bench's box from the scene, home at zoom 0. */
-function defaultFraming(stage: Stage, scene: SceneDesc): void {
+export function defaultFraming(stage: Stage, scene: SceneDesc): void {
   const b = scene.bench;
   const box = new Box3(new Vector3(b.minX, b.top - 0.4, b.minZ), new Vector3(b.maxX, b.top + 5, b.maxZ));
   stage.camera.setSubject(box, { edge: { y: b.top, z: b.maxZ } });

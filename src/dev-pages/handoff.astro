@@ -1,0 +1,174 @@
+---
+// /dev/handoff/ (B1, REWRITE.md § B3 "before JavaScript" / "loading" / "0 s",
+// § E6): the vignette, booted through the shell's picture-first loader. The
+// picture is plain HTML (a <picture> of aspect bands, src/dev-pages/handoff/,
+// rendered by scripts/poster.ts from this very page); it is dim while the
+// stage loads and brightens with real progress; the live stage replaces it
+// when it has drawn a settled frame from the picture's own camera and state.
+//
+// The loader knows no scene: everything vignette-specific is in `prepare`
+// below (which modules, which framing). Another scene mounts the same way.
+//
+// Query:
+//   ?band=<i>      the poster script's mode: no picture, the canvas shows at
+//                  once, band i's camera; holds before the swap
+//   ?hold=1        stop before the swap and after it (window.__handoff.release())
+//   ?fade=<ms>     cross-fade length (default 180; 0 under reduced motion)
+//   ?seed=N  ?physics=stub  ?fail=1 (throw in prepare: the picture must stay)
+// Hooks: window.__handoff (shell/loader.ts HandoffState), window.__ready
+//   (true once live, or once held in the poster mode).
+//
+// Capture / measure (repo root):
+//   node scripts/poster.ts            render the pictures (and --check, --prove)
+//   node scripts/loadtime.ts          cold load, unthrottled and Fast 4G
+import manifestJson from './handoff/posters.json';
+import { pictureSources, type PosterSet } from '../workshop/shell/poster.ts';
+
+const manifest = manifestJson as unknown as PosterSet;
+const files = import.meta.glob<string>('./handoff/*.{avif,webp,jpg}', { query: '?url', import: 'default', eager: true });
+const urlOf = (file: string): string => files[`./handoff/${file}`] ?? '';
+const urls: Record<string, string> = Object.fromEntries(manifest.posters.flatMap((p) => p.files.map((f) => [f.file, urlOf(f.file)])));
+const ready = manifest.posters.some((p) => p.files.length > 0) && Object.values(urls).every((u) => u !== '');
+const sources = ready ? pictureSources(manifest, urlOf) : [];
+const fallbackEntry = manifest.posters.flatMap((p) => p.files).find((f) => f.file === manifest.fallback);
+const fallback = fallbackEntry ? urlOf(fallbackEntry.file) : '';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Handoff</title>
+    <script is:inline>
+      // Before anything else paints: dim the picture only when a script will warm it up.
+      // With no JavaScript this never runs and the picture is at full brightness.
+      // With reduced motion there is no warm-up at all (no fades, no slow brightening).
+      (function () {
+        var d = document.documentElement;
+        d.classList.add('js');
+        var q = new URLSearchParams(location.search);
+        if (q.has('band')) d.classList.add('poster-mode');
+        else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) d.classList.add('warming');
+        // the loader says it is alive at once; if it never does (its script failed to load), come up to full
+        setTimeout(function () {
+          if (!window.__handoff) d.classList.remove('warming');
+        }, 8000);
+      })();
+    </script>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
+      .stage-root { position: fixed; inset: 0; overflow: hidden; background: #12292c; --warm: 0.42; }
+      .stage-root picture, .stage-root img.poster, .stage-root canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .stage-root img.poster { object-fit: cover; object-position: 50% 50%; }
+      html.warming .stage-root img.poster { filter: brightness(var(--warm)) saturate(calc(0.55 + 0.45 * var(--warm))); transition: filter 0.6s ease-out; }
+      .stage-root canvas { opacity: 0; pointer-events: none; touch-action: none; transition: opacity 0.18s linear; }
+      .stage-root.live canvas, html.poster-mode .stage-root canvas { opacity: 1; pointer-events: auto; }
+      html.poster-mode .stage-root picture { display: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .stage-root img.poster, .stage-root canvas { transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage-root" id="stage-root">
+      {ready && (
+        <picture>
+          {sources.map((s) => <source media={s.media ?? undefined} type={s.type} srcset={s.srcset} sizes={s.sizes} />)}
+          <img class="poster" src={fallback} alt="" width={fallbackEntry?.width} height={fallbackEntry?.height} fetchpriority="high" {...{ elementtiming: 'poster' }} />
+        </picture>
+      )}
+      <canvas id="stage"></canvas>
+    </div>
+    <script define:vars={{ urls, manifest, ready }} is:inline>
+      window.__posters = { urls: urls, manifest: manifest, ready: ready };
+    </script>
+    <script>
+      import { loadStage } from '../workshop/shell/loader.ts';
+      import type { PosterSet } from '../workshop/shell/poster.ts';
+      import { createRapierPhysics, createStubPhysics } from '../workshop/sim/index.ts';
+      import { loadFonts } from '../workshop/view/labels/fonts.ts';
+
+      const q = new URLSearchParams(location.search);
+      // the set's bands and state always (the poster mode renders from them); its pictures only once rendered
+      const { urls, manifest, ready } = (window as unknown as { __posters: { urls: Record<string, string>; manifest: PosterSet; ready: boolean } }).__posters;
+      const root = document.getElementById('stage-root')!;
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const img = root.querySelector('img.poster') as HTMLImageElement | null;
+      const seed = Number(q.get('seed') ?? 1);
+      const band = q.get('band');
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // started before the scene modules: the physics file streams and compiles meanwhile, and the fonts arrive
+      const physics = q.get('physics') === 'stub' ? Promise.resolve(createStubPhysics()) : createRapierPhysics();
+      physics.catch(() => {});
+
+      // the scene's modules, all requested at once (the scene's own loader awaits them one by one)
+      const warmModules = (): Promise<unknown>[] => {
+        const pieces = import.meta.glob('../workshop/view/kit/pieces/*/index.ts');
+        const stations = import.meta.glob('../workshop/view/stations/*.ts');
+        return [...Object.values(pieces), ...Object.values(stations)].map((f) => f().catch(() => null));
+      };
+
+      const hold = q.get('hold') === '1' || band !== null;
+      if (hold) {
+        // held before the swap (the poster mode, the proof): ready once the held frame is drawn
+        const poll = (): void => {
+          const h = (window as unknown as { __handoff?: { phase: string } }).__handoff;
+          if (h?.phase === 'held-picture' || h?.phase === 'failed') window.__ready = true;
+          else requestAnimationFrame(poll);
+        };
+        poll();
+      }
+
+      const ws = await loadStage({
+        root,
+        canvas,
+        img,
+        posters: band === null && ready ? manifest : null,
+        url: (file) => urls[file] ?? '',
+        reducedMotion,
+        hold,
+        ...(q.has('fade') ? { fadeMs: Number(q.get('fade')) } : {}),
+        ...(band !== null ? { renderBand: { narrowest: Number(band) === 0 ? manifest.narrowest : manifest.posters[Number(band)]!.minAspect, step: manifest.step, settle: manifest.settle } } : {}),
+        early: [() => loadFonts()],
+        async prepare(progress) {
+          if (q.get('fail') === '1') throw new Error('asked to fail (?fail=1)');
+          const warming = warmModules();
+          let done = 0;
+          for (const p of warming) void p.then(() => progress(++done / (warming.length + 1)));
+          const { Box3, Vector3 } = await import('three');
+          const { loadVignette, homeBox, FRAMING } = await import('../workshop/view/vignette.ts');
+          const { LOOK } = await import('../workshop/view/stage/index.ts');
+          const vig = await loadVignette({ seed });
+          progress(1);
+          const portrait = (): boolean => innerWidth < innerHeight;
+          return {
+            tier: 'high',
+            reducedMotion,
+            seed,
+            scene: vig.scene,
+            stations: vig.stations,
+            physics: () => physics,
+            frameCamera(stage, scene) {
+              // the vignette's own framing (src/dev-pages/vignette.astro), unchanged
+              const edge = { y: scene.bench.top, z: scene.bench.maxZ };
+              stage.camera.stationSize = 1.6;
+              stage.camera.setSubject(homeBox(portrait()), {
+                edge,
+                bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 5, scene.bench.maxZ)),
+              });
+              stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
+              Object.assign(LOOK.focus, FRAMING.blur);
+              stage.camera.cutTo(stage.camera.home());
+            },
+          };
+        },
+        onLive() {
+          window.__ready = true;
+        },
+      });
+      if (!ws) window.__ready = true;
+    </script>
+  </body>
+</html>
