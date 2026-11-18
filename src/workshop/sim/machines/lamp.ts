@@ -9,15 +9,18 @@
  * - `level`: a brightness step, 1 to `levels` (the visit starts at
  *   `startLevel`, the light the G1 pictures were taken in);
  * - `colour`: `warm` (its own amber) or one of the 8 paints;
- * - `x`, `z`: where the arm holds the bulb over the bench (its height is
- *   fixed). The shade points at the home aim point, moved `follow` of the
- *   way the bulb has moved, so the pool of light and every shadow swing
- *   with the arm.
+ * - `x`, `z` (S6): the AIM, the point on the bench top (world) the shade
+ *   points at, kept inside the piece's reachable region (`LampSpec.reach`,
+ *   a convex polygon from the scene). The view derives the bulb and the
+ *   shade's axis from the aim with the lamp piece's `aimLamp`, so the pool
+ *   of light and every shadow swing with the arm. The simulation does not
+ *   decide where the bulb is.
  *
  * Texts through the LAMP jack set `on`, `level` and `colour` (all of one
  * text in one commit). The arm is a handle: a drag (`drag` intents with the
- * lamp's id) moves the bulb within what the joints reach (`LampSpec.reach`,
- * from the scene) at once, and commits `x` and `z` in ONE transaction when
+ * lamp's id, or one grab of its shade, S6) moves the aim to the point the
+ * hand's target stands over (its x, z: the input passes the pointer's point on
+ * the bench), the nearest one the joints reach, at once, and commits `x` and `z` in ONE transaction when
  * the hand lets go, so the lever and "Reset the workshop" put it back and a
  * new visit starts at home (§ D 14). "Brighter" with the lamp off turns it
  * on as well; "dimmer" at the lowest step, "brighter" at the highest, say so.
@@ -45,15 +48,13 @@ export interface LampSpec {
   /** Brightness steps, and the one the visit starts at. */
   readonly levels: number;
   readonly startLevel: number;
-  /** Where the bulb is and what the shade points at when the visit begins (world). */
-  readonly home: { readonly bulb: Vec3; readonly aim: Vec3 };
+  /** What the shade points at when the visit begins (world, on the bench top). */
+  readonly home: { readonly aim: Vec3 };
   /**
-   * What the joints allow (§ D 14, from the scene): the bulb stays between `min` and `max` (horizontal
-   * distance) from the shoulder's ground point `centre` (x, z), and inside the box over the bench.
+   * What the joints allow (§ D 14, from the scene): the aim stays inside this convex polygon (world x, z,
+   * either winding): the lamp piece's `REACH`, placed where the lamp is clamped.
    */
-  readonly reach: { readonly centre: readonly [number, number]; readonly min: number; readonly max: number; readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number };
-  /** How far the light's aim follows the bulb: 0 always at home, 1 as far as the bulb moved. */
-  readonly follow: number;
+  readonly reach: { readonly polygon: readonly (readonly [number, number])[] };
 }
 
 export interface LampUnit extends MachineUnit {
@@ -62,23 +63,44 @@ export interface LampUnit extends MachineUnit {
 
 const isPaintOrWarm = (v: Value): boolean => v === 'warm' || (typeof v === 'string' && PAINTS.includes(v));
 
-/** The nearest bulb position (x, z) the arm can reach. */
+/** Is (x, z) inside the convex polygon (or on its edge)? */
+export function insidePolygon(poly: readonly (readonly [number, number])[], x: number, z: number): boolean {
+  const n = poly.length;
+  let wind = 0;
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = poly[i]!;
+    const [bx, bz] = poly[(i + 1) % n]!;
+    wind += ax * bz - bx * az;
+  }
+  const w = Math.sign(wind);
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = poly[i]!;
+    const [bx, bz] = poly[(i + 1) % n]!;
+    if (w * ((bx - ax) * (z - az) - (bz - az) * (x - ax)) < -1e-9) return false;
+  }
+  return true;
+}
+
+/** The nearest aim (x, z) the arm can reach: the point itself inside the region, else the nearest point of its edge; on the grid. */
 export function reachable(spec: LampSpec, x: number, z: number): [number, number] {
-  const r = spec.reach;
-  const box = (px: number, pz: number): [number, number] => [Math.min(r.maxX, Math.max(r.minX, px)), Math.min(r.maxZ, Math.max(r.minZ, pz))];
-  const ring = (px: number, pz: number): [number, number] => {
-    const dx = px - r.centre[0];
-    const dz = pz - r.centre[1];
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-9) return [r.centre[0] + r.min, r.centre[1]];
-    const k = Math.min(r.max, Math.max(r.min, d)) / d;
-    return [r.centre[0] + dx * k, r.centre[1] + dz * k];
-  };
-  // the box and the ring together: alternate a few times (both are convex near any point the hand reaches)
-  let p = box(x, z);
-  for (let i = 0; i < 4; i++) p = box(...ring(...p));
+  const poly = spec.reach.polygon;
+  let best: [number, number] = [x, z];
+  if (!insidePolygon(poly, x, z)) {
+    let bd = Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, az] = poly[i]!;
+      const [bx, bz] = poly[(i + 1) % poly.length]!;
+      const ex = bx - ax;
+      const ez = bz - az;
+      const k = Math.min(1, Math.max(0, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez)));
+      const px = ax + ex * k;
+      const pz = az + ez * k;
+      const d = (px - x) ** 2 + (pz - z) ** 2;
+      if (d < bd) [bd, best] = [d, [px, pz]];
+    }
+  }
   const g = LAMP_TUNING.grid;
-  return [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g];
+  return [Math.round(best[0] / g) * g, Math.round(best[1] / g) * g];
 }
 
 export function lamp(spec: LampSpec): UnitFactory {
@@ -88,7 +110,7 @@ export function lamp(spec: LampSpec): UnitFactory {
 export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
   const id = spec.id;
   const N = spec.levels;
-  const [hx, hz] = reachable(spec, spec.home.bulb[0], spec.home.bulb[2]);
+  const [hx, hz] = reachable(spec, spec.home.aim[0], spec.home.aim[2]);
   ctx.defineSetting(id, F.on, true, (v) => typeof v === 'boolean');
   ctx.defineSetting(id, F.level, spec.startLevel, (v) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= N);
   ctx.defineSetting(id, F.colour, 'warm', isPaintOrWarm);
@@ -99,13 +121,10 @@ export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
   const beats = new Beats(ctx, id, (target, field) => target === id && field !== F.x && field !== F.z);
   const get = (f: string): Value => ctx.setting(id, f) as Value;
 
-  /** A drag in hand: where the bulb is now (transient until the hand lets go). */
+  /** A drag in hand: where the aim is now (transient until the hand lets go). */
   let drag: { x: number; z: number; last: number } | null = null;
 
-  const aimFor = (x: number, z: number): Vec3 => {
-    const k = spec.follow;
-    return [spec.home.aim[0] + (x - hx) * k, spec.home.aim[1], spec.home.aim[2] + (z - hz) * k];
-  };
+  const aimAt = (x: number, z: number): Vec3 => [x, spec.home.aim[1], z];
 
   /** The hand lets go: the arm's new place is one transaction (nothing, and no transaction, if it did not move). */
   function letGo(): void {
@@ -210,9 +229,9 @@ export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
         level: get(F.level) as number,
         levels: N,
         colour: get(F.colour) as string,
-        bulb: [x, spec.home.bulb[1], z],
-        aim: aimFor(x, z),
-        home: { bulb: [hx, spec.home.bulb[1], hz], aim: aimFor(hx, hz), level: spec.startLevel },
+        aim: aimAt(x, z),
+        home: { aim: aimAt(hx, hz), level: spec.startLevel },
+        reach: spec.reach.polygon,
         dragging: drag !== null,
       };
     },

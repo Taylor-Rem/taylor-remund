@@ -50,16 +50,35 @@ export class FontFallbackError extends Error {
 }
 
 let loading: Promise<void> | null = null;
+/** The faces' bytes, once loaded (handed to the label workers, so they do not fetch them again). */
+const bytes = new Map<string, ArrayBuffer>();
+
+/** The loaded faces' files, by family (empty until loadFonts has resolved). */
+export function fontBytes(): ReadonlyMap<string, ArrayBuffer> {
+  return bytes;
+}
 
 /** Load every face once. Rejects (loudly) if any face fails to load. */
 export function loadFonts(base = '/fonts/'): Promise<void> {
   if (loading) return loading;
   loading = (async () => {
-    const faces = Object.values(FACES).map((f) => new FontFace(f.family, `url(${base}${f.file}) format("woff2")`, { display: 'block' }));
-    const results = await Promise.allSettled(faces.map((f) => f.load()));
+    // the bytes first (kept for the workers), then the faces from them: the same files as a url() face
+    const files = await Promise.allSettled(
+      Object.values(FACES).map(async (f) => {
+        const r = await fetch(`${base}${f.file}`);
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.arrayBuffer();
+      }),
+    );
+    const faces = Object.values(FACES).map((f, i) => {
+      const r = files[i]!;
+      return r.status === 'fulfilled' ? new FontFace(f.family, r.value, { display: 'block' }) : null;
+    });
+    const results = await Promise.allSettled(faces.map((f) => (f ? f.load() : Promise.reject(new Error('fetch failed')))));
     const failed = results.map((r, i) => (r.status === 'rejected' ? Object.values(FACES)[i]!.family : null)).filter(Boolean);
     if (failed.length) throw new FontFallbackError(`labels: font(s) failed to load: ${failed.join(', ')}`);
-    for (const f of faces) document.fonts.add(f);
+    Object.values(FACES).forEach((f, i) => bytes.set(f.family, (files[i] as PromiseFulfilledResult<ArrayBuffer>).value));
+    for (const f of faces) document.fonts.add(f!);
   })();
   loading.catch(() => {
     loading = null;

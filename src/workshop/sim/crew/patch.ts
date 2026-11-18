@@ -59,6 +59,8 @@ export const PATCH_TUNING = {
   reply: 0.8,
   /** S6: the stool rolls the whole runner in this long; a shorter roll takes its share (none at all when it is there). */
   rollWhole: 1.2,
+  /** S6: moving the cord to another jack (attract mode: the crew's text is for a line the cord is not in). */
+  plug: 0.8,
   /** The dead plug, then the visitor (together at most 1.5 s, § B5). */
   stare: 0.6,
   look: 0.9,
@@ -125,7 +127,7 @@ export interface PatchUnit extends MachineUnit {
   view(): PatchView;
 }
 
-const JOB: readonly PatchState[] = ['notice', 'roll', 'drawer', 'work', 'check', 'reply'];
+const JOB: readonly PatchState[] = ['notice', 'roll', 'plug', 'drawer', 'work', 'check', 'reply'];
 const isJob = (s: PatchState): boolean => JOB.includes(s);
 
 interface Watched {
@@ -178,11 +180,39 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   const footNow = (): Vec3 => [spec.foot[0] + (stoolX - restX), spec.foot[1], spec.foot[2]];
   /** The job's stages with their lengths, as planned when it was picked up (the view can lay the whole job out). */
   let plan: { state: PatchState; length: number }[] | null = null;
+  /** S6: after a crew job for which it moved the cord, the jack it puts the cord back in (attract mode). */
+  let back: Id | null = null;
+  /** S6: the cord's move in hand (state `plug`): from one jack to another. */
+  let plugging: { from: Id; to: Id } | null = null;
+  const cordJack = (): Id | null => {
+    const d = deskOf(ctx);
+    return d ? ((ctx.setting(d.cordId, 'jack') as Id | undefined) ?? null) : null;
+  };
+  /** A crew call for a line the cord is not in: Patch moves the cord first. */
+  const needsPlug = (c: Call): boolean => c.crew === true && cordJack() !== c.jack;
+  /** Move the cord now (the commit point of the `plug` stage), as the crew: refused in play mode (rule 5). */
+  function moveCord(to: Id): boolean {
+    const d = deskOf(ctx);
+    const from = cordJack();
+    if (!d || from === null || from === to || ctx.playMode) return false;
+    const r = ctx.commit([{ target: d.cordId, field: 'jack', after: to }], 'crew');
+    if (r.refused.length > 0) return false;
+    ctx.emit({ type: 'cord.unplugged', cord: d.cordId, jack: from, by: 'crew' });
+    ctx.emit({ type: 'cord.plugged', cord: d.cordId, jack: to, by: 'crew' });
+    return true;
+  }
+  /** The stage after the job's roll: the cord first if it must move, else the drawer. */
+  function afterRoll(): void {
+    if (call && needsPlug(call)) {
+      plugging = { from: cordJack() as Id, to: call.jack };
+      enter('plug');
+    } else enter('drawer');
+  }
 
   const bodyCentre = (): Vec3 => add(seatNow(), [0, spec.body.up, 0]);
   const seconds = (): number => (ctx.clock.step - since) / HZ;
   const lengthOf = (s: PatchState): number =>
-    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb } as Record<string, number>)[s] ?? Infinity);
+    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb } as Record<string, number>)[s] ?? Infinity);
 
   /** Start the stool rolling to `to` (state `roll`); false (and nothing) when it is already there. */
   function rollTo(to: number, home: boolean): boolean {
@@ -233,7 +263,11 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       resume = null;
       // a roll interrupted goes on from where the stool is now, to the same jack
       if (r.state === 'roll') {
-        if (!rollTo(workX(call.jack), false)) enter('drawer');
+        if (!rollTo(workX(call.jack), false)) afterRoll();
+        return;
+      }
+      if (r.state === 'plug') {
+        afterRoll();
         return;
       }
       enter(r.state, r.elapsed);
@@ -364,6 +398,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       if (intent.type !== 'drag' || intent.id !== id || ctx.bracketed) return false;
       if (state !== 'held') {
         interrupt();
+        back = null; // the cord's way back is given up: the line puts it back when attract mode ends
         if (roll?.home) roll = null; // the way home is given up; it carries on from where the stool is
         if (holding) {
           letGoOfCatch();
@@ -440,6 +475,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
               plan = [
                 { state: 'notice', length: T.notice },
                 ...(r > 0 ? [{ state: 'roll' as const, length: r }] : []),
+                ...(needsPlug(next) ? [{ state: 'plug' as const, length: T.plug }] : []),
                 { state: 'drawer', length: T.drawer },
                 { state: 'work', length: T.work },
                 { state: 'check', length: T.check },
@@ -467,6 +503,16 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             }
             break;
           }
+          if (back !== null && !call) {
+            // to the jack the cord came from, to put it back
+            if (t >= length_) {
+              stoolX = roll?.to ?? stoolX;
+              roll = null;
+              plugging = { from: cordJack() as Id, to: back };
+              enter('plug');
+            }
+            break;
+          }
           if (!call || !desk) {
             roll = null;
             enter('seated');
@@ -476,6 +522,31 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           if (t >= length_) {
             stoolX = roll?.to ?? stoolX;
             roll = null;
+            afterRoll();
+          }
+          break;
+        }
+        case 'plug': {
+          lookAt = plugging ? jackAt(plugging.to) : null;
+          if (back !== null && !call) {
+            if (t >= length_) {
+              moveCord(back);
+              back = null;
+              plugging = null;
+              busyAt = ctx.clock.step;
+              enter('seated');
+            }
+            break;
+          }
+          if (!call || !desk) {
+            plugging = null;
+            enter('seated');
+            break;
+          }
+          if (t >= length_) {
+            const from = cordJack();
+            if (moveCord(call.jack)) call.home = from;
+            plugging = null;
             enter('drawer');
           }
           break;
@@ -500,11 +571,20 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             desk.finish(c);
             lookAt = null;
             busyAt = ctx.clock.step;
+            // S6: a crew job that moved the cord puts it back where it was (attract mode only)
+            if (c.crew && c.home && c.home !== cordJack() && !ctx.playMode) {
+              back = c.home;
+              if (!rollTo(workX(back), false)) {
+                plugging = { from: cordJack() as Id, to: back };
+                enter('plug');
+              }
+              break;
+            }
             enter('seated');
             break;
           }
           if (state === 'notice') {
-            if (!rollTo(workX(call.jack), false)) enter('drawer');
+            if (!rollTo(workX(call.jack), false)) afterRoll();
             break;
           }
           enter(JOB[i + 1] as PatchState);
@@ -575,6 +655,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       lookAt = null;
       roll = null;
       plan = null;
+      back = null;
+      plugging = null;
       stoolX = restX;
       busyAt = ctx.clock.step;
       at = spec.seat;
@@ -602,6 +684,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         holding: holding?.id ?? null,
         stool: { x: stoolX, rest: restX, min: runnerMin, roll: roll ? { from: roll.from, to: roll.to, home: roll.home } : null },
         plan,
+        plug: state === 'plug' && plugging ? { ...plugging } : null,
       };
     },
   };

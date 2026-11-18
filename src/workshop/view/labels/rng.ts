@@ -7,7 +7,11 @@
  * for the kit's rng when it lands; the tests pin determinism, not values.
  */
 
-export type Rng = () => number;
+/** A generator; `state()` is where it stands, so `rng(r.state())` carries on exactly from here (a worker paints on). */
+export interface Rng {
+  (): number;
+  state?: () => number;
+}
 
 /** 32-bit FNV-1a of a string. */
 export function hashString(s: string): number {
@@ -20,15 +24,16 @@ export function hashString(s: string): number {
 }
 
 /** mulberry32: a small, fast, well-mixed 32-bit generator. Returns numbers in [0, 1). */
-export function rng(seed: number | string): Rng {
+export function rng(seed: number | string): Rng & { state: () => number } {
   let a = (typeof seed === 'string' ? hashString(seed) : seed) >>> 0;
-  return () => {
+  const next = (): number => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  return Object.assign(next, { state: () => a });
 }
 
 /** Uniform in [-1, 1) times `amp`. */

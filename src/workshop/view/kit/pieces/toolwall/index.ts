@@ -34,7 +34,8 @@ import { world } from '../../../labels/content.ts';
 import { linear } from '../../../palette.ts';
 import { chain, mat, mergeGeometries, part, piece, texturedPart, T } from '../../compose.ts';
 import { roundedBox } from '../../solids.ts';
-import { sweep, polylinePath } from '../../sweep.ts';
+import { sweep, polylinePath, pathLength } from '../../sweep.ts';
+import { profile } from '../../profile.ts';
 import { transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { finish, MeshData } from '../../mesh.ts';
@@ -161,11 +162,30 @@ export function hangOf(kind: ToolKind): Hang {
   };
 }
 
+/** A hole's corner radius: the old octagon's area (2√2 r², r 0.031) as a diamond (2 r²). */
+const HOLE_R = 0.031 * Math.pow(2, 0.25);
+
+/** Whether (x, y) is inside the polygon and at least d from its every edge. */
+function insideBy(poly: ReadonlyArray<readonly [number, number]>, x: number, y: number, d: number): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]!, [xj, yj] = poly[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    const ex = xj - xi, ey = yj - yi;
+    const t = Math.max(0, Math.min(1, ((x - xi) * ex + (y - yi) * ey) / (ex * ex + ey * ey || 1)));
+    if (Math.hypot(x - xi - ex * t, y - yi - ey * t) < d) return false;
+  }
+  return inside;
+}
+
 /**
  * The pegboard face: a plain board (a few big quads), and over it one small
- * dark octagon per hole, a hair proud: a fan whose centre is near black and
- * whose rim is the board darkened, so each hole has a crisp edge and a soft
- * depth. Holes under a tape are left out (`skip`).
+ * dark diamond per hole, a hair proud: a fan of four whose centre is near
+ * black and whose rim is the board darkened, so each hole has a soft depth.
+ * A hole is five pixels across at the wall's view, where the eye reads the
+ * dark centre, not the outline: four triangles (the octagon's area, a little
+ * turned each) read as the eight did. Holes under a tape, a painted shadow or
+ * the frame are left out (`skip`): nothing would see them.
  */
 function boardFace(x0: number, x1: number, y0: number, y1: number, z: number, R: () => number, skip: (x: number, y: number) => boolean): { board: BufferGeometry; holes: BufferGeometry } {
   const md = new MeshData();
@@ -182,7 +202,7 @@ function boardFace(x0: number, x1: number, y0: number, y1: number, z: number, R:
   const [r1, g1, b1] = linear('ink');
   const hm = new MeshData();
   const shades: number[] = [];
-  const p = BOARD.pitch, rh = 0.031;
+  const p = BOARD.pitch, rh = HOLE_R, sides = 4;
   for (let y = y0 + p / 2; y < y1; y += p)
     for (let x = x0 + p / 2; x < x1; x += p) {
       if (skip(x, y)) continue;
@@ -190,12 +210,12 @@ function boardFace(x0: number, x1: number, y0: number, y1: number, z: number, R:
       shades.push(0);
       const ring: number[] = [];
       const ph = R() * 0.6;
-      for (let k = 0; k < 8; k++) {
-        const a = ph + (k / 8) * Math.PI * 2;
+      for (let k = 0; k < sides; k++) {
+        const a = ph + (k / sides) * Math.PI * 2;
         ring.push(hm.v(x + Math.cos(a) * rh, y + Math.sin(a) * rh, z + 0.002, 0, 0, 1));
         shades.push(1);
       }
-      for (let k = 0; k < 8; k++) hm.tri(c, ring[k]!, ring[(k + 1) % 8]!);
+      for (let k = 0; k < sides; k++) hm.tri(c, ring[k]!, ring[(k + 1) % sides]!);
     }
   const holes = finish(hm);
   const col = holes.getAttribute(ATTR.color) as BufferAttribute;
@@ -211,8 +231,10 @@ function boardFace(x0: number, x1: number, y0: number, y1: number, z: number, R:
 
 /** A pegboard hook: out of the hole, along +Z, its tip kinked up so a tool cannot slide off. Built at the hole centre. */
 function pegGeom(reach: number): BufferGeometry {
-  const path = polylinePath([[0, 0, -0.01], [0, 0, reach - 0.03], [0, 0.035, reach]], 0.03, 2);
-  return sweep(path, { radius: 0.019, segs: 6, ends: 'dome' });
+  const path = polylinePath([[0, 0, -0.01], [0, 0, reach - 0.03], [0, 0.035, reach]], 0.03, 1);
+  // its root is in the hole (no end there); the tip a two-step dome
+  const L = pathLength(path), r = 0.019;
+  return sweep(path, { segs: 5, profile: profile(0, 0).to(r, 0, { sharp: true }).to(r, L, { fillet: r, segs: 2 }).to(0, L) });
 }
 
 export function toolwall(o: ToolwallOptions = {}): Piece {
@@ -231,12 +253,23 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
     const ref = o.tapes?.[kind] ?? { key: '', ...estimateTape(toolName(kind)) };
     tapeAt.set(kind, { ref, m: chain(T(L.x + R.spread(0.04), ROW[L.row].tape + R.spread(0.02), zF + 0.005), mat({ rot: [0, 0, R.spread(1.8)] })) });
   }
+  // the painted shadows, in board coordinates: a hole wholly under one is painted over
+  const painted: Array<Array<[number, number]>> = [];
+  for (const kind of TOOL_KINDS) {
+    const hg = hangOf(kind);
+    const c = Math.cos(hg.turn), s = Math.sin(hg.turn);
+    for (const poly of toolShape(kind).shadow) painted.push(poly.map(([x, y]) => [hg.x + x * c - y * s, hg.y + x * s + y * c]));
+  }
+  // the frame laps the board's edges (see W, H below): a hole wholly behind it is never seen
+  const lapX = BW / 2 - 0.08, lapY0 = bar, lapY1 = y0 + BH - 0.08;
   const under = (x: number, y: number): boolean => {
     for (const { m, ref } of tapeAt.values()) {
       const e = m.elements;
       if (Math.abs(x - e[12]!) < ref.w / 2 - 0.04 && Math.abs(y - e[13]!) < ref.h / 2 - 0.04) return true;
     }
-    return false;
+    const r = HOLE_R + 0.004;
+    if (Math.abs(x) - r >= lapX || y + r <= lapY0 || y - r >= lapY1) return true;
+    return painted.some((poly) => insideBy(poly, x, y, r));
   };
   const face = boardFace(-BW / 2, BW / 2, y0, y0 + BH, zF, R, under);
   b.add(part('wood', face.board, 'wood-light', { seed: seed + 2, jitter: 0.03 }));
@@ -246,11 +279,12 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
   const fz0 = 0.0, fd = zF + 0.06 - fz0;
   const railY = [0, H - bar];
   for (const [i, y] of railY.entries()) {
-    const g = roundedBox({ w: W, h: bar, d: fd, r: 0.035, rPlan: 0.03, segs: 2, detail });
+    // no wear band: the walnut's worn edges are on the fillets, which is where the lamp finds them
+    const g = roundedBox({ w: W, h: bar, d: fd, r: 0.035, rPlan: 0.03, segs: 2, detail, band: 0 });
     b.add(part('wood', transform(g, T(R.spread(0.004), y, fz0)), 'wood', { seed: seed + 3 + i, jitter: 0.07, warm: 0.03 }));
   }
   for (const sx of [-1, 1]) {
-    const g = roundedBox({ w: bar, h: H - 2 * bar + 0.01, d: fd - 0.012, r: 0.03, rPlan: 0.03, segs: 2, detail });
+    const g = roundedBox({ w: bar, h: H - 2 * bar + 0.01, d: fd - 0.012, r: 0.03, rPlan: 0.03, segs: 2, detail, band: 0 });
     b.add(part('wood', grain(transform(g, T(sx * (W / 2 - bar / 2), bar - 0.005, fz0 + 0.004)), 'y'), 'wood', { seed: seed + 6 + sx, jitter: 0.08 }));
   }
   const screws: BufferGeometry[] = [];

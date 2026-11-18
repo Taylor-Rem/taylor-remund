@@ -9,7 +9,7 @@ import { wheelDigit } from '../../../src/workshop/view/kit/pieces/button/pose.ts
 import { tapeStrips } from '../../../src/workshop/view/kit/pieces/button/labels.ts';
 import { world } from '../../../src/workshop/view/labels/content.ts';
 
-const BUDGET = 11000; // the lead's budget for the console (was 9,000 for the pedestal)
+const BUDGET = 8000; // the census cap (was 11,000 before the diet)
 
 const stub: Materials = {
   of: (): Material => new MeshBasicMaterial(),

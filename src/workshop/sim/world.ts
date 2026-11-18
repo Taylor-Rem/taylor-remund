@@ -829,8 +829,15 @@ export function createWorld(opts: WorldOptions): World {
     },
     attach(id, by) {
       const l = loose.get(id);
-      if (!l || (l.mode !== 'free' && !(l.mode === 'crew' && l.crewBy === by))) return false;
+      if (!l || (l.mode !== 'free' && l.mode !== 'machine' && !(l.mode === 'crew' && l.crewBy === by))) return false;
       if (by !== id && touchedSet.has(id)) return false; // § E5 rule 5
+      if (l.mode === 'machine') {
+        // S6: taken out of a machine's hands by the crew (Fetch collecting from the platen's tray)
+        if (bracket || (l.holder !== null && unitById.get(l.holder)?.keeps?.(id))) return false;
+        const holder = l.holder;
+        l.holder = null;
+        if (holder !== null) unitById.get(holder)?.lost?.(id, 'crew');
+      }
       physics.setKind(id, 'kinematic');
       physics.setGravityScale(id, 1);
       setMode(l, 'crew');
@@ -1209,6 +1216,7 @@ export function createWorld(opts: WorldOptions): World {
       return id === scene.runner.id ? runner.member() : undefined;
     },
     crewViews: () => crewUnits.map((u) => u.crewView?.() as CrewView),
+    attract: () => runner.attract(),
     crewView: (id) => crewView(id),
     holding: () => held,
     mode: (id) => loose.get(id)?.mode,

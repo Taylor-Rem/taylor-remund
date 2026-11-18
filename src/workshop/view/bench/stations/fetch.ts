@@ -30,6 +30,6 @@ export const station: BenchStation = {
   name: 'fetch',
   order: ORDER.crew + 2,
   make(k) {
-    return scaledFetch(createFetchView({ seed: 7 }), k.crewScale);
+    return scaledFetch(createFetchView({ seed: 7, scale: k.crewScale }), k.crewScale);
   },
 };

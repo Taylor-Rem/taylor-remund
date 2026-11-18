@@ -11,11 +11,10 @@
  * - `sync()` reads the line's view (`LineView.log`, `LineView.line`) and
  *   hears each new entry as a `PhoneEvent`; call it once per frame after
  *   the steps (the shell's `onFrame`, or a `StationView.update`).
- * - The log begins with the attract-mode exchange (world.json
- *   `phone.attract`: Fetch texted the platen line, § B3), answered by the
- *   real parser, so a visitor who opens the phone sees what a text looks
- *   like. Its ids come first; the world's text `n` is phone id
- *   `n + attract.length`.
+ * - The log is the world's own: since S6 its attract mode has the crew
+ *   text the platen line (§ B3), logged `by: 'crew'` with a content id
+ *   instead of words; the phone shows that content's words. (`attract:
+ *   true` still prepends world.json's old fake exchange, for the dev page.)
  *
  * Nothing the visitor types leaves the browser: it goes into the world and
  * is shown back on the phone, nothing more.
@@ -23,6 +22,7 @@
 import type { Id, Intent, LineEntry, LineView, WorldView } from '../../sim/index.ts';
 import { parse } from '../../sim/index.ts';
 import world from '../../../content/world.json';
+import attractJson from '../../../content/attract.json';
 import type { Jack, PhoneEvent, PhoneLine } from './types.ts';
 
 export interface WorldLineOptions {
@@ -32,13 +32,23 @@ export interface WorldLineOptions {
   dispatch(intent: Intent): void;
   /** The phone line's unit id in the scene. Default `line`. */
   readonly line?: Id;
-  /** Begin the log with the attract-mode exchange. Default true. */
+  /**
+   * Begin the log with world.json's fake attract-mode exchange. Default false: since S6 the world's own
+   * attract mode texts the platen line itself (`by: 'crew'`), and that is in the line's log.
+   */
   readonly attract?: boolean;
 }
 
 export interface WorldLine extends PhoneLine {
   /** Read the world's line and hear what is new (once per frame, after the steps). */
   sync(): void;
+}
+
+const ATTRACT_TEXT = attractJson.text as Record<string, { text: string }>;
+/** The words of a crew text, by its content id (`attract.text.make-it-blue`). */
+function crewText(content: string | undefined): string {
+  const key = content?.replace(/^attract\.text\./, '') ?? '';
+  return ATTRACT_TEXT[key]?.text ?? '';
 }
 
 export function worldLine(o: WorldLineOptions): WorldLine {
@@ -57,7 +67,7 @@ export function worldLine(o: WorldLineOptions): WorldLine {
 
   // the attract-mode exchange: Fetch's text to the platen line, as the parser answers it
   let offset = 0;
-  if (o.attract !== false)
+  if (o.attract === true)
     for (const m of world.phone.attract) {
       const id = ++offset;
       const p = parse(m.text, 'platen');
@@ -70,7 +80,8 @@ export function worldLine(o: WorldLineOptions): WorldLine {
     const id = e.n + offset;
     switch (e.kind) {
       case 'sent':
-        return { type: 'sent', id, jack: e.line, text: e.text };
+        // the crew's text (attract mode) carries a content id, not words: its words are in src/content/attract.json
+        return { type: 'sent', id, jack: e.line, text: e.text !== '' ? e.text : crewText(e.content) };
       case 'working':
         return { type: 'working', id };
       case 'reply':
