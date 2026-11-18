@@ -103,8 +103,8 @@ describe('back wall', () => {
 });
 
 describe('catalogue', () => {
-  it('registers bench, lane-tape and back-wall', () => {
-    expect(catalogue.map((c) => c.name)).toEqual(['bench', 'lane-tape', 'back-wall']);
+  it('registers bench, lane-tape, back-wall and bench-frame', () => {
+    expect(catalogue.map((c) => c.name)).toEqual(['bench', 'lane-tape', 'back-wall', 'bench-frame']);
     for (const c of catalogue) expect(c.build({}).triangles).toBeGreaterThan(0);
   });
 });
