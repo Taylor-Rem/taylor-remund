@@ -151,8 +151,14 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     const seed = opts.seed ?? 3;
     const detail = ctx.tier === 'low' ? 'low' : 'high';
     // reduced motion, in one place: no idles or wobbles; springs critically damped
-    const R = ctx.reducedMotion;
+    // (the boot's setting, or the world's at run time: § B10; checked every frame in `update`)
+    let R = ctx.reducedMotion;
     const z = (zeta: number): number => (R ? Math.max(1, zeta) : zeta);
+    const springs: [Spring | SpringVec, number][] = [];
+    const reg = <S extends Spring | SpringVec>(sp: S, zeta: number): S => {
+      springs.push([sp, zeta]);
+      return sp;
+    };
 
     const root = new Group();
     root.name = 'revert-station';
@@ -187,20 +193,20 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     let top = 0;
     let hy = 0.672;
     const doors = { x: 0, v: 0 };
-    const lift = new Spring(0, { omega: F.liftOmega, zeta: z(F.liftDamping) });
-    const bob = new Spring(0, { omega: F.bodyOmega, zeta: z(F.bodyDamping) });
-    const pitch = new Spring(0, { omega: F.bodyOmega * 0.7, zeta: z(F.bodyDamping) });
-    const roll = new Spring(0, { omega: F.bodyOmega * 0.7, zeta: z(F.bodyDamping) });
-    const crankRate = new Spring(0, { omega: F.crankOmega, zeta: z(F.crankDamping) });
+    const lift = reg(new Spring(0, { omega: F.liftOmega, zeta: z(F.liftDamping) }), F.liftDamping);
+    const bob = reg(new Spring(0, { omega: F.bodyOmega, zeta: z(F.bodyDamping) }), F.bodyDamping);
+    const pitch = reg(new Spring(0, { omega: F.bodyOmega * 0.7, zeta: z(F.bodyDamping) }), F.bodyDamping);
+    const roll = reg(new Spring(0, { omega: F.bodyOmega * 0.7, zeta: z(F.bodyDamping) }), F.bodyDamping);
+    const crankRate = reg(new Spring(0, { omega: F.crankOmega, zeta: z(F.crankDamping) }), F.crankDamping);
     let crankAngle = 0;
     let crankingSince = -Infinity;
-    const lids = new SpringVec([0.6, 0.6], { omega: F.lidOmega, zeta: z(F.lidDamping) });
-    const slant = new SpringVec([0, 0], { omega: F.lidOmega * 0.6, zeta: z(F.lidDamping) });
-    const brow = new SpringVec([0.3, 0], { omega: F.lidOmega * 0.6, zeta: z(F.lidDamping) });
-    const gaze = new SpringVec([0, 0], { omega: F.gazeOmega, zeta: z(F.gazeDamping) });
-    const arm = new SpringVec(jointsOf(ARMS.tucked), { omega: F.armOmega, zeta: z(F.armDamping) });
-    const sag = new Spring(0, { omega: F.sagOmega, zeta: z(F.sagDamping) });
-    const swing = new Spring(0, { omega: F.swingOmega, zeta: z(F.swingDamping) });
+    const lids = reg(new SpringVec([0.6, 0.6], { omega: F.lidOmega, zeta: z(F.lidDamping) }), F.lidDamping);
+    const slant = reg(new SpringVec([0, 0], { omega: F.lidOmega * 0.6, zeta: z(F.lidDamping) }), F.lidDamping);
+    const brow = reg(new SpringVec([0.3, 0], { omega: F.lidOmega * 0.6, zeta: z(F.lidDamping) }), F.lidDamping);
+    const gaze = reg(new SpringVec([0, 0], { omega: F.gazeOmega, zeta: z(F.gazeDamping) }), F.gazeDamping);
+    const arm = reg(new SpringVec(jointsOf(ARMS.tucked), { omega: F.armOmega, zeta: z(F.armDamping) }), F.armDamping);
+    const sag = reg(new Spring(0, { omega: F.sagOmega, zeta: z(F.sagDamping) }), F.sagDamping);
+    const swing = reg(new Spring(0, { omega: F.swingOmega, zeta: z(F.swingDamping) }), F.swingDamping);
     let travelL = 0;
     let travelR = 0;
     const blinks = new Cadence(F.blink[0], F.blink[1], seed + 11);
@@ -211,9 +217,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     let cardAt = 0;
     let cardContent: string | null = null;
     let cardWant: string | null = null;
-    const cardLift = new Spring(0, { omega: F.cardOmega, zeta: z(F.cardDamping) });
-    const cardOpen = new Spring(0, { omega: F.openOmega, zeta: z(F.openDamping) });
-    const wobble = new Spring(0, { omega: F.wobbleOmega, zeta: z(F.wobbleDamping) });
+    const cardLift = reg(new Spring(0, { omega: F.cardOmega, zeta: z(F.cardDamping) }), F.cardDamping);
+    const cardOpen = reg(new Spring(0, { omega: F.openOmega, zeta: z(F.openDamping) }), F.openDamping);
+    const wobble = reg(new Spring(0, { omega: F.wobbleOmega, zeta: z(F.wobbleDamping) }), F.wobbleDamping);
     let foldFrom = { lift: 1, open: 1 };
     const cardSize = { w: card0.w, h: card0.h };
     const cardScale = { x: 1, y: 1 };
@@ -284,6 +290,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         if (!placed) place(w);
         const rv = w.machine(unitId);
         if (!rv || rv.kind !== 'revert') return;
+        const reducedNow = ctx.reducedMotion || w.reducedMotion;
+        if (reducedNow !== R) {
+          R = reducedNow;
+          for (const [sp, zeta] of springs) sp.tune({ zeta: z(zeta) });
+        }
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
 

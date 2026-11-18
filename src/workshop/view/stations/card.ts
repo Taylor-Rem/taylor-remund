@@ -102,7 +102,7 @@ export interface CardViewOptions {
 export function createCardView(opts: CardViewOptions = {}): (ctx: ViewContext) => CardView {
   return (ctx) => {
     const F = CARD_FEEL;
-    const reduced = ctx.reducedMotion;
+    let reduced = ctx.reducedMotion;
     const root = new Group();
     root.name = 'card-arm';
     ctx.scene.add(root);
@@ -192,6 +192,7 @@ export function createCardView(opts: CardViewOptions = {}): (ctx: ViewContext) =
       update(frame: Frame) {
         const w = frame.world;
         if (!placed) place(w);
+        reduced = ctx.reducedMotion || w.reducedMotion;
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
         for (const e of frame.events) {

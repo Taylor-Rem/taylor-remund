@@ -58,6 +58,9 @@ export const BUTTON_FEEL = {
   coverNudge: 2.7,
   coverFall: 30,
   coverBounce: 0.3,
+  /** Lifted (a press on the shut cover): it swings back over onto its parked stop with a lid's weight. */
+  coverLiftOmega: 11,
+  coverLiftDamping: 0.75,
   /** While Revert fits the cover it comes down this long into Revert's `fit`. */
   coverFitAt: 0.55,
   /** Hovered, the cover stirs on its hinge this much (guard fraction), eased at this rate (1/s). */
@@ -134,7 +137,7 @@ function pedestalOf(w: WorldView): { p: Vector3; q: Quaternion } {
 export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContext) => ButtonView {
   return (ctx) => {
     const F = BUTTON_FEEL;
-    const reduced = ctx.reducedMotion;
+    let reduced = ctx.reducedMotion;
     const root = new Group();
     root.name = 'button-station';
     ctx.scene.add(root);
@@ -186,6 +189,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
         const b = w.button();
+        reduced = ctx.reducedMotion || w.reducedMotion;
 
         for (const e of frame.events) {
           if (e.type === 'button.pressed') {
@@ -284,7 +288,9 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
                   if (Math.abs(guard.v) < 0.05) guard.v = 0;
                 }
               } else {
-                springStep(guard, 0, F.guardOmega, F.guardDamping, h);
+                // lifted off the cap it swings back with the weight of a lid; a rattle on its stop is quick
+                const lifting = guard.x > 0.2;
+                springStep(guard, 0, lifting ? F.coverLiftOmega : F.guardOmega, lifting ? F.coverLiftDamping : F.guardDamping, h);
                 if (guard.x < 0) {
                   guard.x = -guard.x * F.guardStop;
                   guard.v = -guard.v * F.guardStop;

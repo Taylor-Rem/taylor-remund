@@ -75,7 +75,7 @@ export interface UndoStationView extends StationView {
 export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => UndoStationView {
   return (ctx) => {
     const F = UNDO_FEEL;
-    const R = ctx.reducedMotion;
+    let R = ctx.reducedMotion;
     const id = opts.id ?? 'undo-lever';
     const root = new Group();
     root.name = 'undo-station';
@@ -130,6 +130,7 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
         if (!placed) place(w);
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
+        R = ctx.reducedMotion || w.reducedMotion;
         const v = w.machine(id);
         for (const e of frame.events) {
           if (e.type === 'undone') undone(e, frame.events, w, now);
