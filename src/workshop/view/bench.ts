@@ -23,7 +23,8 @@ import type { Piece } from './kit/types.ts';
 import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
 import { part, piece, pieceBounds } from './kit/compose.ts';
 import { bevelBox } from './kit/cheap.ts';
-import { laneTape } from './kit/pieces/bench/index.ts';
+import { laneTape, benchHole } from './kit/pieces/bench/index.ts';
+import { OPENING } from './kit/pieces/revert-hatch/index.ts';
 import { ROOM, roomWall } from './kit/pieces/room/index.ts';
 import { WINDOW } from './kit/pieces/window/index.ts';
 import { dock } from './kit/pieces/dock/index.ts';
@@ -140,17 +141,17 @@ export const LAYOUT = {
     bayNext: spot(-6.6, -2.6, 3.0, 1.8, 0, { fill: 'piece' }),
     bayInspection: spot(-6.85, 0.25, 3.6, 2.0, 0, { fill: 'piece' }),
     /** The UNDO lever: near the middle now, in the lamp's pool, clear of Revert's line of sight. */
-    undo: spot(-2.2, -1.9, 0.7, 0.7, 1.5),
+    undo: spot(-1.75, -1.9, 0.7, 0.7, 1.5),
     phone: spot(2.2, -1.35, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Its column stands right of Patch's line of sight. */
     platen: real(4.4, -0.9, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
     shipped: spot(7.88, -0.4, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
-    /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top has no hole yet: the hatch stands on the planks. */
-    hatch: real(-3.45, 0.35, BOUNDS.hatch),
+    /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`); its frame stands 0.29 clear of the INSPECTION bay's tape. */
+    hatch: real(-3.2, 0.35, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
-    revert: real(-3.45, 0.35, BOUNDS.revert),
+    revert: real(-3.2, 0.35, BOUNDS.revert),
     button: spot(-0.05, 0.55, 2.1, 1.52, 1.98, { fill: 'piece' }),
     // ── the front ──
     stack: spot(-8.5, -1.2, 0.8, 0.8, 1.85, { fill: 'piece' }),
@@ -629,7 +630,9 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   };
   // the bench at 18 × 10 (the catalogue's default is 19.5 wide), and with the room the wall run on and cut for the window
   const B = ROOM.bench;
-  const benchEntry: Entry | undefined = E.bench ? { ...E.bench, build: (opts = {}) => E.bench!.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth }) } : undefined;
+  const H = LAYOUT.stations.hatch, hk = crewScale / 1.25;
+  const hole = benchHole(H.at![0], H.at![1], OPENING.w * hk, OPENING.d * hk);
+  const benchEntry: Entry | undefined = E.bench ? { ...E.bench, build: (opts = {}) => E.bench!.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth, openings: [hole] }) } : undefined;
   const wallEntry: Entry | undefined = E.wall && withRoom ? { ...E.wall, build: (opts = {}) => E.wall!.build({ ...opts, ...roomWall() }) } : E.wall;
   const stations: StationViewFactory[] = [
     watcher,

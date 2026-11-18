@@ -45,7 +45,7 @@ export const AT = {
 
   // ── the middle row ──
   /** The UNDO lever's base (stand-in). */
-  undo: { c: [-2.2, 0.75, -1.9], half: [0.35, 0.75, 0.35] } as Box,
+  undo: { c: [-1.75, 0.75, -1.9], half: [0.35, 0.75, 0.35] } as Box,
   /** The phone on its easel. */
   phone: { c: [2.2, 0.36, -1.35], half: [0.21, 0.36, 0.15] } as Box,
   /** The platen (real piece, origin (4.4, -0.9)): its base and deck, its arm's column, its tank. */
@@ -70,8 +70,8 @@ export const AT = {
   ] as readonly Box[],
   /** The mailbox on its post, the résumé clipboard on it (P4, clay): front right. */
   mailbox: { c: [7.7, 0.65, 3.75], half: [0.21, 0.65, 0.16] } as Box,
-  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-3.45, 0.35)). Its hatch's doors stand open either side, low. */
-  revert: { c: [-3.432, 0.672, 0.422], half: [1.026, 0.672, 0.768] } as Box,
+  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-3.2, 0.35)). Its hatch's doors stand open either side, low. */
+  revert: { c: [-3.182, 0.672, 0.422], half: [1.026, 0.672, 0.768] } as Box,
 
   // ── the Button's row ──
   /** The Button's console (the body only). Deck top at y 1.04. */

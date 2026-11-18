@@ -44,7 +44,7 @@
     <canvas id="over"></canvas>
     <div id="hud"></div>
     <script>
-      import { Box3, Matrix4, Vector3, type Mesh, type Object3D, type BufferAttribute } from 'three';
+      import { Box3, Group, Matrix4, Vector3, type Mesh, type Object3D, type BufferAttribute } from 'three';
       import { bootWorkshop } from '../workshop/shell/boot.ts';
       import { installDebugHooks } from '../workshop/view/stage/debug.ts';
       import { LOOK } from '../workshop/view/stage/index.ts';
@@ -107,17 +107,25 @@
       let booted = false;
       const planBox = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.01, 5.4));
       const ws = await bootWorkshop(canvas, {
-        onFrame(frame) {
-          for (const e of frame.events) log.push({ step: frame.world.step, e });
-          if (log.length > 4000) log.splice(0, log.length - 4000);
-          if (booted) drawOverlay();
-        },
         tier,
         reducedMotion,
         seed,
         manual,
         scene: bench.scene,
-        stations: bench.stations,
+        // the event log and the overlay ride as a last station view, not on onFrame: the boot's warm frames call
+        // onFrame before it has made the workshop it passes (boot.ts, since cbf355b), which throws
+        stations: [
+          ...bench.stations,
+          () => ({
+            root: new Group(),
+            update(frame) {
+              for (const e of frame.events) log.push({ step: frame.world.step, e });
+              if (log.length > 4000) log.splice(0, log.length - 4000);
+              if (booted) drawOverlay();
+            },
+            dispose() {},
+          }),
+        ],
         stage: { preserveDrawingBuffer: q.get('preserve') === '1', camera: plan ? { fov: 1.2, pitch: 89.6, margin: 0.03 } : { ...FRAMING.lens } },
         ...(q.get('physics') === 'stub' ? { physics: async () => createStubPhysics() } : {}),
         frameCamera(stage, scene) {
