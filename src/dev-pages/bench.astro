@@ -10,6 +10,8 @@
 //   ?plan=1            straight down, near-orthographic, with a unit grid, coordinates and every footprint
 //   ?names=0           no stand-in names
 //   ?crew=1.25         draw the crew at another scale (default view/bench.ts CREW_SCALE)
+//   ?room=0            without the room (P1's bench top and 21-wide wall, the stage's fall-off)
+//   ?shot=left|right   panned as far as a visitor can to each end at the home zoom
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
 // Hooks: window.__bench (the workshop, measure(): label capitals in px, Fetch's
 //   height in px, draw calls, triangles; goto(step, shot); stillPair()).
@@ -67,13 +69,16 @@
       /** Names for the review overlay (scaffolding: never on the stage). */
       const NAMES: Record<StationKey, string> = {
         toolwall: 'tool wall', lamp: 'lamp clamp', sign: 'sign', window: 'WINDOW', board: 'switchboard', stool: 'stool',
-        storefront: 'STOREFRONT', bayA: 'RESERVED bay', bayB: 'RESERVED bay', undo: 'UNDO lever', phone: 'phone', platen: 'PLATEN',
+        storefront: 'STOREFRONT', bayNext: 'RESERVED bay', bayInspection: 'RESERVED: INSPECTION bay', undo: 'UNDO lever', phone: 'phone', platen: 'PLATEN',
         shipped: 'SHIPPED (P4): pallets, mailbox, clipboard', hatch: "REVERT's hatch", revert: 'REVERT', button: 'Button', stack: 'crate stack',
         lane: "Fetch's lane", belt: 'belt', striker: 'STRIKER', dock: 'DOCK', chute: 'RETURN CHUTE',
       };
 
       const crew = q.get('crew') ? Number(q.get('crew')) : undefined;
-      const bench = await loadBench({ scene: BENCH_SCENE, seed, ...(crew ? { crewScale: crew } : {}) });
+      const withRoom = q.get('room') !== '0';
+      // the room shows (ROOM brief: at the stage's 0.9 everything below the bench top is erased and the bench floats)
+      if (withRoom) Object.assign(LOOK.fog, { drop: 5.5 });
+      const bench = await loadBench({ scene: BENCH_SCENE, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}) });
       const portrait = (): boolean => !plan && (q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight));
 
       const shots: Record<string, () => Box3> = {
@@ -140,6 +145,13 @@
 
       const applyShot = (name: string): void => {
         const f = shots[name];
+        if ((name === 'left' || name === 'right') && !plan) {
+          // zoomed in halfway, then panned as far as the limits let a visitor go toward that end and the front
+          const h = ws.stage.camera.home();
+          ws.stage.camera.cutTo({ focus: [name === 'left' ? -30 : 30, h.focus[1], h.focus[2] + 20], zoom: 0.5 });
+          ws.stage.camera.focusOn(null);
+          return;
+        }
         if (!f || plan) {
           ws.stage.camera.cutTo(ws.stage.camera.home());
           if (!plan) ws.stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });

@@ -24,6 +24,8 @@ import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
 import { part, piece, pieceBounds } from './kit/compose.ts';
 import { bevelBox } from './kit/cheap.ts';
 import { laneTape } from './kit/pieces/bench/index.ts';
+import { ROOM, roomWall } from './kit/pieces/room/index.ts';
+import { WINDOW } from './kit/pieces/window/index.ts';
 import { signLabels } from './kit/pieces/sign/index.ts';
 import { createPartsView } from './stations/parts.ts';
 import { createSetView, flatten, placedMatrix, splitStatic, type StaticPool } from './stations/set.ts';
@@ -101,14 +103,16 @@ export const LAYOUT = {
     /** The sign, TAYLOR REMUND on one line, hung over the board (bottom edge at y). */
     sign: spot(1.1, -5, 8.6, 0.57, 2.9, { y: 3.3, fill: 'piece' }),
     /** The window with its cut-out mountains: the cool light's source (clay frame on the wall). */
-    window: spot(7.0, -5, 2.8, 0.3, 2.3, { y: 2.9 }),
+    /** The window (the room's piece): origin at the bottom middle of its opening, (7.0, 2.0) on the wall; linings, sill and head round it. */
+    window: spot(ROOM.window.x, -5, WINDOW.w + 0.5, WINDOW.reveal + WINDOW.sillOut, WINDOW.h + 0.65, { y: ROOM.window.y - 0.3, fill: 'piece' }),
     // ── the back row ──
     board: spot(0.55, -4.335, 4.6, 1.31, 3.11, { fill: 'piece' }),
-    stool: spot(3.15, -3.35, 0.65, 0.65, 1.15, { fill: 'piece' }),
+    stool: spot(3.05, -3.35, 0.65, 0.65, 1.15, { fill: 'piece' }),
     storefront: spot(7.05, -3.6, 2.3, 0.9, 2.1),
     // ── the middle row ──
-    bayA: spot(-7.75, -2.55, 1.9, 1.5, 0, { fill: 'tape' }),
-    bayB: spot(-5.65, -2.55, 1.9, 1.5, 0, { fill: 'tape' }),
+    /** The reserved bays (the room's pieces, their labels flat on the bench): the plain one at the back, INSPECTION in front of it, nearer the belt. */
+    bayNext: spot(-6.6, -2.6, 3.0, 1.8, 0, { fill: 'piece' }),
+    bayInspection: spot(-6.8, 0.25, 3.6, 2.0, 0, { fill: 'piece' }),
     undo: spot(-3.7, -1.9, 0.7, 0.7, 1.5),
     phone: spot(2.2, -1.35, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     platen: spot(4.5, -2.0, 1.6, 1.4, 1.4),
@@ -120,11 +124,11 @@ export const LAYOUT = {
     revert: spot(-3.6, 0.35, revert.w, revert.d, revert.h),
     button: spot(-0.05, 0.55, 2.1, 1.52, 1.98, { fill: 'piece' }),
     // ── the front ──
-    stack: spot(-6.6, 1.0, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    stack: spot(-8.5, -1.2, 0.8, 0.8, 1.85, { fill: 'piece' }),
     lane: spot(-1.1, 2.2, 8.2 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
     /** The belt piece at length 10 (the bed x -5.9..4.1) with its motor housing (dial plate and lever plate on its panel) at the left end: the whole piece's footprint. */
     belt: spot(-1.33, 3.995, 11.4, 1.6, 1.25, { fill: 'piece' }),
-    striker: spot(3.5, 3.15, 0.6, 0.44, 1.7),
+    striker: spot(3.7, 3.22, 0.6, 0.44, 1.7),
     dock: spot(5.25, 3.65, 1.7, 1.2, 1.6, { yaw: -50 }),
     chute: spot(-8.1, 3.3, 0.9, 1.1, 0.9),
   },
@@ -189,18 +193,17 @@ export function shippedCrateFronts(): Array<{ c: Vector3; w: number; h: number }
 export const FRAMING = {
   /**
    * Not the bench's box but the box the rig fits about its centre, with the `edge` its pan limit keeps the
-   * frame's bottom from running past. Found by search (tests/unit/view/bench.test.ts holds the result):
-   * every station and `MUST_SEE` in frame, the bench's front corners about 30 px inside the sides and
-   * 60-80 px of apron and under-bench dark below the front edge, Fetch as large as that leaves it. At
-   * 16:10 the front corners bind across: the box is wide and shallow and sits forward. At 16:9 the
-   * height binds: the box is tall and narrow, and the pan limit's edge drops under the bench so the
-   * apron can show.
+   * frame's bottom from running past (y -1.25: the apron's foot, so the legs and the floor show). Found by
+   * search (tests/unit/view/bench.test.ts holds the result): every station and `MUST_SEE` in frame, the
+   * bench's front corners about 30 px inside the sides, and the most Fetch that leaves. At 16:10 the
+   * front corners bind across: the box is wide and shallow and sits forward. At 16:9 the height binds:
+   * the box is tall and narrow.
    */
-  wide: { min: [-10.6, -2.5, 2] as Vec3, max: [10.6, 1.5, 3] as Vec3 },
-  wideEdge: { y: 0, z: 5 },
+  wide: { min: [-10.6, -2.5, 0] as Vec3, max: [10.6, 0, 3] as Vec3 },
+  wideEdge: { y: -1.25, z: 5 },
   /** 16:9 and wider (above `widerFrom`). */
-  wider: { min: [-1, -3, -5] as Vec3, max: [1, 5, 3] as Vec3 },
-  widerEdge: { y: -0.6, z: 5 },
+  wider: { min: [-1, -2, -5] as Vec3, max: [1, 5, 7] as Vec3 },
+  widerEdge: { y: -1.25, z: 5 },
   widerFrom: 1.7,
   /** Button, loose crate, phone and Patch, all four without panning. */
   phone: { min: [-1.6, 0, -3.9] as Vec3, max: [4.0, 2.3, 2.9] as Vec3 },
@@ -209,8 +212,8 @@ export const FRAMING = {
   /** Where the focus is pinned at home: the console's front and Fetch's lane. */
   focus: [0, 0.6, 1.2] as Vec3,
   blur: { range: 0.075, scale: 12, max: 6, far: 0.5 },
-  /** The pan limits: the bench and a little room past its ends and under its front (so the home can show the apron). */
-  bounds: { min: [-9.6, -1, -5] as Vec3, max: [9.6, 6, 7] as Vec3 },
+  /** The pan limits: 1.8 past each bench end, so a visitor panned to an end sees its corner, the legs and the room's end (with the edges' y -1.25: the frame's foot may run down to the apron's). */
+  bounds: { min: [-10.8, -1, -5] as Vec3, max: [10.8, 6, 5] as Vec3 },
 } as const;
 
 /**
@@ -220,11 +223,11 @@ export const FRAMING = {
 export const MUST_SEE: readonly Vec3[] = [
   [-9, 0, 5], [9, 0, 5],
   [-3.2, 6.25, -4.95], [5.4, 6.25, -4.95],
-  [-10.15, 4.4, -4.9], [8.45, 5.25, -4.7],
+  [-10.15, 4.4, -4.9], [8.85, 5.2, -4.6],
   [-9, 0, -5], [9, 0, -5],
 ];
-/** At 1440×900: the front corners at least this far inside the frame's sides, and the front edge this high over its bottom (px). */
-export const FRAME_PX = { corners: 30, under: [60, 80] as const };
+/** At 1440×900: the front corners at least this far inside the frame's sides, and the front edge this high over its bottom (px). The lead asked 60-80 under the edge before the room landed; with the real frame and floor about 110 reads best (the legs to the knee braces), and the edge's y -1.25 sets it. */
+export const FRAME_PX = { corners: 30, under: [60, 115] as const };
 
 /** The camera's home box for a viewport of this aspect (width / height; under 1: the phone framing). */
 export function homeBox(aspect: number): Box3 {
@@ -433,6 +436,8 @@ export interface BenchOptions {
   seed?: number;
   /** The crew's drawing scale (default CREW_SCALE; the page's ?crew= compares others). */
   crewScale?: number;
+  /** The room round the bench (frame, floor, wall run on and cut for the window, the room's ends); false: P1's bench top and 21-wide wall. Default true. */
+  room?: boolean;
 }
 
 export interface Bench {
@@ -528,18 +533,39 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
     })(ctx);
 
   const pool: StaticPool = { items: [] };
-  const clayAndTape: StationViewFactory = () => {
-    // runs before the set: hand the stand-ins to its pool so they merge with it
+  const withRoom = o.room ?? true;
+  const clayAndTape: StationViewFactory = (ctx: ViewContext) => {
+    // runs before the set: hand the stand-ins and the room's pieces to its pool so they merge with it
     pool.items.push(...standIns(seed, scene.runner.lane, crewScale));
+    const at = (x = 0, y = 0, z = 0): Matrix4 => new Matrix4().makeTranslation(x, y, z);
+    const put = (name: string, opts: Record<string, unknown>, m: Matrix4): void => {
+      const e = find(name);
+      if (e) pool.items.push({ piece: buildEntry(e, null, { seed, ...opts }, ctx.labels), at: m });
+    };
+    const S2 = LAYOUT.stations;
+    put('reserved-bay', { which: 'next', w: S2.bayNext.w, d: S2.bayNext.d, seed: 3 }, at(S2.bayNext.x, 0, S2.bayNext.z));
+    put('reserved-bay', { which: 'inspection', w: S2.bayInspection.w, d: S2.bayInspection.d, seed: 4 }, at(S2.bayInspection.x, 0, S2.bayInspection.z));
+    if (withRoom) {
+      const B = ROOM.bench;
+      put('bench-frame', { sections: B.sections, width: B.width, depth: B.depth, floor: ROOM.floorY }, at());
+      put('floor', { width: ROOM.floor.width, z0: ROOM.floor.z0, z1: ROOM.floor.z1 }, at(0, ROOM.floorY, 0));
+      put('window', {}, at(ROOM.window.x, ROOM.window.y, ROOM.window.z));
+      put('room-left', { floor: ROOM.floorY }, at(ROOM.ends.left.x, ROOM.ends.left.y, ROOM.ends.left.z));
+      put('room-right', { floor: ROOM.floorY }, at(ROOM.ends.right.x, ROOM.ends.right.y, ROOM.ends.right.z));
+    }
     return { root: new Group(), update() {}, dispose() {} };
   };
+  // the bench at 18 × 10 (the catalogue's default is 19.5 wide), and with the room the wall run on and cut for the window
+  const B = ROOM.bench;
+  const benchEntry: Entry | undefined = E.bench ? { ...E.bench, build: (opts = {}) => E.bench!.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth }) } : undefined;
+  const wallEntry: Entry | undefined = E.wall && withRoom ? { ...E.wall, build: (opts = {}) => E.wall!.build({ ...opts, ...roomWall() }) } : E.wall;
   const stations: StationViewFactory[] = [
     watcher,
     createBenchBeltView({ entry: E.belt, module: mods.belt, fit, seed, pool, length: LAYOUT.beltLength }),
     createCordView({ board: E.board, plug: E.plug, boardModule: mods.board, fit, seed, pool }),
     clayAndTape,
     createSetView({
-      entries: { ...E, sign },
+      entries: { ...E, sign, bench: benchEntry, wall: wallEntry },
       tools,
       // the set draws P1's lane tape round the runner's lane; the bench draws its own, wider (standIns), so the
       // set is handed the lane far off the bench. PROPOSED: a lane half-width option on SetOptions.

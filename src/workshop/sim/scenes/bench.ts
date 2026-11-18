@@ -41,7 +41,7 @@ export const AT = {
   board: { c: [0.55, 1.554, -4.335], half: [2.3, 1.554, 0.655] } as Box,
   jacks: { storefront: [-0.45, 1.18, -4.264] as Vec3, lamp: [1.59, 1.18, -4.264] as Vec3 },
   /** Patch's stool at the board's right end. */
-  stool: { c: [3.15, 0.577, -3.35], half: [0.324, 0.578, 0.322] } as Box,
+  stool: { c: [3.05, 0.577, -3.35], half: [0.324, 0.578, 0.322] } as Box,
 
   // ── the middle row ──
   /** The UNDO lever's base (stand-in). */
@@ -71,7 +71,7 @@ export const AT = {
 
   // ── the front: the lane, the belt and its ends ──
   /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. */
-  stack: [-6.6, 1.0] as const,
+  stack: [-8.5, -1.2] as const,
   /** Fetch's lane of yellow tape (x, z): in front of the console, behind the belt. */
   lane: { a: [-5.2, 2.2] as const, b: [3.0, 2.2] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
@@ -85,7 +85,7 @@ export const AT = {
   belt: { c: [-0.9, 0.25, 3.9], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.46, 0.63, 4.0], half: [0.56, 0.63, 0.79] } as Box,
   /** The striker (stand-in): its post on the belt's far rail; the arm passes clear over the belt. */
-  striker: { c: [3.5, 0.85, 3.15], half: [0.3, 0.85, 0.22] } as Box,
+  striker: { c: [3.7, 0.85, 3.22], half: [0.3, 0.85, 0.22] } as Box,
   /** The dock (stand-in): its portal turned toward the camera. */
   dock: { c: [5.25, 0.8, 3.65], half: [0.85, 0.8, 0.6], yaw: -50 } as Box,
   /** The return chute's mouth, front left, and how parts come out of it. */
