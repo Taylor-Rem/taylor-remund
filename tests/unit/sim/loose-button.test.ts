@@ -50,7 +50,7 @@ describe('loose parts with the stub physics (exact)', () => {
     const after = run(world, 60);
     expect(types(after)).toContain('part.rested');
     expect(world.part('crate-1')?.location).toEqual({ at: 'rest', pose: landing });
-    expect(world.writer('crate-1', 'location')).toBe('system'); // P1: charged to system (seam for P2)
+    expect(world.writer('crate-1', 'location')).toBe('t1'); // § E5 rule 4: charged to the release's transaction
   });
 
   test('a part dropped off the bench comes back up the return chute, moving', () => {
@@ -129,7 +129,7 @@ describe('loose parts with the stub physics (exact)', () => {
     expect(loc.pose.p[0]).toBe(4);
     expect(loc.pose.p[2]).toBe(2);
     expect(loc.pose.p[1]).toBeCloseTo(0.225, 1); // on the bench (the stub settles it on its half height)
-    expect(world.writer('crate-3', 'location')).toBe('system');
+    expect(world.writer('crate-3', 'location')).toBe('t1'); // § E5 rule 4: charged to the place's transaction
   });
 });
 
