@@ -8,11 +8,19 @@ import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Id, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 import { line } from './helpers.ts';
 
-export { bench as BENCH, LINE, AT };
+/**
+ * The line's own scenarios run on the bench without Fetch's rounds (S5): in play mode Fetch would set
+ * crates of its own on the belt, beside the ones a test puts there. Fetch's tests and the whole-bench
+ * soak pass the real `bench` as `scene`.
+ */
+const { rounds: _rounds, ...quietRunner } = bench.runner;
+const QUIET: SceneDesc = { ...bench, runner: quietRunner };
+
+export { QUIET as BENCH, bench as FULL_BENCH, LINE, AT };
 
 export async function benchWorld(seed: number | string = 1, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> {
   const physics = await createRapierPhysics();
-  return createWorld({ seed, physics, scene: bench, ...opts });
+  return createWorld({ seed, physics, scene: QUIET, ...opts });
 }
 
 /** A recorder: every event with the step it happened in. */

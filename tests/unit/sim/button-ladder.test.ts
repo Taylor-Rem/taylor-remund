@@ -29,6 +29,24 @@ function playThrough(w: World): SimEvent[] {
   if (w.button().cover === 'shut') press(w);
   return rung(w);
 }
+/** The ladder's stations a hiccup may choose, nearest the Button's cap first (from the scene: the layout still moves). */
+const HICCUP_ORDER: string[] = (() => {
+  const L = bench.button.ladder!;
+  const at = bench.button.at;
+  return L.stations
+    .filter((s) => s.id !== L.lamp && !bench.button.flinch.includes(s.id))
+    .map((s) => ({ id: s.id, d: Math.hypot(s.at[0] - at[0], s.at[2] - at[2]) }))
+    .sort((a, b) => a.d - b.d)
+    .map((s) => s.id);
+})();
+const nearer = (a: string, b: string): string[] => {
+  const L = bench.button.ladder!;
+  const d = (id: string) => {
+    const s = L.stations.find((x) => x.id === id)!;
+    return Math.hypot(s.at[0] - bench.button.at[0], s.at[2] - bench.button.at[2]);
+  };
+  return d(a) <= d(b) ? [a, b] : [b, a];
+};
 const beats = (ev: readonly SimEvent[]) => ev.flatMap((e) => (e.type === 'rung.beat' ? [e] : []));
 const misfires = (ev: readonly SimEvent[]) => ev.flatMap((e) => (e.type === 'misfire' ? [`${e.id}:${e.level}`] : []));
 
@@ -83,19 +101,21 @@ describe('the ladder on the bench', () => {
     const ev = out.map((x) => x.e);
     expect(world.button()).toMatchObject({ rung: 2, reached: 2 });
     // nearest to the Button's cap, of the stations not used (not the flinch's lamp and belt): the striker strikes air
-    expect(world.button().targets).toEqual(['striker']);
-    const hic = out.find((x) => x.e.type === 'misfire' && x.e.id === 'striker');
+    const first = HICCUP_ORDER[0]!;
+    expect(world.button().targets).toEqual([first]);
+    const hic = out.find((x) => x.e.type === 'misfire' && x.e.id === first);
     expect(hic?.step).toBe(t0 + steps(BUTTON_TUNING.hiccupAt));
-    expect(misfires(ev)).toEqual(['lamp:1', 'belt:1', 'striker:1']);
+    expect(misfires(ev)).toEqual(['lamp:1', 'belt:1', `${first}:1`]);
     expect(ev).toContainEqual({ type: 'card', by: 'revert', content: cardFor(2) });
     expect(world.durable()).toEqual(before);
   });
 
-  test('the hiccups skip what the visitor has used: with no lever pulled rung 3 jerks the lever; having pulled it, the cord', () => {
+  test('the hiccups skip what the visitor has used, and rung 3 never repeats rung 2\'s station', () => {
     const fresh = benchStub().world;
     run(fresh, 10);
     for (let i = 0; i < 3; i++) rung(fresh);
-    expect(fresh.button().targets).toEqual(['undo-lever']);
+    expect(fresh.button().targets).toEqual([HICCUP_ORDER[1]]);
+    const rest = HICCUP_ORDER.filter((id) => id !== 'undo-lever');
     const { world } = benchStub();
     run(world, 10);
     press(world, 'undo-lever');
@@ -103,9 +123,9 @@ describe('the ladder on the bench', () => {
     expect(world.button().used).toEqual(['undo-lever']);
     rung(world);
     rung(world);
-    expect(world.button().targets).toEqual(['striker']);
+    expect(world.button().targets).toEqual([rest[0]]);
     rung(world);
-    expect(world.button().targets).toEqual(['cord']);
+    expect(world.button().targets).toEqual([rest[1]]);
   });
 
   test('rung 3: a different unused station misfires; then the cover is fitted, and it changes how a press feels', () => {
@@ -182,8 +202,9 @@ describe('the ladder on the bench', () => {
       });
     }
     expect(world.button()).toMatchObject({ rung: 4, reached: 4 });
-    expect(world.button().targets).toEqual(['belt', 'cord']); // nearest first
-    expect(misfires(ev)).toEqual(['lamp:2', 'belt:2', 'cord:2']);
+    const order = nearer('belt', 'cord');
+    expect(world.button().targets).toEqual(order); // nearest first
+    expect(misfires(ev)).toEqual(['lamp:2', ...order.map((id) => `${id}:2`)]);
     const stackBeat = beats(ev).find((b) => b.beat === 'stack');
     expect([...stackBeat!.ids].sort()).toEqual(['crate-1', 'crate-2', 'crate-3']);
     expect(moved).toBeGreaterThan(0.1); // the stack really came down (the stub slides them only a little; Rapier: tests/scenario/rung4.test.ts)
@@ -219,9 +240,12 @@ describe('reduced motion (§ B4, § B10): a rung is the card and the lamp dip on
     const { world } = benchStub({ rung: 0, presses: 0, reducedMotion: true });
     run(world, 10);
     for (let r = 1; r <= 4; r++) {
+      if (world.button().cover === 'shut') press(world);
       const before = poses(world);
       const durable = world.durable();
-      const ev = playThrough(world);
+      world.dispatch({ type: 'press', id: 'button' });
+      const ev: SimEvent[] = [];
+      for (let i = 0; i < 2000 && !ev.some((e) => e.type === 'rung.ended'); i++) ev.push(...run(world, 1));
       expect(world.button().script?.reduced).toBe(true);
       expect(misfires(ev)).toEqual(['lamp:1']);
       expect(beats(ev).map((b) => b.beat).filter((b) => b !== 'cover')).toEqual(['dip', 'rewind', 'card']);

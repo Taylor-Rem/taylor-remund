@@ -98,6 +98,30 @@ export interface FetchSpec {
   readonly toss: { readonly linvel: Vec3; readonly angvel: Vec3 };
   /** Where the visitor is, for "looks out at the visitor". */
   readonly outward: Vec3;
+  /** Its rounds in play mode (S5); without them it laps its lane as in P1. */
+  readonly rounds?: FetchRounds;
+}
+
+/**
+ * Fetch's rounds (§ B3 play mode: "Fetch goes on carrying fresh crates down the belt"; § E5 rule 5:
+ * fresh crates from the stack only). It takes the top fresh crate off the stack and sets it on the belt
+ * at the mouth's drop point, again and again, no faster than `every` and never with more than `cap`
+ * crates in play. What it cannot reach from its tape it stretches for, gives up on, and says so.
+ */
+export interface FetchRounds {
+  /** The crate stack's ground point (x, z), and how far from it (horizontally) a crate still counts as on it. */
+  readonly stack: readonly [number, number];
+  readonly stackRadius: number;
+  /** The mouth it feeds: a crate is set down at this mouth's `drop` point. */
+  readonly mouth: Id;
+  /** A crate counts as in play while its location is `in` one of these mouths (riding, being shipped), or while it is in Fetch's hands. */
+  readonly inPlay: readonly Id[];
+  /** At most this many crates in play: it waits, crate in hand, until one ships. */
+  readonly cap: number;
+  /** At least this many seconds between two crates set down. */
+  readonly every: number;
+  /** It sets a crate down only while every one of these settings has this value (the belt running forward). */
+  readonly feedWhen: readonly { readonly target: Id; readonly field: string; readonly is: string | number | boolean }[];
 }
 
 export interface ButtonSpec {
