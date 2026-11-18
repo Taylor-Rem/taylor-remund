@@ -590,10 +590,10 @@ function buildArm(spine: NodeBuilder, s: 1 | -1, rest: Record<string, Matrix4>, 
     const sl = stitchLine(pts, pts.map(() => new Vector3(0, -0.3, 1).normalize()), { pitch: 0.012, len: 0.009, w: 0.0013 });
     if (sl) paw.add(felt(sl, THREAD_LIGHT));
   }
-  if (s > 0) buildFolder(paw, rest);
+  if (s < 0) buildFolder(paw, rest);
 }
 
-/** The job's folder, carried in the left paw (collapsed inside it until Patch takes it from a drawer). */
+/** The job's folder, carried in the right paw (collapsed inside it until Patch takes it from a drawer). */
 function buildFolder(paw: NodeBuilder, rest: Record<string, Matrix4>): void {
   const { w, h, t } = FOLDER;
   const folder = paw.node('folder', rest.folder);

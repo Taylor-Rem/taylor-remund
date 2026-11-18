@@ -20,8 +20,8 @@
  *       │  │  ├ mouthL / mouthR     the two halves of the stitched mouth, at the muzzle's centre: + curls the corner up
  *       │  │  └ headset      band, cups and boom, at the head's centre: knocked askew and put straight
  *       │  │     └ boom      the mic boom, at its cup: + swings the mic up
- *       │  ├ armL → forearmL → pawL → folder → folderLid   (L is Patch's own left, +X, screen right when it faces you)
- *       │  └ armR → forearmR → pawR
+ *       │  ├ armL → forearmL → pawL      (L is Patch's own left, +X, screen right when it faces you)
+ *       │  └ armR → forearmR → pawR → folder → folderLid   (the board is on Patch's right)
  *       └ tail → tail2 → tail3 → tail4   off the back of the seat
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
@@ -150,7 +150,7 @@ export interface PatchPose {
   legs?: [LegJoints, LegJoints];
   /** The headset knocked askew: [tilt toward Patch's left (+, about the face axis), tip forward (+)], radians. */
   headset?: [number, number];
-  /** The folder in the left paw: 0 not there (in its drawer), 1 held. A switch at 0.5. */
+  /** The folder in the right paw: 0 not there (in its drawer), 1 held. A switch at 0.5. */
   folder?: number;
   /** Its cover: 0 shut .. 1 open flat. */
   folderOpen?: number;
@@ -181,6 +181,8 @@ export interface PatchPose {
   arms?: ArmPreset | Partial<Record<ArmPreset, number>> | Arms;
   /** Tail: [curl (+ curls the end up and forward), sway (+ swings it toward +X)], radians spread over the segments. */
   tail?: [number, number];
+  /** The tail's root: + lifts it, - lets it hang (-1.2 is straight down, as when Patch is held up). */
+  tailLift?: number;
 }
 
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, roll: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, roll });
@@ -225,6 +227,7 @@ export const NEUTRAL: Required<Omit<PatchPose, 'arms' | 'body'>> & { arms: ArmPr
   boom: 0,
   arms: 'rest',
   tail: [0, 0],
+  tailLift: 0,
 };
 
 /**
@@ -480,7 +483,7 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
   const [hz, hx] = [clamp(p.headset[0], -0.6, 0.6), clamp(p.headset[1], -0.5, 0.5)];
   m.headset = chain(T(HC[0], HC[1], HC[2]), RZ(-hz), RX(hx));
   m.boom = chain(T(-CUP.x - 0.032 - HC[0], CUP.y, CUP.z), RX(-clamp(p.boom, -0.3, 0.6)));
-  // the folder: held in the left paw's grip, or collapsed inside it
+  // the folder: held in the right paw's grip, or collapsed inside it
   const fs = p.folder >= 0.5 ? 1 : 1e-4;
   m.folder = chain(FOLDER_GRIP, new Matrix4().makeScale(fs, fs, fs));
   m.folderLid = chain(T(0, 0, FOLDER.t), RY(-clamp(p.folderOpen, 0, 1) * 2.9));
@@ -499,14 +502,14 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
   const segs = TAIL.segs;
   // the segments are built along their local +Y; the base points back and a little down
   // (+Y of a segment turned by a about X points along (0, cos a, sin a): -1.9 is back and down, -3 straight down)
-  m.tail = chain(T(0, TAIL.y, TAIL.z), RZ(-sway * 0.5), RX(-1.75));
+  m.tail = chain(T(0, TAIL.y, TAIL.z), RZ(-sway * 0.5), RX(-1.75 + clamp(p.tailLift, -1.4, 0.8)));
   m.tail2 = chain(T(0, segs[0], 0), RZ(-sway * 0.4), RX(-0.95 + curl * 0.2));
   m.tail3 = chain(T(0, segs[1], 0), RZ(-sway * 0.3), RX(0.85 + curl * 0.4));
   m.tail4 = chain(T(0, segs[2], 0), RZ(-sway * 0.3), RX(0.95 + curl * 0.5));
   return m;
 }
 
-/** The folder (left paw space): its size, and where the paw holds it (by the spine's top corner, the cover facing out of the palm). */
+/** The folder (right paw space): its size, and where the paw holds it. */
 export const FOLDER = { w: 0.2, h: 0.25, t: 0.012 } as const;
 export const FOLDER_GRIP = chain(T(0.006, -0.06, -0.034), RZ(0.25), RY(Math.PI), RX(0.15), T(-0.01, -FOLDER.h * 0.85, 0));
 
