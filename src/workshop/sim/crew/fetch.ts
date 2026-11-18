@@ -630,8 +630,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       v = Math.max(-T.maxSpeed, Math.min(T.maxSpeed, v));
     }
     // S5 round 2: a corner ahead: no faster than it can brake down to `cornerSpeed` by the time it gets there
-    const cap = cornerCap(s, Math.sign(v) || rollDir);
-    if (Math.abs(v) > cap) v = Math.sign(v) * Math.max(cap, Math.abs(v) - T.brake * dt * 2);
+    const cap = Math.min(cornerCap(s, Math.sign(v) || rollDir), cornerCap(s + v * dt, Math.sign(v) || rollDir));
+    if (Math.abs(v) > cap) v = Math.sign(v) * cap;
     const nextS = s + v * dt;
     // past the aim, or stopped near it: skid back to the stop
     if ((v > 0 && nextS >= aim) || (v < 0 && nextS <= aim) || (Math.abs(v) < T.brake * dt && Math.abs(toAim) < 0.02)) {
@@ -802,6 +802,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         if (landing(lapCrate)) return false;
         const top = lapCrate && fresh(lapCrate) ? lapCrate : stackTop();
         if (!top) return false;
+        // gave up on it a moment ago (out of reach): never nag
+        const tp = ctx.pose(top);
+        if (tp && ctx.clock.step < giveUpUntil) {
+          const [lx, lz] = at(standS('stack', tp.p[0], tp.p[2]));
+          if (Math.hypot(tp.p[0] - lx, tp.p[2] - lz) > R) return false;
+        }
         lapCrate = top;
         goFor(top, 'take');
         return true;
@@ -931,8 +937,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   function hear(events: readonly SimEvent[]): void {
     const now = ctx.clock.step;
     for (const [id, until] of shovedByMe) if (until < now) shovedByMe.delete(id);
-    if (state === 'knocked')
-      for (const e of events) if (e.type === 'part.hit' && e.other !== null && (e.id === spec.id || e.other === spec.id)) shovedByMe.set(e.id === spec.id ? e.other : e.id, now + steps(1.5));
+    for (const e of events) {
+      if (e.type !== 'part.hit' || e.other === null) continue;
+      // sliding into things while knocked, or anything the part in its own hands bumps
+      const mine = state === 'knocked' ? spec.id : carrying;
+      if (mine !== null && (e.id === mine || e.other === mine)) shovedByMe.set(e.id === mine ? e.other : e.id, now + steps(1.5));
+    }
     if (!knockable()) return;
     for (const e of events) {
       if (e.type !== 'part.hit' || e.other === null) continue;
@@ -1306,7 +1316,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             break;
           }
           if (gather) {
-            // the crate coming into its hands: face back to the lane as it arrives
+            // the crate coming into its hands: it turns back to its path as the crate comes in (over the top of what it
+            // sat on), so the hands come down beside it, not into whatever is left there
+            turnToward(alongPath());
             break;
           }
           purpose = 'lap';

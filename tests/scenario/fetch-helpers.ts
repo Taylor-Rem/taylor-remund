@@ -27,6 +27,24 @@ export function roundsBench(): SceneDesc {
   return bench;
 }
 
+/**
+ * S5 round 2: the bench with an honest reach (`FetchSpec.reach` = `reach`) and a lane of runs laid to serve
+ * the stack, the belt's feed, the phone and the platen's tray within it (a path of five points: along the
+ * front, in behind the striker, across to the phone, down to the tray). For the reach property only: its runs
+ * cross the motor housing's corner and the platen's deck, which a kinematic Fetch passes through.
+ */
+export function reachBench(reach = 1.3): SceneDesc {
+  return {
+    ...bench,
+    id: 'bench-reach',
+    runner: {
+      ...bench.runner,
+      reach,
+      lane: { points: [[-6.1, 2.8], [1.3, 2.8], [1.3, 1.9], [4.65, 1.9], [4.65, 0.85]] },
+    },
+  };
+}
+
 /** Play mode without changing anything: one pull of the lever on an empty stack (it answers "nothing"). */
 export function startPlay(w: World): void {
   w.dispatch({ type: 'undo' });

@@ -311,8 +311,9 @@ const S4_UNITS = [
  * (riding the belt or rolling through the dock, plus the one in its hands); only while the belt runs
  * forward. At the middle speed a crate takes about nine seconds from the drop to the door, so about two
  * ride at once: the striker plays a note every few seconds, and a stopped belt never floods.
- * The layout must keep the stack within Fetch's reach of its tape (`FETCH_TUNING.reach + handForward`,
- * × `CREW_SCALE`: 2.50 from the nearest point of the lane between its stops) and the drop likewise.
+ * The layout must keep the stack and the drop within Fetch's reach (`runner.reach`; without it P2's
+ * `(FETCH_TUNING.reach + handForward) × CREW_SCALE`, 2.50) of where it stands for each (`runner.stands`;
+ * without one, the nearest point of its path between its stops). `canRunLap(bench)` says which place fails.
  */
 const FETCH_ROUNDS: FetchRounds = {
   stack: AT.stack,
