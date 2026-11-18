@@ -35,10 +35,10 @@ import { CARD_CAP, CARD_ESTIMATE, NEUTRAL, POSES, POSE_NAMES, TRACK, broomMatrix
 import type { PoseName, RevertPose } from './rig.ts';
 
 export {
-  poseRevert, poseMatrices, poseMatricesFor, cardMatrix, loopPoint, armReach, broomMatrix, POSES, POSE_NAMES, NEUTRAL, ARMS, ARM_PRESETS, HIDDEN, CARD_CAP,
-  CARD_ESTIMATE, TRACK, LOOP, HULL, EYE, LID, BROW, CRANK, DRUM, SLOT, SHOULDER, BROOM, BODY_Y, AXLE_Y, FACE, faceZ,
+  poseRevert, poseRevertInto, revertScratch, cardMatrixInto, poseMatrices, poseMatricesFor, cardMatrix, loopPoint, armReach, broomMatrix, POSES, POSE_NAMES, NEUTRAL, ARMS, ARM_PRESETS, HIDDEN, CARD_CAP,
+  CARD_ESTIMATE, TRACK, LOOP, HULL, EYE, LID, BROW, CRANK, DRUM, SLOT, SHOULDER, BROOM, BODY_Y, AXLE_Y, FACE, faceZ, MOVING_NODES,
 } from './rig.ts';
-export type { RevertPose, PoseName, CardPose, ArmJoints, ArmPreset } from './rig.ts';
+export type { RevertPose, PoseName, CardPose, ArmJoints, ArmPreset, RevertScratch } from './rig.ts';
 
 const content = assertContent(revertJson, 'src/content/revert.json');
 

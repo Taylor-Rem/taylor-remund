@@ -35,7 +35,7 @@ import { Group, Matrix4, Quaternion, Vector3, type Object3D, type Texture } from
 import type { Id, Pose, RevertView, SimEvent, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { contentById } from '../labels/content.ts';
-import { revert as revertPiece, revertCard, poseRevert, cardMatrix, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL } from '../kit/pieces/revert/index.ts';
+import { revert as revertPiece, revertCard, poseRevertInto, revertScratch, cardMatrixInto, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL } from '../kit/pieces/revert/index.ts';
 import type { ArmJoints, RevertPose } from '../kit/pieces/revert/index.ts';
 import { broomGrip } from '../kit/pieces/revert/rig.ts';
 import { revertHatch, poseHatch, liftHeight } from '../kit/pieces/revert-hatch/index.ts';
@@ -240,6 +240,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     const lastPose = new Vector3();
     const lastVel = new Vector3();
     const hops: PartHops = createHops(ctx.scene);
+    const scratch = revertScratch();
+    const jointsTmp = [0, 0, 0, 0, 0];
+    const goal2 = [0, 0];
+    const hatchPosed = [NaN, NaN];
     const pose: RevertPose = { travel: [0, 0], lids: [0.6, 0.6], slant: [0, 0], gaze: [0, 0], brow: 0, browRoll: 0, lamps: [true, true], card: { lift: 0, open: 0, wobble: 0 }, arm: { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 }, broom: 0, stroke: 0, crank: 0, bob: 0, pitch: 0, roll: 0, sag: 0 };
     const state: RevertViewState = { lift: 0, doors: 0, crank: 0, card: { content: null, lift: 0, open: 0 }, eyes: null };
 
@@ -352,7 +356,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         wasLift = lift.x;
         state.lift = lift.x;
         state.doors = doors.x;
-        poseHatch(hatchObj, { doors: doors.x, lift: Math.min(1.03, lift.x) });
+        // posed only when it moved (poseHatch makes matrices)
+        if (doors.x !== hatchPosed[0] || lift.x !== hatchPosed[1]) {
+          hatchPosed[0] = doors.x;
+          hatchPosed[1] = lift.x;
+          poseHatch(hatchObj, { doors: doors.x, lift: Math.min(1.03, lift.x) });
+        }
 
         // ── Revert ──
         const drawn = rv.drawn;
@@ -472,10 +481,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         swing.step(0, dt);
         pose.sag = clamp(sag.x, 0, 1.2);
 
-        poseRevert(obj, pose, cardSize);
+        poseRevertInto(obj, pose, cardSize, scratch);
         if (cardNode && cardPhase !== 'stowed') {
           const c = pose.card!;
-          tmpM.copy(cardMatrix(c.lift ?? 0, c.open ?? 0, c.wobble ?? 0, cardSize.w, cardSize.h)).multiply(tmpS.makeScale(cardScale.x, cardScale.y, 1));
+          cardMatrixInto(c.lift ?? 0, c.open ?? 0, c.wobble ?? 0, cardSize.w, cardSize.h, tmpM, scratch).multiply(tmpS.makeScale(cardScale.x, cardScale.y, 1));
           tmpM.decompose(cardNode.position, cardNode.quaternion, cardNode.scale);
         }
         hops.update(now, (id) => w.motion(id)?.pose);
@@ -570,16 +579,30 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         lids.x[0] = Math.max(lids.x[0]!, l0);
         lids.x[1] = Math.max(lids.x[1]!, l1);
       }
-      lids.step([l0, l1], dt);
-      slant.step([s0, s1], dt);
-      brow.step([bw, browRoll], dt);
-      gaze.step([gx, gy], dt);
-      pose.lids = [clamp01(lids.x[0]!), clamp01(lids.x[1]!)];
-      pose.slant = [slant.x[0]!, slant.x[1]!];
+      const g2 = goal2;
+      g2[0] = l0;
+      g2[1] = l1;
+      lids.step(g2, dt);
+      g2[0] = s0;
+      g2[1] = s1;
+      slant.step(g2, dt);
+      g2[0] = bw;
+      g2[1] = browRoll;
+      brow.step(g2, dt);
+      g2[0] = gx;
+      g2[1] = gy;
+      gaze.step(g2, dt);
+      const pl = pose.lids!, ps = pose.slant!, pg = pose.gaze!, pm = pose.lamps!;
+      pl[0] = clamp01(lids.x[0]!);
+      pl[1] = clamp01(lids.x[1]!);
+      ps[0] = slant.x[0]!;
+      ps[1] = slant.x[1]!;
       pose.brow = brow.x[0]!;
       pose.browRoll = brow.x[1]!;
-      pose.gaze = [gaze.x[0]!, gaze.x[1]!];
-      pose.lamps = eyes === 'one' ? [false, true] : [true, true];
+      pg[0] = gaze.x[0]!;
+      pg[1] = gaze.x[1]!;
+      pm[0] = eyes !== 'one';
+      pm[1] = true;
     }
 
     function cardFor(rv: RevertView, now: number, dt: number): void {
@@ -682,7 +705,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       broom = 0;
       pose.broom = 0;
       pose.stroke = 0;
-      arm.step(jointsOf(goal), dt);
+      arm.step(jointsInto(goal, jointsTmp), dt);
       if (typeof pose.arm !== 'object') pose.arm = { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 };
       const aj = pose.arm as ArmJoints;
       aj.yaw = arm.x[0]!;
@@ -725,6 +748,15 @@ function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array): void {
       }
     }
   }
+}
+
+function jointsInto(j: ArmJoints, out: number[]): number[] {
+  out[0] = j.yaw;
+  out[1] = j.swing;
+  out[2] = j.elbow;
+  out[3] = j.wrist;
+  out[4] = j.grip;
+  return out;
 }
 
 function jointsOf(j: ArmJoints): number[] {
