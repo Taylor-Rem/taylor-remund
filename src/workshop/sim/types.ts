@@ -450,7 +450,7 @@ export interface StationBeat {
 }
 
 /** What every station on a Patchlamp line shows besides its own settings. */
-export interface LineStationView extends MachineViewBase {
+export interface StationOnLineView extends MachineViewBase {
   /** The scene jack whose line reaches this station. */
   readonly jack: Id;
   /** Seconds since the plug last seated in that jack: the station answers with one beat (§ D 4). Infinity before. */
@@ -463,7 +463,7 @@ export interface LineStationView extends MachineViewBase {
 export type WindowPicture = 'mountains' | 'sun' | 'boat' | 'tree' | 'house' | 'none';
 
 /** The storefront (§ B2 X1): durable settings a text changes. */
-export interface StorefrontView extends LineStationView {
+export interface StorefrontView extends StationOnLineView {
   readonly kind: 'storefront';
   /** The fascia's paint (one of the 8 paints). Durable. */
   readonly sign: PaintName;
@@ -478,7 +478,7 @@ export interface StorefrontView extends LineStationView {
 }
 
 /** The platen (§ B1: the tray under the nozzle; changes the colour and label of whatever is on it). */
-export interface PlatenView extends LineStationView {
+export interface PlatenView extends StationOnLineView {
   readonly kind: 'platen';
   /** The part on the tray (taken in and held there, Fetch included), or null. Its colour and label are on the part. */
   readonly onTray: Id | null;
@@ -487,7 +487,7 @@ export interface PlatenView extends LineStationView {
 }
 
 /** The workshop's one lamp (§ B2 X1 LAMP, § D 14): durable settings the stage tints and aims the key light by. */
-export interface LampView extends LineStationView {
+export interface LampView extends StationOnLineView {
   readonly kind: 'lamp';
   /** Off is night (§ B2 X1). Durable. */
   readonly on: boolean;
