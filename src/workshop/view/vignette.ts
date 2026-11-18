@@ -201,7 +201,12 @@ const centreXZ = (scene: SceneDesc, id: Id, fallback: [number, number]): [number
  * their bodies' centres. Then read the jacks, the cord's root and the seat
  * from the real pieces' sockets.
  */
-export function fitPieces(scene: SceneDesc, pieces: { board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null }): Fit {
+export function fitPieces(
+  scene: SceneDesc,
+  pieces: { board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null },
+  /** What has no body here (another scene's stool and phone turn; default: the vignette's). */
+  place: { stool: { x: number; z: number }; phoneYaw: number } = LAYOUT,
+): Fit {
   const boardB = pieces.board ? pieceBounds(pieces.board) : box(STAND_IN.board.w, STAND_IN.board.h, STAND_IN.board.d);
   const [bx] = centreXZ(scene, 'board', [1.05, -4.35]);
   const boardAt: Placed = { x: bx, z: againstWall(boardB), yaw: 0 };
@@ -209,7 +214,7 @@ export function fitPieces(scene: SceneDesc, pieces: { board?: Piece | null; stoo
   const jacks = { storefront: sj('storefront'), lamp: sj('lamp') };
   const cordRoot = socketAt(pieces.board ?? null, 'cord.root', boardAt) ?? ([bx, 0.9, boardAt.z + boardB.max.z] as Vec3);
   const stoolB = pieces.stool ? pieceBounds(pieces.stool) : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
-  const [sx, sz] = [LAYOUT.stool.x, LAYOUT.stool.z];
+  const [sx, sz] = [place.stool.x, place.stool.z];
   const stoolAt: Placed = { x: sx, z: sz, yaw: 0 };
   const seat = socketAt(pieces.stool ?? null, 'seat', stoolAt) ?? ([sx, stoolB.max.y, sz] as Vec3);
   const phoneB = pieces.phone ? pieceBounds(pieces.phone) : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);
@@ -219,7 +224,7 @@ export function fitPieces(scene: SceneDesc, pieces: { board?: Piece | null; stoo
   return {
     board: { at: boardAt, bounds: boardB, jacks, cordRoot },
     stool: { at: stoolAt, bounds: stoolB, seat },
-    phone: { at: { x: px, z: pz, yaw: LAYOUT.phoneYaw }, bounds: phoneB },
+    phone: { at: { x: px, z: pz, yaw: place.phoneYaw }, bounds: phoneB },
     belt: { at: { x: ex, z: ez, yaw: 0 }, bounds: beltB },
   };
 }
@@ -265,10 +270,6 @@ export function measured(scene: SceneDesc, fit: Fit, k: { console?: { w: number;
 // ───────────────────────── loading the vignette ─────────────────────────
 
 export interface VignetteOptions {
-  /** Which Patch design (`patch-toy` | `patch-felt`); default patch-felt, else whichever is registered. */
-  patch?: string | null;
-  /** Which Fetch design; default `fetch-porter`, else the first `fetch-…`. */
-  fetch?: string | null;
   seed?: number;
 }
 
@@ -295,13 +296,6 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
   const scene = SIM_VIGNETTE;
   const { entries } = await listPieces();
   const find = (name: string): Entry | undefined => entries.find((e) => e.name === name);
-  const firstOf = (names: readonly string[]): Entry | undefined => {
-    for (const n of names) {
-      const hit = n.endsWith('*') ? entries.find((e) => e.name.startsWith(n.slice(0, -1))) : find(n);
-      if (hit) return hit;
-    }
-    return undefined;
-  };
   const seed = o.seed ?? 1;
   const slots: Slot[] = [];
   const slot = (name: string, e: Entry | undefined | null, standIn = 'stand-in'): void => {
@@ -315,7 +309,7 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     tape: find('lane-tape'),
     crate: find('crate'),
     button: find('button'),
-    fetch: o.fetch ? find(o.fetch) : firstOf(['fetch-porter', 'fetch', 'fetch-*']),
+    fetch: find('fetch-porter'),
     board: find('switchboard'),
     stool: find('stool'),
     plug: find('cord-plug'),
@@ -324,7 +318,7 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     phone: find('phone'),
     sign: find('sign'),
     toolwall: find('toolwall'),
-    patch: o.patch ? find(o.patch) : firstOf(['patch-felt', 'patch-toy', 'patch', 'patch-*']),
+    patch: find('patch-felt'),
   };
   const tools = entries.filter((e) => e.name.startsWith('tool-'));
   for (const [k, e] of Object.entries(E)) slot(k, e);
