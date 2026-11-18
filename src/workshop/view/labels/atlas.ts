@@ -68,14 +68,24 @@ export class Shelves {
   private top = 0;
   readonly w: number;
   readonly h: number;
-  constructor(w: number, h: number) {
+  /** Texels of repeated edge round each region (0: one region fills the page, ClampToEdge does it). */
+  readonly gutter: number;
+  constructor(w: number, h: number, gutter = GUTTER) {
     this.w = w;
     this.h = h;
+    this.gutter = gutter;
   }
   /** A cell for a w×h region (plus gutters), or null when the page is full. */
   alloc(w: number, h: number): Rect | null {
-    const cw = Math.ceil((w + 2 * GUTTER) / CELL) * CELL;
-    const ch = Math.ceil((h + 2 * GUTTER) / CELL) * CELL;
+    const G = this.gutter;
+    if (G === 0) {
+      // a page of its own: the region is the page
+      if (this.top > 0 || w > this.w || h > this.h) return null;
+      this.top = h;
+      return { x: 0, y: 0, w, h };
+    }
+    const cw = Math.ceil((w + 2 * G) / CELL) * CELL;
+    const ch = Math.ceil((h + 2 * G) / CELL) * CELL;
     if (cw > this.w || ch > this.h) return null;
     // the lowest shelf it fits on without wasting more than half the shelf's height
     let best: { y: number; h: number; x: number } | null = null;
@@ -93,11 +103,11 @@ export class Shelves {
     }
     const cell = { x: best.x, y: best.y, w: cw, h: ch };
     best.x += cw;
-    return { x: cell.x + GUTTER, y: cell.y + GUTTER, w, h };
+    return { x: cell.x + G, y: cell.y + G, w, h };
   }
-  /** Texels covered by shelves so far (for the memory read-out). */
-  used(): number {
-    return this.top * this.w;
+  /** Rows covered by shelves so far (the page's texture needs no more). */
+  get height(): number {
+    return this.top;
   }
 }
 
@@ -133,20 +143,37 @@ export function blit(dst: Uint8Array, dw: number, src: Uint8Array, w: number, h:
 
 type MapName = 'color' | 'normal' | 'rough';
 
-/** One page texture and every view of it. */
+/** Rows a page texture grows by (a multiple of CELL, so mips stay aligned). */
+const GROW = 64;
+
+/**
+ * One page texture and every view of it. The page is `w` × `h` texels as far as
+ * the layout and every uv are concerned (its virtual size), but its texture holds
+ * only the rows the shelves have used so far (`rows`, grown on demand): each view's
+ * transform maps the virtual fractions onto the rows that exist. Growing before the
+ * first upload only reallocates the CPU copy; after it, the GL texture is made again.
+ */
 class PageMap {
   readonly texture: DataTexture;
   readonly views: Texture[] = [];
+  /** Each view's transform in virtual page fractions (applied through `rows`). */
+  private virt = new Map<Texture, { off: [number, number]; rep: [number, number] }>();
   /** Uploaded at least once (from then on, writes go up as row ranges). */
   live = false;
+  /** The CPU copy was let go (a sealed page with nothing to redraw, once uploaded). */
+  dropped = false;
+  /** Drop the CPU copy after the next upload. */
+  dropAfterUpload = false;
   /** Row ranges written since the last upload (start, count in bytes). */
   private pending: Array<{ start: number; count: number }> = [];
   readonly w: number;
   readonly h: number;
+  /** Rows the texture holds now. */
+  rows = 0;
   constructor(w: number, h: number, colour: boolean, anisotropy: number) {
     this.w = w;
     this.h = h;
-    const t = new DataTexture(new Uint8Array(w * h * 4), w, h, RGBAFormat, UnsignedByteType);
+    const t = new DataTexture(new Uint8Array(0), w, 0, RGBAFormat, UnsignedByteType);
     t.colorSpace = colour ? SRGBColorSpace : NoColorSpace;
     t.generateMipmaps = true;
     t.minFilter = LinearMipmapLinearFilter;
@@ -158,23 +185,64 @@ class PageMap {
     this.texture = t;
   }
   get data(): Uint8Array {
+    if (this.dropped) throw new Error('labels: a sealed atlas page has no CPU copy');
     return (this.texture.image as { data: Uint8Array }).data;
   }
-  /** A new view (same GL texture): offset/repeat in page fractions, on uv `channel`. */
+  /** Make sure the texture holds rows [0, n). */
+  ensure(n: number): void {
+    if (n <= this.rows) return;
+    const want = Math.min(this.h, Math.ceil(Math.max(n, this.live ? this.rows * 1.25 : 0) / GROW) * GROW);
+    const old = this.rows ? this.data : null;
+    const data = new Uint8Array(this.w * want * 4);
+    if (old) data.set(old);
+    if (this.live) {
+      // a new GL texture of the new size: every view lets go of the old one first
+      for (const v of this.views) v.dispose();
+      this.live = false;
+      this.pending = [];
+    }
+    this.texture.source.data = { data, width: this.w, height: want };
+    this.rows = want;
+    for (const v of this.views) this.place(v);
+    for (const v of this.views) v.needsUpdate = true;
+  }
+  private place(v: Texture): void {
+    const t = this.virt.get(v)!;
+    const k = this.rows ? this.h / this.rows : 1;
+    v.offset.set(t.off[0], t.off[1] * k);
+    v.repeat.set(t.rep[0], t.rep[1] * k);
+  }
+  /** A new view (same GL texture): offset/repeat in virtual page fractions, on uv `channel`. */
   view(offset: [number, number], repeat: [number, number], channel: number): Texture {
+    // clone() marks the shared source for upload; a new view of a page already up needs none
+    // (and a sealed page has no CPU copy left to send)
+    const sv = this.texture.source.version;
     const v = this.texture.clone();
+    this.texture.source.version = sv;
     v.channel = channel;
-    v.offset.set(offset[0], offset[1]);
-    v.repeat.set(repeat[0], repeat[1]);
+    this.virt.set(v, { off: offset, rep: repeat });
+    this.place(v);
     v.clearUpdateRanges();
     v.onUpdate = () => {
       this.live = true;
       this.uploaded();
       for (const o of this.views) o.clearUpdateRanges();
+      if (this.dropAfterUpload) this.drop();
     };
     this.views.push(v);
     if (this.live) for (const r of this.pending) v.addUpdateRange(r.start, r.count);
     return v;
+  }
+  /** Let the CPU copy go after the next upload (now, if it is uploaded and nothing waits). */
+  requestDrop(): void {
+    this.dropAfterUpload = true;
+    if (this.live && this.pending.length === 0) this.drop();
+  }
+  /** Let the CPU copy go (the GL texture keeps the pixels). */
+  private drop(): void {
+    if (this.dropped) return;
+    this.dropped = true;
+    this.texture.source.data = { data: null, width: this.w, height: this.rows };
   }
   /** Rows [y0, y1) of columns [x0, x1) were written: send them up at the next draw. */
   touched(x0: number, x1: number, y0: number, y1: number): void {
@@ -191,8 +259,13 @@ class PageMap {
   uploaded(): void {
     this.pending = [];
   }
+  /** GPU bytes (RGBA8 + mips) of what the texture holds now. */
   bytes(): number {
-    return textureBytes(this.w, this.h);
+    return this.rows ? textureBytes(this.w, this.rows) : 0;
+  }
+  /** CPU bytes kept. */
+  cpuBytes(): number {
+    return this.dropped ? 0 : this.w * this.rows * 4;
   }
   dispose(): void {
     for (const v of this.views) v.dispose();
@@ -229,9 +302,13 @@ export class Page {
   readonly w: number;
   readonly h: number;
   private whole: RegionViews | null = null;
+  /** No new labels go here (set at labels.ready()); its CPU copy goes after upload unless it holds a redrawable region. */
+  sealed = false;
+  /** It holds a region that is redrawn at run time (its CPU copy is kept). */
+  redrawn = false;
   readonly kind: PageKind;
   readonly index: number;
-  constructor(kind: PageKind, index: number, anisotropy: number, size: { w: number; h: number } = PAGE_SIZE[kind]) {
+  constructor(kind: PageKind, index: number, anisotropy: number, size: { w: number; h: number } = PAGE_SIZE[kind], gutter = GUTTER) {
     this.kind = kind;
     this.index = index;
     const { w, h } = size;
@@ -240,7 +317,7 @@ export class Page {
     this.color = new PageMap(w, h, true, anisotropy);
     this.normal = kind === 'relief' ? new PageMap(w, h, false, anisotropy) : null;
     this.rough = kind === 'relief' ? new PageMap(w / 2, h / 2, false, anisotropy) : null;
-    this.shelves = new Shelves(w, h);
+    this.shelves = new Shelves(w, h, gutter);
   }
   /** The key materials use for this page's whole views with `alpha` (see materials labelAlpha: sprayed keys start "stencil"). */
   key(alpha: Alpha): string {
@@ -249,6 +326,23 @@ export class Page {
   }
   maps(): PageMap[] {
     return [this.color, this.normal, this.rough].filter((m): m is PageMap => !!m);
+  }
+  /** A region for a w×h label, the page's texture grown to hold it, or null when full or sealed. */
+  alloc(w: number, h: number): Rect | null {
+    if (this.sealed) return null;
+    const r = this.shelves.alloc(w, h);
+    if (!r) return null;
+    const top = this.shelves.height;
+    this.color.ensure(top);
+    this.normal?.ensure(top);
+    this.rough?.ensure(Math.ceil(top / 2));
+    return r;
+  }
+  /** No more labels here; once uploaded, its CPU copy goes unless something on it is redrawn. */
+  seal(): void {
+    this.sealed = true;
+    if (this.redrawn) return;
+    for (const m of this.maps()) m.requestDrop();
   }
   /** Views that cut `r` out of the page (uv channel 0). */
   views(r: Rect): RegionViews {
@@ -275,7 +369,7 @@ export class Page {
   }
   /** Write a painted label (rows top-down; roughness already at half size) into its region. */
   write(r: Rect, color: Uint8Array, normal: Uint8Array | null, rough: { data: Uint8Array; w: number; h: number } | null): void {
-    const g = GUTTER;
+    const g = this.shelves.gutter;
     blit(this.color.data, this.w, color, r.w, r.h, r.x, r.y, g);
     this.color.touched(r.x - g, r.x + r.w + g, r.y - g, r.y + r.h + g);
     if (this.normal && normal) {
@@ -290,7 +384,7 @@ export class Page {
   }
   /** Write rows [top, top + n) of a region (rows counted top-down, as on a canvas) from `rows` (n×w RGBA, top-down). Colour only. */
   writeRows(r: Rect, top: number, rows: Uint8Array, n: number): void {
-    const g = GUTTER;
+    const g = this.shelves.gutter;
     const data = this.color.data;
     const stride = r.w * 4;
     const first = top === 0, last = top + n === r.h;
@@ -317,6 +411,9 @@ export class Page {
   bytes(): number {
     return this.maps().reduce((s, m) => s + m.bytes(), 0);
   }
+  cpuBytes(): number {
+    return this.maps().reduce((s, m) => s + m.cpuBytes(), 0);
+  }
   dispose(): void {
     for (const m of this.maps()) m.dispose();
   }
@@ -334,20 +431,20 @@ export class Atlas {
     if (w + 2 * GUTTER > pw || h + 2 * GUTTER > ph) return null;
     for (const page of this.pages) {
       if (page.kind !== kind) continue;
-      const rect = page.shelves.alloc(w, h);
+      const rect = page.alloc(w, h);
       if (rect) return { page, rect };
     }
     const page = new Page(kind, this.pages.filter((p) => p.kind === kind).length, this.anisotropy);
     this.pages.push(page);
-    const rect = page.shelves.alloc(w, h);
+    const rect = page.alloc(w, h);
     return rect ? { page, rect } : null;
   }
   /** A page of its own for a region too big for a shared page (flat only). */
   dedicated(w: number, h: number): { page: Page; rect: Rect } {
-    const size = { w: Math.ceil((w + 2 * GUTTER) / CELL) * CELL, h: Math.ceil((h + 2 * GUTTER) / CELL) * CELL };
-    const page = new Page('flat', this.pages.filter((p) => p.kind === 'flat').length, this.anisotropy, size);
+    // exactly its size, no gutter: sampled as a texture of its own would be (ClampToEdge, its own mips)
+    const page = new Page('flat', this.pages.filter((p) => p.kind === 'flat').length, this.anisotropy, { w, h }, 0);
     this.pages.push(page);
-    return { page, rect: page.shelves.alloc(w, h)! };
+    return { page, rect: page.alloc(w, h)! };
   }
   /** The page a page key names (Page.key), or undefined. */
   byKey(key: string): { page: Page; alpha: Alpha } | undefined {
@@ -356,6 +453,13 @@ export class Atlas {
   }
   bytes(): number {
     return this.pages.reduce((s, p) => s + p.bytes(), 0);
+  }
+  cpuBytes(): number {
+    return this.pages.reduce((s, p) => s + p.cpuBytes(), 0);
+  }
+  /** Start-up is over: the pages made so far take no more labels. */
+  seal(): void {
+    for (const p of this.pages) p.seal();
   }
   dispose(): void {
     for (const p of this.pages) p.dispose();

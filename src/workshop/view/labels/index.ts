@@ -166,7 +166,7 @@ export interface WorkshopLabels extends Labels {
   /** Resolves when every label asked for so far has its pixels (immediately without workers). */
   ready(): Promise<void>;
   /** Every label made so far, and the GPU memory their textures take (RGBA8 + mips; atlas pages counted whole). */
-  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number };
+  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number };
   entries(): readonly LabelEntry[];
   dispose(): void;
 }
@@ -211,6 +211,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
   const nWorkers = typeof Worker !== 'undefined' && want > 0 ? Math.max(1, Math.min(want, cores - 1)) : 0;
   let pool: Pool | null = nWorkers > 0 ? new Pool(nWorkers, opts.fontBase ?? '/fonts/', fontBytes()) : null;
   const pending = new Set<Promise<void>>();
+  let sealed = false;
 
   const made = new Map<string, LabelEntry>();
   const own = new Set<Texture>();
@@ -427,6 +428,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       const world = { w: px.w / tpu, h: px.h / tpu };
       const placed = (useAtlas ? atlas.place('flat', px.w, px.h) : null) ?? atlas.dedicated(px.w, px.h);
       const { page, rect } = placed;
+      page.redrawn = true;
       const v = tag(page, rect, alpha);
       made.set(key, { key, register: 'region', text: name, size: world, capHeight: world.h, px, map: v.map, normal: null, rough: null, transparent: alpha !== 'opaque', bytes: 0, atlas: v.atlas });
       let ctx: ReturnType<typeof context> | null = null;
@@ -475,7 +477,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       for (const e of made.values()) bytes += e.bytes;
       const pageBytes = atlas.bytes();
       const textures = own.size + atlas.pages.reduce((s, p) => s + p.maps().length, 0);
-      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes };
+      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes, cpuBytes: atlas.cpuBytes() };
     },
     dispose() {
       pool?.dispose();
@@ -489,6 +491,12 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
   };
   /** Start-up is over: from now on labels are painted here, and the workers go. */
   function closeWindow(): void {
+    // the pages made so far take no more labels and, once uploaded, let their CPU copies go
+    // (unless something on them is redrawn); later labels open pages of their own
+    if (!sealed) {
+      sealed = true;
+      atlas.seal();
+    }
     if (!pool) return;
     Object.assign(labelStats.workerPaint, pool.spent);
     pool.dispose();
