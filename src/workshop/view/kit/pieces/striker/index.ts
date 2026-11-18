@@ -102,7 +102,7 @@ export function striker(o: StrikerOptions = {}): Piece {
     const w = plate.x1 - plate.x0, d = plate.z1 - plate.z0;
     const g = profiledBox({ w, d, rPlan: r, detail: 'low', band: 0 }, profile(0, 0).to(r, 0, { sharp: true }).to(r, 0.03, { fillet: 0.012, segs: 1 }).to(r - 0.04, yB, { fillet: 0.012, segs: 1 }).to(0, yB));
     transform(g, T((plate.x0 + plate.x1) / 2, 0, 0));
-    dentKeep(g, [-0.2, 0.03, plate.z1], [0, 0.3, 1], 0.07, 0.008);
+    dentKeep(g, [-0.2, 0.04, plate.z1], [0, -0.2, 1], 0.07, 0.008);
     m.add(part('steel', g, 'teal-panel', { seed, shade: 0.8, jitter: 0.03 }));
   }
   const postTop = 1.33;
