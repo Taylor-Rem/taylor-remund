@@ -42,6 +42,7 @@
 import { Bone, Box3, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Skeleton, SkinnedMesh, Sphere, Uint16BufferAttribute, Uint8BufferAttribute, Vector3 } from 'three';
 import type { Material, Object3D } from 'three';
 import type { Materials } from '../types.ts';
+import { labelAtlasOf } from '../labels/atlas.ts';
 import type { KitPart, MaterialClass, Piece, PieceNode } from './types.ts';
 import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import { mergeGeometries, pieceBounds } from './compose.ts';
@@ -121,6 +122,46 @@ function shadows(mesh: Mesh, part: KitPart, material: Material, o: RealizeOption
   mesh.castShadow = !proxied && casts(part, material, o);
   mesh.receiveShadow = (o.receiveShadow ?? true) && !NO_RECEIVE.has(part.material);
   mesh.userData['kitMaterial'] = part.material;
+}
+
+// ---- label atlas (T1) ----------------------------------------------------------
+//
+// Labels sit on shared atlas pages (view/labels/atlas.ts). Their materials' maps say which
+// page and where (`labelAtlasOf`). Two or more label parts of a piece (skinned) or of a node
+// (per-node) that share class, variant, page, alpha and castShadow are drawn as ONE mesh: the
+// part's own 0..1 uv stays in `uv`, its place on the page goes into `uv1`, and the mesh uses
+// the page's whole-page material (textures on uv channel 1, no transform). One label alone
+// keeps its own material and mesh, as before.
+
+/** Where a textured part sits on the atlas: the group it merges into and its rect, or null. */
+function atlasOf(part: KitPart, materials: Materials): { group: string; page: string; rect: [number, number, number, number] } | null {
+  if (!part.texture) return null;
+  const info = labelAtlasOf(materialOf(part, materials));
+  if (!info) return null;
+  return { group: `${part.material}${part.variant ? `.${part.variant}` : ''}.${info.page}${part.castShadow === false ? '.noshadow' : ''}`, page: info.page, rect: info.rect };
+}
+
+/** Write uv1 (the atlas uv) for the vertex ranges of a merged geometry, from its uv. */
+function atlasUv(g: BufferGeometry, spans: ReadonlyArray<{ start: number; count: number; rect: readonly [number, number, number, number] }>): void {
+  const uv = g.getAttribute('uv');
+  const n = g.getAttribute('position').count;
+  const out = new Float32Array(n * 2);
+  for (const { start, count, rect } of spans) {
+    const [u0, v0, u1, v1] = rect;
+    for (let i = start; i < start + count; i++) {
+      out[i * 2] = u0 + (uv ? uv.getX(i) : 0) * (u1 - u0);
+      out[i * 2 + 1] = v0 + (uv ? uv.getY(i) : 0) * (v1 - v0);
+    }
+  }
+  g.setAttribute('uv1', new BufferAttribute(out, 2));
+}
+
+/** Which label parts merge: group name per part (null: drawn as before), only for groups of two or more. */
+function atlasGroups(parts: readonly KitPart[], materials: Materials): Array<ReturnType<typeof atlasOf>> {
+  const at = parts.map((q) => atlasOf(q, materials));
+  const n = new Map<string, number>();
+  for (const a of at) if (a) n.set(a.group, (n.get(a.group) ?? 0) + 1);
+  return at.map((a) => (a && n.get(a.group)! > 1 ? a : null));
 }
 
 const partName = (part: KitPart): string =>
@@ -696,12 +737,52 @@ function nodeProxy(node: PieceNode, materials: Materials, o: RealizeOptions): Pr
   return casting.length > 1 ? built : null;
 }
 
+/** A node's label parts merged per atlas group (cached per node and materials). */
+const nodeAtlasCache = new WeakMap<readonly KitPart[], { materials: Materials; merged: Array<{ part: KitPart; geometry: BufferGeometry }>; rest: KitPart[] }>();
+
+function nodeAtlas(node: PieceNode, materials: Materials): { merged: Array<{ part: KitPart; geometry: BufferGeometry }>; rest: KitPart[] } {
+  const hit = nodeAtlasCache.get(node.parts);
+  if (hit && hit.materials === materials) return hit;
+  const groups = atlasGroups(node.parts, materials);
+  const byGroup = new Map<string, { page: string; parts: KitPart[]; rects: Array<[number, number, number, number]> }>();
+  const rest: KitPart[] = [];
+  node.parts.forEach((q, i) => {
+    const a = groups[i];
+    if (!a) {
+      rest.push(q);
+      return;
+    }
+    let b = byGroup.get(a.group);
+    if (!b) byGroup.set(a.group, (b = { page: a.page, parts: [], rects: [] }));
+    b.parts.push(q);
+    b.rects.push(a.rect);
+  });
+  const merged = [...byGroup.values()].map(({ page, parts, rects }) => {
+    const geometry = mergeGeometries(parts.map((q) => q.geometry));
+    let v = 0;
+    const spans = parts.map((q, k) => {
+      const count = q.geometry.getAttribute('position').count;
+      const sp = { start: v, count, rect: rects[k]!, source: q.geometry, texture: q.texture };
+      v += count;
+      return sp;
+    });
+    atlasUv(geometry, spans);
+    geometry.userData['kitSources'] = spans.map((sp) => ({ source: sp.source, node: node.name, start: sp.start, count: sp.count, texture: sp.texture }));
+    return { part: { ...parts[0]!, texture: page }, geometry };
+  });
+  const out = { materials, merged, rest };
+  nodeAtlasCache.set(node.parts, out);
+  return out;
+}
+
 function nodeOf(node: PieceNode, materials: Materials, o: RealizeOptions): Group {
   const g = new Group();
   g.name = node.name;
   if (node.transform) node.transform.decompose(g.position, g.quaternion, g.scale);
   const proxy = nodeProxy(node, materials, o);
-  for (const part of node.parts) g.add(meshOf(node, part, materials, o, !!proxy));
+  const at = nodeAtlas(node, materials);
+  for (const part of at.rest) g.add(meshOf(node, part, materials, o, !!proxy));
+  for (const m of at.merged) g.add(meshOf(node, { ...m.part, geometry: m.geometry }, materials, o, !!proxy));
   for (const c of node.children ?? []) g.add(nodeOf(c, materials, o));
   // last, so a builder that takes "the mesh" of a single-part node still finds its own
   if (proxy?.geometry) g.add(asProxy(new Mesh(proxy.geometry, proxyMaterial(proxy.rep, materials))));
@@ -719,6 +800,8 @@ interface SkinGroup {
 interface SkinBuild {
   /** The node transforms it was built from (rebuilt if a piece's nodes were re-posed in place). */
   stamp: string;
+  /** The materials it was grouped for (label parts merge by the atlas page their material names). */
+  materials: Materials;
   groups: SkinGroup[];
   sphere: Sphere;
   box: Box3;
@@ -737,6 +820,8 @@ export interface SkinSource {
   /** First vertex and vertex count in the merged geometry. */
   start: number;
   count: number;
+  /** The label key the part was textured with (merged atlas meshes: the mesh's own name names the page). */
+  texture?: string | undefined;
 }
 
 /**
@@ -764,22 +849,30 @@ function nodesOf(piece: Piece): Array<{ node: PieceNode; parent: number; world: 
 }
 
 /** The merged, bone-bound geometries of a piece (built once per Piece). */
-function skinBuild(piece: Piece): SkinBuild {
+function skinBuild(piece: Piece, materials: Materials): SkinBuild {
   const nodes = nodesOf(piece);
   const stamp = nodes.map(({ world }) => world.elements.map((e) => e.toFixed(6)).join(',')).join(';');
   const cached = skinCache.get(piece);
-  if (cached && cached.stamp === stamp) return cached;
+  if (cached && cached.stamp === stamp && cached.materials === materials) return cached;
   const order: string[] = [];
-  const byKey = new Map<string, { part: KitPart; geoms: BufferGeometry[]; bones: number[]; sources: BufferGeometry[] }>();
+  const byKey = new Map<string, { part: KitPart; geoms: BufferGeometry[]; bones: number[]; sources: BufferGeometry[]; rects: Array<[number, number, number, number] | null>; textures: Array<string | undefined> }>();
+  const groups = atlasGroups(
+    nodes.flatMap(({ node }) => node.parts),
+    materials,
+  );
+  let pi = 0;
   nodes.forEach(({ node, world }, bone) => {
     for (const part of node.parts) {
-      const key = partName(part);
+      const a = groups[pi++];
+      const key = a ? a.group : partName(part);
       let g = byKey.get(key);
       if (!g) {
-        g = { part, geoms: [], bones: [], sources: [] };
+        g = { part: a ? { ...part, texture: a.page } : part, geoms: [], bones: [], sources: [], rects: [], textures: [] };
         byKey.set(key, g);
         order.push(key);
       }
+      g.rects.push(a ? a.rect : null);
+      g.textures.push(part.texture);
       // into the piece's root space at rest (the bind pose); lpos, surf, colour, uv ride along unchanged
       const copy = part.geometry.clone();
       copy.userData = { ...part.geometry.userData }; // its own (clone shares the object)
@@ -789,7 +882,7 @@ function skinBuild(piece: Piece): SkinBuild {
     }
   });
   const big = nodes.length > 255;
-  const groups: SkinGroup[] = order.map((key) => {
+  const skinGroups: SkinGroup[] = order.map((key) => {
     const g = byKey.get(key)!;
     const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
     const n = geometry.getAttribute('position').count;
@@ -798,14 +891,18 @@ function skinBuild(piece: Piece): SkinBuild {
     const wgt = new Uint8Array(n * 4);
     let v = 0;
     const sources: SkinSource[] = [];
+    const spans: Array<{ start: number; count: number; rect: [number, number, number, number] }> = [];
     g.geoms.forEach((gg, k) => {
       const c = gg.getAttribute('position').count;
-      sources.push({ source: g.sources[k]!, node: nodes[g.bones[k]!]!.node.name, start: v, count: c });
+      sources.push({ source: g.sources[k]!, node: nodes[g.bones[k]!]!.node.name, start: v, count: c, texture: g.textures[k] });
+      const rect = g.rects[k];
+      if (rect) spans.push({ start: v, count: c, rect });
       for (let i = 0; i < c; i++, v++) {
         idx[v * 4] = g.bones[k]!;
         wgt[v * 4] = 255;
       }
     });
+    if (spans.length) atlasUv(geometry, spans);
     geometry.setAttribute('skinIndex', big ? new Uint16BufferAttribute(idx, 4) : new Uint8BufferAttribute(idx, 4));
     geometry.setAttribute('skinWeight', new BufferAttribute(wgt, 4, true));
     geometry.userData['kitSources'] = sources;
@@ -821,7 +918,7 @@ function skinBuild(piece: Piece): SkinBuild {
   // the box stays the exact rest bounds: Box3.setFromObject (framing, layout) reads it, and must
   // agree with the per-node backend at rest; culling reads the (conservative) sphere
   const box = b.clone();
-  const built: SkinBuild = { stamp, groups, sphere, box, proxies: new Map() };
+  const built: SkinBuild = { stamp, materials, groups: skinGroups, sphere, box, proxies: new Map() };
   skinCache.set(piece, built);
   return built;
 }
@@ -859,7 +956,7 @@ function realizeSkinned(piece: Piece, materials: Materials, o: RealizeOptions, t
   top.add(bones[0]!);
   top.updateMatrixWorld(true);
   const skeleton = new Skeleton(bones);
-  const built = skinBuild(piece);
+  const built = skinBuild(piece, materials);
   const castsPart = (q: KitPart): boolean => casts(q, materialOf(q, materials), o);
   const casting = built.groups.filter((g) => castsPart(g.part)).length;
   const proxy = proxiesOn(o) && casting > 0 ? skinProxy(piece, built, castsPart, detailOf(o)) : null;
