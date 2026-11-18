@@ -247,17 +247,15 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
       out.push(id);
     }
     out.sort((a, b) => (ctx.pose(b)?.p[1] ?? 0) - (ctx.pose(a)?.p[1] ?? 0));
+    // it topples onto the bench, never off it: toward the bench's middle, fanned, and a little toward the visitor
+    const b = ctx.scene.bench;
+    const inward = Math.atan2((b.minZ + b.maxZ) / 2 - sz, (b.minX + b.maxX) / 2 - sx);
     out.forEach((id, i) => {
-      const p = ctx.pose(id)?.p as Vec3;
-      let dx = p[0] - sx;
-      let dz = p[2] - sz;
-      const d = Math.hypot(dx, dz);
-      const a = d > 1e-3 ? Math.atan2(dz, dx) : rng.range(-Math.PI, Math.PI);
-      // spread round the front: the higher the crate, the further it goes
-      const turn = a + rng.range(-0.5, 0.5);
-      dx = Math.cos(turn);
-      dz = Math.abs(Math.sin(turn)) + 0.6;
+      const turn = inward + rng.range(-0.7, 0.7);
+      const dx = Math.cos(turn);
+      const dz = Math.sin(turn) + 0.3;
       const n = Math.hypot(dx, dz);
+      // the higher the crate, the further it goes
       const v = rng.range(T.stackOut[0], T.stackOut[1]) * (1 + 0.25 * (out.length - 1 - i));
       ctx.shove(id, [(dx / n) * v, rng.range(T.stackUp[0], T.stackUp[1]), (dz / n) * v]);
     });
