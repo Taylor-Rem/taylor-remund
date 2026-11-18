@@ -1,12 +1,26 @@
 /**
- * The lamp's behaviour (REWRITE.md § B4 rung 1 "the lamp dips", § B1, § A
- * "Light"; W4 brief § B). The key light is the stage's; this view decides
- * what it does over time:
+ * The lamp (REWRITE.md § B4 rung 1 "the lamp dips", § B1, § B2 X1 the LAMP
+ * row, § D 14 "the lamp's arm", § A "Light"; W4 brief). The key light is the
+ * stage's; this view decides what it does over time, and moves the lamp's
+ * body so the light comes out of its shade:
  *
- *  - its level and colour: the setting `<id>.level` / `<id>.colour` when the
- *    simulation defines them (a handle will, later), else what `setLevel` /
- *    `setColour` asked for, else full. A filament has thermal lag: it warms
- *    up quickly and cools a little slower, never a cut;
+ *  - THE ARM (§ D 14). The simulation's lamp (`LampView`) says where the beam
+ *    points (`aim`, world; `home` when a field is missing); the piece's
+ *    `aimLamp` lays the arm out for it. The view does not snap there: every
+ *    joint is a spring, the outer ones (wrist, pan) looser than the inner,
+ *    so a drag pulls the arm round with the shade trailing a little, and a
+ *    stop leaves the shade nodding once on its wrist. In the hand the arm is
+ *    stiff and well damped; let go, it sags a hair on its springs and
+ *    settles (a little overshoot); an undo or a reset swings it home on a
+ *    slower spring, the same path backwards. The key light is put at the
+ *    DRAWN filament, along the DRAWN shade's axis, every frame the arm
+ *    moves, so the pool and every shadow on the bench move with it.
+ *  - THE LIGHT: brighter, dimmer, off, on, a colour (§ B2 X1). Level and
+ *    on/off settle like a filament (thermal lag: warms quickly, cools a
+ *    little slower; switched on, it catches once and comes up); the colour
+ *    crosses over in about a third of a second. Never a cut. An undo is the
+ *    same settle the other way. Off is night: the stage's rig keeps the
+ *    board's lamps, the sign's bulbs and the robots' eyes.
  *  - the dip, on the simulation's `misfire` of the lamp: a brownout that
  *    drops fast, holds, stutters once, and recovers like a filament warming
  *    (one small sag on the way). With reduced motion: a plain dip and
@@ -15,19 +29,28 @@
  *    of the world, so the lamp swells back to full exactly as the rewind
  *    lands, with a slow tape-wow on the light while the bench runs
  *    backwards (2.4 a second, 0.15 deep: § B4's "no flashing faster
- *    than three times a second" is kept);
- *  - the lamp's body: when a `lamp` piece is registered in the kit, it is
- *    stood so its `bulb` socket is where the key light is, and the key is
- *    moved to that socket (`lights.setBulb`).
+ *    than three times a second" is kept).
+ *
+ * Without `arm` (the vignette, the Button's page) the lamp's body is stood
+ * so its `bulb` socket is where the key light already is, and never moves.
+ *
+ * Reduced motion is honoured in one place (`reduced`): the arm cuts to its
+ * pose, the light to its level and colour.
  *
  * Every curve runs on `frame.time`. Bulbs everywhere dim with the lamp
  * during a dip (same circuit) when the materials expose the bulb dimmer.
  */
-import { Group, Matrix4, Vector3 } from 'three';
-import type { Id } from '../../sim/types.ts';
+import { Box3, Color, Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
+import type { Id, LampView as SimLampView, SimEvent, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import type { Token } from '../palette.ts';
 import { palette } from '../palette.ts';
+import type { Piece } from '../kit/types.ts';
+import { HOME, JOINTS, aimLamp, armFrames, type Joint, type LampPose } from '../kit/pieces/lamp/aim.ts';
+import { nodeTransforms } from '../kit/pieces/lamp/pose.ts';
+import { lampColourFrom, stageColours } from '../stage/colours.ts';
+import { RIG } from '../stage/light.ts';
+import { Spring, clamp, lerp, smoothstep } from '../anim/index.ts';
 
 /** Tune here. Times in seconds. */
 export const LAMP_FEEL = {
@@ -39,6 +62,35 @@ export const LAMP_FEEL = {
   wowDepth: 0.15,
   /** Bulbs keep at least this share of their glow at the bottom of a dip. */
   bulbFloor: 0.35,
+  /** The light a brightness step gives, × the approved light (the visit starts at step 3 of 5: 1). */
+  steps: [0.3, 0.6, 1, 1.3, 1.6] as readonly number[],
+  /** The shade's liner and bulb glow (the piece's three lit levels) for each step. */
+  glow: [1, 2, 3, 3, 3] as readonly (1 | 2 | 3)[],
+  /** A new colour crosses over at this rate (1/s): about a third of a second. */
+  colourRate: 9,
+  /** Switched on, the filament catches once: as it warms, it sags this deep between these times (s), then comes on. */
+  catch: { from: 0.07, to: 0.19, depth: 0.6 },
+} as const;
+
+/** How the arm moves (natural frequency rad/s, damping ratio): in the hand, let go, swung home. */
+export const ARM_FEEL = {
+  /** In the hand: stiff and damped, a weighted lag behind the pointer. */
+  drag: { omega: 15, zeta: 0.8 },
+  /** Let go: it settles on its springs with a little overshoot. */
+  free: { omega: 10, zeta: 0.45 },
+  /** Undo or reset: swung home, the same path backwards, unhurried but not slow. */
+  home: { omega: 7.5, zeta: 0.62 },
+  /** Each joint's spring × these (the shade is loosest: it trails and nods). */
+  omega: { swivel: 1, lean: 1, shoulder: 1, elbow: 0.92, wrist: 0.72, pan: 0.66 } as Record<Joint, number>,
+  zeta: { swivel: 1, lean: 1, shoulder: 1, elbow: 0.95, wrist: 0.8, pan: 0.8 } as Record<Joint, number>,
+  /** On letting go: the arm sags on its springs (rad/s kicked into the shoulder and the elbow) and the shade nods. */
+  sag: { shoulder: -0.35, elbow: 0.25, wrist: 0.9 },
+  /** A target that jumps this far (lamp units) without a hand on it is an undo or a reset: swing home. */
+  jump: 0.05,
+  /** Below this joint motion (rad) the arm is at rest and nothing is recomputed. */
+  rest: 2e-5,
+  /** The key light aims this far down the shade's axis (lamp space, as `lampLight`). */
+  reach: 6.7,
 } as const;
 
 /** The brownout, as a level multiplier, `t` seconds after the misfire. */
@@ -73,15 +125,27 @@ export function dipCurve(t: number, reduced = false): number {
   return 1;
 }
 
+/** Switched on at t = 0: the filament catches once, a multiplier on its warming level (1 before and after). */
+export function catchCurve(t: number): number {
+  const c = LAMP_FEEL.catch;
+  if (t <= c.from || t >= c.to) return 1;
+  return 1 - c.depth * Math.sin((Math.PI * (t - c.from)) / (c.to - c.from));
+}
+
 export interface LampViewOptions {
   /** The lamp fixture's id (its misfires dip it; its settings drive it). Default 'lamp'. */
   id?: Id;
   /** Look for a `lamp` piece in the kit registry and stand it (default true). */
   body?: boolean;
+  /**
+   * The lamp with a moving arm (the bench): its piece is clamped with its origin at `place` (world,
+   * no yaw), posed from the simulation's aim every frame, and the key light follows its drawn shade.
+   */
+  arm?: { place: Vec3; seed?: number };
 }
 
 export interface LampView extends StationView {
-  /** The lamp's level now (0..1), after dip and wow. */
+  /** The lamp's level now (0.., 1 = the approved light), after dip and wow. */
   readonly level: number;
   /** Ask for a level (when the simulation does not hold one). The filament eases there. */
   setLevel(level: number): void;
@@ -94,6 +158,11 @@ export interface LampView extends StationView {
 /** What the boot's materials offer beyond the contract (the bulb dimmer). */
 interface Dimmable {
   set?(cls: 'bulb', param: string, value: number): void;
+}
+
+/** The light's colour for a setting: its own warm, or a paint (linear RGB). */
+function colourOf(c: Token | 'warm' | null, out: Color): Color {
+  return c && c !== 'warm' && c in palette ? out.fromArray(lampColourFrom(c)) : out.fromArray(stageColours().key);
 }
 
 export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) => LampView {
@@ -120,8 +189,18 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
     let lastBulb = -1;
     const dim = ctx.materials as unknown as Dimmable;
 
-    // the body, when a builder has registered it
-    if (opts.body ?? true) void standBody(ctx, root);
+    // the light's colour, crossing over (only with the simulation's lamp: the stage's own colour otherwise)
+    const colNow = new Color();
+    const colWant = new Color();
+    let colourSet: string | null = null;
+    let colourInit = false;
+    // on / off: when it was last switched on (the catch), and whether the shade shows lit
+    let wasOn: boolean | null = null;
+    let onAt = -Infinity;
+
+    // the arm (bench), or the standing body (vignette)
+    const arm = opts.arm ? createArm(ctx, root, opts.arm, reduced) : null;
+    if (!arm && (opts.body ?? true)) void standBody(ctx, root);
 
     const view: LampView = {
       root,
@@ -129,7 +208,7 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
         return level;
       },
       setLevel(l) {
-        asked = Math.min(1, Math.max(0, l));
+        asked = Math.max(0, l);
       },
       setColour(c) {
         askedColour = c;
@@ -155,11 +234,29 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
             rewDur = e.duration;
           } else if (e.type === 'rung.ended') rewAt = -Infinity;
         }
-        // the level asked for: the simulation's setting first
-        const sl = w.setting(id, 'level');
-        const sc = w.setting(id, 'colour');
-        const target = typeof sl === 'number' ? Math.min(1, Math.max(0, sl)) : asked;
-        const colour = typeof sc === 'string' && sc in palette ? (sc as Token) : askedColour;
+        const mv = w.machine(id);
+        const lv: SimLampView | null = mv && mv.kind === 'lamp' ? mv : null;
+
+        // the level asked for: the simulation's lamp, else its setting (older scenes), else what was asked
+        let target: number;
+        let colour: Token | null;
+        let on = true;
+        if (lv) {
+          on = lv.on !== false;
+          const n = Math.max(1, lv.levels ?? LAMP_FEEL.steps.length);
+          const k = clamp(Math.round(((lv.level ?? lv.home?.level ?? 3) - 1) * ((LAMP_FEEL.steps.length - 1) / Math.max(1, n - 1))), 0, LAMP_FEEL.steps.length - 1);
+          target = on ? LAMP_FEEL.steps[k]! : 0;
+          colour = lv.colour && lv.colour !== 'warm' && lv.colour in palette ? (lv.colour as Token) : null;
+          if (arm) arm.glow = LAMP_FEEL.glow[k]!;
+        } else {
+          const sl = w.setting(id, 'level');
+          const sc = w.setting(id, 'colour');
+          target = typeof sl === 'number' ? Math.min(1, Math.max(0, sl)) : asked;
+          colour = typeof sc === 'string' && sc in palette ? (sc as Token) : askedColour;
+        }
+        if (wasOn === false && on) onAt = now;
+        wasOn = on;
+
         const dt = Math.min(frame.dt, 0.1);
         const rate = target > base ? LAMP_FEEL.warm : LAMP_FEEL.cool;
         base += (target - base) * (reduced ? 1 : 1 - Math.exp(-rate * dt));
@@ -175,16 +272,41 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
           if (!reduced) wow = 1 - LAMP_FEEL.wowDepth * (0.5 - 0.5 * Math.cos(2 * Math.PI * LAMP_FEEL.wowHz * tau)) * Math.sin(Math.PI * k);
         }
         const env = dipCurve(since, reduced);
-        level = base * env * wow;
-        if (Math.abs(level - lastSent) > 1e-4 || colour !== lastColour) {
-          lights.setLamp(colour !== lastColour ? { level, colour } : { level });
-          lastSent = level;
+        const caught = reduced ? 1 : catchCurve(now - onAt);
+        level = base * caught * env * wow;
+
+        // the rig takes 0..1; a step brighter than the approved light is carried by the key alone
+        const rigLevel = Math.min(1, level);
+        if (Math.abs(rigLevel - lastSent) > 1e-4 || (!lv && colour !== lastColour)) {
+          lights.setLamp(!lv && colour !== lastColour ? { level: rigLevel, colour } : { level: rigLevel });
+          lastSent = rigLevel;
           lastColour = colour;
+        }
+        if (lv && lights.key) {
+          // the colour crosses over (the rig's own colour stays its warm: this view owns the key's colour here)
+          const want = colour ?? 'warm';
+          if (want !== colourSet) {
+            colourOf(want, colWant);
+            if (!colourInit) colNow.copy(colWant);
+            colourSet = want;
+            colourInit = true;
+          }
+          const k = reduced ? 1 : 1 - Math.exp(-LAMP_FEEL.colourRate * dt);
+          colNow.lerp(colWant, k);
+          lights.key.color.copy(colNow);
+          const eff = (lights as { effectiveLevel?: number }).effectiveLevel ?? rigLevel;
+          lights.key.intensity = RIG.key.intensity * eff * Math.max(1, level);
         }
         const bulb = LAMP_FEEL.bulbFloor + (1 - LAMP_FEEL.bulbFloor) * env;
         if (dim.set && Math.abs(bulb - lastBulb) > 1e-4) {
           dim.set('bulb', 'intensity', bulb);
           lastBulb = bulb;
+        }
+
+        // the arm, and the key light at its drawn filament
+        if (arm) {
+          arm.lit = on ? level > 0.06 : level > 0.15;
+          arm.update(lv, frame.events, dt);
         }
       },
       dispose() {
@@ -193,6 +315,154 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
     };
     return view;
   };
+}
+
+// ───────────────────────── the arm ─────────────────────────
+
+interface Arm {
+  /** The shade shows lit (the filament is glowing), and which of its three glows. */
+  lit: boolean;
+  glow: 1 | 2 | 3;
+  update(lv: SimLampView | null, events: readonly SimEvent[], dt: number): void;
+}
+
+/** The shade's pick box in the head's frame (+X out of the mouth): wrist hub to rim, the bell's radius and the grip. */
+const SHADE_BOX = new Box3(new Vector3(-0.3, -0.72, -0.72), new Vector3(1.32, 0.72, 0.72));
+
+function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: number }, reduced: boolean): Arm {
+  const place = new Vector3(...o.place);
+  const placeM = new Matrix4().makeTranslation(place.x, place.y, place.z);
+  const springs = {} as Record<Joint, Spring>;
+  for (const j of JOINTS) springs[j] = new Spring(HOME[j], { omega: ARM_FEEL.free.omega, zeta: ARM_FEEL.free.zeta });
+  const want: Record<Joint, number> = { ...HOME };
+  const pose: LampPose & Record<Joint, number> = { ...HOME, on: true, level: 3 };
+  let mode: 'drag' | 'free' | 'home' = 'free';
+  let wasDragging = false;
+  let started = false;
+  const tAim = new Vector3(Infinity, 0, 0);
+  const tmp = new Vector3();
+  let nodes: Map<string, Object3D> | null = null;
+  let dirty = true;
+  let shownLit: boolean | null = null;
+  let shownGlow = 0;
+  const grip = new Group();
+  grip.name = 'lamp:shade';
+  grip.matrixAutoUpdate = false;
+  root.add(grip);
+  const lights = ctx.stage.lights;
+  const pos = new Vector3(), q = new Quaternion(), scl = new Vector3();
+  const bulbW = new Vector3(), aimW = new Vector3();
+  const shadowBox = new Box3(new Vector3(-10, -0.6, -5), new Vector3(10, 6, 5));
+  const fitAt = new Vector3(Infinity, 0, 0);
+
+  // the body: built (cached) from the registry, realized skinned at its clamp
+  void (async () => {
+    let reg: typeof import('../kit/pieces/registry.ts');
+    try {
+      reg = await import('../kit/pieces/registry.ts');
+    } catch {
+      return; // no registry outside Vite (unit tests): the light still follows the arm's maths
+    }
+    if (!reg.pieceFolders().includes('lamp')) return;
+    const entry = (await reg.loadFolder('lamp')).find((e) => e.name === 'lamp');
+    if (!entry) return;
+    const piece: Piece = reg.buildCached(entry, { seed: o.seed ?? 1, detail: ctx.tier === 'low' ? 'low' : 'high' });
+    const obj = ctx.realize(piece);
+    obj.position.copy(place);
+    root.add(obj);
+    const m = new Map<string, Object3D>();
+    obj.traverse((n) => {
+      if (n.name) m.set(n.name, n);
+    });
+    nodes = m;
+    dirty = true;
+    const picking = (ctx as unknown as { picking?: { add(id: Id, o: Object3D, opts?: { box?: Box3; pad?: number }): void } }).picking;
+    if (picking) picking.add('lamp', grip, { box: SHADE_BOX, pad: 0.05 });
+    else ctx.pickable('lamp', grip);
+  })();
+
+  const arm: Arm = {
+    lit: true,
+    glow: 3,
+    update(lv, events, dt) {
+      // where the beam is to go (lamp space): the simulation's aim, else home
+      const aim = lv?.aim ?? lv?.home?.aim ?? null;
+      const dragging = !!lv?.dragging;
+      if (aim) {
+        tmp.set(aim[0] - place.x, aim[1] - place.y, aim[2] - place.z);
+        if (tmp.distanceToSquared(tAim) > 1e-10) {
+          const jumped = started && !dragging && !wasDragging && tmp.distanceTo(tAim) > ARM_FEEL.jump;
+          tAim.copy(tmp);
+          const a = aimLamp([tmp.x, tmp.y, tmp.z]);
+          for (const j of JOINTS) want[j] = a.pose[j];
+          if (jumped) mode = 'home';
+        }
+      }
+      for (const e of events) if ((e.type === 'undone' || e.type === 'reset') && !dragging) mode = 'home';
+      if (dragging) mode = 'drag';
+      else if (wasDragging) {
+        // let go: it settles on its springs, with a sag and a nod of the shade
+        mode = 'free';
+        if (!reduced) {
+          springs.shoulder.kick(ARM_FEEL.sag.shoulder);
+          springs.elbow.kick(ARM_FEEL.sag.elbow);
+          springs.wrist.kick(ARM_FEEL.sag.wrist);
+        }
+      }
+      wasDragging = dragging;
+      const p = ARM_FEEL[mode];
+      let moved = 0;
+      for (const j of JOINTS) {
+        const s = springs[j];
+        const before = s.x;
+        if (!started || reduced) s.set(want[j]);
+        else {
+          s.tune({ omega: p.omega * ARM_FEEL.omega[j], zeta: p.zeta * ARM_FEEL.zeta[j] });
+          s.step(want[j], dt);
+        }
+        pose[j] = s.x;
+        moved = Math.max(moved, Math.abs(s.x - before));
+      }
+      if (mode === 'home' && JOINTS.every((j) => springs[j].settled(want[j], 2e-4))) mode = 'free';
+      started = true;
+      if (shownLit !== arm.lit || shownGlow !== arm.glow) {
+        pose.on = arm.lit;
+        pose.level = arm.glow;
+        shownLit = arm.lit;
+        shownGlow = arm.glow;
+        dirty = true;
+      }
+      if (moved < ARM_FEEL.rest && !dirty) return;
+
+      // the key light at the drawn filament, along the drawn shade
+      const f = armFrames(pose);
+      bulbW.copy(f.bulb).add(place);
+      aimW.copy(f.bulb).addScaledVector(f.axis, ARM_FEEL.reach).add(place);
+      lights.setBulb([bulbW.x, bulbW.y, bulbW.z], [aimW.x, aimW.y, aimW.z]);
+      // the shadow camera's near and far follow the bulb (it may swing a long way from where they were fitted)
+      if (bulbW.distanceToSquared(fitAt) > 0.25 && 'fitShadow' in lights) {
+        (lights as { fitShadow(b: Box3): void }).fitShadow(shadowBox);
+        fitAt.copy(bulbW);
+      }
+      grip.matrix.copy(placeM).multiply(f.head);
+      grip.matrixWorldNeedsUpdate = true;
+
+      // the body's nodes
+      if (nodes) {
+        const t = nodeTransforms(pose);
+        for (const name in t) {
+          const n = nodes.get(name);
+          if (!n) continue;
+          t[name]!.decompose(pos, q, scl);
+          n.position.copy(pos);
+          n.quaternion.copy(q);
+          n.scale.copy(scl);
+        }
+        dirty = false;
+      }
+    },
+  };
+  return arm;
 }
 
 /** Stand the kit's lamp (if registered) so its bulb is where the key light is, and move the key to the socket. */
