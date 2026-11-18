@@ -17,8 +17,10 @@
 //
 // What "usable" means: the page says so. A page booted through the shell's
 // loader sets `window.__handoff.usableAt` (the live stage is on screen, the
-// loop running, input attached); the vignette page counts from the moment
-// `window.__vignette` exists (its boot has resolved and its loop runs).
+// loop running, input attached); the vignette and bench pages count from the
+// moment `window.__vignette` / `window.__bench` exists (their boot has
+// resolved and the loop is started; its first frame is still to come, so
+// they read about one first-frame early against the handoff page).
 //
 // Exit codes: 0 measured, 1 failed, 2 usage.
 
@@ -224,7 +226,7 @@ const INIT = `(() => {
     const h = window.__handoff;
     if (h && typeof h.usableAt === 'number') { lt.usable = h.usableAt; return; }
     if (h && h.failed) { lt.usable = -1; return; }
-    if (!h && window.__vignette) { lt.usable = performance.now(); return; }
+    if (!h && (window.__vignette || window.__bench)) { lt.usable = performance.now(); return; }
     requestAnimationFrame(poll);
   };
   requestAnimationFrame(poll);
