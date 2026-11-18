@@ -60,7 +60,7 @@ export const HISTORY_TUNING = {
   /** Rule 14: the stack holds this many transactions. */
   depth: 30,
   /** Rule 4: a release window stays open at most this long, seconds. */
-  window: 6,
+  windowSeconds: 6,
 } as const;
 
 /** One durable change asked for, before it is admitted. */
@@ -218,7 +218,7 @@ interface JobImpl extends Job {
   readonly abort: () => void;
 }
 
-interface Window {
+interface ReleaseWindow {
   readonly txn: Txn;
   readonly members: Set<Id>;
   left: number;
@@ -230,10 +230,11 @@ export function createHistory(): HistoryHooks {
   let issued = 0;
   let stack: Txn[] = [];
   const live = new Map<TransactionId, Txn>();
-  let window: Window | null = null;
+  /** The release window: at most one, the newest transaction's (D2). */
+  let win: ReleaseWindow | null = null;
   let frozen = false;
   let seq = 0;
-  const WINDOW = steps(HISTORY_TUNING.window);
+  const WINDOW = steps(HISTORY_TUNING.windowSeconds);
 
   const P = (): HistoryPort => {
     if (!port) throw new Error('history: not bound to a world');
@@ -243,12 +244,12 @@ export function createHistory(): HistoryHooks {
     const n = num(id);
     return Number.isInteger(n) && n >= 1 && n <= issued;
   };
-  const busy = (t: Txn): boolean => t.entries.size > 0 || t.jobs.size > 0 || window?.txn === t;
+  const busy = (t: Txn): boolean => t.entries.size > 0 || t.jobs.size > 0 || win?.txn === t;
 
   function drop(t: Txn): void {
     stack = stack.filter((x) => x !== t);
     live.delete(t.id);
-    if (window?.txn === t) window = null;
+    if (win?.txn === t) win = null;
   }
 
   /** Rule 14: "a transaction with no entries and nothing pending leaves the stack". Only those opened before `before`. */
@@ -266,7 +267,7 @@ export function createHistory(): HistoryHooks {
   }
 
   function chargeMachine(part: Id): Cause {
-    if (window?.members.has(part)) return window.txn.id;
+    if (win?.members.has(part)) return win.txn.id;
     const w = P().store.writer(part, 'location');
     if (isTxn(w) && live.has(w)) return w;
     return w === 'crew' ? 'crew' : 'system';
@@ -279,7 +280,7 @@ export function createHistory(): HistoryHooks {
     opened: t.opened,
     entries: [...t.entries.values()].map((e) => Object.freeze({ ...e })),
     pending: [...t.jobs].map((j) => j.owner),
-    moving: window?.txn === t ? [...window.members] : [],
+    moving: win?.txn === t ? [...win.members] : [],
   });
 
   return {
@@ -297,7 +298,7 @@ export function createHistory(): HistoryHooks {
       live.set(t.id, t);
       // Rule 4, "a moving part has one owner" (D2): the older window closes now, holding only what has
       // already come to rest; everything still moving passes to the new transaction.
-      if (window) window = window.members.size > 0 ? { txn: t, members: new Set(window.members), left: WINDOW } : null;
+      if (win) win = win.members.size > 0 ? { txn: t, members: new Set(win.members), left: WINDOW } : null;
       while (stack.length > HISTORY_TUNING.depth) forget(stack[0] as Txn);
       return t.id;
     },
@@ -323,7 +324,7 @@ export function createHistory(): HistoryHooks {
       for (const r of list) {
         const { target, field, before, after, cause } = r.effect;
         // a part given a durable location by anyone is no longer moving in a window
-        if (field === 'location') window?.members.delete(target);
+        if (field === 'location') win?.members.delete(target);
         if (!isTxn(cause)) continue;
         const t = live.get(cause);
         if (!t) throw new Error(`history: ${cause} committed without being admitted`);
@@ -346,9 +347,9 @@ export function createHistory(): HistoryHooks {
     },
 
     chargeRest(part, _step, fallback) {
-      if (window?.members.has(part)) {
-        window.members.delete(part);
-        return window.txn.id;
+      if (win?.members.has(part)) {
+        win.members.delete(part);
+        return win.txn.id;
       }
       if (fallback && (!isTxn(fallback) || live.has(fallback))) return fallback;
       return 'system';
@@ -364,17 +365,17 @@ export function createHistory(): HistoryHooks {
       if (!isTxn(by)) return;
       const t = live.get(by);
       if (!t) return;
-      if (!window) window = { txn: t, members: new Set(), left: WINDOW };
-      else if (window.txn !== t && num(t.id) > num(window.txn.id)) window = { txn: t, members: new Set(window.members), left: WINDOW };
-      window.members.add(part); // D2: the newest transaction owns every moving part
+      if (!win) win = { txn: t, members: new Set(), left: WINDOW };
+      else if (win.txn !== t && num(t.id) > num(win.txn.id)) win = { txn: t, members: new Set(win.members), left: WINDOW };
+      win.members.add(part); // D2: the newest transaction owns every moving part
     },
 
     take(part) {
-      window?.members.delete(part);
+      win?.members.delete(part);
     },
 
     disturbed(part) {
-      if (!frozen && window) window.members.add(part);
+      if (!frozen && win) win.members.add(part);
     },
 
     work(cause, owner, abort) {
@@ -417,7 +418,7 @@ export function createHistory(): HistoryHooks {
         for (const e of t.entries.values()) if (store.writer(e.target, e.field) !== t.id) return { ok: false, reason: 'changed-since', txn: t.id };
       }
       // rule 10: cancel everything pending under it first; nothing more commits (it is off the stack before any abort runs)
-      const recalled = window?.txn === t ? [...window.members] : [];
+      const recalled = win?.txn === t ? [...win.members] : [];
       drop(t);
       const cancelled: Id[] = [];
       for (const job of [...t.jobs]) {
@@ -444,14 +445,14 @@ export function createHistory(): HistoryHooks {
       for (const t of stack) for (const [k, e] of [...t.entries]) if (e.target === part) t.entries.delete(k);
       const store = P().store;
       for (const f of store.fields(part)) if (isTxn(store.writer(part, f))) store.setWriter(part, f, 'settled');
-      window?.members.delete(part);
+      win?.members.delete(part);
     },
 
     reset() {
       const all = stack;
       stack = [];
       live.clear();
-      window = null;
+      win = null;
       const cancelled: Id[] = [];
       for (const t of all)
         for (const job of [...t.jobs]) {
@@ -465,9 +466,9 @@ export function createHistory(): HistoryHooks {
 
     endStep() {
       if (frozen) return;
-      if (window) {
-        window.left -= 1;
-        if (window.members.size === 0 || window.left <= 0) window = null; // D3
+      if (win) {
+        win.left -= 1;
+        if (win.members.size === 0 || win.left <= 0) win = null; // D3
       }
       prune();
     },
