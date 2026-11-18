@@ -144,7 +144,7 @@ for (const touch of ['note', 'pick', 'hit'] as const) {
       NOTES.push({
         id: `${touch}.${material}.${size}`,
         group: touch,
-        answers: touch === 'note' ? 'struck (size, material)' : touch === 'pick' ? 'part.grabbed' : 'part.hit (scaled by strength)',
+        answers: touch === 'note' ? 'struck (size, material)' : touch === 'pick' ? 'part.grabbed' : 'part.hit (scaled by impact speed)',
         level: noteLevel[touch],
         length: noteLength[material][touch],
         pitch: partHz(size, material),
@@ -666,15 +666,15 @@ const OTHERS: SoundDef[] = [
   {
     id: 'loop.wheel',
     group: 'loop',
-    answers: "Fetch rolling (its speed: rate by speed)",
+    answers: "Fetch rolling (its speed: rate by speed); a servo whine on G4, in the line's key",
     level: -22,
     length: [0.9, 1.1],
-    pitch: 420,
+    pitch: 392,
     kind: 'loop',
     variants: 1,
     draw: (sr, rnd) => {
       const out = alloc(sr, 1.05);
-      [1, 0.5, 0.33, 0.25, 0.2, 0.16].forEach((a, i) => partial(out, sr, { f: 420 * (i + 1), amp: a, tau: 1e9, phase: rnd() * 6.28 }));
+      [1, 0.5, 0.33, 0.25, 0.2, 0.16].forEach((a, i) => partial(out, sr, { f: 392 * (i + 1), amp: a, tau: 1e9, phase: rnd() * 6.28 }));
       biquad(out, sr, 'lowpass', 2200, 0.7);
       shape(out, sr, (t) => 0.75 + 0.25 * Math.sin(2 * Math.PI * 31 * t));
       return seamless(out, sr, 0.05);
