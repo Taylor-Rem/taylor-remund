@@ -32,6 +32,16 @@ export { CONTENT_IDS, contentById, world } from './content.ts';
 export type { PhoneMessage, PlanOptions, Register, TapeColour } from './layout.ts';
 export { REGISTERS, capPx, minCapHeight, DEFAULT_VIEW } from './layout.ts';
 
+/**
+ * Main-thread time this module spends making labels (painting, uploading),
+ * summed over the session; also published as `globalThis.__labelStats` for
+ * scripts (loadtime, perf, the T1 measurements).
+ */
+export const labelStats = { ms: 0, count: 0, byRegister: {} as Record<string, { ms: number; count: number }> };
+(globalThis as { __labelStats?: typeof labelStats }).__labelStats = labelStats;
+
+const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 export interface LabelsOptions {
   /** Max anisotropy to use (pass renderer.capabilities.getMaxAnisotropy()). Default 8. */
   anisotropy?: number;
@@ -98,6 +108,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
 
   const make = (key: string, register: Register, text: string, build: () => { plan: Plan; painted: Painted }): string => {
     if (made.has(key)) return key;
+    const t0 = clock();
     const { plan, painted } = build();
     const map = upload(painted.color, painted.w, painted.h, true, anisotropy);
     const normal = painted.normal ? upload(painted.normal, painted.w, painted.h, false, anisotropy) : null;
@@ -118,6 +129,12 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       transparent: painted.alpha,
       bytes: per * (1 + (normal ? 1 : 0)) + (half ? textureBytes(half.w, half.h) : 0),
     });
+    const dt = clock() - t0;
+    labelStats.ms += dt;
+    labelStats.count++;
+    const b = (labelStats.byRegister[register] ??= { ms: 0, count: 0 });
+    b.ms += dt;
+    b.count++;
     return key;
   };
   const r = (key: string) => rng(`${seed}|${key}`);
