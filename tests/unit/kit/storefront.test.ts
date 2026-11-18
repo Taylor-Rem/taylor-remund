@@ -11,6 +11,7 @@ import {
   fitWords, cleanWords, MAX_CHARS, PICTURES, pictureIndex, NODES, SHOP,
 } from '../../../src/workshop/view/kit/pieces/storefront/index.ts';
 import { slatUv, ATLAS } from '../../../src/workshop/view/kit/pieces/storefront/atlas.ts';
+import { FASCIA, WORDS, VIEW_PITCH, visibleTop, corniceUnderside } from '../../../src/workshop/view/kit/pieces/storefront/dims.ts';
 import { checkGeometry } from './helpers.ts';
 import texts from '../../../src/content/texts.json';
 
@@ -45,7 +46,8 @@ describe('the storefront', () => {
     expect(b.fits, b.text).toBe(true);
     expect(storefront({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
     // a moving piece: one skinned mesh per class (+ textured parts), about twice that with shadows
-    expect(b.calls).toBeLessThanOrEqual(24);
+    expect(b.meshes, b.text).toBeLessThanOrEqual(6);
+    expect(b.calls, b.text).toBeLessThanOrEqual(12);
   });
 
   it('is the brief size: about 2.3 wide, 2.1 tall at the cornice, 0.9 deep, standing on y = 0', () => {
@@ -185,7 +187,8 @@ describe('paint', () => {
       const c = vertexColours(a, NODES.slat(1));
       const want = linear(paint);
       const mean = c.reduce((s, v) => s + v[0] + v[1] + v[2], 0) / c.length / (want[0] + want[1] + want[2]);
-      expect(mean).toBeGreaterThan(0.85);
+      // (its undersides carry grime: a little under the token on average)
+      expect(mean).toBeGreaterThan(0.7);
       expect(mean).toBeLessThan(1.15);
     }
     const g = linear('paint-green');
@@ -233,11 +236,26 @@ describe('the words', () => {
     }
   });
 
+  it('every capital is whole from the camera: the cornice hides nothing of the top line (30 to 36 degrees above)', () => {
+    const lean = (WORDS.leanDeg * Math.PI) / 180;
+    // the top of the words block on the face, as world height: the face's top less the layout's top
+    const lens = ['A', 'SHOP', 'BAKERY', 'HELLO WORLD', 'YOUR NAME HERE', 'THE BIG RED SHOP', 'WWWWWWWWWWWWWWWW', 'ABCDEFGHIJKLMNOP'];
+    for (const s of lens) {
+      const l = fitWords(s);
+      // a capital's top sits a cap above the first baseline, measured down the leaned face
+      const topDown = l.baselines[0]! - l.cap * 1.02;
+      const yTop = FASCIA.y1 - topDown * Math.cos(lean);
+      for (const pitch of [VIEW_PITCH.min, 33, VIEW_PITCH.max]) expect(yTop, `${s} at ${pitch}°`).toBeLessThanOrEqual(visibleTop(pitch));
+    }
+    // and the cornice is still a cornice: it overhangs the slats' pins
+    expect(corniceUnderside().at(-1)![0]).toBeGreaterThan(FASCIA.z);
+  });
+
   it('cuts each slat its own strip of each face', () => {
     const a0 = slatUv('A', 0), a3 = slatUv('A', 3), b0 = slatUv('B', 0);
-    expect(a0[1]).toBeCloseTo(0.5, 6);
+    expect(a0[1]).toBeCloseTo(0.75, 6);
     expect(a3[3]).toBeCloseTo(1, 2);
-    expect(b0[1]).toBeCloseTo(0, 6);
+    expect(b0[1]).toBeCloseTo(0.5, 6);
     expect(a0[3]).toBeLessThan(slatUv('A', 1)[1]);
   });
 });
