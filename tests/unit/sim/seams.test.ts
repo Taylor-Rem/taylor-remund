@@ -1,8 +1,8 @@
 // S6: the seams between the five simulation packages, one describe per seam, on the bench with the stub physics.
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
-import { AT, bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
-import type { CrewView, LampView, PatchView, RevertView, SimEvent } from '../../../src/workshop/sim/types.ts';
+import { AT, bench, LINE, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
+import type { CrewView, LampView, PatchView, RevertView, SimEvent, Vec3 } from '../../../src/workshop/sim/types.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
 import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
 import { KNOCK_TUNING, distanceTo } from '../../../src/workshop/sim/crew/fetch-knock.ts';
@@ -364,6 +364,63 @@ describe('seam 6: Fetch sees Revert', () => {
     world.dispatch({ type: 'release', velocity: [0, 0, 5] });
     const ev = run(world, 60);
     expect(ev.filter((e) => e.type === 'patch.reacted')).toEqual([]);
+  });
+});
+
+describe("seam 8: a part at the dock's sill", () => {
+  const bay = bench.statics.find((s) => s.id === 'dock')!;
+  const door = LINE.door;
+
+  test("the dock's collider is the bay behind the door: its front face is the door's plane, its back the piece's", () => {
+    expect(bay.shape.type).toBe('box');
+    const half = (bay.shape as { half: Vec3 }).half;
+    // along the way in, from the door's origin
+    const t = (bay.pose.p[0] - door.origin[0]) * door.inward[0] + (bay.pose.p[2] - door.origin[2]) * door.inward[2];
+    expect(t - half[2]).toBeCloseTo(0, 6); // front face on the door's plane, nothing over the sill
+    const tc = (AT.dock.c[0] - door.origin[0]) * door.inward[0] + (AT.dock.c[2] - door.origin[2]) * door.inward[2];
+    expect(t + half[2]).toBeCloseTo(tc + AT.dock.half[2], 6); // the back where the piece's back is
+    expect(half[0]).toBe(AT.dock.half[0]);
+    expect(half[1]).toBe(AT.dock.half[1]);
+  });
+
+  test('a crate on the sill, short of the door plane, can be picked up; one through it cannot', () => {
+    /** The S crate set on the ramp's head; run `n` steps (or, n < 0, until its leading face passes the door plane: returns the step count). */
+    const ride = (n: number): { world: World; steps: number } => {
+      const { world } = benchStub();
+      world.dispatch({ type: 'grab', id: 'crate-3', grip: world.motion('crate-3')!.pose.p });
+      run(world, 1);
+      world.dispatch({ type: 'place', at: 'dock' }); // set down on the ramp's head (tap-then-tap)
+      for (let i = 1; i <= (n < 0 ? 10 * 60 : n); i++) {
+        run(world, 1);
+        if (n >= 0 || world.mode('crate-3') !== 'machine') continue;
+        const p = world.motion('crate-3')!.pose.p;
+        const along = (p[0] - door.origin[0]) * door.inward[0] + (p[2] - door.origin[2]) * door.inward[2];
+        if (along + world.halfExtents('crate-3')![0] > 0) return { world, steps: i };
+      }
+      return { world, steps: n };
+    };
+    const through = ride(-1).steps;
+    expect(through).toBeGreaterThan(10);
+    const tryGrab = (w: World): boolean => {
+      w.dispatch({ type: 'grab', id: 'crate-3', grip: w.motion('crate-3')!.pose.p });
+      run(w, 1);
+      return w.holding()?.id === 'crate-3';
+    };
+    const before = ride(through - 3).world;
+    expect(before.mode('crate-3')).toBe('machine');
+    expect(tryGrab(before)).toBe(true);
+    const after = ride(through + 1).world;
+    expect(after.mode('crate-3')).toBe('machine');
+    expect(tryGrab(after)).toBe(false);
+  });
+
+  test('the safety net: a part asleep below the bench top inside its footprint goes to the chute, even one that never counted as moving', () => {
+    const { world, physics } = benchStub();
+    run(world, 2);
+    physics.setPose('crate-1', { p: [5.96, -0.09, 3.52], q: [0, 0, 0, 1] });
+    physics.sleep('crate-1');
+    run(world, 2);
+    expect(world.mode('crate-1')).toBe('chute');
   });
 });
 

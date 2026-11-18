@@ -592,7 +592,17 @@ export function createWorld(opts: WorldOptions): World {
         l.calm = 0;
         continue;
       }
-      if (!l.unsettled) continue;
+      if (!l.unsettled) {
+        // S6: the safety net for a part that never counted as moving: one crept down slower than `wakeLinear`
+        // (squeezed between two statics) and fell asleep below the bench top is still off the bench
+        if (st.sleeping && offBench(st.pose.p)) {
+          physics.setEnabled(l.id, false);
+          setMode(l, 'chute');
+          l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
+          lastChuteRelease = l.chuteAt;
+        }
+        continue;
+      }
       if (lin < T.restLinear && ang < T.restAngular) l.calm += 1;
       else l.calm = 0;
       if (l.calm < restSteps && !st.sleeping) continue;
