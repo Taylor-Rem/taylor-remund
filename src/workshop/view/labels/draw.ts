@@ -10,7 +10,7 @@ import { mix, put, rgb, scale } from './colour.ts';
 import type { FaceRole } from './fonts.ts';
 import { assertFace, font } from './fonts.ts';
 import type { Advance, PhoneMessage, Plan, TapeColour } from './layout.ts';
-import { PROPORTIONS } from './layout.ts';
+import { PROPORTIONS, strikeWeights } from './layout.ts';
 import type { Gray } from './raster.ts';
 import { blur, clamp01, displace, fbm, gray, heightToNormal, map, smoothstep, valueNoise } from './raster.ts';
 import type { Rng } from './rng.ts';
@@ -86,7 +86,7 @@ export function checkText(role: FaceRole, text: string): void {
 }
 
 /** Draw a plan's glyphs in white on black and read them back as a mask. */
-function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyphIndex: number) => number, extra?: (ctx: Ctx) => void): Gray {
+function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyphIndex: number) => number, extra?: (ctx: Ctx) => void, spread = 0): Gray {
   const { w, h } = plan.px;
   const ctx = context(w, h);
   ctx.fillStyle = level(0);
@@ -109,6 +109,12 @@ function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyph
       ctx.scale(g.scale, g.scale);
       ctx.translate(-half / g.scale, plan.capTexels / 2);
       ctx.fillText(g.ch, 0, 0);
+      if (spread > 0) {
+        // Ink spreading into the paper: the strike is a little fatter than the type.
+        ctx.lineWidth = spread / g.scale;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(g.ch, 0, 0);
+      }
       ctx.restore();
     });
   });
@@ -322,6 +328,9 @@ export function paintStencil(plan: Plan, paint: Token, r: Rng): Painted {
   return { w, h, color, normal: null, rough: null, alpha: true };
 }
 
+/** Ink spread round each typed stroke, in cap heights (makes the strike read at a distance). */
+export const INK_SPREAD = 0.085;
+
 // ---- typed paper -------------------------------------------------------------------
 
 export function paintPaper(plan: Plan, r: Rng): Painted {
@@ -329,8 +338,10 @@ export function paintPaper(plan: Plan, r: Rng): Painted {
   const cap = plan.capTexels;
   const slip = plan.register === 'slip';
   // Each strike its own weight; some keys land twice, a hair off.
-  const weights = plan.lines.map((l) => l.glyphs.map(() => 0.8 + r() * 0.2));
-  const ink = glyphMask(plan, 'type', (li, gi) => weights[li]![gi]!);
+  // A fresh ribbon: every strike near full density. Now and then a key lands a
+  // little light; nothing goes below INK_FLOOR, and nothing fades a whole word.
+  const weights = strikeWeights(plan.lines.map((l) => l.glyphs.length), r);
+  const ink = glyphMask(plan, 'type', (li, gi) => weights[li]![gi]!, undefined, cap * INK_SPREAD);
   const ghost = glyphMask(
     { ...plan, lines: plan.lines.map((l) => ({ ...l, left: l.left + cap * 0.018, baseline: l.baseline - cap * 0.012 })) },
     'type',
@@ -342,7 +353,7 @@ export function paintPaper(plan: Plan, r: Rng): Painted {
   const mottle = fbm(r() * 1e6, 4);
   const paper = rgb('paper');
   const aged = mix(paper, rgb('wood-light'), 0.35);
-  const inkC = mix(rgb('ink'), rgb('paint-blue'), 0.12);
+  const inkC = rgb('ink');
   const rule = mix(paper, rgb('paint-blue'), 0.38);
   const redRule = mix(paper, rgb('cable-red'), 0.55);
 
@@ -385,8 +396,8 @@ export function paintPaper(plan: Plan, r: Rng): Painted {
       c = mix(c, redRule, redLine.d[i]! * (0.8 + 0.2 * fb));
       // Ink: ribbon texture, a little bleed into the fibres, the odd ghost strike.
       const rb = ribbon(x / (cap * 0.03), y / (cap * 0.03));
-      const k = clamp01(Math.max(ink.d[i]! * (0.8 + 0.2 * rb), bleed.d[i]! * 0.55) + ghost.d[i]! * 0.5 * rb);
-      c = mix(c, inkC, k * 0.97);
+      const k = clamp01(Math.max(ink.d[i]! * (0.92 + 0.08 * rb), bleed.d[i]! * 0.55) + ghost.d[i]! * 0.5 * rb);
+      c = mix(c, inkC, k);
       let a = 1;
       if (slip) {
         // Torn along the top and bottom from a roll, and a perforation line under the top.
