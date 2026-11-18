@@ -549,8 +549,8 @@ export interface PatchView extends MachineViewBase {
   readonly heading: number;
   /** The drawer pulled open (the jack whose folder it is), or null. */
   readonly drawer: Id | null;
-  /** The station the job is for (its unit id), or null. */
-  readonly station: Id | null;
+  /** The unit the job in hand is for (the station on its line), or null. */
+  readonly serving: Id | null;
   /** What it is looking at (the dead plug, the lever, the visitor, the station it checks, a part coming), or null. */
   readonly lookAt: Vec3 | null;
   /** The part in its hands (a catch), or null. */
