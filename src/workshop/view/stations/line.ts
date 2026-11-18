@@ -182,6 +182,8 @@ interface Track {
   /** The slide's tilt (degrees, about +X: its top toward -Z). */
   tilt: number;
   tiltV: number;
+  /** The slide's drop now (units, ≤ 0). */
+  slide: number;
   /** Out of the chute: when, and the mouth's axis. */
   popAt: number;
   replay: Replay | null;
@@ -284,7 +286,7 @@ export function createLinePartsView(geom: LineGeom): StationViewFactory {
     const track = (id: Id): Track => {
       let t = tracks.get(id);
       if (!t) {
-        t = { id, obj: null, path: new Float32Array(F.pathMax * STRIDE), n: 0, lastStep: -1e9, rock: 0, rockV: 0, ax: 0, az: 1, lastS: -1e9, sq: 0, sqV: 0, tilt: 0, tiltV: 0, popAt: -Infinity, replay: null, dx: 0, dy: 0, dz: 0, drawn: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 } };
+        t = { id, obj: null, path: new Float32Array(F.pathMax * STRIDE), n: 0, lastStep: -1e9, rock: 0, rockV: 0, ax: 0, az: 1, lastS: -1e9, sq: 0, sqV: 0, tilt: 0, tiltV: 0, slide: 0, popAt: -Infinity, replay: null, dx: 0, dy: 0, dz: 0, drawn: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 } };
         tracks.set(id, t);
       }
       return t;
@@ -452,7 +454,7 @@ export function createLinePartsView(geom: LineGeom): StationViewFactory {
         for (const id of shipping) active.push(track(id));
         for (const t of tracks.values()) {
           if (active.includes(t)) continue;
-          if (t.replay || time - t.popAt < F.popTime || Math.abs(t.sq) > 1e-4 || Math.abs(t.sqV) > 1e-3 || Math.abs(t.rock) > 0.02 || Math.abs(t.rockV) > 0.1 || Math.abs(t.tilt) > 0.05) active.push(t);
+          if (t.replay || time - t.popAt < F.popTime || Math.abs(t.sq) > 1e-4 || Math.abs(t.sqV) > 1e-3 || Math.abs(t.rock) > 0.02 || Math.abs(t.rockV) > 0.1 || Math.abs(t.tilt) > 0.05 || t.slide !== 0) active.push(t);
         }
         for (const t of active) {
           const m = w.motion(t.id);
@@ -542,6 +544,11 @@ export function createLinePartsView(geom: LineGeom): StationViewFactory {
             tiltGoal = -slope * Math.min(1, over * 1.6);
             slideDY = Math.min(0, surf + hy - vB.y);
           }
+          // the drop follows quickly while it slides; set down somewhere higher than the bench (a part already on the
+          // spot), it is lifted onto it over a few frames instead of in one
+          t.slide += (slideDY - t.slide) * (1 - Math.exp(-(guided ? 60 : 16) * dt));
+          if (!guided && Math.abs(t.slide) < 1e-4) t.slide = 0;
+          slideDY = t.slide;
           S.x = t.tilt;
           S.v = t.tiltV;
           spring(S, tiltGoal, F.slideOmega, F.slideZeta, dt);
@@ -571,7 +578,7 @@ export function createLinePartsView(geom: LineGeom): StationViewFactory {
             axis.set(t.ax, 0, t.az).normalize();
             mA.premultiply(rotateAbout(mB, fx, fy, fz, axis, rockDeg));
           }
-          if (t.tilt !== 0) mA.premultiply(rotateAbout(mB, fx, fy + slideDY, fz, X, t.tilt));
+          if (t.tilt !== 0) mA.premultiply(rotateAbout(mB, fx, fy, fz, X, t.tilt));
           if (slideDY !== 0 || lift !== 0) mA.premultiply(mB.makeTranslation(0, slideDY + lift, 0));
 
           // ── out of the chute's throat ──
