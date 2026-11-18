@@ -207,7 +207,7 @@ describe('src/content/texts.json', () => {
     expect(renderReply(parse('make it pink', 'platen').reply)).toBe("I've got eight paints: red, orange, yellow, green, teal, blue, violet and cream.");
     expect(renderReply(parse('call it a very long label indeed', 'platen').reply)).toBe('The tape takes 16 characters. That was 24.');
     expect(renderReply(UNDO_REPLIES.done)).toBe('Put it back. I checked.');
-    expect(renderReply(UNDO_REPLIES.blocked)).toBe('Something else changed it since, so I left it alone.');
+    expect(renderReply(UNDO_REPLIES.blocked)).toBe('Something else changed it since, so I left it alone. The lever takes things back in order.');
     expect(renderReply(UNDO_REPLIES.nothing)).toBe('Nothing to undo.');
   });
 
