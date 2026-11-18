@@ -40,7 +40,7 @@ const body = (id: string): Box3 => {
   if (!b) throw new Error(`no static ${id}`);
   return b;
 };
-const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low' }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
 /** Where the fumbled crate comes to rest: about 0.5 left of the fumble, in front of the lane (the vignette's toss, unchanged). */
 const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.a[1] + 0.1];
@@ -104,7 +104,7 @@ describe('the layout table and the simulation agree', () => {
       expect(b.max.z, id).toBeGreaterThanOrEqual(k.max.z - 1e-6);
     }
     // the real piece at the bench's length fits its spot
-    const pb = pieceBounds(belt({ length: LAYOUT.beltLength, detail: 'low' }));
+    const pb = pieceBounds(belt({ length: LAYOUT.beltLength, detail: 'low', line: true }));
     const at = fit.belt.at;
     expect(at.x + pb.min.x).toBeGreaterThanOrEqual(b.min.x - 0.02);
     expect(at.x + pb.max.x).toBeLessThanOrEqual(b.max.x + 0.02);
@@ -504,6 +504,23 @@ describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
     // the pop: forward along the mouth's heading, a little up
     expect(AT.chute.linvel[0]).toBeGreaterThan(0);
     expect(AT.chute.linvel[1]).toBeGreaterThan(0);
+  });
+
+  it("keeps clear the spot where the deflector runs a reversed part off the belt's back, beside the stack; the dock's ramp starts at the belt's open tail", () => {
+    const p = belt({ length: LAYOUT.beltLength, detail: 'low', line: true });
+    const [bx0, bz0] = S.belt.at!;
+    const off = new Vector3().setFromMatrixPosition(p.sockets!['off.back']!).add(new Vector3(bx0, 0, bz0));
+    // an L crate resting there touches no body
+    const crate = new Box3(new Vector3(off.x - 0.4, 0, off.z - 0.4), new Vector3(off.x + 0.4, 0.8, off.z + 0.4));
+    for (const st of scene.statics) {
+      if (st.id === 'bench' || st.id === 'back-wall') continue;
+      expect(crate.intersectsBox(body(st.id)) ? `off.back in ${st.id}` : null).toBe(null);
+    }
+    expect(Math.hypot(off.x - AT.stack[0], off.z - AT.stack[1])).toBeLessThan(2.5);
+    expect(fromLane(off.x, off.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    const ramp = new Vector3().setFromMatrixPosition(p.sockets!['ramp']!).add(new Vector3(bx0, 0, bz0));
+    expect(ramp.x).toBeCloseTo(L.to, 3);
+    expect(S.dock.at![0] + DOCK_REACH[0] - 0.12).toBeCloseTo(ramp.x, 3);
   });
 
   it('keeps 1.4 round the lane free of anything without a body Fetch could slide through when knocked (the chute stands off)', () => {

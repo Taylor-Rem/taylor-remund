@@ -50,6 +50,8 @@ export interface BeltViewOptions {
   pool?: StaticPool;
   /** The belt's length (its bed; default 6, the vignette's). */
   length?: number;
+  /** More build options for the piece (the bench's belt: `{ line: true }`: controls, deflector, an open tail, stripes). */
+  build?: Record<string, unknown>;
   /** The belt machine's id: when the world has it, its `BeltView.phase` scrolls the surface and turns the rollers (default 'belt'). */
   machine?: string;
 }
@@ -78,8 +80,10 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
   return (ctx: ViewContext): StationView => {
     const length = o.length ?? 6;
     const machineId = o.machine ?? 'belt';
-    const whole = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length }, ctx.labels) : standInBelt(length);
-    const p = o.pool ? splitStatic(whole, placedMatrix(o.fit.belt.at), (n) => /^roller\d+$/.test(n) || n === 'seam' || n === 'lamp', o.pool) : whole;
+    const whole = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length, ...(o.build ?? {}) }, ctx.labels) : standInBelt(length);
+    // the piece's own list of moving nodes when it exports one (BELT_MOVING), else the G1 belt's
+    const movingRe = (o.module?.['BELT_MOVING'] as RegExp | undefined) ?? /^(roller\d+|seam|lamp)$/;
+    const p = o.pool ? splitStatic(whole, placedMatrix(o.fit.belt.at), (n) => movingRe.test(n), o.pool) : whole;
     const obj = ctx.realize(p);
     const root = new Group();
     root.name = 'belt';
@@ -99,7 +103,7 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     });
     const rest = rollers.map((r) => r.quaternion.clone());
     const rollerR = BELT_FEEL.rollerR;
-    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number }) => void;
+    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number; dial?: number; lever?: number; lamp?: boolean }) => void;
     const poseBelt = o.entry ? ((o.module?.['poseBelt'] as PoseBelt | undefined) ?? null) : null;
     const beltRollers = o.module?.['beltRollers'] as ((length: number) => readonly unknown[]) | undefined;
     const rollerInfo = poseBelt && beltRollers ? beltRollers(length) : null;
@@ -127,7 +131,9 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
           phase = m.phase;
           angle = -phase / rollerR;
           if (u?.u_offset) u.u_offset.value = phase;
-          if (poseBelt && rollerInfo) poseBelt(obj, length, rollerInfo, { travel: phase });
+          // one number drives the surface, the rollers, the seam and the stripes; the dial, the lever and the lamp show the settings
+          const lever = m.running ? (m.direction === 'forward' ? 1 : -1) : 0;
+          if (poseBelt && rollerInfo) poseBelt(obj, length, rollerInfo, { travel: phase, dial: m.speed, lever, lamp: m.lamp !== 'dark' });
           else for (let i = 0; i < rollers.length; i++) rollers[i]!.quaternion.copy(rest[i]!).multiply(spin.setFromAxisAngle(Z, angle));
           return;
         }

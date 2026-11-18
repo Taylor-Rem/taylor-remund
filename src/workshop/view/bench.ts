@@ -177,8 +177,8 @@ export const LAYOUT = {
     /** The crate stack (the ground point of its bottom crate): left of and behind the lane's left stop, 2.15 from it (the crate it lifts swings clear of the stack). */
     stack: spot(-6.7, 1.15, 0.8, 0.8, 1.85, { fill: 'piece' }),
     lane: spot(-0.45, 2.05, 9.5 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
-    /** The belt piece at length 10 (the bed x -5.9..4.1) with its motor housing (dial plate and lever plate on its panel) at the left end: the whole piece's footprint. */
-    belt: spot(-1.33, 4.095, 11.4, 1.6, 1.25, { fill: 'piece' }),
+    /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
+    belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
     /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt's middle-right at x 2.3. */
     striker: real(2.675, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
@@ -374,7 +374,7 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const S = LAYOUT.stations;
 
   // the pieces fitted to the scene's bodies: the board's jacks and cord root, the stool's seat, the phone, the belt
-  const fit = fitPieces(scene, { board: blank(find('switchboard'), { jacks: JACKS }), stool: blank(find('stool'), { seatY: STOOL_SEAT }), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+  const fit = fitPieces(scene, { board: blank(find('switchboard'), { jacks: JACKS }), stool: blank(find('stool'), { seatY: STOOL_SEAT }), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength, line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
   // the stool stands on the board's runner
   fit.stool.at = { ...fit.stool.at, y: S.stool.y };
   fit.stool.seat = [fit.stool.seat[0], fit.stool.seat[1] + S.stool.y, fit.stool.seat[2]];
@@ -392,7 +392,7 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const patchPiece = blank(find('patch-felt'), { standIn: false });
   const patchBounds = patchPiece ? pieceBounds(patchPiece) : null;
   const crewScale = o.crewScale ?? CREW_SCALE;
-  const beltPiece = blank(find('belt'), { length: LAYOUT.beltLength });
+  const beltPiece = blank(find('belt'), { length: LAYOUT.beltLength, line: true });
   const beltAt = placedMatrix(fit.belt.at);
   const sock = (n: string): Matrix4 | null => (beltPiece?.sockets?.[n] ? beltAt.clone().multiply(beltPiece.sockets[n]!) : null);
   const handles = { dial: sock('dial'), lever: sock('lever') };

@@ -10,6 +10,6 @@ export const station: BenchStation = {
   name: 'belt',
   order: ORDER.pool,
   async make(k) {
-    return createBeltView({ entry: k.entry('belt'), module: await k.module('belt'), fit: k.fit, seed: k.seed, pool: k.pool, length: LAYOUT.beltLength });
+    return createBeltView({ entry: k.entry('belt'), module: await k.module('belt'), fit: k.fit, seed: k.seed, pool: k.pool, length: LAYOUT.beltLength, build: { line: true } });
   },
 };

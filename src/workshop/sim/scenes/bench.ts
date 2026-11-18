@@ -97,9 +97,9 @@ export const AT = {
   /** Where on the lane Fetch fumbles (x): right of the console. */
   fumbleX: 1.6,
   fumble: { heading: -Math.PI / 2, linvel: [-1.0, 2.0, 0] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
-  /** The belt's bed (carrying surface at y 0.5) and its motor housing at the left end. Belt length 10. */
+  /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
-  beltMotor: { c: [-6.46, 0.63, 4.1], half: [0.56, 0.63, 0.79] } as Box,
+  beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
   /** The striker (real piece, origin (2.675, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.6 high, under the arm, which parts on the belt pass clear beneath. */
   striker: { c: [2.3, 0.8, 3.072], half: [0.55, 0.8, 0.13] } as Box,
   /**
