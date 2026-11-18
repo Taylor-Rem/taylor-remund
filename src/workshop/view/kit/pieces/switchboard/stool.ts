@@ -44,13 +44,23 @@ function calm(g: BufferGeometry): BufferGeometry {
   return g;
 }
 
-export function stool(o: KitOptions = {}): Piece {
+export interface StoolOptions extends KitOptions {
+  /**
+   * Height of the seat's top (default SEAT_Y, the P1 stool the vignette shows). The whole board is
+   * planned for a 1.5x Patch on a lower stool (board.ts STOOL_SEAT, 0.62, standing on its runner).
+   * The foot ring and the stretchers keep their proportion of the height.
+   */
+  seatY?: number;
+}
+
+export function stool(o: StoolOptions = {}): Piece {
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
   const hi = detail === 'high';
   const R = rng(seed);
   const b = piece('stool', { detail, seed });
-  const top = SEAT_Y;
+  const top = o.seatY ?? SEAT_Y;
+  const k = top / SEAT_Y; // the foot ring and stretchers keep their place in the height
   const t = 0.085; // seat thickness
   const rs = 0.29; // seat radius
   const seatTilt = mat({ rot: [R.spread(1.6), 0, R.spread(1.6)] });
@@ -112,20 +122,22 @@ export function stool(o: KitOptions = {}): Piece {
   {
     const pts: Array<[number, number, number]> = [];
     const n = hi ? 28 : 16;
-    const rr = onLeg(legs[0]!, FOOT_RING_Y).setY(0).length();
+    const ringY = FOOT_RING_Y * k;
+    const rr = onLeg(legs[0]!, ringY).setY(0).length();
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      pts.push([Math.cos(a) * rr, FOOT_RING_Y + 0.004 * Math.sin(a * 3 + seed), Math.sin(a) * rr]);
+      pts.push([Math.cos(a) * rr, ringY + 0.004 * Math.sin(a * 3 + seed), Math.sin(a) * rr]);
     }
     const ring = sweep({ points: pts.map((p) => new Vector3(...p)), closed: true }, { radius: 0.02, segs: hi ? 7 : 5, detail });
     // the top of the ring is worn bright by heels; the underside keeps its patina
-    b.add(setFinish(part('brass', ring, 'brass', { seed: seed + 30, warm: 0.04 }), 0.9, (_x, y) => y > FOOT_RING_Y + 0.008));
+    b.add(setFinish(part('brass', ring, 'brass', { seed: seed + 30, warm: 0.04 }), 0.9, (_x, y) => y > ringY + 0.008));
   }
 
   // ---- the stretchers, just under the seat, staggered so they cross clear ------------------
+  const kH = k;
   for (let k = 0; k < 4; k++) {
     const A = legs[k]!, B = legs[(k + 1) % 4]!;
-    const y = k % 2 === 0 ? 0.86 : 0.9;
+    const y = (k % 2 === 0 ? 0.86 : 0.9) * kH;
     const pa = onLeg(A, y), pb = onLeg(B, y);
     const L = pa.distanceTo(pb);
     const g = lathe(
