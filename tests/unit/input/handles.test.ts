@@ -36,7 +36,7 @@ function fakeWorld(things = THINGS) {
     bracket: false,
     carrying: null as { id: Id; what: HeldKind } | null,
     readings,
-    get bracketed() {
+    get bracketed(): boolean {
       return w.bracket;
     },
     at(x: number, y: number, kind: PointerKind, exclude: Id | null, holding: HeldKind | null = null): Target {

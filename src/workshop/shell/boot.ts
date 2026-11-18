@@ -237,13 +237,15 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const panelIds: ReadonlySet<Id> = new Set(hasPhone ? [phoneTarget] : []);
   const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
   const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
-  const usable = (id: Id): boolean => panelIds.has(id) || (world.interactable(id)?.affordances.length ?? 0) > 0;
+  /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
+  const usable = (id: Id): boolean => panelIds.has(id) || (!jackIds.has(id) && (world.interactable(id)?.affordances.length ?? 0) > 0);
   /** While something is held, where it may go is pickable too: mouths for a part or a unit, every jack for the plug (a capped one refuses). */
   const pickFilter = (holding: HeldKind | null): ((id: Id) => boolean) => {
     if (holding === 'plug') return (id) => usable(id) || jackIds.has(id);
     if (holding) return (id) => usable(id) || mouthIds.has(id);
     return usable;
   };
+  const upp = new Vector3();
   const filters = { none: pickFilter(null), part: pickFilter('part'), unit: pickFilter('unit'), plug: pickFilter('plug') };
   const box3 = new Box3();
   const corner = new Vector3();
@@ -284,6 +286,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       return [c.x, c.y, c.z];
     },
     screen: screenOf,
+    unitsPerPx: (p) => picking.unitsPerPixel(upp.set(p[0], p[1], p[2])),
     panels: () => panelIds,
     ...(opts.carry ? { carry: opts.carry } : {}),
   });

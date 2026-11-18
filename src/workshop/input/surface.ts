@@ -9,7 +9,7 @@
 import type { Id, Quat, Vec3, WorldView } from '../sim/types.ts';
 import { CarryPlane, rayAtDepth, type CarryTuning, type Obstacle, type RayLike } from './carry.ts';
 import type { GestureWorld, HandleReading, HeldKind, PointerKind, Role, Target } from './gesture.ts';
-import { readingFromWorld } from './readings.ts';
+import { aimFromWorld, clampToPolygon, readingFromWorld } from './readings.ts';
 
 export interface SurfaceDeps {
   readonly world: () => WorldView | null;
@@ -28,6 +28,8 @@ export interface SurfaceDeps {
   screen?(id: Id): { x: number; y: number; r: number } | null;
   /** Ids that open something of the page's (the phone): a hand presses them like a handle. */
   panels?(): ReadonlySet<Id>;
+  /** World units per CSS pixel at a world point (the camera's scale there), for reaches measured on screen. */
+  unitsPerPx?(p: Vec3): number;
   /** A handle's reading (default: `readingFromWorld`). */
   reading?(id: Id): HandleReading | null;
   carry?: Partial<CarryTuning>;
@@ -49,8 +51,12 @@ export const AIM_TUNING = {
 } as const;
 export type AimTuning = { -readonly [K in keyof typeof AIM_TUNING]: number };
 
-/** Tune here: how far from a jack (world units, in the board's plane) a plug let go still seats in it. */
+/**
+ * Tune here: how far from a jack a plug let go still seats in it: this many world units in the board's
+ * plane, or this many CSS px on screen if that is more (a small screen: a fingertip's reach), mouse and touch.
+ */
 export const JACK_REACH = 0.42;
+export const JACK_REACH_PX = { mouse: 18, touch: 34 } as const;
 
 /** Height of a rotated box's top above its centre (its half extent along world Y). */
 export function halfHeight(q: Quat, half: Vec3): number {
@@ -112,7 +118,7 @@ class Aim {
 
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
-  let carried: { id: Id; what: HeldKind | 'aim'; halfX: number; halfZ: number } | null = null;
+  let carried: { id: Id; what: HeldKind | 'aim'; halfX: number; halfZ: number; reach?: readonly (readonly [number, number])[] } | null = null;
   const aimT: AimTuning = { ...AIM_TUNING, ...deps.aim };
   const aim = new Aim(aimT.omega);
   const staticObstacles = new Map<string, Obstacle[]>();
@@ -139,6 +145,8 @@ export function createSurface(deps: SurfaceDeps): Surface {
     return s;
   };
 
+  /** A held unit that also slides: an arm that aims (the lamp). */
+  const aims = (w: WorldView, id: Id): boolean => !w.motion(id) && (w.interactable(id)?.affordances.includes('slide') ?? false);
   const isMouth = (w: WorldView, id: Id): boolean => (w.scene.mouths ?? []).some((m) => m.id === id);
   const isJack = (w: WorldView, id: Id): boolean => w.scene.cord.jacks.some((j) => j.id === id);
 
@@ -221,10 +229,12 @@ export function createSurface(deps: SurfaceDeps): Surface {
         carried = { id, what, halfX: 0.08, halfZ: 0.08 };
         return;
       }
-      if (what === 'unit' && w.interactable(id)?.affordances.includes('slide')) {
-        // an arm that aims (the lamp): the hand drags the point on the bench it is over, and the arm follows with weight
-        aim.reset(grip[0], grip[2], t);
-        carried = { id, what: 'aim', halfX: 0, halfZ: 0 };
+      if (aims(w, id)) {
+        // an arm that aims (the lamp): the hand drags the point on the bench it is over, and the arm follows with
+        // weight, from where it points now (the grab's grip, `gripFor`)
+        const now = aimFromWorld(w, id);
+        aim.reset(now ? now.aim[0] : grip[0], now ? now.aim[2] : grip[2], t);
+        carried = { id, what: 'aim', halfX: 0, halfZ: 0, ...(now ? { reach: now.reach } : {}) };
         return;
       }
       const m = w.motion(id);
@@ -242,7 +252,8 @@ export function createSurface(deps: SurfaceDeps): Surface {
       if (carried?.what === 'aim' && w) {
         const p = benchPoint(ray);
         if (p) {
-          const [cx, cz] = clampBench(w, p[0], p[2]);
+          let [cx, cz] = clampBench(w, p[0], p[2]);
+          if (carried.reach) [cx, cz] = clampToPolygon(cx, cz, carried.reach);
           aim.to(cx, cz, t);
         }
         return [aim.x, w.scene.bench.top, aim.z];
@@ -265,6 +276,13 @@ export function createSurface(deps: SurfaceDeps): Surface {
       carried = null;
     },
 
+    gripFor(id, what, point) {
+      // an arm that aims is taken where it points now, so the grab does not jump the light to the hand
+      const w = deps.world();
+      if (what !== 'unit' || !w || !aims(w, id)) return point;
+      return aimFromWorld(w, id)?.aim ?? point;
+    },
+
     screen: (id) => deps.screen?.(id) ?? null,
 
     reading(id) {
@@ -281,12 +299,14 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const ray = deps.ray(x, y);
       // where the hand is in the board's plane (the jacks' face), then the nearest jack within reach
       let best: Id | null = null;
-      let bestD = JACK_REACH;
+      let bestD = Infinity;
       const p: [number, number, number] = [0, 0, 0];
+      const px = kind === 'mouse' ? JACK_REACH_PX.mouse : JACK_REACH_PX.touch;
       for (const j of jacks) {
         rayAtDepth(ray, j.at[2], p);
         const d = Math.hypot(p[0] - j.at[0], p[1] - j.at[1]);
-        if (d < bestD) {
+        const reach = Math.max(JACK_REACH, px * (deps.unitsPerPx?.(j.at) ?? 0));
+        if (d < reach && d < bestD) {
           bestD = d;
           best = j.id;
         }

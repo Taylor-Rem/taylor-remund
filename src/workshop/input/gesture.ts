@@ -103,6 +103,8 @@ export interface GestureWorld {
   where?(id: Id): Vec3 | null;
   /** What `id` is to a hand (keyboard focus has no pointer to ask `at` with). */
   role?(id: Id): Role;
+  /** The grip a grab names (default: the point the hand took it at; an arm that aims is taken where it points). */
+  gripFor?(id: Id, what: HeldKind, point: Vec3): Vec3;
 }
 
 export type Cursor = 'default' | 'grab' | 'grabbing' | 'pointer';
@@ -810,7 +812,7 @@ export class Gestures {
   private take(id: Id, role: HeldKind, point: Vec3, s: Sample, keys = false): void {
     this.holding = { id, what: role, tap: false, key: null };
     if (role === 'plug') this.intent({ type: 'unplug', cord: id }, s.t);
-    else this.intent({ type: 'grab', id, grip: point }, s.t);
+    else this.intent({ type: 'grab', id, grip: this.world.gripFor?.(id, role, point) ?? point }, s.t);
     this.world.beginCarry(id, role, point, s.t);
     this.vel.reset();
     if (!keys) {

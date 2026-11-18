@@ -99,13 +99,17 @@ describe('surface: the plug seats in the nearest jack within reach', () => {
 
 describe('surface: the lamp’s arm has weight', () => {
   it('a held unit that slides rides the bench under the hand on a spring: it lags, then arrives', () => {
-    const s = surface(world(), down);
+    const w0 = world();
+    const s = surface(w0, down);
+    // the grab names where it points now (no jump of the light), whatever point on the shade the hand took
+    const aim0 = (w0.machine('lamp') as unknown as { aim: [number, number, number] }).aim;
+    expect(s.gripFor!('lamp', 'unit', [1, 2.5, -2])).toEqual(aim0);
     s.beginCarry('lamp', 'unit', [1, 2.5, -2], 0);
-    // the hand jumps to (3, 0); the aim follows over the next frames
+    // the hand jumps to (3, 0); the aim follows over the next frames from where it was
     const a = s.carryTarget(300, 0, 16);
     expect(a[1]).toBe(0);
-    expect(a[0]).toBeGreaterThan(1);
-    expect(a[0]).toBeLessThan(2);
+    expect(a[0]).toBeGreaterThan(aim0[0]);
+    expect(a[0]).toBeLessThan(aim0[0] + 0.5);
     let p = a;
     for (let t = 32; t <= 600; t += 16) p = s.carryTarget(300, 0, t);
     expect(p[0]).toBeCloseTo(3, 2);
