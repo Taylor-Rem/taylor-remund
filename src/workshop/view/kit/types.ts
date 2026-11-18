@@ -59,10 +59,12 @@ export type MaterialClass =
 export const ATTR = { color: 'color', surf: 'surf', lpos: 'lpos' } as const;
 
 /**
- * A cheaper cut of a class for surfaces that fill the screen (the bench top,
- * the back wall): `realize` asks the materials for `of(cls, variant)`.
+ * A variant of a class: `realize` asks the materials for `of(cls, variant)`.
+ *  - 'large': a cheaper cut for surfaces that fill the screen (the bench top, the back wall);
+ *  - 'lamp': the `bulb` class on the lamp's own lit parts, which take the lamp's colour
+ *    (materials/lamp-glow.ts; any other class ignores it).
  */
-export type MaterialVariant = 'large';
+export type MaterialVariant = 'large' | 'lamp';
 
 /** A lump of one material. */
 export interface KitPart {

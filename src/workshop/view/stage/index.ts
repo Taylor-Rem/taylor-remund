@@ -121,14 +121,21 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
   scene.background = room.clone();
 
   const camera = new CameraRig({ ...opts.camera, reducedMotion: opts.reducedMotion });
-  const lights = new LightRig({ tier, ...opts.light });
-  const env = buildEnvironment(renderer, {
-    lampDir: (() => {
-      const b = lights.key.position;
-      return [b.x, b.y, b.z] as const;
-    })(),
-  });
+  const lights = new LightRig({ tier, reducedMotion: opts.reducedMotion, ...opts.light });
+  const lampDir = (): readonly [number, number, number] => {
+    const b = lights.key.position;
+    return [b.x, b.y, b.z] as const;
+  };
+  let env = buildEnvironment(renderer, { lampDir: lampDir() });
   lights.attach(scene, env.texture);
+  // a lamp in a paint: the environment's lamp panel takes its colour (what brass and enamel reflect);
+  // rebuilt once per colour change, a few milliseconds
+  lights.onEnvironment = (envWarm) => {
+    const next = buildEnvironment(renderer, { lampDir: lampDir(), warm: envWarm });
+    scene.environment = next.texture;
+    env.dispose();
+    env = next;
+  };
 
   const passes: PassFlags = { ...defaultFlags(), ...opts.passes };
   let post = tier === 'high' && (opts.post ?? true);

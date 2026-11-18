@@ -108,16 +108,26 @@ interface Run {
 
 const VIGNETTE_PLAY = `(async () => {
   const v = window.__vignette;
-  v.goto(500, 'home');
-  v.goto(650, 'fetch');
-  v.ws.dispatch({ type: 'press', id: 'button' });
-  for (let i = 0; i < 480; i++) v.ws.advance(1);
+  try {
+    v.goto(500, 'home');
+    v.goto(650, 'fetch');
+    v.ws.dispatch({ type: 'press', id: 'button' });
+    for (let i = 0; i < 480; i++) v.ws.advance(1);
+  } catch (e) {
+    console.warn('bake: the play stopped early:', e);
+  }
 })()`;
+// the pieces that appear while playing are a bonus (a miss bakes live), so a rule of the world that
+// refuses a step of this script ends the play, not the recording
 const BENCH_PLAY = `(async () => {
   const b = window.__bench;
-  b.goto(500, 'home');
-  b.ws.dispatch({ type: 'press', id: 'button' });
-  for (let i = 0; i < 480; i++) b.ws.advance(1);
+  try {
+    b.goto(500, 'home');
+    b.ws.dispatch({ type: 'press', id: 'button' });
+    for (let i = 0; i < 480; i++) b.ws.advance(1);
+  } catch (e) {
+    console.warn('bake: the play stopped early:', e);
+  }
 })()`;
 
 export const RUNS: readonly Run[] = [
@@ -132,10 +142,10 @@ export const RUNS: readonly Run[] = [
 
 const READY = `(() => { const h = window.__handoff; return (h && typeof h.usableAt === 'number') || (!h && !!(window.__vignette || window.__bench) && window.__ready === true); })()`;
 
-async function record(origin: string): Promise<{ entries: Map<string, Uint16Array>; measured: Record<string, unknown>; pages: string[]; conflicts: number; perRun: string[] }> {
+async function record(origin: string): Promise<{ entries: Map<string, Uint8Array>; measured: Record<string, unknown>; pages: string[]; conflicts: number; perRun: string[] }> {
   const { chromium } = await import('@playwright/test');
   const { GPU_ARGS } = await import('./capture.ts');
-  const entries = new Map<string, Uint16Array>();
+  const entries = new Map<string, Uint8Array>();
   const measured: Record<string, unknown> = {};
   const perRun: string[] = [];
   let conflicts = 0;
@@ -154,7 +164,7 @@ async function record(origin: string): Promise<{ entries: Map<string, Uint16Arra
       const got = (await page.evaluate('globalThis.__bakeRecorded ?? []')) as Array<{ key: string; values: number[] }>;
       let fresh = 0;
       for (const e of got) {
-        const v = Uint16Array.from(e.values);
+        const v = Uint8Array.from(e.values);
         const had = entries.get(e.key);
         if (had) {
           // the same input baked twice (two pages, two runs): the values must be the same
@@ -212,7 +222,8 @@ async function main(): Promise<number> {
   }
 
   const { buildWithDevPages, serveDist, tempBuildDir } = await import('./loadtime.ts');
-  const { writeBakeTable, BAKE_FORMAT, UNCHANGED } = await import('../src/workshop/view/kit/bake-format.ts');
+  const { writeBakeTable, wrapBakeFile, BAKE_FORMAT, UNCHANGED } = await import('../src/workshop/view/kit/bake-format.ts');
+  const { deflateSync } = await import('node:zlib');
   const code = codeHash(), inputs = inputsHash();
   let built: string | null = null;
   let dist = v['dist'] ? resolve(String(v['dist'])) : null;
@@ -234,7 +245,8 @@ async function main(): Promise<number> {
       return 1;
     }
     const list = [...entries].map(([key, values]) => ({ key, values }));
-    const bin = writeBakeTable(list, { code, inputs, measured });
+    const body = writeBakeTable(list, { code, inputs, measured });
+    const bin = wrapBakeFile(deflateSync(body, { level: 9 }), body.length);
     writeFileSync(join(REPO_ROOT, TABLE_BIN), bin);
     const vertices = list.reduce((s, e) => s + e.values.length, 0);
     const changed = list.reduce((s, e) => s + e.values.reduce((c, x) => c + (x !== UNCHANGED ? 1 : 0), 0), 0);

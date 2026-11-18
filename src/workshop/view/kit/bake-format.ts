@@ -8,13 +8,21 @@
  * matrices, the bounding radius each part's rays are cut to, and the
  * options. Two inputs that differ in any bit get different keys.
  *
- * The file (little-endian):
- *   u32 magic 'K1BK', u32 format, u32 entry count, u32 value count, u32 meta bytes, 3 × u32 0
- *   per entry, sorted by key: u32 h1, u32 h2, u32 vertex count, u32 first value
- *   u16 values, one per vertex of the piece (its parts in build order):
- *     UNCHANGED (the bake left the vertex's cavity alone) or round(cavity × SCALE)
- *   meta: UTF-8 JSON (`BakeMeta`): the hashes it was recorded under and the
- *     measurements (sizes and sockets) recorded with it
+ * The file (little-endian) is a 16-byte head and a zlib stream ('deflate'
+ * in the Compression Streams API), so it is small on the wire whatever the
+ * host compresses:
+ *   head: u32 magic 'K1BK', u32 format, u32 body bytes once inflated, u32 0
+ *   body: u32 entry count, u32 value count, u32 meta bytes, u32 0
+ *     per entry, sorted by key: u32 h1, u32 h2, u32 vertex count, u32 first value
+ *     u8 values, one per vertex of the piece (its parts in build order):
+ *       UNCHANGED (the bake left the vertex's cavity alone) or round(cavity × LEVELS)
+ *     meta: UTF-8 JSON (`BakeMeta`): the hashes it was recorded under and the
+ *       measurements (sizes and sockets) recorded with it
+ *
+ * Eight bits, not sixteen: the cavity values are noise-like from one vertex
+ * to the next (no delta or run coding beat plain bytes under deflate), and
+ * 16 bits cost 75 KB more on the wire for a precision of 1/131068 where
+ * 1/508 already sits under one level of an 8-bit frame.
  */
 import type { BufferGeometry, Matrix4 } from 'three';
 import { ATTR } from './types.ts';
@@ -27,12 +35,12 @@ export interface BakeItem {
 }
 
 /** File layout version. */
-export const BAKE_FORMAT = 1;
+export const BAKE_FORMAT = 2;
 const MAGIC = 0x4b42314b; // 'K1BK' read little-endian
 /** The value meaning "the bake did not change this vertex". */
-export const UNCHANGED = 0xffff;
-/** Stored values are round(cavity × SCALE): at most 1/131068 from the live value. */
-export const SCALE = 65534;
+export const UNCHANGED = 0xff;
+/** Stored values are round(cavity × LEVELS): at most 1/508 from the live value. */
+export const LEVELS = 254;
 
 // ───────────────────────── the key ─────────────────────────
 
@@ -140,24 +148,58 @@ export interface BakeMeta {
 export interface BakeTable {
   /** key text → [first value, vertex count] */
   readonly index: ReadonlyMap<string, readonly [number, number]>;
-  readonly values: Uint16Array;
+  readonly values: Uint8Array;
   readonly meta: BakeMeta;
 }
 
-const HEAD = 32;
+const HEAD = 16;
+const BODY_HEAD = 16;
+const pad4 = (n: number): number => (n + 3) & ~3;
 
-/** Read a table file. Throws on a file of another format or a broken one. */
-export function parseBakeTable(buf: ArrayBuffer): BakeTable {
-  if (buf.byteLength < HEAD) throw new Error('bake table: too short');
-  const head = new Uint32Array(buf, 0, HEAD / 4);
+/** The file's head checked and its compressed body, with the size it inflates to. Throws on another format. */
+export function unwrapBakeFile(file: ArrayBuffer): { body: Uint8Array; bodyBytes: number } {
+  if (file.byteLength < HEAD) throw new Error('bake table: too short');
+  const head = new Uint32Array(file, 0, HEAD / 4);
   if (head[0] !== MAGIC || head[1] !== BAKE_FORMAT) throw new Error(`bake table: not a format-${BAKE_FORMAT} table`);
-  const count = head[2]!;
-  const total = head[3]!;
-  const metaBytes = head[4]!;
-  const metaAt = HEAD + count * 16 + total * 2;
+  return { body: new Uint8Array(file, HEAD), bodyBytes: head[2]! };
+}
+
+/** A file from a body compressed with zlib ('deflate'). */
+export function wrapBakeFile(deflated: Uint8Array, bodyBytes: number): Uint8Array {
+  const out = new Uint8Array(HEAD + deflated.length);
+  const head = new Uint32Array(out.buffer, 0, HEAD / 4);
+  head[0] = MAGIC;
+  head[1] = BAKE_FORMAT;
+  head[2] = bodyBytes;
+  out.set(deflated, HEAD);
+  return out;
+}
+
+/**
+ * Read a table file: inflate its body with the platform's DecompressionStream
+ * ('deflate'). Rejects where there is none, or on another format or a broken file.
+ */
+export async function inflateBakeTable(file: ArrayBuffer): Promise<BakeTable> {
+  const { body, bodyBytes } = unwrapBakeFile(file);
+  const DS = (globalThis as { DecompressionStream?: new (format: 'deflate') => TransformStream<Uint8Array, Uint8Array> }).DecompressionStream;
+  if (!DS) throw new Error('bake table: no DecompressionStream here');
+  const stream = new Blob([body as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DS('deflate'));
+  const inflated = await new Response(stream).arrayBuffer();
+  if (inflated.byteLength !== bodyBytes) throw new Error('bake table: the body inflated to the wrong size');
+  return parseBakeTable(inflated);
+}
+
+/** Read an inflated body. Throws on a broken one. */
+export function parseBakeTable(buf: ArrayBuffer): BakeTable {
+  if (buf.byteLength < BODY_HEAD) throw new Error('bake table: too short');
+  const head = new Uint32Array(buf, 0, BODY_HEAD / 4);
+  const count = head[0]!;
+  const total = head[1]!;
+  const metaBytes = head[2]!;
+  const metaAt = pad4(BODY_HEAD + count * 16 + total);
   if (metaAt + metaBytes > buf.byteLength) throw new Error('bake table: truncated');
-  const ent = new Uint32Array(buf, HEAD, count * 4);
-  const values = new Uint16Array(buf, HEAD + count * 16, total);
+  const ent = new Uint32Array(buf, BODY_HEAD, count * 4);
+  const values = new Uint8Array(buf, BODY_HEAD + count * 16, total);
   const index = new Map<string, readonly [number, number]>();
   for (let i = 0; i < count; i++) {
     const o = ent[i * 4 + 3]!, n = ent[i * 4 + 2]!;
@@ -168,23 +210,25 @@ export function parseBakeTable(buf: ArrayBuffer): BakeTable {
   return { index, values, meta };
 }
 
-/** Write a table file. Entries (and measurements) are sorted by key, so the same input makes the same bytes. */
-export function writeBakeTable(entries: ReadonlyArray<{ key: string; values: Uint16Array }>, meta: BakeMeta): Uint8Array {
+/**
+ * Write a table's body (uncompressed; scripts/bake.ts deflates it and wraps it
+ * with `wrapBakeFile`). Entries (and measurements) are sorted by key, so the
+ * same input makes the same bytes.
+ */
+export function writeBakeTable(entries: ReadonlyArray<{ key: string; values: Uint8Array }>, meta: BakeMeta): Uint8Array {
   const list = [...entries].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const total = list.reduce((s, e) => s + e.values.length, 0);
   const sorted: BakeMeta = { code: meta.code, inputs: meta.inputs, measured: Object.fromEntries(Object.keys(meta.measured).sort().map((k) => [k, meta.measured[k]])) };
   const json = new TextEncoder().encode(JSON.stringify(sorted));
-  const metaAt = HEAD + list.length * 16 + total * 2;
+  const metaAt = pad4(BODY_HEAD + list.length * 16 + total);
   const buf = new ArrayBuffer(metaAt + json.length);
   new Uint8Array(buf, metaAt, json.length).set(json);
-  const head = new Uint32Array(buf, 0, HEAD / 4);
-  head[0] = MAGIC;
-  head[1] = BAKE_FORMAT;
-  head[2] = list.length;
-  head[3] = total;
-  head[4] = json.length;
-  const ent = new Uint32Array(buf, HEAD, list.length * 4);
-  const values = new Uint16Array(buf, HEAD + list.length * 16, total);
+  const head = new Uint32Array(buf, 0, BODY_HEAD / 4);
+  head[0] = list.length;
+  head[1] = total;
+  head[2] = json.length;
+  const ent = new Uint32Array(buf, BODY_HEAD, list.length * 4);
+  const values = new Uint8Array(buf, BODY_HEAD + list.length * 16, total);
   let o = 0;
   list.forEach((e, i) => {
     ent[i * 4] = parseInt(e.key.slice(0, 8), 16);
