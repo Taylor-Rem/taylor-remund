@@ -86,7 +86,9 @@ export const FORE = 0.16;
 export const GRIP = 0.075;
 
 /** The broom, in its own space: the head's bristle line on y = 0, the handle up +Y to `len`; where the hand holds it. */
-export const BROOM = { len: 0.98, grip: 0.86, head: 0.4 } as const;
+export const BROOM = { len: 0.98, grip: 0.8, gripOut: 0.5, head: 0.4 } as const;
+/** Where along the handle the hand holds it: near the top to lift it off its rack, half way down to push. */
+export const broomGrip = (broom: number): number => BROOM.grip + (BROOM.gripOut - BROOM.grip) * Math.max(0, Math.min(1, broom));
 
 // ---- pose -----------------------------------------------------------------------------
 
@@ -265,7 +267,8 @@ export function armReach(p: Vector3): { yaw: number; swing: number; elbow: numbe
   const alpha = Math.atan2(h, v);
   const beta = Math.acos(clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
   const gamma = Math.acos(clamp((L1 * L1 + L2 * L2 - D * D) / (2 * L1 * L2), -1, 1));
-  return { yaw, swing: alpha - beta, elbow: Math.PI - gamma };
+  // the elbow bends up and out of the way (it would otherwise dig into the tread below the shoulder)
+  return { yaw, swing: alpha + beta, elbow: -(Math.PI - gamma) };
 }
 
 /** The broom's transform in BODY space for a `broom` value and a stroke. */
@@ -274,10 +277,10 @@ export function broomMatrix(broom: number, stroke: number): Matrix4 {
   // stowed: over its shoulder like a rifle, along the left flank, the head up behind the back corner, bristles up
   const e = 0.6;
   const stowQ = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(new Vector3(1, 0, 0), new Vector3(0, -Math.sin(e), Math.cos(e)), new Vector3(0, -Math.cos(e), -Math.sin(e))));
-  const stowP = new Vector3(-HULL.w / 2 - 0.04, 1.0 - BODY_Y, -0.62);
+  const stowP = new Vector3(-HULL.w / 2 - 0.04, 1.0 - BODY_Y, -0.56);
   // out: head on the bench ahead of the left tread, handle back up to the shoulder, pushed by `stroke`
-  const reach = 0.86 + 0.09 * clamp(stroke, -1, 1);
-  const outQ = new Quaternion().setFromRotationMatrix(chain(RY(-0.45), RX(-(Math.PI / 2 - 0.62))));
+  const reach = 0.92 + 0.08 * clamp(stroke, -1, 1);
+  const outQ = new Quaternion().setFromRotationMatrix(chain(RY(-0.35), RX(-(Math.PI / 2 - 0.55))));
   const outP = new Vector3(-0.78, -BODY_Y + 0.004, reach);
   // in between it rides up and over, so the head clears the tread
   const p = stowP.clone().lerp(outP, smooth(0, 1, k));
@@ -292,7 +295,7 @@ function armJoints(p: Required<Pick<RevertPose, 'broom' | 'stroke'>> & { arm: Re
   const a = p.arm ?? 'tucked';
   if (typeof a === 'object') return a;
   if (a !== 'broom') return ARMS[a];
-  const grip = new Vector3(0, BROOM.grip, 0).applyMatrix4(broomM);
+  const grip = new Vector3(0, broomGrip(p.broom), 0).applyMatrix4(broomM);
   const rel = grip.sub(new Vector3(SHOULDER.x, SHOULDER.y - BODY_Y, SHOULDER.z));
   const r = armReach(rel);
   return { ...r, wrist: 0, grip: 0.1 };

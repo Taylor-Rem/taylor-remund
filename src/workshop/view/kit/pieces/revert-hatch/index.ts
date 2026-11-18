@@ -110,7 +110,7 @@ export function revertHatch(o: RevertHatchOptions = {}): Piece {
   buildFrame(b, R, seed);
   buildShaft(b, seed);
   for (const s of [-1, 1] as const) buildDoor(b.node(s < 0 ? 'doorL' : 'doorR', rest[s < 0 ? 'doorL' : 'doorR']), s, R, seed + (s < 0 ? 10 : 40));
-  buildLift(b.node('lift', rest.lift), R, seed);
+  buildLift(b.node('lift', rest.lift), seed);
   if (o.surround) buildSurround(b, R);
   b.socket('stand', new Matrix4());
   const built = b.build();
@@ -242,7 +242,7 @@ function buildDoor(n: NodeBuilder, s: -1 | 1, R: Rng, seed: number): void {
 
 // ---- the lift: a steel plate with hazard edges, on a ram ----
 
-function buildLift(n: NodeBuilder, R: Rng, seed: number): void {
+function buildLift(n: NodeBuilder, seed: number): void {
   const { w: W, d: D } = OPENING;
   const pw = W - 0.06, pd = D - 0.06, t = LIFT.plate;
   n.add(worn(part('steel', bevelBox({ min: [-pw / 2, -t, -pd / 2], max: [pw / 2, 0, pd / 2], c: 0.01, omit: ['ny'], wear: 0.8, band: 0.02 }), 'steel', { seed: seed + 30, shade: 0.75, jitter: 0.04 }), 1.6));

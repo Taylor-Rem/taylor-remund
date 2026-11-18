@@ -4,8 +4,8 @@ import type { Object3D } from 'three';
 import type { PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { CARD_LINES, catalogue, revert } from '../../../src/workshop/view/kit/pieces/revert/index.ts';
 import {
-  AXLE_Y, BODY_Y, BROOM, CARD_CAP, CARD_ESTIMATE, EYE, EYE_C, FORE, GAZE_MAX, GRIP, HIDDEN, LAMP, LID, LOOP, NEUTRAL, POSES, POSE_NAMES, SHOULDER, SLOT, TRACK, UPPER,
-  armReach, broomMatrix, cardMatrix, loopPoint, poseMatrices, poseRevert,
+  AXLE_Y, BODY_Y, CARD_CAP, CARD_ESTIMATE, EYE, EYE_C, FORE, GAZE_MAX, GRIP, HIDDEN, LAMP, LID, LOOP, NEUTRAL, POSES, POSE_NAMES, SHOULDER, SLOT, TRACK, UPPER,
+  armReach, broomGrip, broomMatrix, cardMatrix, loopPoint, poseMatrices, poseRevert,
 } from '../../../src/workshop/view/kit/pieces/revert/rig.ts';
 import { budget } from '../../../src/workshop/view/kit/compose.ts';
 import revertJson from '../../../src/content/revert.json';
@@ -143,7 +143,7 @@ describe('revert (Revert, the caretaker)', () => {
   it('reaches the broom with its one arm, stowed and out', () => {
     for (const k of [0, 1]) {
       const bm = broomMatrix(k, 0);
-      const grip = new Vector3(0, BROOM.grip, 0).applyMatrix4(bm).sub(new Vector3(SHOULDER.x, SHOULDER.y - BODY_Y, SHOULDER.z));
+      const grip = new Vector3(0, broomGrip(k), 0).applyMatrix4(bm).sub(new Vector3(SHOULDER.x, SHOULDER.y - BODY_Y, SHOULDER.z));
       const j = armReach(grip.clone());
       // forward kinematics of the solved joints puts the grip centre on the handle
       const m = new Matrix4().makeRotationY(j.yaw).multiply(new Matrix4().makeRotationX(-j.swing));

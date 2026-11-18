@@ -16,7 +16,7 @@ import { extrude, lathe, profiledBox, roundedBox } from '../../solids.ts';
 import type { LatheOptions } from '../../solids.ts';
 import { bevelBox, sheet, stripes } from '../../cheap.ts';
 import { deform, transform } from '../../deform.ts';
-import { sweep, polylinePath, sections } from '../../sweep.ts';
+import { sweep, polylinePath } from '../../sweep.ts';
 import { domeRivet, hexBolt } from '../../details.ts';
 import { aim, chain, part, place, T, texturedPart } from '../../compose.ts';
 import { linear } from '../../../palette.ts';
@@ -170,7 +170,6 @@ export function shoeGeometry(side: 1 | -1): BufferGeometry {
 export function buildHull(n: NodeBuilder, c: Ctx): void {
   const { w, d, rPlan: rp, y0, y1 } = HULL;
   const h = y1 - y0;
-  const lo = c.detail === 'low';
   // the strongbox: a skirt band at its foot, walls leaning in a hair, a heavy rolled top edge, a crowned deck
   const box = profiledBox(
     { w, d, rPlan: rp, detail: c.detail, band: 0 },
