@@ -57,6 +57,16 @@ export function noShadow(p: PartsLike): KitPart[] {
   return list;
 }
 
+/**
+ * A whole built piece casting in one way through its shadow proxy (kit/realize.ts): 'none'
+ * (the bench's frame and the floor, whose shadows fall where nobody sees) or 'hull'. A new
+ * Piece over new part records; the geometry is shared.
+ */
+export function withShadow(p: Piece, mode: 'hull' | 'none'): Piece {
+  const node = (n: PieceNode): PieceNode => ({ ...n, parts: n.parts.map((q) => ({ ...q, shadow: mode })), ...(n.children ? { children: n.children.map(node) } : {}) });
+  return { ...p, root: node(p.root) };
+}
+
 /** Shorthand: the 'large' variant (the bench top, the back wall). */
 export const large = (p: PartsLike): KitPart[] => withVariant(p, 'large');
 

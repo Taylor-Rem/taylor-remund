@@ -9,6 +9,14 @@ import type { Materials } from '../../../src/workshop/view/types.ts';
 import { catalogue as crateCat, repaint } from '../../../src/workshop/view/kit/pieces/crate/index.ts';
 import { catalogue as porterCat } from '../../../src/workshop/view/kit/pieces/fetch-porter/index.ts';
 
+describe('withShadow', () => {
+  it('a piece made to cast nothing casts nothing; its original still casts', () => {
+    const p = porterCat[0]!.build();
+    expect(shadowTriangles(K.realize(K.withShadow(p, 'none'), stub))).toBe(0);
+    expect(shadowTriangles(K.realize(p, stub))).toBeGreaterThan(0);
+  });
+});
+
 const stub: Materials = {
   of: () => new MeshBasicMaterial(),
   textured: (_c, key) => {
