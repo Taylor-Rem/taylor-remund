@@ -119,25 +119,25 @@ export function buildDeflector(b: NodeBuilder, x0: number, seed: number, R: Rng,
     // in the chute's frame: x across, z down the slope (from the top edge), y up off its floor
     const frame = chain(T(0, yt, zt), new Matrix4().makeRotationX(-ang));
     const floor = bevelBox({ min: [sx0, -0.02, -len], max: [sx1, 0, 0], c: 0.008, omit: ['ny'] });
-    b.add(part('steel', grain(transform(floor, frame), 'x'), 'steel', { seed: seed + 20, shade: 0.95, jitter: 0.03 }));
+    b.add(part('steel', grain(transform(floor, frame), 'x'), 'teal-panel', { seed: seed + 20, shade: 0.9, jitter: 0.03 }));
     // worn bright down the middle where the parts run: a bare-metal strip a hair proud
     const wear = bevelBox({ min: [sx0 + 0.22, 0, -len + 0.04], max: [sx1 - 0.22, 0.0015, -0.04] });
-    b.add(part('metal', transform(wear, frame), 'steel', { seed: seed + 21, shade: 1.15 }));
+    b.add(part('metal', transform(wear, frame), 'steel', { seed: seed + 21, shade: 0.85 }));
     // the cheeks: turned-up sheet at either side, a lip at the foot
     for (const x of [sx0, sx1 - 0.018]) {
-      const ch = bevelBox({ min: [x, -0.02, -len], max: [x + 0.018, 0.09, 0.0], c: 0.006, omit: ['ny'] });
-      b.add(part('steel', transform(ch, frame), 'steel', { seed: seed + 22, shade: 0.9 }));
+      const ch = bevelBox({ min: [x, -0.02, -len], max: [x + 0.02, 0.11, 0.0], c: 0.006, omit: ['ny'] });
+      b.add(part('steel', transform(ch, frame), 'teal-panel', { seed: seed + 22, shade: 1.05 }));
     }
     // the top lip, hooked under the belt's far edge, three rivets
     const lip = bevelBox({ min: [sx0, -0.02, -0.02], max: [sx1, 0.012, 0.03], c: 0.006 });
-    b.add(part('steel', transform(lip, frame), 'steel', { seed: seed + 23, shade: 0.8 }));
+    b.add(part('steel', transform(lip, frame), 'teal-panel', { seed: seed + 23, shade: 0.8 }));
     for (let i = 0; i < 3; i++) b.small(() => [part('metal', transform(stud(0.012, 0.007, 5), chain(frame, T(sx0 + 0.15 + i * (sx1 - sx0 - 0.3) / 2, 0.012, 0.005))), 'steel', { seed: seed + 24 })]);
     // two legs from under the floor to the bench, with feet
     for (const x of [sx0 + 0.1, sx1 - 0.1]) {
       const zl = zf + 0.16, yl = yf + (yt - yf) * (0.16 / (zt - zf)) - 0.02;
       const leg = bevelBox({ min: [x - 0.025, 0.0, zl - 0.025], max: [x + 0.025, yl, zl + 0.025], c: 0.008, omit: ['ny', 'py'] });
-      b.add(part('steel', leg, 'steel', { seed: seed + 25, shade: 0.75 }));
-      b.add(part('steel', bevelBox({ min: [x - 0.06, 0, zl - 0.05], max: [x + 0.06, 0.018, zl + 0.05], c: 0.006, omit: ['ny'] }), 'steel', { seed: seed + 26, shade: 0.7 }));
+      b.add(part('steel', leg, 'teal-panel', { seed: seed + 25, shade: 0.75 }));
+      b.add(part('steel', bevelBox({ min: [x - 0.06, 0, zl - 0.05], max: [x + 0.06, 0.018, zl + 0.05], c: 0.006, omit: ['ny'] }), 'teal-panel', { seed: seed + 26, shade: 0.7 }));
     }
   }
   const [mx, mz] = deflectorAt(x0, 0.5);
