@@ -60,9 +60,14 @@ export const BUTTON_TUNING = {
   fit: 12.5, // S7: the trip from the hatch (along behind the lever and the console, round to beside it) takes about 10 s, the screwing 1.2 s
   /** Reduced motion: the dip, then the card. */
   reduced: { play: 0.9, rewind: 0.3 },
-  /** Rung 4's stack: each crate leaves the stack's middle at this speed (units/s), and this fast upward. */
-  stackOut: [1.4, 2.6] as readonly [number, number],
-  stackUp: [1.2, 2.4] as readonly [number, number],
+  /**
+   * Rung 4's stack (S7: it comes down properly, every crate well off it): each crate leaves the stack's
+   * middle at this speed (units/s), seeded, and this fast upward (so the bottom one hops clear of the bench
+   * rather than being pinned under the others); each layer up goes `stackLayer` faster.
+   */
+  stackOut: [3.4, 4.4] as readonly [number, number],
+  stackUp: [2.2, 3.2] as readonly [number, number],
+  stackLayer: 0.2,
 } as const;
 
 export type { ButtonView, RungPhase } from '../types.ts';
@@ -258,7 +263,7 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
       const dz = Math.sin(turn) + 0.3;
       const n = Math.hypot(dx, dz);
       // the higher the crate, the further it goes
-      const v = rng.range(T.stackOut[0], T.stackOut[1]) * (1 + 0.25 * (out.length - 1 - i));
+      const v = rng.range(T.stackOut[0], T.stackOut[1]) * (1 + T.stackLayer * (out.length - 1 - i));
       ctx.shove(id, [(dx / n) * v, rng.range(T.stackUp[0], T.stackUp[1]), (dz / n) * v]);
     });
     return out;
