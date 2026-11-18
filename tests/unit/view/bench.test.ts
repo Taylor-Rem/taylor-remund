@@ -117,6 +117,10 @@ describe('the layout table and the simulation agree', () => {
     expect(S.lane.d).toBeCloseTo(2 * LANE_TAPE.half, 6);
   });
 
+  it("clamps the lamp where the simulation's lamp has its shoulder", () => {
+    expect([S.lamp.x, S.lamp.z]).toEqual([...AT.lamp]);
+  });
+
   it('keeps the bench 18 × 10 in both tables', () => {
     expect(LAYOUT.bench).toEqual(AT.bench);
     expect(scene.bench.maxX - scene.bench.minX).toBe(18);

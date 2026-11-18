@@ -29,24 +29,20 @@ async function setUp(): Promise<{ w: World; t: Tape; line: WorldLine; heard: Pho
 }
 
 describe('the phone line over the world', () => {
-  test('the log begins with the attract exchange; a text is sent, worked and answered; ids follow on', async () => {
+  test('the log is the world\'s (no fake exchange first); a text is sent, worked and answered', async () => {
     const { t, line, heard } = await setUp();
     expect(line.jack).toBe('storefront');
-    expect(line.log()).toEqual([
-      { type: 'sent', id: 1, jack: 'platen', text: 'Make it blue.' },
-      { type: 'working', id: 1 },
-      { type: 'reply', id: 1, reply: [{ id: 'change.platen.colour', colour: 'paint-blue' }, { id: 'done.checked' }, { id: 'done.patched' }], mailbox: false },
-    ]);
+    expect(line.log()).toEqual([]);
     line.send('make the sign red');
     frames(t, line, 1);
-    expect(heard[0]).toEqual({ type: 'sent', id: 2, jack: 'storefront', text: 'make the sign red' }); // (Patch is free: it is on it in the same step)
+    expect(heard[0]).toEqual({ type: 'sent', id: 1, jack: 'storefront', text: 'make the sign red' }); // (Patch is free: it is on it in the same step)
     frames(t, line, 6 * HZ); // (S6: 4.5 s, and the stool's roll to STOREFRONT)
     expect(heard.map((e) => e.type)).toEqual(['sent', 'working', 'reply']);
     const reply = heard[2] as Extract<PhoneEvent, { type: 'reply' }>;
     expect(renderReply(reply.reply)).toBe("Sign's red. I checked. Patched.");
     // the panel's model reads the same log
     const state = replay(line.jack, line.log());
-    expect(state.items.filter((i) => i.kind === 'answer').length).toBe(2);
+    expect(state.items.filter((i) => i.kind === 'answer').length).toBe(1);
   });
 
   test('the cord moves: the phone hears the jack go out and come back on another line', async () => {
@@ -79,7 +75,15 @@ describe('the phone line over the world', () => {
     expect(heard.filter((e) => e.type === 'sent')).toEqual([]);
     for (let i = 0; i < 10 * HZ && w.bracketed; i++) frames(t, line, 1);
     frames(t, line, 2);
-    expect(heard.filter((e) => e.type === 'sent')).toEqual([{ type: 'sent', id: 2, jack: 'storefront', text: 'make the awning blue' }]);
+    expect(heard.filter((e) => e.type === 'sent')).toEqual([{ type: 'sent', id: 1, jack: 'storefront', text: 'make the awning blue' }]);
+  });
+
+  test('the crew\'s attract-mode text shows its content\'s words', async () => {
+    const { w, t, line, heard } = await setUp();
+    for (let i = 0; i < 20 * HZ && !heard.some((e) => e.type === 'sent'); i++) frames(t, line, 1);
+    const sent = heard.find((e) => e.type === 'sent');
+    if (!w.attract().on && !sent) return; // (a bench where attract mode does not run)
+    expect(sent).toMatchObject({ type: 'sent', jack: 'platen', text: 'Make it blue.' });
   });
 
   test('a refusal is answered at once, with no working', async () => {
