@@ -73,6 +73,8 @@ export const FETCH_TUNING = {
   /** How far past a stop it runs before skidding back. */
   overshoot: 0.3,
   skidBack: 0.8,
+  /** S5 round 2: the hand never goes faster than this (units/s); a reach that far takes longer than its nominal time. */
+  handSpeed: 6,
   /** Pause at each end of the lane: [min, max]. */
   idle: [0.8, 2.0] as readonly [number, number],
   /** The lane's stops are this far inside its ends. */
@@ -167,6 +169,7 @@ function scaled(t: typeof FETCH_TUNING, k: number): typeof FETCH_TUNING {
     cornerRadius: t.cornerRadius * k,
     cornerSpeed: t.cornerSpeed * k,
     pullBack: t.pullBack * k,
+    handSpeed: t.handSpeed * k,
   } as typeof FETCH_TUNING;
 }
 
@@ -385,9 +388,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let goal: Id | null = null;
   let goalWhy: 'retrieve' | 'take' | 'collect' = 'take';
   /** The crate coming into its hands: from where, since when. */
-  let gather: { from: Pose; at: number } | null = null;
+  let gather: { from: Pose; at: number; dur: number[] } | null = null;
   /** Setting a crate down: the drop pose (bottom of the crate at the mouth's drop point), and whether it has let go. */
-  let placing: { to: Pose; above: Pose; from: Pose | null; out: number; let: boolean } | null = null;
+  let placing: { to: Pose; above: Pose; from: Pose | null; out: number; let: boolean; dur: [number, number] } | null = null;
   /** The step it last set a crate down (the pace), and the crate, while it is still falling the last hair. */
   let lastPlaced = -Infinity;
   let justPlaced: Id | null = null;
@@ -418,6 +421,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const from = state;
     state = next;
     entered = ctx.clock.step;
+    reachLegs = null; // a reach belongs to the state that made it
     ctx.emit({ type: 'crew.state', id: spec.id, state: next, from });
   };
   const inState = (): number => ctx.clock.step - entered;
@@ -452,44 +456,69 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const h = home();
     return [h[0] - Math.sin(heading) * T.pullBack, h[1] + T.pullBack * 0.5, h[2] - Math.cos(heading) * T.pullBack];
   };
-  /** A reach out to `to` over `dur` seconds (t from its start): pull back, then out, arriving at `dur`. `high`: go over at this height, then down onto it. */
-  function reachOut(t: number, dur: number, to: Vec3, high: number | null): Vec3 {
-    const pull = Math.min(T.hands.pull, dur * 0.3);
-    if (t < pull) return lerp3(home(), pulled(), smooth(t / pull));
-    if (high === null) return lerp3(pulled(), to, smooth(clamp01((t - pull) / (dur - pull))));
-    const down = Math.min(T.hands.down, dur * 0.3);
-    const over: Vec3 = [to[0], high, to[2]];
-    if (t < dur - down) return lerp3(pulled(), over, smooth((t - pull) / (dur - down - pull)));
-    return lerp3(over, to, smooth(clamp01((t - (dur - down)) / down)));
+  const dist3 = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  /** A leg's time: its nominal length, or longer if the hand would otherwise go faster than `handSpeed` (an eased leg peaks at 1.5× its mean). */
+  const legTime = (nominal: number, from: Vec3, to: Vec3): number => Math.max(nominal, (1.5 * dist3(from, to)) / T.handSpeed);
+  /** Legs through `pts` (read live each step: Fetch may be turning), each eased, with fixed durations (seconds); t from the first leg's start. */
+  function alongLegs(pts: readonly Vec3[], dur: readonly number[], t: number): Vec3 {
+    let u = t;
+    for (let i = 0; i < dur.length; i++) {
+      const d = dur[i] as number;
+      if (u < d) return lerp3(pts[i] as Vec3, pts[i + 1] as Vec3, smooth(clamp01(u / Math.max(1e-9, d))));
+      u -= d;
+    }
+    return pts[pts.length - 1] as Vec3;
   }
+  const sum = (a: readonly number[]): number => a.reduce((p, q) => p + q, 0);
+  /** A reach in progress (pickup, tap, stretch): where to, by what points, the legs' times (fixed at its start). */
+  let reachLegs: { at: number; dur: number[]; over: boolean; back: boolean } | null = null;
+  /** Points of a reach out to `to`: pulled back, then (`over`) above it at `high` and down onto it, or straight to it. */
+  const reachPts = (to: Vec3, high: number | null): Vec3[] => (high === null ? [home(), pulled(), to] : [home(), pulled(), [to[0], high, to[2]], to]);
+  /** Start a reach now: legs timed from their nominal lengths and the hand's speed. */
+  function startReach(now: number, to: Vec3, high: number | null, total: number): void {
+    const pts = reachPts(to, high);
+    const pull = Math.min(T.hands.pull, total * 0.3);
+    const down = high === null ? 0 : Math.min(T.hands.down, total * 0.3);
+    const nominal = high === null ? [pull, total - pull] : [pull, total - pull - down, down];
+    reachLegs = { at: now, dur: nominal.map((n, i) => legTime(n, pts[i] as Vec3, pts[i + 1] as Vec3)), over: high !== null, back: false };
+  }
+  const reachLen = (): number => (reachLegs ? sum(reachLegs.dur) : 0);
+  const reachGrip = (now: number, to: Vec3, high: number | null): Vec3 => (reachLegs ? alongLegs(reachPts(to, high), reachLegs.dur, (now - reachLegs.at) / HZ) : home());
   /** Bringing a part in: the claws close where it rests, then straight up, across above the hands (never down through what it sat on), into them. */
+  function gatherPts(): Vec3[] {
+    const g = gather as { from: Pose };
+    const hand = home();
+    const high = Math.max(g.from.p[1] + T.gatherLift, hand[1]);
+    return [g.from.p, g.from.p, [g.from.p[0], high, g.from.p[2]], [hand[0], high, hand[2]], hand];
+  }
   function gatherGrip(now: number): { p: Vec3; q: Quat } | null {
     if (!gather) return null;
     const t = (now - gather.at) / HZ;
-    const hand = handPose();
-    if (t >= T.gather) {
+    const total = sum(gather.dur);
+    if (t >= total) {
       gather = null;
       return null;
     }
-    if (t < T.hands.close) return { p: gather.from.p, q: gather.from.q };
-    const f = (t - T.hands.close) / (T.gather - T.hands.close);
-    const high = Math.max(gather.from.p[1] + T.gatherLift, hand.p[1]);
-    const lifted: Vec3 = [gather.from.p[0], high, gather.from.p[2]];
-    const over: Vec3 = [hand.p[0], high, hand.p[2]];
-    const p = f < 0.25 ? lerp3(gather.from.p, lifted, smooth(f / 0.25)) : f < 0.75 ? lerp3(lifted, over, smooth((f - 0.25) / 0.5)) : lerp3(over, hand.p, smooth((f - 0.75) / 0.25));
-    return { p, q: nlerp(gather.from.q, hand.q, smooth(f)) };
+    const f = clamp01((t - T.hands.close) / Math.max(1e-9, total - T.hands.close));
+    return { p: alongLegs(gatherPts(), gather.dur, t), q: nlerp(gather.from.q, handPose().q, smooth(f)) };
+  }
+  /** Start bringing in the part whose claws just closed at `from`. */
+  function startGather(now: number, from: Pose): void {
+    gather = { from, at: now, dur: [] };
+    const pts = gatherPts();
+    const rest = T.gather - T.hands.close;
+    gather.dur = [T.hands.close, ...[0.25, 0.5, 0.25].map((f, i) => legTime(rest * f, pts[i + 1] as Vec3, pts[i + 2] as Vec3))];
   }
   /** Setting a part down: out over the drop, lowered onto it; held there one step before the claws open. */
   function placeGrip(now: number): { p: Vec3; q: Quat } | null {
     if (!placing || placing.let || !placing.from) return null;
-    const out = steps(T.place.out);
-    const lower = steps(T.place.lower);
-    const t = now - placing.out;
+    const [out, lower] = placing.dur;
+    const t = (now - placing.out) / HZ;
     if (t <= out) {
-      const f = smooth(clamp01(t / Math.max(1, out)));
+      const f = smooth(clamp01(t / Math.max(1e-9, out)));
       return { p: lerp3(placing.from.p, placing.above.p, f), q: nlerp(placing.from.q, placing.to.q, f) };
     }
-    return { p: lerp3(placing.above.p, placing.to.p, smooth(clamp01((t - out) / Math.max(1, lower)))), q: placing.to.q };
+    return { p: lerp3(placing.above.p, placing.to.p, smooth(clamp01((t - out) / Math.max(1e-9, lower)))), q: placing.to.q };
   }
   function armBackGrip(now: number): Vec3 | null {
     if (!armBack) return null;
@@ -500,9 +529,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
     return lerp3(armBack.from, home(), smooth(f));
   }
-  /** The hands go back to the carry pose from wherever they are now. */
+  /** The hands go back to the carry pose from wherever they are now (no faster than the hand's speed). */
   const drawBack = (from: Vec3 | null, now: number, dur: number = T.hands.back): void => {
-    armBack = from ? { from, at: now, dur } : null;
+    armBack = from ? { from, at: now, dur: legTime(dur, from, home()) } : null;
   };
 
   /** Let go of the crate in its hands (the visitor took Fetch, or a knock): it falls, its rest charged to `cause`. */
@@ -1017,16 +1046,22 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         frozenFrom = { state, entered, at: ctx.clock.step };
         hit = null;
         bounce = null;
+        const keep = reachLegs;
         enter('frozen');
+        reachLegs = keep;
       } else if (frozenFrom) {
         const was = frozenFrom;
         frozenFrom = null;
         const shift = ctx.clock.step - was.at;
+        const keep = reachLegs;
         enter(was.state);
+        reachLegs = keep;
         // resume as if no time had passed in the frozen state
         entered = was.entered + shift;
         if (gather) gather = { ...gather, at: gather.at + shift };
         if (placing) placing = { ...placing, out: placing.out + shift };
+        if (reachLegs) reachLegs = { ...reachLegs, at: reachLegs.at + shift };
+        if (armBack) armBack = { ...armBack, at: armBack.at + shift };
       }
     },
 
@@ -1084,6 +1119,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       /** The grip this step, if a state puts its hands somewhere (else the gather, the set-down or the ease back decides). */
       let grip: Vec3 | null = null;
       let gripQ: Quat | null = null;
+      let tapped = false;
       const mode = ctx.mode(spec.id);
 
       if (bounce) {
@@ -1235,10 +1271,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (p) {
               lookAt = p.p;
               turnToward(yawTo(p.p));
-              // out to it: over it, then down onto its centre, arriving as the reach ends
-              grip = reachOut(inState() / HZ, T.pickup, p.p, Math.max(p.p[1] + T.gatherLift, home()[1]));
+              // out to it: pulled back, over it, then down onto its centre (no faster than the hand's speed)
+              const high = Math.max(p.p[1] + T.gatherLift, home()[1]);
+              if (!reachLegs) startReach(now, p.p, high, T.pickup);
+              grip = reachGrip(now, p.p, high);
             }
-            if (inState() < steps(T.pickup)) break;
+            if (p && reachLegs && now - reachLegs.at < Math.round(reachLen() * HZ)) break;
             goal = null;
             if (g === fumbled) fumbled = null;
             // (S6) collecting from the platen's tray: the crate is in the platen's hands until Fetch takes it
@@ -1247,7 +1285,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (ok && ctx.attach(g, spec.id)) {
               // the claws close where it rests
               carrying = g;
-              gather = { from: p, at: now };
+              startGather(now, p);
               grip = p.p;
               gripQ = p.q;
               break;
@@ -1279,11 +1317,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             turnToward(yawTo(p.p));
             // its hands go out as far as they go toward it, hold there, and come back
             const tip = inReach(p.p);
-            const backAt = steps(T.stretch - T.hands.back);
-            if (inState() < backAt) grip = reachOut(Math.min(inState() / HZ, T.hands.stretchOut), T.hands.stretchOut, tip, null);
-            else if (inState() === backAt) drawBack(hands ?? tip, now);
+            if (!reachLegs) startReach(now, tip, null, T.hands.stretchOut);
+            if (reachLegs && !reachLegs.back) {
+              if ((now - reachLegs.at) / HZ < Math.max(T.stretch - T.hands.back, reachLen() + 0.1)) grip = reachGrip(now, tip, null);
+              else {
+                drawBack(hands ?? tip, now);
+                reachLegs.back = true;
+              }
+            }
           }
-          if (inState() >= steps(T.stretch)) {
+          if (inState() >= steps(T.stretch) && armBack === null) {
             if (g && g === fumbled) fumbled = null;
             goal = null;
             giveUpUntil = now + steps(T.giveUpFor);
@@ -1299,17 +1342,24 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (phone) {
             lookAt = phone;
             turnToward(yawTo(phone));
-            // a finger out to the phone, the tap, and back
+            // a finger out to the phone, the tap (as it arrives), and back
             const tip = inReach(phone);
-            if (inState() <= steps(TAP.at)) grip = reachOut(inState() / HZ, TAP.at, tip, null);
-            if (inState() === steps(TAP.at)) drawBack(tip, now, TAP.length - TAP.at);
+            if (!reachLegs) startReach(now, tip, null, TAP.at);
+            if (reachLegs && !reachLegs.back) {
+              grip = reachGrip(now, tip, null);
+              if (now - reachLegs.at >= Math.round(reachLen() * HZ)) {
+                drawBack(tip, now, TAP.length - TAP.at);
+                reachLegs.back = true;
+                tapped = true;
+              }
+            }
           }
-          if (inState() === steps(TAP.at) && lapSpec && textN === null) {
+          if (tapped && lapSpec && textN === null) {
             const n = deskOf(ctx)?.crewText(lapSpec.say, lapSpec.words, lapSpec.jack) ?? null;
             textN = n ?? -1;
             if (n === null) replied = true; // the line would not take it: on with the lap
           }
-          if (inState() >= steps(TAP.length)) toIdle();
+          if (inState() >= steps(TAP.length) && armBack === null) toIdle();
           break;
         }
         case 'place': {
@@ -1322,7 +1372,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (!placing && carrying) {
             const half = ctx.halfExtents(carrying) ?? [0.3, 0.3, 0.3];
             const to: Pose = { p: [d[0], d[1] + half[1] + 0.005, d[2]], q: qyaw(0) };
-            placing = { to, above: { p: [d[0], d[1] + half[1] + T.placeLift, d[2]], q: to.q }, from: null, out: -1, let: false };
+            placing = { to, above: { p: [d[0], d[1] + half[1] + T.placeLift, d[2]], q: to.q }, from: null, out: -1, let: false, dur: [T.place.out, T.place.lower] };
           }
           if (!placing) break;
           lookAt = placing.to.p;
@@ -1338,11 +1388,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             }
             placing.from = handPose();
             placing.out = now;
+            placing.dur = [legTime(T.place.out, placing.from.p, placing.above.p), legTime(T.place.lower, placing.above.p, placing.to.p)];
             break;
           }
           const sinceOut = now - placing.out;
           // the claws open the step after the part reached its place (it is there, still): nothing moves it after
-          if (!placing.let && carrying && sinceOut > steps(T.place.out) + steps(T.place.lower)) {
+          if (!placing.let && carrying && sinceOut > Math.round((placing.dur[0] + placing.dur[1]) * HZ)) {
             const c = carrying;
             ctx.detach(c, [0, 0, 0], [0, 0, 0], 'crew');
             drawBack(placing.to.p, now, T.place.back);
@@ -1351,7 +1402,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             lastPlaced = now;
             justPlaced = c;
           }
-          if (placing.let && sinceOut >= steps(T.place.out) + steps(T.place.lower) + steps(T.place.back)) {
+          if (placing.let && armBack === null) {
             placing = null;
             placeAt = null;
             toIdle();
