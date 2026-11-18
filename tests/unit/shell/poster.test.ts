@@ -119,7 +119,6 @@ describe('the live camera sees the picture', () => {
     const lo = Math.max(b.minAspect, set.narrowest);
     for (const t of [0, 0.37, 0.81, 1]) {
       const a = lo + (b.aspect - lo) * t;
-      if (i === set.posters.length - 1 && a > 1.8 && a < 2.05) continue; // camera.ts pan-range collapse, see below
       // whole pixels that stay inside the band
       const w = t === 0 ? Math.ceil(a * 900) : Math.floor(a * 900);
       cases.push([i, w, 900]);
@@ -157,14 +156,17 @@ describe('the live camera sees the picture', () => {
     });
   });
 
-  it('KNOWN (camera.ts): around 1.9:1 the pan range collapses off the home focus, so the rig moves an adopted view', () => {
-    // CameraRig.panRange's `range()` clamps home into [hi, lo] when lo > hi by a hair, instead of collapsing onto home.
-    // Fixed in camera.ts, this test fails: then drop the skip above and this test.
+  it('around 1.9:1, where the pan range collapses onto home, the rig keeps an adopted view where it is', () => {
+    // camera.ts panRange once clamped home into [hi, lo] when lo crossed hi by a hair: ~27 px off
     const i = set.posters.length - 1;
     const view = viewOf(pictureCamera(i).stage);
-    const live = fakeStage(1900, 1000);
-    frameVignette(live, 1900, 1000);
-    expect(adoptView(live, view)).toBeGreaterThan(0.1);
+    for (const [w, h] of [[1850, 1000], [1900, 1000], [1950, 1000], [2000, 1000]] as const) {
+      const live = fakeStage(w, h);
+      frameVignette(live, w, h);
+      const err = adoptView(live, view);
+      const pxPerUnit = h / (2 * Math.tan((live.camera.fov * Math.PI) / 360) * live.camera.distance);
+      expect(err * pxPerUnit, `${w}×${h}`).toBeLessThan(0.1);
+    }
   });
 });
 

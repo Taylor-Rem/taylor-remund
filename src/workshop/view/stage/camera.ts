@@ -387,7 +387,7 @@ export class CameraRig {
    * it (z): the focus stays over the bounds and the frame's bottom edge (the
    * bench plane under the bottom of the picture) does not run past the front.
    * When the view already shows the whole width there is nowhere to go: the
-   * range collapses onto the home focus.
+   * range collapses onto the home focus. Home is always inside the range.
    */
   panRange(): { x: [number, number]; z: [number, number] } {
     const d = this.distance;
@@ -396,7 +396,10 @@ export class CameraRig {
     const halfW = tanV * this.aspect * d;
     const mx = halfW * 2 * PAN_MARGIN;
     const home = this.homeFocus;
-    const range = (lo: number, hi: number, h: number): [number, number] => (lo <= hi ? [lo, hi] : [MathUtils.clamp(h, hi, lo), MathUtils.clamp(h, hi, lo)]);
+    // home is always a valid focus, and with nowhere to pan the range IS home. Clamping home into
+    // [hi, lo] (and clamping it out of a range that had only just opened) moved an adopted view
+    // by up to ~27 px at aspects near 1.85-2.0, where lo crosses hi.
+    const range = (lo: number, hi: number, h: number): [number, number] => (lo <= hi ? [Math.min(lo, h), Math.max(hi, h)] : [h, h]);
     const x = range(b.min.x + halfW - mx, b.max.x - halfW + mx, home.x);
     // The bench point under the bottom of the frame, relative to the focus (translation-invariant).
     const planeY = this.subjectOpts.edge?.y ?? this.subject.min.y;
