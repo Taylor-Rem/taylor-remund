@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { Group, Matrix4, Vector3 } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { belt, beltRollers, BELT, catalogue, loopAt, loopGeom, NAMED_POSES, poseBelt, seamMatrix, topRunS } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
+import { belt, beltRollers, BELT, BELT_MOVING, catalogue, dialAngle, DEFLECT, HIDDEN, leverAngle, loopAt, loopGeom, MARKS, NAMED_POSES, parsePose, poseBelt, seamMatrix, topRunS } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
 import { checkGeometry } from './helpers.ts';
 
-const BUDGET = 12000; // the lead's budget for a 6-unit length
+const BUDGET = 8000; // the lead's cap (brief V-belt-r): the line's belt at length 10, every option on
+const MESHES = 5; // material classes, so meshes per pass
 
 function nodes(p: Piece): Map<string, PieceNode> {
   const out = new Map<string, PieceNode>();
@@ -80,7 +81,7 @@ describe('the belt', () => {
     const bp = q.root.parts.find((x) => x.material === 'belt')!;
     bp.geometry.computeBoundingBox();
     expect(bp.geometry.boundingBox!.max.x).toBeCloseTo(5, 2);
-    expect(beltRollers(10).length).toBeGreaterThan(beltRollers(6).length);
+    expect(beltRollers(12).length).toBeGreaterThan(beltRollers(6).length);
   });
 
   it('has the sockets the view and the controls need', () => {
@@ -89,7 +90,109 @@ describe('the belt', () => {
     const n = new Vector3(0, 0, 1).transformDirection(p.sockets!['dial']!);
     expect(n.z).toBeGreaterThan(0.4);
     expect(n.y).toBeGreaterThan(0.4);
-    expect(nodes(p).get('lamp')!.parts[0]!.material).toBe('bulb');
+    const lamp = nodes(p);
+    expect(lamp.get('lamp.lit')!.parts[0]!.material).toBe('bulb');
+    expect(lamp.get('lamp.unlit')!.parts[0]!.material).toBe('bulb');
+  });
+});
+
+function classes(p: Piece): Set<string> {
+  const out = new Set<string>();
+  const walk = (n: PieceNode): void => {
+    for (const q of n.parts) out.add(q.material);
+    for (const c of n.children ?? []) walk(c);
+  };
+  walk(p.root);
+  return out;
+}
+
+describe('the line\'s belt (option line)', () => {
+  const p = belt({ length: 10, line: true });
+  const n = nodes(p);
+
+  it('stays inside the cap at length 10, in five meshes; the G1 belt too', () => {
+    if (process.env['BELT_TRIS']) console.warn(K.budget(p, BUDGET).text);
+    expect(p.triangles).toBeLessThanOrEqual(BUDGET);
+    expect(classes(p).size).toBeLessThanOrEqual(MESHES);
+    const g1 = belt();
+    expect(g1.triangles).toBeLessThanOrEqual(BUDGET);
+    expect(classes(g1).size).toBeLessThanOrEqual(MESHES);
+  });
+
+  it('every part is a sound kit geometry', () => {
+    const walk = (q: PieceNode): void => {
+      for (const x of q.parts) checkGeometry(x.geometry);
+      for (const c of q.children ?? []) walk(c);
+    };
+    walk(p.root);
+  });
+
+  it('has the dial, the lever, the lamp twins, the stripes, and the view keeps them moving', () => {
+    for (const name of ['dial', 'lever', 'lamp', 'lamp.lit', 'lamp.unlit', 'seam', 'roller0']) expect(n.get(name), name).toBeDefined();
+    for (let k = 1; k <= MARKS; k++) expect(n.get(`mark${k}`)).toBeDefined();
+    for (const name of ['dial', 'lever', 'lamp', 'seam', 'mark1', 'roller3']) expect(BELT_MOVING.test(name), name).toBe(true);
+    expect(BELT_MOVING.test('root')).toBe(false);
+    // the G1 belt has none of the new nodes
+    const g1 = nodes(belt());
+    for (const name of ['dial', 'lever', 'mark1']) expect(g1.get(name), name).toBeUndefined();
+  });
+
+  it('has grips, the way off the back, and the ramp socket', () => {
+    for (const s of ['dial.grip', 'lever.grip', 'off.back', 'deflector', 'ramp', 'dial', 'lever', 'lamp']) expect(p.sockets?.[s], s).toBeDefined();
+    const off = new Vector3().setFromMatrixPosition(p.sockets!['off.back']!);
+    expect(off.z).toBeLessThan(-BELT.railIn - 0.4); // behind the belt, on the bench
+    expect(off.y).toBeCloseTo(0, 5);
+    expect(off.x).toBeCloseTo(-5 + DEFLECT.rest[0], 5);
+    const ramp = new Vector3().setFromMatrixPosition(p.sockets!['ramp']!);
+    expect(ramp.x).toBeCloseTo(5, 5);
+    expect(ramp.y).toBeCloseTo(BELT.topY, 5);
+    // the control face looks at the camera's pitch (its normal 25-45° above the horizontal)
+    const nrm = new Vector3(0, 0, 1).transformDirection(p.sockets!['dial']!);
+    const elev = (Math.atan2(nrm.y, nrm.z) * 180) / Math.PI;
+    expect(elev).toBeGreaterThan(25);
+    expect(elev).toBeLessThan(45);
+    // the tail is open for the dock's ramp: nothing past the bed end but the tension bolt's nuts
+    expect(K.pieceBounds(p).max.x).toBeLessThan(5 + 0.1); // the dock's first ramp roller is 0.12 past it
+    expect(K.pieceBounds(belt({ length: 10 })).max.x).toBeGreaterThan(5 + 0.15);
+  });
+
+  it('poses: the dial by detent, the lever three ways, the lamp, a parsed pose', () => {
+    expect(dialAngle(3)).toBeCloseTo(0, 9);
+    expect(dialAngle(1)).toBeGreaterThan(0); // slow is anticlockwise (left)
+    expect(dialAngle(5)).toBeCloseTo(-dialAngle(1), 9);
+    expect(leverAngle(1)).toBeLessThan(0); // forward leans right
+    expect(leverAngle(-1)).toBeCloseTo(-leverAngle(1), 9);
+    expect(parsePose('dial:2.5,lever:-1,lamp:1')).toEqual({ dial: 2.5, lever: -1, lamp: true });
+    expect(parsePose('nonsense')).toBeNull();
+    const root = new Group();
+    const mk = (q: PieceNode, parent: Group): void => {
+      const o = new Group();
+      o.name = q.name;
+      if (q.transform) q.transform.decompose(o.position, o.quaternion, o.scale);
+      parent.add(o);
+      for (const c of q.children ?? []) mk(c, o);
+    };
+    mk(p.root, root);
+    const r = beltRollers(10);
+    const lever = root.getObjectByName('lever')!;
+    const lpos = (): Vector3 => new Vector3(0, 0, -0.4).applyQuaternion(lever.quaternion);
+    poseBelt(root, 10, r, { lever: 0 });
+    const up = lpos();
+    poseBelt(root, 10, r, { lever: 1 });
+    expect(lpos().distanceTo(up)).toBeGreaterThan(0.15);
+    poseBelt(root, 10, r, { lamp: true });
+    expect(root.getObjectByName('lamp.lit')!.scale.x).toBe(1);
+    expect(root.getObjectByName('lamp.unlit')!.scale.x).toBeCloseTo(HIDDEN, 9);
+    poseBelt(root, 10, r, { lamp: false });
+    expect(root.getObjectByName('lamp.lit')!.scale.x).toBeCloseTo(HIDDEN, 9);
+    // the stripes ride the loop with the seam, a third of the way round apart
+    const g = loopGeom(10);
+    poseBelt(root, 10, r, { travel: 0.7 });
+    const a = root.getObjectByName('mark1')!.position.clone();
+    poseBelt(root, 10, r, { travel: 0.7 + g.length / (MARKS + 1) });
+    expect(root.getObjectByName('mark2')!.position.distanceTo(a)).toBeLessThan(1e-6);
+    // built in a pose by name
+    for (const pose of ['speed1', 'speed5', 'backward', 'forward', 'lit', 'dial:2,lever:-0.5']) expect(belt({ line: true, pose }).triangles).toBeGreaterThan(0);
   });
 });
 
