@@ -21,7 +21,7 @@
  * grip's middle at home, for a pointer to pick), `tape` (the label's centre,
  * +Z out of the face), `pivot`.
  */
-import { Matrix4 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
 import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
@@ -29,17 +29,17 @@ import type { NodeBuilder } from '../../compose.ts';
 import { chain, mat, part, piece, T, texturedPart } from '../../compose.ts';
 import { extrude, lathe, profiledBox } from '../../solids.ts';
 import { profile } from '../../profile.ts';
-import { helixPath, linePath, polylinePath, sections, sweep } from '../../sweep.ts';
+import { arcPath, linePath, polylinePath, sections, sweep } from '../../sweep.ts';
 import { deform, transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
 import { rng } from '../../rng.ts';
 import { bevelBox, hexHead, sheet, stud } from '../../cheap.ts';
-import { HIDDEN, LEVER, NAMED_POSES, leverAngle, lugAt, posePiece, springRestLength } from './pose.ts';
+import { HIDDEN, LEVER, NAMED_POSES, leverAngle, lugAt, posePiece, ringX, springRestLength } from './pose.ts';
 import type { UndoPose } from './pose.ts';
 import { estimateLabels, undoLabels } from './labels.ts';
 import type { UndoLabelRefs } from './labels.ts';
 
-export { poseUndoLever, posePiece, NAMED_POSES, LEVER, leverAngle, springMatrix, HIDDEN } from './pose.ts';
+export { poseUndoLever, posePiece, NAMED_POSES, LEVER, leverAngle, springMatrix, springLength, ringX, HIDDEN } from './pose.ts';
 export type { UndoPose } from './pose.ts';
 export { undoLabels, UNDO_WORD, TAPE_CAP } from './labels.ts';
 export type { UndoLabelRefs } from './labels.ts';
@@ -57,7 +57,7 @@ export const CONSOLE = {
 } as const;
 
 /** The quadrant plate: its front face z, thickness, radius; the slot's centre radius. */
-export const QUADRANT = { zFront: -0.16, t: 0.045, r: 0.65, slotR: 0.43, slotW: 0.045 } as const;
+export const QUADRANT = { zFront: -0.21, t: 0.045, r: 0.65, slotR: 0.43, slotW: 0.045 } as const;
 
 export interface UndoLeverOptions extends KitOptions {
   /** Label ref from `undoLabels(labels)`. Without it the tape is blank (clay reviews, tests). */
@@ -175,10 +175,15 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
     const rr = ring.map((_, i) => (i === 0 || i === ring.length - 1 || i === ring.length / 2 - 1 || i === ring.length / 2 ? 0.012 : 0));
     const rim = extrude(ring, 0.018, { radius: rr, bevel: 0.006, bevelBase: 0, caps: 'end', segs: 1, detail, band: 0 });
     b.add(setFinish(part('brass', transform(rim, T(0, 0, Q.zFront)), 'brass', { seed: seed + 4, warm: 0.03 }), 0.35));
-    // index marks on the rim at home and pulled: two short ink notches cut across it
+    // index marks at home and pulled: raised brass tongues standing proud of the rim, pointing at the slot
     for (const a of [homeLean, pullLean]) {
-      const m = chain(T(px + (rim0 + rim1) / 2 * Math.sin(a * DEG), py + (rim0 + rim1) / 2 * Math.cos(a * DEG), Q.zFront + 0.018), new Matrix4().makeRotationZ(-a * DEG));
-      b.add(part('steel', transform(bevelBox({ min: [-0.007, -0.03, -0.003], max: [0.007, 0.03, 0.002], omit: ['nz'] }), m), 'ink', { shade: 1.2 }));
+      const m = chain(T(px + (rim0 - 0.012) * Math.sin(a * DEG), py + (rim0 - 0.012) * Math.cos(a * DEG), Q.zFront), new Matrix4().makeRotationZ(-a * DEG));
+      b.add(setFinish(part('brass', transform(bevelBox({ min: [-0.016, -0.04, -0.004], max: [0.016, 0.07, 0.032], c: 0.008, omit: ['nz'] }), m), 'brass', { seed: seed + 7, warm: 0.04 }), 0.7));
+    }
+    // two cast ribs framing the slot's track, half-round beads standing on the plate's face
+    for (const [r, k] of [[Q.slotR - Q.slotW - 0.04, 0], [Q.slotR + Q.slotW + 0.035, 1]] as const) {
+      const pts = arc(px, py, r, a0 + 8, a1 - 8, hi ? 7 : 5).map(([x, y]) => [x, y, Q.zFront] as [number, number, number]);
+      b.add(part('steel', sweep({ points: pts.map(([x, y, z]) => new Vector3(x, y, z)) }, { radius: 0.017, segs: 4, ends: 'flat', detail }), 'teal-panel', { seed: seed + 8 + k, shade: 1.12 }));
     }
     // screws holding the rim down
     for (const a of [a0 + 7, -2, a1 - 7]) {
@@ -197,66 +202,80 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
   const lever = b.node('lever', leverW);
   const F = (g: BufferGeometry): BufferGeometry => transform(g, Lw);
   const L = LEVER.length;
-  const yGrip0 = L - 0.29, yGrip1 = L - 0.045;
+  // up the lever: the twin bars to yF0; a brass ferrule; the grip; a brass ferrule; a brass ball
+  const yF0 = 0.72, yG0 = 0.77, yG1 = 1.17, yF1 = 1.215;
+  const barX = 0.05; // each bar's centre either side of the lever's line (a visible gap between them)
+  const barZ = 0.032; // half the bars' depth
+  const gripR = 0.15;
   {
-    // the bar: a flat bar of painted steel, tapering toward the grip, its tail below the pivot
-    const bar = sweep(linePath([0, -0.12, 0], [0, yGrip0 + 0.03, 0], 1), { section: sections.roundRect(0.034, 0.011, 2), radius: 0.016, up: [1, 0, 0], ends: 'flat', taper: (t) => 1 - 0.3 * t, step: 0.4, detail });
-    into(lever, leverW, part('steel', F(bar), 'steel', { seed: seed + 10, shade: 0.72, jitter: 0.03 }));
-    // the hub: a fat brass boss on the pin, a hex nut in front
-    const hub = lathe(profile(0, 0).to(0.092, 0, { sharp: true }).to(0.092, 0.024, { fillet: 0.014, segs: 1 }).to(0.056, 0.038, { fillet: 0.008, segs: 1 }).to(0.056, 0.08, { sharp: true }).to(0, 0.08), { segs: hi ? 10 : 8, detail, band: 0, caps: 'end' });
-    into(lever, leverW, setFinish(part('brass', F(transform(hub, chain(T(0, 0, -0.035), Y_TO_Z))), 'brass', { seed: seed + 11, warm: 0.03 }), 0.4));
-    into(lever, leverW, part('steel', F(transform(hexHead(0.08, 0.03, R.range(0, 1)), chain(T(0, 0, 0.045), Y_TO_Z))), 'steel', { seed: seed + 12, shade: 0.9 }));
-    // the tail's rounded end, a washer under it
-    into(lever, leverW, part('steel', F(transform(lathe(profile(0, 0).to(0.034, 0, { sharp: true }).to(0.034, 0.05, { fillet: 0.014, segs: 1 }).to(0, 0.05), { segs: 6, detail, band: 0 }), chain(T(0, -0.12, -0.025), Y_TO_Z))), 'steel', { seed: seed + 13, shade: 1.1 }));
-    // the spring's lug: a stub behind the bar with an eye
-    const lug = bevelBox({ min: [-0.022, LEVER.lugR - 0.026, LEVER.lugZ - pz - 0.012], max: [0.022, LEVER.lugR + 0.026, -0.018], c: 0.006, omit: ['pz'] });
-    into(lever, leverW, part('steel', F(lug), 'steel', { seed: seed + 14, shade: 0.9 }));
-    // a ferrule where the bar goes into the grip
-    const fer = lathe(profile(0.042, 0).to(0.058, 0.012, { sharp: true }).to(0.058, 0.04, { sharp: true }).to(0.054, 0.05), { segs: hi ? 10 : 8, detail, band: 0, caps: false });
-    into(lever, leverW, setFinish(part('brass', F(transform(fer, T(0, yGrip0 - 0.035, 0))), 'brass', { seed: seed + 15 }), 0.5));
-    // the grip: fat rubber, a little barrelled, three grooves; a domed end
-    const gl = yGrip1 - yGrip0;
-    const gp = profile(0.056, 0).to(0.08, 0.045, { smooth: true }).to(0.088, gl * 0.55, { smooth: true }).to(0.082, gl - 0.01, { smooth: true }).curve(0, gl + 0.065, 0.082, gl + 0.06, 4);
-    const grip = lathe(gp, { segs: hi ? 9 : 8, detail, band: 0, caps: false });
-    into(lever, leverW, part('rubber', F(transform(grip, T(0, yGrip0, 0))), 'ink', { seed: seed + 16, shade: 1.15 }));
-    // the two yellow bands, painted rings sitting in the grooves, a hair proud
-    for (const t of [0.3, 0.62]) {
-      const band = lathe(profile(0.076, -0.02).to(0.092, -0.015, { sharp: true }).to(0.092, 0.015, { sharp: true }).to(0.076, 0.02), { segs: hi ? 10 : 8, detail, band: 0, caps: false });
-      into(lever, leverW, part('steel', F(transform(band, T(0, yGrip0 + gl * t, 0))), 'tape-yellow', { seed: seed + 17, shade: 0.95, jitter: 0.03 }));
+    // the twin bars: deep flat forgings with a gap between them, from the tail to the grip's ferrule
+    for (const sx of [-1, 1]) {
+      const bar = sweep(linePath([sx * barX, -0.15, 0], [sx * barX, yF0 + 0.02, 0], 1), { section: sections.roundRect(0.017, 0.02, 2), radius: 0.012, up: [1, 0, 0], ends: 'flat', detail });
+      into(lever, leverW, part('steel', F(bar), 'steel', { seed: seed + 10 + sx, shade: 0.62, jitter: 0.04 }));
     }
+    // the tail: a forged block tying the bars below the pivot; a spacer between them under the grip
+    into(lever, leverW, part('steel', F(bevelBox({ min: [-barX - 0.025, -0.2, -barZ - 0.004], max: [barX + 0.025, -0.11, barZ + 0.004], c: 0.018 })), 'steel', { seed: seed + 13, shade: 0.8 }));
+    into(lever, leverW, part('steel', F(bevelBox({ min: [-barX + 0.012, yF0 - 0.13, -barZ + 0.006], max: [barX - 0.012, yF0 - 0.06, barZ - 0.006], c: 0.008, omit: ['nz'] })), 'steel', { seed: seed + 14, shade: 0.6 }));
+    // the hub: a fat brass boss on the pin, a hex nut in front
+    const hub = lathe(profile(0, 0).to(0.115, 0, { sharp: true }).to(0.115, 0.026, { fillet: 0.016, segs: 1 }).to(0.066, 0.042, { fillet: 0.01, segs: 1 }).to(0.066, 0.085, { sharp: true }).to(0, 0.085), { segs: hi ? 10 : 8, detail, band: 0, caps: 'end' });
+    into(lever, leverW, setFinish(part('brass', F(transform(hub, chain(T(0, 0, -0.04), Y_TO_Z))), 'brass', { seed: seed + 11, warm: 0.03 }), 0.4));
+    into(lever, leverW, part('steel', F(transform(hexHead(0.09, 0.032, R.range(0, 1)), chain(T(0, 0, 0.045), Y_TO_Z))), 'steel', { seed: seed + 12, shade: 0.9 }));
+    // the spring's lug: a stub between the bars, out behind them
+    const lug = bevelBox({ min: [-0.024, LEVER.lugR - 0.03, LEVER.lugZ - pz - 0.016], max: [0.024, LEVER.lugR + 0.03, -barZ + 0.01], c: 0.007, omit: ['pz'] });
+    into(lever, leverW, part('steel', F(lug), 'steel', { seed: seed + 15, shade: 0.9 }));
+    // the ferrules: brass collars at both ends of the grip
+    const ferrule = (y: number, r0: number, r1: number, h: number): BufferGeometry =>
+      lathe(profile(r0, 0).to(r1, 0.008, { fillet: 0.006, segs: 1 }).to(r1, h - 0.012, { sharp: true }).to(r1 - 0.012, h, { fillet: 0.005, segs: 1 }).to(r0, h), { segs: hi ? 10 : 8, detail, band: 0, caps: false }).translate(0, y, 0);
+    into(lever, leverW, setFinish(part('brass', F(ferrule(yF0, barX + 0.03, 0.105, yG0 - yF0 + 0.01)), 'brass', { seed: seed + 16, warm: 0.03 }), 0.5));
+    into(lever, leverW, setFinish(part('brass', F(ferrule(yG1 - 0.01, 0.06, 0.112, yF1 - yG1 + 0.01)), 'brass', { seed: seed + 17, warm: 0.03 }), 0.5));
+    // the grip: a fat turned handle a fist closes round, a little barrelled, fuller below the middle
+    const gl = yG1 - yG0;
+    const gp = profile(0.095, 0).to(gripR - 0.012, 0.05, { smooth: true }).to(gripR, gl * 0.4, { smooth: true }).to(gripR - 0.01, gl * 0.8, { smooth: true }).to(0.1, gl, { smooth: true });
+    const grip = lathe(gp, { segs: hi ? 12 : 9, detail, band: 0, caps: false });
+    into(lever, leverW, part('rubber', F(transform(grip, T(0, yG0, 0))), 'ink', { seed: seed + 18, shade: 1.15 }));
+    // two yellow bands, painted rings a hair proud of the rubber
+    for (const t of [0.24, 0.66]) {
+      const rr = gripR + 0.004 - (t > 0.5 ? 0.006 : 0.002);
+      const band = lathe(profile(rr - 0.012, -0.026).to(rr, -0.02, { sharp: true }).to(rr, 0.02, { sharp: true }).to(rr - 0.012, 0.026), { segs: hi ? 12 : 9, detail, band: 0, caps: false });
+      into(lever, leverW, part('steel', F(transform(band, T(0, yG0 + gl * t, 0))), 'tape-yellow', { seed: seed + 19, shade: 0.95, jitter: 0.03 }));
+    }
+    // the finial: a polished brass ball on a short neck
+    const ballR = 0.055, yb = L - ballR;
+    const fin = lathe(profile(0, yF1 - 0.004).to(0.04, yF1 - 0.004, { sharp: true }).to(0.03, yF1 + 0.02, { smooth: true }).curve(ballR, yb, ballR * 0.6, yb - ballR * 0.9, 3).curve(0, L, ballR, L - ballR * 0.1, 3), { segs: hi ? 10 : 8, detail, band: 0 });
+    into(lever, leverW, setFinish(part('brass', F(fin), 'brass', { seed: seed + 20, warm: 0.04 }), 0.7));
   }
-  // the catch handle (`latch`), hinged on a clamp at the grip's top on the pull side (left)
-  const hingeF: [number, number, number] = [-0.096, yGrip1 - 0.05, 0];
+  // the catch handle (`latch`): a brass trigger hinged on a lug of the upper ferrule, down the grip's pull side (left)
+  const gl0 = (t: number): number => (yG1 - yG0) * t;
+  const hingeF: [number, number, number] = [-0.125, yG1 - 0.005, 0];
+  const trigFoot: [number, number] = [-0.115, yG0 - 0.005];
   {
-    const clamp = lathe(profile(0.078, -0.018).to(0.09, -0.013, { sharp: true }).to(0.09, 0.013, { sharp: true }).to(0.078, 0.018), { segs: hi ? 10 : 8, detail, band: 0, caps: false });
-    into(lever, leverW, part('brass', F(transform(clamp, T(0, hingeF[1], 0))), 'brass', { seed: seed + 20 }));
-    into(lever, leverW, part('brass', F(bevelBox({ min: [hingeF[0] - 0.02, hingeF[1] - 0.018, -0.02], max: [-0.078, hingeF[1] + 0.018, 0.02], c: 0.006 })), 'brass', { seed: seed + 20 }));
+    into(lever, leverW, part('brass', F(bevelBox({ min: [hingeF[0] - 0.02, hingeF[1] - 0.02, -0.022], max: [-0.09, hingeF[1] + 0.02, 0.022], c: 0.007 })), 'brass', { seed: seed + 21 }));
     const latchW = chain(Lw, T(...hingeF), Y_TO_Z);
     const latch = lever.node('latch', chain(leverW.clone().invert(), latchW));
-    // a bent brass bar hanging down beside the grip, its foot turning in toward the rod
-    const pts: Array<[number, number, number]> = [[0, 0, 0], [-0.03, -0.04, 0], [-0.032, -0.17, 0], [-0.016, -0.215, 0], [0.018, -0.225, 0]];
-    const lb = sweep(polylinePath(pts.map(([x, y, z]) => [hingeF[0] + x, hingeF[1] + y, z] as [number, number, number]), 0.035, 2), { radius: 0.014, segs: 5, ends: 'flat', detail });
-    into(latch, latchW, setFinish(part('brass', F(lb), 'brass', { seed: seed + 21, warm: 0.03 }), 0.6));
-    into(latch, latchW, part('brass', F(transform(lathe(profile(0, 0).to(0.016, 0, { sharp: true }).to(0.016, 0.05, { sharp: true }).to(0, 0.05), { segs: 8, detail, band: 0 }), chain(T(hingeF[0], hingeF[1], -0.025), Y_TO_Z))), 'brass', { seed: seed + 22 }));
+    // the trigger: a flat brass bar bowed out round the grip, a gap a finger's width, its foot turned in to the rod
+    const pts: Array<[number, number, number]> = [[hingeF[0], hingeF[1], 0], [-0.19, hingeF[1] - 0.05, 0], [-0.212, yG0 + gl0(0.55), 0], [-0.2, yG0 + 0.07, 0], [-0.16, yG0 + 0.01, 0], [trigFoot[0], trigFoot[1], 0]];
+    const tb = sweep(polylinePath(pts, 0.05, 1), { radius: 0.017, segs: 5, ends: 'flat', detail });
+    into(latch, latchW, setFinish(part('brass', F(tb), 'brass', { seed: seed + 22, warm: 0.03 }), 0.6));
+    into(latch, latchW, part('brass', F(transform(lathe(profile(0, 0).to(0.018, 0, { sharp: true }).to(0.018, 0.06, { sharp: true }).to(0, 0.06), { segs: 8, detail, band: 0 }), chain(T(hingeF[0], hingeF[1], -0.03), Y_TO_Z))), 'brass', { seed: seed + 23 }));
   }
-  // the catch (`catch`): a block clasping the bar at the slot's radius, its pin back into the slot, its rod up to the latch
+  // the catch (`catch`): a block clasping both bars at the slot's radius, its pin back into the slot, its rod up to the trigger's foot
   {
     const cy = Q.slotR;
     const catchW = chain(Lw, T(0, cy, 0), new Matrix4().makeRotationZ(Math.PI / 2)); // local +X is up the lever
     const ct = lever.node('catch', chain(leverW.clone().invert(), catchW));
-    const blk = bevelBox({ min: [-0.06, cy - 0.045, -0.04], max: [0.06, cy + 0.045, 0.036], c: 0.013 });
+    const blk = bevelBox({ min: [-barX - 0.04, cy - 0.05, -barZ - 0.012], max: [barX + 0.04, cy + 0.05, barZ + 0.01], c: 0.015 });
     into(ct, catchW, setFinish(part('brass', F(blk), 'brass', { seed: seed + 25, warm: 0.03 }), 0.3));
     const pinLen = pz - (Q.zFront - Q.t * 0.6);
-    const pin = lathe(profile(0, 0).to(0.022, 0, { fillet: 0.006, segs: 1 }).to(0.022, pinLen, { sharp: true }).to(0, pinLen), { segs: 6, detail, band: 0 });
-    into(ct, catchW, part('steel', F(transform(pin, chain(T(0, cy, -0.03), new Matrix4().makeRotationX(-Math.PI / 2)))), 'steel', { seed: seed + 26, shade: 0.7 }));
-    const rodTop = hingeF[1] - 0.225;
-    const rod = sweep(linePath([-0.05, cy + 0.03, 0.02], [-0.062, rodTop, 0.012], 2), { radius: 0.009, segs: 5, ends: 'flat', detail });
+    const pin = lathe(profile(0, 0).to(0.024, 0, { fillet: 0.006, segs: 1 }).to(0.024, pinLen, { sharp: true }).to(0, pinLen), { segs: 6, detail, band: 0 });
+    into(ct, catchW, part('steel', F(transform(pin, chain(T(0, cy, -barZ), new Matrix4().makeRotationX(-Math.PI / 2)))), 'steel', { seed: seed + 26, shade: 0.7 }));
+    const rod = sweep(linePath([-barX - 0.03, cy + 0.04, 0.0], [trigFoot[0], trigFoot[1] - 0.012, 0.0], 2), { radius: 0.01, segs: 6, ends: 'round', detail });
     into(ct, catchW, part('steel', F(rod), 'steel', { seed: seed + 27, shade: 1.1 }));
-    // the block's two cap screws
   }
 
   // ======================================================================
-  // THE RETURN SPRING: from an eye post on the deck's right to the lever's lug
+  // THE RETURN SPRING: from an eye post on the deck's right to the lever's lug.
+  // Its coils are rings on nodes of their own, so a pull spreads them apart
+  // (pose.ts) instead of stretching one coil.
   // ======================================================================
   {
     const [ax, ay, az] = LEVER.anchor;
@@ -265,18 +284,20 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
     const rot = Math.atan2(lug.y - ay, lug.x - ax);
     const springW = chain(T(ax, ay, az), new Matrix4().makeRotationZ(rot));
     const sp = b.node('spring', springW);
-    // the coil as a turned stack of beads (the lamp's way: a helix costs three times as much)
-    // an open helix, few sides a turn (a closed bead stack read as a string of beads once stretched)
-    const wire = 0.012, rc = 0.04;
-    const c0 = 0.05, c1 = rest - 0.05;
-    const turns = 7;
-    const path = helixPath(rc, (c1 - c0) / turns, turns, 5);
-    const coil = transform(sweep(path, { radius: wire, segs: 4, ends: 'flat', detail }), chain(T(c0, 0, 0), Y_TO_X));
-    sp.add(part('steel', coil, 'steel', { seed: seed + 30, shade: 0.7 }));
-    // hooks bent from the coil's ends to the eyes
-    for (const [xa, xb] of [[c0, 0.0], [c1, rest]] as const) {
-      sp.add(part('steel', sweep(polylinePath([[xa, rc * 0.6, 0], [xb, 0, 0]], 0.01, 1), { radius: wire * 0.9, segs: 4, ends: 'flat', detail }), 'steel', { seed: seed + 31, shade: 0.75 }));
+    const wire = 0.011, rc = 0.042;
+    const n = LEVER.rings;
+    const tilt = Math.atan2((rest - 2 * LEVER.hook) / n, 2 * Math.PI * rc); // the lean of one turn of a helix this pitch
+    for (let k = 0; k < n; k++) {
+      // one coil: a closed ring in the YZ plane (round the spring's +X), leaned like a turn of a helix
+      const ringPts = arcPath([0, 0, 0], rc, 0, Math.PI * 2, hi ? 8 : 7, [0, 1, 0], [0, 0, 1]).points.slice(0, -1);
+      const ring = sweep({ points: ringPts, closed: true }, { radius: wire, segs: 5, detail });
+      const node = sp.node(`spring.ring${k}`, chain(T(ringX(k, rest), 0, 0), new Matrix4().makeRotationZ(tilt)));
+      node.add(part('steel', ring, 'steel', { seed: seed + 30 + k, shade: 0.75 }));
     }
+    // the hooks: the near one fixed in the spring's frame, the far one on `spring.end` at the lug
+    sp.add(part('steel', sweep(polylinePath([[0, 0, 0], [LEVER.hook * 0.6, rc * 0.4, 0], [LEVER.hook + 0.01, rc, 0]], 0.012, 1), { radius: wire * 0.9, segs: 5, ends: 'flat', detail }), 'steel', { seed: seed + 38, shade: 0.75 }));
+    const end = sp.node('spring.end', T(rest, 0, 0));
+    end.add(part('steel', sweep(polylinePath([[0, 0, 0], [-LEVER.hook * 0.6, -rc * 0.4, 0], [-LEVER.hook - 0.01, -rc, 0]], 0.012, 1), { radius: wire * 0.9, segs: 5, ends: 'flat', detail }), 'steel', { seed: seed + 39, shade: 0.75 }));
     // the anchor: a brass post screwed to the deck with an eye at its top
     const post = lathe(profile(0, 0).to(0.045, 0, { sharp: true }).to(0.045, 0.012, { fillet: 0.006, segs: 1 }).to(0.024, 0.024, { fillet: 0.008, segs: 1 }).to(0.02, ay - yTop + 0.01, { smooth: true }).curve(0, ay - yTop + 0.035, 0.022, ay - yTop + 0.03, 1), { segs: 6, detail, band: 0 });
     b.add(part('brass', transform(post, T(ax, yTop, az)), 'brass', { seed: seed + 32 }));
@@ -312,7 +333,7 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
 
   b.socket('base', new Matrix4());
   b.socket('pivot', T(px, py, pz));
-  b.socket('grip', chain(Lw, T(0, (yGrip0 + yGrip1) / 2, 0)));
+  b.socket('grip', chain(Lw, T(0, (yG0 + yG1) / 2, 0)));
   b.socket('tape', front(0, tapeY, 0.01));
   const built = b.build();
   if (o.pose) {

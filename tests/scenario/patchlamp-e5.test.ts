@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'vitest';
 import { benchWorld, putOn, tape, waitFor } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
-import { answer, patchView, plug, send, shopView, textAndWait, traySpot, untilPatch } from './patchlamp-helpers.ts';
+import { PATCHLAMP, answer, patchView, plug, send, shopView, textAndWait, traySpot, untilPatch } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, Location, Vec3 } from '../../src/workshop/sim/types.ts';
 import { renderReply } from '../../src/content/texts.ts';
@@ -146,7 +146,7 @@ describe('§ E5 worked examples that name Patch or a text', () => {
     expect(ev.find((e) => e.type === 'undone')).toMatchObject({ txn: tx.id, by: 'lever', restores: [], cancelled: ['line'] });
     expect(answer(t, n).e).toMatchObject({ type: 'line.refused', reason: 'cancelled' });
     expect(renderReply(answer(t, n).e.reply)).toBe('Taken back. Nothing changed.');
-    expect(patchView(w)).toMatchObject({ state: 'look', lookAt: [-3.7, 1.5, -1.9] });
+    expect(patchView(w)).toMatchObject({ state: 'look', lookAt: PATCHLAMP.patch.lever });
     expect(w.undoStack()).toEqual([]);
     t.run(3 * HZ);
     expect(shopView(w).sign).toBe('paint-green');

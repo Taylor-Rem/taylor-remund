@@ -79,8 +79,8 @@ function worldVerts(o: Object3D): Map<string, Map<BufferGeometry, Float32Array>>
 }
 
 function compare(p: Piece, pose: Map<string, Matrix4> | null, place?: Matrix4): number {
-  const a = K.realize(p, stub, { backend: 'nodes' });
-  const b = K.realize(p, stub, { backend: 'skinned' });
+  const a = K.realize(p, stub, { backend: 'nodes', shadowProxy: false });
+  const b = K.realize(p, stub, { backend: 'skinned', shadowProxy: false });
   for (const o of [a, b]) {
     if (place) place.decompose(o.position, o.quaternion, o.scale);
     if (pose) applyPose(o, pose);
@@ -179,7 +179,7 @@ describe('skinned realisation', () => {
   });
 
   it('all kit attributes pass through, with one bone at full weight per vertex', () => {
-    const o = K.realize(pieces[1]!.build(), stub);
+    const o = K.realize(pieces[1]!.build(), stub, { shadowProxy: false });
     o.traverse((x) => {
       const m = x as SkinnedMesh;
       if (!m.isSkinnedMesh) return;
@@ -214,7 +214,7 @@ describe('skinned realisation', () => {
     const b = K.piece('casts', { ao: false });
     b.add(K.part('steel', K.roundedBox({ w: 0.4, h: 0.4, d: 0.4 })), K.noShadow([K.part('steel', K.stud(0.02, 0.01))]));
     b.node('lamp', K.T(0, 0.5, 0)).add(K.part('bulb', K.ellipsoid({ rx: 0.05, ry: 0.05, rz: 0.05 })), K.texturedPart('paper', K.sheet({ w: 0.1, h: 0.1 }), 'stencil|A'));
-    const o = K.realize(b.build(), stub);
+    const o = K.realize(b.build(), stub, { shadowProxy: false });
     const byName = new Map<string, Mesh>();
     o.traverse((x) => { if ((x as Mesh).isMesh) byName.set(x.name, x as Mesh); });
     expect([...byName.keys()].sort()).toEqual(['skin.bulb', 'skin.paper.stencil|A', 'skin.steel', 'skin.steel.noshadow']);
@@ -229,8 +229,8 @@ describe('skinned realisation', () => {
   it('budget() reports draw calls for both backends', () => {
     const p = pieces[0]!.build();
     const bd = K.budget(p);
-    const real = K.drawStats(K.realize(p, stub));
-    const nodes = K.drawStats(K.realize(p, stub, { backend: 'nodes' }));
+    const real = K.drawStats(K.realize(p, stub, { shadowProxy: false }));
+    const nodes = K.drawStats(K.realize(p, stub, { backend: 'nodes', shadowProxy: false }));
     expect(bd.meshes).toBe(real.meshes);
     expect(bd.casting).toBe(real.casting);
     expect(bd.calls).toBe(real.calls);
