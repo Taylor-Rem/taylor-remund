@@ -39,7 +39,7 @@ export const WORKS_FEEL = {
   /** Sparks: bursts per station, the gap between them, and how much each station waits after the one before. */
   bursts: 4,
   /** Sparks are drawn this much bigger than built, to read from the home view. */
-  sparkScale: 1.5,
+  sparkScale: 2.4,
   gap: 0.95,
   stagger: 0.13,
 } as const;

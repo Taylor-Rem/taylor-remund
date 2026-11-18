@@ -89,7 +89,7 @@ export const RIG = {
    * amber, at `intensity` × the strength the view asks for. No new light, no shadow, and nothing at
    * all when the beacon is off (the bounce is put back).
    */
-  beacon: { intensity: 26, reach: 1.6, drop: 0.25 },
+  beacon: { intensity: 60, reach: 2.6, drop: 0.1 },
 };
 
 const toColor = (c: RGB, out = new Color()): Color => out.fromArray(c);
