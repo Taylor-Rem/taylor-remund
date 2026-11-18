@@ -103,10 +103,8 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     root.add(obj);
     ctx.scene.add(root);
     // the belt answers the pointer over its whole length (a proxy box: its body is merged into the set)
-    const picking = (ctx as unknown as { picking?: { add(id: string, o: Object3D, opts?: { box?: Box3; pad?: number }): void } }).picking;
     const pb = pieceBounds(whole);
-    if (picking) picking.add('belt', obj, { box: pb });
-    else ctx.pickable('belt', obj);
+    ctx.pickable('belt', obj, { box: pb });
     // the dial and the lever: pick targets round their grips (generous invisible boxes; a finger needs 44 px)
     const handle = (sock: string, hid: string, node: string) => {
       const m = whole.sockets?.[sock];
@@ -117,8 +115,7 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
       g.applyMatrix4(m);
       obj.add(g);
       const r = BELT_FEEL.pickHalf;
-      if (picking) picking.add(hid, g, { box: new Box3(new Vector3(-r, -r, -r), new Vector3(r, r, r)), pad: 0.02 });
-      else ctx.pickable(hid, g);
+      ctx.pickable(hid, g, { box: new Box3(new Vector3(-r, -r, -r), new Vector3(r, r, r)), pad: 0.02 });
       return { id: hid, o, p: o.position.clone(), q: o.quaternion.clone(), lift: 0, x: NaN, v: 0, last: NaN };
     };
     const dialH = handle('dial.grip', o.dialId ?? 'belt-dial', 'dial');

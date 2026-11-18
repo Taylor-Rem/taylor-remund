@@ -199,7 +199,7 @@ describe('gestures: pan, pinch, handles, plug', () => {
     expect(g.drain().some((c) => c.type === 'pan' || c.type === 'zoom')).toBe(false);
   });
 
-  it('mouse press on a handle presses at once; touch presses on lift, and a touch that moves pans instead', () => {
+  it('mouse press on a handle presses at once; touch presses on lift, and a touch dragged off it pulls it (once), never pans', () => {
     const { g, s, kinds } = setup();
     g.down(s(320, 120));
     expect(kinds(g.drain())).toEqual(['press']);
@@ -211,10 +211,11 @@ describe('gestures: pan, pinch, handles, plug', () => {
     expect(kinds(g.drain())).toEqual(['press']);
     g.down(s(320, 120, { kind: 'touch', id: 6, dt: 1000 }));
     g.move(s(360, 160, { kind: 'touch', id: 6 }));
-    g.up(s(360, 160, { kind: 'touch', id: 6 }));
+    g.move(s(360, 220, { kind: 'touch', id: 6 }));
+    g.up(s(360, 220, { kind: 'touch', id: 6 }));
     const out = g.drain();
-    expect(kinds(out)).toEqual([]);
-    expect(out.some((c) => c.type === 'pan')).toBe(true);
+    expect(kinds(out)).toEqual(['press']);
+    expect(out.some((c) => c.type === 'pan')).toBe(false);
   });
 
   it('the plug: press = unplug, released over a jack = plug {jack}, elsewhere = plug {null}', () => {

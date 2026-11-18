@@ -109,7 +109,6 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
     }
 
     // the jacks, from the scene (world mouths), and the pointer's proxies for them
-    const picking = (ctx as unknown as { picking?: { add(id: Id, o: Object3D, opts?: { box?: Box3; pad?: number }): void } }).picking;
     const jackAt = new Map<Id, Vector3>();
     let sceneJacks: readonly { id: Id; at: Vec3 }[] = [];
     let ready = false;
@@ -122,8 +121,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
         g.name = `jack:${j.id}`;
         g.position.copy(p);
         root.add(g);
-        if (picking) picking.add(j.id, g, { box: new Box3(new Vector3(-0.17, -0.17, -0.08), new Vector3(0.17, 0.17, 0.12)), pad: 0.02 });
-        else ctx.pickable(j.id, g);
+        ctx.pickable(j.id, g, { box: new Box3(new Vector3(-0.17, -0.17, -0.08), new Vector3(0.17, 0.17, 0.12)), pad: 0.02 });
       }
       ready = true;
     };
@@ -135,8 +133,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
     plug.add(ctx.realize(plugPiece));
     root.add(plug);
     const cordSocket = plugPiece.sockets?.['cord'] ? new Vector3().setFromMatrixPosition(plugPiece.sockets['cord']) : new Vector3(0, 0, 0.54);
-    if (picking) picking.add('cord', plug, { pad: 0.05 });
-    else ctx.pickable('cord', plug);
+    ctx.pickable('cord', plug, { pad: 0.05 });
 
     // ── the cord ──
     const cb = piece('cord', { ao: false });

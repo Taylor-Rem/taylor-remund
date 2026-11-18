@@ -172,11 +172,14 @@ describe('the belt carries whatever is put on it', () => {
       expect(w.part(id)!.location.at, id).toBe('rest');
       const at = setDown.get(id)!;
       expect(at, id).toBeDefined();
-      // off the back (toward -Z), at the slide's foot, each in a free place along it
+      // off the back (toward -Z), at the slide's foot, each in a free place along its row (S7: filled from
+      // the chute end, side by side; tests/scenario/deflector-row.test.ts holds the rest)
       expect(at[2], id).toBeLessThan(LINE.belt.z - LINE.belt.halfWidth);
       expect(Math.abs(at[2] - spot[2]), id).toBeLessThan(0.05);
-      expect(at[0] - spot[0], id).toBeGreaterThan(-0.05);
-      expect(at[0] - spot[0], id).toBeLessThan(2); // (on the spot, or along the foot when something stands there: Fetch's lane ends here)
+      const row = LINE.belt.offBackRow;
+      const ph0 = w.halfExtents(id)!;
+      expect(at[0] - ph0[0], id).toBeGreaterThan(row.minX - 0.05);
+      expect(at[0] + ph0[0], id).toBeLessThan(row.maxX + 0.05);
       // (S6) never on Fetch's lane, where its wheel goes: the tape between its stops, widened by its footprint
       const lane = w.scene.runner.lane;
       const fh = w.halfExtents('fetch')!;
