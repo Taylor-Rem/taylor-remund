@@ -30,8 +30,11 @@ import { clamp, clamp01, inOutCubic, inOutQuad, lerp, outBack, outCubic, inCubic
 import type { Ease } from '../../../anim/ease.ts';
 import {
   EXPRESSIONS, FOREARM, GAZE_MAX, HC, HEAD_SCALE, HIPS, LEG_REST, NECK, NEUTRAL, SCRUFF, SHOULDER, UPPER_ARM, CUP,
-  bodyMatrix, poseMatrices, resolveArms,
+  SIDE_ON, bodyMatrix, poseMatrices, resolveArms,
 } from './rig.ts';
+import { BOARD_WHOLE, STOOL_SEAT } from '../switchboard/board.ts';
+import { POSE as BOARD_POSE } from '../switchboard/pose.ts';
+import type { JackName } from '../switchboard/labels.ts';
 import type { ArmJoints, Arms, BodyPlace, LegJoints, PatchPose } from './rig.ts';
 
 export type V3 = [number, number, number];
@@ -287,6 +290,12 @@ export function cupPoint(pose: PatchPose, side: 'left' | 'right'): V3 {
   return [p.x, p.y, p.z];
 }
 
+/** The microphone on the boom's end in root space. */
+export function micPoint(pose: PatchPose): V3 {
+  const p = new Vector3(0.158, -0.108, 0.224).applyMatrix4(nodeMatrix(pose, ['body', 'spine', 'head', 'headset', 'boom']));
+  return [p.x, p.y, p.z];
+}
+
 /** The scruff in root space for a pose. */
 export function scruffPoint(pose: PatchPose): V3 {
   const p = new Vector3(...SCRUFF).applyMatrix4(nodeMatrix(pose, ['body']));
@@ -391,7 +400,8 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
   const T = new Vector3(...target);
   if (o.swivel !== undefined) f.body.rot = [f.body.rot[0], o.swivel, f.body.rot[2]];
   const armBase = f.arms[side];
-  let best: { fore: number; sideL: number; twist: number; short: number; joints: ArmJoints } | null = null;
+  let best: { fore: number; sideL: number; twist: number; short: number; joints: ArmJoints; cost: number } | null = null;
+  const S = new Vector3((side === 'left' ? 1 : -1) * SHOULDER.x, SHOULDER.y, SHOULDER.z);
   // the least lean that reaches with a little bend left in the elbow; else the closest it can get
   for (let i = 0; i <= 7; i++) {
     for (let j = -3; j <= 3; j++) {
@@ -400,13 +410,9 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
         const sp = spineFrame({ body: f.body, lean: [fore, sideL], twist: tw });
         const local = T.clone().applyMatrix4(sp.clone().invert());
         const r = solveArm(side, local, armBase);
-        const S = new Vector3((side === 'left' ? 1 : -1) * SHOULDER.x, SHOULDER.y, SHOULDER.z);
         const slack = Math.max(0, local.distanceTo(S) - ARM_REACH * 0.93);
         const cost = r.short * 10 + slack * 2 + fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1;
-        const prev = best ? best.short * 10 + 0 : Infinity;
-        if (!best || cost < prev + (best as unknown as { cost: number }).cost) {
-          (best as unknown) = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost } as unknown;
-        }
+        if (!best || cost < best.cost) best = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost };
       }
     }
   }
@@ -431,38 +437,92 @@ export function swivelToward(target: V3, max = 2.2): number {
   return clamp(Math.atan2(target[0], target[2]), -max, max);
 }
 
-// ---- the targets a station gives ---------------------------------------------------------------
+// ---- the board, and the targets a station gives ----------------------------------------------------
 
-/** The points the job needs, in Patch's root space, at the stool's working position for that jack. */
+/** The crew's drawing scale on the bench. */
+export const CREW = 1.5;
+/**
+ * The station keeps the root at SIDE_ON (the approved rest: side-on, face to the visitor) and Patch swivels
+ * on its stool: this body yaw sits it square along the runner, facing -X, its right side to the board
+ * (the switchboard's OPERATOR yaw).
+ */
+export const WORK_SWIVEL = -Math.PI / 2 - SIDE_ON;
+
+/** The seat top in board space with the stool at board x `stoolX` on the runner. */
+export function seatAt(stoolX: number): V3 {
+  return [stoolX, BOARD_WHOLE.runner.top + STOOL_SEAT, BOARD_WHOLE.runner.z];
+}
+
+/** A board-space point in Patch's root space, the stool at board x `stoolX`, the root at SIDE_ON and drawn CREW×. */
+export function boardToRoot(p: V3, stoolX: number): V3 {
+  const s = seatAt(stoolX);
+  const d0 = (p[0] - s[0]) / CREW, d1 = (p[1] - s[1]) / CREW, d2 = (p[2] - s[2]) / CREW;
+  const a = -SIDE_ON, c = Math.cos(a), sn = Math.sin(a);
+  return [d0 * c + d2 * sn, d1, -d0 * sn + d2 * c];
+}
+
+/** Where the stool stands on the runner to work a jack (board x), and where it rests. */
+export function workX(jack: JackName): number {
+  return BOARD_WHOLE.jackX[jack] + BOARD_WHOLE.stoolDX;
+}
+export const REST_X = BOARD_WHOLE.stoolRestX;
+
+/** The points the job needs, in Patch's root space at the stool's working position for that jack. */
 export interface JobTargets {
   /** The line's lamp on the board (Patch notices it). */
   lamp: V3;
-  /** The drawer's handle, shut. */
+  /** The plug seated in the jack (its grip). */
+  plug: V3;
+  /** The drawer's pull, shut. */
   handle: V3;
   /** Which way the drawer pulls out (unit) and how far (root units). */
   pull: V3;
   travel: number;
-  /** Where a paw rests on the keys / the keyshelf edge. */
+  /** Where a paw taps on the keyshelf. */
   keys: V3;
   /** The thing the job changed, to lean out and look at. */
   thing: V3;
-  /** The visitor (the camera), far off. */
+  /** The visitor (the camera), far off in front and above. */
   visitor: V3;
 }
 
-/** The visitor, roughly, from the seat at the default layout (the camera is high and in front). */
-export const VISITOR: V3 = [9, 6, 7];
+/** The visitor in board space: the home camera is far in front of the board and well above it. */
+export const VISITOR_BOARD: V3 = [1.2, 9, 16];
+/** The visitor from the rest position. */
+export const VISITOR: V3 = boardToRoot(VISITOR_BOARD, REST_X);
 
-/** Stand-in targets for the P1 board with the stool slid to the LAMP drawer (tests and reviews; the station passes real ones). */
-export const DEFAULT_TARGETS: JobTargets = {
-  lamp: [-0.9, 0.42, 0.55],
-  handle: [-0.62, -0.05, 0.42],
-  pull: [0.5, 0, 0.866],
-  travel: 0.28,
-  keys: [-0.55, 0.18, 0.5],
-  thing: [2.4, 0.6, 3.8],
-  visitor: VISITOR,
+/**
+ * What each line changes, in board space, as seen from the board at its bench placement (stand-ins
+ * from the bench plan v0; the station passes the real ones).
+ */
+export const THINGS_BOARD: Record<JackName, V3> = {
+  storefront: [6.5, 1.1, 0.8],
+  platen: [3.95, 0.9, 2.4],
+  belt: [-1.6, 0.6, 8.0],
+  lamp: [-2.4, 3.3, 1.0],
 };
+
+/** The job's targets for a jack (board numbers from the switchboard), the thing changed in board space. */
+export function jobTargets(jack: JackName, thing: V3 = THINGS_BOARD[jack], visitor: V3 = VISITOR_BOARD): JobTargets {
+  const L = BOARD_WHOLE, x = workX(jack), jx = L.jackX[jack];
+  const r = (p: V3): V3 => boardToRoot(p, x);
+  const plateZ = L.panelZ + L.plateT;
+  const zero = r([0, 0, 0]), out = r([0, 0, 1]);
+  const n = Math.hypot(out[0] - zero[0], out[1] - zero[1], out[2] - zero[2]);
+  const pull: V3 = [(out[0] - zero[0]) / n, (out[1] - zero[1]) / n, (out[2] - zero[2]) / n];
+  return {
+    lamp: r([jx + L.lampDX, L.jackY, plateZ + 0.07]),
+    plug: r([jx, L.jackY, plateZ + 0.086 + 0.3]),
+    handle: r([L.drawerX[jack] + 0.17, L.drawerY + 0.01, L.drawerZ + 0.06]),
+    pull,
+    travel: BOARD_POSE.drawerTravel / CREW,
+    keys: r([jx + 0.05, L.shelfY + 0.02, L.shelfZ - 0.08]),
+    thing: r(thing),
+    visitor: r(visitor),
+  };
+}
+/** The STOREFRONT line's targets (tests and reviews). */
+export const DEFAULT_TARGETS: JobTargets = jobTargets('storefront');
 
 // ---- the seated rest ---------------------------------------------------------------------------
 
@@ -477,30 +537,163 @@ const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: n
 
 /** Face presets the performances use (only the face fields). */
 const FACE = {
-  flat: { lids: [0.45, 0.48], lidsLow: [0.2, 0.2], brows: [-0.3, -0.2], browTilt: [-0.15, -0.1], mouth: [0.45, -0.1] },
+  flat: { lids: [0.36, 0.39], lidsLow: [0.2, 0.2], brows: [-0.3, -0.2], browTilt: [-0.15, -0.1], mouth: [0.45, -0.1] },
   alert: { lids: [0.3, 0.32], lidsLow: [0.08, 0.08], brows: [0.15, 0.1], browTilt: [0, 0], mouth: [0.25, -0.05] },
-  reading: { lids: [0.42, 0.44], lidsLow: [0.25, 0.25], brows: [-0.2, 0.1], browTilt: [-0.2, 0.15], mouth: [0.2, 0] },
+  reading: { lids: [0.36, 0.38], lidsLow: [0.25, 0.25], brows: [-0.2, 0.1], browTilt: [-0.2, 0.15], mouth: [0.2, 0] },
   checking: { lids: [0.28, 0.3], lidsLow: [0.05, 0.05], brows: [0.45, 0.35], browTilt: [0.05, 0], mouth: [0.15, 0] },
-  smug: { lids: [0.48, 0.5], lidsLow: [0.55, 0.45], brows: [0.25, -0.3], browTilt: [0.25, -0.1], mouth: [1, 0.35] },
-  deadpan: { lids: [0.54, 0.56], lidsLow: [0.38, 0.38], brows: [-0.65, -0.35], browTilt: [-0.35, 0.05], mouth: [-0.15, -0.12] },
+  smug: { lids: [0.38, 0.41], lidsLow: [0.55, 0.45], brows: [0.25, -0.3], browTilt: [0.25, -0.1], mouth: [1, 0.35] },
+  serene: { lids: [0.5, 0.52], lidsLow: [0.42, 0.42], brows: [0.1, 0.05], browTilt: [0.1, 0.1], mouth: [0.7, 0.2] },
+  deadpan: { lids: [0.33, 0.36], lidsLow: [0.24, 0.24], brows: [-0.65, -0.35], browTilt: [-0.35, 0.05], mouth: [-0.15, -0.12] },
   squeezed: { lids: [0.95, 0.95], lidsLow: [0.7, 0.7], brows: [-0.8, -0.8], browTilt: [0.3, 0.3], mouth: [-0.3, -0.3] },
 } as const satisfies Record<string, Partial<PatchPose>>;
 export { FACE };
 
-// ---- 1. the job ---------------------------------------------------------------------------------
+/** Sat at a jack, side-on along the runner, looking at the board (the start and end of the job). */
+export function atWork(T: JobTargets = DEFAULT_TARGETS): PatchPose {
+  const base = resolvePose({ ...SEATED, body: { rot: [0, WORK_SWIVEL, 0] }, lean: [0.04, -0.04], twist: -0.2 });
+  const lk = lookAt(base, T.lamp, 0.8);
+  return toPose({ ...base, ...lk, ...FACE.flat, headTilt: 0.05, ears: [-0.1, -0.2], arms: resolveArms('rest') } as FullPose);
+}
 
+// ---- 0. noticing a line ---------------------------------------------------------------------------
+
+export const NOTICE_LENGTH = 0.9;
+/** A line's lamp lights: the ears go first, the eyes snap to it, the head follows without hurry. `lamp` in root space. */
+export function notice(t: number, lamp: V3, from: PatchPose = SEATED): PatchPose {
+  const f = resolvePose(from);
+  const lk = lookAt(f, lamp, 0.7);
+  const keys: Key[] = [
+    { t: 0, set: toPose(f) },
+    { t: 0.16, set: { ears: [-0.5, -0.4], ...FACE.alert, gaze: [clamp(lk.gaze[0] + (lk.headYaw - f.headYaw) / GAZE_MAX, -1, 1), clamp(lk.gaze[1] + (lk.headPitch - f.headPitch) / (GAZE_MAX * 0.75), -1, 1)] }, ease: outCubic },
+    { t: NOTICE_LENGTH, set: { headYaw: lk.headYaw, headPitch: lk.headPitch, gaze: lk.gaze, headTilt: 0.04, ...FACE.flat, mouth: [0.3, -0.05], tail: [0.4, -0.1] } },
+  ];
+  return toPose(sampleOverlap(bake(from, keys), t));
+}
+
+// ---- 1. the roll along the runner -----------------------------------------------------------------
+
+export interface RollOptions {
+  /** Board x of the stool where it starts and where it stops (REST_X, or workX(jack)). */
+  fromX: number;
+  toX: number;
+  /** The pose it starts from (default: the rest at REST_X, else at work). */
+  from?: PatchPose;
+  /** The pose it ends in (default: the rest at REST_X, else at work facing that jack's lamp). */
+  to?: PatchPose;
+  /** The visitor in board space. */
+  visitor?: V3;
+}
+
+export interface RollFrame {
+  pose: PatchPose;
+  /** The stool's board x on the runner now. */
+  stoolX: number;
+}
+
+const PREP = 0.85;
+const SETTLE = 0.9;
+/** The glide's length for a distance (board units). */
+const glideTime = (d: number): number => 0.45 + d / 2.6;
+export function rollLength(fromX: number, toX: number): number {
+  return PREP + glideTime(Math.abs(toX - fromX)) + SETTLE;
+}
+
+/** The stool's board x through a roll: still, a yank, the glide slowing, a hard stop. */
+export function rollX(t: number, fromX: number, toX: number): number {
+  const D = toX - fromX, G = glideTime(Math.abs(D));
+  // a little give back before the launch (the paw pulls the stool the wrong way first)
+  const back = -Math.sign(D) * 0.025 * Math.exp(-(((t - (PREP - 0.08)) / 0.08) ** 2));
+  if (t <= PREP) return fromX + back;
+  const u = clamp01((t - PREP) / G);
+  // fast out of the yank, coasting, still moving when the paw catches the shelf (or the end stop)
+  const f = 0.72 * (1 - (1 - u) ** 2.2) + 0.28 * u;
+  return fromX + D * f;
+}
+
+function nearestTargets(x: number): JobTargets {
+  let best: JackName = 'storefront';
+  for (const j of Object.keys(BOARD_WHOLE.jackX) as JackName[]) if (Math.abs(workX(j) - x) < Math.abs(workX(best) - x)) best = j;
+  return jobTargets(best);
+}
+
+/**
+ * The roll: Patch swivels square along the runner, grabs the keyshelf's edge, gives it a yank and a kick, and
+ * glides, legs out, chin up, ears back, eyes half shut: it has done this before. Mid-glide the eyes slide
+ * to the visitor (deadpan). A paw slaps the shelf at the far end; the stool stops and Patch does not quite.
+ * Going back to the rest it does not bother to turn round: it rides backwards and stops on the end stop.
+ */
+export function rollTo(t: number, o: RollOptions): RollFrame {
+  const { fromX, toX } = o;
+  const D = toX - fromX, dir = Math.sign(D) || -1, G = glideTime(Math.abs(D));
+  const stopAt = PREP + G;
+  const toRest = Math.abs(toX - REST_X) < 0.05;
+  const fromRest = Math.abs(fromX - REST_X) < 0.05;
+  const backward = dir > 0; // facing -X, travelling +X
+  const visB = o.visitor ?? VISITOR_BOARD;
+  const atStart = (p: V3): V3 => boardToRoot(p, fromX);
+  const atEnd = (p: V3): V3 => boardToRoot(p, toX);
+  const L = BOARD_WHOLE;
+  const shelfEdge = (x: number): V3 => [clamp(x, -L.w / 2 + 0.1, L.w / 2 - 0.05), L.shelfY + 0.015, L.shelfZ + 0.02];
+  const start = resolvePose(o.from ?? (fromRest ? SEATED : atWork(nearestTargets(fromX))));
+  const end = resolvePose(o.to ?? (toRest ? SEATED : atWork(nearestTargets(toX))));
+  const glideBody = resolvePose({ body: { rot: [0, WORK_SWIVEL, 0] }, lean: [-0.1, 0], twist: 0 });
+  // the paw on the shelf to launch
+  const grabP = atStart(shelfEdge(fromX - 0.35));
+  const grab = reach(grabP, 'right', toPose({ ...glideBody, lean: [0.12, -0.08] }), { swivel: WORK_SWIVEL, watch: false });
+  const grabF = resolvePose(grab.pose);
+  // the brake: a paw slapped on the shelf ahead at the far end (forward); backward it is the end stop
+  const brakeP = atEnd(shelfEdge(toX - 0.3));
+  const brake = reach(brakeP, 'right', toPose({ ...glideBody, lean: [0.2, -0.05] }), { swivel: WORK_SWIVEL, watch: false });
+  const brakeF = resolvePose(brake.pose);
+  const lkVisMid = lookAt(glideBody, boardToRoot(visB, (fromX + toX) / 2), 0.9);
+  const lkAhead = lookAt(glideBody, atStart([fromX - 2, 1.0, L.runner.z]), 0.9);
+  const legsOut: [LegJoints, LegJoints] = [{ lift: 0.45, splay: 0.12, knee: -0.95 }, { lift: 0.4, splay: 0.1, knee: -0.85 }];
+  const legsTuck: [LegJoints, LegJoints] = [{ lift: -0.15, splay: 0.05, knee: 1.1 }, { lift: -0.1, splay: 0.05, knee: 1.15 }];
+  const trail = J(-0.35, 0.22, 0.1, 0.35, 0.2, 0.6);
+  const keys: Key[] = [
+    { t: 0, set: toPose(start) },
+    // swivel square along the runner, a paw to the shelf's edge
+    { t: 0.38, set: { body: { rot: [0, WORK_SWIVEL, 0] }, lean: grabF.lean, twist: grabF.twist, armR: grabF.arms.right, headYaw: backward ? 0.7 : lkAhead.headYaw * 0.5 + 0.25, headPitch: 0.05, gaze: [0.3, 0], ...FACE.flat, ears: [-0.2, -0.2] } },
+    // the wind-up: legs back under, a lean into it
+    { t: 0.62, set: { legs: legsTuck, lean: [grabF.lean[0] + 0.12, grabF.lean[1]], ears: [0.2, 0.2], tail: [0.6, 0], ...FACE.flat, lids: [0.4, 0.42] }, ease: inOutQuad },
+    // the yank and the kick
+    { t: PREP + 0.06, set: { legs: legsOut, lean: backward ? [0.2, 0] : [-0.16, 0], armR: backward ? J(1.2, 0.15, -0.3, 0.1, 0.2, 0.3) : trail, headPitch: 0.12 }, ease: outCubic },
+    // the glide: chin up, eyes half shut, ears back, tail streaming
+    { t: PREP + 0.35, set: { lean: [-0.1, 0], twist: 0, armR: trail, armL: J(0.45, 0.1, 0.2, 1.0, 0, 0.9), headYaw: backward ? 0.9 : lkAhead.headYaw * 0.4, headPitch: 0.2, headTilt: 0.06, gaze: [0, 0.1], ...FACE.serene, ears: [0.85, 0.75], tail: [-0.3, 0.2 * dir], tailLift: 0.5, boom: 0.18, headset: [0, -0.06] } },
+    // mid-glide: the eyes slide to the visitor; nothing else moves
+    { t: PREP + G * 0.3, set: { gaze: [lkVisMid.gaze[0] + 0.6, lkVisMid.gaze[1]], lids: [0.42, 0.44] }, ease: inOutQuad },
+    { t: PREP + G * 0.5, set: { headYaw: lkVisMid.headYaw, headPitch: lkVisMid.headPitch, gaze: lkVisMid.gaze, ...FACE.deadpan, mouth: [0.35, -0.1] }, ease: inOutQuad },
+    { t: PREP + G * 0.72, set: { headPitch: lkVisMid.headPitch + 0.03 } },
+    // forward: the paw goes out for the shelf
+    ...(backward
+      ? [{ t: stopAt - 0.05, set: { lean: [-0.06, 0] as [number, number], legs: legsOut } }]
+      : [{ t: stopAt - 0.06, set: { armR: brakeF.arms.right, lean: [0.0, -0.05] as [number, number], twist: brakeF.twist, headYaw: lkAhead.headYaw * 0.6, headPitch: 0.05, gaze: [0, -0.1] as [number, number] }, ease: inOutQuad }]),
+    // the stop: the stool stops; Patch does not
+    { t: stopAt + 0.1, set: { lean: backward ? [-0.25, 0] : [0.42, -0.04], headPitch: backward ? 0.32 : -0.12, legs: backward ? legsTuck : [{ lift: 0.6, splay: 0.1, knee: -1.2 }, { lift: 0.55, splay: 0.1, knee: -1.1 }], ears: [-0.6, -0.5], tail: [0.9, -0.3 * dir], tailLift: 0.3, boom: -0.1, headset: [0.04, backward ? -0.12 : 0.12], ...FACE.flat, lids: [0.38, 0.4] }, ease: outCubic },
+    { t: stopAt + 0.32, set: { lean: backward ? [0.06, 0] : [-0.04, 0], headPitch: 0.06, legs: [LEG_REST, LEG_REST], ears: [0.1, 0.1], boom: 0.04 }, ease: inOutQuad },
+    // and settles where it was going, as if that was always the plan
+    { t: stopAt + SETTLE, set: { ...toPose(end), legs: [LEG_REST, LEG_REST] } },
+  ];
+  const baked = bake(toPose(start), keys);
+  let f = sampleOverlap(baked, t, { eyes: 0.06, ears: -0.1, tail: -0.22, body: -0.03 });
+  f = withBlinks(f, t, [0.25, stopAt + 0.45]);
+  return { pose: toPose(f), stoolX: rollX(t, fromX, toX) };
+}
+
+// ---- 2. the job ---------------------------------------------------------------------------------
+
+/** The job's stages, at the jack (the stool already rolled there; `notice` and `rollTo` come before, `rollTo` back after). */
 export const JOB_STAGES = [
-  { name: 'notice', at: 0, dur: 0.9 },
-  { name: 'drawer', at: 0.9, dur: 1.8 },
-  { name: 'folder', at: 2.7, dur: 0.9 },
-  { name: 'work', at: 3.6, dur: 2.8 },
-  { name: 'check', at: 6.4, dur: 1.7 },
-  { name: 'nod', at: 8.1, dur: 0.6 },
-  { name: 'reply', at: 8.7, dur: 1.4 },
-  { name: 'shut', at: 10.1, dur: 1.5 },
+  { name: 'drawer', at: 0, dur: 1.5 },
+  { name: 'folder', at: 1.5, dur: 1.0 },
+  { name: 'work', at: 2.5, dur: 2.8 },
+  { name: 'check', at: 5.3, dur: 1.9 },
+  { name: 'nod', at: 7.2, dur: 0.6 },
+  { name: 'reply', at: 7.8, dur: 1.4 },
+  { name: 'shut', at: 9.2, dur: 1.4 },
 ] as const;
 export type JobStage = (typeof JOB_STAGES)[number]['name'];
-export const JOB_LENGTH = 11.6;
+export const JOB_LENGTH = 10.6;
 
 export interface JobFrame {
   pose: PatchPose;
@@ -517,85 +710,79 @@ function jobKeys(T: JobTargets): Array<{ t: number; pose: FullPose; ease: Ease }
   const hit = jobCache.get(T);
   if (hit) return hit;
   const pull = new Vector3(...T.pull).normalize();
-  const at = (v: V3, k: number, dy = 0): V3 => [v[0] + pull.x * k, v[1] + pull.y * k + dy, v[2] + pull.z * k];
-  const out = at(T.handle, T.travel);
-  const inside = at(T.handle, T.travel - 0.17, 0.02);
-  // swivel: square to the drawer for the work, back round toward the bench to check
-  const swWork = swivelToward(T.handle, 1.6) * 0.75;
-  const work: PatchPose = { ...SEATED, body: { rot: [0, swWork, 0] } };
-  const reachR = (p: V3, base: PatchPose, extra: Partial<PatchPose> = {}): PatchPose => ({ ...reach(p, 'right', { ...base, ...extra }, { swivel: swWork }).pose, ...extra });
-  const onHandle = reachR(T.handle, work);
-  const pulled = reachR(out, work, { lean: undefined as unknown as [number, number] });
-  const inDrawer = reachR(inside, work);
-  // the folder held up before the chest, open, in the right paw; the head bent over it
-  const lapFolder: ArmJoints = J(0.85, 0.05, -0.55, 1.55, 0.35, -0.6);
-  const lookFolderBase = resolvePose({ ...work, lean: [0.12, 0], twist: 0.1 });
-  const folderAt: V3 = pawPoint(toPose({ ...lookFolderBase, arms: { left: LAP.left, right: lapFolder } }), 'right');
-  const lkFolder = lookAt(lookFolderBase, [folderAt[0], folderAt[1] - 0.05, folderAt[2]], 0.85);
-  const keysPose = reach(T.keys, 'left', { ...work, lean: [0.12, 0], twist: 0.1 }, { swivel: swWork, watch: false }).pose;
-  const keysArm = resolvePose(keysPose).arms.left;
-  // leaning out to check: swivel toward the thing, lean toward it, the head right round
-  const swCheck = swivelToward(T.thing, 1.3) * 0.6;
-  const checkBody = resolvePose({ body: { rot: [0, swCheck, 0] }, lean: [0.3, 0.28], twist: 0.35 });
-  const lkThing = lookAt(checkBody, T.thing, 0.9);
-  const restBody = resolvePose(SEATED);
-  const lkVis = lookAt(restBody, T.visitor, 0.85);
-  const lkLamp = lookAt(resolvePose(SEATED), T.lamp, 0.75);
+  const along = (v: V3, k: number, dy = 0): V3 => [v[0] + pull.x * k, v[1] + pull.y * k + dy, v[2] + pull.z * k];
+  const out = along(T.handle, T.travel);
+  const inside = along(T.handle, T.travel - 0.2, 0.03);
+  const start = atWork(T);
+  const work: PatchPose = { ...start, body: { rot: [0, WORK_SWIVEL, 0] } };
+  const reachR = (p: V3, base: PatchPose): PatchPose => reach(p, 'right', base, { swivel: WORK_SWIVEL }).pose;
+  const onHandle = resolvePose(reachR(T.handle, work));
+  const pulled = resolvePose(reachR(out, work));
+  const inDrawer = resolvePose(reachR(inside, work));
+  // the folder held up before the chest in the right paw, the head bent over it
+  const lapFolder: ArmJoints = J(0.95, -0.05, -0.65, 1.6, 0.4, -0.5);
+  // reading, it swivels a little off the board toward the room (its face comes round to the camera)
+  const readBody = resolvePose({ ...work, body: { rot: [0, WORK_SWIVEL + 0.75, 0] }, lean: [0.1, 0], twist: 0.15 });
+  const folderAt: V3 = pawPoint(toPose({ ...readBody, arms: { left: LAP.left, right: lapFolder } }), 'right');
+  const lkFolder = lookAt(readBody, [folderAt[0], folderAt[1] + 0.02, folderAt[2]], 0.7);
+  // the check: swivel round toward the bench past the visitor, lean OUT over the runner, the face to the camera
+  const swCheck = clamp(swivelToward(T.thing, 2.2), WORK_SWIVEL + 0.6, 1.9);
+  const thingDir = new Vector3(...T.thing).applyMatrix4(new Matrix4().makeRotationY(-swCheck)).setY(0).normalize();
+  const leanOut: [number, number] = [clamp(thingDir.z * 0.36, 0.1, 0.4), clamp(thingDir.x * 0.32, -0.3, 0.3)];
+  const checkBody = resolvePose({ body: { rot: [0, swCheck, 0] }, lean: leanOut, twist: 0.1 });
+  const lkThing = lookAt(checkBody, T.thing, 0.85);
+  const lkVis = lookAt(resolvePose({ body: { rot: [0, swCheck * 0.6, 0] }, lean: [0.02, 0], twist: 0 }), T.visitor, 0.8);
   const lkHandle = lookAt(resolvePose(work), T.handle, 0.8);
-  // the reply: the left paw up to the left cup (it presses to talk), the boom pulled to the mouth
-  const replyBase: PatchPose = { ...SEATED, lean: [0.02, -0.04], twist: 0.05, headYaw: lkVis.headYaw * 0.8, headPitch: lkVis.headPitch, headTilt: 0.12 };
-  const cup = cupPoint(replyBase, 'left');
-  const cupArm = resolvePose(reach([cup[0] + 0.03, cup[1] - 0.01, cup[2]], 'left', replyBase, { watch: false }).pose).arms.left;
+  // the reply: swivelled half round to the visitor, the left paw to the left cup (press to talk), the boom to the mouth
+  const replyBase: PatchPose = { ...SEATED, body: { rot: [0, swCheck * 0.6, 0] }, lean: [0.02, -0.04], twist: 0.05, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, headTilt: 0.12 };
+  const mic = micPoint({ ...replyBase, boom: -0.18 });
+  const cupArm = resolvePose(reach([mic[0] + 0.02, mic[1] - 0.03, mic[2] + 0.02], 'left', replyBase, { watch: false }).pose).arms.left;
 
   const keys: Key[] = [
-    // notice: the ears go first, the eyes snap to the lamp, the head follows without hurry
-    { t: 0, set: { ...SEATED } },
-    { t: 0.18, set: { ears: [-0.45, -0.35], ...FACE.alert, gaze: [lkLamp.gaze[0] - 0.4, lkLamp.gaze[1]] }, ease: outCubic },
-    { t: 0.85, set: { headYaw: lkLamp.headYaw, headPitch: lkLamp.headPitch, gaze: lkLamp.gaze, lean: [0.06, -0.03], headTilt: 0.05, mouth: [0.3, 0], tail: [0.35, -0.1] } },
-    // drawer: swivel square to it, the paw to the handle, a tug, it rolls out
-    { t: 1.35, set: { body: { rot: [0, swWork * 0.7, 0] }, headYaw: lkHandle.headYaw, headPitch: lkHandle.headPitch, gaze: lkHandle.gaze, ...FACE.flat, mouth: [0.2, -0.05], armR: J(0.7, 0.15, -0.2, 0.9, 0.1, 0.4) } },
-    { t: 1.75, set: { ...pick(onHandle, ['body', 'lean', 'twist']), armR: resolvePose(onHandle).arms.right, ears: [-0.2, -0.1] }, ease: inOutQuad },
-    { t: 1.9, set: { lean: addL(resolvePose(onHandle).lean, -0.04, 0) } },
-    { t: 2.45, set: { ...pick(pulled, ['body', 'lean', 'twist']), armR: resolvePose(pulled).arms.right, tail: [0.2, -0.25] }, ease: inOutQuad },
-    // folder: the paw drops into the drawer, comes up with the folder
-    { t: 2.95, set: { ...pick(inDrawer, ['lean', 'twist']), armR: resolvePose(inDrawer).arms.right, headPitch: lkHandle.headPitch - 0.08 } },
-    { t: 3.05, set: { folder: 1 } },
-    { t: 3.55, set: { lean: [0.12, 0], twist: 0.1, armR: lapFolder, headYaw: lkFolder.headYaw, headPitch: lkFolder.headPitch, gaze: lkFolder.gaze, ...FACE.reading, ears: [0, 0.1] } },
-    // work: the left paw flips the cover, the eyes read down it, a paw on the keys twice
-    { t: 3.85, set: { armL: J(0.9, -0.2, -0.6, 1.5, 0.2, 0.3) } },
-    { t: 4.15, set: { folderOpen: 1, armL: LAP.left }, ease: inOutQuad },
-    { t: 4.6, set: { gaze: [lkFolder.gaze[0] - 0.25, lkFolder.gaze[1] + 0.1] } },
-    { t: 5.0, set: { gaze: [lkFolder.gaze[0] + 0.2, lkFolder.gaze[1] - 0.1], browTilt: [-0.3, 0.25] } },
-    { t: 5.35, set: { armL: keysArm, gaze: [lkFolder.gaze[0], lkFolder.gaze[1] - 0.2] } },
-    { t: 5.5, set: { armL: { ...keysArm, wrist: keysArm.wrist + 0.35 } }, ease: outCubic },
-    { t: 5.62, set: { armL: keysArm }, ease: inCubic },
-    { t: 5.78, set: { armL: { ...keysArm, wrist: keysArm.wrist + 0.35 } }, ease: outCubic },
-    { t: 5.9, set: { armL: keysArm }, ease: inCubic },
-    { t: 6.25, set: { armL: LAP.left, folderOpen: 0, mouth: [0.5, 0] } },
-    // check: lean out over the bench to look at the thing it changed, really look
-    { t: 6.9, set: { body: { rot: [0, swCheck, 0] }, lean: [0.18, 0.14], twist: 0.2, headYaw: lkThing.headYaw * 0.8, headPitch: lkThing.headPitch, gaze: lkThing.gaze, ...FACE.flat, ears: [-0.3, -0.3] } },
-    { t: 7.45, set: { lean: checkBody.lean, twist: checkBody.twist, headYaw: lkThing.headYaw, headTilt: 0.22, ...FACE.checking, ears: [-0.7, -0.5], tail: [0.5, 0.35], armL: J(0.55, 0.35, -0.5, 0.6, 0.2, 0.9) }, ease: inOutQuad },
-    { t: 7.8, set: { headPitch: lkThing.headPitch - 0.05, gaze: [lkThing.gaze[0] + 0.1, lkThing.gaze[1] - 0.05] } },
-    { t: 8.1, set: { headPitch: lkThing.headPitch - 0.02, lids: [0.36, 0.38] } },
-    // a small nod, and the smirk
-    { t: 8.3, set: { headPitch: lkThing.headPitch - 0.2, lean: [0.22, 0.2], ...FACE.smug, mouth: [0.8, 0.2] }, ease: inOutQuad },
-    { t: 8.55, set: { headPitch: lkThing.headPitch + 0.02 }, ease: outCubic },
-    { t: 8.7, set: { headPitch: lkThing.headPitch - 0.05 } },
-    // reply: swivel back, a paw to the cup, the boom to the mouth, a few words; eyes on the visitor
-    { t: 9.15, set: { body: { rot: [0, 0, 0] }, ...pick(replyBase, ['lean', 'twist', 'headYaw', 'headPitch', 'headTilt']), gaze: [0.15, 0.2], armL: cupArm, ...FACE.flat, mouth: [0.4, 0], tail: [0.2, 0] } },
-    { t: 9.3, set: { boom: -0.18, mouth: [0.1, 0.25] } },
-    { t: 9.45, set: { mouth: [0.55, -0.1] } },
-    { t: 9.6, set: { mouth: [0.05, 0.3] } },
-    { t: 9.75, set: { mouth: [0.6, 0.0] } },
-    { t: 9.95, set: { boom: 0, mouth: [0.7, -0.05], armL: REST_ARMS.left, ...FACE.smug } },
-    // shut: the folder back in its drawer, the drawer shoved home, back to the rest
-    { t: 10.45, set: { body: { rot: [0, swWork, 0] }, ...pick(inDrawer, ['lean', 'twist']), armR: resolvePose(inDrawer).arms.right, headYaw: lkHandle.headYaw * 0.7, headPitch: lkHandle.headPitch * 0.6, ...FACE.flat } },
-    { t: 10.55, set: { folder: 0 } },
-    { t: 10.7, set: { ...pick(pulled, ['lean', 'twist']), armR: resolvePose(pulled).arms.right } },
-    { t: 11.05, set: { ...pick(onHandle, ['lean', 'twist']), armR: resolvePose(onHandle).arms.right }, ease: inOutQuad },
-    { t: 11.6, set: { ...SEATED, body: {} } },
+    { t: 0, set: { ...start } },
+    // drawer: the paw down to the pull, a tug, it rolls out
+    { t: 0.45, set: { body: { rot: [0, WORK_SWIVEL, 0] }, headYaw: lkHandle.headYaw, headPitch: lkHandle.headPitch, gaze: lkHandle.gaze, ...FACE.flat, mouth: [0.2, -0.05], armR: J(0.5, 0.2, -0.1, 0.7, 0.1, 0.4), lean: [0.1, -0.08] } },
+    { t: 0.8, set: { lean: onHandle.lean, twist: onHandle.twist, armR: onHandle.arms.right, ears: [-0.2, -0.1] }, ease: inOutQuad },
+    { t: 0.92, set: { lean: addL(onHandle.lean, -0.05, 0) } },
+    { t: 1.45, set: { lean: pulled.lean, twist: pulled.twist, armR: pulled.arms.right, tail: [0.2, -0.25] }, ease: inOutQuad },
+    // folder: the paw into the drawer, up with the folder
+    { t: 1.9, set: { lean: inDrawer.lean, twist: inDrawer.twist, armR: inDrawer.arms.right, headPitch: lkHandle.headPitch - 0.05 } },
+    { t: 2.0, set: { folder: 1 } },
+    { t: 2.5, set: { body: { rot: [0, WORK_SWIVEL + 0.75, 0] }, lean: readBody.lean, twist: readBody.twist, armR: lapFolder, headYaw: lkFolder.headYaw, headPitch: lkFolder.headPitch, gaze: lkFolder.gaze, ...FACE.reading, ears: [0, 0.1] } },
+    // work: the left paw flips the cover, the eyes read down it, two taps of the left paw on the knee
+    { t: 2.8, set: { armL: J(0.95, -0.25, -0.7, 1.55, 0.2, 0.3) } },
+    { t: 3.1, set: { folderOpen: 1, armL: LAP.left }, ease: inOutQuad },
+    { t: 3.55, set: { gaze: [lkFolder.gaze[0] - 0.25, lkFolder.gaze[1] + 0.1] } },
+    { t: 3.95, set: { gaze: [lkFolder.gaze[0] + 0.2, lkFolder.gaze[1] - 0.12], browTilt: [-0.3, 0.25] } },
+    { t: 4.3, set: { armL: J(1.05, -0.2, -0.6, 1.3, 0.3, 0.3), gaze: [lkFolder.gaze[0], lkFolder.gaze[1] - 0.2] } },
+    { t: 4.42, set: { armL: J(1.0, -0.2, -0.6, 1.2, -0.1, 0.3) }, ease: inCubic },
+    { t: 4.6, set: { armL: J(1.05, -0.2, -0.6, 1.3, 0.3, 0.3) }, ease: outCubic },
+    { t: 4.72, set: { armL: J(1.0, -0.2, -0.6, 1.2, -0.1, 0.3) }, ease: inCubic },
+    { t: 5.15, set: { armL: LAP.left, folderOpen: 0, mouth: [0.5, 0] } },
+    // check: round toward the bench (the face comes back to the camera here), leaning out over the runner
+    { t: 5.75, set: { body: { rot: [0, lerp(WORK_SWIVEL, swCheck, 0.7), 0] }, lean: [0.12, leanOut[1] * 0.4], twist: 0.2, headYaw: lkThing.headYaw * 0.8, headPitch: lkThing.headPitch, gaze: lkThing.gaze, ...FACE.flat, ears: [-0.3, -0.3] } },
+    { t: 6.35, set: { body: { rot: [0, swCheck, 0] }, lean: leanOut, twist: 0.1, headYaw: lkThing.headYaw, headPitch: lkThing.headPitch, headTilt: 0.2, ...FACE.checking, ears: [-0.7, -0.5], tail: [0.5, 0.35], armL: J(0.55, 0.35, -0.5, 0.6, 0.2, 0.9), armR: J(0.55, 0.1, -0.5, 1.5, 0.3, -0.5) }, ease: inOutQuad },
+    { t: 6.75, set: { headPitch: lkThing.headPitch - 0.06, gaze: [lkThing.gaze[0] + 0.1, lkThing.gaze[1] - 0.05] } },
+    { t: 7.15, set: { headPitch: lkThing.headPitch - 0.02, lids: [0.36, 0.38] } },
+    // a small nod; the smirk
+    { t: 7.35, set: { headPitch: lkThing.headPitch - 0.22, lean: addL(leanOut, 0.04, 0), ...FACE.smug, mouth: [0.8, 0.2] }, ease: inOutQuad },
+    { t: 7.6, set: { headPitch: lkThing.headPitch + 0.02 }, ease: outCubic },
+    { t: 7.8, set: { headPitch: lkThing.headPitch - 0.05 } },
+    // reply: upright, half round to the visitor, a paw to the cup, the boom in, a few words
+    { t: 8.2, set: { ...pick(replyBase, ['body', 'lean', 'twist', 'headYaw', 'headPitch', 'headTilt']), gaze: lkVis.gaze, armL: cupArm, ...FACE.flat, mouth: [0.4, 0], tail: [0.2, 0] } },
+    { t: 8.35, set: { boom: -0.18, mouth: [0.1, 0.25] } },
+    { t: 8.5, set: { mouth: [0.55, -0.1] } },
+    { t: 8.65, set: { mouth: [0.05, 0.3] } },
+    { t: 8.8, set: { mouth: [0.6, 0.0] } },
+    { t: 9.05, set: { boom: 0, armL: REST_ARMS.left, ...FACE.smug, mouth: [0.7, -0.05] } },
+    // shut: the folder back in its drawer, the drawer shoved home
+    { t: 9.5, set: { body: { rot: [0, WORK_SWIVEL, 0] }, lean: inDrawer.lean, twist: inDrawer.twist, armR: inDrawer.arms.right, headYaw: lkHandle.headYaw * 0.7, headPitch: lkHandle.headPitch * 0.6, gaze: [0, 0], ...FACE.flat } },
+    { t: 9.6, set: { folder: 0 } },
+    { t: 9.8, set: { lean: pulled.lean, twist: pulled.twist, armR: pulled.arms.right } },
+    { t: 10.1, set: { lean: onHandle.lean, twist: onHandle.twist, armR: onHandle.arms.right }, ease: inOutQuad },
+    { t: JOB_LENGTH, set: { ...start } },
   ];
-  const baked = bake(SEATED, keys);
+  const baked = bake(start, keys);
   jobCache.set(T, baked);
   return baked;
 }
@@ -609,10 +796,10 @@ const addL = (l: [number, number], a: number, b: number): [number, number] => [l
 
 /** The drawer's travel through the job (0 shut .. 1 out). */
 function drawerAt(t: number): number {
-  if (t < 1.9) return 0;
-  if (t < 2.45) return inOutQuad((t - 1.9) / 0.55);
-  if (t < 10.7) return 1;
-  if (t < 11.05) return 1 - inOutQuad((t - 10.7) / 0.35);
+  if (t < 0.92) return 0;
+  if (t < 1.45) return inOutQuad((t - 0.92) / 0.53);
+  if (t < 9.8) return 1;
+  if (t < 10.1) return 1 - inOutQuad((t - 9.8) / 0.3);
   return 0;
 }
 
@@ -620,7 +807,7 @@ function drawerAt(t: number): number {
 export function job(t: number, targets: JobTargets = DEFAULT_TARGETS): JobFrame {
   const keys = jobKeys(targets);
   let f = sampleOverlap(keys, t);
-  f = withBlinks(f, t, [2.6, 4.85, 8.95, 11.4]);
+  f = withBlinks(f, t, [1.6, 3.8, 8.0, 10.4]);
   f = withBreath(f, t, 0.6);
   let st: (typeof JOB_STAGES)[number] = JOB_STAGES[0];
   for (const s of JOB_STAGES) if (t >= s.at) st = s;
@@ -633,17 +820,17 @@ export function jobStage(stage: JobStage, u: number, targets: JobTargets = DEFAU
   return job(st.at + clamp01(u) * st.dur, targets);
 }
 
-/** The pose reaching a jack's mouth with the left paw (the cord's plug), and what is short. */
-export function reachJack(jack: V3, base: PatchPose = SEATED): Reach {
-  return reach(jack, jack[0] < 0 ? 'right' : 'left', base);
+/** A paw on the plug seated in a jack (root space), the body swivelled side-on along the runner; and what is short. */
+export function reachJack(plug: V3, base: PatchPose = atWork()): Reach {
+  return reach(plug, 'right', base, { swivel: WORK_SWIVEL });
 }
 
-/** The pose with a paw on a drawer's handle, swivelled square to it, and what is short. */
-export function reachDrawer(handle: V3, base: PatchPose = SEATED): Reach {
-  return reach(handle, 'right', base, { swivel: swivelToward(handle, 1.6) * 0.75 });
+/** A paw on a drawer's pull (root space), side-on along the runner; and what is short. */
+export function reachDrawer(handle: V3, base: PatchPose = atWork()): Reach {
+  return reach(handle, 'right', base, { swivel: WORK_SWIVEL });
 }
 
-// ---- 2. the look ---------------------------------------------------------------------------------
+// ---- 3. the look ---------------------------------------------------------------------------------
 
 export interface LookOptions {
   /** The dead plug (root space). */
@@ -665,7 +852,7 @@ export function theLook(t: number, o: LookOptions): PatchPose {
   const vis = o.visitor ?? VISITOR;
   // the body settles out of whatever it was doing: upright, swivelled a little toward the plug
   const settle: FullPose = { ...from, lean: [from.lean[0] * 0.4 + 0.04, from.lean[1] * 0.3], twist: from.twist * 0.4 };
-  const lkPlug = lookAt(settle, o.plug, 0.85);
+  const lkPlug = lookAt(settle, o.plug, 0.65);
   const lkVisEyes = lookAt({ ...settle }, vis, 0);
   const vNow = lookAt(settle, vis, 1);
   const headTo = { headYaw: lerp(lkPlug.headYaw, vNow.headYaw, 0.62), headPitch: lerp(lkPlug.headPitch, vNow.headPitch, 0.62) };
@@ -684,10 +871,11 @@ export function theLook(t: number, o: LookOptions): PatchPose {
     // the eyes drop to the plug
     { t: 0.42, set: { gaze: [clamp(lkPlug.gaze[0] + (lkPlug.headYaw - from.headYaw) / GAZE_MAX, -1, 1), clamp(lkPlug.gaze[1] + (lkPlug.headPitch - from.headPitch) / (GAZE_MAX * 0.75), -1, 1)] }, ease: outCubic },
     // the head follows; the body comes upright; the paws sink to the lap
-    { t: 1.05, set: { headYaw: lkPlug.headYaw, headPitch: lkPlug.headPitch, headTilt: -0.06, gaze: lkPlug.gaze, lean: settle.lean, twist: settle.twist, arms: { left: { ...settle.arms.left, elbow: settle.arms.left.elbow * 0.8 }, right: { ...settle.arms.right, elbow: settle.arms.right.elbow * 0.8 } }, lids: [0.44, 0.46], boom: 0 }, ease: inOutCubic },
-    { t: 1.4, set: { arms: { left: LAP.left, right: LAP.right }, ears: [0.15, 0.2], brows: [-0.2, -0.1] }, ease: inOutQuad },
+    { t: 1.05, set: { headYaw: lkPlug.headYaw, headPitch: lkPlug.headPitch, headTilt: -0.06, gaze: lkPlug.gaze, lean: settle.lean, twist: settle.twist, lids: [0.4, 0.42], boom: 0 }, ease: inOutCubic },
+    // the paws sink a little; whatever it holds, it keeps holding
+    { t: 1.4, set: { armL: mixJ(ARM_KEYS, settle.arms.left, LAP.left, 0.6) as ArmJoints, armR: from.folder >= 0.5 ? { ...settle.arms.right, swing: settle.arms.right.swing - 0.45, elbow: settle.arms.right.elbow - 0.3 } : (mixJ(ARM_KEYS, settle.arms.right, LAP.right, 0.6) as ArmJoints), ears: [0.15, 0.2], brows: [-0.2, -0.1] }, ease: inOutQuad },
     // a long look at the plug
-    { t: 1.95, set: { lids: [0.5, 0.52], lidsLow: [0.25, 0.25], gaze: [lkPlug.gaze[0], lkPlug.gaze[1] - 0.05] } },
+    { t: 1.95, set: { lids: [0.38, 0.4], lidsLow: [0.2, 0.2], gaze: [lkPlug.gaze[0], lkPlug.gaze[1] - 0.05] } },
     // the eyes alone come round to the visitor (slowly)
     { t: 2.75, set: { gaze: eyesFromHead(lkPlug.headYaw, lkPlug.headPitch), brows: [-0.6, -0.25], browTilt: [-0.35, 0.05], mouth: [0.05, -0.1] }, ease: inOutQuad },
     { t: 3.05, set: { lidsLow: [0.32, 0.32] } },
@@ -698,7 +886,7 @@ export function theLook(t: number, o: LookOptions): PatchPose {
   const baked = bake(from, keys);
   let f = sampleOverlap(baked, t, { eyes: 0.04, body: -0.08, ears: -0.06, tail: -0.25 });
   // the tail: one slow flick as the eyes arrive
-  const flick = Math.exp(-((t - 3.0) / 0.35) ** 2);
+  const flick = Math.exp(-(((t - 3.0) / 0.35) ** 2));
   f = { ...f, tail: [f.tail[0] + 0.5 * flick, f.tail[1] + 0.35 * flick] };
   // holding: blink now and then (the first one is very slow: the look)
   const holds = [3.6];
@@ -708,7 +896,7 @@ export function theLook(t: number, o: LookOptions): PatchPose {
   return toPose(f);
 }
 
-// ---- 3. lifted, and back to the stool ------------------------------------------------------------
+// ---- 4. lifted, and back to the stool ------------------------------------------------------------
 
 export interface HeldOptions {
   visitor?: V3;
@@ -756,7 +944,7 @@ export function held(t: number, carryVelocity: V3 = [0, 0, 0], o: HeldOptions = 
     headTilt: clamp(-roll * 0.6, -0.3, 0.3) + 0.06,
     gaze: lk.gaze,
     ...FACE.flat,
-    lids: [0.55, 0.57],
+    lids: [0.42, 0.45],
     lidsLow: [0.3, 0.3],
     brows: [-0.4, -0.15],
     mouth: [0.35, -0.12],
@@ -900,14 +1088,14 @@ export function returnToStool(t: number, from: V3, o: ReturnOptions = {}): Patch
     headTilt: -step * 0.06,
     gaze: [0.6, 0.15],
     ...FACE.flat,
-    lids: [0.5, 0.52],
+    lids: [0.4, 0.42],
     tail: [0.3, step * 0.4],
     tailLift: -0.5,
   });
   return toPose(withBlinks(f, t, [1.3, 3.5]));
 }
 
-// ---- 4. a thrown crate ----------------------------------------------------------------------------
+// ---- 5. a thrown crate ----------------------------------------------------------------------------
 
 export interface CrateOptions {
   visitor?: V3;
@@ -929,7 +1117,7 @@ export function duck(t: number, o: CrateOptions = {}): PatchPose {
     { t: 0.13, set: { body: { at: [0, -0.05, 0.02], rot: [0.18, -clamp(away, -1, 1) * 0.25, 0] }, lean: [0.42, 0], twist: 0, headYaw: 0.15, headPitch: -0.45, headTilt: 0.1, gaze: [0, -0.3], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [0.9, 0], tailLift: 0.3, boom: 0.15 }, ease: outCubic },
     { t: 0.5, set: { body: { at: [0, -0.055, 0.02], rot: [0.2, -clamp(away, -1, 1) * 0.25, 0] }, headPitch: -0.48 } },
     // up, slowly; one eye first
-    { t: 0.95, set: { body: {}, lean: [0.08, 0], headYaw: lkVis.headYaw * 0.4, headPitch: 0.0, headTilt: 0.05, lids: [0.6, 0.85], lidsLow: [0.3, 0.4], brows: [-0.5, -0.6], ears: [0.4, 0.5], tail: [0.4, 0], tailLift: 0, boom: 0, arms: 'lap', gaze: [0.4, 0.2] }, ease: inOutCubic },
+    { t: 0.95, set: { body: {}, lean: [0.08, 0], headYaw: lkVis.headYaw * 0.4, headPitch: 0.0, headTilt: 0.05, lids: [0.45, 0.8], lidsLow: [0.3, 0.4], brows: [-0.5, -0.6], ears: [0.4, 0.5], tail: [0.4, 0], tailLift: 0, boom: 0, arms: 'lap', gaze: [0.4, 0.2] }, ease: inOutCubic },
     // the look
     { t: 1.45, set: { headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, headTilt: 0.06, gaze: lkVis.gaze, ...FACE.deadpan, ears: [0.3, 0.2], lean: [0.02, 0] }, ease: inOutQuad },
     { t: REACTION_LENGTH, set: {} },
@@ -968,7 +1156,7 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
   const setArm = resolvePose(set.pose).arms.left;
   const keys: Key[] = [
     { t: 0, set: { ...face } },
-    { t: 0.16, set: { armL: upArm, lean: up.pose.lean ?? [0, 0], twist: up.pose.twist ?? 0, lids: [0.5, 0.48], ears: [0.05, 0.1] }, ease: outBack(1.2) },
+    { t: 0.16, set: { armL: upArm, lean: up.pose.lean ?? [0, 0], twist: up.pose.twist ?? 0, lids: [0.4, 0.38], ears: [0.05, 0.1] }, ease: outBack(1.2) },
     { t: 0.3, set: { armL: giveArm, lean: [0.03, 0.06] }, ease: outCubic },
     { t: 0.5, set: { brows: [0.35, -0.25], browTilt: [0.3, -0.1], ...pick(FACE.smug, ['lidsLow', 'mouth']) } },
     { t: 0.85, set: { armL: setArm, lean: set.pose.lean ?? [0.08, 0], twist: set.pose.twist ?? 0 }, ease: inOutCubic },
@@ -1005,12 +1193,12 @@ export function bonked(t: number, o: CrateOptions = {}): PatchPose {
     // the head comes back; the headset stays where it went
     { t: 0.3, set: { headTilt: -side * 0.12, headYaw: lkVis.headYaw - side * 0.08, headPitch: lkVis.headPitch, boom: 0.3, lids: [0.85, 0.85], lean: [0.0, 0] }, ease: inOutQuad },
     // a moment. the eyes open on the visitor, slowly
-    { t: 0.62, set: { lids: [0.56, 0.6], gaze: [0.3, 0.15], ...pick(FACE.deadpan, ['brows', 'browTilt', 'lidsLow']), mouth: [0, -0.1] } },
+    { t: 0.62, set: { lids: [0.42, 0.48], gaze: [0.3, 0.15], ...pick(FACE.deadpan, ['brows', 'browTilt', 'lidsLow']), mouth: [0, -0.1] } },
     // the paw goes up, the chin comes up
-    { t: 0.95, set: { armL: fixArm, headTilt: 0, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12, gaze: lkVis.gaze, lids: [0.6, 0.62], twist: fix.pose.twist ?? 0, lean: fix.pose.lean ?? [0, 0] } },
+    { t: 0.95, set: { armL: fixArm, headTilt: 0, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12, gaze: lkVis.gaze, lids: [0.44, 0.46], twist: fix.pose.twist ?? 0, lean: fix.pose.lean ?? [0, 0] } },
     // straightens it
     { t: 1.18, set: { headset: [0, 0], boom: 0, armL: { ...fixArm, roll: fixArm.roll + 0.2 } } },
-    { t: 1.45, set: { arms: 'rest', twist: 0.05, lean: [0.02, 0], lids: [0.52, 0.54], mouth: [0.3, -0.1], headPitch: lkVis.headPitch + 0.08 } },
+    { t: 1.45, set: { arms: 'rest', twist: 0.05, lean: [0.02, 0], lids: [0.38, 0.4], mouth: [0.3, -0.1], headPitch: lkVis.headPitch + 0.08 } },
     { t: REACTION_LENGTH, set: {} },
   ];
   const f = sampleOverlap(bake(SEATED, keys), t, { eyes: 0.02, tail: -0.12, ears: -0.04 });
