@@ -18,7 +18,9 @@ export type { Change, HistoryHooks, HistoryPort, Recorded, ActionKind, Entry, Jo
 export { createHistory, p1History, HISTORY_TUNING } from './history.ts';
 export type { Writer } from './store.ts';
 export { BUTTON_TUNING } from './machines/button.ts';
-export { FETCH_TUNING } from './crew/fetch.ts';
+export { FETCH_TUNING, fetchReach, fetchStand, canRunLap } from './crew/fetch.ts';
+export { lanePath, laneOutline } from './path.ts';
+export type { LanePath, Pt } from './path.ts';
 export { vignette, AT as VIGNETTE_LAYOUT } from './scenes/vignette.ts';
 export { bench, AT as BENCH_LAYOUT, LINE, CREW_SCALE } from './scenes/bench.ts';
 export { BELT_TUNING } from './machines/belt.ts';
