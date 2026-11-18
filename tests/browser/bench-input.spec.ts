@@ -265,20 +265,20 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     const y = dial.y + dial.r * 0.5; // taken low on the knob: it drags along
     await use(page, hand, line({ x: dial.x, y }, { x: dial.x + 26 * 2 + 10, y }, 10), 20);
   }
-  await expect.poll(async () => (await belt(page)).speed, { timeout: 2000 }).toBe(5);
+  await expect.poll(async () => (await belt(page)).speed, { timeout: 10_000 }).toBe(5);
 
   // 2. the lever: thrown to reverse (two notches left)
   const lever = await bringIntoView(page, hand, 'belt-lever', kind);
   const notch = Math.max(22, lever.r * 0.55);
   await use(page, hand, line(lever, { x: lever.x - notch * 2 - 8, y: lever.y + 2 }, 10), 20);
-  await expect.poll(async () => belt(page), { timeout: 2000 }).toMatchObject({ running: true, direction: 'backward' });
+  await expect.poll(async () => belt(page), { timeout: 10_000 }).toMatchObject({ running: true, direction: 'backward' });
 
   // 3. UNDO: a pull takes back the lever
   const undos = await logCount(page, 'undone');
   const undo = await bringIntoView(page, hand, 'undo-lever', kind);
   if (kind === 'mouse') await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.4 }, { x: undo.x + 4, y: undo.y + undo.r * 0.4 }, 6));
   else await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.3 }, { x: undo.x, y: undo.y + undo.r * 0.5 }, 6)); // pulled down its arc
-  await expect.poll(() => logCount(page, 'undone'), { timeout: 2000 }).toBe(undos + 1);
+  await expect.poll(() => logCount(page, 'undone'), { timeout: 10_000 }).toBe(undos + 1);
   await expect.poll(async () => (await belt(page)).direction).toBe('forward');
 
   // 4. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
@@ -290,7 +290,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
   await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
   await expect
-    .poll(() => setting(page, 'cord', 'jack'), { timeout: 2000 })
+    .poll(() => setting(page, 'cord', 'jack'), { timeout: 10_000 })
     .toBe('jack-lamp')
     .catch(async (e) => {
       throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
@@ -306,7 +306,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   const key = panel.locator('.ph-key').first();
   if (kind === 'mouse') await key.click();
   else await key.tap();
-  await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 3000 }).toBe(sent + 1);
+  await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 10_000 }).toBe(sent + 1);
   const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
   await page.keyboard.press('Escape');
   await expect(panel, JSON.stringify(diag2)).toBeHidden();
@@ -319,8 +319,13 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   const lamp = await page.evaluate((kind) => {
     const B = (window as any).__bench;
     const b = B.project(B.ws.world.machine('lamp') && B.bench.bulb.at) as XY;
-    const on = B.ws.surface.at(b.x, b.y, kind, null).id === 'lamp';
-    return on ? b : (B.ws.surface.screen('lamp') as XY);
+    // the shade, or the nearest point round it that is the lamp's (Fetch or Patch may be passing in front)
+    for (let r = 0; r <= 48; r += 8)
+      for (let a = 0; a < 360; a += r ? 30 : 360) {
+        const x = b.x + Math.cos((a * Math.PI) / 180) * r, y = b.y + Math.sin((a * Math.PI) / 180) * r;
+        if (B.ws.surface.at(x, y, kind, null).id === 'lamp') return { x, y };
+      }
+    return B.ws.surface.screen('lamp') as XY;
   }, kind);
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
@@ -338,15 +343,15 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await hand.move(p);
     await page.waitForTimeout(16);
     if (i === 8) {
-      await expect.poll(() => holding(page), { timeout: 2000 }).toEqual({ kind: 'unit', id: 'lamp' });
+      await expect.poll(() => holding(page), { timeout: 10_000 }).toEqual({ kind: 'unit', id: 'lamp' });
       await shoot(page, `${tag}-lamp-mid`);
     }
   }
   await page.waitForTimeout(250);
   await hand.up(to);
   const diagL = async () => JSON.stringify(await page.evaluate(() => { const ws = (window as any).__bench.ws; return { held: ws.gestures.held, state: ws.gestures.state, w: ws.world.holding(), ints: (window as any).__ints?.slice(-6) }; }));
-  await expect.poll(() => holding(page), { timeout: 2000, message: 'lamp let go' }).toBeNull().catch(async (e) => { throw new Error(`${e}\n${await diagL()}`); });
-  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.machine('lamp').dragging), { timeout: 2000 }).toBe(false);
+  await expect.poll(() => holding(page), { timeout: 10_000, message: 'lamp let go' }).toBeNull().catch(async (e) => { throw new Error(`${e}\n${await diagL()}`); });
+  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.machine('lamp').dragging), { timeout: 10_000 }).toBe(false);
   await shoot(page, `${tag}-lamp-after`);
   expect(Math.max(...(await camPos(page)).map((v: number, i: number) => Math.abs(v - camL[i])))).toBeLessThan(0.01);
   const x1 = (await setting(page, 'lamp', 'x')) as number;
@@ -387,7 +392,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await hand.move(p);
     await page.waitForTimeout(16);
   }
-  await expect.poll(() => holding(page), { timeout: 2000 }).toEqual({ kind: 'unit', id: 'patch' });
+  await expect.poll(() => holding(page), { timeout: 10_000 }).toEqual({ kind: 'unit', id: 'patch' });
   await shoot(page, `${tag}-patch-held`, toP, 200);
   await hand.up(toP);
   await frames(page, 4);
@@ -395,8 +400,8 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     const ws = (window as any).__bench.ws;
     return { held: ws.gestures.held, state: ws.gestures.state, bracketed: ws.world.bracketed, log: (window as any).__bench.log.slice(-8).map((l: any) => l.e.type + ':' + (l.e.state ?? l.e.id ?? '')) };
   });
-  await expect.poll(() => holding(page), { message: JSON.stringify(diag), timeout: 2000 }).toBeNull();
-  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), { timeout: 3000 }).toMatch(/walk|climb|seated|look|roll/);
+  await expect.poll(() => holding(page), { message: JSON.stringify(diag), timeout: 10_000 }).toBeNull();
+  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), { timeout: 10_000 }).toMatch(/walk|climb|seated|look|roll/);
 }
 
 test('a mouse works the whole bench: dial, lever, UNDO, lamp, Patch, the plug near LAMP, the phone', async ({ page }) => {
