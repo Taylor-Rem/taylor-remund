@@ -21,10 +21,11 @@
  * `undone` event. At the end of every step the history closes timed-out
  * release windows and lets empty transactions go.
  */
-import type { Cause, Effect, Id, Intent, Interactable, Location, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
+import type { Cause, Effect, Id, Intent, Interactable, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
 import type { PhysicsPort, PhysicsSnapshot } from './physics/port.ts';
-import type { SceneDesc } from './scene.ts';
-import type { BodyMode, CommitResult, CrewHandle, Holding, SimContext, Unit } from './context.ts';
+import type { MouthSpec, SceneDesc } from './scene.ts';
+import type { BodyMode, CommitResult, CrewHandle, Holding, LostReason, MachineUnit, SimContext, Unit } from './context.ts';
+import { isMachine } from './context.ts';
 import type { Change, HistoryHooks, Recorded, TransactionView, UndoOutcome, UndoRequest } from './history.ts';
 import type { Writer, StoreSnapshot } from './store.ts';
 import type { ButtonView, ButtonUnit } from './machines/button.ts';
@@ -37,6 +38,7 @@ import { Registry } from './registry.ts';
 import { createHistory } from './history.ts';
 import { MATERIAL, defaultHalfExtents, massOf } from './parts.ts';
 import { add, clampLength, cross, dist, finitePose, length, qangle, qaxis, qconj, qmul, qnormalize, qyaw, rotate, rotationVector, scale, sub, yawOf } from './math.ts';
+import { inMouth } from './mouths.ts';
 import { createButton } from './machines/button.ts';
 import { createCord } from './machines/cord.ts';
 import { createFetch, FETCH_TUNING } from './crew/fetch.ts';
@@ -90,6 +92,10 @@ export const LOOSE_TUNING = {
   cancelDistance: 0.2,
   /** Spacing of returns up the chute when several fall at once, seconds. */
   chuteGap: 0.6,
+  /** After a put-back: for how long, and how near (units, radians), coming to rest again counts as staying put. */
+  anchorTime: 1.5,
+  anchorNear: 0.03,
+  anchorAngle: 0.06,
 } as const;
 
 /** The world as the input, view, audio, ui and shell layers use it. */
@@ -121,7 +127,7 @@ export interface WorldOptions {
   readonly scene?: SceneDesc;
   /** The history (§ E5). Default: the undo stack, `createHistory()`. `p1History()` keeps none (funnel tests). */
   readonly history?: HistoryHooks;
-  /** More machines, run after the vignette's own in this order (P2's stations; the history tests' stand-ins). */
+  /** More units, run after the scene's own (`SceneDesc.units`) in this order (the history tests' stand-ins). */
   readonly units?: readonly ((ctx: SimContext) => Unit)[];
   readonly runner?: Partial<typeof FETCH_TUNING>;
   /** The Button's rung and press count, remembered between visits (§ B4). */
@@ -143,6 +149,18 @@ interface Loose {
   /** Who a coming rest is charged to, if not the history's choice (`crew` after a fumble). */
   chargeTo: Cause | null;
   crewBy: Id | null;
+  /** The machine whose custody it is in (mode `machine`). */
+  holder: Id | null;
+  /** Where it went out of the world (mode `gone`): an undo's hop starts there. */
+  exit: Pose | null;
+  /** Sent up the chute by a machine: the cause its rest is charged to (else the history's choice, rule 4). */
+  returnCause: { readonly cause: Cause | null } | null;
+  /**
+   * Just put back by an undo or a reset (rule 9): the engine may nudge a body set down exactly where it
+   * rested (a fresh contact, no warm start). If it comes to rest again before `until`, within a hair of
+   * `pose`, it is set back there exactly, with nothing committed (a real knock moves it further).
+   */
+  anchor: { readonly pose: Pose; readonly until: number } | null;
   chuteAt: number;
   /** Where it is held, in its own frame. */
   grip: Vec3;
@@ -172,6 +190,8 @@ interface Bracket {
 const SETTLE_MAX_STEPS = 240;
 
 const isTransaction = (c: Cause): boolean => c !== 'crew' && c !== 'system';
+/** Out of the world (shipped, a spare) a body waits here: under the bench top, never seen. */
+const hiddenPose = (scene: SceneDesc): Pose => ({ p: [(scene.bench.minX + scene.bench.maxX) / 2, -4, (scene.bench.minZ + scene.bench.maxZ) / 2], q: [0, 0, 0, 1] });
 
 const PART_FIELDS = ['kind', 'size', 'material', 'colour', 'label', 'marks', 'contents', 'location'] as const;
 
@@ -206,6 +226,7 @@ export function createWorld(opts: WorldOptions): World {
   const validators = new Map<string, (v: Value) => boolean>();
   const vkey = (t: Id, f: string): string => `${t}\u0000${f}`;
   const loose = new Map<Id, Loose>();
+  const HIDDEN = hiddenPose(scene);
   const crewHandles = new Map<Id, CrewHandle>();
   const touchedSet = new Set<Id>();
   const partCache = new Map<Id, Part>();
@@ -246,8 +267,10 @@ export function createWorld(opts: WorldOptions): World {
       store.define(spec.id, f, values[f]);
       validators.set(vkey(spec.id, f), PART_VALIDATORS[f]);
     }
-    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: spec.pose, mass, friction: m.friction, restitution: m.restitution, linearDamping: m.linearDamping, angularDamping: m.angularDamping, ccd: true });
-    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: 'free', pose: spec.pose, prev: spec.pose, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: spec.pose.p, contacts: new Map() });
+    const pose0 = spec.shipped ? HIDDEN : spec.pose;
+    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: pose0, mass, friction: m.friction, restitution: m.restitution, linearDamping: m.linearDamping, angularDamping: m.angularDamping, ccd: true });
+    if (spec.shipped) physics.setEnabled(spec.id, false);
+    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: spec.shipped ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map() });
     registry.add({
       id: spec.id,
       station: spec.station,
@@ -261,16 +284,23 @@ export function createWorld(opts: WorldOptions): World {
   // in the engine, and the world must start with every part at rest where its location says.
   for (let i = 0; i < SETTLE_MAX_STEPS; i++) {
     physics.step();
-    if (physics.bodies().every((id) => physics.state(id).sleeping)) break;
+    if (physics.bodies().every((id) => !physics.isEnabled(id) || physics.state(id).sleeping)) break;
   }
   for (const l of loose.values()) {
+    validators.set(vkey(l.id, 'location'), PART_VALIDATORS.location);
+    if (l.mode === 'gone') {
+      store.define(l.id, 'location', { at: 'shipped' });
+      continue;
+    }
     const p = physics.pose(l.id);
     l.pose = p;
     l.prev = p;
     l.target = p.p;
     store.define(l.id, 'location', { at: 'rest', pose: p });
-    validators.set(vkey(l.id, 'location'), PART_VALIDATORS.location);
   }
+  const partIds: readonly Id[] = [...loose.keys()];
+  const mouths: readonly MouthSpec[] = scene.mouths ?? [];
+  const mouthById = new Map(mouths.map((m) => [m.id, m]));
 
   for (const f of scene.fixtures) {
     registry.add({ id: f.id, station: f.station, name: f.name, affordances: f.affordances, tell: () => emit({ type: 'tell', id: f.id }), misfire: (level) => emit({ type: 'misfire', id: f.id, level }) });
@@ -338,11 +368,20 @@ export function createWorld(opts: WorldOptions): World {
   function grab(id: Id, grip: Vec3): boolean {
     if (bracket || held) return false;
     const l = loose.get(id);
-    if (!l || l.mode === 'chute') return false;
+    if (!l || l.mode === 'chute' || l.mode === 'gone') return false;
+    /** Parts a crew member was carrying that its being picked up sets loose (Fetch drops its crate). */
+    let dropped: Id[] = [];
     if (l.mode === 'crew') {
       const by = l.crewBy;
-      if (by === id) crewHandles.get(id)?.grabbed();
-      else if (by !== null) crewHandles.get(by)?.taken(id);
+      if (by === id) {
+        const carried = [...loose.values()].filter((o) => o.id !== id && o.mode === 'crew' && o.crewBy === id).map((o) => o.id);
+        crewHandles.get(id)?.grabbed();
+        dropped = carried.filter((c) => loose.get(c)?.mode === 'free');
+      } else if (by !== null) crewHandles.get(by)?.taken(id);
+    } else if (l.mode === 'machine') {
+      const by = l.holder;
+      l.holder = null;
+      if (by !== null) unitById.get(by)?.lost?.(id, 'grab');
     }
     const pose = physics.pose(id);
     physics.setKind(id, 'dynamic');
@@ -352,6 +391,7 @@ export function createWorld(opts: WorldOptions): World {
     setMode(l, 'held');
     l.crewBy = null;
     l.chargeTo = null;
+    l.anchor = null;
     // the grip point in the part's own frame, kept inside the part
     const local = rotate(qconj(pose.q), sub(grip, pose.p));
     l.grip = [Math.max(-l.half[0], Math.min(l.half[0], local[0])), Math.max(-l.half[1], Math.min(l.half[1], local[1])), Math.max(-l.half[2], Math.min(l.half[2], local[2]))];
@@ -360,6 +400,11 @@ export function createWorld(opts: WorldOptions): World {
     l.grabStep = clock.step;
     touchedSet.add(id);
     history.take(id); // § E5 rule 4: a moving part picked up leaves its window at once
+    if (dropped.length > 0) {
+      // § E5 rule 4: what the grab set moving is the grab's (the visitor's doing, so the lever puts it back)
+      const txn = history.open('grab', id, clock.step);
+      for (const d of dropped) history.claim(d, txn, clock.step);
+    }
     held = { kind: 'part', id };
     emit({ type: 'part.grabbed', id });
     return true;
@@ -433,7 +478,7 @@ export function createWorld(opts: WorldOptions): World {
   /** Read every part's pose back. `exact`: poses to report as given (the rewind's recorded frame; the engine may renormalise a set rotation by an ulp). */
   function readMotion(exact?: ReadonlyMap<Id, Pose>): void {
     for (const l of loose.values()) {
-      if (l.mode === 'chute') {
+      if (l.mode === 'chute' || l.mode === 'gone') {
         l.prev = l.pose;
         l.awake = false;
         continue;
@@ -441,7 +486,7 @@ export function createWorld(opts: WorldOptions): World {
       const st = physics.state(l.id);
       l.prev = l.pose;
       l.pose = exact?.get(l.id) ?? st.pose;
-      l.awake = l.mode === 'held' || l.mode === 'crew' ? dist(l.prev.p, l.pose.p) > 1e-6 || qangle(l.prev.q, l.pose.q) > 1e-6 : !st.sleeping;
+      l.awake = l.mode === 'held' || l.mode === 'crew' || l.mode === 'machine' ? dist(l.prev.p, l.pose.p) > 1e-6 || qangle(l.prev.q, l.pose.q) > 1e-6 : !st.sleeping;
     }
   }
 
@@ -489,7 +534,9 @@ export function createWorld(opts: WorldOptions): World {
         release(l, scene.chute.linvel, [0, 0, 0]);
         l.pose = p;
         l.prev = p;
-        l.chargeTo = history.chargeReturn(l.id, clock.step);
+        l.chargeTo = l.returnCause ? l.returnCause.cause : history.chargeReturn(l.id, clock.step);
+        l.returnCause = null;
+        l.exit = null;
         emit({ type: 'part.returned', id: l.id });
       }
     }
@@ -502,6 +549,7 @@ export function createWorld(opts: WorldOptions): World {
       const st = physics.state(l.id);
       const lin = length(st.linvel);
       const ang = length(st.angvel);
+      const anchored = l.anchor !== null && clock.step <= l.anchor.until;
       if (lin > T.wakeLinear || ang > T.wakeAngular) {
         if (!l.unsettled) history.disturbed(l.id); // § E5 rule 4: set moving by something else; an open window takes it
         l.unsettled = true;
@@ -515,6 +563,17 @@ export function createWorld(opts: WorldOptions): World {
       // at rest
       l.unsettled = false;
       l.calm = 0;
+      const a = l.anchor;
+      l.anchor = null;
+      if (a && anchored && dist(a.pose.p, st.pose.p) < T.anchorNear && qangle(a.pose.q, st.pose.q) < T.anchorAngle) {
+        // a put-back part settling: back exactly where its location says, nothing to commit
+        physics.setPose(l.id, a.pose);
+        physics.setVelocity(l.id, [0, 0, 0], [0, 0, 0]);
+        physics.sleep(l.id);
+        l.pose = a.pose;
+        history.take(l.id); // not a move: out of any window it joined while it wobbled
+        continue;
+      }
       if (offBench(st.pose.p)) {
         // resting somewhere that is not the bench (on top of the back wall): the edge takes it
         physics.setEnabled(l.id, false);
@@ -525,6 +584,12 @@ export function createWorld(opts: WorldOptions): World {
       }
       const cause = history.chargeRest(l.id, clock.step, l.chargeTo);
       l.chargeTo = null;
+      // § B1 law 2, in one place: whatever comes to rest in a mouth is offered to its machine
+      const mouth = mouths.find((m) => inMouth(m, st.pose.p));
+      if (mouth && offer(l, mouth, cause)) {
+        emit({ type: 'part.rested', id: l.id });
+        continue;
+      }
       const loc = store.get(l.id, 'location') as Location;
       const same = loc.at === 'rest' && dist(loc.pose.p, st.pose.p) < T.restSame && qangle(loc.pose.q, st.pose.q) < T.restSameAngle;
       if (!same) commit([{ target: l.id, field: 'location', after: { at: 'rest', pose: st.pose } }], cause);
@@ -532,13 +597,32 @@ export function createWorld(opts: WorldOptions): World {
     }
   }
 
+  /**
+   * Law 2: offer a part that has come to rest in `mouth` to its machine. True if the machine took it
+   * (it is in its custody now, and the machine committed what its verb writes); false if there is no
+   * such machine, or it answered with what it wanted (the slip is printed): the rest commits as usual.
+   */
+  function offer(l: Loose, mouth: MouthSpec, cause: Cause): boolean {
+    const m = machines.get(mouth.machine);
+    const part = world.part(l.id);
+    if (!m || !part) return false;
+    const out = m.accept(part, cause, mouth.id);
+    if (!out.ok) {
+      emit({ type: 'card', by: m.id, content: out.wanted });
+      return false;
+    }
+    if (l.mode === 'free') return false; // done without taking it in: it rests where it is
+    emit({ type: 'taken-in', id: m.id, part: l.id, mouth: mouth.id });
+    return true;
+  }
+
   // ── the Button's bracket ──
   function framePoses(): Map<Id, Pose> {
     const m = new Map<Id, Pose>();
-    for (const l of loose.values()) if (l.mode !== 'chute') m.set(l.id, physics.pose(l.id));
+    for (const l of loose.values()) if (l.mode !== 'chute' && l.mode !== 'gone') m.set(l.id, physics.pose(l.id));
     return m;
   }
-  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
+  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, holder: l.holder, exit: l.exit, returnCause: l.returnCause, anchor: l.anchor, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
 
   // ── the history (§ E5) ──
   history.bind({
@@ -549,22 +633,71 @@ export function createWorld(opts: WorldOptions): World {
     playMode: () => playMode,
   });
 
-  /** § E5 rule 9: a part whose location is restored to `rest` is put there at once, without physics (the hop is drawn). */
-  function putBack(l: Loose, loc: Location): void {
-    if (loc.at !== 'rest' || (l.mode !== 'free' && l.mode !== 'chute')) return;
-    // TODO(P2 belt/dock): "if the place is taken, to the nearest free spot" is not done here: the restored
-    // value is exactly the recorded one (the replay check holds), and a body put into an occupied place is
-    // left for physics to part. In and shipped are for the machine that owns the mouth (`Unit.restored`).
-    if (l.mode === 'chute') physics.setEnabled(l.id, true);
-    physics.setPose(l.id, loc.pose);
+  /** Take a part out of the world (shipped, a spare): no body, not drawn; `exit` is where it went out. */
+  function stowBody(l: Loose, exit: Pose | null): void {
+    physics.setEnabled(l.id, false);
+    physics.setPose(l.id, HIDDEN);
+    setMode(l, 'gone');
+    l.crewBy = null;
+    l.holder = null;
+    l.exit = exit;
+    l.returnCause = null;
+    l.unsettled = false;
+    l.calm = 0;
+    l.chargeTo = null;
+    l.pose = HIDDEN;
+    l.prev = HIDDEN;
+    l.contacts = new Map();
+    history.take(l.id);
+  }
+
+  /** A part leaves a machine's custody by the world's doing: the machine is told, the body is free. */
+  function loseFromMachine(l: Loose, why: LostReason): void {
+    if (l.mode !== 'machine') return;
+    const by = l.holder;
+    l.holder = null;
+    release(l, [0, 0, 0], [0, 0, 0]);
+    l.unsettled = false;
+    if (by !== null) unitById.get(by)?.lost?.(l.id, why);
+  }
+
+  /**
+   * § E5 rule 9: a part whose location is restored is put there at once, without physics (the hop is
+   * drawn). `rest`: at that pose. `shipped`: out of the world again. `in`: brought into the world at the
+   * mouth's drop point if it was out of it; the machine that owns the mouth takes it back in its
+   * `restored`. A part in the visitor's hand or a crew member's stays there.
+   */
+  function putBack(l: Loose, loc: Location, why: LostReason): void {
+    if (l.mode === 'held' || l.mode === 'crew') return;
+    loseFromMachine(l, why);
+    if (loc.at === 'shipped') {
+      if (l.mode !== 'gone') stowBody(l, l.pose);
+      return;
+    }
+    let pose: Pose;
+    if (loc.at === 'in') {
+      if (l.mode === 'free') return; // it is in the world; the machine takes it where it is
+      const m = mouthById.get(loc.mouth);
+      pose = m ? { p: [m.drop[0], m.drop[1] + l.half[1] + 0.01, m.drop[2]], q: [0, 0, 0, 1] } : l.pose;
+    } else pose = loc.pose;
+    // TODO(rule 9): "if the place is taken, to the nearest free spot" is not done: the restored value is
+    // exactly the recorded one (the replay check holds), and physics parts anything put into an occupied place.
+    if (l.mode === 'chute' || l.mode === 'gone') physics.setEnabled(l.id, true);
+    physics.setPose(l.id, pose);
     release(l, [0, 0, 0], [0, 0, 0]);
     physics.sleep(l.id);
     l.unsettled = false;
     l.chargeTo = null;
-    l.pose = loc.pose;
-    l.prev = loc.pose; // a jump, never interpolated; the view draws the hop from `Restore.pose`
+    l.exit = null;
+    l.returnCause = null;
+    l.pose = pose;
+    l.prev = pose; // a jump, never interpolated; the view draws the hop from `Restore.pose`
     l.contacts = new Map();
+    l.anchor = loc.at === 'rest' ? { pose, until: clock.step + steps(T.anchorTime) } : null;
   }
+
+  /** Where a part's body is for an undo's hop: where it went out, if it is out of the world. */
+  const hopFrom = (l: Loose): Pose => ((l.mode === 'gone' || l.mode === 'chute') && l.exit ? l.exit : l.pose);
 
   /** The lever, or "undo that": the history restores the durable fields; the world moves the bodies and says what happened. */
   function performUndo(req: UndoRequest): UndoOutcome {
@@ -584,8 +717,8 @@ export function createWorld(opts: WorldOptions): World {
       const l = loose.get(id);
       const slot = store.slot(id, 'location');
       if (!l || !slot) continue;
-      restores.push({ target: id, field: 'location', from: slot.value, to: slot.value, writer: slot.writer, pose: l.pose });
-      putBack(l, slot.value as Location);
+      restores.push({ target: id, field: 'location', from: slot.value, to: slot.value, writer: slot.writer, pose: hopFrom(l) });
+      putBack(l, slot.value as Location, 'undo');
     }
     for (const r of u.restores) {
       const l = r.field === 'location' ? loose.get(r.target) : undefined;
@@ -593,8 +726,8 @@ export function createWorld(opts: WorldOptions): World {
         restores.push(r);
         continue;
       }
-      restores.push({ ...r, pose: l.pose });
-      putBack(l, r.to as Location);
+      restores.push({ ...r, pose: hopFrom(l) });
+      putBack(l, r.to as Location, 'undo');
     }
     emit({ type: 'undone', txn: u.txn, action: u.action, by: u.by, restores, kept: u.kept, cancelled: u.cancelled });
     for (const un of units) un.restored?.(restores);
@@ -603,6 +736,8 @@ export function createWorld(opts: WorldOptions): World {
 
   // ── machines and crew ──
   let units: Unit[] = [];
+  const unitById = new Map<Id, Unit>();
+  const machines = new Map<Id, MachineUnit>();
   const ctx: SimContext = {
     clock,
     scene,
@@ -611,7 +746,9 @@ export function createWorld(opts: WorldOptions): World {
     emit,
     commit: (c, cause) => commit(c, cause),
     part: (id) => world.part(id),
+    parts: () => partIds,
     setting: (t, f) => store.get(t, f),
+    writer: (t, f) => store.writer(t, f),
     defineSetting(target, field, initial, valid) {
       if (!valid(initial)) throw new Error(`setting ${target}.${field}: invalid starting value`);
       store.define(target, field, initial);
@@ -619,6 +756,8 @@ export function createWorld(opts: WorldOptions): World {
     },
     register: (i) => registry.add(i),
     interactable: (id) => registry.get(id),
+    machine: (id) => machines.get(id),
+    mouth: (id) => mouthById.get(id),
     get playMode() {
       return playMode;
     },
@@ -655,7 +794,7 @@ export function createWorld(opts: WorldOptions): World {
     },
     drive(id, pose, teleport = false) {
       const l = lp(id);
-      if (l.mode !== 'crew') return;
+      if (l.mode !== 'crew' && l.mode !== 'machine') return;
       if (teleport) {
         physics.setPose(id, pose);
         l.pose = pose;
@@ -668,6 +807,56 @@ export function createWorld(opts: WorldOptions): World {
       if (l.mode !== 'crew') return;
       l.crewBy = null;
       release(l, linvel, angvel);
+      l.chargeTo = cause;
+    },
+    take(id, by) {
+      const l = loose.get(id);
+      if (!l || l.mode !== 'free' || bracket) return false;
+      physics.setKind(id, 'kinematic');
+      physics.setGravityScale(id, 1);
+      setMode(l, 'machine');
+      l.holder = by;
+      l.unsettled = false;
+      l.calm = 0;
+      l.chargeTo = null;
+      history.take(id);
+      return true;
+    },
+    release(id, linvel, angvel, cause) {
+      const l = lp(id);
+      if (l.mode !== 'machine') return;
+      l.holder = null;
+      release(l, linvel, angvel);
+      l.chargeTo = cause;
+      // set down still: it is at rest as soon as physics agrees (law 2 offers it to the next mouth at once)
+      if (length(linvel) === 0 && length(angvel) === 0) l.calm = steps(T.restTime);
+    },
+    stow(id, exit) {
+      const l = lp(id);
+      if (l.mode === 'held' || l.mode === 'gone') return;
+      if (l.mode === 'crew' && l.crewBy !== null && l.crewBy !== id) crewHandles.get(l.crewBy)?.taken(id);
+      stowBody(l, exit);
+    },
+    toChute(id, cause) {
+      const l = lp(id);
+      if (l.mode !== 'gone' && l.mode !== 'free') return;
+      physics.setEnabled(id, false);
+      setMode(l, 'chute');
+      l.unsettled = false;
+      l.returnCause = { cause };
+      l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
+      lastChuteRelease = l.chuteAt;
+    },
+    launch(id, pose, linvel, angvel, cause) {
+      const l = lp(id);
+      if (l.mode !== 'gone' && l.mode !== 'chute') return;
+      physics.setEnabled(id, true);
+      physics.setPose(id, pose);
+      release(l, linvel, angvel);
+      l.pose = pose;
+      l.prev = pose;
+      l.exit = null;
+      l.returnCause = null;
       l.chargeTo = cause;
     },
     shove(id, dv) {
@@ -688,7 +877,7 @@ export function createWorld(opts: WorldOptions): World {
       partCache.delete(part);
       emit({ type: 'put-away', id: part });
       const r = commit([{ target: part, field: 'location', after: at }], 'system');
-      if (l.mode === 'free' || l.mode === 'chute') putBack(l, at);
+      putBack(l, at, 'away');
       return r;
     },
 
@@ -725,7 +914,7 @@ export function createWorld(opts: WorldOptions): World {
         // A part that was in the chute at the press was never drawn: no interpolation.
         const prev = l.prev;
         Object.assign(l, s, { contacts: new Map(s.contacts) });
-        l.prev = s.mode === 'chute' ? l.pose : prev;
+        l.prev = s.mode === 'chute' || s.mode === 'gone' ? l.pose : prev;
       }
       bracket = null;
       history.bracket(false);
@@ -757,7 +946,20 @@ export function createWorld(opts: WorldOptions): World {
   const button: ButtonUnit = createButton(ctx, opts.button);
   const cord: CordUnit = createCord(ctx);
   const runner: FetchUnit = createFetch(ctx, opts.runner);
-  units = [button, cord, runner, ...(opts.units ?? []).map((make) => make(ctx))];
+  units = [button, cord, runner];
+  for (const u of units) unitById.set(u.id, u);
+  // the scene's machines and crew, then the caller's: a machine is its own registry entry
+  for (const make of [...(scene.units ?? []), ...(opts.units ?? [])]) {
+    const u = make(ctx);
+    if (unitById.has(u.id)) throw new Error(`world: two units are called "${u.id}"`);
+    units.push(u);
+    unitById.set(u.id, u);
+    if (isMachine(u)) {
+      registry.add(u);
+      machines.set(u.id, u);
+    }
+  }
+  for (const m of mouths) if (!machines.has(m.machine)) throw new Error(`scene: mouth "${m.id}" belongs to "${m.machine}", which is not a machine of this world`);
   /** How the visit began: what "Reset the workshop" goes back to. */
   const initial = store.snapshot();
 
@@ -770,6 +972,7 @@ export function createWorld(opts: WorldOptions): World {
       held = null;
     }
     history.reset();
+    for (const u of units) u.reset?.();
     const restores: Restore[] = [];
     const now = [...store.entries()];
     store.restore(initial);
@@ -777,11 +980,11 @@ export function createWorld(opts: WorldOptions): World {
       const start = store.slot(target, field) as NonNullable<ReturnType<Store['slot']>>;
       if (sameValue(slot.value, start.value) && slot.writer === start.writer) continue;
       const l = field === 'location' ? loose.get(target) : undefined;
-      restores.push({ target, field, from: slot.value, to: start.value, writer: start.writer, ...(l ? { pose: l.pose } : {}) });
+      restores.push({ target, field, from: slot.value, to: start.value, writer: start.writer, ...(l ? { pose: hopFrom(l) } : {}) });
     }
     partCache.clear();
     touchedSet.clear();
-    for (const l of loose.values()) putBack(l, store.get(l.id, 'location') as Location);
+    for (const l of loose.values()) putBack(l, store.get(l.id, 'location') as Location, 'reset');
     emit({ type: 'reset', restores });
     for (const u of units) u.restored?.(restores);
     return true;
@@ -811,10 +1014,11 @@ export function createWorld(opts: WorldOptions): World {
       case 'place': {
         if (!held) return false;
         if (held.kind === 'plug') return cord.intent?.({ type: 'plug', cord: held.id, jack: typeof intent.at === 'string' ? intent.at : null }) ?? false;
-        if (typeof intent.at === 'string') return false; // no mouths in the vignette yet
+        const at = typeof intent.at === 'string' ? mouthById.get(intent.at)?.drop : intent.at;
+        if (!at) return false; // not a mouth of this scene
         const l = lp(held.id);
         const st = physics.state(l.id);
-        const spot = clampTarget(l, [intent.at[0], intent.at[1] + l.half[1] + 0.01, intent.at[2]]);
+        const spot = clampTarget(l, [at[0], at[1] + l.half[1] + 0.01, at[2]]);
         physics.setPose(l.id, { p: spot, q: qyaw(yawOf(st.pose.q)) });
         letGoOfPart(l, [0, 0, 0], 'place');
         physics.setVelocity(l.id, [0, 0, 0], [0, 0, 0]);
@@ -857,6 +1061,7 @@ export function createWorld(opts: WorldOptions): World {
     },
 
     advance() {
+      const from = events.length;
       clock.tick();
       const pending = queue;
       queue = [];
@@ -878,6 +1083,8 @@ export function createWorld(opts: WorldOptions): World {
       }
       for (const u of units) u.post?.();
       history.endStep(clock.step);
+      const heard = events.slice(from);
+      for (const u of units) u.heard?.(heard);
     },
 
     drainEvents() {
@@ -934,6 +1141,7 @@ export function createWorld(opts: WorldOptions): World {
     touched: (id) => touchedSet.has(id),
     button: () => button.view(),
     cord: (id) => (id === scene.cord.id ? cord.view() : undefined),
+    machine: (id): MachineView | undefined => machines.get(id)?.view(),
     dispose() {
       physics.dispose();
     },

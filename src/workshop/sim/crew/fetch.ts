@@ -63,6 +63,29 @@ export const FETCH_TUNING = {
 } as const;
 
 export type { FetchState } from '../types.ts';
+
+/**
+ * Fetch at `k` times P1's size (`SceneDesc.crewScale`): its body, its hands and its reach scale, and so
+ * do its speeds, so it looks just as eager. Times stay as they are.
+ */
+function scaled(t: typeof FETCH_TUNING, k: number): typeof FETCH_TUNING {
+  if (k === 1) return t;
+  return {
+    ...t,
+    accel: t.accel * k,
+    maxSpeed: t.maxSpeed * k,
+    brake: t.brake * k,
+    overshoot: t.overshoot * k,
+    skidBack: t.skidBack * k,
+    bodyHalfHeight: t.bodyHalfHeight * k,
+    handGap: t.handGap * k,
+    bodyHalfDepth: t.bodyHalfDepth * k,
+    handForward: t.handForward * k,
+    handHeight: t.handHeight * k,
+    reach: t.reach * k,
+    returnSpeed: t.returnSpeed * k,
+  } as typeof FETCH_TUNING;
+}
 type Purpose = 'lap' | 'fumble' | 'retrieve';
 
 export interface FetchUnit extends Unit {
@@ -70,7 +93,7 @@ export interface FetchUnit extends Unit {
 }
 
 export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING> = {}): FetchUnit {
-  const T = { ...FETCH_TUNING, ...tuning };
+  const T = scaled({ ...FETCH_TUNING, ...tuning }, ctx.scene.crewScale ?? 1);
   const spec = ctx.scene.runner;
   const rng = ctx.rng('fetch');
   const [ax, az] = spec.lane.a;

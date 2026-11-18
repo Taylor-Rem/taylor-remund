@@ -112,7 +112,7 @@ describe('variants', () => {
     b.add(K.part('wood', K.roundedBox({ w: 1, h: 0.1, d: 1 })), K.large([K.part('wood', K.roundedBox({ w: 4, h: 0.1, d: 2 }))]));
     const pc = b.build();
     expect(pc.root.parts.map((q) => q.variant)).toEqual([undefined, 'large']);
-    const o = K.realize(pc, mats);
+    const o = K.realize(pc, mats, { shadowProxy: false });
     const meshes: Mesh[] = [];
     o.traverse((x: Object3D) => { if ((x as Mesh).isMesh) meshes.push(x as Mesh); });
     expect(meshes.length).toBe(2);

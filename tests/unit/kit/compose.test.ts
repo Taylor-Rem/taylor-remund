@@ -196,7 +196,7 @@ describe('realize and the Piece', () => {
     head.add(K.part('bulb', K.ellipsoid({ rx: 0.05, ry: 0.05, rz: 0.05 })));
     head.node('shade').add(K.part('paper', K.slab({ w: 0.1, d: 0.1, t: 0.01 })));
     const pc = b.build();
-    const o = K.realize(pc, stand);
+    const o = K.realize(pc, stand, { shadowProxy: false });
     const meshes: Mesh[] = [];
     o.traverse((x: Object3D) => { if ((x as Mesh).isMesh) meshes.push(x as Mesh); });
     expect(meshes.length).toBe(4); // steel+brass in root, bulb in head, paper in shade
