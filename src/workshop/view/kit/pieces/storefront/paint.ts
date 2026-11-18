@@ -9,7 +9,7 @@
  *    (cream, an ink keyline, an ink drop shade) on a clear ground, so the
  *    fascia's paint shows round them. Redrawn when a visitor's text changes
  *    the words: only the face turned away from the street is repainted.
- *  - PICTURES: four simple drawn pictures for the window, and the OPEN and
+ *  - PICTURES: five simple drawn pictures for the window's drum and its blank, the OPEN and
  *    CLOSED faces of the hanging card. Drawn once.
  *
  * Every colour comes from a palette token.
@@ -20,7 +20,8 @@ import { context } from '../../../labels/draw.ts';
 import { assertFace, font } from '../../../labels/fonts.ts';
 import { advance } from '../../../labels/draw.ts';
 import { rng } from '../../../labels/rng.ts';
-import { faceV, CELLS } from './atlas.ts';
+import { faceV, CELLS, PICTURES_TEX } from './atlas.ts';
+import { PICTURES, type WindowPicture } from './content.ts';
 import { WORDS } from './dims.ts';
 import { fitWords, SHADE, type WordsLayout } from './words.ts';
 
@@ -153,9 +154,6 @@ export function paintWords(tex: Texture, face: 'A' | 'B', text: string, seed = 1
 
 // ---- pictures ---------------------------------------------------------------------
 
-/** The picture ids, in drum order. */
-export const PICTURE_IDS = ['teapot', 'boat', 'bicycle', 'flower'] as const;
-export type PictureId = (typeof PICTURE_IDS)[number];
 
 type Draw = (ctx: Ctx, w: number, h: number) => void;
 
@@ -166,137 +164,128 @@ const outline = (ctx: Ctx, w: number): void => {
   ctx.lineCap = 'round';
 };
 
-const DRAW: Record<PictureId, Draw> = {
-  teapot(ctx, w, h) {
+const DRAW: Record<WindowPicture, Draw> = {
+  mountains(ctx, w, h) {
     const s = Math.min(w, h);
-    const cx = w * 0.5, cy = h * 0.6;
-    // a table line
-    ctx.fillStyle = mixHex('paper', 'wood-light', 0.45);
-    ctx.fillRect(0, h * 0.82, w, h * 0.18);
-    outline(ctx, s * 0.025);
-    // spout
-    ctx.beginPath();
-    ctx.moveTo(cx + s * 0.2, cy + s * 0.04);
-    ctx.quadraticCurveTo(cx + s * 0.33, cy - s * 0.02, cx + s * 0.4, cy - s * 0.2);
-    ctx.lineTo(cx + s * 0.44, cy - s * 0.17);
-    ctx.quadraticCurveTo(cx + s * 0.38, cy + s * 0.08, cx + s * 0.22, cy + s * 0.14);
-    ctx.closePath();
-    ctx.fillStyle = rgba('paint-blue');
-    ctx.fill();
-    ctx.stroke();
-    // handle
-    ctx.beginPath();
-    ctx.ellipse(cx - s * 0.27, cy, s * 0.1, s * 0.12, 0, 0, Math.PI * 2);
-    ctx.lineWidth = s * 0.055;
-    ctx.strokeStyle = rgba('ink');
-    ctx.stroke();
-    ctx.lineWidth = s * 0.03;
-    ctx.strokeStyle = rgba('paint-blue');
-    ctx.stroke();
-    outline(ctx, s * 0.025);
-    // body
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, s * 0.27, s * 0.2, 0, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('paint-blue');
-    ctx.fill();
-    ctx.stroke();
-    // a band of pattern round its belly
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, s * 0.27, s * 0.2, 0, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.fillStyle = rgba('paper', 0.9);
-    ctx.fillRect(cx - s * 0.3, cy - s * 0.03, s * 0.6, s * 0.06);
-    for (let i = -3; i <= 3; i++) {
+    // a pale sky, three ranges of cut-out mountains, nearest darkest, snow on the far peaks
+    ctx.fillStyle = mixHex('paper', 'teal-light', 0.22);
+    ctx.fillRect(0, 0, w, h);
+    const range = (pts: Array<[number, number]>, fill: string): void => {
       ctx.beginPath();
-      ctx.arc(cx + i * s * 0.075, cy, s * 0.016, 0, Math.PI * 2);
-      ctx.fillStyle = rgba('cable-red');
+      ctx.moveTo(0, h);
+      for (const [x, y] of pts) ctx.lineTo(x * w, y * h);
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fillStyle = fill;
       ctx.fill();
-    }
-    // shine
+      outline(ctx, s * 0.018);
+      ctx.stroke();
+    };
+    range([[0, 0.55], [0.2, 0.3], [0.33, 0.45], [0.55, 0.16], [0.78, 0.42], [0.9, 0.33], [1, 0.42]], mixHex('teal-light', 'paper', 0.35));
+    // snow caps on the far range
+    ctx.fillStyle = rgba('paper');
     ctx.beginPath();
-    ctx.ellipse(cx - s * 0.1, cy - s * 0.1, s * 0.07, s * 0.035, -0.5, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('paper', 0.55);
-    ctx.fill();
-    ctx.restore();
-    // lid and knob
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - s * 0.2, s * 0.13, s * 0.045, 0, Math.PI, 0);
+    ctx.moveTo(0.55 * w, 0.16 * h);
+    ctx.lineTo(0.62 * w, 0.26 * h);
+    ctx.lineTo(0.57 * w, 0.24 * h);
+    ctx.lineTo(0.53 * w, 0.28 * h);
+    ctx.lineTo(0.49 * w, 0.24 * h);
     ctx.closePath();
-    ctx.fillStyle = rgba('paint-blue');
     ctx.fill();
-    ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx, cy - s * 0.27, s * 0.035, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('tape-yellow');
+    ctx.moveTo(0.2 * w, 0.3 * h);
+    ctx.lineTo(0.25 * w, 0.37 * h);
+    ctx.lineTo(0.2 * w, 0.35 * h);
+    ctx.lineTo(0.16 * w, 0.36 * h);
+    ctx.closePath();
     ctx.fill();
-    ctx.stroke();
-    // steam
-    ctx.strokeStyle = rgba('steel', 0.8);
-    ctx.lineWidth = s * 0.02;
-    for (const dx of [0.38, 0.45]) {
+    range([[0, 0.7], [0.15, 0.5], [0.35, 0.68], [0.5, 0.48], [0.7, 0.66], [0.86, 0.52], [1, 0.62]], rgba('teal-light'));
+    range([[0, 0.86], [0.25, 0.7], [0.45, 0.82], [0.68, 0.72], [1, 0.84]], rgba('teal-panel'));
+  },
+  sun(ctx, w, h) {
+    const s = Math.min(w, h);
+    ctx.fillStyle = rgba('paint-blue');
+    ctx.fillRect(0, 0, w, h);
+    const cx = w / 2, cy = h * 0.5;
+    // rays, alternating long and short
+    ctx.fillStyle = rgba('tape-yellow');
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const L = k % 2 ? s * 0.38 : s * 0.46;
       ctx.beginPath();
-      ctx.moveTo(cx + s * dx, cy - s * 0.26);
-      ctx.bezierCurveTo(cx + s * (dx - 0.05), cy - s * 0.32, cx + s * (dx + 0.05), cy - s * 0.37, cx + s * dx, cy - s * 0.43);
+      ctx.moveTo(cx + Math.cos(a - 0.12) * s * 0.2, cy + Math.sin(a - 0.12) * s * 0.2);
+      ctx.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+      ctx.lineTo(cx + Math.cos(a + 0.12) * s * 0.2, cy + Math.sin(a + 0.12) * s * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      outline(ctx, s * 0.014);
       ctx.stroke();
     }
+    ctx.beginPath();
+    ctx.arc(cx, cy, s * 0.24, 0, Math.PI * 2);
+    ctx.fillStyle = rgba('tape-yellow');
+    ctx.fill();
+    outline(ctx, s * 0.022);
+    ctx.stroke();
+    // a face: two dots and a smile
+    ctx.fillStyle = rgba('ink');
+    for (const dx of [-0.08, 0.08]) {
+      ctx.beginPath();
+      ctx.arc(cx + dx * s, cy - 0.04 * s, s * 0.022, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy + 0.01 * s, s * 0.1, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.lineWidth = s * 0.02;
+    ctx.stroke();
   },
   boat(ctx, w, h) {
     const s = Math.min(w, h);
-    // sky, sea
     ctx.fillStyle = mixHex('paper', 'teal-light', 0.18);
     ctx.fillRect(0, 0, w, h * 0.66);
-    ctx.beginPath();
-    ctx.arc(w * 0.8, h * 0.2, s * 0.09, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('tape-yellow');
-    ctx.fill();
     ctx.fillStyle = rgba('paint-blue');
     ctx.fillRect(0, h * 0.66, w, h * 0.34);
     outline(ctx, s * 0.022);
-    // mast and sails
     const mx = w * 0.46;
     ctx.beginPath();
-    ctx.moveTo(mx, h * 0.12);
+    ctx.moveTo(mx, h * 0.1);
     ctx.lineTo(mx, h * 0.62);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(mx + s * 0.02, h * 0.14);
-    ctx.lineTo(mx + s * 0.3, h * 0.58);
+    ctx.moveTo(mx + s * 0.02, h * 0.12);
+    ctx.lineTo(mx + s * 0.34, h * 0.58);
     ctx.lineTo(mx + s * 0.02, h * 0.58);
     ctx.closePath();
     ctx.fillStyle = rgba('paper');
     ctx.fill();
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(mx - s * 0.02, h * 0.22);
-    ctx.lineTo(mx - s * 0.22, h * 0.58);
+    ctx.moveTo(mx - s * 0.02, h * 0.2);
+    ctx.lineTo(mx - s * 0.26, h * 0.58);
     ctx.lineTo(mx - s * 0.02, h * 0.58);
     ctx.closePath();
     ctx.fillStyle = rgba('tape-yellow');
     ctx.fill();
     ctx.stroke();
-    // a pennant
     ctx.beginPath();
-    ctx.moveTo(mx, h * 0.12);
-    ctx.lineTo(mx + s * 0.1, h * 0.15);
-    ctx.lineTo(mx, h * 0.18);
+    ctx.moveTo(mx, h * 0.1);
+    ctx.lineTo(mx + s * 0.12, h * 0.135);
+    ctx.lineTo(mx, h * 0.17);
     ctx.fillStyle = rgba('cable-red');
     ctx.fill();
-    // hull
     ctx.beginPath();
-    ctx.moveTo(w * 0.18, h * 0.62);
-    ctx.lineTo(w * 0.8, h * 0.62);
-    ctx.quadraticCurveTo(w * 0.72, h * 0.78, w * 0.62, h * 0.79);
-    ctx.lineTo(w * 0.3, h * 0.79);
-    ctx.quadraticCurveTo(w * 0.22, h * 0.74, w * 0.18, h * 0.62);
+    ctx.moveTo(w * 0.14, h * 0.61);
+    ctx.lineTo(w * 0.84, h * 0.61);
+    ctx.quadraticCurveTo(w * 0.75, h * 0.79, w * 0.64, h * 0.8);
+    ctx.lineTo(w * 0.3, h * 0.8);
+    ctx.quadraticCurveTo(w * 0.2, h * 0.75, w * 0.14, h * 0.61);
     ctx.closePath();
     ctx.fillStyle = rgba('cable-red');
     ctx.fill();
     ctx.stroke();
-    // waves
     ctx.strokeStyle = rgba('paper', 0.85);
-    ctx.lineWidth = s * 0.02;
-    for (const [y, o] of [[0.86, 0], [0.94, 0.5]] as const) {
+    ctx.lineWidth = s * 0.022;
+    for (const [y, o] of [[0.87, 0], [0.95, 0.5]] as const) {
       ctx.beginPath();
       for (let i = -1; i < 7; i++) {
         const x = (i + o) * w * 0.18;
@@ -306,125 +295,80 @@ const DRAW: Record<PictureId, Draw> = {
       ctx.stroke();
     }
   },
-  bicycle(ctx, w, h) {
+  tree(ctx, w, h) {
     const s = Math.min(w, h);
-    ctx.fillStyle = mixHex('paper', 'tape-yellow', 0.3);
+    ctx.fillStyle = mixHex('paper', 'tape-yellow', 0.25);
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = mixHex('paper', 'wood-light', 0.4);
-    ctx.fillRect(0, h * 0.84, w, h * 0.16);
-    const r = s * 0.2;
-    const ax = w * 0.27, bx = w * 0.73, y = h * 0.64;
-    // wheels: a fat tyre, spokes
-    for (const x of [ax, bx]) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.lineWidth = s * 0.05;
-      ctx.strokeStyle = rgba('ink');
-      ctx.stroke();
-      ctx.lineWidth = s * 0.008;
-      ctx.strokeStyle = rgba('steel');
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI;
-        ctx.beginPath();
-        ctx.moveTo(x - Math.cos(a) * r * 0.9, y - Math.sin(a) * r * 0.9);
-        ctx.lineTo(x + Math.cos(a) * r * 0.9, y + Math.sin(a) * r * 0.9);
-        ctx.stroke();
-      }
-    }
-    // frame
-    const crank = [w * 0.48, y] as const;
-    const seat = [w * 0.42, h * 0.36] as const;
-    const head = [w * 0.66, h * 0.36] as const;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = s * 0.04;
-    ctx.strokeStyle = rgba('paint-green');
-    ctx.beginPath();
-    ctx.moveTo(ax, y);
-    ctx.lineTo(crank[0], crank[1]);
-    ctx.lineTo(head[0], head[1]);
-    ctx.lineTo(seat[0], seat[1]);
-    ctx.lineTo(ax, y);
-    ctx.moveTo(seat[0], seat[1]);
-    ctx.lineTo(crank[0], crank[1]);
-    ctx.moveTo(head[0] - s * 0.01, head[1] - s * 0.02);
-    ctx.lineTo(bx, y);
-    ctx.stroke();
-    // saddle, bars
-    ctx.lineWidth = s * 0.045;
-    ctx.strokeStyle = rgba('ink');
-    ctx.beginPath();
-    ctx.moveTo(seat[0] - s * 0.07, seat[1] - s * 0.05);
-    ctx.lineTo(seat[0] + s * 0.05, seat[1] - s * 0.05);
-    ctx.moveTo(head[0] - s * 0.03, head[1] - s * 0.09);
-    ctx.lineTo(head[0] + s * 0.07, head[1] - s * 0.07);
-    ctx.stroke();
-    ctx.lineWidth = s * 0.025;
-    ctx.beginPath();
-    ctx.moveTo(head[0], head[1]);
-    ctx.lineTo(head[0], head[1] - s * 0.08);
-    ctx.moveTo(seat[0], seat[1]);
-    ctx.lineTo(seat[0] - s * 0.01, seat[1] - s * 0.05);
-    ctx.stroke();
-    // the chainring
-    ctx.beginPath();
-    ctx.arc(crank[0], crank[1], s * 0.05, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('brass');
-    ctx.fill();
-    ctx.lineWidth = s * 0.015;
-    ctx.stroke();
-  },
-  flower(ctx, w, h) {
-    const s = Math.min(w, h);
-    ctx.fillStyle = mixHex('paper', 'paint-green', 0.12);
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = rgba('paint-green');
+    ctx.fillRect(0, h * 0.82, w, h * 0.18);
     outline(ctx, s * 0.022);
-    const cx = w * 0.5;
-    // stem and leaves
-    ctx.strokeStyle = rgba('paint-green');
-    ctx.lineWidth = s * 0.035;
+    // trunk
     ctx.beginPath();
-    ctx.moveTo(cx, h * 0.68);
-    ctx.quadraticCurveTo(cx - s * 0.04, h * 0.48, cx, h * 0.3);
+    ctx.moveTo(w * 0.46, h * 0.86);
+    ctx.lineTo(w * 0.48, h * 0.5);
+    ctx.lineTo(w * 0.53, h * 0.5);
+    ctx.lineTo(w * 0.56, h * 0.86);
+    ctx.closePath();
+    ctx.fillStyle = rgba('wood');
+    ctx.fill();
     ctx.stroke();
-    for (const sx of [-1, 1]) {
+    // a round crown of three lobes, an apple or two
+    ctx.fillStyle = rgba('paint-green');
+    for (const [x, y, r] of [[0.38, 0.38, 0.2], [0.62, 0.38, 0.2], [0.5, 0.24, 0.22]] as const) {
       ctx.beginPath();
-      ctx.ellipse(cx + sx * s * 0.1, h * 0.52, s * 0.1, s * 0.04, sx * -0.5, 0, Math.PI * 2);
-      ctx.fillStyle = rgba('paint-green');
+      ctx.arc(w * x, h * y, s * r, 0, Math.PI * 2);
       ctx.fill();
-      outline(ctx, s * 0.015);
       ctx.stroke();
     }
-    // the flower: petals round a yellow eye
-    outline(ctx, s * 0.018);
-    for (let k = 0; k < 7; k++) {
-      const a = (k / 7) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(w * 0.5, h * 0.36, s * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [x, y] of [[0.4, 0.3], [0.6, 0.42], [0.52, 0.18]] as const) {
       ctx.beginPath();
-      ctx.ellipse(cx + Math.cos(a) * s * 0.1, h * 0.28 + Math.sin(a) * s * 0.1, s * 0.075, s * 0.05, a, 0, Math.PI * 2);
+      ctx.arc(w * x, h * y, s * 0.035, 0, Math.PI * 2);
       ctx.fillStyle = rgba('cable-red');
       ctx.fill();
+      outline(ctx, s * 0.012);
       ctx.stroke();
     }
+  },
+  house(ctx, w, h) {
+    const s = Math.min(w, h);
+    ctx.fillStyle = mixHex('paper', 'teal-light', 0.2);
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = rgba('paint-green');
+    ctx.fillRect(0, h * 0.84, w, h * 0.16);
+    outline(ctx, s * 0.022);
+    const x0 = w * 0.26, x1 = w * 0.74, y0 = h * 0.46, y1 = h * 0.86;
+    // chimney, then the walls, then the roof over them
+    ctx.fillStyle = rgba('cable-red');
+    ctx.fillRect(w * 0.6, h * 0.16, w * 0.07, h * 0.2);
+    ctx.strokeRect(w * 0.6, h * 0.16, w * 0.07, h * 0.2);
+    ctx.fillStyle = rgba('paper');
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
     ctx.beginPath();
-    ctx.arc(cx, h * 0.28, s * 0.065, 0, Math.PI * 2);
-    ctx.fillStyle = rgba('tape-yellow');
-    ctx.fill();
-    ctx.stroke();
-    // the pot
-    ctx.beginPath();
-    ctx.moveTo(cx - s * 0.2, h * 0.66);
-    ctx.lineTo(cx + s * 0.2, h * 0.66);
-    ctx.lineTo(cx + s * 0.15, h * 0.93);
-    ctx.lineTo(cx - s * 0.15, h * 0.93);
+    ctx.moveTo(x0 - w * 0.06, y0 + h * 0.02);
+    ctx.lineTo(w * 0.5, h * 0.18);
+    ctx.lineTo(x1 + w * 0.06, y0 + h * 0.02);
     ctx.closePath();
-    ctx.fillStyle = rgba('paint-orange');
+    ctx.fillStyle = rgba('cable-red');
     ctx.fill();
     ctx.stroke();
-    ctx.beginPath();
-    ctx.rect(cx - s * 0.23, h * 0.63, s * 0.46, h * 0.07);
-    ctx.fillStyle = mixHex('paint-orange', 'paper', 0.15);
-    ctx.fill();
-    ctx.stroke();
+    // a door and two windows, lit
+    ctx.fillStyle = rgba('paint-blue');
+    ctx.fillRect(w * 0.45, h * 0.64, w * 0.1, h * 0.22);
+    ctx.strokeRect(w * 0.45, h * 0.64, w * 0.1, h * 0.22);
+    ctx.fillStyle = rgba('tape-yellow');
+    for (const x of [0.31, 0.6]) {
+      ctx.fillRect(w * x, h * 0.56, w * 0.09, h * 0.11);
+      ctx.strokeRect(w * x, h * 0.56, w * 0.09, h * 0.11);
+    }
+  },
+  none(ctx, w, h) {
+    // the drum's blank face: bare dark board, so the frame looks empty
+    ctx.fillStyle = mixHex('ink', 'wood', 0.35);
+    ctx.fillRect(0, 0, w, h);
   },
 };
 
@@ -485,7 +429,7 @@ export function paintPictures(tex: Texture, words: { open: string; closed: strin
   const W = img.width, H = img.height;
   const ctx = context(W, H);
   // the atlas was laid out at PICTURES_TEX; the slot may differ a little: scale
-  const sx = W / (CELLS.pictures[0]!.w * 2), sy = H / (CELLS.pictures[0]!.h * 2 + CELLS.open.h);
+  const sx = W / PICTURES_TEX.w, sy = H / PICTURES_TEX.h;
   const cell = (c: { x: number; y: number; w: number; h: number }, f: (ctx: Ctx, w: number, h: number) => void): void => {
     const x = Math.round(c.x * sx), y = Math.round(c.y * sy), w = Math.round(c.w * sx), h = Math.round(c.h * sy);
     ctx.save();
@@ -496,11 +440,11 @@ export function paintPictures(tex: Texture, words: { open: string; closed: strin
     f(ctx, w, h);
     ctx.restore();
   };
-  PICTURE_IDS.forEach((id, k) => {
+  PICTURES.forEach((id, k) => {
     cell(CELLS.pictures[k]!, (c, w, h) => {
       cardGround(c, w, h);
       DRAW[id](c, w, h);
-      cardBorder(c, w, h);
+      if (id !== 'none') cardBorder(c, w, h);
     });
   });
   cell(CELLS.open, (c, w, h) => cardWords(c, w, h, words.open, true));

@@ -109,8 +109,8 @@ export const WINDOW = {
   /** Sill (the top of the stallriser) and the head (hidden under the awning). */
   y0: 0.33,
   y1: 1.25,
-  /** Depth of the display: the back partition is this far behind the facade. */
-  depth: 0.36,
+  /** Depth of the display: the back partition is this far behind the facade (the picture's drum needs it). */
+  depth: 0.62,
 } as const;
 
 /** The OPEN/CLOSED sign hanging in the window: its pivot (the hook it spins on) and card size. */
@@ -124,17 +124,17 @@ export const OPEN_SIGN = {
   drop: 0.07,
 } as const;
 
-/** The picture in the window: a deep frame on an easel, a four-sided drum behind its opening. */
+/** The picture in the window: a deep frame on an easel, a six-sided drum behind its opening (five pictures and a blank). */
 export const PICTURE = {
   x: 0.64,
-  /** The opening's centre height, and its size. */
-  y: 0.6,
-  w: 0.34,
-  h: 0.3,
-  /** Drum axis depth behind the facade; the frame's face. */
-  z: F - 0.21,
+  /** The opening's centre height (the drum's axis), and its size: a drum face is h tall. */
+  y: 0.66,
+  w: 0.4,
+  h: 0.28,
+  /** Drum axis depth; the frame's face. */
+  z: F - 0.065 - 0.28 * Math.cos(Math.PI / 6),
   faceZ: F - 0.035,
-  faces: 4,
+  faces: 6,
 } as const;
 
 /** The junction box beside the door: its STOREFRONT jack plate, jack and station lamp. */

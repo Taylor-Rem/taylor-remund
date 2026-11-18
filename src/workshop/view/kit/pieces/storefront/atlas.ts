@@ -8,7 +8,7 @@
  * one turn; a change of words paints the face that is turned away, then
  * turns the slats.
  *
- * PICTURES: the window's four pictures in a 2 × 2 block at the top, the
+ * PICTURES: the drum's six faces (five pictures and the blank) in a 3 × 2 block, the
  * OPEN and CLOSED faces of the hanging card side by side below them.
  * uv rects are [u0, v0, u1, v1], v up (row 0 of the painted canvas is v = 1).
  */
@@ -33,10 +33,10 @@ export function slatUv(face: Face, i: number): Rect {
   return [0, v0 + ((v1 - v0) * y0) / WORDS.h, 1, v0 + ((v1 - v0) * y1) / WORDS.h];
 }
 
-/** The pictures texture: 2 × 2 pictures over a strip of the two card faces. */
+/** The pictures texture: 3 × 2 drum faces over a strip of the card's two faces. */
 const PW = 256, PH = Math.round((256 * PICTURE.h) / PICTURE.w);
-const CW = 256, CH = Math.round((256 * OPEN_SIGN.h) / OPEN_SIGN.w);
-export const PICTURES_TEX = { w: PW * 2, h: PH * 2 + CH } as const;
+const CW = 384, CH = Math.round((384 * OPEN_SIGN.h) / OPEN_SIGN.w);
+export const PICTURES_TEX = { w: PW * 3, h: PH * 2 + CH } as const;
 
 const rect = (x: number, y: number, w: number, h: number): Rect => {
   const W = PICTURES_TEX.w, H = PICTURES_TEX.h;
@@ -44,9 +44,9 @@ const rect = (x: number, y: number, w: number, h: number): Rect => {
   return [x / W, 1 - (y + h) / H, (x + w) / W, 1 - y / H];
 };
 
-/** Pixel rects (canvas space, y down) and uv rects of every cell. */
+/** Pixel rects (canvas space, y down) of every cell: drum face k at (k % 3, k / 3). */
 export const CELLS = {
-  pictures: [0, 1, 2, 3].map((k) => ({ x: (k % 2) * PW, y: Math.floor(k / 2) * PH, w: PW, h: PH })),
+  pictures: Array.from({ length: PICTURE.faces }, (_, k) => ({ x: (k % 3) * PW, y: Math.floor(k / 3) * PH, w: PW, h: PH })),
   open: { x: 0, y: PH * 2, w: CW, h: CH },
   closed: { x: CW, y: PH * 2, w: CW, h: CH },
 } as const;

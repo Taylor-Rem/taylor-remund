@@ -46,7 +46,7 @@ export interface WordsLayout {
 /** Clean what a visitor typed into what the board can carry: upper case, single spaces, at most MAX_CHARS. */
 export function cleanWords(text: string): string {
   const up = [...text.toUpperCase().replace(/\s+/g, ' ')].filter((c) => SUBSET.sign.includes(c)).join('');
-  return up.trim().slice(0, MAX_CHARS).trim();
+  return up.replace(/ +/g, ' ').trim().slice(0, MAX_CHARS).trim();
 }
 
 const widthOf = (s: string, adv: Advance): number => {

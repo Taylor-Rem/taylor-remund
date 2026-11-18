@@ -14,7 +14,7 @@
  *             on its string, swinging past and settling).
  *  - lights:  0 the window dark .. 1 lit (a threshold at 0.5: the lit and
  *             unlit nodes swap). Defaults to following `open`.
- *  - picture: the drum's quarter turns: 0..3 is the picture shown; fractions
+ *  - picture: the drum's sixth turns: 0..5 is the face shown (content.ts PICTURES); fractions
  *             are mid-roll.
  *  - lamp:    the station lamp: 0 dark .. 1 lit (threshold 0.5).
  *
@@ -128,7 +128,7 @@ export function nodeMatrices(pose: StorefrontPose = {}, bind = false): Map<strin
   // the OPEN card: half a turn about its string between OPEN (1) and CLOSED (0)
   out.set(NODES.openSign, Tm(OPEN_SIGN.x, OPEN_SIGN.y - OPEN_SIGN.drop, OPEN_SIGN.z).multiply(Ry(bind ? 0 : (1 - p.open) * Math.PI)));
   // the picture drum
-  out.set(NODES.drum, Tm(PICTURE.x, PICTURE.y, PICTURE.z).multiply(Rx((bind ? 0 : p.picture) * Math.PI * 0.5)));
+  out.set(NODES.drum, Tm(PICTURE.x, PICTURE.y, PICTURE.z).multiply(Rx(((bind ? 0 : p.picture) * Math.PI) / 3)));
   // lit and unlit
   for (const s of SWITCHED) {
     const on = bind || (s.by === 'lights' ? p.lights : p.lamp) >= 0.5;
@@ -152,9 +152,30 @@ function walk(n: PieceNode, f: (n: PieceNode) => void): void {
 
 const tp = new Vector3(), tq = new Quaternion(), ts = new Vector3();
 
-/** Pose a realized storefront (the Object3D `realize` made, or an ancestor) or a built Piece's root node. */
+/** Which pose value moves which node (a pose only touches the nodes of the values it names). */
+export function governedBy(node: string): keyof StorefrontPose | 'lightsOrOpen' | null {
+  if (node.startsWith('sign.slat')) return 'words';
+  if (node === NODES.awning || node === NODES.valance || node === NODES.armL || node === NODES.armR || node === NODES.crank) return 'awning';
+  if (node === NODES.openSign) return 'open';
+  if (node.startsWith(NODES.windowLit) || node.startsWith(NODES.windowUnlit)) return 'lightsOrOpen';
+  if (node === NODES.drum) return 'picture';
+  if (node === NODES.lampLit || node === NODES.lampUnlit) return 'lamp';
+  return null;
+}
+
+/**
+ * Pose a realized storefront (the Object3D `realize` made, or an ancestor) or a built
+ * Piece's root node. Only the values named move anything: `{ awning: 0.5 }` leaves the
+ * slats, the card, the drum and the lights as they are.
+ */
 export function poseStorefront(root: Object3D | PieceNode, pose: StorefrontPose): void {
-  const m = nodeMatrices(pose);
+  const all = nodeMatrices(pose);
+  const m = new Map<string, Matrix4>();
+  for (const [name, mat] of all) {
+    const g = governedBy(name);
+    const named = g === 'lightsOrOpen' ? pose.lights !== undefined || pose.open !== undefined : g !== null && pose[g] !== undefined;
+    if (named) m.set(name, mat);
+  }
   if (isObject3D(root)) {
     for (const [name, mat] of m) {
       const o = root.getObjectByName(name);
