@@ -1,20 +1,14 @@
 /**
  * The storefront's textures: where they come from and how they change.
  *
- * view/labels draws every register from fixed text at start-up and has no
- * way yet to register a texture a piece paints itself. Until it does (see
- * the hand-in: `Labels.canvas(key, w, h)` is the promotion asked for), the
- * storefront asks labels for two slots of the size it needs and paints its
- * own pixels into them:
- *  - the WORDS slot is a sprayed-stencil label (transparent, blended), so
- *    the fascia's paint shows round the letters;
- *  - the PICTURES slot is a phone-screen label (opaque, any size).
- * The keys are the storefront's own (nothing else asks for this text), and
- * a slot's pixels are only ever written by paint.ts.
- *
- * The plate is an ordinary engraved brass label.
+ * One region of the labels' atlas (`Labels.region`), redrawn by the
+ * storefront itself (paint.ts): the fascia's two faces of words, the
+ * pictures, the OPEN/CLOSED card and the plate (atlas.ts has the layout).
+ * It is a sprayed region (transparent, blended), so the fascia's paint shows
+ * round the letters; the printed regions are painted opaque. A change of
+ * words repaints one face and uploads only that face's rows.
  */
-import type { LabelOptions, Labels } from '../../../types.ts';
+import type { LabelRegion, Labels } from '../../../types.ts';
 import { TEX } from './atlas.ts';
 import { content } from './content.ts';
 import { paintAtlas, paintWords } from './paint.ts';
@@ -25,25 +19,38 @@ export interface StorefrontLabelRefs {
   atlas: string;
 }
 
+/**
+ * The region's size: the slot the storefront used to borrow (a stencil 'I' at
+ * capHeight 0.8 and TEX.h / 1.2 texels per unit came out 882 × 1024), kept so
+ * every painted texel lands where it did.
+ */
+const PX = { w: 882, h: TEX.h } as const;
+const TPU = Math.round(TEX.h / (1.5 * 0.8));
+
+function region(labels: Labels): LabelRegion {
+  return labels.region('storefront', { w: PX.w / TPU, h: PX.h / TPU }, { alpha: 'spray', texelsPerUnit: TPU });
+}
+
 /** What each face of the fascia carries now, per atlas (so a view can tell which face to paint). */
 const painted = new Map<string, { A: string; B: string }>();
+/** Regions painted at least once. */
+const seen = new WeakSet<LabelRegion>();
 
 /**
  * Make the storefront's texture and paint it: the fascia's face A with `words` (default:
  * the content's default sign), face B blank, the pictures, the card and the plate.
  */
 export function storefrontLabels(labels: Labels, o: { words?: string; wordsB?: string } = {}): StorefrontLabelRefs {
-  // a stencil slot (transparent, blended): the fascia's paint shows round the letters, and the
-  // printed regions are painted opaque. Its texels per unit set its height in texels.
-  // (texelsPerUnit is the labels implementation's PlanOptions; the contract does not name it yet)
-  const cap = 0.8;
-  const atlas = labels.stencil('I', { paint: 'paper', capHeight: cap, texelsPerUnit: Math.round(TEX.h / (1.5 * cap)) } as LabelOptions);
-  const state = painted.get(atlas);
+  const r = region(labels);
+  const atlas = r.key;
+  // a region another Labels made (a second stage, a dev page) starts blank: paint it whole
+  const state = seen.has(r) ? painted.get(atlas) : undefined;
+  seen.add(r);
   const wantA = o.words ?? content.fascia;
   const wantB = o.wordsB ?? '';
-  if (!state) paintAtlas(labels.texture(atlas), { open: content.open, closed: content.closed, plate: content.plate });
-  if (!state || state.A !== wantA) paintWords(labels.texture(atlas), 'A', wantA);
-  if (!state || state.B !== wantB) paintWords(labels.texture(atlas), 'B', wantB);
+  if (!state) paintAtlas(r, { open: content.open, closed: content.closed, plate: content.plate });
+  if (!state || state.A !== wantA) paintWords(r, 'A', wantA);
+  if (!state || state.B !== wantB) paintWords(r, 'B', wantB);
   painted.set(atlas, { A: wantA, B: wantB });
   return { atlas };
 }
@@ -53,7 +60,7 @@ export function storefrontLabels(labels: Labels, o: { words?: string; wordsB?: s
  * turned away, then turns the slats: see `hiddenFace`). Returns the layout used.
  */
 export function setFasciaWords(labels: Labels, refs: StorefrontLabelRefs, face: 'A' | 'B', text: string): WordsLayout {
-  const lay = paintWords(labels.texture(refs.atlas), face, text);
+  const lay = paintWords(region(labels), face, text);
   const s = painted.get(refs.atlas) ?? { A: '', B: '' };
   s[face] = text;
   painted.set(refs.atlas, s);
