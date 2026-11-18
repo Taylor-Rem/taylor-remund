@@ -16,7 +16,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
   });
 
   test('applies a batch at once, emits one effect per field with before, after and cause, and records the writer', () => {
-    const { world } = stubWorld();
+    const { world } = stubWorld(1, { history: p1History() }); // the funnel alone: these causes were never opened by an action
     run(world, 1);
     const res = world.commit(
       [
@@ -56,7 +56,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
   });
 
   test('one entry per field: repeated writes in a batch merge, before is the original', () => {
-    const { world } = stubWorld();
+    const { world } = stubWorld(1, { history: p1History() }); // the funnel alone: these causes were never opened by an action
     const r = world.commit(
       [
         { target: 'crate-2', field: 'colour', after: 'paint-blue' },
@@ -98,7 +98,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
   });
 
   test('values handed out cannot be changed behind the funnel', () => {
-    const { world } = stubWorld();
+    const { world } = stubWorld(1, { history: p1History() }); // the funnel alone: these causes were never opened by an action
     const marks = ['A'];
     world.commit([{ target: 'crate-1', field: 'marks', after: marks }], 't1');
     marks.push('B');
@@ -108,7 +108,7 @@ describe('commit: the single funnel for durable change (§ E5 rules 1, 2, 6)', (
   });
 
   test('a visitor transaction that changes a part makes it the visitor\'s (rule 5); crew and system do not', () => {
-    const { world } = stubWorld();
+    const { world } = stubWorld(1, { history: p1History() }); // the funnel alone: these causes were never opened by an action
     world.commit([{ target: 'crate-2', field: 'colour', after: 'paint-blue' }], 'system');
     expect(world.touched('crate-2')).toBe(false);
     world.commit([{ target: 'crate-2', field: 'colour', after: 'paint-green' }], 't2');
