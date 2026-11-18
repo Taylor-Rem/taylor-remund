@@ -48,14 +48,17 @@ function upload(tex: Texture, ctx: Ctx, y0 = 0, y1?: number): void {
   tex.needsUpdate = true;
 }
 
+/** A canvas style from bytes: '#rrggbbaa' (every colour here is a palette token or a mix of two). */
+const css = (r: number, g: number, b: number, a: number): string =>
+  '#' + [r, g, b, Math.round(Math.max(0, Math.min(1, a)) * 255)].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 const rgba = (t: Token, a = 1): string => {
   const n = parseInt(hex(t).slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  return css((n >> 16) & 255, (n >> 8) & 255, n & 255, a);
 };
 const mixHex = (a: Token, b: Token, t: number, alpha = 1): string => {
   const p = parseInt(hex(a).slice(1), 16), q = parseInt(hex(b).slice(1), 16);
-  const c = (s: number): number => Math.round(((p >> s) & 255) * (1 - t) + ((q >> s) & 255) * t);
-  return `rgba(${c(16)},${c(8)},${c(0)},${alpha})`;
+  const c = (s: number): number => ((p >> s) & 255) * (1 - t) + ((q >> s) & 255) * t;
+  return css(c(16), c(8), c(0), alpha);
 };
 
 let capRatio = 0;
