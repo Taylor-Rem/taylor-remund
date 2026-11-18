@@ -304,6 +304,7 @@ export class ReachMotion {
   private time = 0;
   private hit = [false, false, false];
   private tap: 'left' | 'right' | null = null;
+  private latch = 0;
 
   /** Its state as it was at rest (call when the robot is reset). */
   reset(): void {
@@ -324,7 +325,20 @@ export class ReachMotion {
     let sol: ReachSolution | null = null;
     if (i.target) {
       // a new reach (or a jump to somewhere else): start the clock for the draw back
-      if (!this.lastTarget || Math.hypot(i.target[0] - this.lastTarget[0], i.target[1] - this.lastTarget[1], i.target[2] - this.lastTarget[2]) > 0.35) this.startAt = this.time;
+      if (!this.lastTarget || Math.hypot(i.target[0] - this.lastTarget[0], i.target[1] - this.lastTarget[1], i.target[2] - this.lastTarget[2]) > 0.35) {
+        this.startAt = this.time;
+        this.latch = 0;
+        // from nothing: the arms start where the caller's are (about at rest), so they visibly open first
+        if (this.w.x < 0.05) {
+          const r = PRESETS.rest.left;
+          this.joints[0]!.set(r.swing);
+          this.joints[1]!.set(r.abduct);
+          this.joints[2]!.set(r.elbow);
+          this.fore.set(0.03);
+          this.squash.set(0);
+          this.spin.set(0);
+        }
+      }
       sol = reachPose(i.target, { half: i.half, from: this.last });
       this.last = sol;
       this.tap = sol.tap;
@@ -351,7 +365,9 @@ export class ReachMotion {
     }
     // the tubes: out only once the arms are nearly there (they open first), fast; back in first, faster
     const armErr = going ? Math.max(...jt.map((v, k) => Math.abs(v - this.joints[k]!.x))) : 0;
-    const gate = going ? 1 - smoothstep(0.08, 0.3, armErr) : 0;
+    // (latched: once the arms are there the tubes stay out, whatever the arm springs do after)
+    this.latch = going ? Math.max(this.latch, (1 - smoothstep(0.08, 0.3, armErr)) * smoothstep(0.6, 0.95, this.w.x)) : 0;
+    const gate = this.latch;
     const total = going ? q[5]! * gate : 0;
     const want = teleStages(total);
     let nodKick = 0;
