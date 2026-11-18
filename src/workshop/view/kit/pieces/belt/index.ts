@@ -9,27 +9,46 @@
  * belt or behind it that the camera cannot see.
  *
  *  - Two side rails of `teal-panel` enamel channel (the near one opens
- *    toward the visitor, so its recess holds the idlers' shaft nuts, the
+ *    toward the visitor, so its recess holds the idlers' shaft ends, the
  *    drums' brass bearings, a bolted splice and the take-up), on stout
- *    flared legs with bolted feet.
- *  - The belt: `ink` rubber in the `belt` class (its ribs scroll in the
- *    material), swept round the two end drums; a laced seam of steel clips
- *    (node `seam`) that rides the loop so the motion reads.
+ *    turned legs with bolted feet.
+ *  - The belt: `ink` rubber in the `belt` class, swept round the two end
+ *    drums. Its ribs are in the material, laid along the loop in world
+ *    units (uv.x is the distance round it), so they scroll with
+ *    `u_offset`; a laced seam of steel clips (node `seam`) and, with
+ *    `marks`, three painted stripes (`mark1..3`) ride the loop so the
+ *    motion reads at any speed and either way. One number drives it all:
+ *    pose.ts.
  *  - Rollers: `roller0` the drive drum (left), `roller<n-1>` the tail drum
  *    (right, on the take-up), and between them the return idlers that hang
- *    under the near rail; each node turns about its local Z (the axle,
- *    pointing at the visitor) and holds only its brass end cap, one draw
- *    call each. `beltRollers(length)` lists them with their radii.
- *  - The motor housing at the left end (motor.ts): the control panel with
- *    blank brass plates at sockets `dial` and `lever`, the line's lamp
- *    (node `lamp`, `bulb` class, unlit), a finned motor on top; a
- *    `tape-yellow` chain guard from the gearbox to the drive drum.
- *  - At the right end: the take-up (a brass bearing block on a tension
- *    bolt), an oil cup, and a little guard rail of bent rod round the drum.
+ *    under the near rail; each node turns about its local Z and holds only
+ *    its brass end cap. `beltRollers(length)` lists them with their radii.
+ *  - The motor housing at the left end (motor.ts), a `tape-yellow` chain
+ *    guard from its gearbox to the drive drum. By default (the G1 belt, as
+ *    the vignette builds it) its sloped desk carries blank brass plates; with
+ *    `controls` the housing is wider and its desk taller and steeper, and
+ *    carries the real controls (controls.ts): the speed dial (node `dial`),
+ *    the three-way direction lever (node `lever`) and the station lamp.
+ *  - The station lamp: node `lamp` with twins `lamp.lit` / `lamp.unlit`.
+ *  - At the right end: the take-up, an oil cup, and (`tail: 'rail'`, the
+ *    default) a guard rail of bent rod round the drum; `tail: 'ramp'` leaves
+ *    the rail off for the dock's roller ramp.
+ *  - With `deflector` (deflector.ts): a curved deflector at the motor end
+ *    and a slide through a gap in the far rail, the way off running backward.
  *
- * Height of the carrying surface: BELT.topY (0.5). Sockets: `dial`,
- * `lever`, `lamp`, `surface` (the middle of the carrying surface, +Y up),
- * `in` / `out` (the carrying surface's left and right ends).
+ * `line: true` turns on everything the bench's belt has (controls,
+ * deflector, the open tail, stripes); the catalogue's variant `line` is that
+ * at length 10. Height of the carrying surface: BELT.topY (0.5).
+ *
+ * Sockets: `dial`, `lever` (desk frames at their pivots, +Z out of the desk),
+ * `lamp`, `surface` (the middle of the carrying surface, +Y up), `in` /
+ * `out` (the carrying run's ends at the drum axes); with `controls`
+ * `dial.grip`, `lever.grip`; with `tail: 'ramp'` `ramp` (the bed's end,
+ * where the dock's ramp begins); with `deflector` `off.back` (where a part
+ * sent off the back comes to rest on the bench) and `deflector` (its working
+ * face's middle, +Z along its normal).
+ *
+ * Moving nodes: BELT_MOVING (a view keeps these out of any static merge).
  */
 import { Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
