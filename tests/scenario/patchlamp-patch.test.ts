@@ -69,6 +69,14 @@ describe('Patch: a part thrown at it gets one of three answers, by where the par
     for (let i = 0; i < HZ && patchView(w).holding !== 'crate-3'; i++) t.run(1);
     expect(patchView(w).holding).toBe('crate-3');
     expect(w.mode('crate-3')).toBe('machine');
+    // S7: the view is told where it will be set down; it is let go exactly there
+    const shelf = patchView(w).shelf;
+    expect(shelf).toEqual(PATCHLAMP.patch.shelf);
+    for (let i = 0; i < 3 * HZ && w.mode('crate-3') === 'machine'; i++) t.run(1);
+    const h = w.halfExtents('crate-3')![1];
+    const q = w.motion('crate-3')!.pose.p;
+    expect(Math.hypot(q[0] - shelf[0], q[2] - shelf[2])).toBeLessThan(0.05);
+    expect(Math.abs(q[1] - (shelf[1] + h + 0.01))).toBeLessThan(0.05);
     for (let i = 0; i < 3 * HZ && patchView(w).state !== 'seated'; i++) t.run(1);
     expect((w.step - at) / HZ).toBeLessThanOrEqual(1.5);
     // set down on the bench beside the stool; when it rests the rest is the throw's
@@ -128,6 +136,13 @@ describe('Patch is lifted off its stool', () => {
     expect(patchView(w).state).toBe('walk');
     const down = patchView(w).at;
     expect(Math.hypot(down[0] + 2, down[1], down[2] - 1)).toBeLessThan(0.05); // put down there (and already a step on its way)
+    // S7: it walks to `foot` (in front of the stool, wherever the stool is) and climbs from there
+    const foot = patchView(w).foot;
+    for (let i = 0; i < 10 * HZ && patchView(w).state === 'walk'; i++) t.run(1);
+    expect(patchView(w).state).toBe('climb');
+    expect(patchView(w).foot).toEqual(foot);
+    const climbStart = patchView(w).at;
+    expect(Math.hypot(climbStart[0] - foot[0], climbStart[2] - foot[2])).toBeLessThan(0.1); // a step up from it at most
     expect(answer(t, a, 15).e.type).toBe('line.reply');
     expect(states(t)).toEqual(expect.arrayContaining(['held', 'walk', 'climb', 'drawer', 'work', 'check', 'reply']));
     expect(shopView(w).sign).toBe('cable-red');
