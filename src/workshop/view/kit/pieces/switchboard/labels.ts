@@ -1,5 +1,5 @@
 /**
- * The switchboard's words: the label tape under each live jack (STOREFRONT,
+ * The switchboard's words: the label tape over each live jack (STOREFRONT,
  * LAMP) and the typed cards in the drawers' brass holders. The text comes
  * from src/content/world.json; this file decides only how big it is.
  *
@@ -25,7 +25,7 @@ export const JACKS = ['storefront', 'lamp'] as const;
 export type JackName = (typeof JACKS)[number];
 
 export interface SwitchboardLabelRefs {
-  /** The tape under each live jack. */
+  /** The tape over each live jack. */
   tape: Record<JackName, LabelRef>;
   /** The typed card in each drawer's brass holder. */
   card: Record<JackName, LabelRef>;

@@ -8,9 +8,9 @@
  * is two screwed-on enamel plates: the lower one carries the two big live
  * jacks (STOREFRONT, LAMP), each a brass escutcheon with a knurled rim and
  * a black fibre bore, with a faceted lens lamp in a brass bezel beside it
- * and its label tape below; between them two capped positions. The upper
+ * and its label tape above it; between them two capped positions. The upper
  * plate is the dead field: a row of dark lamps over a paper designation
- * strip and two rows of small jacks, a few missing or taped over.
+ * strip and a row of small jacks, one missing and two taped over.
  * The keyshelf has brass cord grommets (the cord rises from one) and a
  * small slanted writing ledge with a pad and a pencil.
  *
@@ -55,18 +55,22 @@ export const BOARD = {
   /** The jack panel's face (the plates stand proud of it). */
   panelZ: 0,
   plateT: 0.03,
-  /** The live row: jack centres (x), their height, and the lens lamp's offset from its jack. */
+  /**
+   * The live row, low on the panel just above the keyshelf: jack centres (x), their height, and
+   * the lens lamp's offset from its jack. A seated cord drops from here to the shelf and never
+   * crosses a tape; the plug (standing out toward the camera) covers shelf, not letters.
+   */
   jackX: { storefront: -1.0, lamp: 1.04 } as Record<JackName, number>,
-  jackY: 1.6,
+  jackY: 1.18,
   lampDX: 0.4,
-  /** The tape centre under each jack pair. */
+  /** The tape centre ABOVE each jack pair (the designation over the jack, as on a real board). */
   tapeX: { storefront: -0.78, lamp: 1.26 } as Record<JackName, number>,
-  tapeY: 1.2,
+  tapeY: 1.64,
   /** Drawer centres (x), the drawers' front face (z) and how far a drawer pulls out. */
   drawerY: 0.65,
   drawerZ: 0.6,
   /** Where the cord rises out of the keyshelf. */
-  cordRoot: [0.04, 0.89, 0.34] as [number, number, number],
+  cordRoot: [0.04, 0.89, 0.48] as [number, number, number],
 } as const;
 
 export interface SwitchboardOptions extends KitOptions {
@@ -188,8 +192,8 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
   // ======================================================================
   // MEDIUM: the two enamel plates, screwed on, a little off true
   // ======================================================================
-  const plateA = { y0: yK + 0.07, y1: 1.86 };
-  const plateB = { y0: 1.9, y1: BOARD.top - 0.355 };
+  const plateA = { y0: yK + 0.07, y1: 1.95 };
+  const plateB = { y0: 1.99, y1: BOARD.top - 0.355 };
   const plateW = W - 0.44;
   const plates: Array<{ y0: number; y1: number; s: number }> = [{ ...plateA, s: 1.06 }, { ...plateB, s: 0.98 }];
   plates.forEach((pl, i) => {
@@ -203,7 +207,11 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     b.add(part('steel', g, 'teal-panel', { seed: seed + 22 + i, shade: pl.s, jitter: 0.03 }));
     // slotted screws at the corners and along the long edges
     const xs = [-plateW / 2 + 0.06, -plateW / 6, plateW / 6, plateW / 2 - 0.06];
+    const est = estimateLabels();
+    const underTape = (x: number): boolean => JACKS.some((j) => Math.abs(x - BOARD.tapeX[j]) < (o.labels?.tape[j].w ?? est.tape[j].w) / 2 + 0.06);
     for (const x of xs) for (const y of [pl.y0 + 0.05, pl.y1 - 0.05]) {
+      // the lower plate's top screws would sit under the tapes: those are left out
+      if (i === 0 && y > pl.y0 + 0.5 && underTape(x)) continue;
       const sd = R.int(0, 999);
       b.small(() => place([part('metal', stud(0.02, 0.011, 6), 'steel', { seed: sd, shade: 0.85, jitter: 0.08 })], aim([x, y, zPlate - 0.002], [0, 0, 1], R.range(0, 60))));
     }
@@ -232,7 +240,7 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     b.add(place(cappedJack(detail, seed + 40 + i), at));
   }
 
-  // ---- the tape under each pair ----------------------------------------------
+  // ---- the tape over each pair (the cord drops from the jack to the shelf, never across a tape) ----
   {
     const est = estimateLabels();
     for (const j of JACKS) {
@@ -256,9 +264,12 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
     const n = 12;
     const pitch = (plateW - 0.42) / (n - 1);
     const x0 = -((n - 1) / 2) * pitch;
-    const yLamps = plateB.y0 + 0.11, yStrip = yLamps + 0.115, yJ1 = yStrip + 0.12, yJ2 = yJ1 + 0.19;
-    const missing = new Set([R.int(0, n - 1) + n, R.int(0, n - 1)]);
-    const taped = new Set([R.int(0, n - 1), R.int(0, n - 1) + n]);
+    // one row of dead jacks over the strip (the lower panel took the room of a second row)
+    const yLamps = plateB.y0 + 0.11, yStrip = yLamps + 0.115, yJ1 = yStrip + 0.12;
+    const rows = 1;
+    const missing = new Set([R.int(0, n - 1)]);
+    const taped = new Set([(R.int(0, n - 1) + 3) % n, (R.int(0, n - 1) + 7) % n]);
+    for (const k of missing) taped.delete(k);
     const lampG = bezel(0.058, detail, seed + 50, true);
     const lensG = lensPart(0.038, 6, 'glass', seed + 51, true);
     for (let i = 0; i < n; i++) {
@@ -274,11 +285,11 @@ export function switchboard(o: SwitchboardOptions = {}): Piece {
       b.add(part('brass', bevelBox({ min: [x - 0.006, yStrip - 0.03, zPlate + 0.012], max: [x + 0.006, yStrip + 0.03, zPlate + 0.018], omit: ['nz', 'ny', 'py'] }), 'brass', { seed: seed + 54 }));
     }
     const jg = smallJack(detail, seed + 55);
-    for (let row = 0; row < 2; row++) {
+    for (let row = 0; row < rows; row++) {
       for (let i = 0; i < n; i++) {
         const k = row * n + i;
         const x = x0 + i * pitch + R.spread(0.006);
-        const y = row === 0 ? yJ1 : yJ2;
+        const y = yJ1 + row * 0.19;
         if (missing.has(k)) {
           // a bare hole where a jack was taken out: the plate's bore and two empty screw holes
           b.add(place(holeGeom(detail), aim([x, y, zPlate - 0.001], [0, 0, 1])));
