@@ -35,7 +35,7 @@ export const AT = {
   buttonCap: [0.47, 1.25, 0.35] as Vec3,
   /** The switchboard against the back wall (with its keyshelf, frame and crest), and its two live jacks (measured from the piece). */
   board: { c: [1.05, 1.554, -4.335], half: [2.3, 1.554, 0.655] } as Box,
-  jacks: { storefront: [0.05, 1.6, -4.264] as Vec3, lamp: [2.09, 1.6, -4.264] as Vec3 },
+  jacks: { storefront: [0.05, 1.18, -4.264] as Vec3, lamp: [2.09, 1.18, -4.264] as Vec3 },
   /** Patch's tall stool at the board's right end (seat top 1.15), where both jack tapes stay clear of Patch. */
   stool: { c: [3.6, 0.577, -3.4], half: [0.324, 0.578, 0.322] } as Box,
   /** The phone. */
