@@ -110,9 +110,7 @@ export function createPhoneView(o: PhoneViewOptions): StationViewFactory {
     const bus = patchlampBus(o.key);
     bus.phone = obj;
     current = { phone: obj, stage: ctx.stage, stations: bus.stations };
-    const picking = (ctx as unknown as { picking?: { add(id: string, o: Object3D, opts?: { pad?: number }): void } }).picking;
-    if (picking) picking.add('phone', obj, { pad: 0.12 });
-    else ctx.pickable('phone', obj);
+    ctx.pickable('phone', obj, { pad: 0.12 });
 
     // the screen's texture, repainted in place with the last exchange
     const key = phoneScreen(ctx.labels).key;

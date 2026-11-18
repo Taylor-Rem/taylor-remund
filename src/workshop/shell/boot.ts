@@ -22,7 +22,8 @@
  *
  * The shell knows no station: it takes the list (`check-layers`).
  */
-import { Box3, Ray, Vector3 } from 'three';
+import { Box3, Ray, Vector3, type Object3D } from 'three';
+import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
@@ -30,8 +31,8 @@ import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOp
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
 import { createLabels, type LabelsOptions, type WorkshopLabels } from '../view/labels/index.ts';
 import { realize } from '../view/kit/realize.ts';
-import { Picking } from '../view/picking.ts';
-import { Gestures, type GestureTuning, type PointerKind } from '../input/gesture.ts';
+import { Picking, type PickableOptions } from '../view/picking.ts';
+import { Gestures, type GestureTuning, type HeldKind, type PointerKind } from '../input/gesture.ts';
 import { createSurface, type Surface } from '../input/surface.ts';
 import { attachInput, type DomInput } from '../input/dom.ts';
 import { createControls, type Controls } from '../input/controls.ts';
@@ -47,6 +48,8 @@ import type { LatencyMeter } from './latency.ts';
 export interface BootViewContext extends ViewContext {
   readonly stage: Stage;
   readonly picking: Picking;
+  /** A pick target, with its proxy box and padding when the view gives them (as `Picking.add`; proposed for `ViewContext`). */
+  pickable(id: Id, object: Object3D, opts?: PickableOptions): void;
 }
 
 export type BootStation = (ctx: BootViewContext) => StationView;
@@ -82,6 +85,13 @@ export interface BootOptions {
   onProgress?(phase: BootPhase, done: number, total: number): void;
   /** Yield to the browser between station views (default true). */
   yieldBetweenViews?: boolean;
+  /**
+   * The phone (§ D 3): a press on the in-world phone, or Enter on it, opens the texting panel over the
+   * stage (ui/phone/stage.ts, on the world's line). `target` is the pick target the phone's view
+   * registers (default `phone`); `parent` where the panel lives (default `document.body`). Made when the
+   * world has a phone line (`line`) and there is a document; `false`: no phone.
+   */
+  phone?: false | { target?: Id; parent?: HTMLElement };
 }
 
 export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
@@ -129,6 +139,10 @@ export interface Workshop {
   readonly materials: WorkshopMaterials;
   readonly labels: WorkshopLabels;
   readonly views: readonly StationView[];
+  /** The texting panel over the stage (null: no phone line, or no document). */
+  readonly phone: StagePhone | null;
+  /** Keyboard focus on the stage (an interactable, or the phone's target), or null. The view should mark it. */
+  readonly focused: Id | null;
   /** Deterministic: run n steps and render one frame (manual mode for captures). */
   advance(n: number): void;
   /** Dispatch an intent as if input had (tests, the controls list). */
@@ -173,7 +187,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     tier: opts.tier,
     reducedMotion: opts.reducedMotion,
     realize: (piece, o) => realize(piece, materials, o),
-    pickable: (id, object) => picking.add(id, object),
+    pickable: (id, object, o) => picking.add(id, object, o),
     stage,
     picking,
   };
@@ -220,21 +234,92 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     return { origin: [r.origin.x, r.origin.y, r.origin.z], dir: [r.direction.x, r.direction.y, r.direction.z] };
   };
   const pickRay = new Ray();
-  const usable = (id: Id): boolean => (world.interactable(id)?.affordances.length ?? 0) > 0;
+  // the phone: its pick target opens the panel (made below, once the dispatch exists)
+  const phoneOpt = opts.phone === false ? null : (opts.phone ?? {});
+  const hasPhone = phoneOpt !== null && typeof document !== 'undefined' && world.machine('line')?.kind === 'line';
+  const phoneTarget = phoneOpt?.target ?? 'phone';
+  const panelIds: ReadonlySet<Id> = new Set(hasPhone ? [phoneTarget] : []);
+  const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
+  const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
+  /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
+  const usable = (id: Id): boolean => {
+    if (panelIds.has(id)) return true;
+    if (jackIds.has(id) || (world.interactable(id)?.affordances.length ?? 0) === 0) return false;
+    // a part down a chute or gone (Revert in its hatch, a shipped crate) is not there to take
+    const mode = world.mode(id);
+    return mode !== 'gone' && mode !== 'chute';
+  };
+  /** While something is held, where it may go is pickable too: mouths for a part or a unit, every jack for the plug (a capped one refuses). */
+  const pickFilter = (holding: HeldKind | null): ((id: Id) => boolean) => {
+    if (holding === 'plug') return (id) => usable(id) || jackIds.has(id);
+    if (holding) return (id) => usable(id) || mouthIds.has(id);
+    return usable;
+  };
+  const upp = new Vector3();
+  const filters = { none: pickFilter(null), part: pickFilter('part'), unit: pickFilter('unit'), plug: pickFilter('plug') };
+  const box3 = new Box3();
+  const box3b = new Box3();
+  const corner = new Vector3();
+  /** A pick target's proxy on screen (CSS px): centre and half of its larger side. */
+  const screenOf = (id: Id): { x: number; y: number; r: number } | null => {
+    const b = picking.worldBox(id, box3);
+    if (!b) return null;
+    const w = canvas.clientWidth || 1;
+    const h = canvas.clientHeight || 1;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z);
+      const s = stage.camera.worldToScreen(corner);
+      const sx = ((s.x + 1) / 2) * w;
+      const sy = ((1 - s.y) / 2) * h;
+      x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+    }
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, r: Math.max(x1 - x0, y1 - y0) / 2 };
+  };
   const surface = createSurface({
     world: () => world,
     ray: toRay,
-    pick(r, kind: PointerKind, exclude) {
+    pick(r, kind: PointerKind, exclude, holding = null) {
       pickRay.origin.set(r.origin[0], r.origin[1], r.origin[2]);
       pickRay.direction.set(r.dir[0], r.dir[1], r.dir[2]);
-      const hit = picking.pick(pickRay, { exclude, minPx: kind === 'mouse' ? hitPx.mouse : hitPx.touch, filter: usable });
-      return hit ? { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] } : null;
+      const minPx = kind === 'mouse' ? hitPx.mouse : hitPx.touch;
+      const filter = filters[holding ?? 'none'];
+      const hit = picking.pick(pickRay, { exclude, minPx, filter });
+      if (!hit) return null;
+      const first = { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] as Vec3 };
+      if (hit.grown) return first;
+      // a small thing inside a big thing's proxy wins (the plug under the lamp's arm, the phone by the Button's console):
+      // the next true hit along the ray, if it lies within the first's box and is much smaller
+      const big = picking.worldBox(first.id, box3);
+      if (!big) return first;
+      const bigSize = big.getSize(corner).length();
+      const inner = picking.pick(pickRay, { exclude, minPx, filter: (id) => id !== first.id && filter(id) });
+      if (!inner) return first;
+      const innerId = inner.id;
+      const innerPoint: Vec3 = [inner.point.x, inner.point.y, inner.point.z];
+      const small = picking.worldBox(innerId, box3b);
+      if (!small || !big.containsPoint(small.getCenter(corner)) || small.getSize(corner).length() > bigSize * 0.4) return first;
+      return { id: innerId, point: innerPoint };
     },
     half(id) {
       const b = picking.localBox(id);
       if (!b) return null;
       return [(b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2, (b.max.z - b.min.z) / 2];
     },
+    centre(id) {
+      const b = picking.worldBox(id, box3);
+      if (!b) return null;
+      const c = b.getCenter(corner);
+      return [c.x, c.y, c.z];
+    },
+    screen: screenOf,
+    unitsPerPx: (p) => picking.unitsPerPixel(upp.set(p[0], p[1], p[2])),
+    project(p) {
+      const s = stage.camera.worldToScreen(upp.set(p[0], p[1], p[2]));
+      if (s.z > 1) return null;
+      return [((s.x + 1) / 2) * (canvas.clientWidth || 1), ((1 - s.y) / 2) * (canvas.clientHeight || 1)];
+    },
+    panels: () => panelIds,
     ...(opts.carry ? { carry: opts.carry } : {}),
   });
   const gestures = new Gestures(surface, opts.gestures);
@@ -267,8 +352,32 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     },
   };
   const controls = createControls({ world: () => world, dispatch, camera, undoId: opts.undoId ?? world.undoId ?? null });
+
+  // the phone's panel: HTML over the stage, on the world's line
+  const phone: StagePhone | null = hasPhone
+    ? createStagePhone({ world, dispatch: (i) => dispatch(i), canvas, ...(phoneOpt?.parent ? { parent: phoneOpt.parent } : {}), reducedMotion: () => world.reducedMotion })
+    : null;
+  /** Input's intents, with the page's own handles taken out: a press on the phone opens its panel. */
+  const fromInput = (intent: Intent, t: number): void => {
+    if (intent.type === 'press' && panelIds.has(intent.id)) {
+      if (phone && !phone.isOpen) phone.open(canvas);
+      return;
+    }
+    dispatch(intent, t);
+  };
+  const onScreen = (id: Id): boolean => {
+    const s = screenOf(id);
+    if (!s) return true;
+    const w = canvas.clientWidth || 1;
+    const h = canvas.clientHeight || 1;
+    return s.x > w * 0.06 && s.x < w * 0.94 && s.y > h * 0.06 && s.y < h * 0.94;
+  };
   const dom: DomInput = attachInput(canvas, gestures, {
-    intent: dispatch,
+    intent: fromInput,
+    focus(id) {
+      // focusing a control brings it into view (§ E9); one already in view is left where it is
+      if (id !== null && !onScreen(id)) opts.onFrameRequest?.(id, stage);
+    },
     pan(from, to) {
       const a = stage.camera.benchPoint(ndcOf(from), scene.bench.top);
       const b = stage.camera.benchPoint(ndcOf(to), scene.bench.top);
@@ -284,7 +393,10 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     frame(_x, _y, id) {
       opts.onFrameRequest?.(id, stage);
     },
-    back: () => camera.back(),
+    back() {
+      if (phone?.isOpen) phone.close();
+      else camera.back();
+    },
     undo: () => controls.undo(),
   });
 
@@ -308,7 +420,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
         if (!dispatchedSinceStep && gestures.held && !world.holding()) gestures.forget();
       },
     },
-    onFrame: (frame) => opts.onFrame?.(frame, workshop),
+    onFrame: (frame) => {
+      // the phone hears its line; the open panel stands clear of the station as the camera moves
+      phone?.sync();
+      opts.onFrame?.(frame, workshop);
+    },
   });
   driverRef.d = driver;
 
@@ -341,12 +457,17 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     materials,
     labels,
     views,
+    phone,
+    get focused() {
+      return gestures.focused;
+    },
     advance: (n) => loop.advance(n),
     dispatch,
     dispose() {
       removeEventListener('resize', onResize);
       loop.dispose();
       dom.dispose();
+      phone?.destroy();
       for (const v of views) v.dispose();
       world.dispose();
       materials.dispose();
