@@ -164,7 +164,7 @@ describe("Patch's job", () => {
     expect(untilPatch(w, t, 'drawer')).toBe(true);
     expect(patchView(w)).toMatchObject({ drawer: 'jack-lamp', serving: 'lamp' });
     expect(untilPatch(w, t, 'check')).toBe(true);
-    expect(patchView(w).lookAt).toEqual(PATCHLAMP.lamp.home.bulb);
+    expect(patchView(w).lookAt).toEqual(PATCHLAMP.lamp.home.aim);
     const a = answer(t, n);
     const seconds = (a.step - from) / HZ;
     // (S6) 4.5 s at the jack, plus the stool's roll from its rest to LAMP's place on the runner
