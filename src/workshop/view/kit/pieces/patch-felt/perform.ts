@@ -30,7 +30,7 @@ import { clamp, clamp01, inOutCubic, inOutQuad, lerp, outBack, outCubic, inCubic
 import type { Ease } from '../../../anim/ease.ts';
 import {
   EXPRESSIONS, FOREARM, GAZE_MAX, HC, HEAD_SCALE, HIPS, LEG_REST, NECK, NEUTRAL, SCRUFF, SHOULDER, UPPER_ARM, CUP,
-  SIDE_ON, bodyMatrix, poseMatrices, resolveArms,
+  ARM_LIMITS, SIDE_ON, bodyMatrix, poseMatrices, resolveArms,
 } from './rig.ts';
 import { BOARD_WHOLE, STOOL_SEAT } from '../switchboard/board.ts';
 import { POSE as BOARD_POSE } from '../switchboard/pose.ts';
@@ -189,7 +189,8 @@ export interface Key {
 
 /** Resolve keys cumulatively into full poses. */
 export function bake(start: PatchPose | FullPose, keys: readonly Key[]): Array<{ t: number; pose: FullPose; ease: Ease }> {
-  let cur: FullPose = 'arms' in start && start.arms && 'left' in (start.arms as object) && 'body' in start && Array.isArray((start as FullPose).body.at) ? (start as FullPose) : resolvePose(start as PatchPose);
+  const full = (x: PatchPose | FullPose): x is FullPose => typeof x.arms === 'object' && x.arms !== null && 'left' in x.arms && Array.isArray((x as FullPose).body?.at) && Array.isArray((x as FullPose).body?.rot);
+  let cur: FullPose = full(start) ? start : resolvePose(start);
   const out: Array<{ t: number; pose: FullPose; ease: Ease }> = [];
   for (const k of keys) {
     const { armL, armR, body, arms, ...rest } = k.set;
@@ -379,7 +380,68 @@ export function solveArm(side: 'left' | 'right', targetSpine: Vector3, base: Arm
   const X0 = new Vector3(Math.cos(phi), Math.sin(phi), 0);
   const Z0 = new Vector3(-Math.sin(sw) * Math.sin(phi), Math.sin(sw) * Math.cos(phi), Math.cos(sw));
   const beta = Math.atan2(w.dot(X0), w.dot(Z0));
-  return { joints: { swing: sw, abduct: s * phi, twist: s * beta, elbow, wrist: base.wrist, roll: base.roll }, short };
+  const analytic: ArmJoints = { swing: sw, abduct: s * phi, twist: s * beta, elbow, wrist: base.wrist, roll: base.roll };
+  // the rig clamps its joints: if the analytic answer is outside them, search inside them instead
+  return refineArm(side, targetSpine, analytic, short);
+}
+
+/** The palm's middle in spine space for an arm's joints (the rig's own chain). */
+function palmSpine(side: 'left' | 'right', a: ArmJoints): Vector3 {
+  const s = side === 'left' ? 1 : -1;
+  const m = new Matrix4().makeTranslation(s * SHOULDER.x, SHOULDER.y, SHOULDER.z)
+    .multiply(_m.makeRotationZ(s * a.abduct)).multiply(_m.makeRotationX(-a.swing)).multiply(_m.makeRotationY(s * a.twist))
+    .multiply(_m.makeTranslation(0, -UPPER_ARM, 0)).multiply(_m.makeRotationX(-a.elbow))
+    .multiply(_m.makeTranslation(0, -FOREARM, 0)).multiply(_m.makeRotationY(s * a.roll)).multiply(_m.makeRotationX(-a.wrist));
+  return PAW_CONTACT.clone().applyMatrix4(m);
+}
+const _m = new Matrix4();
+
+function limited(a: ArmJoints): ArmJoints {
+  const o = { ...a };
+  for (const k of ARM_KEYS) o[k] = clamp(o[k], ARM_LIMITS[k][0], ARM_LIMITS[k][1]);
+  return o;
+}
+
+/**
+ * Coordinate descent on swing, abduct, twist and elbow inside the rig's limits, from the analytic
+ * answer clamped and a few seeds. Prefers the elbow low (never a wave).
+ */
+function refineArm(side: 'left' | 'right', target: Vector3, start: ArmJoints, short0: number): { joints: ArmJoints; short: number } {
+  const s0 = limited(start);
+  const err = (a: ArmJoints): number => {
+    const p = palmSpine(side, a);
+    const elbowUp = Math.max(0, Math.sin(a.swing) * Math.cos(a.abduct) * 0 + (a.swing > 1.6 ? a.swing - 1.6 : 0));
+    return p.distanceToSquared(target) + elbowUp * 0.002;
+  };
+  if (Math.sqrt(err(s0)) < 0.01 + short0) return { joints: s0, short: short0 };
+  const seeds: ArmJoints[] = [s0, { ...s0, swing: 1.2, abduct: 0.3, twist: -0.6, elbow: 1.6 }, { ...s0, swing: 0.6, abduct: 0.2, twist: 0, elbow: 1.0 }, { ...s0, swing: 1.8, abduct: 0.1, twist: -1.0, elbow: 2.0 }];
+  let best = s0, bestE = err(s0);
+  const keys: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow'];
+  for (const seed of seeds) {
+    let a = limited(seed), e = err(a);
+    for (let step = 0.4; step > 0.004; step *= 0.5) {
+      for (let it = 0; it < 6; it++) {
+        let moved = false;
+        for (const k of keys) {
+          for (const d of [step, -step]) {
+            const b = limited({ ...a, [k]: a[k] + d });
+            const eb = err(b);
+            if (eb < e) {
+              a = b;
+              e = eb;
+              moved = true;
+            }
+          }
+        }
+        if (!moved) break;
+      }
+    }
+    if (e < bestE) {
+      best = a;
+      bestE = e;
+    }
+  }
+  return { joints: best, short: Math.max(short0, Math.sqrt(bestE) > 0.02 ? Math.sqrt(bestE) : 0) };
 }
 
 export interface Reach {
@@ -396,6 +458,18 @@ export interface Reach {
  * as the arm needs, the paw goes there, the head watches it. `base` is the rest of the pose.
  */
 export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPRESSIONS.unimpressed, o: { swivel?: number; watch?: boolean } = {}): Reach {
+  // the search is the costly part of every performance: the same question gets the same answer
+  const key = JSON.stringify([target, side, base, o]);
+  const hit = reachCache.get(key);
+  if (hit) return hit;
+  const r = reachUncached(target, side, base, o);
+  if (reachCache.size > 512) reachCache.clear();
+  reachCache.set(key, r);
+  return r;
+}
+const reachCache = new Map<string, Reach>();
+
+function reachUncached(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean }): Reach {
   const f = resolvePose(base);
   const T = new Vector3(...target);
   if (o.swivel !== undefined) f.body.rot = [f.body.rot[0], o.swivel, f.body.rot[2]];
@@ -923,7 +997,7 @@ export function held(t: number, carryVelocity: V3 = [0, 0, 0], o: HeldOptions = 
   const pitch = clamp(-bz * 0.35, -0.5, 0.5) + swing * 0.5;
   const roll = clamp(bx * 0.35, -0.5, 0.5) + swing;
   const lift = smoothstep(0, 0.35, t);
-  const at = SCRUFF;
+  const at: V3 = [0, 0, 0];
   // dangling limbs lag the body: their swing is the body's, later and larger
   const lag = 0.24 * decay * Math.sin(t * 5.4 - 0.6) + 0.04 * Math.sin(t * 1.9 - 0.8);
   const legsSwing = clamp(-pitch * 0.8, -0.6, 0.6) + lag * 0.8;
@@ -975,7 +1049,7 @@ export const CLIMB_LENGTH = 3.4;
 export const CLIMB_STAND = 0.38;
 
 /** The standing pose's hip height above the soles (root units). */
-const STAND_HIPS = 0.405;
+const STAND_HIPS = 0.519;
 
 /** Standing legs: thighs down, shins straight. */
 const STAND: [LegJoints, LegJoints] = [{ lift: -1.5, splay: 0.06, knee: -1.25 }, { lift: -1.5, splay: 0.06, knee: -1.25 }];
@@ -989,7 +1063,7 @@ export function climb(t: number, o: ClimbOptions = {}): PatchPose {
   const dir = o.from ?? 2.6;
   const vis = o.visitor ?? VISITOR;
   const dx = Math.sin(dir), dz = Math.cos(dir);
-  const face = dir + Math.PI; // facing the stool
+  const face = normAngle(dir + Math.PI); // facing the stool
   const R = CLIMB_STAND;
   const floorY = -H + STAND_HIPS - LEG_LIFT_HIP;
   const atStand: V3 = [dx * R, floorY, dz * R];
@@ -1004,8 +1078,8 @@ export function climb(t: number, o: ClimbOptions = {}): PatchPose {
   const knee: V3 = [dx * 0.06, 0.02, dz * 0.06];
   const lkVis = lookAt(resolvePose(SEATED), vis, 1);
   const cupPose: PatchPose = { ...SEATED, headTilt: -0.18, headset: [0.12, 0] };
-  const cup = cupPoint(cupPose, 'left');
-  const cupArm = resolvePose(reach([cup[0] + 0.02, cup[1], cup[2]], 'left', cupPose, { watch: false }).pose).arms.left;
+  const cup = cupPoint(cupPose, 'right');
+  const cupArm = resolvePose(reach([cup[0], cup[1], cup[2] + 0.02], 'right', cupPose, { watch: false }).pose).arms.right;
   const keys: Key[] = [
     { t: 0, set: { ...standBase, ...FACE.flat, headPitch: 0.1, headYaw: 0, gaze: [0, 0.3], arms: { left: J(0.1, 0.08, 0, 0.3, 0.1, 0.5), right: J(0.1, 0.08, 0, 0.3, 0.1, 0.5) } } },
     // a look up at the seat: really?
@@ -1025,7 +1099,7 @@ export function climb(t: number, o: ClimbOptions = {}): PatchPose {
     { t: 2.55, set: { body: {}, legs: [LEG_REST, LEG_REST], lean: [-0.04, 0], headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, gaze: [0.1, 0.25], tail: [0.4, 0.1], tailLift: 0 }, ease: inOutQuad },
     { t: 2.65, set: { lean: [0.02, 0] }, ease: outCubic },
     // the headset straight
-    { t: 2.95, set: { ...pick(cupPose, ['headTilt']), headset: [0.12, 0], armL: cupArm, ...FACE.flat } },
+    { t: 2.95, set: { ...pick(cupPose, ['headTilt']), headset: [0.12, 0], armR: cupArm, ...FACE.flat } },
     { t: 3.15, set: { headset: [0, 0], headTilt: 0.05 } },
     { t: CLIMB_LENGTH, set: { ...SEATED, body: {} } },
   ];
@@ -1063,7 +1137,7 @@ export function returnToStool(t: number, from: V3, o: ReturnOptions = {}): Patch
   const e = inOutQuad(u);
   const x = lerp(from[0], goal[0], e), z = lerp(from[2], goal[2], e);
   const heading = Math.atan2(goal[0] - from[0], goal[2] - from[2]);
-  const face = dir + Math.PI;
+  const face = normAngle(dir + Math.PI);
   // turn to face the stool over the last steps
   const yaw = lerp(heading, heading + normAngle(face - heading), smoothstep(0.75, 1, u));
   // the toddle: short quick steps, a bob and a roll
@@ -1119,11 +1193,11 @@ export function duck(t: number, o: CrateOptions = {}): PatchPose {
     // up, slowly; one eye first
     { t: 0.95, set: { body: {}, lean: [0.08, 0], headYaw: lkVis.headYaw * 0.4, headPitch: 0.0, headTilt: 0.05, lids: [0.45, 0.8], lidsLow: [0.3, 0.4], brows: [-0.5, -0.6], ears: [0.4, 0.5], tail: [0.4, 0], tailLift: 0, boom: 0, arms: 'lap', gaze: [0.4, 0.2] }, ease: inOutCubic },
     // the look
-    { t: 1.45, set: { headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, headTilt: 0.06, gaze: lkVis.gaze, ...FACE.deadpan, ears: [0.3, 0.2], lean: [0.02, 0] }, ease: inOutQuad },
+    { t: 1.3, set: { headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, headTilt: 0.06, gaze: lkVis.gaze, ...FACE.deadpan, ears: [0.3, 0.2], lean: [0.02, 0] }, ease: inOutQuad },
     { t: REACTION_LENGTH, set: {} },
   ];
-  let f = sampleOverlap(bake(SEATED, keys), t, { eyes: 0.03, ears: -0.04, tail: -0.12, body: -0.02 });
-  f = withBlinks(f, t, [1.62]);
+  let f = sampleOverlap(bake(SEATED, keys), t, { ears: -0.04, tail: -0.12, body: -0.02 });
+  f = withBlinks(f, t, [1.28]);
   return toPose(f);
 }
 
@@ -1140,11 +1214,16 @@ export interface CatchFrame {
   crate: V3 | null;
 }
 
+/** At the rest position, the end of the keyshelf by the stool (root space): where a caught crate is set down. */
+export const CATCH_SHELF: V3 = boardToRoot([BOARD_WHOLE.w / 2 - 0.3, BOARD_WHOLE.shelfY + 0.02, BOARD_WHOLE.shelfZ - 0.05], BOARD_WHOLE.stoolRestX);
+/** How far above the palm a held crate's centre sits (root units; a small crate). */
+const CRATE_ON_PAW = 0.13;
+
 /** One paw, without looking: caught, set down on the keyshelf, and the paw back in the lap. The eyes never leave the visitor. */
 export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
   const vis = o.visitor ?? VISITOR;
-  const at = o.at ?? [0.38, 0.42, 0.18];
-  const shelf = o.shelf ?? [0.05, 0.12, 0.42];
+  const at = o.at ?? [0.5, 0.5, 0.22];
+  const shelf = o.shelf ?? CATCH_SHELF;
   const rest = resolvePose(SEATED);
   const lkVis = lookAt(rest, vis, 0.85);
   const face: PatchPose = { ...SEATED, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, gaze: lkVis.gaze };
@@ -1152,7 +1231,7 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
   const upArm = resolvePose(up.pose).arms.left;
   const give: V3 = [at[0] - 0.03, at[1] - 0.06, at[2] - 0.02];
   const giveArm = resolvePose(reach(give, 'left', face, { watch: false }).pose).arms.left;
-  const set = reach([shelf[0], shelf[1] + 0.06, shelf[2]], 'left', face, { watch: false });
+  const set = reach([shelf[0], shelf[1] + 0.02, shelf[2]], 'left', face, { watch: false });
   const setArm = resolvePose(set.pose).arms.left;
   const keys: Key[] = [
     { t: 0, set: { ...face } },
@@ -1161,7 +1240,7 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
     { t: 0.5, set: { brows: [0.35, -0.25], browTilt: [0.3, -0.1], ...pick(FACE.smug, ['lidsLow', 'mouth']) } },
     { t: 0.85, set: { armL: setArm, lean: set.pose.lean ?? [0.08, 0], twist: set.pose.twist ?? 0 }, ease: inOutCubic },
     { t: 1.0, set: { armL: { ...setArm, wrist: setArm.wrist - 0.25 } }, ease: outCubic },
-    { t: 1.4, set: { arms: 'rest', lean: [0.02, 0], twist: 0.05, ...FACE.smug } },
+    { t: 1.3, set: { arms: 'rest', lean: [0.02, 0], twist: 0.05, ...FACE.smug } },
     { t: REACTION_LENGTH, set: {} },
   ];
   const f = sampleOverlap(bake(face, keys), t, { tail: -0.15, ears: -0.05 });
@@ -1169,7 +1248,7 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
   let crate: V3 | null = null;
   if (t >= 0.16 && t < 1.0) {
     const p = pawPoint(pose, 'left');
-    crate = [p[0] + 0.02, p[1] + 0.07, p[2] + 0.03];
+    crate = [p[0] + 0.05, p[1] + CRATE_ON_PAW, p[2] + 0.02];
   }
   return { pose, crate };
 }
@@ -1181,24 +1260,25 @@ export function bonked(t: number, o: CrateOptions = {}): PatchPose {
   const rest = resolvePose(SEATED);
   const lkVis = lookAt(rest, vis, 0.85);
   const side = src[0] >= 0 ? 1 : -1; // knocked away from where it came
-  const askew: [number, number] = [-side * 0.42, -0.18];
+  const askew: [number, number] = [-side * 0.55, -0.22];
   const knocked: PatchPose = { ...SEATED, headTilt: -side * 0.32, headYaw: lkVis.headYaw - side * 0.2, headset: askew };
-  const cup = cupPoint({ ...knocked, headTilt: 0, headPitch: lkVis.headPitch + 0.12, headYaw: lkVis.headYaw }, 'left');
-  const fix = reach([cup[0] + 0.015, cup[1] + 0.02, cup[2] + 0.01], 'left', { ...SEATED, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12 }, { watch: false });
-  const fixArm = resolvePose(fix.pose).arms.left;
+  // the cup nearer the front (with the head turned to the visitor, its right one)
+  const cup = cupPoint({ ...knocked, headTilt: 0, headPitch: lkVis.headPitch + 0.12, headYaw: lkVis.headYaw }, 'right');
+  const fix = reach([cup[0], cup[1] + 0.01, cup[2] + 0.02], 'right', { ...SEATED, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12 }, { watch: false });
+  const fixArm = resolvePose(fix.pose).arms.right;
   const keys: Key[] = [
     { t: 0, set: { ...SEATED, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, gaze: lkVis.gaze } },
     // the knock: head and headset tip away; lids shut; the boom flies up
-    { t: 0.07, set: { headTilt: -side * 0.38, headYaw: lkVis.headYaw - side * 0.25, headPitch: lkVis.headPitch - 0.08, headset: askew, boom: 0.5, lids: [1, 1], lean: [0, -side * 0.12], ears: [0.6, 0.6] }, ease: outCubic },
+    { t: 0.07, set: { headTilt: -side * 0.45, headYaw: lkVis.headYaw - side * 0.25, headPitch: lkVis.headPitch - 0.08, headset: askew, boom: 0.5, lids: [1, 1], lean: [0, -side * 0.12], ears: [0.6, 0.6] }, ease: outCubic },
     // the head comes back; the headset stays where it went
     { t: 0.3, set: { headTilt: -side * 0.12, headYaw: lkVis.headYaw - side * 0.08, headPitch: lkVis.headPitch, boom: 0.3, lids: [0.85, 0.85], lean: [0.0, 0] }, ease: inOutQuad },
     // a moment. the eyes open on the visitor, slowly
     { t: 0.62, set: { lids: [0.42, 0.48], gaze: [0.3, 0.15], ...pick(FACE.deadpan, ['brows', 'browTilt', 'lidsLow']), mouth: [0, -0.1] } },
     // the paw goes up, the chin comes up
-    { t: 0.95, set: { armL: fixArm, headTilt: 0, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12, gaze: lkVis.gaze, lids: [0.44, 0.46], twist: fix.pose.twist ?? 0, lean: fix.pose.lean ?? [0, 0] } },
+    { t: 0.95, set: { armR: fixArm, headTilt: 0, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch + 0.12, gaze: lkVis.gaze, lids: [0.44, 0.46], twist: fix.pose.twist ?? 0, lean: fix.pose.lean ?? [0, 0] } },
     // straightens it
-    { t: 1.18, set: { headset: [0, 0], boom: 0, armL: { ...fixArm, roll: fixArm.roll + 0.2 } } },
-    { t: 1.45, set: { arms: 'rest', twist: 0.05, lean: [0.02, 0], lids: [0.38, 0.4], mouth: [0.3, -0.1], headPitch: lkVis.headPitch + 0.08 } },
+    { t: 1.12, set: { headset: [0, 0], boom: 0, armR: { ...fixArm, roll: fixArm.roll + 0.2 } } },
+    { t: 1.32, set: { arms: 'rest', twist: 0.05, lean: [0.02, 0], lids: [0.38, 0.4], mouth: [0.3, -0.1], headPitch: lkVis.headPitch + 0.08 } },
     { t: REACTION_LENGTH, set: {} },
   ];
   const f = sampleOverlap(bake(SEATED, keys), t, { eyes: 0.02, tail: -0.12, ears: -0.04 });
