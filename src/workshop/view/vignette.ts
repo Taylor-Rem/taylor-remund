@@ -250,7 +250,8 @@ export function measured(scene: SceneDesc, fit: Fit, k: { console?: { w: number;
     board: { sim: sim('board'), pieces: body(fit.board.bounds, fit.board.at) },
     stool: { sim: sim('stool'), pieces: body(fit.stool.bounds, fit.stool.at) },
     jacks: Object.fromEntries(
-      scene.cord.jacks.map((j) => {
+      // (S3) only the jacks this board has (the bench scene lists four lines and two capped jacks before the board does)
+      scene.cord.jacks.filter((j) => j.id.replace(/^jack-/, '') in fit.board.jacks).map((j) => {
         const key = j.id.replace(/^jack-/, '') as 'storefront' | 'lamp';
         return [j.id, { sim: rv(j.at), pieces: rv(fit.board.jacks[key]) }];
       }),

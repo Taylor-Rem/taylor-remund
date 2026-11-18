@@ -117,6 +117,11 @@ export const REPLY_IDS = [
   'belt.slowest',
   'lamp.brightest',
   'lamp.dimmest',
+  // (S3) the line's answers when a job does not go through, and the lever's half of "undo that" refused
+  'changed-since',
+  'cancelled.cord',
+  'cancelled.undo',
+  'undo.lever',
 ] as const;
 export type ReplyId = (typeof REPLY_IDS)[number];
 
@@ -172,7 +177,14 @@ export type RefusalReason =
   | 'words-empty'
   | 'words-long'
   | 'words-glyphs'
-  | 'words-blocked';
+  | 'words-blocked'
+  // (S3) the line's own reasons, after the parser said yes:
+  /** The station could not do it and says what it wanted instead (the tray is empty, the belt is at its fastest). */
+  | 'station'
+  /** Something newer changed that field before Patch got to it (§ E5 rule 7): left alone. */
+  | 'changed-since'
+  /** The job was dropped before anything was written: the cord was pulled, or it was taken back. */
+  | 'cancelled';
 
 export interface Refusal {
   readonly kind: 'refusal';

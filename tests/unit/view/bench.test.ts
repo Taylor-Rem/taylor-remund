@@ -343,7 +343,7 @@ describe('Patch at the crew scale', () => {
     // the head (its pivot, the middle of the skull) stays under the crest; at 1.5× the ear tips and headset do not (reported)
     const o = seated('reach');
     const head = seated('rest').getObjectByName('head')!.getWorldPosition(new Vector3());
-    expect(head.y).toBeLessThan(body('board').max.y);
+    expect(head.y).toBeLessThan(body('board-panel').max.y);
     const paw = o.getObjectByName('pawL')!.getWorldPosition(new Vector3());
     expect(paw.y).toBeGreaterThan(AT.jacks.lamp[1]);
   });
@@ -437,10 +437,20 @@ describe('the real pieces', () => {
     const p = switchboard({ detail: 'low', jacks: JACKS });
     const [bx, bz] = S.board.at!;
     const w = (n: string): Vector3 => new Vector3().setFromMatrixPosition(p.sockets![n]!).add(new Vector3(bx, 0, bz));
-    for (const k of ['storefront', 'lamp'] as const) {
+    for (const k of ['storefront', 'platen', 'belt', 'lamp'] as const) {
       const j = w(`jack.${k}`);
       expect(j.distanceTo(new Vector3(...AT.jacks[k])), k).toBeLessThan(0.01);
+      const st = w(`stool.${k}`);
+      expect(Math.hypot(st.x - AT.stoolAt[k][0], st.z - AT.stoolAt[k][1]), `stool.${k}`).toBeLessThan(0.01);
     }
+    // the capped jacks on the live row's line, at the board's layout
+    BOARD_WHOLE.capped.forEach((x, i) => expect(new Vector3(...AT.jacks[i ? 'reserved2' : 'reserved1']).distanceTo(new Vector3(bx + x, AT.jacks.lamp[1], AT.jacks.lamp[2]))).toBeLessThan(0.01));
+    // the keyshelf point is on the desk's top, inside the shelf and left of the writing ledge
+    const desk = body('board');
+    expect(AT.keyshelf[1]).toBeCloseTo(desk.max.y, 2);
+    expect(AT.keyshelf[2]).toBeGreaterThan(desk.min.z);
+    expect(AT.keyshelf[2]).toBeLessThan(desk.max.z);
+    expect(AT.keyshelf[0]).toBeLessThan(bx + BOARD_WHOLE.w / 2 - 0.7);
     const st = w('stool');
     expect(st.x).toBeCloseTo(AT.stool.c[0], 2);
     expect(st.z).toBeCloseTo(AT.stool.c[2], 2);
@@ -485,6 +495,9 @@ describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
     const seat = new Vector3().setFromMatrixPosition(platen({ detail: 'low' } as never).sockets!['seat']!);
     const [px, pz] = S.platen.at!;
     expect(fromLane(px + seat.x, pz + seat.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    // the platen's mouth (the Patchlamp station's) sits on the real tray
+    const pm = scene.mouths!.find((m) => m.id === 'platen')!;
+    expect(new Vector3(...pm.drop).distanceTo(new Vector3(px + seat.x, seat.y, pz + seat.z))).toBeLessThan(0.02);
     expect(fromLane(AT.phone.c[0], AT.phone.c[2]).d).toBeLessThanOrEqual(REACH - 0.2);
   });
 

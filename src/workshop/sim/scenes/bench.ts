@@ -26,6 +26,11 @@ import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
+import { line } from '../machines/line.ts';
+import { platen } from '../machines/platen.ts';
+import { storefront } from '../machines/storefront.ts';
+import { lamp } from '../machines/lamp.ts';
+import { patch } from '../crew/patch.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -43,9 +48,22 @@ export const AT = {
   backWall: { c: [0, 3, -5.15], half: [10.5, 3, 0.15] } as Box,
 
   // ── the back row: board, stool (the tool wall, lamp, sign and window hang on the wall: no bodies) ──
-  /** The whole switchboard (four live jacks; origin (-0.1, -4.38)) against the wall: its cabinet, keyshelf, frame and crest (the stool's runner in front is low, no body); the cord's two jacks (measured from the piece). */
-  board: { c: [-0.1, 1.605, -4.445], half: [2.6, 1.605, 0.545] } as Box,
-  jacks: { storefront: [-1.3, 1.46, -4.264] as Vec3, lamp: [1.62, 1.46, -4.264] as Vec3 },
+  /**
+   * The whole switchboard (four live jacks; origin (-0.1, -4.38)) against the wall, in three bodies: the desk up to
+   * the keyshelf's top (0.89), out to the shelf's front edge; the jack panel, frame and crest behind it, back from
+   * the shelf; the runner's plank in front, low. Its six jack mouths and the stool's stop for each live jack, and a
+   * point on the keyshelf (left of the writing ledge, clear of the pad), are measured from the piece.
+   */
+  board: { c: [-0.1, 0.445, -4.445], half: [2.6, 0.445, 0.545] } as Box,
+  boardPanel: { c: [-0.1, 2.05, -4.67], half: [2.6, 1.16, 0.32] } as Box,
+  boardRunner: { c: [0.425, 0.026, -3.46], half: [3.025, 0.026, 0.35] } as Box,
+  jacks: {
+    storefront: [-1.3, 1.46, -4.264] as Vec3, platen: [-0.28, 1.46, -4.264] as Vec3, belt: [0.72, 1.46, -4.264] as Vec3, lamp: [1.62, 1.46, -4.264] as Vec3,
+    reserved1: [-2.15, 1.46, -4.264] as Vec3, reserved2: [-1.79, 1.46, -4.264] as Vec3,
+  },
+  /** Where the stool stands on the runner to work each live jack (x, z), and at rest (`stool` below). */
+  stoolAt: { storefront: [-1.15, -3.46] as const, platen: [-0.13, -3.46] as const, belt: [0.87, -3.46] as const, lamp: [1.77, -3.46] as const },
+  keyshelf: [1.4, 0.89, -4.1] as Vec3,
   /** Patch's stool, lowered (seat 0.62 over the runner's top 0.052), at rest at the runner's right end. */
   stool: { c: [3.02, 0.369, -3.46], half: [0.316, 0.317, 0.32] } as Box,
 
@@ -214,7 +232,86 @@ const FETCH_ROUNDS: FetchRounds = {
     { target: 'belt', field: BELT_FIELDS.running, is: true },
     { target: 'belt', field: BELT_FIELDS.direction, is: 'forward' },
   ],
-};
+}
+// ───────────── the Patchlamp station (S3): the cord's four lines, the phone line, Patch, the platen, the storefront, the lamp ─────────────
+
+/**
+ * The station's numbers, read from `AT` where `AT` has them: the whole board's six measured jack mouths
+ * (`AT.jacks`, A1), the stool's stops (`AT.stoolAt`) and a keyshelf point (`AT.keyshelf`) are there.
+ */
+export const PATCHLAMP = (() => {
+  /** Left to right: two capped RESERVED jacks, then STOREFRONT, PLATEN, BELT, LAMP (the whole board's mouths, measured: `AT.jacks`). */
+  const jacks = [
+    { id: 'jack-reserved-1', name: 'name.jack.reserved', at: AT.jacks.reserved1 },
+    { id: 'jack-reserved-2', name: 'name.jack.reserved', at: AT.jacks.reserved2 },
+    { id: 'jack-storefront', name: 'name.jack.storefront', at: AT.jacks.storefront },
+    { id: 'jack-platen', name: 'name.jack.platen', at: AT.jacks.platen },
+    { id: 'jack-belt', name: 'name.jack.belt', at: AT.jacks.belt },
+    { id: 'jack-lamp', name: 'name.jack.lamp', at: AT.jacks.lamp },
+  ];
+  /**
+   * The platen's tray seat: the real piece's deck top (`AT.platen`'s top) over its turntable, 0.05 right
+   * of and 0.1 behind the piece's origin (PLATEN.tray in view/kit/pieces/platen/dims.ts); the origin is
+   * 0.145 in front of the base's middle (the base runs 1.15 behind it and 0.86 in front).
+   */
+  const seat: Vec3 = [AT.platen.c[0] + 0.05, AT.platen.c[1] + AT.platen.half[1], AT.platen.c[2] + 0.145 - 0.1];
+  const stoolTop: Vec3 = [AT.stool.c[0], AT.stool.c[1] + AT.stool.half[1], AT.stool.c[2]];
+  /** The lamp's clamp on the wall rail (view/bench.ts LAYOUT `lamp`), and its arm as the lamp piece's rig solves it there (view/kit/pieces/lamp/rig.ts: STAGE_BULB, STAGE_AIM, LAMP_PLACE, DIM.shoulder; arms 3.45 + 3.3). */
+  const clamp: Vec3 = [-3.1, 0, -5];
+  const lamp = {
+    home: { bulb: [clamp[0] + 0.9, 5.2, clamp[2] + 4.4] as Vec3, aim: [clamp[0] + 5.1, 0, clamp[2] + 4.9] as Vec3 },
+    /** What its joints allow: the bulb within 1.0 to 5.0 (horizontally) of the shoulder at its fixed height, in front of the wall, over the bench. */
+    reach: { centre: [clamp[0], clamp[2] + 0.24] as const, min: 1.0, max: 5.0, minX: AT.bench.minX + 0.5, maxX: 3.5, minZ: AT.backWall.c[2] + 1.0, maxZ: 1.5 },
+  };
+  return {
+    jacks,
+    seat,
+    platenMouth: { id: 'platen', machine: 'platen', station: 'patchlamp', c: [seat[0], seat[1] + 1.0, seat[2]], half: [0.55, 1.0, 0.55], drop: seat } as MouthSpec,
+    lamp,
+    patch: {
+      seat: stoolTop,
+      /** Toward the board (−X). */
+      facing: -Math.PI / 2,
+      foot: [AT.stool.c[0], 0, AT.stool.c[2] + AT.stool.half[2] + 0.45] as Vec3,
+      /** Its seated body at the crew's 1.5× (about 1.6 tall on the stool). */
+      body: { up: 0.75, radius: 0.6, head: 1.05, hands: 0.35 },
+      /** The keyshelf is inside the board's one-box collider, so a caught part is set on the bench beside the stool (PROVISIONAL). */
+      shelf: [AT.stool.c[0] - AT.stool.half[0] - 0.35, 0, AT.stool.c[2]] as Vec3,
+      lever: [AT.undo.c[0], AT.undo.c[1] + AT.undo.half[1], AT.undo.c[2]] as Vec3,
+      visitor: [0.6, 2.4, 14] as Vec3,
+      phone: AT.phone.c,
+    },
+  };
+})();
+
+const PATCHLAMP_MOUTHS: readonly MouthSpec[] = [PATCHLAMP.platenMouth];
+const PATCHLAMP_UNITS = [
+  line({
+    id: 'line',
+    station: 'patchlamp',
+    name: 'name.line',
+    cord: 'cord',
+    lines: [
+      { jack: 'jack-storefront', line: 'storefront', station: 'storefront' },
+      { jack: 'jack-platen', line: 'platen', station: 'platen' },
+      { jack: 'jack-belt', line: 'belt', station: 'belt' },
+      { jack: 'jack-lamp', line: 'lamp', station: 'lamp' },
+    ],
+  }),
+  patch({
+    id: 'patch',
+    station: 'patchlamp',
+    name: 'name.patch',
+    line: 'line',
+    ...PATCHLAMP.patch,
+    jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
+    stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.bulb },
+    bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
+  }),
+  platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
+  storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
+  lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach, follow: 0.6 }),
+];
 
 export const bench: SceneDesc = {
   id: 'bench',
@@ -226,6 +323,8 @@ export const bench: SceneDesc = {
     box('back-wall', AT.backWall, { shape: { type: 'box', half: AT.backWall.half, radius: 0 } }),
     box('console', AT.console),
     box('board', AT.board),
+    box('board-panel', AT.boardPanel),
+    box('board-runner', AT.boardRunner),
     box('stool', AT.stool),
     box('phone', AT.phone),
     box('belt-bed', AT.belt, { friction: 0.9 }),
@@ -250,9 +349,7 @@ export const bench: SceneDesc = {
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
   ],
-  fixtures: [
-    { id: 'lamp', station: 'top', name: 'name.lamp', affordances: [] },
-  ],
+  fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
   button: {
     id: 'button',
@@ -266,10 +363,7 @@ export const bench: SceneDesc = {
   cord: {
     id: 'cord',
     name: 'name.cord',
-    jacks: [
-      { id: 'jack-storefront', name: 'name.jack.storefront', at: AT.jacks.storefront },
-      { id: 'jack-lamp', name: 'name.jack.lamp', at: AT.jacks.lamp },
-    ],
+    jacks: PATCHLAMP.jacks,
     start: 'jack-storefront',
   },
   runner: {
@@ -285,11 +379,12 @@ export const bench: SceneDesc = {
     rounds: FETCH_ROUNDS,
   },
   crewScale: CREW_SCALE,
-  mouths: MOUTHS,
+  mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+    ...PATCHLAMP_UNITS,
   ],
 };
