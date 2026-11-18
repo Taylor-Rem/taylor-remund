@@ -812,6 +812,21 @@ export interface CrewMember {
   readonly knock?: FetchKnock | null;
 }
 
+// ── S6: one crew (every member listed in one place, each as the view object it already had) ──
+
+/** Which crew member a `CrewView` is. */
+export type CrewKind = 'fetch' | 'patch' | 'revert';
+
+/**
+ * One crew member as the view reads it (`WorldView.crewViews()`, `WorldView.crewView(id)`): the same
+ * objects as before, under one roster. `id` is the crew unit's id; `body` the loose part that is its
+ * body (kind robot), or null for one that is never a loose part (Patch). Narrow on `kind`.
+ */
+export type CrewView =
+  | { readonly kind: 'fetch'; readonly id: Id; readonly body: Id; readonly member: CrewMember }
+  | { readonly kind: 'patch'; readonly id: Id; readonly body: null; readonly view: PatchView }
+  | { readonly kind: 'revert'; readonly id: Id; readonly body: Id; readonly view: RevertView };
+
 // ───────────────────────── the world, read-only ─────────────────────────
 
 /** What `view`, `audio` and `ui` are allowed to see. They never change it. */
@@ -830,6 +845,10 @@ export interface WorldView {
   interactables(): Iterable<Interactable>;
   interactable(id: Id): Interactable | undefined;
   crew(id: Id): CrewMember | undefined;
+  /** S6: the whole crew, in step order (Fetch, then the scene's crew: Revert, Patch), each as its view. */
+  crewViews(): readonly CrewView[];
+  /** S6: one crew member's view, by its unit id or its body's part id; undefined if it is not crew. */
+  crewView(id: Id): CrewView | undefined;
   /** What the visitor's hand holds, if anything. */
   holding(): Holding | null;
   /** What the world is doing with a part's body (also on `motion(id).mode`). */

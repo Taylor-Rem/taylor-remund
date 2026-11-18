@@ -467,6 +467,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       enter('seated');
     },
 
+    crewView: () => ({ kind: 'patch', id, body: null, view: unit.view() }),
+
     view(): PatchView {
       return {
         kind: 'patch',

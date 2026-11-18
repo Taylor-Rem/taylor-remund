@@ -21,7 +21,7 @@
  * `undone` event. At the end of every step the history closes timed-out
  * release windows and lets empty transactions go.
  */
-import type { Cause, Effect, Id, Intent, Interactable, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
+import type { Cause, CrewView, Effect, Id, Intent, Interactable, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
 import type { PhysicsPort, PhysicsSnapshot } from './physics/port.ts';
 import type { MouthSpec, SceneDesc } from './scene.ts';
 import type { BodyMode, CommitResult, CrewHandle, Holding, LostReason, MachineUnit, SimContext, Unit } from './context.ts';
@@ -768,6 +768,7 @@ export function createWorld(opts: WorldOptions): World {
     interactable: (id) => registry.get(id),
     machine: (id) => machines.get(id),
     mouth: (id) => mouthById.get(id),
+    crewView: (id) => crewView(id),
     get playMode() {
       return playMode;
     },
@@ -969,6 +970,15 @@ export function createWorld(opts: WorldOptions): World {
       machines.set(u.id, u);
     }
   }
+  /** S6: the one roster of the crew, in step order: every unit that says it is crew (`Unit.crewView`). */
+  const crewUnits = units.filter((u) => typeof u.crewView === 'function');
+  function crewView(id: Id): CrewView | undefined {
+    for (const u of crewUnits) {
+      const v = u.crewView?.();
+      if (v && (v.id === id || v.body === id)) return v;
+    }
+    return undefined;
+  }
   for (const m of mouths) if (!machines.has(m.machine)) throw new Error(`scene: mouth "${m.id}" belongs to "${m.machine}", which is not a machine of this world`);
   /** How the visit began: what "Reset the workshop" goes back to. */
   const initial = store.snapshot();
@@ -1145,6 +1155,8 @@ export function createWorld(opts: WorldOptions): World {
     crew(id): CrewMember | undefined {
       return id === scene.runner.id ? runner.member() : undefined;
     },
+    crewViews: () => crewUnits.map((u) => u.crewView?.() as CrewView),
+    crewView: (id) => crewView(id),
     holding: () => held,
     mode: (id) => loose.get(id)?.mode,
     halfExtents: (id) => loose.get(id)?.half,

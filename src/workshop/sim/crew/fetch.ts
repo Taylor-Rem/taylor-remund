@@ -957,6 +957,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       watch();
     },
 
+    crewView: () => ({ kind: 'fetch', id: spec.id, body: spec.id, member: unit.member() }),
+
     member(): CrewMember {
       const facing = Math.cos(heading - laneYaw) >= 0 ? 1 : -1;
       const speed = state === 'return' || state === 'knocked' ? v : v * facing;
