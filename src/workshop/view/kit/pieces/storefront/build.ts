@@ -53,7 +53,57 @@ const box = (min: V3, max: V3, c = 0.012, omit?: Array<'px' | 'nx' | 'py' | 'ny'
 
 /** Painted wood (cream woodwork, panels, the fascia): wood class, paint coverage 1. */
 function painted(g: BufferGeometry, token: Token, seed: number, along: 'x' | 'y' | 'z' = 'x', shade = 1): KitPart {
-  return setFinish(part('wood', grain(g, along), token, { seed, jitter: 0.035, warm: 0.02, shade }), 1);
+  return age(setFinish(part('wood', grain(g, along), token, { seed, jitter: 0.035, warm: 0.02, shade }), 1), seed);
+}
+
+/** A seeded 0..1 per point (same point, same value: shared corners chip together). */
+function hash3(x: number, y: number, z: number, seed: number): number {
+  let h = Math.imul(Math.round(x * 997) ^ 0x9e3779b1, 0x85ebca6b) ^ Math.imul(Math.round(y * 991) + seed * 7919, 0xc2b2ae35) ^ Math.imul(Math.round(z * 983), 0x27d4eb2f);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * Years of a shop front on its paint, written into the channels the wood class already reads,
+ * on the vertices the part already has (no triangles): paint coverage (surf.z) thinned to the
+ * wood on worn edges where a seeded hash says a chip is, and on everything at the foot (kicked
+ * bare); the vertex colour darkened on faces that look down (grime under the cornice, the
+ * sill, the capitals) and in the splash zone by the ground. Cavity (the AO bake) darkens the
+ * recesses on its own.
+ */
+function age(p: KitPart, seed: number): KitPart {
+  const g = p.geometry;
+  const pos = g.getAttribute('position'), nrm = g.getAttribute('normal'), col = g.getAttribute('color'), surf = g.getAttribute('surf');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const wear = surf.getX(i);
+    const h = hash3(x, y, z, seed);
+    let cover = surf.getZ(i);
+    if (wear > 0.5 && h < 0.45) cover = Math.min(cover, 0.3 + h);
+    if (y < 0.26 && wear > 0.3) cover = Math.min(cover, 0.2 + 0.5 * h);
+    surf.setZ(i, cover);
+    let k = 1;
+    if (nrm.getY(i) < -0.4) k *= 0.62;
+    if (y < 0.16) k *= 0.78 + 0.1 * h;
+    if (k < 1) col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  surf.needsUpdate = true;
+  col.needsUpdate = true;
+  return p;
+}
+
+/** Darken a part's vertex colour toward its top (soot) between y0 and y1 by up to `amount`. */
+function soot(p: KitPart, y0: number, y1: number, amount: number): KitPart {
+  const g = p.geometry;
+  const pos = g.getAttribute('position'), col = g.getAttribute('color');
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.max(0, Math.min(1, (pos.getY(i) - y0) / (y1 - y0)));
+    const k = 1 - amount * t * t;
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  return p;
 }
 /** Bare wood. */
 function bare(g: BufferGeometry, token: Token, seed: number, along: 'x' | 'y' | 'z' = 'x', shade = 1): KitPart {
@@ -175,6 +225,8 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
         // lie it on the pitch, its foot a little proud of the course below
         // each slate's foot kicks out over the course below (the step's shadow is what reads as slates)
         transform(g, chain(onPitch(y, z), T(0, 0, 0.018), new Matrix4().makeRotationZ(tilt), new Matrix4().makeRotationX(-0.12 + R.spread(0.03))));
+        // one slate has slipped its nail: it hangs a little down the pitch, askew
+        if (c === 3 && k === 4) transform(g, chain(onPitch(y, z), T(0.01, -0.05, 0.022), new Matrix4().makeRotationZ(0.22), onPitch(y, z).invert()));
         (R() < 0.12 ? dark : slates).push(g);
       }
     }
@@ -220,17 +272,17 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       const g = box([cx - w / 2 + ins, y0, cz - d / 2 + ins], [cx + w / 2 - ins, y0 + ch - 0.006, cz + d / 2 - ins], 0.008, ['ny']);
       bricks.push(g);
     }
-    b.add(part('paper', mergeGeometries(bricks), 'cable-red', { seed: seed + 6, shade: 0.8, jitter: 0.05, warm: 0.05 }));
+    b.add(soot(part('paper', mergeGeometries(bricks), 'cable-red', { seed: seed + 6, shade: 0.8, jitter: 0.05, warm: 0.05 }), base, base + h, 0.6));
     // mortar behind, so the course lines read dark
     b.add(part('paper', box([cx - w / 2 + 0.008, base, cz - d / 2 + 0.008], [cx + w / 2 - 0.008, base + h, cz + d / 2 - 0.008], 0.004, ['ny']), 'steel', { seed: seed + 7, shade: 0.45 }));
     // lead flashing where it meets the slates
     b.add(part('steel', box([cx - w / 2 - 0.02, base - 0.06, cz - d / 2 - 0.02], [cx + w / 2 + 0.02, base + 0.03, cz + d / 2 + 0.02], 0.01, ['ny']), 'steel', { seed: seed + 17, shade: 0.55 }));
     const capG = box([cx - w / 2 - 0.03, base + h, cz - d / 2 - 0.03], [cx + w / 2 + 0.03, base + h + 0.045, cz + d / 2 + 0.03], 0.012);
-    b.add(stone(capG, seed + 8, 0.7));
+    b.add(soot(stone(capG, seed + 8, 0.7), base + h, base + h + 0.045, 0.55));
     const pot = lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.055, 0.02, { fillet: 0.006, segs: 1 }).to(0.042, 0.03, { sharp: true }).to(0.038, 0.13, { smooth: true }).to(0.048, 0.15, { sharp: true }).to(0.044, 0.165, { sharp: true }).to(0.03, 0.16), { segs: 7, band: 0, caps: 'start' });
     [-0.075, 0.08].forEach((dx, i) => {
       const hh = i ? 1.12 : 1;
-      b.add(part('paper', transform(pot.clone(), chain(T(cx + dx, base + h + 0.045, cz + R.spread(0.02)), new Matrix4().makeScale(1, hh, 1), new Matrix4().makeRotationZ(R.spread(0.04)))), 'paint-orange', { seed: seed + 9 + i, shade: 0.8, jitter: 0.08 }));
+      b.add(soot(part('paper', transform(pot.clone(), chain(T(cx + dx, base + h + 0.045, cz + R.spread(0.02)), new Matrix4().makeScale(1, hh, 1), new Matrix4().makeRotationZ(R.spread(0.04)))), 'paint-orange', { seed: seed + 9 + i, shade: 0.8, jitter: 0.08 }), base + h + 0.08, base + h + 0.24, 0.7));
     });
   }
   // a vent pipe with a cowl, through the slates toward the right
@@ -430,7 +482,16 @@ function door(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       const q = dx * dx + dz * dz;
       return q < 1 && y > 0.07 ? [x, y - 0.007 * (1 - q), z] : [x, y, z];
     }, { keepSurf: true });
-    b.add(stone(g, seed + 70, 0.75));
+    // its front edge worn pale by feet, a dark scuff where they land
+    const st0 = stone(g, seed + 70, 0.75);
+    const sp = g.getAttribute('position'), sc = g.getAttribute('color'), ss = g.getAttribute('surf');
+    for (let i = 0; i < sp.count; i++) {
+      const front = sp.getZ(i) > zd + recess + 0.12, top = sp.getY(i) > 0.06;
+      const k = front && top ? 1.32 : top ? 0.86 : 1;
+      if (k !== 1) sc.setXYZ(i, sc.getX(i) * k, sc.getY(i) * k, sc.getZ(i) * k);
+      if (front && top) ss.setX(i, 1);
+    }
+    b.add(st0);
   }
   // a threshold strip of brass under the leaf
   b.add(brass(box([x0, y0 - 0.005, zd - 0.02], [x1, y0 + 0.004, zd + 0.06], 0.003), seed + 71, 0.2));
@@ -535,10 +596,12 @@ function awning(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: bo
 }
 
 /**
- * The lit window's glow: bulb class at its indicator level, whose light goes as the cube of
- * the vertex colour away from the facing centre, so these are bigger than they look.
+ * The lit window's glow: the bulb class at its LAMP level (finish 0), restrained by a dim
+ * vertex colour so the brightest of it stays under the bloom threshold (no halo over the
+ * card). The back wall faces the camera (cos 33° of the light reaches it), the floor only
+ * grazes it, so the floor's colour runs higher. Vertex colour is the light.
  */
-const GLOW = { peak: 0.78, edge: 0.3, rgb: linear('amber-glow') } as const;
+const GLOW = { wall: [0.06, 0.3], floor: [0.1, 0.55], rgb: ((a, b) => [a[0] * 0.55 + b[0] * 0.45, a[1] * 0.55 + b[1] * 0.45, a[2] * 0.55 + b[2] * 0.45] as const)(linear('amber-glow'), linear('amber')) } as const;
 
 // ---- the window's inside: display floor, back partition (lit and unlit), the hanging lamp, the OPEN sign, the picture
 
@@ -579,10 +642,10 @@ function windowInside(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, 
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i);
       const d = Math.hypot((x + 0.1) / 0.75, (y - 0.25) / 0.6);
-      const k = GLOW.edge + (GLOW.peak - GLOW.edge) * Math.exp(-d * d * 1.6);
-      // amber at the hot spot, deeper toward the edges (bulb class: vertex colour is the light)
+      const k = GLOW.wall[0] + (GLOW.wall[1] - GLOW.wall[0]) * Math.exp(-d * d * 1.6);
+      // amber at the hot spot, deeper toward the edges
       colA.setXYZ(i, k * GLOW.rgb[0], k * GLOW.rgb[1], k * GLOW.rgb[2]);
-      surf.setXYZ(i, 0, 0, 1);
+      surf.setXYZ(i, 0, 0, 0);
     }
     lit.add({ material: 'bulb', geometry: g });
     // and the pool of light the lamp throws on the display floor (the floor itself stays dark wood; lit, this lies on it)
@@ -590,14 +653,15 @@ function windowInside(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, 
     const fl = grid(x0 + 0.01, x1 - 0.01, -(F - 0.035), -(zb + 0.01), 0, 10, 5);
     transform(fl, chain(T(-cx, yf + 0.0025 - cy, -cz), new Matrix4().makeRotationX(-Math.PI / 2)));
     const fp = fl.getAttribute('position'), fc = fl.getAttribute('color'), fs = fl.getAttribute('surf');
-    const lx = x0 + 0.42 - cx, lz = zb + 0.22 - cz;
+    // the pool under the lamp, toward the glass where the street sees it
+    const lx = x0 + 0.5 - cx, lz = F - 0.26 - cz;
     for (let i = 0; i < fp.count; i++) {
-      const d = Math.hypot((fp.getX(i) - lx) / 0.55, (fp.getZ(i) - lz) / 0.45);
-      const k = GLOW.edge * 0.6 + (GLOW.peak - GLOW.edge * 0.6) * 0.85 * Math.exp(-d * d * 1.4);
+      const d = Math.hypot((fp.getX(i) - lx) / 0.6, (fp.getZ(i) - lz) / 0.4);
+      const k = GLOW.floor[0] + (GLOW.floor[1] - GLOW.floor[0]) * Math.exp(-d * d * 1.3);
       fc.setXYZ(i, k * GLOW.rgb[0], k * GLOW.rgb[1], k * GLOW.rgb[2]);
-      fs.setXYZ(i, 0, 0, 1);
+      fs.setXYZ(i, 0, 0, 0);
     }
-    lit.add({ material: 'bulb', geometry: fl, castShadow: false });
+    lit.add({ material: 'bulb', geometry: fl });
   }
   // the hanging lamp: a cream shade on a flex, its bulb lit (in the lit node) or dark glass
   {

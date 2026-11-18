@@ -187,7 +187,8 @@ describe('paint', () => {
       const c = vertexColours(a, NODES.slat(1));
       const want = linear(paint);
       const mean = c.reduce((s, v) => s + v[0] + v[1] + v[2], 0) / c.length / (want[0] + want[1] + want[2]);
-      expect(mean).toBeGreaterThan(0.85);
+      // (its undersides carry grime: a little under the token on average)
+      expect(mean).toBeGreaterThan(0.7);
       expect(mean).toBeLessThan(1.15);
     }
     const g = linear('paint-green');
