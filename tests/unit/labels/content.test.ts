@@ -99,7 +99,7 @@ describe('fonts', () => {
 });
 
 describe('contentById', () => {
-  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp'];
+  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp', 'name.belt.dial', 'name.belt.lever', 'name.striker', 'name.dock', 'name.chute', 'mark.shipped', 'mark.return'];
 
   it('resolves every id the simulation speaks in, to the right entry', () => {
     for (const id of ids) expect(contentById(id).text, id).toBeTruthy();

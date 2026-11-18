@@ -17,6 +17,7 @@ import type { Loop } from './loop.ts';
 import { defaultFlags, LOOK, PASS_NAMES, type PassFlags, type ToneMap } from './post.ts';
 import { RIG } from './light.ts';
 import type { Stage, StageStats } from './index.ts';
+import { census, geometryTriangles, type Census } from './census.ts';
 
 export interface StageQuery {
   tier: Tier;
@@ -98,6 +99,10 @@ export interface WorkshopDebug {
   look: typeof LOOK;
   rig: typeof RIG;
   relight(): void;
+  /** Draw one frame (no step) and count every draw by pass, piece and material (census.ts). */
+  census(): Census;
+  /** Triangles in each top-level piece's realised geometry, whatever the camera sees. */
+  geometry(): Record<string, number>;
 }
 
 declare global {
@@ -124,6 +129,7 @@ export function installDebugHooks(stage: Stage, loop: Loop, views: Record<string
     },
     resetStats() {
       loop.clearFrameTimes();
+      stage.resetGpuTimes();
     },
     setLamp(level, colour) {
       stage.lights.setLamp({ level, colour: (colour ?? null) as never });
@@ -132,6 +138,18 @@ export function installDebugHooks(stage: Stage, loop: Loop, views: Record<string
     look: LOOK,
     rig: RIG,
     relight: () => stage.lights.refresh(),
+    census: () => census(stage.renderer, stage.scene, () => loop.advance(0)),
+    geometry() {
+      const out: Record<string, number> = {};
+      stage.scene.traverse((o) => {
+        const k = o.userData['kitPiece'] as string | undefined;
+        if (!k) return;
+        // count a piece once, at its outermost realisation
+        for (let a = o.parent; a; a = a.parent) if (a.userData['kitPiece']) return;
+        out[k] = (out[k] ?? 0) + geometryTriangles(o);
+      });
+      return out;
+    },
     stage,
     loop,
     views,

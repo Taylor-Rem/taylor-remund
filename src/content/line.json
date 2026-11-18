@@ -1,0 +1,13 @@
+{
+  "names": {
+    "dial": { "text": "Belt speed dial", "kind": "ui", "source": "REWRITE.md § D 5 (a speed dial); § B2 X2 (the dial is the tempo)" },
+    "lever": { "text": "Belt direction lever", "kind": "ui", "source": "REWRITE.md § D 5 (a direction lever); § B2 X2 (the lever plays the line backwards)" },
+    "striker": { "text": "Striker", "kind": "ui", "source": "REWRITE.md § B1, machines table (the striker); § C layout" },
+    "dock": { "text": "Dock", "kind": "ui", "source": "REWRITE.md § B1, machines table (the dock); § C layout" },
+    "chute": { "text": "Return chute", "kind": "ui", "source": "REWRITE.md § B1, machines table (the bench edge: the return chute); § C layout" }
+  },
+  "marks": {
+    "shipped": { "text": "SHIPPED", "kind": "ui", "source": "REWRITE.md § B1 property table (marks: shipping marks); § D 7" },
+    "return": { "text": "RETURN TO SENDER", "kind": "ui", "source": "REWRITE.md § D 7 (a tool or a robot comes back up the chute with a RETURN TO SENDER mark)" }
+  }
+}

@@ -68,9 +68,12 @@ export interface Part {
  * - `free`: simulated: falls, tumbles, rests
  * - `held`: in the visitor's hand, spring-driven toward the pointer
  * - `crew`: driven by a crew member (Fetch itself, or a crate in its hands)
- * - `chute`: fell off the bench; waiting to come back up the return chute (do not draw it)
+ * - `machine`: driven by a machine whose mouth it is in (riding the belt, rolling in through the dock door)
+ * - `chute`: fell off the bench, or was sent back; waiting to come back up the return chute (do not draw it)
+ * - `gone`: shipped: out through the dock door, or a spare crate waiting behind it (do not draw it).
+ *   Its `motion().pose` is a hidden spot under the bench, never interpolated.
  */
-export type BodyMode = 'free' | 'held' | 'crew' | 'chute';
+export type BodyMode = 'free' | 'held' | 'crew' | 'machine' | 'chute' | 'gone';
 
 /** Motion state of a loose part: never recorded (§ E5 "Motion"). */
 export interface PartMotion {
@@ -116,8 +119,11 @@ export interface Effect {
  */
 export type Writer = Cause | 'settled';
 
-/** What kind of visitor action opened a transaction (§ E5 rule 3). */
-export type ActionKind = 'release' | 'place' | 'plug' | 'turn' | 'press' | 'text';
+/**
+ * What kind of visitor action opened a transaction (§ E5 rule 3). `grab` is opened only when picking
+ * something up sets other parts moving (Fetch drops the crate in its hands): those parts are the grab's.
+ */
+export type ActionKind = 'release' | 'place' | 'plug' | 'turn' | 'press' | 'text' | 'grab';
 
 /**
  * One field put back by an undo or a reset: an effect run backwards
@@ -182,9 +188,15 @@ export interface Instruction {
   readonly args: Readonly<Record<string, string | number | boolean>>;
 }
 
-/** Anything with a mouth. */
+/**
+ * Anything with a mouth (§ B1 law 2). The world calls `accept` when a part comes to rest in one of its
+ * mouths (`mouth`), with the cause the rest is charged to (§ E5 rule 4). It does its verb (taking the
+ * part in, committing under `cause`) and answers `{ ok: true }`, or answers what it wanted instead (a
+ * content id): the world then leaves the part where it rests and prints that slip. Never a bare refusal.
+ */
 export interface Machine extends Interactable {
-  accept(part: Part, cause: Cause): Outcome;
+  accept(part: Part, cause: Cause, mouth: Id): Outcome;
+  /** For a station with a jack: carry out an instruction under `cause` (the text's transaction). */
   instruct?(cmd: Instruction, cause: Cause): Outcome;
   /** Drop pending work for this cause and return to idle. */
   abort(cause: Cause): void;
@@ -265,9 +277,122 @@ export type SimEvent =
   /** Revert put a part away (§ E5 rule 14): every history entry about it was forgotten first. */
   | { readonly type: 'put-away'; readonly id: Id }
   /** "Reset the workshop": every field that differed from the start, put back in this step (same shape as an undo's restores). */
-  | { readonly type: 'reset'; readonly restores: readonly Restore[] };
+  | { readonly type: 'reset'; readonly restores: readonly Restore[] }
+  // ── the line (§ B1 machines table, § B2 X2, § D 5-7) ──
+  /**
+   * Law 2: a part that came to rest in a mouth was taken in by its machine (`id`). The verb starts now:
+   * the belt carries it, the dock rolls it to the door. (A machine that wanted something else prints a
+   * `card` slip instead, `by` the machine, naming what it wanted.)
+   */
+  | { readonly type: 'taken-in'; readonly id: Id; readonly part: Id; readonly mouth: Id }
+  /**
+   * The striker (`id`) struck a part passing under its arm (§ B2 X2), in the very step the part's centre
+   * crossed under it, whichever way the belt runs. `note` is semitones above the line's root by size
+   * (L 0, M 4, S 7: three sizes, three notes, large is low); `octave` by material (wood 0, metal +1: an
+   * octave above wood; paper +1; rubber -1); timbre is the audio's, by `material`. `part`, `size` and
+   * `material` are null for a misfire: the arm strikes the air (a dry tick).
+   */
+  | { readonly type: 'struck'; readonly id: Id; readonly part: Id | null; readonly size: PartSize | null; readonly material: PartMaterial | null; readonly note: number; readonly octave: number }
+  /** The dock (`id`) shipped a part: it is through the door and gone. The bell. */
+  | { readonly type: 'shipped'; readonly id: Id; readonly part: Id }
+  /**
+   * A shipped part is coming back. `door`: an undo brought it back in through the dock door (the door
+   * opens, a reversing beep; the hop is drawn from `Restore.pose`, the door, to where it is now).
+   * `chute`: RETURN TO SENDER, the dock sent a tool or a robot back; it pops out of the return chute a
+   * moment later (`part.returned`, `flap`).
+   */
+  | { readonly type: 'returned'; readonly id: Id; readonly part: Id; readonly how: 'door' | 'chute' }
+  /** The dock's roll-up door starts to open (`open`) or to close. Its travel is `DockView.door`. */
+  | { readonly type: 'door'; readonly id: Id; readonly open: boolean }
+  /** The return chute's flap kicks open: a part pops out (`part`), or a misfire (null). */
+  | { readonly type: 'flap'; readonly id: Id; readonly part: Id | null }
+  /** A plain crate shipped and a fresh one is set on the crate stack in its place (dropped on from above, as `system`). */
+  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id }
+  // ── Fetch (S5: § B5 "hit by a thrown part"; sim/crew/fetch.ts) ──
+  /**
+   * A part (`by`) hit the crew member `id` hard enough to knock it (`FetchKnock` has the same numbers,
+   * for as long as the knock lasts). `strength` 1..3 from the part's momentum; `dir` the yaw (radians
+   * about +Y, 0 = +Z) it is shoved along; `distance` how far it slides (already cut short of anything
+   * in the way); `spin` the signed yaw it turns while sliding (positive = anticlockwise seen from
+   * above); `dropped` the crate it let go of, if any (charged to the throw).
+   */
+  | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
+  /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
+  | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
+
+/**
+ * A station's own lamp (§ B1 "lamps mean three things"): dark when idle, steady while its verb is
+ * running, blinking slowly as a tell (from `tell()` until the station is used or the tell runs out).
+ */
+export type LampState = 'dark' | 'steady' | 'blink';
+
+/**
+ * What every machine shows (transient; nothing here is recorded). `misfire` is the last Button misfire
+ * as a beat of the machine's verb: its level and the seconds since it began (null before the first).
+ * The beats: the belt lurches back (`BeltView.surface`), the striker strikes air (`struck` with no part),
+ * the dock's door jumps open and shut (`DockView.door`), the chute's flap kicks (`flap` with no part).
+ */
+export interface MachineViewBase {
+  readonly id: Id;
+  readonly station: StationId;
+  readonly lamp: LampState;
+  readonly misfire: { readonly level: 1 | 2; readonly since: number } | null;
+}
+
+/**
+ * The belt (§ B1: carries anything on it at the speed and direction set). `speed`, `direction` and
+ * `running` are its durable settings (the dial, the lever); `surface` and `phase` are what is moving now.
+ */
+export interface BeltView extends MachineViewBase {
+  readonly kind: 'belt';
+  /** The dial's detent, 1 (slowest) to `detents`. Durable. */
+  readonly speed: number;
+  readonly detents: number;
+  /** The lever's side. Durable. */
+  readonly direction: 'forward' | 'backward';
+  /** The lever is in its middle notch when false. Durable. */
+  readonly running: boolean;
+  /** The surface's speed now, units per second along +X (forward is +X, toward the dock): eased, and kicked back by a lurch. */
+  readonly surface: number;
+  /** Units the surface has travelled since the world began (signed, +X): scroll the belt's texture and turn its rollers by it. */
+  readonly phase: number;
+  /** Parts riding it now, in the order they lie along it from the motor end. */
+  readonly riding: readonly Id[];
+}
+
+/** The striker (§ B2 X2): a hammer on a sprung arm over the belt. */
+export interface StrikerView extends MachineViewBase {
+  readonly kind: 'striker';
+  /** How far the arm is cocked back, 0 (at rest) to 1 (fully cocked): it cocks as a riding part approaches. */
+  readonly cock: number;
+  /** Seconds since the last strike (a part or a misfire); Infinity before the first. */
+  readonly since: number;
+  /** The part last struck, or null. */
+  readonly last: Id | null;
+}
+
+/** The dock (§ B1: ships it, out, with a bell; § D 7). */
+export interface DockView extends MachineViewBase {
+  readonly kind: 'dock';
+  /** The roll-up door, 0 shut to 1 fully open (eased; a misfire jumps it). */
+  readonly door: number;
+  /** Parts it has taken in and is rolling to the door, first to go first. */
+  readonly shipping: readonly Id[];
+}
+
+/** The return chute (§ B1 the bench edge: sends it back up the return chute). */
+export interface ChuteView extends MachineViewBase {
+  readonly kind: 'chute';
+  /** Seconds since the flap last kicked open; Infinity before the first. */
+  readonly flap: number;
+  /** Parts waiting inside to come back up. */
+  readonly waiting: number;
+}
+
+/** Every machine's view state; narrow on `kind`. A new machine adds its interface here. */
+export type MachineView = BeltView | StrikerView | DockView | ChuteView;
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
 
@@ -301,8 +426,48 @@ export interface CordView {
  * slide back after overshooting a stop (speed negative along its heading);
  * `held` is in the visitor's hand (wheel spinning); `return` is hurrying
  * back to its lane after being put down; `frozen` is during a Button rung.
+ * In play mode (S5): `pickup` also takes a fresh crate off the stack (it
+ * reaches, then the crate comes into its hands); `place` sets the crate in
+ * its hands on the belt (turn, reach out, lower, let go, arms back); `reach`
+ * stretches for something past its tape and gives up (then the OUT OF MY LANE
+ * slip and a `shrug`); `knocked` is being shoved and spun by a thrown part,
+ * then wobbling back to balance (`CrewMember.knock`), before it `return`s.
  */
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen';
+export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked';
+
+/**
+ * A knock in progress (§ B5, Taylor 2026-11-18: "shoved and spun, not merely bumped into; it wobbles,
+ * finds its balance and goes back to its lane"). The simulation moves the body: `x`, `z` and `heading`
+ * already slide and spin during the first `shove` seconds of the `knocked` state (eased out: fast, then
+ * slowing). The view adds what the collider does not: the lean away from the hit and the wobble back
+ * to upright over the following `wobble` seconds, sized by `strength`.
+ */
+export interface FetchKnock {
+  /** The part that hit it. */
+  readonly by: Id;
+  readonly strength: 1 | 2 | 3;
+  /** Yaw of the shove (radians about +Y, 0 = +Z): the way it slides, the way it leans away from. */
+  readonly dir: number;
+  /** How far it slides (units), already cut short of the bench edge and of every machine. */
+  readonly distance: number;
+  /** Signed yaw it turns while sliding (radians; positive = anticlockwise seen from above). */
+  readonly spin: number;
+  /** Seconds of sliding, then seconds of wobbling, from the start of the `knocked` state. */
+  readonly shove: number;
+  readonly wobble: number;
+}
+
+/**
+ * Where a crew member's eye goes when nothing in its state says otherwise (§ B3 "Fetch's head follows the
+ * pointer", § B5 "watches the pointer"). `held`: the part in the visitor's hand (the pointer, when it
+ * carries something); `moving`: the nearest loose part on the move within range (thrown, falling).
+ * Null: nothing the simulation knows of; the view follows the pointer (only the view knows where it is).
+ */
+export interface Gaze {
+  readonly at: Vec3;
+  readonly what: 'held' | 'moving';
+  readonly id: Id;
+}
 
 /** A robot's transient state (§ E5 "Transient"): where it is and what it intends. Never recorded. */
 export interface CrewMember {
@@ -320,6 +485,12 @@ export interface CrewMember {
   readonly carrying: Id | null;
   /** What it is attending to in the world, if anything (the view may prefer the pointer). */
   readonly lookAt: Vec3 | null;
+  /** S5: where its eye goes otherwise (`lookAt` wins); null: the view follows the pointer. */
+  readonly gaze?: Gaze | null;
+  /** S5: something is carried near it (in the visitor's hand) and it holds its hands up (§ B5). */
+  readonly handsUp?: boolean;
+  /** S5: the knock, while `state` is `knocked`; null otherwise. */
+  readonly knock?: FetchKnock | null;
 }
 
 // ───────────────────────── the world, read-only ─────────────────────────
@@ -352,6 +523,8 @@ export interface WorldView {
   button(): ButtonView;
   /** The cord's state (where the lifted plug is), or undefined for an unknown id. */
   cord(id: Id): CordView | undefined;
+  /** A machine's view state (the belt, the striker, the dock, the chute, ...), or undefined. Narrow on `kind`. */
+  machine(id: Id): MachineView | undefined;
   /** The interactable the pointer is over, from the last `hover` intent. */
   readonly hovered: Id | null;
   /** True from the visitor's first action: attract mode has ended for the visit (§ B3). */
