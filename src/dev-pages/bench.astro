@@ -255,14 +255,18 @@
           const tag = `.${mat}.`;
           const at = m.name.indexOf(tag);
           if (at < 0) return;
+          // label quads merged on an atlas page (T1): one measurement per label, over its own vertices
+          const merged = ((m.geometry.userData['kitSources'] ?? []) as Array<{ start: number; count: number; texture?: string }>).filter((s) => s.texture?.includes('|'));
+          if (merged.length && !m.name.slice(at + tag.length).includes('|')) {
+            for (const s of merged) measureOne(m, s.texture!, s.start, s.count);
+            return;
+          }
           let key = m.name.slice(at + tag.length);
           if (!key.includes('|')) return;
           // a material variant may follow the key (".noshadow"): take the longest prefix the labels know
-          let cap = 0, size = { w: 0, h: 0 };
           for (;;) {
             try {
-              cap = ws.labels.capHeight(key);
-              size = ws.labels.size(key);
+              ws.labels.capHeight(key);
               break;
             } catch {
               const cut = key.lastIndexOf('.');
@@ -270,6 +274,11 @@
               key = key.slice(0, cut);
             }
           }
+          measureOne(m, key, 0, Infinity);
+        });
+        function measureOne(m: Mesh, key: string, start: number, count: number): void {
+          const cap = ws.labels.capHeight(key);
+          const size = ws.labels.size(key);
           const register = key.split(/[:@|]/)[0]!;
           const text = key.slice(key.indexOf('|') + 1);
           const g = m.geometry;
@@ -282,6 +291,7 @@
           let on = false;
           for (let t = 0; t < tris; t++) {
             const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+            if (i0 < start || i0 >= start + count) continue;
             const s0 = project(v0.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld));
             const s1 = project(v1.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld));
             const s2 = project(v2.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld));
@@ -298,7 +308,7 @@
           per.sort((a, b) => a - b);
           const pxPerV = per[Math.floor(per.length / 2)]!;
           out.push({ key, register, text, px: Math.round(pxPerV * (cap / size.h) * 10) / 10, onScreen: on });
-        });
+        }
         return out;
       }
       /** Fetch's drawn height on screen (px): its piece bounds, scaled and placed as drawn, projected. */
