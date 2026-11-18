@@ -78,6 +78,8 @@ export const REVERT_FEEL = {
   glare: { wait: 0.25, on: 0.55, hold: 0.4, off: 0.3 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
+  /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
+  copyRows: 32,
   /** Before it rises: the card's top peeks out of the slot this far (fraction of its rise) and waits this long. */
   peek: 0.09,
   peekHold: 0.3,
@@ -166,6 +168,9 @@ const tmpV3 = new Vector3();
 const tmpQ = new Quaternion();
 const tmpQ2 = new Quaternion();
 const Y = new Vector3(0, 1, 0);
+
+/** Every card Revert may hold up (content ids): the rungs, the deck, and its own two. */
+const REVERT_CARDS = ['card.rung1', 'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing'];
 
 /** Where the dustpan's mouth is, in Revert's root (piece) space. */
 const DUSTPAN = new Vector3(HULL.w / 2 + 0.11, 0.5, 0.06);
@@ -290,16 +295,47 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     };
 
     /** Switch the card's words (only ever while it is stowed in the slot). */
-    const useCard = (content: string): void => {
-      cardContent = content;
-      const key = ctx.labels.card(contentById(content).text, { capHeight: CARD_CAP });
-      const sz = ctx.labels.size(key);
-      copyLabel(ctx.labels.texture(key), region.px.w, region.px.h, regionPx);
+    // every card Revert may hold, painted now (at start-up) rather than on the frame it is wanted
+    const keyOf = new Map<string, string>();
+    const cardKey = (content: string): string => {
+      let k = keyOf.get(content);
+      if (!k) {
+        k = ctx.labels.card(contentById(content).text, { capHeight: CARD_CAP });
+        keyOf.set(content, k);
+      }
+      return k;
+    };
+    for (const id of REVERT_CARDS) {
+      try {
+        cardKey(id);
+      } catch {
+        /* a card the content does not have (yet): painted when asked for */
+      }
+    }
+    /** The next card's label, copied into the region a band of rows a frame while the card waits in its slot. */
+    let copying: { content: string; key: string; row: number } | null = null;
+    let regionHolds: string | null = null;
+    const startCard = (content: string): void => {
+      if (copying?.content === content) return;
+      copying = { content, key: cardKey(content), row: 0 };
+    };
+    /** Copy the next band; true once the whole card is in the region (and uploaded). */
+    const stepCard = (): boolean => {
+      const c = copying;
+      if (!c) return true;
+      const j1 = Math.min(region.px.h, c.row + F.copyRows);
+      copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
+      c.row = j1;
+      if (j1 < region.px.h) return false;
       region.put(regionPx);
+      const sz = ctx.labels.size(c.key);
+      cardContent = regionHolds = c.content;
       cardSize.w = sz.w;
       cardSize.h = sz.h;
       cardScale.x = sz.w / card0.w;
       cardScale.y = sz.h / card0.h;
+      copying = null;
+      return true;
     };
 
     /** The direction to the camera in Revert's own frame, as a gaze (-1..1). */
@@ -677,8 +713,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       const s = now - cardAt;
       switch (cardPhase) {
         case 'stowed':
-          if (want && rv.drawn && lift.x > 0.9) {
-            useCard(want);
+          if (want && want !== cardContent) {
+            if (regionHolds === want) cardContent = want;
+            else startCard(want);
+          }
+          if (want && rv.drawn && lift.x > 0.9 && stepCard() && cardContent === want) {
             cardPhase = 'up';
             cardAt = now;
             cardLift.set(0);
@@ -790,31 +829,45 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
  * A label's pixels (its region of an atlas page, or a texture of its own), resampled bilinearly to
  * `w` × `h` texels, rows top-down, into `out` (RGBA): what `LabelRegion.put` takes.
  */
-function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array): void {
-  const img = tex.image as { data?: ArrayLike<number>; width: number; height: number } | undefined;
+function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array, j0 = 0, j1 = h): void {
+  const img = tex.image as { data?: Uint8Array | Uint8ClampedArray; width: number; height: number } | undefined;
   const data = img?.data;
   if (!img || !data) return;
   const W = img.width, H = img.height;
   const u0 = tex.offset.x, v0 = tex.offset.y, du = tex.repeat.x, dv = tex.repeat.y;
-  for (let j = 0; j < h; j++) {
-    // rows top-down out; the page's rows run bottom-up (v up)
-    const v = 1 - (j + 0.5) / h;
-    const fy = Math.min(H - 1, Math.max(0, (v0 + v * dv) * H - 0.5));
-    const y0 = Math.floor(fy), y1 = Math.min(H - 1, y0 + 1), ty = fy - y0;
+  // the columns' source texels and weights, once per call (the same for every row)
+  if (COLS.w !== w || COLS.tex !== tex) {
+    COLS.a = new Int32Array(w);
+    COLS.b = new Int32Array(w);
+    COLS.t = new Float32Array(w);
     for (let i = 0; i < w; i++) {
-      const u = (i + 0.5) / w;
-      const fx = Math.min(W - 1, Math.max(0, (u0 + u * du) * W - 0.5));
-      const x0 = Math.floor(fx), x1 = Math.min(W - 1, x0 + 1), tx = fx - x0;
-      const a = (y0 * W + x0) * 4, b = (y0 * W + x1) * 4, c = (y1 * W + x0) * 4, d = (y1 * W + x1) * 4;
-      const o = (j * w + i) * 4;
+      const fx = Math.min(W - 1, Math.max(0, (u0 + ((i + 0.5) / w) * du) * W - 0.5));
+      const x0 = Math.floor(fx);
+      COLS.a[i] = x0 * 4;
+      COLS.b[i] = Math.min(W - 1, x0 + 1) * 4;
+      COLS.t[i] = fx - x0;
+    }
+    COLS.w = w;
+    COLS.tex = tex;
+  }
+  const ca = COLS.a!, cb = COLS.b!, ct = COLS.t!;
+  for (let j = j0; j < j1; j++) {
+    // rows top-down out; the page's rows run bottom-up (v up)
+    const fy = Math.min(H - 1, Math.max(0, (v0 + (1 - (j + 0.5) / h) * dv) * H - 0.5));
+    const y0 = Math.floor(fy), ty = fy - y0;
+    const r0 = y0 * W * 4, r1 = Math.min(H - 1, y0 + 1) * W * 4;
+    let o = j * w * 4;
+    for (let i = 0; i < w; i++) {
+      const a = r0 + ca[i]!, b = r0 + cb[i]!, c = r1 + ca[i]!, d = r1 + cb[i]!, tx = ct[i]!;
       for (let k = 0; k < 4; k++) {
         const top = data[a + k]! + (data[b + k]! - data[a + k]!) * tx;
         const bot = data[c + k]! + (data[d + k]! - data[c + k]!) * tx;
-        out[o + k] = top + (bot - top) * ty;
+        out[o++] = top + (bot - top) * ty;
       }
     }
   }
 }
+const COLS: { w: number; tex: Texture | null; a: Int32Array | null; b: Int32Array | null; t: Float32Array | null } = { w: 0, tex: null, a: null, b: null, t: null };
 
 function jointsInto(j: ArmJoints, out: number[]): number[] {
   out[0] = j.yaw;
