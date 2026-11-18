@@ -24,7 +24,8 @@ import { Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 import type { BodyMode, CrewMember, FetchState, Id, Pose, SimEvent, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts';
-import { PRESETS, WHEEL_R, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
+import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
+import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import {
   AngleSpring, Cadence, Derivative, Spring, SpringVec, clamp, damp, fbm1, lerp, outBack, reducedMotionParams, smoothstep, track, wrapAngle,
@@ -59,8 +60,18 @@ export const FETCH_FEEL = {
   pointerMemory: 1.4,
   /** Blinks: every [min, max] seconds. */
   blink: [2.2, 5.5] as readonly [number, number],
-  /** Wheel spin in the air when held (rad/s). */
+  /** Wheel spin in the air when picked up (rad/s), and how long it takes to run down on its bearing (s). */
   heldSpin: 26,
+  heldRunDown: 1.8,
+  /** A knock's strength (the simulation's 1..3) as the performance's 0..1. */
+  knock1: 0.3,
+  knock2: 0.62,
+  knock3: 1,
+  /** A beat cut short (its state left early) fades into the acting under it over this long (s). */
+  beatOut: 0.18,
+  /** The load: the spring takes a crate arriving in its hands (kick), and springs up when it lets one go. */
+  loadIn: 3.2,
+  loadOut: -3.4,
 } as const;
 
 /** The feel, widened so any field can be overridden with any number. */
@@ -128,8 +139,19 @@ const DANGLE: Arms = { left: J(0.7, 1.15, -0.5, 0.6, -0.4, 0.95), right: J(0.65,
 const HANDS_UP: Arms = { left: J(1.75, 0.5, -0.3, 0.6, 0, 1), right: J(1.7, 0.45, -0.3, 0.65, 0, 1) };
 /** Reaching down and forward for a crate on the bench. */
 const REACH: Arms = { left: J(1.05, -0.12, -0.25, 0.35, 1.57, 1), right: J(1.05, -0.12, -0.25, 0.35, 1.57, 1) };
+/** Reaching up for a crate on top of the stack. */
+const REACH_UP: Arms = { left: J(1.95, 0.05, -0.25, 0.3, 1.57, 1), right: J(1.95, 0.05, -0.25, 0.3, 1.57, 1) };
 /** Arms swept back, hurrying. */
 const HURRY: Arms = { left: J(-0.35, 0.25, -0.3, 1.1, -0.3, 0.2), right: J(-0.35, 0.25, -0.3, 1.1, -0.3, 0.2) };
+/** Lobbing a crate onto the belt: thrust out at arm's length. */
+const PLACE_OUT: Arms = { left: J(1.3, -0.16, -0.25, 0.3, 1.57, 0.55), right: J(1.3, -0.16, -0.25, 0.3, 1.57, 0.55) };
+/** The simulation's place timings (sim FETCH_TUNING.place): turn, out, lower, back. */
+const PLACE_T = { turn: 0.3, out: 0.4, lower: 0.18, back: 0.3 } as const;
+/** Rotate [x, z] by `a` (as the performance's own spin frame does). */
+const rot2 = (v: readonly [number, number], a: number): [number, number] => {
+  const c = Math.cos(a), s = Math.sin(a);
+  return [v[0] * c - v[1] * s, v[0] * s + v[1] * c];
+};
 
 // the salute, keyed to the simulation's 1.1 s
 const SALUTE = {
@@ -169,7 +191,6 @@ export class FetchPerformer {
   private flagRate = 0;
   private readonly armL = new SpringVec(toVec(PRESETS.rest.left), { omega: 13, zeta: 0.5 });
   private readonly armR = new SpringVec(toVec(PRESETS.rest.right), { omega: 11.5, zeta: 0.5 });
-  private readonly held = new Spring(0, { omega: 9, zeta: 1 });
   // head and eye
   private readonly headYaw = new Spring(0, { omega: 12, zeta: 0.58 });
   private readonly headPitch = new Spring(0, { omega: 12, zeta: 0.58 });
@@ -298,6 +319,23 @@ export class FetchPerformer {
     const pointer = i.pointer ? new Vector3(...i.pointer) : null;
     const carried = i.carriedAt ? new Vector3(...i.carriedAt) : null;
     const lookAt = m.lookAt ? new Vector3(...m.lookAt) : null;
+    // hands up and where the eye goes otherwise: the simulation says (S5); a world without them, the view's own guess
+    const handsUpNow = (m.handsUp ?? i.nearHeld !== null) && grounded && !frozen;
+    const gazeAt = m.gaze ? new Vector3(...m.gaze.at) : !m.handsUp && i.nearHeld ? new Vector3(...i.nearHeld) : null;
+    // the load: a crate arriving in its hands sinks it on its spring; letting one go, it springs up
+    if (m.carrying !== this.wasCarrying && !frozen) {
+      if (m.carrying && !this.wasCarrying) {
+        this.squash.kick(F.loadIn);
+        this.leanF.kick(-1.2);
+        this.armL.kick([-2.5, 0, 0, 1.5, 0, 0]);
+        this.armR.kick([-2.2, 0, 0, 1.3, 0, 0]);
+      } else if (!m.carrying && this.wasCarrying && grounded) {
+        this.letGoAt = i.time;
+        this.squash.kick(F.loadOut);
+        this.aerial.kick([-3, 0]);
+      }
+      this.wasCarrying = m.carrying;
+    }
 
     let look: Vector3 = ahead(2);
     let arms: Arms = carrying ? PRESETS.carry : PRESETS.rest;
@@ -320,13 +358,11 @@ export class FetchPerformer {
       case 'idle': {
         wander = true;
         if (carried && !pointerOn && st < 0.5) look = carried; // a check on its load as it stops
-        if (i.nearHeld && !carrying) {
-          arms = HANDS_UP;
-          look = new Vector3(...i.nearHeld);
-          squash = -0.3;
-          pupil = 1.25;
-          brow = -0.5;
+        if (handsUpNow && gazeAt) {
+          // the arms are the hands-up beat's (below); the eye stays on the thing carried
+          look = gazeAt;
           pointerOk = false;
+          wander = false;
         }
         break;
       }
@@ -426,23 +462,31 @@ export class FetchPerformer {
           blinkOk = u > 1.6;
           // the ask holds the visitor's eye: only a pointer close by (their hand reaching in) takes it
           pointerOk = u > 2.4 && pointerNear;
-          if (i.nearHeld) {
-            arms = HANDS_UP;
-            look = new Vector3(...i.nearHeld);
+          if (handsUpNow && gazeAt) {
+            look = gazeAt;
             pointerOk = false;
           }
         }
         break;
       }
       case 'pickup': {
-        look = lookAt ?? ahead(0.6, 0);
+        // reach for the crate where it is: down and forward for one on the bench, up on its spring with the
+        // claws high for the top of the stack; once it is coming into its hands, the arms bring it down
+        const at = carried ?? lookAt;
+        look = lookAt ?? carried ?? ahead(0.6, 0);
         pointerOk = false;
         const k = smoothstep(0, 0.25, st);
-        arms = mixArms(PRESETS.rest, REACH, k);
-        arms = { left: { ...arms.left, grip: lerp(1, 0.55, smoothstep(0.32, 0.45, st)) }, right: { ...arms.right, grip: lerp(1, 0.55, smoothstep(0.32, 0.45, st)) } };
+        const handY = P.y - i.half[1] + 2.48 * i.half[1] * 0.5;
+        const high = at ? smoothstep(0.1, 0.7, (at.y - handY) / i.half[1]) : 0;
+        const reach = mixArms(REACH, REACH_UP, high);
+        if (carrying) arms = mixArms(PRESETS.carry, reach, high);
+        else {
+          arms = mixArms(PRESETS.rest, reach, k);
+          arms = { left: { ...arms.left, grip: lerp(1, 0.55, smoothstep(0.32, 0.45, st)) }, right: { ...arms.right, grip: lerp(1, 0.55, smoothstep(0.32, 0.45, st)) } };
+        }
         armOmega = 16;
-        fore = 0.3 * k;
-        squash = 0.3 * k;
+        fore = k * lerp(0.3, 0.05, high);
+        squash = k * lerp(0.3, -0.5, high);
         brow = 0.2;
         lids = [0.15, 0.2];
         turnOk = true;
@@ -501,6 +545,75 @@ export class FetchPerformer {
         if (loose) arms = PRESETS.flail;
         break;
       }
+      case 'place': {
+        // The belt is further from the lane than its arms reach: the simulation carries the crate out over
+        // the belt from its hands. So it is a lob: turning to the belt it winds up (crouched on its spring,
+        // leaning back, the crate drawn in), thrusts as the crate leaves its hands (up on its spring, over
+        // on its wheel, jaws flung open), follows it with its eye and arms held out, and when it is down,
+        // arms back with a bounce and a pleased lower lid.
+        const t0 = PLACE_T.turn;
+        look = carried ?? lookAt ?? ahead(0.9, 0.4);
+        pointerOk = false;
+        blinkOk = false;
+        const hands = i.half[2] * 2.4; // how far from its centre the crate is still in its hands
+        const flying = carried !== null && Math.hypot(carried.x - P.x, carried.z - P.z) > hands;
+        if (flying && this.lobAt < this.placeAt) this.lobAt = i.time;
+        const sinceLob = this.lobAt >= this.placeAt ? i.time - this.lobAt : -1;
+        if (carrying && sinceLob < 0) {
+          // the wind-up: the crate drawn in to the chest, crouched, leaning back
+          const k = smoothstep(0, t0, st);
+          const drawn: Arms = { left: add(PRESETS.carry.left, { swing: -0.25, elbow: 0.35 }), right: add(PRESETS.carry.right, { swing: -0.25, elbow: 0.35 }) };
+          arms = mixArms(PRESETS.carry, drawn, k);
+          armOmega = 14;
+          fore = F.leanLoad - 0.08 * k;
+          squash = 0.14 + 0.22 * k;
+          brow = 0.35;
+          lids = [0.25, 0.3];
+          pupil = 0.9;
+        } else if (carrying || i.time - this.letGoAt < 0.06) {
+          // the thrust and the follow-through: out after it, jaws open, eye on it
+          const u = Math.max(0, sinceLob);
+          const thrust = 1 - smoothstep(0.12, 0.4, u);
+          const open: Arms = { left: { ...PLACE_OUT.left, grip: lerp(0.55, 1, smoothstep(0.02, 0.08, u)) }, right: { ...PLACE_OUT.right, grip: lerp(0.55, 1, smoothstep(0.03, 0.09, u)) } };
+          arms = open;
+          armOmega = u < 0.15 ? 26 : 14;
+          fore = 0.06 + 0.2 * thrust;
+          squash = -0.35 * thrust + 0.05;
+          brow = -0.45;
+          lids = [0, 0.15];
+          pupil = 1.2;
+        } else {
+          const u = i.time - this.letGoAt;
+          const open: Arms = { left: { ...PLACE_OUT.left, grip: 1 }, right: { ...PLACE_OUT.right, grip: 1 } };
+          arms = mixArms(open, PRESETS.rest, smoothstep(0.06, 0.3, u));
+          look = lookAt ?? look;
+          armOmega = 13;
+          fore = 0.02 + 0.05 * (1 - smoothstep(0, 0.3, u));
+          squash = -0.15 * (1 - smoothstep(0.05, 0.35, u));
+          // done: a look at it on the belt, a pleased lower lid
+          brow = -0.25;
+          lids = [0.08, 0.38];
+          pupil = 1.1;
+          blinkOk = u > 0.25;
+        }
+        break;
+      }
+      case 'reach': {
+        // the stretch is the performance's (outOfLane, below); the eye on what it wants
+        look = lookAt ?? ahead(2, 0.3);
+        pointerOk = false;
+        blinkOk = false;
+        turnOk = true;
+        break;
+      }
+      case 'knocked': {
+        // the body is the simulation's (shoved and spun); the lean, whip and wobble are the beat's (below)
+        look = ahead(1.5, 0.4);
+        pointerOk = false;
+        blinkOk = false;
+        turnOk = false;
+        break;
+      }
       case 'frozen':
         break;
     }
@@ -512,8 +625,9 @@ export class FetchPerformer {
       blinkOk = false;
     }
 
-    // ── what to look at: the beat's target, the pointer, or a wander ──
-    if (pointerOk && pointerOn && pointer) look = pointer;
+    // ── what to look at: the beat's target, what the simulation says it watches, the pointer, or a wander ──
+    if (gazeAt && (pointerOk || wander) && !frozen && grounded) look = gazeAt;
+    else if (pointerOk && pointerOn && pointer) look = pointer;
     else if (wander && !frozen) {
       if (!rm && this.glances.due(t)) this.sight = Math.floor(this.glances.random() * (i.sights.length + 2));
       const s = i.sights[this.sight];
@@ -586,9 +700,9 @@ export class FetchPerformer {
       foreT = act === 'skid' ? fore + 0.2 * (1 - smoothstep(0, 0.45, st)) + bf : fore + F.leanAccel * a + bf;
       sideT = sideLean + bs - 0.04 * this.yaw.v * Math.sign(v || 0);
     } else {
-      // the hand holds the body; the wheel swings under it (lean is the wheel's swing, inverted below)
-      foreT = clamp(0.035 * a, -0.4, 0.4);
-      sideT = clamp(-0.035 * aSide, -0.3, 0.3);
+      // off the bench: the body is where the hand (or the fall) has it; in the hand the swing is the held beat's
+      foreT = 0;
+      sideT = 0;
     }
     this.leanF.tune({ zeta: grounded ? 0.42 : 0.16, omega: grounded ? (carrying ? 12 : 14) : 7 });
     this.leanS.tune({ zeta: grounded ? 0.38 : 0.16, omega: grounded ? 10 : 7 });
@@ -608,7 +722,8 @@ export class FetchPerformer {
         this.wheel += (dsFace + (shuffle - this.lastShuffle) * Math.cos(this.bodyTurn.x)) / WHEEL_R;
         this.spin = ds / Math.max(db, 1e-6) / WHEEL_R;
       } else if (inHand) {
-        this.spin = damp(this.spin, (Math.sign(this.spin) || 1) * F.heldSpin, 3, db);
+        // spinning free in the air, running down on its bearing
+        this.spin *= Math.exp(-db / F.heldRunDown);
         this.wheel += this.spin * db;
       } else {
         this.spin = damp(this.spin, 0, 1.2, db);
@@ -637,7 +752,7 @@ export class FetchPerformer {
     // ── roll of the head ──
     const rollV = this.headRoll.step(roll - leanS * 0.6, db);
 
-    const pose: FetchPose = {
+    let pose: FetchPose = {
       lean: [leanF, leanS],
       wheel: this.wheel,
       squash: clamp(sq, -0.6, 1),
@@ -653,8 +768,98 @@ export class FetchPerformer {
       flag: this.flag,
     };
 
+    // ── the beats (kit/pieces/fetch-porter/perform.ts), played over the acting and cross-faded ──
+    const face = yaw + this.bodyTurn.x;
+    const cf = Math.cos(face), sf = Math.sin(face);
+    /** A world direction [x, z] in its own frame (+X its left, +Z its front). */
+    const own = (x: number, z: number): [number, number] => [x * cf - z * sf, x * sf + z * cf];
+    let beat: FetchPose | null = null;
+    let bw = 0;
+    let extraWheel = 0;
+    if (act === 'knocked' && m.knock && !rm) {
+      // shoved and spun: the simulation moves and turns the body, so the beat's own slide and spin are zeroed;
+      // its lean, whip and wobble are kept, carried out of the beat's spun frame into the body's
+      const kn = m.knock;
+      const s = kn.strength >= 3 ? F.knock3 : kn.strength === 2 ? F.knock2 : F.knock1;
+      const L = knockedLength(s);
+      const tb = (st * L) / Math.max(0.1, kn.shove + kn.wobble);
+      const from = own(-Math.sin(kn.dir), -Math.cos(kn.dir));
+      const kp = knockedBeat(tb, { from, strength: s });
+      const sp = kp.spin ?? 0;
+      const tip = rot2([kp.lean![1], kp.lean![0]], -sp);
+      kp.lean = [tip[1], tip[0]];
+      const hd = rot2([kp.headRoll ?? 0, -(kp.headPitch ?? 0)], -sp);
+      kp.headRoll = hd[0];
+      kp.headPitch = -hd[1];
+      kp.spin = 0;
+      kp.slide = [0, 0];
+      beat = kp;
+      bw = smoothstep(0, 0.035, st) * (1 - smoothstep(L * 0.8, L, tb));
+      // a wallop: the wheel spins wild while the tyre is off the bench
+      extraWheel = (kn.spin >= 0 ? 1 : -1) * smoothstep(0.55, 1, s) * 9 * Math.max(0, Math.min(tb, 0.3) - 0.04);
+    } else if (act === 'reach' && !rm) {
+      const tgt = lookAt ?? ahead(2, 0);
+      const op = outOfLane(st, { toward: own(tgt.x - P.x, tgt.z - P.z) });
+      op.slide = [0, 0];
+      beat = op;
+      bw = smoothstep(0, 0.08, st);
+    }
+    if (beat) {
+      this.lastBeat = beat;
+      this.lastBeatW = bw;
+      this.beatEnd = i.time;
+      this.extraWheel = extraWheel;
+    } else if (this.lastBeat) {
+      // its state left early (the simulation moved on): let the beat go, not cut it
+      const k = 1 - (i.time - this.beatEnd) / F.beatOut;
+      if (k <= 0) this.lastBeat = null;
+      else {
+        beat = this.lastBeat;
+        bw = this.lastBeatW * smoothstep(0, 1, k);
+        extraWheel = this.extraWheel;
+      }
+    }
+    if (beat && bw > 0) pose = blendPose(pose, beat, bw);
+    // set down: the spring takes it, it steadies (from the moment it is back on its wheel)
+    const sinceDown = i.time - this.downAt;
+    if (grounded && sinceDown >= 0 && sinceDown < LENGTHS.setDown && !rm) {
+      pose = blendPose(pose, setDownBeat(sinceDown, { from: this.lastHeld ?? undefined, spin: 6 }), 1 - smoothstep(0.55, LENGTHS.setDown, sinceDown));
+    }
+    // in the hand: the root at the hand, the torso held, the wheel and limbs a pendulum under it, trailing the hand
+    this.heldW.step(inHand ? 1 : 0, dt);
+    if (this.heldW.x > 1e-3) {
+      if (inHand) {
+        const hv = this.handV;
+        const k = 1 - Math.exp(-12 * dt);
+        const inv = db > 0 ? 1 / db : 0;
+        hv.x += (moved.x * inv - hv.x) * k;
+        hv.y += ((this.lastY === null ? 0 : (P.y - this.lastY) * inv) - hv.y) * k;
+        hv.z += (moved.z * inv - hv.z) * k;
+        const [lx, lz] = own(hv.x, hv.z);
+        this.lastHeld = heldBeat(st, { carry: [lx, hv.y, lz], spin: 0 });
+      }
+      if (this.lastHeld) pose = blendPose(pose, this.lastHeld, clamp(this.heldW.x, 0, 1));
+    }
+    this.lastY = P.y;
+    // hands up: something carried near it (the simulation says); the head and eye stay the acting's (on the thing)
+    if (handsUpNow && !this.huWas) this.huAt = i.time;
+    this.huWas = handsUpNow;
+    this.huW.step(handsUpNow && !carrying ? 1 : 0, dt);
+    if (this.huW.x > 1e-3 && !rm) {
+      const hp = handsUpBeat(i.time - this.huAt);
+      hp.headYaw = pose.headYaw ?? 0;
+      hp.headPitch = (pose.headPitch ?? 0) + 0.12;
+      hp.headRoll = pose.headRoll ?? 0;
+      hp.gaze = pose.gaze ?? [0, 0];
+      pose = blendPose(pose, hp, clamp(this.huW.x, 0, 1));
+    } else if (handsUpNow && rm) pose = { ...pose, arms: HANDS_UP };
+    // the wheel and the pennant are the acting's own (they turn with the ground and the air)
+    pose.wheel = this.wheel + extraWheel;
+    pose.flag = this.flag;
+    pose.spin = 0;
+    pose.slide = [0, 0];
+
     // ── the root ──
-    this.held.step(inHand || loose ? 1 : 0, dt);
     const root = this.rootM;
     if (grounded) {
       const pos = new Vector3(P.x, P.y - i.half[1], P.z).addScaledVector(fwd, shuffle);
@@ -669,22 +874,33 @@ export class FetchPerformer {
       const off = new Vector3(0, -i.half[1], 0).applyQuaternion(Q);
       root.compose(P.clone().add(off), Q, new Vector3(1, 1, 1));
     }
-    if (this.held.x > 1e-3) {
-      // held: the body stays in the hand and the wheel swings: undo the lean about the axle, weighted
-      const lm = poseMatrices({ lean: [leanF * this.held.x, leanS * this.held.x] }).lean!;
-      lm.multiply(new Matrix4().makeTranslation(0, -WHEEL_R, 0));
-      root.multiply(lm.invert());
-    }
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
 
-    // contact shadow: under the tyre, fading as it leaves the bench
-    const foot = new Vector3().setFromMatrixPosition(root);
-    const h = Math.max(0, foot.y);
+    // contact shadow: under the tyre where the pose puts it (a lean, a hop), fading as it leaves the bench
+    const [cx, cz] = contactPoint(pose);
+    const foot = new Vector3(cx, 0, cz).applyMatrix4(root);
+    const h = Math.max(0, foot.y) + Math.max(0, pose.lift ?? 0);
     // a contact shadow only: the stage's cast shadow does the rest once it leaves the bench
     const shadow = { x: foot.x, z: foot.z, y: 0, r: 0.2, strength: 1 - smoothstep(0, 0.3, h) };
     return { pose, root, shadow };
   }
 
+  private wasCarrying: Id | null = null;
+  private letGoAt = -Infinity;
+  private placeAt = -Infinity;
+  private lobAt = -Infinity;
+  private downAt = -Infinity;
+  private lastBeat: FetchPose | null = null;
+  private lastBeatW = 0;
+  private beatEnd = -Infinity;
+  private extraWheel = 0;
+  private lastHeld: FetchPose | null = null;
+  private readonly heldW = new Spring(0, { omega: 22, zeta: 1 });
+  private readonly handV = new Vector3();
+  private lastY: number | null = null;
+  private huWas = false;
+  private huAt = -Infinity;
+  private readonly huW = new Spring(0, { omega: 16, zeta: 1 });
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
@@ -723,8 +939,12 @@ export class FetchPerformer {
     }
     if (to === 'held') {
       this.squash.kick(-5);
-      this.spin = this.spin || 12;
+      // lifted, the wheel flies up to speed (the way it was turning, or forward)
+      this.spin = (Math.sign(this.spin) || 1) * F.heldSpin;
     }
+    if (from === 'held' && to === 'return') this.downAt = time;
+    if (to === 'knocked') this.squash.kick(4);
+    if (to === 'place') this.placeAt = time;
     if (to === 'fumble') this.squash.kick(0.8);
     if (from === 'fumble' && to === 'offer') this.squash.kick(-1);
   }
@@ -783,6 +1003,8 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const ca = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
     const cb = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
     const CATCH = 0.3;
+    const dp = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
+    const dd0 = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
 
     const view: StationView = {
       root,
@@ -869,7 +1091,18 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
             restRoot.multiply(bodyRest0).invert();
             bodyNow.copy(out.root).multiply(ms.lean!).multiply(ms.body!);
             delta.multiplyMatrices(bodyNow, restRoot);
-            c.matrix.premultiply(delta);
+            // only a crate in its hands rides its body; one the simulation carries out of reach (the lob onto
+            // the belt) is where the simulation says, or a lean would swing it a long way at arm's length
+            c.matrix.decompose(dp.p, dp.q, dp.s);
+            const dd = Math.hypot(dp.p.x - pa.x, dp.p.z - pa.z);
+            const wr = 1 - smoothstep(half[2] * 2.0, half[2] * 2.6, dd);
+            if (wr >= 1) c.matrix.premultiply(delta);
+            else if (wr > 0) {
+              c.matrix.premultiply(delta).decompose(dd0.p, dd0.q, dd0.s);
+              dp.p.lerp(dd0.p, wr);
+              dp.q.slerp(dd0.q, wr);
+              c.matrix.compose(dp.p, dp.q, dp.s);
+            }
             if (catchFrom && catchFrom.id === member.carrying) {
               catchFrom.t0 ??= frame.time;
               const k = (frame.time - catchFrom.t0) / CATCH;
