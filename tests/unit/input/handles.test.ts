@@ -135,7 +135,7 @@ describe('the dial (turn)', () => {
 
   it('a drag ROUND it, clockwise from the top, turns it up through its detents, one turn intent per detent', () => {
     const { drag, arc, acts } = setup();
-    // from straight up (-90°) clockwise by 70°: two detents at 32° each
+    // from straight up (-90°) clockwise by 70°: two detents at 36° each (past halfway, with the hysteresis)
     const out = drag(arc(300, 300, 26, -90, -20));
     expect(acts(out)).toEqual([
       { type: 'turn', id: 'dial', value: 0.75 },
@@ -197,6 +197,20 @@ describe('the dial (turn)', () => {
     expect(acts(out)).toEqual([{ type: 'turn', id: 'dial', value: 0.5 }]);
     g.wheel(10, 10, 100, s(0, 0).t);
     expect(g.drain()[0]).toMatchObject({ type: 'zoom' });
+  });
+
+  it('a roll of the wheel that began as a zoom stays a zoom when the pointer comes over the dial', () => {
+    const { g, s, acts } = setup();
+    g.wheel(200, 300, -100, s(0, 0).t);
+    g.wheel(300, 300, -100, s(0, 0, { dt: 80 }).t);
+    g.wheel(300, 300, -100, s(0, 0, { dt: 80 }).t);
+    let out = g.drain();
+    expect(acts(out)).toEqual([]);
+    expect(out.filter((c) => c.type === 'zoom').length).toBe(3);
+    // a fresh roll over it, after a pause, turns it
+    g.wheel(300, 300, -100, s(0, 0, { dt: 600 }).t);
+    out = g.drain();
+    expect(acts(out)).toEqual([{ type: 'turn', id: 'dial', value: 0.75 }]);
   });
 
   it('on touch: a tap steps it; a drag turns it and never pans', () => {

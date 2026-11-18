@@ -306,6 +306,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     },
     screen: screenOf,
     unitsPerPx: (p) => picking.unitsPerPixel(upp.set(p[0], p[1], p[2])),
+    project(p) {
+      const s = stage.camera.worldToScreen(upp.set(p[0], p[1], p[2]));
+      if (s.z > 1) return null;
+      return [((s.x + 1) / 2) * (canvas.clientWidth || 1), ((1 - s.y) / 2) * (canvas.clientHeight || 1)];
+    },
     panels: () => panelIds,
     ...(opts.carry ? { carry: opts.carry } : {}),
   });

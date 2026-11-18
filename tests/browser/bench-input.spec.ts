@@ -260,7 +260,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
 
   // 2. the lever: thrown to reverse (two notches left)
   const lever = await bringIntoView(page, hand, 'belt-lever', kind);
-  const notch = Math.max(22, lever.r * 0.7);
+  const notch = Math.max(22, lever.r * 0.55);
   await use(page, hand, line(lever, { x: lever.x - notch * 2 - 8, y: lever.y + 2 }, 10), 20);
   await expect.poll(async () => belt(page), { timeout: 2000 }).toMatchObject({ running: true, direction: 'backward' });
 
@@ -277,6 +277,11 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
   const z0 = (await setting(page, 'lamp', 'z')) as number;
+  // where the light falls on screen at the grab: the hand's travel moves it from there
+  const light0 = await page.evaluate(() => {
+    const B = (window as any).__bench;
+    return B.project(B.ws.world.machine('lamp').aim) as XY;
+  });
   const vp = page.viewportSize()!;
   const to = { x: Math.min(vp.width - 20, lamp.x + vp.width * 0.18), y: Math.min(vp.height - 20, lamp.y + vp.height * (kind === 'touch' ? 0.32 : 0.2)) };
   await hand.down(lamp);
@@ -302,10 +307,11 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   // it points at the bench where the hand let go (inside what the arm reaches)
   const under = await page.evaluate(([x, y]) => {
     const ws = (window as any).__bench.ws;
+    // (bench point of the light's screen point moved by the hand's travel)
     const c = ws.stage.renderer.domElement;
     const p = ws.stage.camera.benchPoint({ x: (x / c.clientWidth) * 2 - 1, y: -(y / c.clientHeight) * 2 + 1 }, 0);
     return [p.x, 0, p.z] as number[];
-  }, [to.x, to.y] as const);
+  }, [light0.x + to.x - lamp.x, light0.y + to.y - lamp.y] as const);
   // the arm reaches only so far: compare with the nearest point it can reach
   const want = await page.evaluate(([x, z]) => {
     const reach = (window as any).__bench.ws.world.machine('lamp').reach as [number, number][];
@@ -322,7 +328,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     }
     return inside ? [x, z] : best;
   }, [under[0]!, under[2]!] as const);
-  expect(Math.hypot(x1 - want[0]!, z1 - want[1]!), `aim ${x1},${z1} vs the bench under the hand ${want[0]},${want[1]}`).toBeLessThan(0.35);
+  expect(Math.hypot(x1 - want[0]!, z1 - want[1]!), `aim ${x1},${z1} vs the light moved with the hand ${want[0]},${want[1]}`).toBeLessThan(0.35);
 
   // 5. Patch: lifted off its stool and set down on the bench in front of it
   const patch = await bringIntoView(page, hand, 'patch', kind);

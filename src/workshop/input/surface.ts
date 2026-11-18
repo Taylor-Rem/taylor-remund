@@ -28,6 +28,8 @@ export interface SurfaceDeps {
   screen?(id: Id): { x: number; y: number; r: number } | null;
   /** Ids that open something of the page's (the phone): a hand presses them like a handle. */
   panels?(): ReadonlySet<Id>;
+  /** A world point on screen (CSS px of the canvas), or null behind the camera. */
+  project?(p: Vec3): [number, number] | null;
   /** World units per CSS pixel at a world point (the camera's scale there), for reaches measured on screen. */
   unitsPerPx?(p: Vec3): number;
   /** A handle's reading (default: `readingFromWorld`). */
@@ -44,7 +46,7 @@ export interface Surface extends GestureWorld {
   obstacles(exclude: Id | null): Obstacle[];
 }
 
-/** Tune here: the lamp's arm (a unit held that `slide`s: its aim rides the bench under the hand). */
+/** Tune here: the lamp's arm (a unit held that `slide`s: the light it casts moves with the hand on screen). */
 export const AIM_TUNING = {
   /** The aim follows the hand on a critically damped spring: ω in rad/s. Lower is heavier. */
   omega: 16,
@@ -118,7 +120,16 @@ class Aim {
 
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
-  let carried: { id: Id; what: HeldKind | 'aim'; halfX: number; halfZ: number; reach?: readonly (readonly [number, number])[] } | null = null;
+  let carried: {
+    id: Id;
+    what: HeldKind | 'aim';
+    halfX: number;
+    halfZ: number;
+    reach?: readonly (readonly [number, number])[];
+    /** An aim: where it pointed at the grab (world), and the screen offset from the hand to it (set by the first sample). */
+    aim0?: Vec3;
+    offset?: [number, number] | null;
+  } | null = null;
   const aimT: AimTuning = { ...AIM_TUNING, ...deps.aim };
   const aim = new Aim(aimT.omega);
   const staticObstacles = new Map<string, Obstacle[]>();
@@ -233,8 +244,9 @@ export function createSurface(deps: SurfaceDeps): Surface {
         // an arm that aims (the lamp): the hand drags the point on the bench it is over, and the arm follows with
         // weight, from where it points now (the grab's grip, `gripFor`)
         const now = aimFromWorld(w, id);
-        aim.reset(now ? now.aim[0] : grip[0], now ? now.aim[2] : grip[2], t);
-        carried = { id, what: 'aim', halfX: 0, halfZ: 0, ...(now ? { reach: now.reach } : {}) };
+        const aim0: Vec3 = now ? now.aim : [grip[0], w.scene.bench.top, grip[2]];
+        aim.reset(aim0[0], aim0[2], t);
+        carried = { id, what: 'aim', halfX: 0, halfZ: 0, aim0, offset: null, ...(now ? { reach: now.reach } : {}) };
         return;
       }
       const m = w.motion(id);
@@ -250,7 +262,15 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const ray = deps.ray(x, y);
       const w = deps.world();
       if (carried?.what === 'aim' && w) {
-        const p = benchPoint(ray);
+        // The pool of light moves with the hand on screen: the hand's travel since the grab is applied to where the
+        // light fell, and that screen point is put back on the bench. (Taking the bench point under the hand itself
+        // would send the light behind the wall at the grab: the shade hangs in front of the wall.)
+        if (carried.offset === null && carried.aim0) {
+          const s0 = deps.project?.(carried.aim0) ?? null;
+          carried.offset = s0 ? [s0[0] - x, s0[1] - y] : [0, 0];
+        }
+        const o = carried.offset ?? [0, 0];
+        const p = o[0] === 0 && o[1] === 0 ? benchPoint(ray) : benchPoint(deps.ray(x + o[0], y + o[1]));
         if (p) {
           let [cx, cz] = clampBench(w, p[0], p[2]);
           if (carried.reach) [cx, cz] = clampToPolygon(cx, cz, carried.reach);

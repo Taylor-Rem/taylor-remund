@@ -148,11 +148,11 @@ export const GESTURE_TUNING = {
   /** Keys + and −. */
   keyZoom: 0.8,
   /** A dial: degrees of drag round its centre per detent, and px of drag along it per detent. */
-  dialDeg: 32,
+  dialDeg: 36,
   dialPx: 26,
   /** A lever: px of drag per notch (at least; a big lever on screen takes this share of its radius). */
   leverPx: 22,
-  leverShare: 0.7,
+  leverShare: 0.55,
   /** A detent is taken once the drag is this far (in detents) past the halfway point: no chatter at a boundary. */
   hysteresis: 0.12,
   /** Wheel over a dial: deltaY px per detent; a pause this long (ms) starts a new count. */
@@ -241,6 +241,8 @@ export class Gestures {
   private focus: Id | null = null;
   /** The wheel over a dial: its id, the deltaY gathered, when it last turned. */
   private wheelAcc: { id: Id; d: number; t: number } | null = null;
+  /** The roll the wheel is in: a roll that began as a zoom stays a zoom across a dial it passes over. */
+  private wheelRoll: { mode: 'zoom' | 'dial'; t: number } | null = null;
   /** The detent last sent to each stepped handle, and when. */
   private readonly sent = new Map<Id, { k: number; n: number; t: number }>();
 
@@ -511,9 +513,11 @@ export class Gestures {
   wheel(x: number, y: number, deltaY: number, t: number = this.lastT): void {
     if (!Number.isFinite(deltaY) || deltaY === 0) return;
     this.lastT = t;
-    if (!this.active && !this.holding && !this.world.bracketed) {
+    const roll = this.wheelRoll && t - this.wheelRoll.t <= this.tuning.wheelIdle ? this.wheelRoll.mode : null;
+    if (roll !== 'zoom' && !this.active && !this.holding && !this.world.bracketed) {
       const under = this.world.at(x, y, 'mouse', null);
       if (under.role === 'dial' && under.id) {
+        this.wheelRoll = { mode: 'dial', t };
         let w = this.wheelAcc;
         if (!w || w.id !== under.id || t - w.t > this.tuning.wheelIdle) w = this.wheelAcc = { id: under.id, d: 0, t };
         // a mouse wheel's notch is one detent; a trackpad's small deltas gather to `wheelStep` a detent
@@ -534,6 +538,7 @@ export class Gestures {
       }
     }
     this.wheelAcc = null;
+    this.wheelRoll = { mode: 'zoom', t };
     this.out.push({ type: 'zoom', factor: Math.exp(deltaY * this.tuning.wheel), x, y });
   }
 

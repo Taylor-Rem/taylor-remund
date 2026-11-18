@@ -14,13 +14,13 @@ const down = (x: number, y: number): RayLike => ({ origin: [x / 100, 20, y / 100
 const front = (x: number, y: number): RayLike => ({ origin: [x / 100, -y / 100, 10], dir: [0, 0, -1] });
 
 function surface(w = world(), ray = down, picked: Id | null = null) {
-  return createSurface({ world: () => w, ray, pick: () => (picked ? { id: picked, point: [0, 0, 0] } : null), half: () => null, panels: () => new Set(['line']) });
+  return createSurface({ world: () => w, ray, pick: () => (picked ? { id: picked, point: [0, 0, 0] } : null), half: () => null, panels: () => new Set(['phone']) });
 }
 
 describe('surface: roles from affordances', () => {
   it('every usable thing on the bench has a gesture', () => {
     const s = surface();
-    const roles = Object.fromEntries(['crate-1', 'fetch', 'revert', 'patch', 'lamp', 'belt-dial', 'belt-lever', 'undo-lever', 'button', 'button-cover', 'cord', 'jack-lamp', 'jack-reserved-1', 'line', 'belt', 'striker'].map((id) => [id, s.role(id)]));
+    const roles = Object.fromEntries(['crate-1', 'fetch', 'revert', 'patch', 'lamp', 'belt-dial', 'belt-lever', 'undo-lever', 'button', 'button-cover', 'cord', 'jack-lamp', 'jack-reserved-1', 'phone', 'line', 'belt', 'striker'].map((id) => [id, s.role(id)]));
     expect(roles).toEqual({
       'crate-1': 'part',
       fetch: 'part',
@@ -35,7 +35,8 @@ describe('surface: roles from affordances', () => {
       cord: 'plug',
       'jack-lamp': 'jack',
       'jack-reserved-1': 'jack',
-      line: 'handle', // the phone: a panel of the page's
+      phone: 'handle', // the phone: it opens a panel of the page's
+      line: 'none', // the line itself: nothing to put a hand on
       belt: 'mouth',
       striker: 'none',
     });
@@ -43,11 +44,11 @@ describe('surface: roles from affordances', () => {
 
   it('the controls list: everything usable, grouped by station, the phone in it, no jack and no mouth', () => {
     const list = surface().usable!();
-    for (const id of ['belt-dial', 'belt-lever', 'undo-lever', 'button', 'button-cover', 'cord', 'patch', 'lamp', 'line', 'crate-1', 'fetch']) expect(list).toContain(id);
+    for (const id of ['belt-dial', 'belt-lever', 'undo-lever', 'button', 'button-cover', 'cord', 'patch', 'lamp', 'phone', 'crate-1', 'fetch']) expect(list).toContain(id);
     for (const id of ['belt', 'jack-lamp', 'jack-reserved-1', 'striker']) expect(list).not.toContain(id);
     // grouped: each station's ids are contiguous
     const w = world();
-    const stations = list.map((id) => w.interactable(id)?.station);
+    const stations = list.map((id) => w.interactable(id)?.station ?? 'panels');
     const seen = new Set<string | undefined>();
     for (let i = 0; i < stations.length; i++) {
       if (i > 0 && stations[i] !== stations[i - 1]) expect(seen.has(stations[i])).toBe(false);
@@ -115,6 +116,20 @@ describe('surface: the lamp’s arm has weight', () => {
     expect(p[0]).toBeCloseTo(3, 2);
     expect(p[2]).toBeCloseTo(0, 2);
     s.endCarry();
+  });
+
+  it('the light moves with the hand on screen: the hand’s travel since the grab, from where the light fell', () => {
+    const w0 = world();
+    // straight down: screen px = world ×100, so a projection is exact
+    const s = createSurface({ world: () => w0, ray: down, pick: () => null, half: () => null, project: (p) => [p[0] * 100, p[2] * 100] });
+    const aim0 = (w0.machine('lamp') as unknown as { aim: [number, number, number] }).aim;
+    s.beginCarry('lamp', 'unit', [1, 2.5, -2], 0);
+    // taken at (100, -200) px (the shade, nowhere near the light); moved 150 px right and 50 px down
+    s.carryTarget(100, -200, 0);
+    let p = s.carryTarget(250, -150, 16);
+    for (let t = 32; t <= 800; t += 16) p = s.carryTarget(250, -150, t);
+    expect(p[0]).toBeCloseTo(aim0[0] + 1.5, 2);
+    expect(p[2]).toBeCloseTo(aim0[2] + 0.5, 2);
   });
 
   it('Patch (held, does not slide) rides a lifted plane like a part', () => {
