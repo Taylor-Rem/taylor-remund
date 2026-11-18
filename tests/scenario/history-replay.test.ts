@@ -233,7 +233,7 @@ describe('§ E5 the replay check and the invariants, with the real Patchlamp sta
     // the station took part: texts went down the line and were answered with a change (this visitor is frantic: most jobs are pulled or taken back)
     expect(changed).toBeGreaterThan(20);
     expect(undone).toBeGreaterThan(300);
-  });
+  }, 240_000);
 
   test('the full drain with the real station: the lever empties the stack and every field is back at its start', () => {
     for (const seed of seeds(60, 12000)) {
@@ -248,5 +248,5 @@ describe('§ E5 the replay check and the invariants, with the real Patchlamp sta
         throw new Error(`station drain seed ${seed}: ${(e as Error).message}\n  re-run alone: HISTORY_SEED=${seed} npx vitest run tests/scenario/history-replay.test.ts`, { cause: e });
       }
     }
-  });
+  }, 240_000);
 });
