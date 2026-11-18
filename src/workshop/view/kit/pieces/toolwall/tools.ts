@@ -28,7 +28,7 @@ import type { NodeBuilder } from '../../compose.ts';
 import { chain, mergeGeometries, part, piece, T } from '../../compose.ts';
 import { extrude, lathe, roundedBox } from '../../solids.ts';
 import { profile } from '../../profile.ts';
-import { sweep, polylinePath, sections } from '../../sweep.ts';
+import { sweep, polylinePath, sections, pathLength } from '../../sweep.ts';
 import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { finish, MeshData } from '../../mesh.ts';
@@ -147,9 +147,25 @@ function marks(segs: ReadonlyArray<readonly [P2, P2]>, width: number, z0: number
   return finish(md);
 }
 
-/** extrude in (x, y), thickness t centred on z = 0. */
+/**
+ * The corner radius at each outline point: `r` where the outline turns a real corner (over about
+ * 30 degrees), none where it is already a smooth run of points (an ellipse, a jaw's curve), which
+ * rounding would only double.
+ */
+function cornerRadii(outline: readonly P2[], r: number): number[] {
+  const n = outline.length;
+  return outline.map((p, i) => {
+    const a = outline[(i - 1 + n) % n]!, b = outline[(i + 1) % n]!;
+    const d0 = [p[0] - a[0], p[1] - a[1]], d1 = [b[0] - p[0], b[1] - p[1]];
+    const c = (d0[0]! * d1[0]! + d0[1]! * d1[1]!) / ((Math.hypot(d0[0]!, d0[1]!) * Math.hypot(d1[0]!, d1[1]!)) || 1);
+    return Math.acos(Math.max(-1, Math.min(1, c))) > 0.52 ? r : 0;
+  });
+}
+
+/** extrude in (x, y), thickness t centred on z = 0; a single radius rounds only the outline's real corners. */
 function plate(outline: readonly P2[], t: number, o: Parameters<typeof extrude>[2] = {}): BufferGeometry {
-  return transform(extrude(outline, t, { segs: 2, bevelBase: 0, ...o }), T(0, 0, -t / 2));
+  const radius = typeof o.radius === 'number' ? cornerRadii(outline, o.radius) : o.radius;
+  return transform(extrude(outline, t, { segs: 2, bevelBase: 0, ...o, ...(radius ? { radius } : {}) }), T(0, 0, -t / 2));
 }
 
 // ---- the wrench (LARAVEL) ------------------------------------------------------------
@@ -176,11 +192,12 @@ function wrench(n: NodeBuilder, seed: number): void {
   }
   // the shank, a little thinner than the heads, its edges eased
   const shank: P2[] = [[-0.062, 0.2], [0.062, 0.2], [0.072, 0.92], [-0.072, 0.92]];
-  n.add(steel(plate(shank, 0.05, { bevel: 0.012, radius: 0.02, band: 0 }), seed + 2, 0.95));
+  n.add(steel(plate(shank, 0.05, { bevel: 0.012, radius: 0.02, band: 0, segs: 1 }), seed + 2, 0.95));
   // the dipped grip: fat, rounded, a step at each end where the dip stopped
-  const grip = roundedBox({ w: 0.2, h: 0.48, d: 0.1, r: 0.045, rPlan: 0.06, segs: 2 });
+  const grip = roundedBox({ w: 0.2, h: 0.48, d: 0.1, r: 0.045, rPlan: 0.06, segs: 2, band: 0 });
   n.add(dipped(transform(grip, T(R.spread(0.003), 0.37, 0)), 'cable-red', seed + 3));
-  const lip = roundedBox({ w: 0.17, h: 0.03, d: 0.085, r: 0.012, rPlan: 0.03, segs: 2, band: 0 });
+  // the dip's lips: a step two pixels tall at the wall's view, so a chamfered block
+  const lip = bevelBox({ min: [-0.085, 0, -0.0425], max: [0.085, 0.03, 0.0425], c: 0.01 });
   for (const y of [0.345, 0.855]) n.add(dipped(transform(lip.clone(), T(0, y, 0)), 'cable-red', seed + 4));
   // a stamped size on the big head's face (two little dents read as numerals at a glance)
   n.add(steel(marks([[[0.03, 1.06], [0.03, 1.1]], [[0.055, 1.055], [0.06, 1.095]]], 0.012, 0.0345), seed + 5, 0.45));
@@ -201,21 +218,22 @@ const SD_HANDLE: Array<[number, number]> = [[0.05, 0.69], [0.088, 0.72], [0.096,
 
 function screwdriver(n: NodeBuilder, seed: number): void {
   // shaft
-  n.add(setFinish(steel(lathe(profile(0, 0.08).to(0.028, 0.08, { sharp: true }).to(0.028, 0.66, { sharp: true }).to(0, 0.66), { segs: 10, caps: false, band: 0 }), seed, 1.3), 0.5));
+  n.add(setFinish(steel(lathe(profile(0, 0.08).to(0.028, 0.08, { sharp: true }).to(0.028, 0.66, { sharp: true }).to(0, 0.66), { segs: 8, caps: false, band: 0 }), seed, 1.3), 0.5));
   // the blade: a cone flattened into a flat tip
-  const tip = lathe(profile(0, 0).to(0.03, 0.0, { sharp: true }).to(0.032, 0.03, { smooth: true }).to(0.028, 0.14).to(0, 0.14), { segs: 12, caps: 'start', band: 0 });
+  const tip = lathe(profile(0, 0).to(0.03, 0.0, { sharp: true }).to(0.032, 0.03, { smooth: true }).to(0.028, 0.14).to(0, 0.14), { segs: 8, caps: 'start', band: 0 });
   deform(tip, (x, y, z) => {
     const t = Math.max(0, 1 - y / 0.14);
     return [x * (1 + 0.9 * t), y, z * (1 - 0.72 * t)];
   });
   n.add(steel(tip, seed + 1, 1.15));
   // bolster and brass ferrule
-  n.add(part('brass', lathe(profile(0, 0.62).to(0.036, 0.62, { fillet: 0.006, segs: 1 }).to(0.052, 0.65, { fillet: 0.006, segs: 1 }).to(0.054, 0.71, { fillet: 0.005, segs: 1 }).to(0, 0.71), { segs: 14, band: 0, caps: 'end' }), 'brass', { seed: seed + 2, warm: 0.04 }));
+  n.add(part('brass', lathe(profile(0, 0.62).to(0.036, 0.62, { fillet: 0.006, segs: 1 }).to(0.052, 0.65, { fillet: 0.006, segs: 1 }).to(0.054, 0.71, { fillet: 0.005, segs: 1 }).to(0, 0.71), { segs: 10, band: 0, caps: 'end' }), 'brass', { seed: seed + 2, warm: 0.04 }));
   // the fluted handle: six flutes cut into a turned barrel, a domed end
   const pr = profile(0, 0.69);
   for (const [r, y] of SD_HANDLE.slice(0, -1)) pr.to(r, y, { smooth: true });
   pr.cubic(0, 1.15, 0.05, 1.135, 0.02, 1.15, 3);
-  const h = lathe(pr, { segs: 36, caps: false });
+  // five stations a flute (30 round): the flutes still scallop the silhouette
+  const h = lathe(pr, { segs: 30, caps: false, band: 0 });
   deform(h, (x, y, z) => {
     const r = Math.hypot(x, z);
     if (r < 1e-5) return [x, y, z];
@@ -259,21 +277,21 @@ function hammer(n: NodeBuilder, seed: number): void {
   const pr = profile(0, 0);
   for (const [r, y] of HM_HANDLE) pr.to(r, y, y === 0 ? { fillet: 0.02, segs: 2 } : { smooth: true });
   pr.to(0, 0.98);
-  const h = lathe(pr, { segs: 14, caps: 'start' });
+  const h = lathe(pr, { segs: 12, caps: 'start', band: 0 });
   transform(h, new Matrix4().makeScale(1, 1, 0.74));
   n.add(paintedWood(grain(h, 'y'), 'paint-violet', seed, 0.97, { y0: 0.05, y1: 0.42, amount: 0.3 }));
   // the head: the eye block, the poll turning out to the striking face, the claw
-  const eye = roundedBox({ w: 0.17, h: HM.eyeH, d: 0.15, r: 0.03, rPlan: 0.035, segs: 2 });
+  const eye = roundedBox({ w: 0.17, h: HM.eyeH, d: 0.15, r: 0.03, rPlan: 0.035, segs: 2, band: 0 });
   n.add(steel(transform(eye, T(0, HM.eyeY, 0)), seed + 1, 0.9));
   const yc = HM.eyeY + HM.eyeH / 2;
   const poll = lathe(
     profile(0, 0.05).to(0.072, 0.05, { sharp: true }).to(0.062, 0.12, { smooth: true }).to(0.066, 0.2, { smooth: true }).to(0.082, 0.255, { fillet: 0.01, segs: 2 }).to(0.08, HM.face - 0.012).to(0.066, HM.face, { sharp: true }).to(0, HM.face + 0.004),
-    { segs: 14, caps: false },
+    { segs: 12, caps: false, band: 0 },
   );
   n.add(steel(transform(poll, chain(T(0, yc, 0), new Matrix4().makeRotationZ(-Math.PI / 2))), seed + 2, 1.0));
   n.add(steel(plate(clawOutline(), 0.11, { bevel: 0.02, radius: 0.01, segs: 1, band: 0 }), seed + 3, 0.95));
   // a polished striking face
-  n.add(setFinish(steel(transform(lathe(profile(0, 0).to(0.064, 0, { sharp: true }).to(0.06, 0.006).to(0, 0.008), { segs: 14, band: 0, caps: false }), chain(T(HM.face + 0.003, yc, 0), new Matrix4().makeRotationZ(-Math.PI / 2))), seed + 4), 0.9));
+  n.add(setFinish(steel(transform(lathe(profile(0, 0).to(0.064, 0, { sharp: true }).to(0.06, 0.006).to(0, 0.008), { segs: 12, band: 0, caps: false }), chain(T(HM.face + 0.003, yc, 0), new Matrix4().makeRotationZ(-Math.PI / 2))), seed + 4), 0.9));
   // the handle's end grain and its steel wedge on top of the eye
   n.add(part('wood', transform(bevelBox({ min: [-0.045, 0, -0.04], max: [0.045, 0.012, 0.04], c: 0.006 }), T(0, HM.eyeY + HM.eyeH, 0)), 'wood-light', { seed: seed + 5 }));
   n.add(steel(transform(bevelBox({ min: [-0.05, 0, -0.008], max: [0.05, 0.016, 0.008], c: 0.004 }), T(R.spread(0.004), HM.eyeY + HM.eyeH, 0)), seed + 6, 0.8));
@@ -311,11 +329,15 @@ function pliers(n: NodeBuilder, seed: number): void {
     const pts = handlePath(s);
     const shank = sweep(polylinePath(pts.slice(0, 3), 0.1, 2), { section: sections.roundRect(0.014, 0.008, 1), radius: 0.012, ends: 'flat' });
     n.add(steel(transform(shank, T(0, 0, zc)), seed + 1, 0.95));
-    const grip = sweep(polylinePath([[pts[1]![0] * 1.04, 0.47, 0], pts[2]!, pts[3]!, pts[4]!], 0.12, 3), { radius: 0.05, segs: 8, ends: 'dome', step: 0.07, taper: (t) => 1 - 0.08 * Math.sin(t * Math.PI) + 0.12 * Math.max(0, t - 0.85) / 0.15 });
+    const gp = polylinePath([[pts[1]![0] * 1.04, 0.47, 0], pts[2]!, pts[3]!, pts[4]!], 0.12, 2);
+    const gl = pathLength(gp), gr = 0.05;
+    // round ends in two steps each (a dome of four is lost at the grip's size)
+    const ends = profile(0, 0).to(gr, 0, { fillet: gr, segs: 2 }).to(gr, gl, { fillet: gr, segs: 2 }).to(0, gl);
+    const grip = sweep(gp, { profile: ends, segs: 7, step: 0.09, taper: (t) => 1 - 0.08 * Math.sin(t * Math.PI) + 0.12 * Math.max(0, t - 0.85) / 0.15 });
     n.add(dipped(transform(grip, T(0, 0, zc)), 'paint-blue', seed + 2));
   }
   // the pivot: a fat rivet on the front, a dished washer behind it
-  n.add(steel(transform(lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.05, 0.008, { fillet: 0.004, segs: 1 }).to(0.036, 0.018, { fillet: 0.01, segs: 2 }).to(0, 0.022), { segs: 12, band: 0, caps: false }), chain(T(PL.pivot[0], PL.pivot[1], 0.041), new Matrix4().makeRotationX(Math.PI / 2))), seed + 3, 1.15));
+  n.add(steel(transform(lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.05, 0.008, { fillet: 0.004, segs: 1 }).to(0.036, 0.018, { fillet: 0.01, segs: 1 }).to(0, 0.022), { segs: 10, band: 0, caps: false }), chain(T(PL.pivot[0], PL.pivot[1], 0.041), new Matrix4().makeRotationX(Math.PI / 2))), seed + 3, 1.15));
 }
 
 function pliersShape(): ToolShape {
@@ -341,8 +363,8 @@ function file(n: NodeBuilder, seed: number): void {
   const pr = profile(0, 0);
   for (const [r, y] of FL_HANDLE) pr.to(r, y, y === 0 ? { fillet: 0.025, segs: 2 } : { smooth: true });
   pr.to(0, 0.35);
-  n.add(paintedWood(grain(lathe(pr, { segs: 14, caps: 'start' }), 'y'), 'paint-orange', seed, 0.96, { y0: 0.06, y1: 0.24, amount: 0.22 }));
-  n.add(part('brass', lathe(profile(0, 0.32).to(0.054, 0.32, { fillet: 0.006, segs: 1 }).to(0.056, 0.4, { fillet: 0.008, segs: 1 }).to(0, 0.405), { segs: 14, band: 0, caps: 'end' }), 'brass', { seed: seed + 1, warm: 0.04 }));
+  n.add(paintedWood(grain(lathe(pr, { segs: 12, caps: 'start', band: 0 }), 'y'), 'paint-orange', seed, 0.96, { y0: 0.06, y1: 0.24, amount: 0.22 }));
+  n.add(part('brass', lathe(profile(0, 0.32).to(0.054, 0.32, { fillet: 0.006, segs: 1 }).to(0.056, 0.4, { fillet: 0.008, segs: 1 }).to(0, 0.405), { segs: 10, band: 0, caps: 'end' }), 'brass', { seed: seed + 1, warm: 0.04 }));
   // the tang's shoulder, then the blade
   n.add(steel(plate([[-0.03, 0.39], [0.03, 0.39], [0.05, 0.45], [-0.05, 0.45]], 0.034, { bevel: 0.006, radius: 0.006, band: 0 }), seed + 2, 0.8));
   n.add(steel(plate(FL_BLADE, 0.036, { bevel: 0.008, radius: 0.012, band: 0 }), seed + 3, 0.85));
@@ -373,14 +395,14 @@ const SQ = { stock: { x0: -0.48, x1: 0.08, h: 0.14, t: 0.1 }, blade: { x0: -0.03
 
 function square(n: NodeBuilder, seed: number): void {
   const { stock: s, blade: bl } = SQ;
-  const st = roundedBox({ w: s.x1 - s.x0, h: s.h, d: s.t, r: 0.02, rPlan: 0.022, segs: 2 });
+  const st = roundedBox({ w: s.x1 - s.x0, h: s.h, d: s.t, r: 0.02, rPlan: 0.022, segs: 2, band: 0 });
   n.add(paintedWood(transform(st, T((s.x0 + s.x1) / 2, 0, 0)), 'tape-yellow', seed, 0.95));
   // the brass wear strip along the stock's working edge (its top), three rivets through the stock
   n.add(setFinish(part('brass', bevelBox({ min: [s.x0 + 0.03, s.h - 0.004, -0.03], max: [bl.x0, s.h + 0.006, 0.03], c: 0.003 }), 'brass', { seed: seed + 1, warm: 0.04 }), 0.3));
   for (const x of [-0.37, -0.2, 0.025]) n.add(part('brass', transform(stud(0.017, 0.008, 6), chain(T(x, s.h * 0.48, s.t / 2), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 2 }));
   // the blade, with the hole it hangs by
   const hole = ellipsePts(SQ.hole[0], SQ.hole[1], 0.03, 0.03, 0, Math.PI * 2, 10).slice(0, -1);
-  const blade = transform(extrude([[bl.x0, 0.03], [bl.x1, 0.03], [bl.x1, bl.y1], [bl.x0, bl.y1]], bl.t, { holes: [hole], bevel: 0.005, radius: 0.012, holeRadius: 0.006, segs: 2, band: 0 }), T(0, 0, -bl.t / 2));
+  const blade = transform(extrude([[bl.x0, 0.03], [bl.x1, 0.03], [bl.x1, bl.y1], [bl.x0, bl.y1]], bl.t, { holes: [hole], bevel: 0.005, radius: 0.012, holeRadius: 0.006, segs: 1, band: 0 }), T(0, 0, -bl.t / 2));
   n.add(setFinish(steel(blade, seed + 3, 1.15), 0.35));
   // graduations down the blade's inner edge: every 0.05, longer every fourth
   const ticks: Array<[P2, P2]> = [];
