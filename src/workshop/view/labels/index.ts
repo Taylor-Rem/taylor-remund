@@ -45,7 +45,7 @@ import type { Alpha, AtlasInfo, Page, PageKind, Rect } from './atlas.ts';
 import { Atlas } from './atlas.ts';
 import type { Painted } from './draw.ts';
 import { ARROW, ARROW_ADVANCE, advance, checkText, context, paintPhone } from './draw.ts';
-import { loadFonts } from './fonts.ts';
+import { fontBytes, loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
 import type { Plan, PlanOptions, Register } from './layout.ts';
 import { TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
@@ -209,7 +209,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
   const want = wq !== null ? Number(wq) : opts.workers === true ? 4 : opts.workers || 0;
   const cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 2;
   const nWorkers = typeof Worker !== 'undefined' && want > 0 ? Math.max(1, Math.min(want, cores - 1)) : 0;
-  let pool: Pool | null = nWorkers > 0 ? new Pool(nWorkers, opts.fontBase ?? '/fonts/') : null;
+  let pool: Pool | null = nWorkers > 0 ? new Pool(nWorkers, opts.fontBase ?? '/fonts/', fontBytes()) : null;
   const pending = new Set<Promise<void>>();
 
   const made = new Map<string, LabelEntry>();

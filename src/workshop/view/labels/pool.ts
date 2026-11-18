@@ -25,7 +25,7 @@ export class Pool {
   private next = 1;
   private waiting = new Map<number, { slot: Slot; texels: number; register: string; resolve: (p: PaintedJob) => void; reject: (e: Error) => void }>();
 
-  constructor(n: number, fontBase: string) {
+  constructor(n: number, fontBase: string, fonts: ReadonlyMap<string, ArrayBuffer> = new Map()) {
     for (let i = 0; i < n; i++) {
       let worker: Worker;
       try {
@@ -36,7 +36,8 @@ export class Pool {
       const slot: Slot = { worker, queued: 0, dead: false };
       worker.onmessage = (e: MessageEvent) => this.answer(slot, e.data as Answer);
       worker.onerror = () => this.kill(slot, 'worker error');
-      worker.postMessage({ type: 'init', base: new URL(fontBase, globalThis.location?.href).href });
+      const files = Object.fromEntries([...fonts].map(([family, b]) => [family, b.slice(0)]));
+      worker.postMessage({ type: 'init', base: new URL(fontBase, globalThis.location?.href).href, files }, Object.values(files));
       this.slots.push(slot);
     }
   }

@@ -8,8 +8,8 @@
 
  */
 import type { Token } from '../palette.ts';
-import type { RGB } from './colour.ts';
-import { mix, put, rgb, scale } from './colour.ts';
+import type { RGB, RGBw } from './colour.ts';
+import { mix, mixTo, put, rgb, scaleTo } from './colour.ts';
 import type { FaceRole } from './fonts.ts';
 import { assertFace, font } from './fonts.ts';
 import type { Advance, PhoneMessage, Plan, TapeColour } from './layout.ts';
@@ -157,6 +157,7 @@ export function paintTape(plan: Plan, colour: TapeColour, r: Rng): Painted {
   const color = new Uint8Array(w * h * 4);
   const rough = new Uint8Array(w * h * 4);
   const height = gray(w, h);
+  const c: RGBw = [0, 0, 0];
   for (let y = 0; y < h; y++) {
     // The tape's long edges are a hair rounded.
     const edge = smoothstep(0, h * 0.06, Math.min(y, h - 1 - y));
@@ -171,7 +172,7 @@ export function paintTape(plan: Plan, colour: TapeColour, r: Rng): Painted {
       const blot = 0.8 + 0.2 * n1(x / (cap * 0.22), y / (cap * 0.22));
       const whiten = clamp01(smoothstep(0.12, 0.6, s) * (0.8 + 0.2 * shoulder) * blot + halo * 0.14);
       const sheen = 1 + (n2(x / (cap * 1.6), y / (cap * 0.12)) - 0.5) * 0.08;
-      const c = mix(scale(base, sheen), letter, whiten);
+      mixTo(c, scaleTo(c, base, sheen), letter, whiten);
       const a = inside(x, y);
       put(color, i, c, a);
       height.d[i] = s * 0.8 + halo * 0.12 + edge * 0.12 + (n2(x / (cap * 0.06), y / (cap * 0.9)) - 0.5) * 0.012;
@@ -208,6 +209,8 @@ export function paintPlate(plan: Plan, r: Rng): Painted {
   const color = new Uint8Array(w * h * 4);
   const rough = new Uint8Array(w * h * 4);
   const height = gray(w, h);
+  const c: RGBw = [0, 0, 0];
+  const t1: RGBw = [0, 0, 0];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -218,13 +221,13 @@ export function paintPlate(plan: Plan, r: Rng): Painted {
       // Tarnish: darker and browner toward the edges and in slow blotches; fingers polish the middle.
       const blotch = smoothstep(0.55, 0.8, spots(x / (cap * 0.5), y / (cap * 0.5)));
       const tarnish = 0.82 + 0.12 * smoothstep(0, 1, edgeD) + (mo - 0.5) * 0.14 - blotch * 0.12;
-      let c = mix(scale(brass, tarnish * (0.92 + st * 0.16)), scale(patina, tarnish), clamp01(blotch * 0.5 + (1 - smoothstep(0, 1, edgeD)) * 0.3));
+      mixTo(c, scaleTo(c, brass, tarnish * (0.92 + st * 0.16)), scaleTo(t1, patina, tarnish), clamp01(blotch * 0.5 + (1 - smoothstep(0, 1, edgeD)) * 0.3));
       // The cut edge is burnished bright; the groove is filled with dark paint, worn thin here and there.
       const g = G.d[i]!;
       const lp = Math.max(0, lip.d[i]! - g);
-      c = mix(c, scale(brass, 1.3), clamp01(lp * 1.6));
+      mixTo(c, c, scaleTo(t1, brass, 1.3), clamp01(lp * 1.6));
       const filled = smoothstep(0.3, 0.75, g) * (0.82 + 0.18 * smoothstep(0.25, 0.6, mo));
-      c = mix(c, scale(fill, 0.85 + mo * 0.3), filled);
+      mixTo(c, c, scaleTo(t1, fill, 0.85 + mo * 0.3), filled);
       put(color, i, c, 1);
       height.d[i] = 1 - groove.d[i]! * 0.9 + st * 0.012;
       put(rough, i, [255, (0.3 + st * 0.1 + (1 - tarnish) * 0.5) * (1 - filled) * 255 + filled * 0.78 * 255, (1 - filled) * 255], 1);
@@ -385,22 +388,23 @@ export function paintPaper(plan: Plan, r: Rng): Painted {
   const holeR = cap * 0.07;
 
   const color = new Uint8Array(w * h * 4);
+  const c: RGBw = [0, 0, 0];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const edgeD = Math.min(x, y, w - 1 - x, h - 1 - y) / cap;
       const mo = mottle(x / (cap * 1.4), y / (cap * 1.4));
       const fb = fibre(x / (cap * 0.05), y / (cap * 0.4));
-      let c = mix(paper, aged, clamp01(0.55 - edgeD * 0.9) + (mo - 0.5) * 0.25);
-      c = scale(c, 0.97 + (mo - 0.5) * 0.06 + (fb - 0.5) * 0.03 - 0.07 * Math.exp(-edgeD / 0.18));
+      mixTo(c, paper, aged, clamp01(0.55 - edgeD * 0.9) + (mo - 0.5) * 0.25);
+      scaleTo(c, c, 0.97 + (mo - 0.5) * 0.06 + (fb - 0.5) * 0.03 - 0.07 * Math.exp(-edgeD / 0.18));
       // Rules sit under the ink, broken where the pen of the printer skipped.
       const rv = rules.d[i]! * (0.75 + 0.25 * fb);
-      c = mix(c, rule, rv * 0.8);
-      c = mix(c, redRule, redLine.d[i]! * (0.8 + 0.2 * fb));
+      mixTo(c, c, rule, rv * 0.8);
+      mixTo(c, c, redRule, redLine.d[i]! * (0.8 + 0.2 * fb));
       // Ink: ribbon texture, a little bleed into the fibres, the odd ghost strike.
       const rb = ribbon(x / (cap * 0.03), y / (cap * 0.03));
       const k = clamp01(Math.max(ink.d[i]! * (0.92 + 0.08 * rb), bleed.d[i]! * 0.55) + ghost.d[i]! * 0.5 * rb);
-      c = mix(c, inkC, k);
+      mixTo(c, c, inkC, k);
       let a = 1;
       if (slip) {
         // Torn along the top and bottom from a roll, and a perforation line under the top.
@@ -476,6 +480,10 @@ export function paintSign(plan: Plan, r: Rng): Painted {
   const color = new Uint8Array(w * h * 4);
   const rough = new Uint8Array(w * h * 4);
   const height = gray(w, h);
+  const steel = rgb('steel');
+  const c: RGBw = [0, 0, 0];
+  const t1: RGBw = [0, 0, 0];
+  const fc: RGBw = [0, 0, 0];
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -491,22 +499,22 @@ export function paintSign(plan: Plan, r: Rng): Painted {
       const gr = grime(x / (cap * 0.8), y / (cap * 0.8));
       const edgeD = Math.min(x, y, w - 1 - x, h - 1 - y) / cap;
       // Enamel board: brushed on, darker toward the frame where grime collects.
-      let c = scale(board, 0.94 + bb * 0.08 + (gr - 0.5) * 0.16 - 0.2 * Math.exp(-edgeD / 0.12));
+      scaleTo(c, board, 0.94 + bb * 0.08 + (gr - 0.5) * 0.16 - 0.2 * Math.exp(-edgeD / 0.12));
       const sc = scratches(x / (cap * 1.4), y / (cap * 0.012));
-      if (sc > 0.93) c = mix(c, rgb('steel'), (sc - 0.93) * 3);
+      if (sc > 0.93) mixTo(c, c, steel, (sc - 0.93) * 3);
       // Pinstripe in amber, then the shade, the keyline, the face.
       const pv = smoothstep(0.15, 0.75, P.d[i]!);
-      c = mix(c, amber, pv * 0.9);
+      mixTo(c, c, amber, pv * 0.9);
       const sv = smoothstep(0.15, 0.85, S.d[i]!);
       const diag = clamp01((x + y) / (w + h));
-      c = mix(c, scale(mix(amber, amberDeep, 0.2 + 0.35 * diag), 0.88 + br * 0.18), sv);
+      mixTo(c, c, scaleTo(t1, mixTo(t1, amber, amberDeep, 0.2 + 0.35 * diag), 0.88 + br * 0.18), sv);
       const ov = O.d[i]! * (1 - smoothstep(0.3, 0.7, F.d[i]!));
-      c = mix(c, key, ov * sv);
+      mixTo(c, c, key, ov * sv);
       const fv = smoothstep(0.15, 0.85, F.d[i]!);
       // One coat, brushed along the stroke: a little thinner (board showing) where the brush ran dry.
       const thin = smoothstep(0.7, 0.95, br) * 0.07;
-      const fc = mix(scale(face, 0.93 + br * 0.06 + (gr - 0.5) * 0.06), board, thin);
-      c = mix(c, fc, fv);
+      mixTo(fc, scaleTo(fc, face, 0.93 + br * 0.06 + (gr - 0.5) * 0.06), board, thin);
+      mixTo(c, c, fc, fv);
       put(color, i, c, 1);
       // Paint has thickness: a raised film, a little ridge where the brush lifted at each edge.
       const paint = Math.max(fv, sv * 0.7, pv * 0.6);
