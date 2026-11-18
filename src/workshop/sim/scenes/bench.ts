@@ -108,6 +108,8 @@ export const AT = {
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
    */
   dock: { c: [5.707, 1.04, 3.209], half: [0.94, 1.04, 0.525], yaw: -50 } as Box,
+  /** Where the dock's door (the piece's origin) stands: the ramp below is fitted to bring it here (view/bench.ts DOCK_REACH gives the same). */
+  dockDoor: [5.42, 3.45] as const,
   /** The return chute's mouth, front left, and how parts come out of it. */
   chute: { p: [-8.05, 0.45, 3.2] as Vec3, linvel: [2.4, 0.6, -0.9] as Vec3 },
 } as const;
@@ -136,7 +138,7 @@ const beltEnd = AT.belt.c[0] + AT.belt.half[0];
  * The dock's roller ramp (sim/ramp.ts), owned here. Its shape constants are the dock piece's (DOCK in
  * view/kit/pieces/dock/dims.ts: a 40° turn, the lead and lip, the sill, the first roller 0.12 past the
  * belt's bed); it starts at the belt's far end and is fitted, the piece's way (`fitRamp`), to bring the
- * door as near the dock's spot in `AT` as a bend no tighter than 0.75 allows. The door then stands at
+ * door as near `AT.dockDoor` as a bend no tighter than 0.75 allows. The door then stands at
  * `LINE.door.origin`: that is where the dock piece goes (placed with no yaw, `turn` 40).
  */
 const RAMP_SHAPE = { turn: 40, lead: 0.12, lipZ: 0.24, sillY: 0.1, gap: 0.12, width: 0.92 } as const;
@@ -144,8 +146,8 @@ const RAMP: RampSpec = (() => {
   const t = RAMP_SHAPE.turn * DEG;
   const start: Vec3 = [beltEnd + RAMP_SHAPE.gap, beltTop, AT.belt.c[2]];
   const d = RAMP_SHAPE.lead + RAMP_SHAPE.lipZ;
-  const radius = Math.max(0.75, Math.min(2.2, (start[2] - AT.dock.c[2] - d * Math.sin(t)) / (1 - Math.cos(t))));
-  const approach = Math.max(0, AT.dock.c[0] - start[0] - radius * Math.sin(t) - d * Math.cos(t));
+  const radius = Math.max(0.75, Math.min(2.2, (start[2] - AT.dockDoor[1] - d * Math.sin(t)) / (1 - Math.cos(t))));
+  const approach = Math.max(0, AT.dockDoor[0] - start[0] - radius * Math.sin(t) - d * Math.cos(t));
   return { start, approach, radius, turn: RAMP_SHAPE.turn, lead: RAMP_SHAPE.lead, lipZ: RAMP_SHAPE.lipZ, topY: beltTop, sillY: RAMP_SHAPE.sillY, width: RAMP_SHAPE.width };
 })();
 const DOOR = rampDoor(RAMP);
