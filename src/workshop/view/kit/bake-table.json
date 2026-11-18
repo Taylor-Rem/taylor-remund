@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "codeHash": "541902ecbe2c99e9a9bec4d4",
+  "inputsHash": "f897c0c5ed6cc9970c5871fa",
+  "entries": 36,
+  "vertices": 166666,
+  "changed": 116733,
+  "measurements": 5,
+  "bytes": 336748,
+  "pages": [
+    "/dev/vignette/?hud=0&manual=1 1440x900@1",
+    "/dev/vignette/?hud=0&manual=1&tier=low 1440x900@1",
+    "/dev/vignette/?hud=0&manual=1 390x844@2",
+    "/dev/handoff/ 1440x900@1",
+    "/dev/bench/?hud=0&manual=1 1440x900@1",
+    "/dev/bench/?hud=0&manual=1&tier=low 1440x900@1",
+    "/dev/bench/?hud=0&manual=1 390x844@2"
+  ]
+}

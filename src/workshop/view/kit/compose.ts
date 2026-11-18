@@ -7,7 +7,8 @@ import { Box3, BufferAttribute, BufferGeometry, Euler, Matrix4, Quaternion, Vect
 import type { Token } from '../palette.ts';
 import type { KitPart, MaterialClass, MaterialVariant, Piece, PieceNode } from './types.ts';
 import { ATTR } from './types.ts';
-import { bakeCavity, tint } from './surface.ts';
+import { tint } from './surface.ts';
+import { bakePiece } from './bake.ts';
 import type { AoOptions, TintOptions } from './surface.ts';
 import { transform } from './deform.ts';
 import { offsetLpos } from './space.ts';
@@ -377,7 +378,8 @@ export class PieceBuilder extends NodeBuilder {
       return node;
     };
     const root = walk(this, new Matrix4());
-    if (this.opts.ao !== false) bakeCavity(all, this.opts.ao ?? {});
+    // the cavity bake: looked up in the bake table when it holds this exact input, else ray-traced (kit/bake.ts)
+    if (this.opts.ao !== false) bakePiece(all, this.opts.ao ?? {});
     const size = box.isEmpty() ? { x: 0, y: 0, z: 0 } : { x: box.max.x - box.min.x, y: box.max.y - box.min.y, z: box.max.z - box.min.z };
     const piece: Piece = { name: this.pieceName, root, size, triangles };
     if (Object.keys(this.sockets).length) piece.sockets = { ...this.sockets };
