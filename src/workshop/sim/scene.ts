@@ -100,6 +100,23 @@ export interface FetchSpec {
   readonly outward: Vec3;
   /** Its rounds in play mode (S5); without them it laps its lane as in P1. */
   readonly rounds?: FetchRounds;
+  /** S6: attract mode's lap (§ B3); without it (or without `rounds`) it laps its lane until the first action, as in P1. */
+  readonly attract?: FetchAttract;
+}
+
+/**
+ * S6: attract mode's lap, as Fetch runs it (§ B3): a crate from the stack (`rounds.stack`) to the tray
+ * (`tray`, a mouth), a tap on the phone (`phone`) that texts `jack` (Patch moves the cord there first),
+ * the painted crate to the belt (`rounds.mouth`). The text is `say` (the content id the phone shows) and
+ * `words` (what the parser reads; a test holds that they mean the same). It runs only if every place is
+ * within Fetch's reach of its tape.
+ */
+export interface FetchAttract {
+  readonly tray: Id;
+  readonly phone: Vec3;
+  readonly jack: Id;
+  readonly say: string;
+  readonly words: string;
 }
 
 /**

@@ -14,7 +14,7 @@ const SPEC: LampSpec = { id: 'lamp', station: 'top', name: 'name.lamp', levels: 
 describe("the lamp's reach is the piece's", () => {
   it("the scene's region is the piece's REACH, in the lamp's own space and placed at its clamp in the world", () => {
     expect(L.region.map((p) => [...p])).toEqual(REACH.map((p) => [...p]));
-    expect(L.reach.polygon.map((p) => [...p])).toEqual(reachInWorld(L.clamp));
+    expect(L.reach.polygon.map((p) => [...p])).toEqual(reachInWorld([L.clamp[0], L.clamp[1], L.clamp[2]]));
   });
 
   it('the home aim is inside it, at lamp-space (5.1, 4.9)', () => {

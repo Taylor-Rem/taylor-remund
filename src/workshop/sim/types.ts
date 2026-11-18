@@ -383,7 +383,10 @@ export type SimEvent =
   /** The plug seated in a live jack: the station on that line (`station`, its unit id) answers with one beat (§ D 4). */
   | { readonly type: 'jack.answered'; readonly jack: Id; readonly station: Id }
   /** A part thrown at Patch got one of three answers (§ B5): it ducked, caught it (and set it on the keyshelf), or took it on the head. */
-  | { readonly type: 'patch.reacted'; readonly part: Id; readonly answer: PatchAnswer };
+  | { readonly type: 'patch.reacted'; readonly part: Id; readonly answer: PatchAnswer }
+  // ── S6: attract mode ──
+  /** Attract mode's lap moved on to `beat` (lap `lap`, from 1). `AttractView` has the rest. */
+  | { readonly type: 'attract.beat'; readonly lap: number; readonly beat: AttractBeat };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
@@ -652,7 +655,11 @@ export interface LampView extends StationOnLineView {
  * carry ids, never our sentences; `text` is the visitor's own words.
  */
 export type LineEntry =
-  | { readonly kind: 'sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  /**
+   * A text sent. (S6) `by: 'crew'`: Fetch tapped the phone in attract mode; `text` is then empty and `content`
+   * names the words the phone shows (src/content/attract.json): the simulation holds no sentence.
+   */
+  | { readonly kind: 'sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string; readonly by?: 'crew'; readonly content?: string }
   | { readonly kind: 'working'; readonly n: number }
   | { readonly kind: 'reply'; readonly n: number; readonly reply: Reply; readonly mailbox: boolean }
   | { readonly kind: 'refused'; readonly n: number; readonly reason: RefusalReason; readonly reply: Reply; readonly mailbox: boolean };
@@ -682,11 +689,13 @@ export interface LineView extends MachineViewBase {
 /**
  * Patch's states (§ B5). The job: `notice` (turns to the board), `drawer` (pulls open the drawer for
  * that jack), `work` (does it; the change commits at the end of this stage), `check` (leans out toward
- * the station to see the result is really there), `reply` (texts back). Then `seated`. With the
+ * the station to see the result is really there), `reply` (texts back). Then `seated`. (S6) `roll`: the
+ * stool rolls along its runner (to the job's jack after `notice`, or home after a quiet spell); `plug`:
+ * attract mode only, it moves the cord to the crew's jack before `drawer`, and back after `reply`. With the
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -714,6 +723,12 @@ export interface PatchView extends MachineViewBase {
    * quiet spell). Patch's `at` moves with it.
    */
   readonly stool: { readonly x: number; readonly rest: number; readonly min: number; readonly roll: { readonly from: number; readonly to: number; readonly home: boolean } | null };
+  /**
+   * S6: the cord in Patch's paw (state `plug`, attract mode only): from the jack it is in to the one the
+   * crew's text is for, or back afterwards. The cord's durable jack changes at the end of the stage (as
+   * `crew`, with `cord.unplugged`/`cord.plugged` events `by: 'crew'`); the view draws the plug in the paw meanwhile.
+   */
+  readonly plug: { readonly from: Id; readonly to: Id } | null;
   /** S6: the job in hand, its stages in order with their lengths (seconds), as planned when it was picked up; null when free. */
   readonly plan: readonly { readonly state: PatchState; readonly length: number }[] | null;
 }
@@ -784,7 +799,7 @@ export interface CordView {
  * slip and a `shrug`); `knocked` is being shoved and spun by a thrown part,
  * then wobbling back to balance (`CrewMember.knock`), before it `return`s.
  */
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked';
+export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked' | 'tap';
 
 /**
  * A knock in progress (§ B5, Taylor 2026-11-18: "shoved and spun, not merely bumped into; it wobbles,
@@ -859,6 +874,34 @@ export type CrewView =
   | { readonly kind: 'patch'; readonly id: Id; readonly body: null; readonly view: PatchView }
   | { readonly kind: 'revert'; readonly id: Id; readonly body: Id; readonly view: RevertView };
 
+/**
+ * S6: attract mode's lap (§ B3), beat by beat: Fetch takes a crate off the stack (`fetch-crate`) to the
+ * platen's tray (`to-tray`) and taps the phone (`tap`: the crew's text, "Make it blue."); Patch moves the
+ * cord to PLATEN, does the job and replies (`patch`: follow `PatchView`, its `plan` and `plug`); Fetch
+ * takes the painted crate off the tray (`collect`) to the belt's motor end (`to-belt`); it rides, sounds
+ * at the striker and ships, and the stack is restocked (`ride`: follow the belt, the striker and the dock).
+ * Then the next lap. Fetch's state (`state: 'tap'` for the tap) shows each of its own beats.
+ */
+export type AttractBeat = 'fetch-crate' | 'to-tray' | 'tap' | 'patch' | 'collect' | 'to-belt' | 'ride';
+
+/** S6: attract mode as data a view can follow (`WorldView.attract()`). Transient, never recorded. */
+export interface AttractView {
+  /** Running: before the visitor's first action, on a bench where Fetch can reach every place of the lap. */
+  readonly on: boolean;
+  /** The lap (from 1) and its beat, with seconds since each began. */
+  readonly lap: number;
+  readonly beat: AttractBeat;
+  readonly beatTime: number;
+  readonly lapTime: number;
+  /** The lap's crate, and the number of its text on the line (`LineView.log`), once sent. */
+  readonly crate: Id | null;
+  readonly text: number | null;
+  /** The laps finished, with their start and end (simulation seconds). */
+  readonly laps: readonly { readonly lap: number; readonly start: number; readonly end: number }[];
+  /** The lap's beats in order, each with a nominal length (seconds) and whose view state shows it. */
+  readonly timeline: readonly { readonly beat: AttractBeat; readonly nominal: number; readonly follow: 'fetch' | 'patch' | 'line' }[];
+}
+
 // ───────────────────────── the world, read-only ─────────────────────────
 
 /** What `view`, `audio` and `ui` are allowed to see. They never change it. */
@@ -881,6 +924,8 @@ export interface WorldView {
   crewViews(): readonly CrewView[];
   /** S6: one crew member's view, by its unit id or its body's part id; undefined if it is not crew. */
   crewView(id: Id): CrewView | undefined;
+  /** S6: attract mode's lap, as data the view can follow (`on` false once the visitor has acted). */
+  attract(): AttractView;
   /** What the visitor's hand holds, if anything. */
   holding(): Holding | null;
   /** What the world is doing with a part's body (also on `motion(id).mode`). */

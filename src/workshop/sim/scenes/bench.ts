@@ -471,6 +471,15 @@ function s6DockBay(): StaticSpec {
   return { id: 'dock', shape: { type: 'box', half: [AT.dock.half[0], AT.dock.half[1], (back - front) / 2] }, pose: pose(centre, yaw) };
 }
 
+/**
+ * Attract mode's lap (S6, § B3), every place from the scene: the platen's tray (its mouth), the phone, the
+ * PLATEN jack. The text: "Make it blue." (src/content/attract.json `text.make-it-blue`, verbatim from § B3)
+ * and the word the parser reads for it (tests/scenario/attract.test.ts holds that they mean the same).
+ */
+function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; words: string } {
+  return { tray: PATCHLAMP.platenMouth.id, phone: AT.phone.c, jack: 'jack-platen', say: 'attract.text.make-it-blue', words: 'blue' };
+}
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -536,13 +545,14 @@ export const bench: SceneDesc = {
     toss: { linvel: AT.fumble.linvel, angvel: AT.fumble.angvel },
     outward: [0, 1.6, 14],
     rounds: FETCH_ROUNDS,
+    attract: s6Attract(), // S6
   },
   crewScale: CREW_SCALE,
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: [s6LaneBand()] }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 3 }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
