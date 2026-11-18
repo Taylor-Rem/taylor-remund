@@ -577,8 +577,10 @@ export function createWorld(opts: WorldOptions): World {
     const u = out.undone;
     partCache.clear();
     const restores: Restore[] = [];
-    // parts still flying under the undone action: their location never changed; they come back first (the latest motion)
+    // parts still flying under the undone action: their location never changed (or had, and is restored
+    // below with its entry); they come back first (the latest motion)
     for (const id of u.recalled) {
+      if (u.restores.some((r) => r.target === id && r.field === 'location')) continue;
       const l = loose.get(id);
       const slot = store.slot(id, 'location');
       if (!l || !slot) continue;
