@@ -2,30 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { Matrix4, Vector3 } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { CHUTE, NAMED_POSES, catalogue, chute, poseChute } from '../../../src/workshop/view/kit/pieces/chute/index.ts';
+import { CHUTE, catalogue, chute, ductPath } from '../../../src/workshop/view/kit/pieces/chute/index.ts';
 import { checkGeometry } from './helpers.ts';
 
 const CAP = 2500; // ART-P2 § 4
 
-function find(n: PieceNode, name: string): PieceNode | undefined {
-  if (n.name === name) return n;
-  for (const c of n.children ?? []) {
-    const f = find(c, name);
-    if (f) return f;
-  }
-  return undefined;
-}
+
+const at = (m: Matrix4): Vector3 => new Vector3().setFromMatrixPosition(m);
 
 describe('the return chute', () => {
   const p = chute();
 
-  it('stays inside its triangle cap', () => {
+  it('stays inside its triangle cap, in three meshes', () => {
     const b = K.budget(p, CAP);
     if (process.env['CHUTE_TRIS']) console.warn(b.text, JSON.stringify(p.size));
     expect(p.triangles).toBeLessThanOrEqual(CAP);
     expect(p.triangles).toBe(K.countTriangles(p));
     expect(chute({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
     expect(b.meshes).toBeLessThanOrEqual(3);
+    expect(b.calls).toBeLessThanOrEqual(6);
   });
 
   it('builds deterministically', () => {
@@ -41,35 +36,39 @@ describe('the return chute', () => {
     walk(p.root);
   });
 
-  it('the mouth is above the bench, looking out toward +X and the visitor, a little down', () => {
-    const m = p.sockets!['mouth']!;
-    const at = new Vector3().setFromMatrixPosition(m);
-    const out = new Vector3(0, 0, 1).transformDirection(m);
-    expect(at.y).toBeGreaterThan(0.4);
-    expect(at.y).toBeLessThan(0.9);
-    expect(out.x).toBeGreaterThan(0.5);
-    expect(out.z).toBeGreaterThan(0.3);
-    expect(out.y).toBeLessThan(0);
-    // where the part lands is in front of the mouth, on the bench
-    const land = new Vector3().setFromMatrixPosition(p.sockets!['land']!);
-    expect(land.y).toBe(0);
-    expect(land.clone().sub(at).dot(out)).toBeGreaterThan(0.2);
-    expect(CHUTE.yaw).toBeGreaterThan(0);
+  it('rises from the dark outside the apron, never through the bench', () => {
+    const d = ductPath();
+    const half = CHUTE.core + CHUTE.wall;
+    expect(d.points[0]!.y).toBeLessThan(-2.5);
+    for (const q of d.points) {
+      // below the bench top the duct stays clear of the bench's front (the apron's face is at z = -0.05)
+      if (q.y < 0.05) expect(q.z - half).toBeGreaterThan(0);
+    }
+    // where it passes over the edge, its underside clears the bench top
+    const over = d.points.filter((q) => q.z < 0);
+    for (const q of over) expect(q.y - half).toBeGreaterThan(0.3);
   });
 
-  it('the flap is a node; kicked swings its foot out of the mouth', () => {
-    const q = chute();
-    const flap = find(q.root, 'flap')!;
-    expect(flap).toBeDefined();
-    const foot = (n: PieceNode): Vector3 => new Vector3(0, -0.4, 0).applyMatrix4(n.transform ?? new Matrix4());
-    const mouth = q.sockets!['mouth']!;
-    const out = new Vector3(0, 0, 1).transformDirection(mouth);
-    const at = new Vector3().setFromMatrixPosition(mouth);
-    const shut = foot(flap).sub(at).dot(out);
-    poseChute(q.root, NAMED_POSES['kicked']!);
-    const kicked = foot(flap).sub(at).dot(out);
-    expect(kicked).toBeGreaterThan(shut + 0.2);
-    for (const name of Object.keys(NAMED_POSES)) expect(chute({ pose: name }).triangles).toBe(p.triangles);
+  it('the mouth is 1.2-1.4 up, over the bench, looking along it (+X) and tipped up toward the camera', () => {
+    const m = p.sockets!['mouth']!;
+    const o = at(m);
+    const out = new Vector3(0, 0, 1).transformDirection(m);
+    expect(o.y).toBeGreaterThan(1.2);
+    expect(o.y).toBeLessThan(1.45);
+    expect(o.z).toBeLessThan(-0.6);
+    expect(out.x).toBeGreaterThan(0.8);
+    expect(out.y).toBeGreaterThan(0.3);
+    // the camera (in front, about 33° up) sees into it
+    const toCamera = new Vector3(0.29, 0.52, 0.8).normalize();
+    expect(out.dot(toCamera)).toBeGreaterThan(0.4);
+    const land = at(p.sockets!['land']!);
+    expect(land.y).toBe(0);
+    expect(land.z).toBeLessThan(-0.5);
+    for (const k of ['apron', 'edge', 'bottom']) expect(p.sockets![k], k).toBeDefined();
+  });
+
+  it('nothing hangs in the mouth: the throat stays open', () => {
+    expect(p.root.children ?? []).toHaveLength(0);
   });
 
   it('is in the catalogue', () => {
