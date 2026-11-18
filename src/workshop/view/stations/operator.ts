@@ -159,6 +159,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let walkSim = 1;
     let reactFrom: V3 = [0, 0, 1];
     let lookStart = 0;
+    let hover = 0;
     /** The cord's move (state `plug`): the poses of the paw at the plug, yanking it, and at the new jack. */
     let plugKeys: { base: FullPose; at: FullPose; yank: FullPose; to: FullPose } | null = null;
     const pawW = new Vector3();
@@ -432,6 +433,13 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         if (blendFrom && !reduced && t - blendAt < blendDur) pose = blendTo(blendFrom, pose, t - blendAt, blendDur);
         else blendFrom = null;
         last = pose;
+        // hovered: the ears turn to the pointer (not while a rung plays)
+        const hovGoal = frame.hovered === 'patch' && !w.bracketed && mode !== 'held' ? 1 : 0;
+        hover = reduced ? hovGoal : damp(hover, hovGoal, 14, dt);
+        if (hover > 0.01) {
+          const e = pose.ears ?? [0, 0];
+          pose = { ...pose, ears: [e[0] + (-0.55 - e[0]) * hover, e[1] + (-0.45 - e[1]) * hover] };
+        }
 
         // ── place the stool and Patch ──
         const dx = stoolB - REST_X;
