@@ -72,6 +72,64 @@ export const WORDS = {
   leanDeg: 15,
 } as const;
 
+/**
+ * The cornice over the fascia, in section: (z, y) points of its UNDERSIDE, front last, in the
+ * piece's space. Kept tight over the slats so it never hides the sign's top line from the
+ * camera above (see `visibleTop`; the unit tests hold every word length to it).
+ */
+export const CORNICE = {
+  /** Its underside's height (a little clear of the top slat). */
+  y0: FASCIA.y1 + 0.02,
+  /** Soffit front, then the cove up and out to the drip. */
+  soffit: 0.08,
+  drip: 0.15,
+  height: 0.12,
+} as const;
+
+/** The cornice's underside as the camera sees it: (z, y) points, back to front (dentils included). */
+export function corniceUnderside(): Array<[number, number]> {
+  const y = CORNICE.y0;
+  return [
+    [F - 0.03, y],
+    [F + CORNICE.soffit, y],
+    // the dentils' front lower corner
+    [F + CORNICE.soffit + 0.025, y + 0.012],
+    [F + CORNICE.soffit + 0.03, y + 0.03],
+    [F + CORNICE.drip - 0.004, y + 0.055],
+    [F + CORNICE.drip, y + 0.062],
+  ];
+}
+
+/** Lowest pitch of the default view's range (art-direction § 3), and the worst. */
+export const VIEW_PITCH = { min: 30, max: 36 } as const;
+
+/**
+ * The highest point of the top slat's face the camera can see past the cornice, at `pitchDeg`
+ * above the horizon (a long lens: parallel rays). The slat at rest, leaning back WORDS.leanDeg.
+ */
+export function visibleTop(pitchDeg: number): number {
+  const lean = (WORDS.leanDeg * Math.PI) / 180;
+  const k = Math.tan((pitchDeg * Math.PI) / 180);
+  const i = FASCIA.slats - 1;
+  // the face of the top slat: z as a function of height
+  const y0 = slatY(i) + Math.sin(lean) * (FASCIA.t / 2);
+  const z0 = slatZ(i) + Math.cos(lean) * (FASCIA.t / 2);
+  const zAt = (y: number): number => z0 - (y - y0) * Math.tan(lean);
+  let lo: number = FASCIA.y0, hi: number = FASCIA.y1;
+  const seen = (y: number): boolean => corniceUnderside().every(([oz, oy]) => oz <= zAt(y) || y + (oz - zAt(y)) * k < oy);
+  for (let n = 0; n < 40; n++) {
+    const m = (lo + hi) / 2;
+    if (seen(m)) lo = m;
+    else hi = m;
+  }
+  return lo;
+}
+
+/** The words' top margin: below whatever the cornice hides at the steepest default view, with a hair to spare. */
+export function wordsTopMargin(): number {
+  return Math.max(WORDS.vert, FASCIA.y1 - visibleTop(VIEW_PITCH.max) + 0.012);
+}
+
 /** The awning: a roller under the fascia, two drop arms, a striped canvas, a scalloped valance. */
 export const AWNING = {
   hw: 0.94,

@@ -49,7 +49,7 @@ export { poseStorefront, nodeMatrices, NAMED_POSES, REST, HIDDEN, slatTurn, word
 export type { StorefrontPose } from './pose.ts';
 export { fasciaColour, fasciaWordsTurn, hiddenFace, awningColour, awningCycle, openClosed, lightStutter, pictureRoll } from './perform.ts';
 export { paintFascia, paintAwning, wipeFascia, writePaint, FASCIA_NODES, AWNING_NODES } from './recolour.ts';
-export { storefrontLabels, setFasciaWords, fasciaWords, PLATE_CAP } from './labels.ts';
+export { storefrontLabels, setFasciaWords, fasciaWords } from './labels.ts';
 export type { StorefrontLabelRefs } from './labels.ts';
 export { fitWords, cleanWords, MAX_CHARS } from './words.ts';
 export type { WordsLayout } from './words.ts';
@@ -76,7 +76,7 @@ export function storefront(o: StorefrontOptions = {}): Piece {
     detail: o.detail ?? 'high',
     fascia,
     awning,
-    ...(o.labels ? { words: o.labels.words, pictures: o.labels.pictures, plate: o.labels.plate } : {}),
+    ...(o.labels ? { atlas: o.labels.atlas } : {}),
   });
   registerPaint(p, FASCIA_NODES, fascia);
   registerPaint(p, AWNING_NODES, awning);

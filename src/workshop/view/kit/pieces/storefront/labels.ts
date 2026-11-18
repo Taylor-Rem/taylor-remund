@@ -15,68 +15,52 @@
  * The plate is an ordinary engraved brass label.
  */
 import type { LabelOptions, Labels } from '../../../types.ts';
-import { PICTURES_TEX, WORDS_TEX } from './atlas.ts';
-import { WORDS } from './dims.ts';
+import { TEX } from './atlas.ts';
 import { content } from './content.ts';
-import { paintPictures, paintWords } from './paint.ts';
+import { paintAtlas, paintWords } from './paint.ts';
 import type { WordsLayout } from './words.ts';
 
 export interface StorefrontLabelRefs {
-  /** The fascia's two faces (A above B). */
-  words: string;
-  /** The window's pictures and the card's two faces. */
-  pictures: string;
-  /** The STOREFRONT jack plate. */
-  plate: { key: string; w: number; h: number };
+  /** The storefront's one texture (atlas.ts): the fascia's two faces, the pictures, the card, the plate. */
+  atlas: string;
 }
 
-/** Capital height of the engraved jack plate. */
-export const PLATE_CAP = 0.05;
-
-/** What each face of each words slot shows now (so a view can tell which face to paint). */
+/** What each face of the fascia carries now, per atlas (so a view can tell which face to paint). */
 const painted = new Map<string, { A: string; B: string }>();
 
 /**
- * Make the storefront's textures and paint them: the fascia's face A with `words`
- * (default: the content's default sign), face B blank, the pictures and the card.
+ * Make the storefront's texture and paint it: the fascia's face A with `words` (default:
+ * the content's default sign), face B blank, the pictures, the card and the plate.
  */
 export function storefrontLabels(labels: Labels, o: { words?: string; wordsB?: string } = {}): StorefrontLabelRefs {
-  // a stencil slot of the right proportions: its texels per unit set the slot's height in texels
-  const cap = 0.8;
+  // a stencil slot (transparent, blended): the fascia's paint shows round the letters, and the
+  // printed regions are painted opaque. Its texels per unit set its height in texels.
   // (texelsPerUnit is the labels implementation's PlanOptions; the contract does not name it yet)
-  const words = labels.stencil('WW', { paint: 'paper', capHeight: cap, texelsPerUnit: Math.round(WORDS_TEX.h / (1.5 * cap)) } as LabelOptions);
-  const pictures = labels.phone([{ from: 'patch', text: 'storefront window pictures' }], {
-    screen: { w: 1, h: PICTURES_TEX.h / PICTURES_TEX.w },
-    texelsPerUnit: PICTURES_TEX.w,
-  } as LabelOptions);
-  const plateKey = labels.plate(content.plate, { capHeight: PLATE_CAP });
-  const state = painted.get(words);
+  const cap = 0.8;
+  const atlas = labels.stencil('I', { paint: 'paper', capHeight: cap, texelsPerUnit: Math.round(TEX.h / (1.5 * cap)) } as LabelOptions);
+  const state = painted.get(atlas);
   const wantA = o.words ?? content.fascia;
   const wantB = o.wordsB ?? '';
-  if (!state || state.A !== wantA) paintWords(labels.texture(words), 'A', wantA);
-  if (!state || state.B !== wantB) paintWords(labels.texture(words), 'B', wantB);
-  painted.set(words, { A: wantA, B: wantB });
-  if (!painted.has(pictures)) {
-    paintPictures(labels.texture(pictures), { open: content.open, closed: content.closed });
-    painted.set(pictures, { A: '', B: '' });
-  }
-  void WORDS;
-  return { words, pictures, plate: { key: plateKey, ...labels.size(plateKey) } };
+  if (!state) paintAtlas(labels.texture(atlas), { open: content.open, closed: content.closed, plate: content.plate });
+  if (!state || state.A !== wantA) paintWords(labels.texture(atlas), 'A', wantA);
+  if (!state || state.B !== wantB) paintWords(labels.texture(atlas), 'B', wantB);
+  painted.set(atlas, { A: wantA, B: wantB });
+  return { atlas };
 }
 
 /**
  * Paint new words on one face of the fascia (the station view paints the face that is
- * turned away, then turns the slats: see `wordsFace`). Returns the layout used.
+ * turned away, then turns the slats: see `hiddenFace`). Returns the layout used.
  */
 export function setFasciaWords(labels: Labels, refs: StorefrontLabelRefs, face: 'A' | 'B', text: string): WordsLayout {
-  const lay = paintWords(labels.texture(refs.words), face, text);
-  const s = painted.get(refs.words) ?? { A: '', B: '' };
+  const lay = paintWords(labels.texture(refs.atlas), face, text);
+  const s = painted.get(refs.atlas) ?? { A: '', B: '' };
   s[face] = text;
-  painted.set(refs.words, s);
+  painted.set(refs.atlas, s);
   return lay;
 }
 
 /** What a face of the fascia carries now. */
 export function fasciaWords(refs: StorefrontLabelRefs, face: 'A' | 'B'): string {
-  return painted.get(refs.words)?.[face] ?? '';
+  return painted.get(refs.atlas)?.[face] ?? '';
 }
