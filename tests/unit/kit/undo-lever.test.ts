@@ -4,12 +4,12 @@ import type { Material, Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { undoLever, poseUndoLever, catalogue, LEVER, NAMED_POSES, leverAngle, springMatrix, UNDO_WORD, TAPE_CAP } from '../../../src/workshop/view/kit/pieces/undo-lever/index.ts';
+import { undoLever, poseUndoLever, catalogue, LEVER, NAMED_POSES, leverAngle, springMatrix, springLength, ringX, UNDO_WORD, TAPE_CAP } from '../../../src/workshop/view/kit/pieces/undo-lever/index.ts';
 import { lugAt, springRestLength } from '../../../src/workshop/view/kit/pieces/undo-lever/pose.ts';
 import handles from '../../../src/content/handles.json';
 import { checkGeometry } from './helpers.ts';
 
-const CAP = 2500;
+const CAP = 3400; // raised from 2,500 for round 2 (the lead): a stout lever, a fat grip, a round spring
 
 const stub: Materials = {
   of: (): Material => new MeshBasicMaterial(),
@@ -64,18 +64,21 @@ describe('the UNDO lever', () => {
 
   it('has its moving nodes and its sockets', () => {
     const n = nodes(p);
-    for (const name of ['lever', 'latch', 'catch', 'spring']) expect(n.has(name), name).toBe(true);
+    for (const name of ['lever', 'latch', 'catch', 'spring', 'spring.end']) expect(n.has(name), name).toBe(true);
+    for (let k = 0; k < LEVER.rings; k++) expect(n.has(`spring.ring${k}`), `ring ${k}`).toBe(true);
     // the latch and the catch ride on the lever
     expect(n.get('lever')!.children!.map((c) => c.name).sort()).toEqual(['catch', 'latch']);
     for (const s of ['base', 'pivot', 'grip', 'tape']) expect(p.sockets?.[s], s).toBeDefined();
   });
 
-  it('is a tall lever on the bench: about 1.5 to 1.7 tall', () => {
+  it('is a tall lever on the bench: under 2 tall', () => {
     const b = K.pieceBounds(p);
     expect(b.min.y).toBeGreaterThanOrEqual(-1e-3);
     expect(b.min.y).toBeLessThan(0.01);
-    expect(b.max.y).toBeGreaterThan(1.45);
-    expect(b.max.y).toBeLessThan(1.75);
+    expect(b.max.y).toBeGreaterThan(1.7);
+    expect(b.max.y).toBeLessThan(2.0);
+    // the grip clears the quadrant by a hand's width
+    expect(LEVER.length - 0.55).toBeGreaterThan(0.65 + 0.1);
   });
 
   it('travels at least 50 degrees, sideways across the visitor’s view', () => {
@@ -87,13 +90,16 @@ describe('the UNDO lever', () => {
     expect(pulled).toBeGreaterThan(0);
   });
 
-  it('loads its spring visibly as it is pulled, and keeps it on its lug', () => {
-    const rest = springRestLength();
+  it('spreads its spring\'s coils as it is pulled (never stretches them), and keeps it on its lug', () => {
+    expect(springLength(leverAngle(0))).toBeCloseTo(springRestLength(), 9);
     for (const t of [0, 0.5, 1]) {
-      const end = new Vector3(rest, 0, 0).applyMatrix4(springMatrix(leverAngle(t)));
+      const m = springMatrix(leverAngle(t));
+      expect(new Vector3().setFromMatrixScale(m).x).toBeCloseTo(1, 9);
+      const end = new Vector3(springLength(leverAngle(t)), 0, 0).applyMatrix4(m);
       expect(end.distanceTo(lugAt(leverAngle(t)))).toBeLessThan(1e-6);
     }
-    expect(new Vector3().setFromMatrixScale(springMatrix(leverAngle(1))).x).toBeGreaterThan(1.25);
+    const gap = (t: number): number => ringX(1, springLength(leverAngle(t))) - ringX(0, springLength(leverAngle(t)));
+    expect(gap(1)).toBeGreaterThan(gap(0) * 1.25);
   });
 
   it('says UNDO from content, big enough to read', () => {
@@ -112,7 +118,7 @@ describe('the UNDO lever', () => {
     const local = lever.worldToLocal(grip.clone());
     poseUndoLever(o, { ...NAMED_POSES['pulled'] });
     o.updateMatrixWorld(true);
-    const moved = new Set(['lever', 'latch', 'catch', 'spring']);
+    const moved = new Set(['lever', 'latch', 'catch', 'spring', 'spring.end', ...Array.from({ length: LEVER.rings }, (_, k) => `spring.ring${k}`)]);
     const after = snapshot(o);
     o.traverse((c) => {
       const changed = before.get(c.uuid)!.some((v, i) => Math.abs(v - after.get(c.uuid)![i]!) > 1e-9);

@@ -25,6 +25,7 @@ import {
   type Texture,
 } from 'three';
 import type { Token } from '../palette.ts';
+import { SHADOW_LAYER } from '../kit/realize.ts';
 import { lampColourFrom, stageColours, type RGB } from './colours.ts';
 import type { Tier } from '../types.ts';
 
@@ -119,6 +120,8 @@ export class LightRig {
     key.shadow.bias = RIG.shadow.bias;
     key.shadow.normalBias = RIG.shadow.normalBias;
     key.shadow.focus = RIG.shadow.focus;
+    // the shadow pass draws the kit's shadow proxies (kit/realize.ts) as well as anything on layer 0 that casts
+    key.shadow.camera.layers.enable(SHADOW_LAYER);
     this.key = key;
     this.root.add(key, key.target);
     this.fitShadow(opts.shadowBox ?? new Box3(new Vector3(-10, -0.6, -5), new Vector3(10, 6, 5)));
