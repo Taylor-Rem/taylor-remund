@@ -2,8 +2,10 @@
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
 import { bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
-import type { CrewView, LampView, PatchView } from '../../../src/workshop/sim/types.ts';
+import type { CrewView, LampView, PatchView, RevertView, SimEvent } from '../../../src/workshop/sim/types.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
+import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
+import { KNOCK_TUNING, distanceTo } from '../../../src/workshop/sim/crew/fetch-knock.ts';
 
 const benchStub = () => stubWorld(1, { scene: bench });
 
@@ -272,6 +274,93 @@ describe("seam 5: Patch's job has room to perform: the roll, and a little air", 
     for (let i = 0; i < 10 * 60; i++) for (const e of run(world, 1)) if (e.type === 'crew.state' && e.id === 'patch') states.push(e.state);
     expect(states).toEqual(expect.arrayContaining(['climb', 'roll', 'drawer', 'work', 'check', 'reply']));
     expect(world.setting('storefront', 'sign')).toBe('cable-red');
+  });
+});
+
+describe('seam 6: Fetch sees Revert', () => {
+  /** Keep `id` sliding at Fetch from the side `from` (unit, x/z) for a few steps, then report a contact between them. */
+  function hitFetch(world: World, physics: StubPhysics, id: string, from: readonly [number, number], speed: number, impulse = 2): SimEvent[] {
+    const f = world.crew('fetch')!;
+    const n = 8;
+    const back = 0.9 + (speed * n) / 60;
+    physics.setPose(id, { p: [f.x + from[0] * back, 0.6, f.z + from[1] * back], q: [0, 0, 0, 1] });
+    const out: SimEvent[] = [];
+    for (let i = 0; i < n; i++) {
+      physics.setVelocity(id, [-from[0] * speed, 0, -from[1] * speed]);
+      physics.wake(id);
+      out.push(...run(world, 1));
+    }
+    physics.contact({ a: id, b: 'fetch', impulse });
+    out.push(...run(world, 2));
+    return out;
+  }
+  /** Play mode (a lever pull with nothing to take: Revert comes up), and wait until Fetch is idle with empty hands. */
+  function settle(world: World): void {
+    world.dispatch({ type: 'undo' });
+    for (let i = 0; i < 40 * 60; i++) {
+      run(world, 1);
+      const f = world.crew('fetch')!;
+      const r = world.machine('revert-crew') as RevertView;
+      if (i > 600 && f.state === 'idle' && f.carrying === null && r.state === 'idle') return;
+    }
+    throw new Error('the bench did not settle');
+  }
+
+  test("a knocked Fetch's slide stops short of Revert's body, as it stops short of any machine", () => {
+    const { world, physics } = benchStub();
+    settle(world);
+    const f = world.crew('fetch')!;
+    const r = world.machine('revert-crew') as RevertView;
+    const half = world.halfExtents('revert')!;
+    const box = { id: 'revert', x: r.x, z: r.z, hx: half[0], hz: half[2], yaw: r.heading };
+    // shoved straight at Revert: hit from the far side
+    const dx = r.x - f.x;
+    const dz = r.z - f.z;
+    const d = Math.hypot(dx, dz);
+    const ev = hitFetch(world, physics, 'crate-3', [-dx / d, -dz / d], 7, 3);
+    const k = ev.find((e) => e.type === 'crew.knocked') as Extract<SimEvent, { type: 'crew.knocked' }> | undefined;
+    expect(k).toBeDefined();
+    const fh = world.halfExtents('fetch')!;
+    const footprint = Math.hypot(fh[0], fh[2]) + KNOCK_TUNING.margin * (bench.crewScale ?? 1);
+    const start = distanceTo(box, world.crew('fetch')!.x, world.crew('fetch')!.z);
+    for (let i = 0; i < 90; i++) {
+      run(world, 1);
+      const m = world.crew('fetch')!;
+      if (m.state !== 'knocked') break;
+      const now = distanceTo(box, m.x, m.z);
+      expect(now >= footprint - 1e-6 || now >= start - 1e-6).toBe(true); // never into Revert (only ever away, if it began closer)
+    }
+    expect(k!.distance).toBeLessThan((KNOCK_TUNING.distance[k!.strength - 1] as number) * (bench.crewScale ?? 1));
+  });
+
+  test('a part that starts inside Fetch (let go of in its body) is not a hit; once clear, a real hit counts once', () => {
+    const { world, physics } = benchStub();
+    run(world, 30);
+    const crate = 'crate-3';
+    world.dispatch({ type: 'grab', id: crate, grip: world.motion(crate)!.pose.p });
+    run(world, 1);
+    const f = world.crew('fetch')!;
+    physics.setPose(crate, { p: [f.x + 0.1, 0.5, f.z], q: [0, 0, 0, 1] });
+    world.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    run(world, 1);
+    physics.contact({ a: crate, b: 'fetch', impulse: 3 }); // the push that parts them
+    const ev = run(world, 3);
+    expect(ev.filter((e) => e.type === 'crew.knocked')).toEqual([]);
+    expect(ev.filter((e) => e.type === 'crew.nudged')).toEqual([]);
+    run(world, 30);
+    const real = hitFetch(world, physics, crate, [0, 1], 7, 3);
+    expect(real.filter((e) => e.type === 'crew.knocked')).toHaveLength(1);
+  });
+
+  test("a part let go of inside Patch's body is not a throw at it", () => {
+    const { world, physics } = benchStub();
+    const at = (world.machine('patch') as PatchView).at;
+    world.dispatch({ type: 'grab', id: 'crate-3', grip: world.motion('crate-3')!.pose.p });
+    run(world, 1);
+    physics.setPose('crate-3', { p: [at[0], at[1] + 0.75, at[2]], q: [0, 0, 0, 1] });
+    world.dispatch({ type: 'release', velocity: [0, 0, 5] });
+    const ev = run(world, 60);
+    expect(ev.filter((e) => e.type === 'patch.reacted')).toEqual([]);
   });
 });
 

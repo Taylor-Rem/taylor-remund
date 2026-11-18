@@ -48,7 +48,7 @@ import { HZ, steps } from '../clock.ts';
 import { qnormalize, qyaw, yawOf } from '../math.ts';
 import { MATERIAL, massOf } from '../parts.ts';
 import { KNOCK_TUNING, classify, clearRun, obstacles, toyBounce } from './fetch-knock.ts';
-import type { Strength } from './fetch-knock.ts';
+import type { Obstacle, Strength } from './fetch-knock.ts';
 
 /** Timings (seconds), speeds (units/s) and distances (units), at P1 size. Tune here. */
 export const FETCH_TUNING = {
@@ -184,6 +184,74 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   /** Its footprint as a circle, for the knock's clearance. */
   const footprint = Math.hypot(selfHalf[0], selfHalf[2]) + K.margin * k;
   const OBSTACLES = obstacles(ctx.scene);
+  /**
+   * S6: the other robots' bodies where they stand now (Revert is a body, not a static: up out of its hatch,
+   * or put down anywhere, it is in the way of a knocked Fetch's slide; down its hatch, shipped or in the
+   * visitor's hand it is not).
+   */
+  function robotObstacles(): Obstacle[] {
+    const out: Obstacle[] = [];
+    for (const id of ctx.parts()) {
+      if (id === spec.id || ctx.part(id)?.kind !== 'robot') continue;
+      const m = ctx.mode(id);
+      if (m === 'gone' || m === 'chute' || m === 'held') continue;
+      const p = ctx.pose(id);
+      const h = ctx.halfExtents(id);
+      if (!p || !h) continue;
+      out.push({ id, x: p.p[0], z: p.p[2], hx: h[0], hz: h[2], yaw: yawOf(p.q) });
+    }
+    return out;
+  }
+  /**
+   * S6: a part that starts inside Fetch's body (let go of there, put back there by an undo, set down
+   * there by the dock or the chute while Fetch stood on the spot): the push that parts them is not a hit,
+   * and must not knock it. Such a part's contacts with Fetch are not heard until it has come clear of
+   * it; a real hit after that counts, once. A part merely touching it when let go (a throw from close
+   * by) is a hit as usual.
+   */
+  const startedInside = new Set<Id>();
+  /** Where each free part was at the last `pre` (a part new to physics, or one that jumped, is checked). */
+  const lastFree = new Map<Id, Vec3>();
+  /**
+   * How far the part's box is from Fetch's body box on the bench (negative: they overlap by that much),
+   * by the separating axes of the two turned rectangles; and whether they share height at all.
+   */
+  function gapToMe(id: Id): number {
+    const pose = ctx.pose(id);
+    const h = ctx.halfExtents(id);
+    if (!pose || !h) return Infinity;
+    const p = pose.p;
+    if (p[1] - h[1] > 2 * selfHalf[1] || p[1] + h[1] < 0) return Infinity;
+    const a = heading;
+    const b = yawOf(pose.q);
+    const dx = p[0] - x;
+    const dz = p[2] - z;
+    // each rectangle's two axes (its local +X and +Z on the bench)
+    const axes: [number, number][] = [
+      [Math.cos(a), -Math.sin(a)],
+      [Math.sin(a), Math.cos(a)],
+      [Math.cos(b), -Math.sin(b)],
+      [Math.sin(b), Math.cos(b)],
+    ];
+    const proj = (ax: [number, number], yaw: number, hx: number, hz: number): number => hx * Math.abs(ax[0] * Math.cos(yaw) - ax[1] * Math.sin(yaw)) + hz * Math.abs(ax[0] * Math.sin(yaw) + ax[1] * Math.cos(yaw));
+    let gap = -Infinity;
+    for (const ax of axes) gap = Math.max(gap, Math.abs(dx * ax[0] + dz * ax[1]) - proj(ax, a, selfHalf[0], selfHalf[2]) - proj(ax, b, h[0], h[2]));
+    return gap;
+  }
+  /** Note the free parts that have just appeared inside Fetch (before physics parts them). */
+  function startsInside(): void {
+    const free = new Set<Id>();
+    for (const id of ctx.parts()) {
+      if (id === spec.id || ctx.mode(id) !== 'free') continue;
+      const p = ctx.pose(id)?.p;
+      if (!p) continue;
+      free.add(id);
+      const last = lastFree.get(id);
+      if ((!last || Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) > 0.3) && gapToMe(id) < -0.05) startedInside.add(id); // inside by more than a hand pressing it against Fetch (about 1 cm)
+      lastFree.set(id, p);
+    }
+    for (const id of [...lastFree.keys()]) if (!free.has(id)) lastFree.delete(id);
+  }
 
   let state: FetchState = 'idle';
   let entered = ctx.clock.step;
@@ -492,7 +560,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const st = h.strength as Strength;
     const i = st - 1;
     const want = (K.distance[i] as number) * k;
-    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, OBSTACLES);
+    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles()]);
     const spin = h.spinSign * (K.spin[i] as number) * 2 * Math.PI;
     // what it carried falls, its rest charged to the throw (§ E5 rule 4)
     const cause = ctx.history.chargeMachine(h.by);
@@ -522,7 +590,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       if (e.type !== 'part.hit' || e.other === null) continue;
       const mine = (id: Id): boolean => id === spec.id || (id === carrying && carrying !== null);
       const by = mine(e.id) ? e.other : mine(e.other) ? e.id : null;
-      if (by === null || by === carrying || ctx.mode(by) !== 'free') continue;
+      if (by === null || by === carrying || ctx.mode(by) !== 'free' || startedInside.has(by)) continue;
       const part = ctx.part(by);
       const half = ctx.halfExtents(by);
       const pose = ctx.pose(by);
@@ -593,6 +661,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   // ── what it watches ──
 
   function watch(): void {
+    // S6: a part that started against it is heard again once it has come clear
+    for (const id of [...startedInside]) if (ctx.mode(id) !== 'free' || gapToMe(id) > 0.04) startedInside.delete(id);
     // free parts' motion, for the next step's hits
     for (const id of ctx.parts()) {
       if (id === spec.id || ctx.mode(id) !== 'free') {
@@ -683,6 +753,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
     pre() {
       if (state === 'frozen') return;
+      startsInside();
       const now = ctx.clock.step;
       lookAt = null;
       const mode = ctx.mode(spec.id);

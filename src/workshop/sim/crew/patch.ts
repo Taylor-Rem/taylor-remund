@@ -406,7 +406,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       for (const e of events) {
         if (e.type === 'part.released' && e.speed >= T.throwMin && e.id !== id) {
           const p = ctx.pose(e.id);
-          if (p) watched.push({ id: e.id, last: p.p, until: ctx.clock.step + steps(T.watch), answer: null, cause: null });
+          // S6: a part let go of inside Patch's body was not thrown at it (it would be answered at once, and again)
+          const inside = p !== undefined && dist(p.p, bodyCentre()) < spec.body.radius;
+          if (p && !inside) watched.push({ id: e.id, last: p.p, until: ctx.clock.step + steps(T.watch), answer: null, cause: null });
         } else if (e.type === 'undone' && e.by === 'lever' && e.cancelled.includes(spec.line) && cancelledAt === ctx.clock.step && state === 'seated') {
           // § E5's example: the lever pulled while Patch reached for the drawer; Patch looks at the lever
           lookAt = spec.lever;
