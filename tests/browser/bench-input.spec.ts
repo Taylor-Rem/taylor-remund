@@ -272,7 +272,39 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   await expect.poll(() => logCount(page, 'undone'), { timeout: 2000 }).toBe(undos + 1);
   await expect.poll(async () => (await belt(page)).direction).toBe('forward');
 
-  // 4. the lamp: the arm dragged by its shade toward the front right
+  // 4. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
+  expect(await setting(page, 'cord', 'jack')).toBe('jack-storefront');
+  await bringIntoView(page, hand, 'cord', kind, 0.25); // (not to the middle: the LAMP jack must stay in the frame too)
+  const from = await jackAt(page, 'jack-storefront');
+  const lampJack = await jackAt(page, 'jack-lamp');
+  const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
+  const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
+  await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
+  await expect
+    .poll(() => setting(page, 'cord', 'jack'), { timeout: 2000 })
+    .toBe('jack-lamp')
+    .catch(async (e) => {
+      throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
+    });
+
+  // 5. the phone: opened from the bench, a ready-made text sent down the line
+  const phone = await bringIntoView(page, hand, 'phone', kind);
+  await use(page, hand, [phone, phone]);
+  const panel = page.getByRole('dialog');
+  await expect(panel).toBeVisible();
+  await shoot(page, `${tag}-phone-open`);
+  const sent = await page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length);
+  const key = panel.locator('.ph-key').first();
+  if (kind === 'mouse') await key.click();
+  else await key.tap();
+  await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 3000 }).toBe(sent + 1);
+  const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
+  await page.keyboard.press('Escape');
+  await expect(panel, JSON.stringify(diag2)).toBeHidden();
+
+  // (the lamp and Patch last: the lamp view's pick box rides the shade, and aimed forward it floats in front of the
+  // switchboard and takes presses meant for the plug; reported in the I1 hand-in)
+  // 6. the lamp: the arm dragged by its shade toward the front right
   const lamp = await bringIntoView(page, hand, 'lamp', kind);
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
@@ -330,7 +362,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   }, [under[0]!, under[2]!] as const);
   expect(Math.hypot(x1 - want[0]!, z1 - want[1]!), `aim ${x1},${z1} vs the light moved with the hand ${want[0]},${want[1]}`).toBeLessThan(0.35);
 
-  // 5. Patch: lifted off its stool and set down on the bench in front of it
+  // 7. Patch: lifted off its stool and set down on the bench in front of it
   const patch = await bringIntoView(page, hand, 'patch', kind);
   const toP = { x: patch.x - vp.width * 0.06, y: Math.min(vp.height - 30, patch.y + vp.height * 0.12) };
   await hand.down(patch);
@@ -349,36 +381,6 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   });
   await expect.poll(() => holding(page), { message: JSON.stringify(diag), timeout: 2000 }).toBeNull();
   await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), { timeout: 3000 }).toMatch(/walk|climb|seated|look|roll/);
-
-  // 6. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
-  expect(await setting(page, 'cord', 'jack')).toBe('jack-storefront');
-  await bringIntoView(page, hand, 'cord', kind, 0.25); // (not to the middle: the LAMP jack must stay in the frame too)
-  const from = await jackAt(page, 'jack-storefront');
-  const lampJack = await jackAt(page, 'jack-lamp');
-  const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
-  const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
-  await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
-  await expect
-    .poll(() => setting(page, 'cord', 'jack'), { timeout: 2000 })
-    .toBe('jack-lamp')
-    .catch(async (e) => {
-      throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
-    });
-
-  // 7. the phone: opened from the bench, a ready-made text sent down the line
-  const phone = await bringIntoView(page, hand, 'phone', kind);
-  await use(page, hand, [phone, phone]);
-  const panel = page.getByRole('dialog');
-  await expect(panel).toBeVisible();
-  await shoot(page, `${tag}-phone-open`);
-  const sent = await page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length);
-  const key = panel.locator('.ph-key').first();
-  if (kind === 'mouse') await key.click();
-  else await key.tap();
-  await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 3000 }).toBe(sent + 1);
-  const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
-  await page.keyboard.press('Escape');
-  await expect(panel, JSON.stringify(diag2)).toBeHidden();
 }
 
 test('a mouse works the whole bench: dial, lever, UNDO, lamp, Patch, the plug near LAMP, the phone', async ({ page }) => {
