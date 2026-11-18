@@ -199,7 +199,7 @@ export function buildHull(n: NodeBuilder, c: Ctx): void {
     n.small(() => place(hexBolt({ af: 0.044, cheap: true, detail: 'low', seed: sd }), chain(onFace(x, y), new Matrix4().makeRotationX(Math.PI / 2), new Matrix4().makeRotationY(c.R.range(0, 1)))));
   }
   {
-    const pm = chain(onFace(0.27, 0.418, 0.001), askew(c.seed + 12, 3));
+    const pm = chain(onFace(0.3, 0.392, 0.001), askew(c.seed + 12, 3));
     n.add(setFinish(part('brass', transform(bevelBox({ min: [-0.09, -0.032, 0], max: [0.09, 0.032, 0.009], c: 0.004, omit: ['nz'] }), pm), 'brass', { seed: c.seed + 13, shade: 0.8 }), 0.2));
     for (const s of [-1, 1]) n.small(() => place(rivet(0.016, c.seed + 14 + s, 'brass', 'brass'), chain(pm, T(s * 0.07, 0, 0.009), new Matrix4().makeRotationX(Math.PI / 2))));
   }
@@ -207,7 +207,8 @@ export function buildHull(n: NodeBuilder, c: Ctx): void {
   // ---- repairs: a patch plate riveted over a hole low on the face, in paint that never matched;
   // and a strip of floor tape holding the deck's corner together ----
   {
-    const pm = chain(onFace(-0.3, 0.45, 0.001), new Matrix4().makeRotationZ(0.11));
+    // on the deck, left of the drum: the top is what the visitor sees most
+    const pm = chain(T(-0.4, by(HULL.y1) + 0.009, -0.3), new Matrix4().makeRotationX(-Math.PI / 2), new Matrix4().makeRotationZ(0.16));
     n.add(enamel(transform(bevelBox({ min: [-0.13, -0.06, 0], max: [0.1, 0.05, 0.008], c: 0.004, omit: ['nz'] }), pm), { seed: c.seed + 16, shade: 0.95, mix: 0.5, toward: 'cable-red', wear: 2.5 }));
     for (const [x, y] of [[-0.082, -0.04], [0.082, -0.04], [-0.082, 0.04], [0.082, 0.04]] as const) {
       const sd = c.R.int(0, 999);
@@ -320,7 +321,7 @@ export function buildBrow(n: NodeBuilder, c: Ctx): void {
   const drop = c.R.range(-0.008, 0.008);
   const g = deform(transform(plate, T(0, -t * 0.4, D / 2)), (x, y, z) => {
     const f = Math.max(0, (z - D * 0.3) / (D * 0.7));
-    return [x, y - f * f * 0.07 + drop * (x / BROW.w), z];
+    return [x, y - f * f * 0.035 + drop * (x / BROW.w), z];
   });
   // darker than the hull, so from across the bench it reads as one heavy brow over two lamps
   n.add(enamel(g, { seed: c.seed + 50, shade: 0.62, mix: 0.62, toward: 'teal-panel', wear: 2.2 }));
@@ -490,7 +491,7 @@ export function buildDustpan(n: NodeBuilder, c: Ctx): void {
   // a short turned handle off the back wall
   parts.push(part('wood', grain(transform(turn(profile(0, 0).to(0.019, 0, { fillet: 0.005, segs: 1 }).to(0.017, 0.15, { fillet: 0.006, segs: 1 }).to(0, 0.152), { segs: 8, caps: true }), chain(T(0, H * 0.6, -t), new Matrix4().makeRotationX(-Math.PI / 2 - 0.5))), 'y'), 'wood-light', { seed: c.seed + 133, shade: 0.85 }));
   // on its bracket over the right tread, mouth forward, a little askew
-  const m = chain(T(HULL.w / 2 + 0.13, by(0.43), -0.04), new Matrix4().makeRotationY(-0.12), new Matrix4().makeRotationX(0.12), T(0, 0, -D * 0.5));
+  const m = chain(T(HULL.w / 2 + 0.11, by(0.43), -0.04), new Matrix4().makeRotationY(-0.12), new Matrix4().makeRotationX(0.12), T(0, 0, -D * 0.5));
   for (const q of parts) n.add({ ...q, geometry: transform(q.geometry, m) });
   // its bracket: a bent strap off the flank that the pan sits in
   for (const z of [-0.12, 0.06]) n.add(setFinish(part('brass', bevelBox({ min: [HULL.w / 2 - 0.01, by(0.405), z - 0.022], max: [HULL.w / 2 + 0.2, by(0.43), z + 0.022], c: 0.008, omit: ['nx'] }), 'brass', { seed: c.seed + 134 }), 0.3));

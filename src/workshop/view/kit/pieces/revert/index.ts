@@ -23,7 +23,7 @@ import type { CatalogueEntry } from '../../catalogue.ts';
 import type { Labels } from '../../../types.ts';
 import { assertContent } from '../../../../../content/schema.ts';
 import revertJson from '../../../../../content/revert.json';
-import { piece } from '../../compose.ts';
+import { piece, pieceBounds } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import {
   buildArm, buildBroom, buildBroomClips, buildBrow, buildCard, buildChassis, buildCrank, buildDrumStand, buildDustpan, buildEye, buildHull, buildShoulder,
@@ -110,7 +110,11 @@ export function revert(o: RevertOptions = {}): Piece {
   // parts that move away from where they were baked keep the open air's shading, not the bake's
   capCavity(built.root, (n) => n.startsWith('lid') || n.startsWith('lamp') || n === 'broom' || n === 'card' || n === 'cardL', 0.15);
   capCavity(built.root, (n) => n.startsWith('shoe'), 0.35);
-  applyPose(built, o.pose === undefined ? NEUTRAL : typeof o.pose === 'string' ? POSES[o.pose] : o.pose, card);
+  // its size is the size at rest (card stowed, broom on its rack), not at the bake pose: layout and the collider use it
+  applyPose(built, NEUTRAL, card);
+  const box = pieceBounds(built);
+  built.size = { x: box.max.x - box.min.x, y: box.max.y - box.min.y, z: box.max.z - box.min.z };
+  if (o.pose !== undefined) applyPose(built, typeof o.pose === 'string' ? POSES[o.pose] : o.pose, card);
   return built;
 }
 

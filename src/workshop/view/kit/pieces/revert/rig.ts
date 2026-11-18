@@ -54,7 +54,7 @@ export const TAN_RAKE = Math.tan(FACE.rake);
 export const faceZ = (y: number): number => HULL.d / 2 - Math.max(0, y - FACE.chin) * TAN_RAKE;
 
 /** The eyes, in root space: centre x (each side) and height; they sit on the raked face. Lens: sphere radius and opening radius. */
-export const EYE = { x: 0.325, y: 0.565, rs: 0.1, a: 0.073 } as const;
+export const EYE = { x: 0.325, y: 0.53, rs: 0.1, a: 0.073 } as const;
 export const EYE_H = EYE.rs - Math.sqrt(EYE.rs * EYE.rs - EYE.a * EYE.a);
 /** The lens sphere's centre, in eye space (behind the face plane). */
 export const EYE_C = -(EYE.rs - EYE_H);
@@ -65,7 +65,7 @@ export const GAZE_MAX = Math.asin((EYE.a - 0.006) / EYE.rs) - LAMP.ang - 0.03;
 export const LID = { r: EYE.rs + 0.014, t: 0.009, open: 1.0, closed: -0.86, span: 2.0 } as const;
 
 /** The brow plate, in root space: hinge line (on the deck, behind the face's top edge), its front edge, width, thickness, travel. */
-export const BROW = { hingeY: HULL.y1, hingeZ: faceZ(HULL.y1) - 0.1, front: faceZ(HULL.y1) + 0.25, w: 1.16, t: 0.1, down: 0.2, up: 0.16 } as const;
+export const BROW = { hingeY: HULL.y1, hingeZ: faceZ(HULL.y1) - 0.1, front: faceZ(HULL.y1) + 0.21, w: 1.16, t: 0.1, down: 0.13, up: 0.16 } as const;
 
 /** The rewind drum on the back of the deck and its crank, in root space: the drum's span along X, axis, radii; the crank's hub and throw. */
 export const DRUM = { x0: -0.24, x1: 0.26, y: HULL.y1 + 0.125, z: -0.27, r: 0.088, flange: 0.122 } as const;
@@ -153,7 +153,7 @@ export const ARMS: Record<ArmPreset, ArmJoints> = {
   // folded against the hull's front corner, out of the way: its working rest
   tucked: A(0.25, 0.35, 2.05, 0.5, 0.2),
   // let down beside the bumper
-  hang: A(0.1, 0.25, 0.6, 0.2, 0.3),
+  hang: A(0.15, 0.75, 1.15, 0.3, 0.35),
   // jabbed up at the card (or at the visitor)
   point: A(-1.0, 2.3, 0.5, 0.0, 0.05),
   // limp: hanging straight down, jaws open
@@ -188,11 +188,11 @@ export const POSES = {
   // parked, waiting: flat lids, level brow, looking straight at the visitor
   idle: { lids: [0.42, 0.42], gaze: [0, 0.15], brow: 0.15, arm: 'tucked', crank: 0.5 },
   // under way: the shoes have moved half a pitch, the nose lifts a touch, the lids a little lower
-  trundle: { travel: LOOP / TRACK.n / 2, pitch: -0.07, bob: 0.012, roll: 0.015, lids: [0.52, 0.52], gaze: [0.05, 0.0], brow: 0.3, arm: 'tucked', crank: -0.6 },
+  trundle: { travel: LOOP / TRACK.n / 2, pitch: -0.1, bob: 0.016, roll: 0.02, lids: [0.52, 0.52], gaze: [0.05, 0.0], brow: 0.3, arm: 'tucked', crank: -0.6 },
   // the broom out in front on the bench, pushed, head down to the job
   sweep: { pitch: 0.07, bob: -0.012, roll: 0.035, lids: [0.5, 0.5], gaze: [-0.55, -0.75], brow: 0.35, arm: 'broom', broom: 1, stroke: 0.6, crank: 0.5 },
   // turning its crank: the rewind; it leans into it, one eye squeezed, looking at what it is undoing
-  crank: { roll: -0.06, pitch: -0.04, bob: 0.01, lids: [0.72, 0.38], slant: [0.15, -0.05], gaze: [0.45, 0.25], brow: 0.5, browRoll: 0.1, arm: 'tucked', crank: -0.25 },
+  crank: { roll: -0.1, pitch: -0.05, bob: 0.01, lids: [0.86, 0.36], slant: [0.15, -0.05], gaze: [0.45, 0.25], brow: 0.5, browRoll: 0.1, arm: 'tucked', crank: -0.25 },
   // the card up, open, facing the visitor; the arm jabs at it; deadpan stare
   'card-up': { lids: [0.45, 0.45], gaze: [0, 0.3], brow: 0.2, arm: 'point', card: { lift: 1, open: 1 }, crank: 0.5 },
   // picked up: treads sag, arm dangles, eyes rolled up under half-shut lids, crank swung down
@@ -274,7 +274,7 @@ export function broomMatrix(broom: number, stroke: number): Matrix4 {
   // stowed: over its shoulder like a rifle, along the left flank, the head up behind the back corner, bristles up
   const e = 0.6;
   const stowQ = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(new Vector3(1, 0, 0), new Vector3(0, -Math.sin(e), Math.cos(e)), new Vector3(0, -Math.cos(e), -Math.sin(e))));
-  const stowP = new Vector3(-HULL.w / 2 - 0.055, 1.0 - BODY_Y, -0.62);
+  const stowP = new Vector3(-HULL.w / 2 - 0.04, 1.0 - BODY_Y, -0.62);
   // out: head on the bench ahead of the left tread, handle back up to the shoulder, pushed by `stroke`
   const reach = 0.86 + 0.09 * clamp(stroke, -1, 1);
   const outQ = new Quaternion().setFromRotationMatrix(chain(RY(-0.45), RX(-(Math.PI / 2 - 0.62))));
@@ -386,8 +386,9 @@ export function cardMatrix(lift: number, open: number, wobble: number, cardW: nu
   const x = -(cardW / 4) * (1 - clamp(open, 0, 1));
   const travel = cardH + CARD_STICK + 0.06;
   const lean = (CARD_LEAN + wobble) * smooth(0.82, 1, l) * (Math.PI / 180);
-  const k = l < 0.015 ? HIDDEN : 1;
-  return chain(T(x, SLOT.y - BODY_Y, SLOT.z), RX(-lean), T(0, (l - 1) * travel, 0), S(k));
+  // stowed, it is shrunk into the slot itself (drawing is skinned: nothing is hidden, only shrunk), so it never pokes out under the treads
+  if (l < 0.015) return chain(T(x, SLOT.y - BODY_Y - 0.03, SLOT.z), S(HIDDEN));
+  return chain(T(x, SLOT.y - BODY_Y, SLOT.z), RX(-lean), T(0, (l - 1) * travel, 0));
 }
 
 /** Anything with named children that have a position/quaternion/scale (a realized Object3D). */

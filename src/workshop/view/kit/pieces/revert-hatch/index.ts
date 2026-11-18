@@ -35,14 +35,14 @@ import type { Rng } from '../../rng.ts';
 import { grain, setFinish } from '../../space.ts';
 
 /** The opening (the hole the bench needs), the frame round it, the doors' height when shut, the shaft's depth. */
-export const OPENING = { w: 1.74, d: 1.38 } as const;
+export const OPENING = { w: 1.84, d: 1.42 } as const;
 export const FRAME = { w: 0.1, t: 0.022 } as const;
 /** The doors: thickness, the gap between them and to the frame, how proud of the bench their top stands when shut. */
 export const DOOR = { t: 0.04, gap: 0.014, top: 0.034 } as const;
 /** How far the doors swing (radians): a little past upright, so they rest leaning out. */
 export const DOOR_OPEN = 1.98;
 /** The lift: depth of its travel below the bench (Revert, about 0.95 tall, fits under the shut doors), and its plate's thickness. */
-export const LIFT = { depth: 1.08, plate: 0.05 } as const;
+export const LIFT = { depth: 1.16, plate: 0.05 } as const;
 
 export interface HatchPose {
   /** 0 shut .. 1 open; one number for both, or [left, right]. */
