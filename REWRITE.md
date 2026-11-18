@@ -1,7 +1,9 @@
 # REWRITE — taylorremund.com, the workshop
 
-**Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). Building
-has begun at P0 and stops at G1**, which is a hard stop: nothing of the
+**Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). P0 and
+P1 are built; the build is stopped at G1, first attempt, waiting for
+Taylor's scores** (packet handed over 2026-11-17; § G P1 "As built in P1"
+lists what differs from this file). G1 is a hard stop: nothing of the
 wider environment is produced until Taylor has passed the look. Branch
 `rewrite`, local only. `main` is the live site and stays untouched until
 the cutover.
@@ -1561,6 +1563,38 @@ this file is revised before any more is built.
 Nothing of the wider environment is produced before G1 passes. **The six
 approved pictures become the standard**: every later gate compares what is
 new against them, and anything below them is finished or removed.
+
+*As built in P1 (2026-11-17). Swaps and additions, each listed in the G1
+packet's "found on the way". The sections they touch are left as written
+until Taylor rules at the gate; the code is as described here.*
+- **The Button stands on a console** 2.1 units wide, not a slim pedestal,
+  so DO NOT TOUCH measures 20 px capitals at the default view. Its cover
+  is a wire guard, parked open.
+- **Rung 1 without Revert** (he is P2): the rewind returns the crate, and
+  the card rises on a spring-loaded brass stick (`card-arm`) beside the
+  stack. The card is a large cue card so that it passes the 12 px rule.
+- **Patch sits on a tall stool at the board's right end**, not in front of
+  the board, and the jack tapes are above the jacks, so both tapes read
+  whole whichever jack the plug is in. The two live jacks are STOREFRONT
+  and LAMP. Patch does not yet reach a jack.
+- **Two designs each of Fetch and Patch** were built. The build uses
+  `fetch-porter` (cream enamel) and `patch-felt`; `fetch-bulb` and
+  `patch-toy` remain in the kit until Taylor chooses.
+- **Palette (§ A):** four provisional paint tokens, `paint-orange`,
+  `paint-green`, `paint-blue`, `paint-violet`, beside the fourteen of § A.
+  § B1 asks for eight paints and "make it blue"; § A had no blue.
+- **Type in the world:** Alfa Slab One (sign), Barlow Semi Condensed (tape
+  and plates), Stardos Stencil (crates), Iosevka Fixed Slab (cards);
+  self-hosted, 34.6 KB. Confirmed or changed at G1 with the palette.
+- **Crate stencil:** two arrows and a size letter; no words.
+- **Drawing:** a piece with moving parts is one skinned mesh per material
+  (`realize`, backend `skinned`); the static set is merged per material.
+- **Development page:** `/dev/vignette/` (`?patch=`, `?fetch=`, `?shot=`,
+  `?manual=1`, `?hud=0`); `scripts/check-vignette.ts` measures labels,
+  draw calls, triangles and still-frame identity on the real GPU.
+- **Not started:** M2 (history) and M5 (pages). The milestone table would
+  allow them after M0; the phase list puts them after G1, and the stricter
+  reading was taken.
 
 **P2. The playable bench: do people play with it?** *Depends on:* G1.
 - First, alone: the history model of § E5 with its tests, against stand-in
