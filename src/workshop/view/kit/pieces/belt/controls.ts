@@ -157,7 +157,7 @@ export function buildControls(b: NodeBuilder, desk: (u: number, v: number, out?:
     const body = extrude(rim, 0.1, { axis: 'y', bevel: 0.016, bevelBase: 0, radius: 0, segs: 1, detail, band: 0, caps: 'end' });
     n.add(part('brass', transform(body, T(0, 0.02, 0)), 'brass', { seed: seed + 11, shade: 0.82, warm: 0.05 }));
     // a domed, polished cap in the middle of the grip's top
-    const crown = lathe(profile(0.15, 0.118).to(0.15, 0.124, { sharp: true }).to(0.09, DIAL.top - 0.004, { fillet: 0.04, segs: 1 }).to(0, DIAL.top), { segs: 14, detail, band: 0, caps: false });
+    const crown = lathe(profile(0.15, 0.118).to(0.15, 0.124, { sharp: true }).to(0.09, DIAL.top - 0.004, { fillet: 0.04, segs: 1 }).to(0, DIAL.top), { segs: 20, detail, band: 0, caps: false });
     n.add(setFinish(part('brass', crown, 'brass', { seed: seed + 12, warm: 0.03 }), 0.55));
     // the pointer fin: cream, from a short tail across the crown to a point past the knurl, over the scale
     const fin = extrude([[-0.03, 0.1], [0.03, 0.1], [0.03, -0.17], [0, -DIAL.r - 0.026], [-0.03, -0.17]], 0.034, { axis: 'y', bevel: 0.008, bevelBase: 0, radius: [0.012, 0.012, 0.01, 0.006, 0.01], segs: 1, detail, band: 0, caps: 'end' });

@@ -87,16 +87,7 @@ export function buildDeflector(b: NodeBuilder, x0: number, seed: number, R: Rng,
     const rs = extrude(band(x0, n, D.t / 2 - 0.002, D.t / 2 + 0.01, 0.03, 0.97), 0.05, { axis: 'y', bevel: 0, bevelBase: 0, radius: 0, segs: 1, detail: 'low', band: 0, caps: 'end' });
     transform(rs, T(0, D.y0 + 0.035, 0));
     b.add(setFinish(part('brass', rs, 'brass', { seed: seed + 3, warm: 0.04 }), 0.55));
-    // its countersunk screws, a row along the strip (they face the back: three are enough)
-    for (let i = 1; i < 6; i += 2) {
-      const t = 0.03 + (0.94 * i) / 6;
-      const [x, z] = deflectorAt(x0, t);
-      const [xa, za] = deflectorAt(x0, t + 1e-3);
-      const dx = xa - x, dz = za - z, l = Math.hypot(dx, dz);
-      let nx = -dz / l, nz = dx / l;
-      if (nx < 0) { nx = -nx; nz = -nz; }
-      b.small(() => [part('brass', transform(stud(0.009, 0.004, 5), aim([x + nx * (D.t / 2 + 0.012), D.y0 + 0.06, z + nz * (D.t / 2 + 0.012)], [nx, 0, nz])), 'brass', { seed: seed + 4, shade: 0.8 })]);
-    }
+    // (its screws face the back, where nobody looks: not modelled)
   }
   // ---- its mounts: a bracket onto the near rail's top, a strap to the housing's right face ----
   {
