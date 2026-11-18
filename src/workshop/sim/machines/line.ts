@@ -144,6 +144,8 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
   let flagAt = -1;
   /** S6: attract mode has ended and the line has tidied up after the crew. */
   let played = false;
+  /** Attract mode has ended and the crew's cord has not yet been looked at (it waits out a Button rung). */
+  let cordOwed = false;
 
   const lineOf = (jack: Id): LiveLine | undefined => spec.lines.find((l) => l.jack === jack);
   const cordJack = (): Id => ctx.setting(spec.cord, 'jack') as Id;
@@ -396,6 +398,12 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
             if (board.working === c.station) board.working = null;
             desk.onCancel?.(c, 'undo');
           }
+        cordOwed = true;
+      }
+      // the cord goes home once nothing forbids the commit: a first action that is the Button's press opens
+      // a rung in the same step, and nothing commits while a rung plays (rule 7), so the cord waits it out
+      if (cordOwed && !ctx.bracketed) {
+        cordOwed = false;
         const home = ctx.scene.cord.start;
         const from = cordJack();
         if (!lifted() && ctx.writer(spec.cord, 'jack') === 'crew' && from !== home && !calls.some((c) => !c.crew)) {

@@ -46,6 +46,8 @@ export const station: BenchStation = {
       lampBody: false,
       ...(k.bulb ? { bulb: k.bulb } : {}),
       standIn: STAND_IN,
+      // Patch's stool rolls on its runner (stations/operator.ts draws it)
+      omit: ['stool', 'phone'],
       at: { sign: { x: S.sign.x, y: S.sign.y }, toolwall: { x: S.toolwall.x, y: S.toolwall.y }, lamp: { x: S.lamp.x, z: S.lamp.z }, phone: k.fit.phone.at, stool: k.fit.stool.at },
     });
   },
