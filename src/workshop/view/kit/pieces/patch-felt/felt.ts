@@ -117,8 +117,8 @@ export function planeChart(side: 1 | -1 = 1, z0 = 0): Chart {
 }
 
 /** A sewn, stuffed flat piece (an ear, a ruff): two pillow appliqués back to back on the XY plane. */
-export function pillow(outline: ReadonlyArray<P2>, o: { t: number; edge?: number; puff?: number; back?: number; centre?: P2; rings?: number }): BufferGeometry[] {
-  const common = { edge: o.edge ?? o.t * 0.8, sink: 0, ...(o.centre ? { centre: o.centre } : {}), ...(o.rings ? { rings: o.rings } : {}) };
+export function pillow(outline: ReadonlyArray<P2>, o: { t: number; edge?: number; puff?: number; back?: number; centre?: P2; rings?: number; edgeSegs?: number }): BufferGeometry[] {
+  const common = { edge: o.edge ?? o.t * 0.8, sink: 0, ...(o.centre ? { centre: o.centre } : {}), ...(o.rings ? { rings: o.rings } : {}), ...(o.edgeSegs ? { edgeSegs: o.edgeSegs } : {}) };
   return [
     applique(planeChart(1), outline, { t: o.t, puff: o.puff ?? 0, ...common }),
     applique(planeChart(-1), outline, { t: o.back ?? o.t, puff: (o.puff ?? 0) * 0.5, ...common }),
@@ -178,6 +178,8 @@ export interface AppliqueOptions {
   centre?: P2;
   /** Interior rings between the centre and the edge band (default 3). */
   rings?: number;
+  /** Segments round the raised edge's quarter round (default 3). */
+  edgeSegs?: number;
 }
 
 /**
@@ -194,7 +196,7 @@ export function applique(chart: Chart, outline: ReadonlyArray<P2>, o: AppliqueOp
   type Ring = { s?: number; inset?: number; h: number | null };
   const rings: Ring[] = [];
   for (let k = 1; k <= nr; k++) rings.push({ s: k / (nr + 1), h: null });
-  const edgeSegs = 3;
+  const edgeSegs = o.edgeSegs ?? 3;
   for (let k = 0; k <= edgeSegs; k++) {
     const a = (k / edgeSegs) * (Math.PI / 2);
     rings.push({ inset: eb - eb * Math.sin(a), h: t - eb + eb * Math.cos(a) });

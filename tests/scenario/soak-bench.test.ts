@@ -3,7 +3,7 @@
 // leaves the bench for good, the part count never runs away, and after "Reset the workshop" every
 // machine goes back to idle.
 import { expect, test } from 'vitest';
-import { benchWorld, LINE, onBelt } from './line-helpers.ts';
+import { benchWorld, FULL_BENCH, LINE, onBelt } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { steps } from '../../src/workshop/sim/clock.ts';
 import type { BeltView, ChuteView, DockView, Vec3 } from '../../src/workshop/sim/types.ts';
@@ -11,7 +11,7 @@ import type { BeltView, ChuteView, DockView, Vec3 } from '../../src/workshop/sim
 const MINUTES = 10;
 
 test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { timeout: 180_000 }, async () => {
-  const w = await benchWorld('soak-bench');
+  const w = await benchWorld('soak-bench', { scene: FULL_BENCH }); // the whole bench: Fetch's rounds run too
   const r = rng('soak-bench-script');
   const ids = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
   const count = [...w.parts()].length;

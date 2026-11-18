@@ -8,7 +8,9 @@ export default defineConfig({
     environment: 'node',
     // Headless physics scenarios are heavy, and verify often runs while other work
     // loads the machine: the default 5 s per test turns load into false failures.
-    testTimeout: 60_000,
+    // Generous on purpose: the seeded history and soak runs take 15 s alone and several times that when
+    // the machine is shared; a timeout here must mean a hang, never a busy laptop.
+    testTimeout: 300_000,
     hookTimeout: 60_000,
   },
 });

@@ -54,7 +54,12 @@
     "belt.fastest": { "text": "Belt's as fast as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" },
     "belt.slowest": { "text": "Belt's as slow as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" },
     "lamp.brightest": { "text": "Lamp's as bright as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" },
-    "lamp.dimmest": { "text": "Lamp's as dim as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" }
+    "lamp.dimmest": { "text": "Lamp's as dim as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" },
+
+    "changed-since": { "text": "That changed before I got to it, so I left it alone.", "kind": "voice", "provisional": true, "source": "REWRITE.md § E5 rule 7 (\"Patch replies that it has been changed since and leaves it\"); S3" },
+    "cancelled.cord": { "text": "Line dropped. Nothing changed.", "kind": "fact", "provisional": true, "source": "REWRITE.md § B5 Patch (pull the cord out mid-job); the job is cancelled before anything is written (sim/machines/line.ts); S3" },
+    "cancelled.undo": { "text": "Taken back. Nothing changed.", "kind": "fact", "provisional": true, "source": "REWRITE.md § E5 rule 10 and the worked example \"pulls the lever while Patch is still reaching for the drawer\": the job is cancelled, nothing is written; S3" },
+    "undo.lever": { "text": "The lever takes things back in order.", "kind": "voice", "provisional": true, "source": "REWRITE.md § E5 rule 12 (\"Patch replies that something has changed it since, and that the lever takes things back in order\"); S3" }
   },
 
   "colours": {

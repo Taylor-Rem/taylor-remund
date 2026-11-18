@@ -1,0 +1,17 @@
+{
+  "names": {
+    "line": { "text": "Phone line", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the phone talks to whatever the cord is plugged into); S3" },
+    "patch": { "text": "Patch", "kind": "ui", "source": "REWRITE.md § B5, the crew: Patch; a working name (§ Decisions, G4)" },
+    "platen": { "text": "Platen", "kind": "ui", "source": "REWRITE.md § B1, machines table (Patchlamp platen)" },
+    "storefront": { "text": "Storefront", "kind": "ui", "source": "REWRITE.md § B2 X1 (the STOREFRONT jack); § C layout" },
+    "jack": {
+      "platen": { "text": "Platen jack", "kind": "ui", "source": "REWRITE.md § B2 X1 (jack PLATEN)" },
+      "belt": { "text": "Belt jack", "kind": "ui", "source": "REWRITE.md § B2 X1 (jack BELT)" },
+      "reserved": { "text": "Reserved jack", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (\"Two more jacks are capped with tape that reads RESERVED\")" }
+    }
+  },
+  "slips": {
+    "reserved": { "text": "RESERVED. NOT CONNECTED YET.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (two jacks capped with tape that reads RESERVED); § B1 law 2 (a slip naming what it wanted, never a bare refusal); S3" },
+    "platenFull": { "text": "ONE THING AT A TIME.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2 (the platen's tray holds one part; a slip says what it wanted instead); S3" }
+  }
+}

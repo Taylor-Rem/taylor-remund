@@ -13,6 +13,12 @@ import type { Rng } from '../../src/workshop/sim/rng.ts';
 import type { Location, Pose, SimEvent } from '../../src/workshop/sim/types.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
 import { HISTORY_TUNING } from '../../src/workshop/sim/history.ts';
+import { AT as V } from '../../src/workshop/sim/scenes/vignette.ts';
+import { line } from '../../src/workshop/sim/machines/line.ts';
+import { storefront } from '../../src/workshop/sim/machines/storefront.ts';
+import { lamp } from '../../src/workshop/sim/machines/lamp.ts';
+import { patch } from '../../src/workshop/sim/crew/patch.ts';
+import type { UnitFactory } from '../../src/workshop/sim/scene.ts';
 
 const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch'] as const;
 const JACKS = ['jack-storefront', 'jack-lamp'] as const;
@@ -38,8 +44,29 @@ const free = (b: Bench): string[] => PARTS.filter((id) => onBench(b, id) && b.wo
 const moving = (b: Bench): string[] => PARTS.filter((id) => onBench(b, id) && b.world.mode(id) === 'free' && b.world.motion(id)!.awake);
 const grabbable = (b: Bench, crew: boolean): string[] => PARTS.filter((id) => (crew || id !== 'fetch') && onBench(b, id) && (b.world.mode(id) === 'free' || b.world.mode(id) === 'crew'));
 
+// (S3) The real Patchlamp station on the stand-ins' bench: the phone line, Patch, the storefront and the lamp
+// (the vignette's two jacks; its fixture `lamp` keeps its id, so the lamp machine is `lamp-s3`).
+const STATION: readonly UnitFactory[] = [
+  line({ id: 'line', station: 'patchlamp', name: 'name.line', cord: 'cord', lines: [{ jack: 'jack-storefront', line: 'storefront', station: 'storefront' }, { jack: 'jack-lamp', line: 'lamp', station: 'lamp-s3' }] }),
+  patch({
+    id: 'patch', station: 'patchlamp', name: 'name.patch', line: 'line',
+    seat: [V.stool.c[0], V.stool.c[1] + V.stool.half[1], V.stool.c[2]], facing: -Math.PI / 2, foot: [V.stool.c[0], 0, V.stool.c[2] + 0.8],
+    body: { up: 0.75, radius: 0.6, head: 1.05, hands: 0.35 }, shelf: [V.stool.c[0] - 0.7, 0, V.stool.c[2]], lever: [-3, 1.5, -2], visitor: [0.6, 2.4, 14], phone: V.phone.c,
+    jacks: { 'jack-storefront': V.jacks.storefront, 'jack-lamp': V.jacks.lamp }, stations: { storefront: [7, 1, -3.6], 'lamp-s3': [-2, 5.2, -0.6] },
+    bench: { minX: V.bench.minX + 0.4, maxX: V.bench.maxX - 0.4, minZ: V.bench.minZ + 0.4, maxZ: V.bench.maxZ - 0.4 },
+  }),
+  storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
+  lamp({ id: 'lamp-s3', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: { bulb: [-2.2, 5.2, -0.6], aim: [2, 0, -0.1] }, reach: { centre: [-3.1, -4.76], min: 1, max: 5, minX: -8, maxX: 3.5, minZ: -4, maxZ: 1.5 }, follow: 0.6 }),
+];
+const STATION_TEXTS = [
+  'make it blue', 'make it red', 'make the sign say HELLO', 'paint the awning violet', "we're closed", 'we are open', 'put a boat in the window', 'change the picture',
+  'brighter', 'dimmer', 'lights out', 'lights on', 'back to warm', 'help', 'who are you', 'make the lamp green', 'paint the crate red', 'can taylor call me', 'make it pink',
+];
+
 interface Options {
   readonly steps: number;
+  /** (S3) Texts, "undo that" and the lamp's arm go to the real Patchlamp station instead of the stand-in Patch. */
+  readonly station?: boolean;
   /** The crew, Revert, stray knocks and resets take part (off for the full drain, where the crew is frozen). */
   readonly others: boolean;
   /** Stop acting after this many visitor actions. */
@@ -50,7 +77,7 @@ interface Options {
 function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: number; start: ReturnType<Bench['world']['durable']> } {
   const r = rng(`history-${seed}`);
   let chk: Checker | null = null;
-  const b: Bench = bench(seed, {}, (ev: readonly SimEvent[]) => {
+  const b: Bench = bench(seed, o.station ? { units: STATION } : {}, (ev: readonly SimEvent[]) => {
     // HISTORY_TRACE=1 prints every event and every open window, step by step (with HISTORY_SEED, to read one failure)
     if (trace) {
       const windows = b.world.undoStack().filter((t) => t.moving.length > 0);
@@ -83,7 +110,17 @@ function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: 
       catchAndSet(b, r.pick(m), [r.range(-9, 9), 0, r.range(-4, 4)]);
       actions++;
     } else if (k < 38 && visitor) {
-      turn(b, r.int(4));
+      if (o.station && r.chance(0.4)) {
+        // (S3) the lamp's arm: a drag of a few frames, let go; one transaction
+        for (let i = 0, n = 1 + r.int(4); i < n; i++) {
+          b.world.dispatch({ type: 'drag', id: 'lamp-s3', target: [r.range(-7, 3), 5.2, r.range(-4, 1.5)], end: i === n - 1 });
+          b.run(1);
+        }
+      } else turn(b, r.int(4));
+      actions++;
+    } else if (k < 52 && visitor && o.station) {
+      b.world.dispatch({ type: 'text', text: r.pick(STATION_TEXTS) });
+      b.run(1);
       actions++;
     } else if (k < 52 && visitor) {
       const target = r.pick([...PARTS, BELT]);
@@ -92,6 +129,9 @@ function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: 
       else if (r.chance(0.6)) text(b, { kind: 'set', target, field: 'colour', value: r.pick(COLOURS), delay });
       else text(b, { kind: 'set', target, field: 'label', value: r.pick(LABELS), delay });
       actions++;
+    } else if (k < 58 && o.station) {
+      b.world.dispatch({ type: 'text', text: 'undo that' });
+      b.run(1);
     } else if (k < 58) {
       text(b, { kind: 'undo-that' });
     } else if (k < 70) {
@@ -178,4 +218,35 @@ describe('§ E5 the replay check and the invariants, on seeded sequences', () =>
     }
     expect(drained).toBe(only !== null ? 1 : 200);
   });
+});
+
+describe('§ E5 the replay check and the invariants, with the real Patchlamp station (S3)', () => {
+  test('sequences of real texts, "undo that", the lamp\'s arm, the cord, the lever and everything else: replay and invariants hold at every step', () => {
+    let undone = 0;
+    let changed = 0;
+    for (const seed of seeds(60, 9000)) {
+      const { b, chk } = sequence(seed, { steps: 2000, others: true, station: true });
+      undone += chk.stats.undone;
+      changed += b.log.filter((e) => e.type === 'line.reply' && e.reply.some((l) => l.id.startsWith('change.'))).length;
+    }
+    if (only !== null) return;
+    // the station took part: texts went down the line and were answered with a change (this visitor is frantic: most jobs are pulled or taken back)
+    expect(changed).toBeGreaterThan(20);
+    expect(undone).toBeGreaterThan(300);
+  }, 240_000);
+
+  test('the full drain with the real station: the lever empties the stack and every field is back at its start', () => {
+    for (const seed of seeds(60, 12000)) {
+      const { b, start } = sequence(seed, { steps: 900, others: false, maxActions: HISTORY_TUNING.depth - 5, station: true });
+      while (b.world.bracketed) b.run(1);
+      for (let i = 0; i < 2 * HISTORY_TUNING.depth && b.world.undoStack().length > 0; i++) lever(b);
+      lever(b);
+      try {
+        expect(b.world.undoStack()).toEqual([]);
+        expect(b.world.durable()).toEqual(start);
+      } catch (e) {
+        throw new Error(`station drain seed ${seed}: ${(e as Error).message}\n  re-run alone: HISTORY_SEED=${seed} npx vitest run tests/scenario/history-replay.test.ts`, { cause: e });
+      }
+    }
+  }, 240_000);
 });
