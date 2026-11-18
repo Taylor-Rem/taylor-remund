@@ -34,6 +34,7 @@ import { platen } from '../machines/platen.ts';
 import { storefront } from '../machines/storefront.ts';
 import { lamp } from '../machines/lamp.ts';
 import { patch } from '../crew/patch.ts';
+import { FETCH_TUNING } from '../crew/fetch.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -51,75 +52,87 @@ export const AT = {
   backWall: { c: [0, 3, -5.15], half: [10.5, 3, 0.15] } as Box,
 
   // ── the back row: board, stool (the tool wall, lamp, sign and window hang on the wall: no bodies) ──
-  /** The switchboard against the wall (its keyshelf, frame and crest), and its two live jacks (measured from the piece). */
-  board: { c: [0.55, 1.554, -4.335], half: [2.3, 1.554, 0.655] } as Box,
-  jacks: { storefront: [-0.45, 1.18, -4.264] as Vec3, lamp: [1.59, 1.18, -4.264] as Vec3 },
-  /** Patch's stool at the board's right end. */
-  stool: { c: [3.05, 0.577, -3.35], half: [0.324, 0.578, 0.322] } as Box,
+  /**
+   * The whole switchboard (four live jacks; origin (-0.1, -4.38)) against the wall, in three bodies: the desk up to
+   * the keyshelf's top (0.89), out to the shelf's front edge; the jack panel, frame and crest behind it, back from
+   * the shelf; the runner's plank in front, low. Its six jack mouths and the stool's stop for each live jack, and a
+   * point on the keyshelf (left of the writing ledge, clear of the pad), are measured from the piece.
+   */
+  board: { c: [-0.1, 0.445, -4.445], half: [2.6, 0.445, 0.545] } as Box,
+  boardPanel: { c: [-0.1, 2.05, -4.67], half: [2.6, 1.16, 0.32] } as Box,
+  boardRunner: { c: [0.425, 0.026, -3.46], half: [3.025, 0.026, 0.35] } as Box,
+  jacks: {
+    storefront: [-1.3, 1.46, -4.264] as Vec3, platen: [-0.28, 1.46, -4.264] as Vec3, belt: [0.72, 1.46, -4.264] as Vec3, lamp: [1.62, 1.46, -4.264] as Vec3,
+    reserved1: [-2.15, 1.46, -4.264] as Vec3, reserved2: [-1.79, 1.46, -4.264] as Vec3,
+  },
+  /** Where the stool stands on the runner to work each live jack (x, z), and at rest (`stool` below). */
+  stoolAt: { storefront: [-1.15, -3.46] as const, platen: [-0.13, -3.46] as const, belt: [0.87, -3.46] as const, lamp: [1.77, -3.46] as const },
+  keyshelf: [1.4, 0.89, -4.1] as Vec3,
+  /** Patch's stool, lowered (seat 0.62 over the runner's top 0.052), at rest at the runner's right end. */
+  stool: { c: [3.02, 0.369, -3.46], half: [0.316, 0.317, 0.32] } as Box,
 
   // ── the middle row ──
-  /** The UNDO lever's base (stand-in). */
-  undo: { c: [-1.75, 0.75, -1.9], half: [0.35, 0.75, 0.35] } as Box,
+  /** The UNDO lever (real piece, origin (-2.2, 0.3)): its console, quadrant and lever at home, as one box. */
+  undo: { c: [-2.2, 0.983, 0.352], half: [0.79, 0.983, 0.462] } as Box,
   /** The phone on its easel. */
-  phone: { c: [2.2, 0.36, -1.35], half: [0.21, 0.36, 0.15] } as Box,
-  /** The platen (real piece, origin (4.4, -0.9)): its base and deck, its arm's column, its tank. */
-  platen: { c: [4.4, 0.31, -1.045], half: [1.2, 0.31, 1.005] } as Box,
-  platenColumn: { c: [3.42, 1.5, -1.0], half: [0.15, 1.5, 0.15] } as Box,
-  platenTank: { c: [5.22, 0.75, -1.75], half: [0.26, 0.75, 0.26] } as Box,
+  phone: { c: [2.4, 0.36, 0.9], half: [0.21, 0.36, 0.15] } as Box,
+  /** The platen (real piece, origin (4.6, 0.2)): its base and deck, its arm's column, its tank. */
+  platen: { c: [4.6, 0.31, 0.055], half: [1.2, 0.31, 1.005] } as Box,
+  platenColumn: { c: [3.62, 1.5, 0.1], half: [0.15, 1.5, 0.15] } as Box,
+  platenTank: { c: [5.42, 0.75, -0.65], half: [0.26, 0.75, 0.26] } as Box,
   /** The storefront (real piece, origin (7.6, -3.6)): its bounds, jack box and conduit included. */
   storefront: { c: [7.07, 1.415, -3.535], half: [1.74, 1.415, 0.535] } as Box,
   /** Shipped (P4, clay): four 1.0 × 1.0 pallets, 0.15 high. */
   pallets: [
-    { c: [7.4, 0.075, -1.25], half: [0.5, 0.075, 0.5] },
-    { c: [8.45, 0.075, -1.25], half: [0.5, 0.075, 0.5] },
-    { c: [7.48, 0.075, 0.3], half: [0.5, 0.075, 0.5] },
-    { c: [8.5, 0.075, 0.3], half: [0.5, 0.075, 0.5] },
+    { c: [7.4, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
+    { c: [8.45, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
+    { c: [7.48, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
+    { c: [8.5, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
   ] as readonly Box[],
   /** Their stacks of crates (fronts flush with the pallets' fronts): the back row 1.2 high, the front row 0.6. */
   stacks: [
-    { c: [7.3975, 0.675, -1.05], half: [0.4975, 0.525, 0.3] },
-    { c: [8.4525, 0.675, -1.05], half: [0.4975, 0.525, 0.3] },
-    { c: [7.48, 0.375, 0.575], half: [0.475, 0.225, 0.225] },
-    { c: [8.5, 0.375, 0.575], half: [0.475, 0.225, 0.225] },
+    { c: [7.3975, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
+    { c: [8.4525, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
+    { c: [7.48, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
+    { c: [8.5, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
   ] as readonly Box[],
   /** The mailbox on its post, the résumé clipboard on it (P4, clay): front right. */
   mailbox: { c: [7.7, 0.65, 3.75], half: [0.21, 0.65, 0.16] } as Box,
-  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-3.2, 0.35)). Its hatch's doors stand open either side, low. */
-  revert: { c: [-3.182, 0.672, 0.422], half: [1.026, 0.672, 0.768] } as Box,
+  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.6, 0.3)). Its hatch's doors stand open either side, low. */
+  revert: { c: [-4.582, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
 
   // ── the Button's row ──
   /** The Button's console (the body only). Deck top at y 1.04. */
-  console: { c: [-0.05, 0.52, 0.55], half: [1.05, 0.52, 0.76] } as Box,
+  console: { c: [-0.05, 0.52, 0.5], half: [1.05, 0.52, 0.76] } as Box,
   /** The Button's cap on the console deck. */
-  buttonCap: [0.27, 1.25, 0.35] as Vec3,
+  buttonCap: [0.27, 1.25, 0.3] as Vec3,
 
   // ── the front: the lane, the belt and its ends ──
-  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. */
-  stack: [-8.5, -1.2] as const,
-  /** Fetch's lane of yellow tape (x, z): in front of the console, behind the belt. */
-  lane: { a: [-5.2, 2.2] as const, b: [3.0, 2.2] as const },
+  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. 2.02 from the lane's left stop (Fetch's rounds: 1.7 to 2.3); with the chute's landing and the deflector's set-down spot (LINE.belt.offBack) a cluster beside the lane's end, none under its wheel. */
+  stack: [-6.0, 1.75] as const,
+  /** Fetch's lane of yellow tape (x, z): in front of the console, behind the striker's post and the belt. Its stops (0.45 in) reach the stack, the belt's drop, the phone and the platen's tray. */
+  lane: { a: [-4.45, 2.05] as const, b: [4.3, 2.05] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
   fetchStart: 0.48,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
-  looseCrate: [-1.26, 0.225, 2.85] as Vec3,
+  looseCrate: [-1.26, 0.225, 2.7] as Vec3,
   /** Where on the lane Fetch fumbles (x): right of the console. */
-  fumbleX: 2.25,
+  fumbleX: 1.6,
   fumble: { heading: -Math.PI / 2, linvel: [-1.0, 2.0, 0] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
-  /** The belt's bed (carrying surface at y 0.5) and its motor housing at the left end. Belt length 10. */
-  belt: { c: [-0.9, 0.25, 3.9], half: [5.0, 0.25, 0.52] } as Box,
-  beltMotor: { c: [-6.46, 0.63, 4.0], half: [0.56, 0.63, 0.79] } as Box,
-  /** The striker (stand-in): its post on the belt's far rail; the arm passes clear over the belt. */
-  striker: { c: [3.7, 0.85, 3.22], half: [0.3, 0.85, 0.22] } as Box,
-  /** The dock (stand-in): its portal turned toward the camera. */
+  /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
+  belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
+  beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
+  /** The striker (real piece, origin (2.475, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.6 high, under the arm, which parts on the belt pass clear beneath. */
+  striker: { c: [2.1, 0.8, 3.072], half: [0.55, 0.8, 0.13] } as Box,
   /**
-   * The dock (real piece, origin the door's middle at (5.42, 3.45); its bay turned 40° toward the camera,
+   * The dock (real piece, origin the door's middle at (5.92, 3.55), its ramp's straight run 0.5 longer than L1's so the platen's plate stands clear of its portal; its bay turned 40° toward the camera,
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
    */
-  dock: { c: [5.707, 1.04, 3.209], half: [0.94, 1.04, 0.525], yaw: -50 } as Box,
+  dock: { c: [6.207, 1.04, 3.309], half: [0.94, 1.04, 0.525], yaw: -50 } as Box,
   /** Where the dock's door (the piece's origin) stands: the ramp below is fitted to bring it here (view/bench.ts DOCK_REACH gives the same). */
-  dockDoor: [5.42, 3.45] as const,
-  /** The return chute's mouth, front left, and how parts come out of it. */
-  chute: { p: [-8.05, 0.45, 3.2] as Vec3, linvel: [2.4, 0.6, -0.9] as Vec3 },
+  dockDoor: [5.92, 3.55] as const,
+  /** The return chute's mouth (real piece at (-8.4, 0, 5), run 2, aim 12: its `mouth` socket), and how parts come out of it: onto the bench at about its `land` (-6.95, 2.79), beside the stack. */
+  chute: { p: [-7.631, 1.23, 2.932] as Vec3, linvel: [1.7, 0.6, -0.36] as Vec3 },
 } as const;
 
 const e = CRATE_EDGE;
@@ -220,21 +233,23 @@ const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-$
 /**
  * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
  * its hatch (`AT.revert`); `button` is behind the console, facing it, the cap within its arm's reach;
- * `park` is right of centre, in front of the phone and the platen, where the window's light falls
- * across the bench. The track threads behind the console (clear of the lever, the console and the
- * phone by a few hundredths at Revert's 1.74 x 1.32 footprint).
+ * `park` is right of centre, behind the phone and the platen, where the window's light falls across the
+ * bench. The track runs from the hatch back to z -1.05, along behind the lever and the console, to the
+ * Button spot and on to the park (layout round 4's numbers, which clear the real pieces at Revert's
+ * 2.05 x 1.54 footprint).
  */
 const REVERT_BEHIND_CONSOLE = AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05;
-const REVERT = {
+const REVERT_PARK = { x: 1.8, z: -1.9 } as const;
+export const REVERT = {
   home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
   button: { x: AT.buttonCap[0], z: REVERT_BEHIND_CONSOLE, heading: 0 },
-  park: { x: 3.3, z: 0.45, heading: -0.35 },
+  park: { x: REVERT_PARK.x, z: REVERT_PARK.z, heading: -0.35 },
   path: [
     [AT.revert.c[0], AT.revert.c[2]],
-    [-2.5, -0.8],
+    [AT.revert.c[0], -1.05],
+    [-2.5, -1.05],
     [AT.buttonCap[0], REVERT_BEHIND_CONSOLE],
-    [1.1, -0.85],
-    [3.3, 0.45],
+    [REVERT_PARK.x, REVERT_PARK.z],
   ] as readonly (readonly [number, number])[],
 } as const;
 
@@ -309,25 +324,18 @@ const FETCH_ROUNDS: FetchRounds = {
 // ───────────── the Patchlamp station (S3): the cord's four lines, the phone line, Patch, the platen, the storefront, the lamp ─────────────
 
 /**
- * The station's numbers, read from `AT` where `AT` has them. PROVISIONAL where noted: `AT.jacks` still
- * holds the slice board's two measured jacks, so the six jacks of the whole board follow its layout
- * (`BOARD_WHOLE` in view/kit/pieces/switchboard/board.ts: jacks at x -1.2, -0.18, 0.82, 1.72 and the
- * two capped at -2.05, -1.69 from the board's middle, the row at 1.46) until the bench builds that board
- * and `AT` carries its measured mouths.
+ * The station's numbers, read from `AT` where `AT` has them: the whole board's six measured jack mouths
+ * (`AT.jacks`, A1), the stool's stops (`AT.stoolAt`) and a keyshelf point (`AT.keyshelf`) are there.
  */
 export const PATCHLAMP = (() => {
-  const bx = AT.board.c[0];
-  const jy = 1.46;
-  const jz = AT.jacks.storefront[2];
-  const at = (x: number): Vec3 => [bx + x, jy, jz];
-  /** Left to right: two capped RESERVED jacks, then STOREFRONT, PLATEN, BELT, LAMP. */
+  /** Left to right: two capped RESERVED jacks, then STOREFRONT, PLATEN, BELT, LAMP (the whole board's mouths, measured: `AT.jacks`). */
   const jacks = [
-    { id: 'jack-reserved-1', name: 'name.jack.reserved', at: at(-2.05) },
-    { id: 'jack-reserved-2', name: 'name.jack.reserved', at: at(-1.69) },
-    { id: 'jack-storefront', name: 'name.jack.storefront', at: at(-1.2) },
-    { id: 'jack-platen', name: 'name.jack.platen', at: at(-0.18) },
-    { id: 'jack-belt', name: 'name.jack.belt', at: at(0.82) },
-    { id: 'jack-lamp', name: 'name.jack.lamp', at: at(1.72) },
+    { id: 'jack-reserved-1', name: 'name.jack.reserved', at: AT.jacks.reserved1 },
+    { id: 'jack-reserved-2', name: 'name.jack.reserved', at: AT.jacks.reserved2 },
+    { id: 'jack-storefront', name: 'name.jack.storefront', at: AT.jacks.storefront },
+    { id: 'jack-platen', name: 'name.jack.platen', at: AT.jacks.platen },
+    { id: 'jack-belt', name: 'name.jack.belt', at: AT.jacks.belt },
+    { id: 'jack-lamp', name: 'name.jack.lamp', at: AT.jacks.lamp },
   ];
   /**
    * The platen's tray seat: the real piece's deck top (`AT.platen`'s top) over its turntable, 0.05 right
@@ -355,8 +363,8 @@ export const PATCHLAMP = (() => {
       foot: [AT.stool.c[0], 0, AT.stool.c[2] + AT.stool.half[2] + 0.45] as Vec3,
       /** Its seated body at the crew's 1.5× (about 1.6 tall on the stool). */
       body: { up: 0.75, radius: 0.6, head: 1.05, hands: 0.35 },
-      /** The keyshelf is inside the board's one-box collider, so a caught part is set on the bench beside the stool (PROVISIONAL). */
-      shelf: [AT.stool.c[0] - AT.stool.half[0] - 0.35, 0, AT.stool.c[2]] as Vec3,
+      /** A caught part is set on the keyshelf (a point on it measured from the piece, `AT.keyshelf`). */
+      shelf: AT.keyshelf,
       lever: [AT.undo.c[0], AT.undo.c[1] + AT.undo.half[1], AT.undo.c[2]] as Vec3,
       visitor: [0.6, 2.4, 14] as Vec3,
       phone: AT.phone.c,
@@ -387,11 +395,73 @@ const PATCHLAMP_UNITS = [
     jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
     stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.bulb },
     bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
+    runner: s6PatchRunner(), // S6
   }),
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
   lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach, follow: 0.6 }),
 ];
+
+// ───────────── S6: the simulation joined up (every number read from AT or from the blocks above) ─────────────
+
+/**
+ * The Button's ladder knows every station (§ B4 rungs 2 to 4): the Patchlamp station's, besides the line's
+ * and the lever's above. The cord (the switchboard's handle) is already listed by S4; the lamp too.
+ */
+const S6_LADDER = {
+  stations: [
+    { id: 'line', at: AT.phone.c },
+    { id: 'platen', at: PATCHLAMP.seat },
+    { id: 'storefront', at: AT.storefront.c },
+  ],
+  line: 'line',
+};
+
+/**
+ * Patch's stool on its runner (S6, seam 5). It rests at the runner's right end, where the stool stands in
+ * `AT`; to work a live jack it stands at that jack's stop (`AT.stoolAt`, measured from the switchboard
+ * piece). After `quiet` seconds of a quiet line it rolls back to rest. A function (hoisted) so Patch's
+ * spec above can call it.
+ */
+function s6PatchRunner(): { rest: number; jacks: Record<string, number>; quiet: number } {
+  const S = AT.stoolAt;
+  return { rest: AT.stool.c[0], jacks: { 'jack-storefront': S.storefront[0], 'jack-platen': S.platen[0], 'jack-belt': S.belt[0], 'jack-lamp': S.lamp[0] }, quiet: 4 };
+}
+
+/**
+ * Fetch's lane as the bench its wheel and body cover (S6): the tape between its stops, widened by its
+ * footprint. Nothing is set down there by a machine (the belt's deflector skips a place inside it).
+ */
+function s6LaneBand(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const inset = FETCH_TUNING.inset * CREW_SCALE;
+  const r = Math.hypot(FETCH_HALF[0], FETCH_HALF[2]);
+  const [ax, az] = AT.lane.a;
+  const [bx, bz] = AT.lane.b;
+  const len = Math.hypot(bx - ax, bz - az);
+  const s0: [number, number] = [ax + ((bx - ax) * inset) / len, az + ((bz - az) * inset) / len];
+  const s1: [number, number] = [bx - ((bx - ax) * inset) / len, bz - ((bz - az) * inset) / len];
+  return { minX: Math.min(s0[0], s1[0]) - r, maxX: Math.max(s0[0], s1[0]) + r, minZ: Math.min(s0[1], s1[1]) - r, maxZ: Math.max(s0[1], s1[1]) + r };
+}
+
+/**
+ * The dock's collider (S6, seam 8): the bay BEHIND its door only. `AT.dock` is the piece's portal and bay
+ * as one box, whose front reached 0.15 out in front of the door's plane, over the sill: a part waiting
+ * there could be wedged against it, and could not be picked up. This is the same box cut at the door's
+ * plane (`LINE.door.origin`, the way in `LINE.door.inward`): from there back to the box's back face.
+ */
+function s6DockBay(): StaticSpec {
+  const yaw = (AT.dock.yaw ?? 0) * DEG;
+  const n: [number, number] = [DOOR.inward[0], DOOR.inward[2]];
+  const c = AT.dock.c;
+  const tc = (c[0] - DOOR.origin[0]) * n[0] + (c[2] - DOOR.origin[2]) * n[1];
+  // the box's depth along the way in (its own z, turned with it)
+  const hz = AT.dock.half[2];
+  const back = tc + hz;
+  const front = Math.max(0, tc - hz);
+  const mid = (front + back) / 2;
+  const centre: Vec3 = [c[0] + n[0] * (mid - tc), c[1], c[2] + n[1] * (mid - tc)];
+  return { id: 'dock', shape: { type: 'box', half: [AT.dock.half[0], AT.dock.half[1], (back - front) / 2] }, pose: pose(centre, yaw) };
+}
 
 export const bench: SceneDesc = {
   id: 'bench',
@@ -403,6 +473,8 @@ export const bench: SceneDesc = {
     box('back-wall', AT.backWall, { shape: { type: 'box', half: AT.backWall.half, radius: 0 } }),
     box('console', AT.console),
     box('board', AT.board),
+    box('board-panel', AT.boardPanel),
+    box('board-runner', AT.boardRunner),
     box('stool', AT.stool),
     box('phone', AT.phone),
     box('belt-bed', AT.belt, { friction: 0.9 }),
@@ -413,7 +485,7 @@ export const bench: SceneDesc = {
     box('platen-tank', AT.platenTank),
     box('storefront', AT.storefront),
     box('striker', AT.striker),
-    box('dock', AT.dock),
+    s6DockBay(), // S6: the bay behind the door only (was box('dock', AT.dock), which reached out over the sill)
     ...AT.pallets.flatMap((p, i) => [box(`pallet-${'abcd'[i]}`, p), box(`pallet-${'abcd'[i]}-stack`, AT.stacks[i]!)]),
     box('mailbox', AT.mailbox),
     ...RAMP_STATICS,
@@ -437,7 +509,7 @@ export const bench: SceneDesc = {
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
-    ladder: S4_LADDER,
+    ladder: { ...S4_LADDER, stations: [...S4_LADDER.stations, ...S6_LADDER.stations], line: S6_LADDER.line },
   },
   cord: {
     id: 'cord',
@@ -460,7 +532,7 @@ export const bench: SceneDesc = {
   crewScale: CREW_SCALE,
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
-    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
+    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: [s6LaneBand()] }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),

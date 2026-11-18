@@ -60,6 +60,6 @@ describe('the switchboard in the bench scene', () => {
   it('the platen tray is a mouth over its seat; Patch sits on the stool', () => {
     const m = bench.mouths!.find((x) => x.id === 'platen')!;
     expect(m).toMatchObject({ machine: 'platen', station: 'patchlamp', drop: PATCHLAMP.seat });
-    expect(PATCHLAMP.patch.seat[1]).toBeGreaterThan(1);
+    expect(PATCHLAMP.patch.seat[1]).toBeGreaterThan(0.6); // the stool lowered for the whole board (STOOL_SEAT 0.62 over the runner)
   });
 });

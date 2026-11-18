@@ -16,7 +16,16 @@ const ROUNDS = SCENE.runner.rounds!;
 /** A bench whose stack is out of Fetch's reach: the real one if it is, else the stack moved back out of it. */
 function farBench(): SceneDesc {
   if (laneDistance(bench, bench.runner.rounds!.stack[0], bench.runner.rounds!.stack[1]).d > REACH + 0.3) return bench;
-  return { ...bench, id: 'bench-far', runner: { ...bench.runner, rounds: { ...bench.runner.rounds!, stack: [-8.5, -1.2] } } };
+  // the stack's point AND its crates, back at the left rear, far past the tape (L, M, S upward, as the scene stacks them)
+  const far = [-8.5, -1.2] as const;
+  const [sx, sz] = bench.runner.rounds!.stack;
+  const moved = new Set(['crate-1', 'crate-2', 'crate-3']);
+  return {
+    ...bench,
+    id: 'bench-far',
+    parts: bench.parts.map((p) => (moved.has(p.id) ? { ...p, pose: { p: [p.pose.p[0] - sx + far[0], p.pose.p[1], p.pose.p[2] - sz + far[1]] as const, q: p.pose.q } } : p)),
+    runner: { ...bench.runner, rounds: { ...bench.runner.rounds!, stack: far } },
+  };
 }
 
 const states = (ev: readonly SimEvent[]): string[] => ev.flatMap((e) => (e.type === 'crew.state' && e.id === 'fetch' ? [e.state] : []));

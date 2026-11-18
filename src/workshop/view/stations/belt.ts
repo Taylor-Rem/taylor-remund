@@ -4,7 +4,9 @@
  * whose rollers turn to match it exactly, so nothing skates. On a `misfire`
  * of the belt (Button rung 1, § B4 "the belt lurches back") it kicks
  * backwards, shudders and picks up again; while a rung rewinds it runs
- * backwards with everything else. Carrying parts is the next phase.
+ * backwards with everything else. On a world with a belt machine (the
+ * bench), the machine's `phase` drives the surface instead: it carries parts
+ * at that speed, so what rides it and the ribs under it move together.
  *
  * The surface speed is integrated here on the simulation clock (a damped
  * spring toward the running speed, kicked by a misfire), and the belt
@@ -12,7 +14,7 @@
  * lurch reads on the surface and the rollers alike. With reduced motion
  * the belt stands still (§ B10: "the belt and crew start still").
  */
-import { Group, type Box3, type Object3D } from 'three';
+import { Group, Quaternion, Vector3, type Box3, type Object3D } from 'three';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
 import { part, piece, pieceBounds, place, T } from '../kit/compose.ts';
@@ -46,6 +48,12 @@ export interface BeltViewOptions {
   seed: number;
   /** Hand the belt's body to the set to be merged (only the rollers, the seam and the lamp stay here). */
   pool?: StaticPool;
+  /** The belt's length (its bed; default 6, the vignette's). */
+  length?: number;
+  /** More build options for the piece (the bench's belt: `{ line: true }`: controls, deflector, an open tail, stripes). */
+  build?: Record<string, unknown>;
+  /** The belt machine's id: when the world has it, its `BeltView.phase` scrolls the surface and turns the rollers (default 'belt'). */
+  machine?: string;
 }
 
 interface Uniforms {
@@ -70,9 +78,12 @@ function standInBelt(length: number): Piece {
 
 export function createBeltView(o: BeltViewOptions): StationViewFactory {
   return (ctx: ViewContext): StationView => {
-    const length = 6;
-    const whole = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length }, ctx.labels) : standInBelt(length);
-    const p = o.pool ? splitStatic(whole, placedMatrix(o.fit.belt.at), (n) => /^roller\d+$/.test(n) || n === 'seam' || n === 'lamp', o.pool) : whole;
+    const length = o.length ?? 6;
+    const machineId = o.machine ?? 'belt';
+    const whole = o.entry ? buildEntry(o.entry, null, { seed: o.seed, length, ...(o.build ?? {}) }, ctx.labels) : standInBelt(length);
+    // the piece's own list of moving nodes when it exports one (BELT_MOVING), else the G1 belt's
+    const movingRe = (o.module?.['BELT_MOVING'] as RegExp | undefined) ?? /^(roller\d+|seam|lamp)$/;
+    const p = o.pool ? splitStatic(whole, placedMatrix(o.fit.belt.at), (n) => movingRe.test(n), o.pool) : whole;
     const obj = ctx.realize(p);
     const root = new Group();
     root.name = 'belt';
@@ -92,7 +103,7 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     });
     const rest = rollers.map((r) => r.quaternion.clone());
     const rollerR = BELT_FEEL.rollerR;
-    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number }) => void;
+    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number; dial?: number; lever?: number; lamp?: boolean }) => void;
     const poseBelt = o.entry ? ((o.module?.['poseBelt'] as PoseBelt | undefined) ?? null) : null;
     const beltRollers = o.module?.['beltRollers'] as ((length: number) => readonly unknown[]) | undefined;
     const rollerInfo = poseBelt && beltRollers ? beltRollers(length) : null;
@@ -104,6 +115,7 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     const u = uniforms();
     if (u?.u_speed && typeof u.u_speed.value === 'number') u.u_speed.value = 0; // the offset is driven here
 
+    const Z = new Vector3(0, 0, 1), spin = new Quaternion();
     let v = ctx.reducedMotion ? 0 : BELT_FEEL.speed;
     let dv = 0;
     let phase = 0;
@@ -113,6 +125,18 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
       update(frame: Frame) {
         ctx.materials.update(frame.time);
         const dt = Math.min(frame.dt, 0.1);
+        // the simulation's belt, when there is one, says how far the surface has gone (it carries parts at that speed)
+        const m = frame.world.machine(machineId);
+        if (m?.kind === 'belt') {
+          phase = m.phase;
+          angle = -phase / rollerR;
+          if (u?.u_offset) u.u_offset.value = phase;
+          // one number drives the surface, the rollers, the seam and the stripes; the dial, the lever and the lamp show the settings
+          const lever = m.running ? (m.direction === 'forward' ? 1 : -1) : 0;
+          if (poseBelt && rollerInfo) poseBelt(obj, length, rollerInfo, { travel: phase, dial: m.speed, lever, lamp: m.lamp !== 'dark' });
+          else for (let i = 0; i < rollers.length; i++) rollers[i]!.quaternion.copy(rest[i]!).multiply(spin.setFromAxisAngle(Z, angle));
+          return;
+        }
         for (const e of frame.events) {
           if (e.type === 'misfire' && e.id === 'belt' && !ctx.reducedMotion) v = BELT_FEEL.lurch;
         }

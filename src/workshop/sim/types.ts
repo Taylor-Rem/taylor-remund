@@ -94,8 +94,12 @@ export interface PartMotion {
   readonly mode: BodyMode;
 }
 
-/** What the visitor's hand holds: a loose part, or the cord's plug. */
-export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id };
+/**
+ * What the visitor's hand holds: a loose part, the cord's plug, or (S6) a unit that can be held without
+ * being a loose part (`kind: 'unit'`: Patch lifted off its stool, the lamp by its shade; `id` is the
+ * unit's id). All three come from the one gesture: `grab`, `carry`, `release`.
+ */
+export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id };
 
 // ───────────────────────── effects and causes (§ E5) ─────────────────────────
 
@@ -216,7 +220,11 @@ export type Intent =
   | { readonly type: 'press'; readonly id: Id }
   /** A continuous handle set to a value 0..1 (a dial, a slider). */
   | { readonly type: 'turn'; readonly id: Id; readonly value: number }
-  /** Pick a loose part up. `grip` is where on the part (world space) it was taken. */
+  /**
+   * Pick a loose part up. `grip` is where on the part (world space) it was taken. (S6) The same gesture
+   * takes hold of a unit that can be held (Patch, the lamp's shade: `id` is the unit's): `carry` moves it
+   * and `release` lets it go, as `drag` did.
+   */
   | { readonly type: 'grab'; readonly id: Id; readonly grip: Vec3 }
   /** While carrying: where the held part should be heading (world space), every frame the pointer moves. */
   | { readonly type: 'carry'; readonly target: Vec3 }
@@ -243,8 +251,16 @@ export type Intent =
    * Drag something that is a handle or a crew member rather than a loose part (§ D 13, § D 14): the
    * lamp by its shade (`id` the lamp), Patch off its stool (`id` Patch). Sent each frame the hand moves,
    * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
+   * (S6) Kept while the input layer moves to `grab`/`carry`/`release`, which now reach the same units.
    */
-  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean };
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean }
+  // ── S6 ──
+  /**
+   * The settings' reduced-motion switch, at run time (§ B4, § B10): from the next press a Button rung is
+   * the card and the lamp dip only (a rung already playing finishes as it began). Not a visitor action
+   * in the world: it does not end attract mode, and it does not count as input for the crew's patience.
+   */
+  | { readonly type: 'motion'; readonly reduced: boolean };
 
 // ───────────────────────── events: what `view` and `audio` may hear ─────────────────────────
 
@@ -267,8 +283,9 @@ export type SimEvent =
   | { readonly type: 'misfire'; readonly id: Id; readonly level: 1 | 2 }
   | { readonly type: 'tell'; readonly id: Id }
   | { readonly type: 'card'; readonly by: Id; readonly content: string } // a printed card or slip
-  | { readonly type: 'cord.unplugged'; readonly cord: Id; readonly jack: Id }
-  | { readonly type: 'cord.plugged'; readonly cord: Id; readonly jack: Id }
+  /** The plug left its jack, or was pushed into one. (S6) `by: 'crew'` when Patch moved it in attract mode (not the visitor's use). */
+  | { readonly type: 'cord.unplugged'; readonly cord: Id; readonly jack: Id; readonly by?: 'crew' | 'system' }
+  | { readonly type: 'cord.plugged'; readonly cord: Id; readonly jack: Id; readonly by?: 'crew' | 'system' }
   | { readonly type: 'crew.state'; readonly id: Id; readonly state: string; readonly from: string }
   | { readonly type: 'effect'; readonly effect: Effect }
   /**
@@ -354,7 +371,7 @@ export type SimEvent =
    * A text went down the line (`n` numbers the visit's texts from 1) into `jack` (a scene jack id;
    * `line` its name: storefront, platen, belt or lamp). `text` is the visitor's own words, as typed.
    */
-  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string; readonly by?: 'crew'; readonly content?: string }
   /** Patch has picked text `n` up and is on it: the job's stages are `PatchView.state`. */
   | { readonly type: 'line.working'; readonly n: number }
   /** Patch texts back (reply ids, sim/instruct `Reply`): the change it made and checked, or help, who, thanks, "undo that". */
@@ -665,7 +682,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -686,6 +703,15 @@ export interface PatchView extends MachineViewBase {
   readonly lookAt: Vec3 | null;
   /** The part in its hands (a catch), or null. */
   readonly holding: Id | null;
+  /**
+   * S6: the stool on its runner (world x of its middle): where it is now (`x`), its rest place at the
+   * runner's right end (`rest`), the runner's other end (`min`), and the roll in hand (state `roll`:
+   * eased in and out from `from` to `to` over `stateLength`; `home` when it is the way back after a
+   * quiet spell). Patch's `at` moves with it.
+   */
+  readonly stool: { readonly x: number; readonly rest: number; readonly min: number; readonly roll: { readonly from: number; readonly to: number; readonly home: boolean } | null };
+  /** S6: the job in hand, its stages in order with their lengths (seconds), as planned when it was picked up; null when free. */
+  readonly plan: readonly { readonly state: PatchState; readonly length: number }[] | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
@@ -735,6 +761,8 @@ export interface CordView {
   /** Where the lifted plug is heading (world space), or null when it is in its jack. */
   readonly plugAt: Vec3 | null;
   readonly jacks: readonly Id[];
+  /** S6: the last Button misfire, as one beat of its verb: the plug jumps in its jack and reseats (null before the first). */
+  readonly misfire: { readonly level: 1 | 2; readonly since: number } | null;
 }
 
 // ───────────────────────── the crew, as the view sees it ─────────────────────────
@@ -812,6 +840,21 @@ export interface CrewMember {
   readonly knock?: FetchKnock | null;
 }
 
+// ── S6: one crew (every member listed in one place, each as the view object it already had) ──
+
+/** Which crew member a `CrewView` is. */
+export type CrewKind = 'fetch' | 'patch' | 'revert';
+
+/**
+ * One crew member as the view reads it (`WorldView.crewViews()`, `WorldView.crewView(id)`): the same
+ * objects as before, under one roster. `id` is the crew unit's id; `body` the loose part that is its
+ * body (kind robot), or null for one that is never a loose part (Patch). Narrow on `kind`.
+ */
+export type CrewView =
+  | { readonly kind: 'fetch'; readonly id: Id; readonly body: Id; readonly member: CrewMember }
+  | { readonly kind: 'patch'; readonly id: Id; readonly body: null; readonly view: PatchView }
+  | { readonly kind: 'revert'; readonly id: Id; readonly body: Id; readonly view: RevertView };
+
 // ───────────────────────── the world, read-only ─────────────────────────
 
 /** What `view`, `audio` and `ui` are allowed to see. They never change it. */
@@ -830,6 +873,10 @@ export interface WorldView {
   interactables(): Iterable<Interactable>;
   interactable(id: Id): Interactable | undefined;
   crew(id: Id): CrewMember | undefined;
+  /** S6: the whole crew, in step order (Fetch, then the scene's crew: Revert, Patch), each as its view. */
+  crewViews(): readonly CrewView[];
+  /** S6: one crew member's view, by its unit id or its body's part id; undefined if it is not crew. */
+  crewView(id: Id): CrewView | undefined;
   /** What the visitor's hand holds, if anything. */
   holding(): Holding | null;
   /** What the world is doing with a part's body (also on `motion(id).mode`). */
@@ -850,4 +897,8 @@ export interface WorldView {
   readonly playMode: boolean;
   /** True while a Button rung is playing: parts and handles do not respond (§ B4). */
   readonly bracketed: boolean;
+  /** S6: reduced motion as the world honours it now (the boot option, then the `motion` intent). */
+  readonly reducedMotion: boolean;
+  /** S6: the interactable the `U` key pulls (the UNDO lever, `SceneDesc.button.ladder.lever`), or null. */
+  readonly undoId: Id | null;
 }

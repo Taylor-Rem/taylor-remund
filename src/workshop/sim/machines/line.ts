@@ -40,7 +40,7 @@ import type { Instruction, Jack, RefusalReason, Reply, ReplyId, ReplyLine } from
 import { REPLY_IDS } from '../instruct/types.ts';
 import { MAX_TEXT, UNDO_REPLIES, parse } from '../instruct/parse.ts';
 import { HZ } from '../clock.ts';
-import { CHANGED_SINCE, Lamp } from '../machine.ts';
+import { Beat, CHANGED_SINCE, Lamp } from '../machine.ts';
 import { BELT_FIELD_NAMES as BF, LAMP_FIELDS as LF, PART_PAINT, STOREFRONT_FIELDS as SF, boardOf } from './shared/patchlamp.ts';
 import type { LiveLine } from './shared/patchlamp.ts';
 
@@ -120,6 +120,8 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
   const board = boardOf(ctx);
   board.lines = spec.lines;
   const lamp = new Lamp(ctx);
+  /** S6: a Button misfire is one beat of its verb: the line rings once (its lamp flashes, the phone buzzes), nothing is sent. */
+  const beat = new Beat(ctx);
   const calls: Call[] = [];
   let log: LineEntry[] = [];
   let logStart = 0;
@@ -307,6 +309,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
       ctx.emit({ type: 'tell', id });
     },
     misfire(level) {
+      beat.hit(level);
       ctx.emit({ type: 'misfire', id, level });
     },
 
@@ -359,6 +362,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
       for (const c of [...calls]) cancel(c, 'undo');
       board.working = null;
       lamp.reset();
+      beat.reset();
     },
 
     view(): LineView {
@@ -370,7 +374,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
         id,
         station: spec.station,
         lamp: lamp.state(inHand !== null),
-        misfire: null,
+        misfire: beat.view(),
         line: up ? null : (lineOf(cordJack())?.line ?? null),
         jack: cordJack(),
         offering: up ? spec.lines.map((l) => l.jack) : [],

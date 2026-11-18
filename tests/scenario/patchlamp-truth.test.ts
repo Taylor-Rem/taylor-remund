@@ -171,17 +171,18 @@ describe('§ F3 the toy truth table, on seeded sequences', () => {
     }
     process.stdout.write(`\npatchlamp truth: ${JSON.stringify(total)}, ${seconds.length} timed\n`);
     // it really exercised the station
-    expect(total.changes).toBeGreaterThan(60);
+    expect(total.changes).toBeGreaterThan(40); // (S6: a job is 4.5 s and a roll now, so fewer finish in the same two minutes)
     expect(total.refusals).toBeGreaterThan(60);
     expect(total.mailbox).toBeGreaterThan(5);
     expect(total.cancelled).toBeGreaterThan(5);
     expect(total.undone).toBeGreaterThan(30);
-    expect(total.textEffects).toBeGreaterThan(60);
-    // "the toy takes seconds": a change texted to a free Patch is answered in two to four
+    expect(total.textEffects).toBeGreaterThan(40); // (S6: fewer jobs finish, see above)
+    // "the toy takes seconds": a change texted to a free Patch is answered in four and a half, plus the stool's roll
+    // (S6: 4.5 s at that jack, at most 1.2 s more to roll the whole runner)
     expect(seconds.length).toBeGreaterThan(0); // most texts here queue behind another (the single job is also timed in patchlamp-patch)
     for (const s of seconds) {
-      expect(s).toBeGreaterThanOrEqual(2);
-      expect(s).toBeLessThanOrEqual(4);
+      expect(s).toBeGreaterThanOrEqual(4.4);
+      expect(s).toBeLessThanOrEqual(5.8);
     }
   }, 300_000);
 });

@@ -19,7 +19,10 @@
  *   `taken-in`, the chute's `flap` with a part;
  * - for the cord: taking the plug out or putting it in (`cord.unplugged`,
  *   `cord.plugged`, `unplug` / `plug` intents); for the lever: an undo asked
- *   for `by: 'lever'` (the `U` key included).
+ *   for `by: 'lever'` (the `U` key included); (S6) for the phone line: a text
+ *   sent (`line.sent`).
+ * - (S6) never what the crew does in attract mode: a cord moved or a text
+ *   sent by the crew (`by: 'crew'` on the event) is not the visitor's use.
  *
  * Transient state (§ E5): not in the history; the Button saves it with its
  * rung, and "Reset the workshop" clears it.
@@ -46,7 +49,7 @@ const isTxn = (c: string): boolean => c !== 'crew' && c !== 'system' && c !== 's
  * `stations`: the ids that count (the Button's ladder). `lever`: the UNDO lever's id, if it is one of
  * them. `saved`: what a previous visit had used.
  */
-export function createUsed(ctx: SimContext, stations: readonly Id[], opts: { lever?: Id | null; cord?: Id | null; saved?: readonly Id[] } = {}): Used {
+export function createUsed(ctx: SimContext, stations: readonly Id[], opts: { lever?: Id | null; cord?: Id | null; line?: Id | null; saved?: readonly Id[] } = {}): Used {
   const known = new Set(stations);
   const order: Id[] = [];
   const set = new Set<Id>();
@@ -110,7 +113,10 @@ export function createUsed(ctx: SimContext, stations: readonly Id[], opts: { lev
             break;
           case 'cord.unplugged':
           case 'cord.plugged':
-            note(opts.cord ?? e.cord);
+            if (e.by !== 'crew') note(opts.cord ?? e.cord);
+            break;
+          case 'line.sent':
+            if (e.by !== 'crew') note(opts.line ?? null);
             break;
           case 'undone':
           case 'undo.refused':

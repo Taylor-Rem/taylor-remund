@@ -4,7 +4,7 @@
  * they meet through this context: parts, the commit funnel, the event bus
  * (REWRITE.md § E4 invariant 2).
  */
-import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Location, Machine, MachineView, Part, Pose, Restore, SimEvent, Value, Vec3, Writer } from './types.ts';
+import type { BodyMode, Cause, CrewView, Effect, Holding, Id, Intent, Interactable, Location, Machine, MachineView, Part, Pose, Restore, SimEvent, Value, Vec3, Writer } from './types.ts';
 import type { Clock } from './clock.ts';
 import type { Rng } from './rng.ts';
 import type { Change, HistoryHooks, UndoOutcome, UndoRequest } from './history.ts';
@@ -50,6 +50,8 @@ export interface SimContext {
   machine(id: Id): Machine | undefined;
   /** A mouth of the scene. */
   mouth(id: Id): MouthSpec | undefined;
+  /** S6: a crew member's view (by unit id or body id), for whoever must watch the crew (attract mode). Read only. */
+  crewView(id: Id): CrewView | undefined;
 
   readonly playMode: boolean;
   readonly bracketed: boolean;
@@ -139,6 +141,13 @@ export interface Unit {
   keeps?(part: Id): boolean;
   /** Every event of this step, at its end (the one bus, § E4 invariant 2). Listen; never commit from here. */
   heard?(events: readonly SimEvent[]): void;
+  /**
+   * S6: can the visitor's hand take hold of `id` (this unit, or a part of it that is not a loose part:
+   * Patch, the lamp's shade)? If so the world turns `grab`, `carry` and `release` of it into `drag`
+   * intents for this unit (`target` the hand, `end: true` on letting go) and `holding()` says
+   * `{ kind: 'unit', id }` meanwhile.
+   */
+  holds?(id: Id): boolean;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */
   intent?(intent: Intent): boolean;
   /** Before physics. */
@@ -158,6 +167,8 @@ export interface Unit {
    * here; its pending work for an undone transaction was already dropped through its job's `abort`.
    */
   restored?(restores: readonly Restore[]): void;
+  /** S6: a crew member says so here: its view under the one roster (`WorldView.crewViews()`). */
+  crewView?(): CrewView;
 }
 
 /**

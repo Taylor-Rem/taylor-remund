@@ -152,7 +152,7 @@ describe('Patch is lifted off its stool', () => {
 });
 
 describe("Patch's job", () => {
-  test('opens the drawer for THAT jack, leans out to check the station, and the whole job takes two to four seconds', async () => {
+  test('rolls to THAT jack, opens its drawer, leans out to check the station; the whole job takes four and a half seconds and the roll', async () => {
     const w = await benchWorld();
     const t = tape(w);
     w.dispatch({ type: 'unplug', cord: 'cord' });
@@ -167,9 +167,10 @@ describe("Patch's job", () => {
     expect(patchView(w).lookAt).toEqual(PATCHLAMP.lamp.home.bulb);
     const a = answer(t, n);
     const seconds = (a.step - from) / HZ;
-    expect(seconds).toBeGreaterThanOrEqual(2);
-    expect(seconds).toBeLessThanOrEqual(4);
-    expect(states(t).slice(0, 5)).toEqual(['notice', 'drawer', 'work', 'check', 'reply']);
+    // (S6) 4.5 s at the jack, plus the stool's roll from its rest to LAMP's place on the runner
+    expect(seconds).toBeGreaterThanOrEqual(4.5);
+    expect(seconds).toBeLessThanOrEqual(5.8);
+    expect(states(t).slice(0, 6)).toEqual(['notice', 'roll', 'drawer', 'work', 'check', 'reply']);
   });
 
   test('"Reset the workshop" mid-job: the job is dropped, Patch is back on its stool, idle', async () => {

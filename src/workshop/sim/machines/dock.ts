@@ -274,8 +274,9 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       returns = returns.filter((r) => r.job?.cause !== cause);
     },
 
-    // behind the curtain: once its leading face reaches the sill it is inside the bay's collider; it can no longer be taken
-    keeps: (part: Id): boolean => queue.some((x) => x.id === part && (x.inside > 0 || x.s + Math.max(...[0, 2].map((k) => ctx.halfExtents(part)?.[k] ?? 0.3)) >= LEN)),
+    // behind the curtain: once its leading face passes the door's plane (`lipZ` past the sill, S6) it is inside the bay's
+    // collider; it can no longer be taken. Short of it, waiting on the sill, it can.
+    keeps: (part: Id): boolean => queue.some((x) => x.id === part && x.s + x.inside + Math.max(...[0, 2].map((k) => ctx.halfExtents(part)?.[k] ?? 0.3)) > LEN + R.lipZ),
 
     lost(part: Id) {
       const s = queue.find((x) => x.id === part);

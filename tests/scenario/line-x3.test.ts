@@ -1,6 +1,7 @@
 // The line's part of REWRITE.md § B2 X3 ("a shipped crate comes back in through the dock door"), § D 7
 // (a tool or a robot comes back up the chute with RETURN TO SENDER), § B1's bench edge, and § E5 rules
 // 4, 9 and 10 on the real belt and dock. Whole bench, real Rapier.
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
 import { describe, expect, test } from 'vitest';
 import { AT, BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import { throwPart, line } from './helpers.ts';
@@ -171,6 +172,14 @@ describe('the belt carries whatever is put on it', () => {
       expect(Math.abs(at[2] - spot[2]), id).toBeLessThan(0.05);
       expect(at[0] - spot[0], id).toBeGreaterThan(-0.05);
       expect(at[0] - spot[0], id).toBeLessThan(2); // (on the spot, or along the foot when something stands there: Fetch's lane ends here)
+      // (S6) never on Fetch's lane, where its wheel goes: the tape between its stops, widened by its footprint
+      const lane = w.scene.runner.lane;
+      const fh = w.halfExtents('fetch')!;
+      const reach = Math.hypot(fh[0], fh[2]);
+      const stopA = lane.a[0] + FETCH_TUNING.inset * (w.scene.crewScale ?? 1);
+      const ph = w.halfExtents(id)!;
+      const intoLane = at[0] + ph[0] > stopA - reach && at[2] - ph[2] < lane.a[1] + reach;
+      expect(intoLane, `${id} set down on Fetch's lane at ${at[0].toFixed(2)}, ${at[2].toFixed(2)}`).toBe(false);
       // where it was set down is the placing's (Fetch may knock it on afterwards, which is not the visitor's)
       const first = t.of('effect').find((x) => x.step > leverStep && x.e.effect.target === id && x.e.effect.field === 'location');
       expect(first?.e.effect.cause, id).toBe(placers[i]);

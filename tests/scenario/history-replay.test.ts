@@ -237,7 +237,7 @@ describe('§ E5 the replay check and the invariants, with the real Patchlamp sta
     }
     if (only !== null) return;
     // the station took part: texts went down the line and were answered with a change (this visitor is frantic: most jobs are pulled or taken back)
-    expect(changed).toBeGreaterThan(20);
+    expect(changed).toBeGreaterThan(12); // (S6: a job is now 4.5 s and a roll, so fewer finish before they are pulled or taken back)
     expect(undone).toBeGreaterThan(300);
   }, 240_000);
 
