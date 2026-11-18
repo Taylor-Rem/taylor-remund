@@ -9,7 +9,8 @@ import { PATCHLAMP, traySpot } from './patchlamp-helpers.ts';
 import { checker } from './standins/replay.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
-import type { Id, ReplyLine, SimEvent, TransactionId, Value } from '../../src/workshop/sim/types.ts';
+import type { Id, SimEvent, TransactionId, Value } from '../../src/workshop/sim/types.ts';
+import type { ReplyLine } from '../../src/workshop/sim/instruct/types.ts';
 import { renderReply } from '../../src/content/texts.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 
