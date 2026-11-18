@@ -85,7 +85,10 @@ export interface SimContext {
    * it up, or an undo or a reset puts it somewhere else. Refused (false) for a part that is not free.
    */
   take(id: Id, by: Id): boolean;
-  /** Give a taken part back to physics with this launch; when it rests, the rest is charged to `cause`. */
+  /**
+   * Give a taken part back to physics with this launch; when it rests, the rest is charged to `cause`.
+   * Set down still (zero velocities), it counts as at rest at once: the next mouth is offered it in this step.
+   */
   release(id: Id, linvel: Vec3, angvel: Vec3, cause: Cause | null): void;
   /**
    * Take a part out of the world (mode `gone`: no body, not drawn): shipped. `exit` is where it went

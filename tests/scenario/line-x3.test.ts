@@ -2,7 +2,7 @@
 // (a tool or a robot comes back up the chute with RETURN TO SENDER), § B1's bench edge, and § E5 rules
 // 4, 9 and 10 on the real belt and dock. Whole bench, real Rapier.
 import { describe, expect, test } from 'vitest';
-import { BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
+import { AT, BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import { throwPart, line } from './helpers.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
@@ -18,7 +18,7 @@ const WITH_TOOL: SceneDesc = {
 };
 const undoneOf = (ev: readonly SimEvent[]) => ev.filter((e): e is Extract<SimEvent, { type: 'undone' }> => e.type === 'undone');
 const near = (a: readonly number[], b: readonly number[], d = 0.6): boolean => Math.hypot(a[0]! - b[0]!, a[2]! - b[2]!) < d;
-const STACK = [-7.65, 0, 1.15] as const;
+
 
 describe('the dock and the chute', () => {
   test('X3: a shipped tool comes back in through the door; its location is restored in one hop', async () => {
@@ -41,7 +41,7 @@ describe('the dock and the chute', () => {
     const loc = restores.find((r) => r.field === 'location')!;
     expect(loc.from).toEqual({ at: 'shipped' });
     expect(loc.to).toEqual(peg);
-    expect(near(loc.pose!.p, LINE.door, 0.01)).toBe(true); // the hop starts at the door
+    expect(near(loc.pose!.p, LINE.door.sill, 0.01)).toBe(true); // the hop starts at the door
     expect(ev.find((e) => e.type === 'returned')).toMatchObject({ part: 'tool-rust', how: 'door' });
     // in one hop: it is exactly where it lay, at once, and it does not come back up the chute later
     expect(w.part('tool-rust')!.location).toEqual(peg);
@@ -67,7 +67,7 @@ describe('the dock and the chute', () => {
     expect(t.until((e) => e.type === 'part.rested' && e.id === 'tool-rust', 6 * HZ)).not.toBeNull();
     const p = w.part('tool-rust')!;
     expect(p.marks).toEqual(['mark.shipped', 'mark.return']);
-    expect(near(w.motion('tool-rust')!.pose.p, STACK, 2.2)).toBe(true); // set down by the crate stack
+    expect(near(w.motion('tool-rust')!.pose.p, AT.chute.p, 2.5)).toBe(true); // out of the chute's mouth (see the hand-in: the stack has moved away from it)
     const shipper = w.writer('tool-rust', 'location');
     expect(shipper).toMatch(/^t\d+$/);
     expect(w.writer('tool-rust', 'marks')).toBe(shipper);
@@ -104,7 +104,7 @@ describe('the dock and the chute', () => {
     w.dispose();
   }, 60_000);
 
-  test('a part thrown off the bench comes back up the chute, by the stack, and is the throw\'s', async () => {
+  test('a part thrown off the bench comes back up the chute, and is the throw\'s', async () => {
     const w = await benchWorld();
     const t = tape(w);
     t.run(30);
@@ -115,7 +115,7 @@ describe('the dock and the chute', () => {
     expect(out).not.toBeNull();
     expect(t.of('flap').map((x) => x.e.part)).toContain('crate-3');
     expect(t.until((e) => e.type === 'part.rested' && e.id === 'crate-3', 6 * HZ)).not.toBeNull();
-    expect(near(w.motion('crate-3')!.pose.p, STACK, 2.2)).toBe(true);
+    expect(near(w.motion('crate-3')!.pose.p, AT.chute.p, 2.5)).toBe(true);
     const txn = w.writer('crate-3', 'location');
     expect(txn).toMatch(/^t\d+$/);
     w.dispatch({ type: 'undo' });
@@ -197,7 +197,7 @@ describe('picking Fetch up', () => {
     t.run(30);
     expect(w.crew('fetch')!.carrying).toBe('crate-4');
     const home = w.part('crate-4')!.location;
-    putOn(w, t, 'fetch', [0, 0, 2.6]);
+    putOn(w, t, 'fetch', [2.0, 0, 0.9]);
     expect(waitFor(w, t, 'crate-4', 'rest')).toBe(true);
     t.run(2 * HZ);
     expect(w.part('crate-4')!.location).not.toEqual(home);

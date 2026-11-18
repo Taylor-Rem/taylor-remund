@@ -59,7 +59,7 @@ describe('bench section', () => {
     const plain = benchSection({ seed: 4 });
     const jointed = benchSection({ seed: 4, joints: { right: true } });
     const metal = (p: Piece): number => parts(p).filter((q) => q.material === 'metal').reduce((s, q) => s + K.triangleCount(q.geometry), 0);
-    expect(metal(jointed)).toBeGreaterThan(metal(plain) + 300); // the plate and four bolts
+    expect(metal(jointed)).toBeGreaterThan(metal(plain) + 120); // the plate and four bolts (cheap heads since the P2 diet)
   });
 
   it('is deterministic per seed', () => {
@@ -103,8 +103,8 @@ describe('back wall', () => {
 });
 
 describe('catalogue', () => {
-  it('registers bench, lane-tape and back-wall', () => {
-    expect(catalogue.map((c) => c.name)).toEqual(['bench', 'lane-tape', 'back-wall']);
+  it('registers bench, lane-tape, back-wall and bench-frame', () => {
+    expect(catalogue.map((c) => c.name)).toEqual(['bench', 'lane-tape', 'back-wall', 'bench-frame']);
     for (const c of catalogue) expect(c.build({}).triangles).toBeGreaterThan(0);
   });
 });

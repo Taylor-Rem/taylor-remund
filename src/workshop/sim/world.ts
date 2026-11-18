@@ -828,6 +828,8 @@ export function createWorld(opts: WorldOptions): World {
       l.holder = null;
       release(l, linvel, angvel);
       l.chargeTo = cause;
+      // set down still: it is at rest as soon as physics agrees (law 2 offers it to the next mouth at once)
+      if (length(linvel) === 0 && length(angvel) === 0) l.calm = steps(T.restTime);
     },
     stow(id, exit) {
       const l = lp(id);

@@ -39,7 +39,7 @@
  *    charged to (§ E5 rule 4: whoever placed it, while on the stack). Do the
  *    verb, or say what you wanted:
  *
- *      if (!wanted(part)) return { ok: false, wanted: 'slip.belt.wants-x' };  // a content id; the world prints the slip
+ *      if (!wanted(part)) return { ok: false, wanted: SLIP_ID };  // a content id (slip.<...>); the world prints the slip
  *      ctx.commit([{ target: part.id, field: 'location', after: { at: 'in', station, mouth } }], cause);
  *      ctx.take(part.id, unit.id);                         // custody: kinematic, mode `machine`; you `drive` it
  *      const job = ctx.history.work(cause, unit.id, () => drop(part.id));  // rule 10: undo cancels it

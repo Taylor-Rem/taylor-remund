@@ -162,19 +162,19 @@ describe('the belt: settings and handles', () => {
         },
       ],
     }).world;
-    expect(m.instruct({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: true });
+    expect(m.instruct!({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: true });
     expect(w2.setting('belt', 'speed')).toBe(4);
-    expect(m.instruct({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: true });
-    expect(m.instruct({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: false, wanted: 'belt.fastest' });
+    expect(m.instruct!({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: true });
+    expect(m.instruct!({ verb: 'belt.set', args: { speed: 1 } }, 'system')).toEqual({ ok: false, wanted: 'belt.fastest' });
     expect(w2.setting('belt', 'speed')).toBe(5);
-    expect(m.instruct({ verb: 'belt.set', args: { running: false } }, 'system')).toEqual({ ok: true });
+    expect(m.instruct!({ verb: 'belt.set', args: { running: false } }, 'system')).toEqual({ ok: true });
     expect(w2.setting('belt', 'running')).toBe(false);
-    expect(m.instruct({ verb: 'belt.set', args: { direction: 'flip' } }, 'system')).toEqual({ ok: true });
+    expect(m.instruct!({ verb: 'belt.set', args: { direction: 'flip' } }, 'system')).toEqual({ ok: true });
     expect(w2.setting('belt', 'direction')).toBe('backward');
-    expect(m.instruct({ verb: 'belt.set', args: { direction: 'forward', running: true } }, 'system')).toEqual({ ok: true });
+    expect(m.instruct!({ verb: 'belt.set', args: { direction: 'forward', running: true } }, 'system')).toEqual({ ok: true });
     expect([w2.setting('belt', 'running'), w2.setting('belt', 'direction')]).toEqual([true, 'forward']);
-    for (let i = 0; i < 4; i++) m.instruct({ verb: 'belt.set', args: { speed: -1 } }, 'system');
-    expect(m.instruct({ verb: 'belt.set', args: { speed: -1 } }, 'system')).toEqual({ ok: false, wanted: 'belt.slowest' });
+    for (let i = 0; i < 4; i++) m.instruct!({ verb: 'belt.set', args: { speed: -1 } }, 'system');
+    expect(m.instruct!({ verb: 'belt.set', args: { speed: -1 } }, 'system')).toEqual({ ok: false, wanted: 'belt.slowest' });
   });
 
   test('a tell blinks its lamp until the belt is used; a misfire lurches the surface back, transiently', () => {

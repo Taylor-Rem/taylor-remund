@@ -2,7 +2,7 @@
 // dock", on the whole bench under real Rapier, with the feel target of the brief (§ E0): a crate put on
 // the running belt at its motor end reaches the striker in 4 to 8 seconds at the middle speed.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, LINE, onBelt, putOn, tape } from './line-helpers.ts';
+import { AT, benchWorld, LINE, onBelt, putOn, tape } from './line-helpers.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import type { BeltView, Value } from '../../src/workshop/sim/types.ts';
 
@@ -32,6 +32,7 @@ describe('a crate put on the belt sounds at the striker and ships at the dock', 
     expect(w.motion('crate-3')!.pose.p[0]).toBeGreaterThanOrEqual(LINE.strikerX);
 
     const shipped = t.until((e) => e.type === 'shipped' && e.part === 'crate-3', 10 * HZ);
+    if (process.env.LINE_TRACE) for (const x of t.events.slice(-700)) if (JSON.stringify(x.e).includes('crate-3') && x.e.type !== 'part.hit') console.log(x.step, JSON.stringify(x.e).slice(0, 160), w.mode('crate-3'), JSON.stringify(w.motion('crate-3')!.pose.p));
     expect(shipped?.e).toMatchObject({ id: 'dock' });
     expect(t.of('door').map((x) => x.e.open)).toEqual([true]);
     const p = w.part('crate-3')!;
@@ -56,7 +57,7 @@ describe('a crate put on the belt sounds at the striker and ships at the dock', 
     expect(spare.location.at).toBe('rest');
     expect(w.writer('crate-spare-1', 'location')).toBe('system');
     const sp = w.motion('crate-spare-1')!.pose.p;
-    expect(Math.hypot(sp[0] - -7.65, sp[2] - 1.15)).toBeLessThan(0.7);
+    expect(Math.hypot(sp[0] - AT.stack[0], sp[2] - AT.stack[1])).toBeLessThan(0.7);
 
     // one pull: it comes back in through the door, in one hop, and the spare stays
     w.dispatch({ type: 'undo' });
@@ -68,7 +69,7 @@ describe('a crate put on the belt sounds at the striker and ships at the dock', 
     expect(r?.from).toEqual({ at: 'shipped' });
     expect((r?.to as { at: string }).at).toBe('rest');
     // the hop starts at the door
-    expect(Math.hypot(r!.pose!.p[0] - LINE.door[0], r!.pose!.p[2] - LINE.door[2])).toBeLessThan(0.01);
+    expect(Math.hypot(r!.pose!.p[0] - LINE.door.sill[0], r!.pose!.p[2] - LINE.door.sill[2])).toBeLessThan(0.01);
     expect(w.part('crate-3')!.marks).toEqual([]);
     expect(w.mode('crate-3')).toBe('free');
     w.dispose();

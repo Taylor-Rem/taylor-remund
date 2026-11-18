@@ -3,12 +3,12 @@ import './rapier-node.ts';
 import { createRapierPhysics } from '../../src/workshop/sim/physics/rapier.ts';
 import { createWorld } from '../../src/workshop/sim/world.ts';
 import type { World, WorldOptions } from '../../src/workshop/sim/world.ts';
-import { bench, LINE } from '../../src/workshop/sim/scenes/bench.ts';
+import { bench, LINE, AT } from '../../src/workshop/sim/scenes/bench.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Id, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 import { line } from './helpers.ts';
 
-export { bench as BENCH, LINE };
+export { bench as BENCH, LINE, AT };
 
 export async function benchWorld(seed: number | string = 1, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> {
   const physics = await createRapierPhysics();

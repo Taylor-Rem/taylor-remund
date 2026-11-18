@@ -98,7 +98,8 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
       for (const id of ctx.parts()) {
         const p = ctx.part(id);
         const loc = p?.location;
-        if (!p || !loc || loc.at !== 'in' || loc.mouth !== spec.mouth) {
+        // riding: in the belt's mouth and carried by it (a part knocked loose on the belt is not riding)
+        if (!p || !loc || loc.at !== 'in' || loc.mouth !== spec.mouth || ctx.mode(id) !== 'machine') {
           lastX.delete(id);
           continue;
         }

@@ -32,7 +32,9 @@ import type { Job } from '../history.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
-import { qyaw } from '../math.ts';
+import { qmul, qyaw } from '../math.ts';
+import { rampAt, rampDoor, rampLength, rampNearest } from '../ramp.ts';
+import type { RampSpec } from '../ramp.ts';
 import { Beat, CHANGED_SINCE, Lamp, OK } from '../machine.ts';
 
 /** Content ids of the marks it writes (the words are in src/content/line.json). */
@@ -44,8 +46,8 @@ export const DOCK_TUNING = {
   /** The door's travel, open and shut. */
   doorOpen: 0.4,
   doorClose: 0.55,
-  /** The rollers carry a part to the door and through it at this speed. */
-  roll: 1.6,
+  /** The rollers carry a part to the door and through it at this speed (above the belt's middle speed, so a run off the belt does not pile up). */
+  roll: 2.2,
   /** A part waits at the threshold until the door is this open. */
   clear: 0.85,
   /** How far past the threshold a part goes before it is gone. */
@@ -56,6 +58,8 @@ export const DOCK_TUNING = {
   restockAfter: 1.4,
   /** A tool or a robot comes back up the chute this long after it ships. */
   returnAfter: { tool: 6, robot: 10 } as Readonly<Record<Exclude<PartKind, 'crate'>, number>>,
+  /** A part taken in off the centre line eases onto it over this much of the ramp. */
+  settleOn: 0.4,
   /** A misfire jumps the door open for this long (per level); an undo's return opens it for this long. */
   misfireOpen: 0.45,
   unshipOpen: 0.9,
@@ -68,10 +72,8 @@ export interface DockSpec {
   readonly station: StationId;
   readonly name: string;
   readonly mouth: Id;
-  /** The middle of the door's threshold, on the ramp (y: the ramp's top). */
-  readonly door: Vec3;
-  /** Unit vector from the threshold into the dock. */
-  readonly inward: Vec3;
+  /** The roller ramp from the belt's far end to the door's sill (sim/ramp.ts); the door is at its end. */
+  readonly ramp: RampSpec;
   /** The crate stack's ground point (x, z): fresh crates are set on it. */
   readonly stack: readonly [number, number];
 }
@@ -83,10 +85,15 @@ export interface DockUnit extends MachineUnit {
 interface Shipment {
   readonly id: Id;
   readonly job: Job;
-  p: [number, number, number];
-  readonly q: Pose['q'];
-  /** Past the threshold. */
+  /** Where along the ramp, and how far past the sill. */
+  s: number;
   inside: number;
+  /** Where it was taken in: along the ramp, its height over the rollers, its offset from the centre line (eased out), its turn and the ramp's heading there. */
+  readonly s0: number;
+  readonly h: number;
+  readonly off: readonly [number, number];
+  readonly q0: Pose['q'];
+  readonly yaw0: number;
 }
 
 interface Return {
@@ -117,7 +124,21 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   const dt = 1 / HZ;
   const fresh = new Map(ctx.scene.parts.map((p) => [p.id, { colour: p.colour, label: p.label, marks: p.marks ?? [], contents: p.contents ?? null }]));
 
-  const exitPose = (s: Shipment): Pose => ({ p: [spec.door[0], s.p[1], spec.door[2]], q: s.q });
+  const R = spec.ramp;
+  const LEN = rampLength(R);
+  const gate = rampDoor(R);
+  const headingOf = (s: number): number => {
+    const a = rampAt(R, s);
+    return Math.atan2(-a.hz, a.hx);
+  };
+  /** Where a shipment's body is now: on the rollers, turning with the ramp, then through the door. */
+  function poseOf(x: Shipment): Pose {
+    const a = rampAt(R, x.s);
+    const k = Math.max(0, 1 - (x.s - x.s0) / T.settleOn);
+    const q = qmul(qyaw(headingOf(x.s) - x.yaw0), x.q0);
+    return { p: [a.p[0] + x.off[0] * k + gate.inward[0] * x.inside, a.p[1] + x.h, a.p[2] + x.off[1] * k + gate.inward[2] * x.inside], q };
+  }
+  const exitPose = (x: Shipment): Pose => ({ p: [gate.sill[0], gate.sill[1] + x.h, gate.sill[2]], q: poseOf(x).q });
   const isTxn = (w: string | undefined): boolean => w !== undefined && w !== 'crew' && w !== 'system' && w !== 'settled';
 
   function drop(part: Id): void {
@@ -130,7 +151,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   function take(part: Id, cause: Cause): void {
     const pose = ctx.pose(part) as Pose;
     const job = ctx.history.work(cause, spec.id, () => drop(part));
-    queue.push({ id: part, job, p: [pose.p[0], pose.p[1], pose.p[2]], q: pose.q, inside: 0 });
+    const s0 = rampNearest(R, pose.p[0], pose.p[2]);
+    const a = rampAt(R, s0);
+    const h = Math.max(pose.p[1] - a.p[1], ctx.halfExtents(part)?.[1] ?? 0.2);
+    queue.push({ id: part, job, s: s0, inside: 0, s0, h, off: [pose.p[0] - a.p[0], pose.p[2] - a.p[2]], q0: pose.q, yaw0: headingOf(s0) });
     lamp.used();
   }
 
@@ -140,7 +164,6 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       { target: s.id, field: 'location', after: { at: 'shipped' } },
       { target: s.id, field: 'marks', after: [...part.marks.filter((m) => m !== MARK_SHIPPED), MARK_SHIPPED] },
     ]);
-    const cause = s.job.cause;
     s.job.done();
     queue.splice(queue.indexOf(s), 1);
     if (out.refused.some((c) => c.field === 'location')) {
@@ -290,31 +313,16 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       door = want ? Math.min(1, door + dt / T.doorOpen) : Math.max(0, door - dt / T.doorClose);
       if (ctx.bracketed) return;
 
-      for (const s of [...queue]) {
+      for (const x of [...queue]) {
         const step = T.roll * dt;
-        if (s.inside === 0) {
-          // along the ramp to the threshold
-          const dx = spec.door[0] - s.p[0];
-          const dz = spec.door[2] - s.p[2];
-          const d = Math.hypot(dx, dz);
-          if (d > step) {
-            s.p[0] += (dx / d) * step;
-            s.p[2] += (dz / d) * step;
-          } else if (door >= T.clear) {
-            s.p[0] = spec.door[0];
-            s.p[2] = spec.door[2];
-            s.inside = 1e-9;
-          }
-        } else {
-          s.inside += step;
-          s.p[0] += spec.inward[0] * step;
-          s.p[2] += spec.inward[2] * step;
-        }
-        if (s.inside >= T.depth) {
-          ship(s);
+        // along the ramp to the sill; through the door once it is open
+        if (x.s < LEN) x.s = Math.min(LEN, x.s + step);
+        else if (x.inside > 0 || door >= T.clear) x.inside += step;
+        if (x.inside >= T.depth) {
+          ship(x);
           continue;
         }
-        ctx.drive(s.id, { p: [s.p[0], s.p[1], s.p[2]], q: s.q });
+        ctx.drive(x.id, poseOf(x));
       }
       const now = ctx.clock.step;
       for (const r of returns.filter((x) => x.at <= now)) {

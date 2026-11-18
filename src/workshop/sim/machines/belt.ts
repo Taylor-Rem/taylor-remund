@@ -52,7 +52,7 @@ export const BELT_TUNING = {
   ease: 12,
   /** A misfire's lurch: the surface is kicked back to this speed (per level) for this long. */
   lurch: { speed: -1.6, seconds: 0.3 },
-  /** A part leaves the far end this far past the end (its centre). */
+  /** A part leaves the far end this far past the end (its centre), set down still on the ramp's head (the dock takes it in the same step). */
   exit: 0.02,
   /** At the motor end parts are pushed off the front at this speed, and let go with this much of it. */
   shunt: { speed: 1.2, letGo: 0.5 },
@@ -323,13 +323,14 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
           }
           continue;
         }
-        r.x += surface * dt;
-        if (surface > 0 && r.x > spec.to + T.exit) {
-          // the far end: onto the dock's ramp, moving; where it rests is the placer's (rule 4)
+        // (judged where the body is now: the drive of the last step has landed)
+        if (surface > 0 && (ctx.pose(r.id)?.p[0] ?? r.x) > spec.to + T.exit) {
+          // the far end: set down on the dock's ramp; where it rests is the placer's (rule 4)
           end(r);
-          ctx.release(r.id, [surface, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
+          ctx.release(r.id, [0, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
           continue;
         }
+        r.x += surface * dt;
         if (surface < 0 && r.x - r.ex <= spec.from) {
           r.x = spec.from + r.ex;
           r.shunt = true;
