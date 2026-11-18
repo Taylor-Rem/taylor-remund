@@ -59,7 +59,7 @@ describe('bench section', () => {
     const plain = benchSection({ seed: 4 });
     const jointed = benchSection({ seed: 4, joints: { right: true } });
     const metal = (p: Piece): number => parts(p).filter((q) => q.material === 'metal').reduce((s, q) => s + K.triangleCount(q.geometry), 0);
-    expect(metal(jointed)).toBeGreaterThan(metal(plain) + 300); // the plate and four bolts
+    expect(metal(jointed)).toBeGreaterThan(metal(plain) + 120); // the plate and four bolts (cheap heads since the P2 diet)
   });
 
   it('is deterministic per seed', () => {

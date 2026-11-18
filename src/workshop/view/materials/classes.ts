@@ -670,10 +670,12 @@ pMetal = 0.0;
     glsl: /* glsl */ `
 float core = pow(pFacing, mix(u_core, u_indicatorCore, pFinish));
 pAlbedo = pBase * 0.3;
-float level = mix(u_lampLevel, u_indicatorLevel, pFinish) * u_intensity;
+// finish written above 1.5 (the window's sky: outside) is steady: no lamp dimmer, no flicker
+float pSteady = step(1.5, vSurf.z);
+float level = mix(u_lampLevel, u_indicatorLevel, pFinish) * mix(u_intensity, 1.0, pSteady);
 // the edge of a lit bulb is deeper amber, the middle near white-hot
 vec3 hot = mix(pBase * pBase * pBase, pBase, core);
-pEmit = hot * level * u_flicker * mix(u_edge, 1.0, core);
+pEmit = hot * level * mix(u_flicker, 1.0, pSteady) * mix(u_edge, 1.0, core);
 pRough = 0.12;
 `,
   },

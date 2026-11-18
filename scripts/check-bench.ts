@@ -1,14 +1,14 @@
 // check-bench: the objective checks of the whole bench's composition (brief
 // L1; REWRITE.md § G "P2", § E7; ART-P2 § 2), on the REAL GPU.
 //
-//   node scripts/check-bench.ts [url-or-/path] [--json out.json]
+//   node scripts/check-bench.ts [url-or-/path] [--json out.json] [--crew 1.25]
 //
 // Default target: /dev/bench/ (a dev server of its own is started).
 // At the home framing of 1440×900, 1920×1080, 1280×720 and an upright
 // phone (390×844):
 // 1. Capitals at least 12 px tall on screens 1440 wide and up (the rule's
 //    own width; 1280×720 is reported): the sign (TAYLOR REMUND),
-//    the DO NOT TOUCH tape and the station plates (the jacks' and the tools'
+//    the DO NOT TOUCH tape, the reserved bays' labels and the station plates (the jacks' and the tools'
 //    tapes), measured exactly as check-vignette does (each label quad
 //    through the real camera; medians per label).
 // 2. Fetch at least 80 px tall at the 1440×900 home (ART-P2 § 2), measured
@@ -28,17 +28,23 @@ import { openPage, resolveTarget, isSoftware } from './capture.ts';
 import { isMain } from './lib/cli.ts';
 import { BUDGET, MIN_CAP_PX, gated as gatedVignette } from './check-vignette.ts';
 import site from '../src/content/site.json' with { type: 'json' };
+import room from '../src/content/room.json' with { type: 'json' };
+
+/** At 1440×900 (view/bench.ts FRAME_PX, repeated: this script runs in Node without Vite). */
+const FRAME_PX = { corners: 30, under: [60, 115] as const };
 
 export const MIN_FETCH_PX = 80;
 
 /** The sign's words on the bench: the name from the site's content (as view/bench.ts makes them). */
 const NAME_WORDS = new Set((site as unknown as { strip: { name: { text: string } } }).strip.name.text.toUpperCase().split(/\s+/));
+/** The reserved bays' label tape (flat on the bench; the room's words), as strips or whole. */
+const BAY_WORDS = new Set(Object.values((room as unknown as { bays: Record<string, { text: string }> }).bays).flatMap((b) => [b.text, ...b.text.split(' ')]));
 export function gated(register: string, text: string): boolean {
   if (register === 'sign' && text.split(' ').every((w) => NAME_WORDS.has(w))) return true;
+  if (register === 'tape' && BAY_WORDS.has(text)) return true;
   return gatedVignette(register, text);
 }
 
-/** What must be in view on a wide screen: every station (the lane's tape and the pallets' strip included). */
 const CLUSTER = ['button', 'phone', 'stool'];
 
 interface LabelCap {
@@ -50,6 +56,10 @@ interface LabelCap {
 interface Measure {
   labels: LabelCap[];
   fetchPx: number | null;
+  crew: { fetchBody: number | null; patch: number | null };
+  handles: Record<string, [number, number] | null>;
+  frame_px: { left: number; right: number; under: number };
+  crewScale: number;
   inFrame: Record<string, boolean>;
   scene: { calls: number; triangles: number };
   renderer: string;
@@ -66,7 +76,7 @@ export interface Result {
   data: Record<string, unknown>;
 }
 
-async function run(target: string): Promise<Result> {
+async function run(target: string, crew?: string): Promise<Result> {
   const { url, server } = await resolveTarget(target);
   const lines: string[] = [];
   const data: Record<string, unknown> = {};
@@ -87,7 +97,7 @@ async function run(target: string): Promise<Result> {
       ['phone', 390, 844, true],
     ] as const;
     for (const [name, w, h, mobile] of sizes) {
-      const s = await openPage(`${base}hud=0&manual=1&names=0`, { w, h, dpr: 1, mobile, log: () => {} });
+      const s = await openPage(`${base}hud=0&manual=1&names=0${crew ? `&crew=${crew}` : ''}`, { w, h, dpr: 1, mobile, log: () => {} });
       try {
         if (isSoftware(s.renderer)) fail(`${name}: software renderer (${s.renderer}): numbers are meaningless`);
         const m = (await s.page.evaluate(() => (window as unknown as { __bench: { goto(n: number): unknown; measure(): unknown } }).__bench.goto(500) && (window as unknown as { __bench: { measure(): unknown } }).__bench.measure())) as Measure;
@@ -119,6 +129,12 @@ async function run(target: string): Promise<Result> {
           const out = CLUSTER.filter((k) => !m.inFrame[k]);
           (out.length === 0 ? pass : fail)(`${name}: the centre cluster in frame${out.length ? ` (out: ${out.join(', ')})` : ''}`);
         }
+        lines.push(`     ${name}: crew ${m.crewScale}×: Fetch's body ${m.crew.fetchBody} px (no aerial), Patch seated ${m.crew.patch} px; belt dial plate ${m.handles['dial']?.join(' × ')} px, lever plate ${m.handles['lever']?.join(' × ')} px`);
+        if (name === '1440x900') {
+          const f = m.frame_px;
+          (Math.min(f.left, f.right) >= FRAME_PX.corners - 5 ? pass : fail)(`${name}: front corners ${f.left} / ${f.right} px inside the frame (about ${FRAME_PX.corners})`);
+          (f.under >= FRAME_PX.under[0] && f.under <= FRAME_PX.under[1] ? pass : fail)(`${name}: ${f.under} px of apron and dark under the front edge (${FRAME_PX.under.join('-')})`);
+        }
         if (m.fetchPx !== null) {
           if (name === '1440x900') (m.fetchPx >= MIN_FETCH_PX ? pass : fail)(`${name}: Fetch ${m.fetchPx.toFixed(1)} px tall (min ${MIN_FETCH_PX})`);
           else lines.push(`     ${name}: Fetch ${m.fetchPx.toFixed(1)} px tall`);
@@ -143,9 +159,9 @@ async function run(target: string): Promise<Result> {
 }
 
 if (isMain(import.meta.url)) {
-  const { values: v, positionals } = parseArgs({ allowPositionals: true, options: { json: { type: 'string' } } });
+  const { values: v, positionals } = parseArgs({ allowPositionals: true, options: { json: { type: 'string' }, crew: { type: 'string' } } });
   const target = positionals[0] ?? '/dev/bench/';
-  run(target)
+  run(target, v.crew)
     .then((r) => {
       console.log('check-bench (brief L1: the whole bench at its home framings)');
       for (const l of r.lines) console.log(l);

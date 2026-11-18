@@ -20,7 +20,7 @@ import { context } from '../../../labels/draw.ts';
 import { assertFace, font } from '../../../labels/fonts.ts';
 import { advance } from '../../../labels/draw.ts';
 import { rng } from '../../../labels/rng.ts';
-import { faceV, CELLS, PICTURES_TEX } from './atlas.ts';
+import { ATLAS, FACES, faceV, type Rect } from './atlas.ts';
 import { PICTURES, type WindowPicture } from './content.ts';
 import { WORDS } from './dims.ts';
 import { fitWords, SHADE, type WordsLayout } from './words.ts';
@@ -427,30 +427,60 @@ function cardWords(ctx: Ctx, w: number, h: number, text: string, open: boolean):
 }
 
 /** Paint the pictures texture: the four pictures and the card's two faces. */
-export function paintPictures(tex: Texture, words: { open: string; closed: string }): void {
+/** The engraved jack plate: brass, a sunk border, dark-filled capitals (printed into the atlas; the shop has one texture). */
+function plateWords(ctx: Ctx, w: number, h: number, text: string): void {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, mixHex('brass', 'amber-glow', 0.25));
+  g.addColorStop(1, mixHex('brass', 'wood', 0.25));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = mixHex('brass', 'ink', 0.55);
+  ctx.lineWidth = h * 0.06;
+  ctx.strokeRect(h * 0.1, h * 0.1, w - h * 0.2, h * 0.8);
+  const t = text.toUpperCase();
+  assertFace(ctx, 'tape', t);
+  const cap = h * 0.46;
+  ctx.font = font('tape', cap / 0.7);
+  const tw = ctx.measureText(t).width;
+  const k = Math.min(1, (w * 0.86) / tw);
+  ctx.save();
+  ctx.translate(w / 2, h / 2 + cap / 2);
+  ctx.scale(k, 1);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = mixHex('ink', 'brass', 0.15);
+  ctx.fillText(t, 0, 0);
+  ctx.restore();
+}
+
+/** Paint everything in the atlas but the words: the six drum faces, the card's two faces, the plate. */
+export function paintAtlas(tex: Texture, words: { open: string; closed: string; plate: string }): void {
   const img = imageOf(tex);
   const W = img.width, H = img.height;
   const ctx = context(W, H);
-  // the atlas was laid out at PICTURES_TEX; the slot may differ a little: scale
-  const sx = W / PICTURES_TEX.w, sy = H / PICTURES_TEX.h;
-  const cell = (c: { x: number; y: number; w: number; h: number }, f: (ctx: Ctx, w: number, h: number) => void): void => {
-    const x = Math.round(c.x * sx), y = Math.round(c.y * sy), w = Math.round(c.w * sx), h = Math.round(c.h * sy);
+  // a region in the slot's texels; drawings are made at the face's own proportions, then fitted
+  const cell = (uv: Rect, face: { w: number; h: number }, f: (ctx: Ctx, w: number, h: number) => void): void => {
+    const x = Math.round(uv[0] * W), y = Math.round((1 - uv[3]) * H);
+    const w = Math.round((uv[2] - uv[0]) * W), h = Math.round((uv[3] - uv[1]) * H);
+    const vw = h * (face.w / face.h);
     ctx.save();
     ctx.beginPath();
     ctx.rect(x, y, w, h);
     ctx.clip();
     ctx.translate(x, y);
-    f(ctx, w, h);
+    ctx.scale(w / vw, 1);
+    f(ctx, vw, h);
     ctx.restore();
   };
   PICTURES.forEach((id, k) => {
-    cell(CELLS.pictures[k]!, (c, w, h) => {
+    cell(ATLAS.pictures[k]!, FACES.picture, (c, w, h) => {
       cardGround(c, w, h);
       DRAW[id](c, w, h);
       if (id !== 'none') cardBorder(c, w, h);
     });
   });
-  cell(CELLS.open, (c, w, h) => cardWords(c, w, h, words.open, true));
-  cell(CELLS.closed, (c, w, h) => cardWords(c, w, h, words.closed, false));
-  upload(tex, ctx);
+  cell(ATLAS.open, FACES.card, (c, w, h) => cardWords(c, w, h, words.open, true));
+  cell(ATLAS.closed, FACES.card, (c, w, h) => cardWords(c, w, h, words.closed, false));
+  cell(ATLAS.plate, FACES.plate, (c, w, h) => plateWords(c, w, h, words.plate));
+  // only the lower half: the words' bands above belong to paintWords
+  upload(tex, ctx, Math.round(0.5 * H), H);
 }

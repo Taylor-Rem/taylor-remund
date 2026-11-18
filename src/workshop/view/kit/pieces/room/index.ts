@@ -39,10 +39,13 @@ export const ROOM = {
   wall: { width: 27, height: 12, base: FLOOR_Y, skirting: { x0: -9, x1: 9 }, fade: { from: 9.5, to: 16, amount: 0.5 } },
   /** The dim shapes past the ends: origins where the bench's ends meet the wall. */
   ends: { left: { x: -9, y: 0, z: -5 }, right: { x: 9, y: 0, z: -5 } },
-  /** The reserved bays: centres on the bench top, sizes, which words. */
+  /**
+   * The reserved bays: centres on the bench top, sizes, which words. Both in the left third, one behind
+   * the other (the blockout's placing, P2): plain RESERVED behind, 3.0 x 1.8; INSPECTION in front, 3.6 x 2.0.
+   */
   bays: [
-    { which: 'next' as BayName, x: -6.6, z: -1.6, w: 3.6, d: 2.2 },
-    { which: 'inspection' as BayName, x: 6.85, z: -0.1, w: 3.8, d: 2.3 },
+    { which: 'next' as BayName, x: -6.7, z: -2.55, w: 3.0, d: 1.8 },
+    { which: 'inspection' as BayName, x: -6.5, z: -0.35, w: 3.6, d: 2.0 },
   ],
 } as const;
 
