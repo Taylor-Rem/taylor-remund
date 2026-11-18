@@ -146,6 +146,12 @@ export interface PartsViewOptions {
   piece?(part: Part, half: Vec3, extras: { tape?: string }): Piece;
   /** Give each crate a strip of label tape that carries `Part.label` (a label region per crate). Default off (the vignette's crates have none). */
   tapes?: boolean;
+  /**
+   * The parts the scene starts with: with tapes on, their label regions are made with the view, while the
+   * labels' start-up pages are open, so each lands on the page the stencils use and merges into their mesh
+   * (a region made later opens a page of its own: one more draw call per crate).
+   */
+  known?: ReadonlyArray<Pick<Part, 'id' | 'kind' | 'size'>>;
   /** Which parts this view draws. Default: everything but robots (the crew has views of its own). */
   include?(part: Part): boolean;
   /** Mass of a part, for scaling the squash (default: its volume). */
@@ -255,10 +261,12 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
     const blobOpacity = opts.blobs === 'off' ? 0 : typeof opts.blobs === 'number' ? opts.blobs : ctx.tier === 'low' ? 0.85 : 0.5;
     const shadows = blobOpacity > 0 ? new BlobShadows(ctx.materials.decal(), 64, blobOpacity).addTo(root) : null;
     const blobs: Blob[] = [];
+    const regions = new Map<Id, LabelRegion>();
+    if (opts.tapes) for (const p of opts.known ?? []) if (p.kind === 'crate') regions.set(p.id, crateTapeRegion(ctx.labels, p.id, p.size));
 
     const make = (part: Part): Entry => {
       const half = opts.half(part);
-      const region = opts.tapes && part.kind === 'crate' ? crateTapeRegion(ctx.labels, part.id, part.size) : null;
+      const region = opts.tapes && part.kind === 'crate' ? (regions.get(part.id) ?? crateTapeRegion(ctx.labels, part.id, part.size)) : null;
       const pc = (opts.piece ?? standInPiece)(part, half, region ? { tape: region.key } : {});
       const obj: Object3D = ctx.realize(pc);
       // the piece rests on y = 0 at its origin; the body's pose is its centre

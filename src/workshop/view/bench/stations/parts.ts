@@ -17,6 +17,7 @@ export const station: BenchStation = {
       createPartsView({
         half: (p) => k.world()?.halfExtents(p.id) ?? [0.3, 0.3, 0.3],
         tapes: true,
+        known: k.scene.parts,
         ...(crate
           ? { piece: (p, _half, extras) => buildEntry(crate, null, { size: p.size, paint: paintToken(p.colour), seed: hashSeed(p.id), ...(extras.tape ? { tape: extras.tape } : {}) }, ctx.labels) }
           : {}),

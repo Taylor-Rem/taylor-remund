@@ -158,15 +158,6 @@ export function writeStencil(g: BufferGeometry, info: StencilInfo, ink: StencilI
   return n;
 }
 
-/** A node's rest (bind) world matrix in a skinned mesh's space: where its part's vertices were put when the mesh was merged. */
-function bindWorld(mesh: Mesh, node: string): Matrix4 | undefined {
-  const sk = (mesh as unknown as { skeleton?: { bones: Object3D[]; boneInverses: Matrix4[] }; bindMatrixInverse?: Matrix4 });
-  if (!sk.skeleton || !sk.bindMatrixInverse) return undefined;
-  const i = sk.skeleton.bones.findIndex((b) => b.name === node);
-  if (i < 0) return undefined;
-  return sk.bindMatrixInverse.clone().multiply(sk.skeleton.boneInverses[i]!.clone().invert());
-}
-
 // ---- the realized crate's own copy ----------------------------------------------------
 
 interface Item {
@@ -175,8 +166,8 @@ interface Item {
   paint?: PaintInfo;
   stencil?: StencilInfo;
   tape?: TapeInfo;
-  /** Stencil: the part-to-mesh matrix (skinned), its centroid in piece space. */
-  world?: Matrix4;
+  /** Stencil: its showing positions and normals in the mesh's space, its centroid in piece space. */
+  meshStencil?: { rest: Float32Array; normal: Float32Array };
   centroid?: Vector3;
   /** Paint: the skins' rest positions (mesh space, range order). */
   rest?: Float32Array;
@@ -227,15 +218,28 @@ function own(object: Object3D, m: Mesh): Own | null {
     const st = STENCIL.get(s.source);
     if (st) {
       it.stencil = st;
-      const w = skinned ? bindWorld(m, s.node) : undefined;
-      if (w) it.world = w;
-      const c = new Vector3();
+      // its showing place in this mesh's own space: where it sits now, lifted back out if it was built sunk
+      // (read from the mesh, so no bind matrices are needed whatever the mesh's space is)
+      const src = s.source.getAttribute('position');
+      const sunk = Math.abs(src.getX(0) - st.rest[0]!) + Math.abs(src.getY(0) - st.rest[1]!) + Math.abs(src.getZ(0) - st.rest[2]!) > 1e-6;
+      const nm = g.getAttribute('normal') as BufferAttribute;
       const n = st.rest.length / 3;
-      for (let i = 0; i < n; i++) c.x += st.rest[i * 3]!, c.y += st.rest[i * 3 + 1]!, c.z += st.rest[i * 3 + 2]!;
+      const mr = new Float32Array(n * 3), mn = new Float32Array(n * 3);
+      const c = new Vector3();
+      for (let i = 0; i < n; i++) {
+        const v = s.start + i;
+        vS.set(nm.getX(v), nm.getY(v), nm.getZ(v)).normalize();
+        mn.set([vS.x, vS.y, vS.z], i * 3);
+        const k = sunk ? STENCIL_SINK : 0;
+        mr.set([pos.getX(v) + vS.x * k, pos.getY(v) + vS.y * k, pos.getZ(v) + vS.z * k], i * 3);
+        c.x += mr[i * 3]!;
+        c.y += mr[i * 3 + 1]!;
+        c.z += mr[i * 3 + 2]!;
+      }
       c.multiplyScalar(1 / Math.max(1, n));
-      if (w) c.applyMatrix4(w);
       if (toPiece) c.applyMatrix4(toPiece);
       it.centroid = c;
+      it.meshStencil = { rest: mr, normal: mn };
     }
     const tp = TAPE.get(s.source);
     if (tp) {
@@ -286,6 +290,8 @@ export interface CrateLook {
 
 const vA = new Vector3();
 const vP = new Vector3();
+const vN = new Vector3();
+const vIn = new Vector3();
 
 /** The edge's unevenness at a piece-space point: a few incommensurate ripples (seeded), ± WIPE.rag. */
 function rag(x: number, y: number, z: number, s: number): number {
@@ -339,7 +345,18 @@ export function paintCrate(object: Object3D, look: CrateLook): number {
         // the skins' extent: at rest everywhere; mid-wipe each vertex past the edge is drawn back onto it
         const rest = it.rest!;
         let k = 0;
+        const nrm = g.getAttribute('normal') as BufferAttribute;
         for (const [a, c] of it.paint.ranges) {
+          // a skin is a flat fan (its first vertex the centre): it is drawn back across its own plane, along the
+          // axis's share in that plane, so it stays on the plank; a face square to the axis is all or nothing
+          const k0 = k;
+          if (!settled) {
+            vN.set(nrm.getX(it.start + a), nrm.getY(it.start + a), nrm.getZ(it.start + a));
+            if (o.toPiece) vN.transformDirection(o.toPiece);
+            vIn.copy(vA).addScaledVector(vN, -vA.dot(vN));
+          }
+          const len = settled ? 0 : vIn.length();
+          if (len > 1e-6) vIn.multiplyScalar(1 / len);
           for (let i = it.start + a; i < it.start + a + c; i++, k++) {
             let x = rest[k * 3]!, y = rest[k * 3 + 1]!, z = rest[k * 3 + 2]!;
             if (!settled) {
@@ -349,11 +366,18 @@ export function paintCrate(object: Object3D, look: CrateLook): number {
               const d = vP.dot(vA);
               const over = keepNear ? d - b : b - d;
               if (over > 0) {
-                vP.addScaledVector(vA, keepNear ? -over : over);
-                if (o.fromPiece) vP.applyMatrix4(o.fromPiece);
-                x = vP.x;
-                y = vP.y;
-                z = vP.z;
+                if (len < 0.2) {
+                  // square to the axis: drawn to nothing at the fan's centre
+                  x = rest[k0 * 3]!;
+                  y = rest[k0 * 3 + 1]!;
+                  z = rest[k0 * 3 + 2]!;
+                } else {
+                  vP.addScaledVector(vIn, ((keepNear ? -1 : 1) * over) / len);
+                  if (o.fromPiece) vP.applyMatrix4(o.fromPiece);
+                  x = vP.x;
+                  y = vP.y;
+                  z = vP.z;
+                }
               }
             }
             pos.setXYZ(i, x, y, z);
@@ -362,7 +386,7 @@ export function paintCrate(object: Object3D, look: CrateLook): number {
         moved = true;
       }
       if (it.stencil) {
-        n += writeStencil(g, it.stencil, stencilInk(at(it.centroid!)), it.start, it.world);
+        n += writeStencil(g, { ink: it.stencil.ink, ...it.meshStencil! }, stencilInk(at(it.centroid!)), it.start);
         moved = true;
       }
     }

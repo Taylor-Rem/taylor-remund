@@ -19,7 +19,7 @@ import { rng } from '../../../labels/rng.ts';
 import { crateTapeSize, type CrateSize } from './index.ts';
 
 /** Texels per world unit of a crate's tape: capitals stay sharp with the camera close or the crate in the hand. */
-export const TAPE_TPU = 1600;
+export const TAPE_TPU = 1200;
 /** Capital height as a share of the strip's height; the lead at each end in capitals; the narrowest squeeze. */
 const CAP = 0.54;
 const LEAD = 0.5;
