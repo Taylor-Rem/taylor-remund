@@ -43,7 +43,7 @@ describe('crate', () => {
       const hi = crate({ size, seed: 3 });
       const lo = crate({ size, seed: 3, detail: 'low' });
       expect(hi.triangles).toBe(K.countTriangles(hi));
-      expect(hi.triangles).toBeLessThanOrEqual(1400);
+      expect(hi.triangles).toBeLessThanOrEqual(1000);
       expect(lo.triangles).toBeLessThanOrEqual(520);
       for (const n of nodes(hi)) for (const q of n.parts) checkGeometry(q.geometry);
       for (const n of nodes(lo)) for (const q of n.parts) checkGeometry(q.geometry);

@@ -92,14 +92,17 @@ export function phone(o: PhoneOptions = {}): Piece {
   {
     // the foot plate: a rounded brass plate on four rubber feet
     const pw = w + 0.08, pd = 0.34;
-    const plate = extrude(rrect(pw, pd, 0, -pd / 2 + 0.06), plateT, { axis: 'y', radius: 0.04, bevel: 0.007, bevelBase: 0.003, segs: 2, detail, support: false });
+    // its underside sits on the feet a hair over the bench, where no view reaches: no base, no base bevel
+    const plate = extrude(rrect(pw, pd, 0, -pd / 2 + 0.06), plateT, { axis: 'y', radius: 0.04, bevel: 0.007, bevelBase: 0, caps: 'end', segs: 2, detail, support: false });
     b.add(setFinish(part('brass', transform(plate, T(0, 0.012, 0)), 'brass', { seed: seed + 1, shade: 0.9, warm: 0.03 }), 0.2));
     for (const [x, z] of [[-pw / 2 + 0.05, 0.03], [pw / 2 - 0.05, 0.03], [-pw / 2 + 0.05, -pd + 0.1], [pw / 2 - 0.05, -pd + 0.1]] as const) {
-      const foot = lathe(profile(0, 0).to(0.026, 0, { fillet: 0.004, segs: 1 }).to(0.022, 0.014, { fillet: 0.004, segs: 1 }).to(0, 0.014), { segs: 8, detail, band: 0 });
+      // under the plate's corners: a sliver of each shows at its edge
+      const foot = lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.022, 0.014, { fillet: 0.004, segs: 1 }).to(0, 0.014), { segs: 6, detail, band: 0, caps: false });
       b.add(part('rubber', transform(foot, T(x, 0, z)), 'ink', { seed: seed + 2 }));
     }
     // the ledge: a folded brass lip in front of the foot, two screws
-    const lip = extrude([[-w / 2 - 0.03, 0], [w / 2 + 0.03, 0], [w / 2 + 0.03, ledgeH], [-w / 2 - 0.03, ledgeH]], 0.018, { radius: [0.004, 0.004, 0.012, 0.012], bevel: 0.006, segs: 2, detail, support: false });
+    // its back is against the phone's foot: no back cap, no back bevel
+    const lip = extrude([[-w / 2 - 0.03, 0], [w / 2 + 0.03, 0], [w / 2 + 0.03, ledgeH], [-w / 2 - 0.03, ledgeH]], 0.018, { radius: [0.004, 0.004, 0.012, 0.012], bevel: 0.006, bevelBase: 0, caps: 'end', segs: 2, detail, support: false });
     b.add(setFinish(part('brass', transform(lip, T(0, 0.012 + plateT - 0.004, footZ + 0.04)), 'brass', { seed: seed + 3, warm: 0.03 }), 0.3));
     for (const x of [-0.12, 0.12]) b.small(() => [part('brass', transform(stud(0.011, 0.007), aim([x, 0.012 + plateT + ledgeH * 0.55, footZ + 0.058], [0, 0, 1])), 'brass', { seed: seed + 4 })]);
     // the strut: a bent rod from the plate's back up to the phone's back, a rubber tip
@@ -108,9 +111,10 @@ export function phone(o: PhoneOptions = {}): Piece {
     const touch = new Vector3(0, tY * Math.cos(lean), backZ - tY * Math.sin(lean) - 0.012);
     for (const x of [-0.1, 0.1]) {
       const path = polylinePath([[x, 0.012 + plateT, -0.28], [x, 0.012 + plateT + 0.04, -0.28], [x * 0.7, touch.y - 0.04, touch.z - 0.02], [x * 0.55, touch.y, touch.z]], 0.05, hi ? 3 : 2);
-      b.add(part('brass', sweep(path, { radius: 0.011, segs: 6, ends: 'round', detail }), 'brass', { seed: seed + 5 }));
+      // behind the phone; its ends go into the knuckle and the rubber tip
+      b.add(part('brass', sweep(path, { radius: 0.011, segs: 5, ends: 'flat', detail }), 'brass', { seed: seed + 5 }));
     }
-    const tip = lathe(profile(0, 0).to(0.03, 0, { fillet: 0.008, segs: 1 }).to(0.03, 0.03, { fillet: 0.01, segs: 1 }).to(0, 0.032), { segs: 8, detail, band: 0 });
+    const tip = lathe(profile(0, 0).to(0.03, 0, { fillet: 0.008, segs: 1 }).to(0.03, 0.03, { fillet: 0.01, segs: 1 }).to(0, 0.032), { segs: 7, detail, band: 0 });
     b.add(part('rubber', transform(tip, chain(T(0, touch.y, touch.z - 0.022), new Matrix4().makeRotationZ(Math.PI / 2))), 'ink', { seed: seed + 6 }));
     // the strut's hinge: a brass knuckle on the plate
     const kn = lathe(profile(0, 0).to(0.02, 0, { sharp: true }).to(0.02, 0.26).to(0, 0.26), { segs: 8, detail, band: 0 });
@@ -128,15 +132,17 @@ export function phone(o: PhoneOptions = {}): Piece {
     // the bumper: a fat rubber frame round the face, its lip a little proud of the glass
     const outer = rrect(w, h, 0, h / 2);
     const hole = rrect(w - 0.074, h - 0.08, 0, h / 2);
-    const frame = extrude(outer, d, { holes: [hole], radius: r, holeRadius: r * 0.45, bevel: 0.016, bevelBase: 0.012, caps: 'end', segs: hi ? 3 : 2, detail });
+    // the back (open, and its rim) faces the wall in every view: the bevel is the front's alone
+    const frame = extrude(outer, d, { holes: [hole], radius: r, holeRadius: r * 0.45, bevel: 0.016, bevelBase: 0, caps: 'end', segs: hi ? 3 : 2, detail });
     ph.add(part('rubber', transform(frame, back), 'ink', { seed: seed + 10, shade: 1.15 }));
     // the back shell inside the frame (it closes the hole behind the glass)
-    const shell = extrude(rrect(w - 0.05, h - 0.05, 0, h / 2), d * 0.55, { radius: r * 0.7, bevel: 0.01, bevelBase: 0, segs: 1, detail, support: false });
+    // (its front is under the glass, its edges inside the bumper: a plain slab is enough)
+    const shell = bevelBox({ min: [-(w - 0.05) / 2, 0.025, 0], max: [(w - 0.05) / 2, h - 0.025, d * 0.55], omit: ['pz'] });
     ph.add(part('rubber', transform(shell, back), 'ink', { seed: seed + 11 }));
     // corner guards: moulded pads standing out of the bumper at the four corners
     for (const [sx, sy] of [[-1, 0], [1, 0], [-1, 1], [1, 1]] as const) {
       const g = transform(
-        lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.046, 0.012, { fillet: 0.008, segs: 1 }).to(0, 0.016), { segs: 10, detail, band: 0 }),
+        lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.046, 0.012, { fillet: 0.008, segs: 1 }).to(0, 0.016), { segs: 8, detail, band: 0, caps: false }),
         chain(T(sx * (w / 2 - r + Math.SQRT1_2 * (r - 0.006)), sy ? h - r + Math.SQRT1_2 * (r - 0.006) : r - Math.SQRT1_2 * (r - 0.006), -d * 0.5), aim([0, 0, 0], [sx, sy ? 1 : -1, 0])),
       );
       ph.add(part('rubber', g, 'ink', { seed: seed + 12, shade: 1.25 }));
@@ -152,16 +158,18 @@ export function phone(o: PhoneOptions = {}): Piece {
     if (o.screen) ph.add(texturedPart('bulb', scr, o.screen.key));
     else ph.add(setFinish(part('bulb', scr, 'teal-light', { shade: 0.25 }), 1));
     // the earpiece slot and the camera
-    ph.add(part('rubber', transform(bevelBox({ min: [-0.04, -0.006, -0.003], max: [0.04, 0.006, 0.002], c: 0.004 }), T(0, PHONE.screenY + sh / 2 + 0.018, glassZ)), 'ink', { shade: 0.6 }));
+    // the slot: only its face shows above the glass
+    ph.add(part('rubber', transform(bevelBox({ min: [-0.04, -0.006, -0.003], max: [0.04, 0.006, 0.002], c: 0.004, omit: ['nz'] }), T(0, PHONE.screenY + sh / 2 + 0.018, glassZ)), 'ink', { shade: 0.6 }));
     const cam = lathe(profile(0, 0).to(0.012, 0, { sharp: true }).to(0.012, 0.003, { fillet: 0.002, segs: 1 }).to(0.006, 0.004).to(0, 0.002), { segs: 10, detail, band: 0 });
     ph.add(part('brass', transform(cam, chain(T(0.07, PHONE.screenY + sh / 2 + 0.018, glassZ), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 13 }));
     // brass side buttons: two on the right (volume), one on the left (power), proud of the bumper
     const btn = (x: number, y: number, len: number, sd: number): KitPart =>
-      part('brass', bevelBox({ min: [Math.min(0, x), y - len / 2, -d * 0.62], max: [Math.max(0, x), y + len / 2, -d * 0.38], c: 0.006 }), 'brass', { seed: sd, warm: 0.03 });
+      // each runs from the phone's middle out through the bumper: its inner end is inside the body
+      part('brass', bevelBox({ min: [Math.min(0, x), y - len / 2, -d * 0.62], max: [Math.max(0, x), y + len / 2, -d * 0.38], c: 0.006, omit: [x > 0 ? 'nx' : 'px'] }), 'brass', { seed: sd, warm: 0.03 });
     const sideX = w / 2 + 0.009;
     ph.add(setFinish(btn(sideX, h * 0.7, 0.08, seed + 14), 0.5), setFinish(btn(sideX, h * 0.57, 0.08, seed + 15), 0.5), setFinish(btn(-sideX, h * 0.66, 0.11, seed + 16), 0.5));
     // the charging port and a lanyard hole on the foot (seen when it rocks)
-    ph.add(part('rubber', transform(bevelBox({ min: [-0.035, -0.002, -d * 0.6], max: [0.035, 0.004, -d * 0.4], c: 0.003 }), T(0, 0, 0)), 'ink', { shade: 0.4 }));
+    ph.add(part('rubber', transform(bevelBox({ min: [-0.035, -0.002, -d * 0.6], max: [0.035, 0.004, -d * 0.4], c: 0.003, omit: ['py'] }), T(0, 0, 0)), 'ink', { shade: 0.4 }));
     // a scuff on the bumper: one corner guard nicked (seeded)
     void R;
   }

@@ -205,13 +205,14 @@ describe('its rounds (play mode)', () => {
     w.dispose();
   }, 60_000);
 
-  test('attract mode is as it was: no rounds before the visitor\'s first action', async () => {
+  test('no rounds before the visitor\'s first action: attract mode runs its lap instead (S6), and the fumble comes in it', async () => {
     const w = await benchWorld('rounds-attract', { scene: SCENE });
     const ev = runWhile(w, () => true, steps(30));
     expect(w.playMode).toBe(false);
     const st = states(ev);
-    expect(st).not.toContain('place');
     expect(st).toContain('fumble');
+    // what goes on the belt has been to the platen first (attract mode's lap: tests/scenario/attract.test.ts), never straight off the stack
+    for (const e of ev) if (e.type === 'taken-in' && e.mouth === ROUNDS.mouth) expect(w.part(e.part)!.colour).not.toBe('bare');
     w.dispose();
   }, 60_000);
 });

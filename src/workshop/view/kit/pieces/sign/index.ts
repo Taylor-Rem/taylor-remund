@@ -87,14 +87,48 @@ export function estimatePanel(word: string, capHeight = SIGN_CAP): { w: number; 
 
 const DEG = Math.PI / 180;
 
-/** One chain link (48 triangles): an oval ring in the XY plane, half-axes rx, ry, wire radius r, a three-sided wire. */
-function linkGeom(rx: number, ry: number, r: number): BufferGeometry {
+/**
+ * The sign draws as five meshes (painted steel, its painted panels, walnut, brass, the lit bulbs).
+ * The bare steel of the chains and the hook is drawn by the brass class, its colour turned back
+ * from brass's lift (x1.5) and yellow pull (g +10%, b -10%) to bare steel's x1.15 (as Fetch does):
+ * still a brushed grey metal.
+ */
+function bareSteel(q: KitPart): KitPart {
+  const a = 0.84;
+  const c = q.geometry.getAttribute('color');
+  for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * a, c.getY(i) * (a / 1.1), c.getZ(i) * (a / 0.9));
+  c.needsUpdate = true;
+  return { ...q, material: 'brass' };
+}
+
+/** The dead globe, glass no longer: painted steel at full gloss (the wet coat does the reflecting), taken down to glass's dark tint, never chipped. */
+function deadGlass(q: KitPart): KitPart {
+  const g = q.geometry;
+  const c = g.getAttribute('color'), s = g.getAttribute('surf');
+  for (let i = 0; i < c.count; i++) {
+    c.setXYZ(i, c.getX(i) * 0.44, c.getY(i) * 0.44, c.getZ(i) * 0.44);
+    s.setX(i, 0);
+    s.setZ(i, 1);
+  }
+  c.needsUpdate = true;
+  s.needsUpdate = true;
+  return { ...q, material: 'steel' };
+}
+
+/**
+ * One chain link: an oval ring in the XY plane, half-axes rx, ry, wire radius r, a three-sided
+ * wire, `m` stations round the oval (6 a link facing the wall: 36 triangles; 4 for one seen edge-on,
+ * which reads as a bar either way: 24).
+ */
+function linkGeom(rx: number, ry: number, r: number, m = 6): BufferGeometry {
   const md = new MeshData();
-  const m = 8, k = 3;
+  const k = 3;
   const rings: number[][] = [];
   for (let i = 0; i < m; i++) {
-    const a = (i / m) * Math.PI * 2;
-    const cx = Math.cos(a) * rx, cy = Math.sin(a) * ry;
+    // stations start at the link's ends (on Y), so the links still meet along the run; the sides,
+    // a little flatter at six, are widened to keep the oval's breadth
+    const a = (i / m) * Math.PI * 2 + Math.PI / 2;
+    const cx = Math.cos(a) * rx * (m === 6 ? 1.08 : 1), cy = Math.sin(a) * ry;
     let nx = Math.cos(a) / rx, ny = Math.sin(a) / ry;
     const l = Math.hypot(nx, ny);
     nx /= l;
@@ -123,12 +157,13 @@ function chainLinks(a: [number, number, number], b: [number, number, number], se
     const t = (i + 0.5) / n;
     const p = at(t);
     const d = at(Math.min(1, t + 0.01)).sub(at(Math.max(0, t - 0.01))).normalize();
-    // a torus lies flat (axis Y): stand it up in XY, stretch it along Y, then aim Y along the run
-    const g = linkGeom(0.042, 0.064, 0.013);
+    // the link is built in XY, stretched along Y; aim turns Y along the run, alternate links a quarter
+    // turn about it: those stand edge-on to the room and need only four stations
+    const g = linkGeom(0.042, 0.064, 0.013, i % 2 ? 4 : 6);
     transform(g, aim([p.x, p.y, p.z], [d.x, d.y, d.z], i % 2 ? 90 : 0));
     geoms.push(g);
   }
-  return [part('metal', mergeGeometries(geoms), 'steel', { seed, shade: 0.85 })];
+  return [bareSteel(part('metal', mergeGeometries(geoms), 'steel', { seed, shade: 0.85 }))];
 }
 
 /** The wall hook it all hangs from: a brass rose screwed to the wall, a forged hook out of it, turned up at the tip. */
@@ -137,7 +172,7 @@ function wallHook(reach: number, seed: number): KitPart[] {
   const hook = sweep(polylinePath([[0, 0, 0.02], [0, 0, reach - 0.02], [0, 0.09, reach + 0.01]], 0.05, 3), { radius: 0.024, segs: 7, ends: 'dome' });
   const out: KitPart[] = [
     part('brass', transform(rose, new Matrix4().makeRotationX(Math.PI / 2)), 'brass', { seed, warm: 0.04 }),
-    part('metal', hook, 'steel', { seed: seed + 1, shade: 0.8 }),
+    bareSteel(part('metal', hook, 'steel', { seed: seed + 1, shade: 0.8 })),
   ];
   for (const a of [0, Math.PI]) out.push(part('brass', transform(stud(0.014, 0.008, 6), aim([Math.cos(a) * 0.062, Math.sin(a) * 0.062, 0.014], [0, 0, 1])), 'brass', { seed: seed + 2 }));
   return out;
@@ -180,19 +215,20 @@ export function sign(o: SignOptions = {}): Piece {
     x += p.w - 2 * lap + mull;
     if (i < panels.length - 1) {
       const mx = x - mull / 2 + lap;
-      b.add(part('wood', grain(transform(roundedBox({ w: mull, h: H - 2 * rail + 2 * lap, d: depth - 0.01, r: 0.025, rPlan: 0.025, segs: 2, detail }), at(T(mx, rail - lap, z0))), 'y'), 'wood', { seed: seed + 30 + i, jitter: 0.06 }));
+      b.add(part('wood', grain(transform(roundedBox({ w: mull, h: H - 2 * rail + 2 * lap, d: depth - 0.01, r: 0.025, rPlan: 0.025, segs: 2, detail, band: 0 }), at(T(mx, rail - lap, z0))), 'y'), 'wood', { seed: seed + 30 + i, jitter: 0.06 }));
     }
   });
 
   // ---- the frame: rails run the full width, stiles butt in between them ----
   const railG = (y0: number, s: number): BufferGeometry => {
-    const g = roundedBox({ w: W, h: rail, d: depth, r: 0.035, rPlan: 0.03, segs: hi ? 3 : 2, detail });
+    // no wear band: the walnut's worn edges are on the fillets, which is where the lamp finds them
+    const g = roundedBox({ w: W, h: rail, d: depth, r: 0.035, rPlan: 0.03, segs: hi ? 3 : 2, detail, band: 0 });
     return transform(g, at(T(0, y0, z0)));
   };
   b.add(part('wood', railG(0, 0), 'wood', { seed: seed + 3, jitter: 0.06, warm: 0.03 }));
   b.add(part('wood', railG(H - rail, 1), 'wood', { seed: seed + 4, jitter: 0.06, warm: 0.03 }));
   for (const sx of [-1, 1]) {
-    const g = roundedBox({ w: stile, h: H - 2 * rail + 0.01, d: depth - 0.012, r: 0.03, rPlan: 0.03, segs: hi ? 3 : 2, detail });
+    const g = roundedBox({ w: stile, h: H - 2 * rail + 0.01, d: depth - 0.012, r: 0.03, rPlan: 0.03, segs: hi ? 3 : 2, detail, band: 0 });
     b.add(part('wood', grain(transform(g, at(T(sx * (W / 2 - stile / 2), rail - 0.005, z0 + 0.004))), 'y'), 'wood', { seed: seed + 5 + sx, jitter: 0.07 }));
   }
   // a thin inner bead round the panels, so the frame steps down to the paint
@@ -213,7 +249,7 @@ export function sign(o: SignOptions = {}): Piece {
     for (const sy of [0, 1]) {
       const L = 0.3, w = 0.085;
       const outline: Array<[number, number]> = [[0, 0], [L, 0], [L, w], [w, w], [w, L], [0, L]];
-      const g = extrude(outline, 0.014, { bevel: 0.005, bevelBase: 0, caps: 'end', radius: 0.012, segs: 2, detail, band: 0 });
+      const g = extrude(outline, 0.014, { bevel: 0.005, bevelBase: 0, caps: 'end', radius: 0.012, segs: 1, detail, band: 0 });
       // outline drawn in +x +y from the corner; mirror into each corner
       const m = at(chain(T(sx * (W / 2 - 0.035), sy ? H - 0.035 : 0.035, z1), new Matrix4().makeScale(-sx, sy ? -1 : 1, 1)));
       const gg = transform(g, m);
@@ -229,10 +265,14 @@ export function sign(o: SignOptions = {}): Piece {
   // ---- the bulbs: brass cups on the rails' faces, glass globes ----
   const n = Math.max(4, Math.round((W - 0.5) / SIGN.bulbPitch) + 1);
   const span = W - 0.56;
-  const cupProfile = profile(0.068, 0).to(0.068, 0.018, { sharp: true }).to(0.05, 0.028, { sharp: true }).to(0.055, 0.06, { sharp: true }).to(0.036, 0.066, { sharp: true });
-  const cupG = lathe(cupProfile, { segs: hi ? 8 : 6, detail, band: 0, caps: false });
-  const globeProfile = profile(0, 0.058).to(0.034, 0.058, { sharp: true }).to(0.036, 0.078, { smooth: true }).cubic(0, 0.205, 0.082, 0.09, 0.08, 0.205, hi ? 4 : 3);
-  const globeG = lathe(globeProfile, { segs: hi ? 8 : 6, detail, band: 0, caps: false });
+  // the cup's flange is one bevelled ring, not a step: its side wall stood edge-on to every view
+  const cupProfile = profile(0.068, 0.004).to(0.05, 0.028, { sharp: true }).to(0.055, 0.06, { sharp: true }).to(0.036, 0.066, { sharp: true });
+  // six sides to a cup and seven to a globe: a bulb is a glow ten pixels across at the bench view and
+  // the eye reads its brightness, not its polygon. The globe starts at its neck: its base sits in the
+  // cup, where nothing sees it.
+  const cupG = lathe(cupProfile, { segs: 6, detail, band: 0, caps: false });
+  const globeProfile = profile(0.034, 0.058).to(0.036, 0.078, { smooth: true }).cubic(0, 0.205, 0.082, 0.09, 0.08, 0.205, 3);
+  const globeG = lathe(globeProfile, { segs: hi ? 7 : 6, detail, band: 0, caps: false });
   const all: Array<{ row: number; i: number; m: Matrix4 }> = [];
   for (const row of [1, 0]) {
     const yc = row ? H - rail / 2 : rail / 2;
@@ -253,7 +293,7 @@ export function sign(o: SignOptions = {}): Piece {
     const g = transform(globeG.clone(), m);
     if (k === dead) {
       // a dead globe: clear glass with nothing behind it
-      b.add(part('glass', g, 'amber-glow', { seed: seed + 41 }));
+      b.add(deadGlass(part('glass', g, 'amber-glow', { seed: seed + 41 })));
       return;
     }
     const gi = bulb.row === 1 ? Math.floor(bulb.i / perGroup) : Math.ceil(n / perGroup) + Math.floor(bulb.i / perGroup);
