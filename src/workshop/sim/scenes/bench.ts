@@ -18,12 +18,14 @@
  */
 import type { Pose, Vec3 } from '../types.ts';
 import type { FetchRounds, MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
-import { belt, BELT_FIELDS } from '../machines/belt.ts';
+import { belt, BELT_FIELDS, BELT_TUNING } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
+import { FETCH_TUNING } from '../crew/fetch.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 
@@ -153,8 +155,30 @@ const RAMP: RampSpec = (() => {
 const DOOR = rampDoor(RAMP);
 
 /** Where the line's machines stand and what they reach, all read from `AT`. */
+/**
+ * Where the motor end's deflector sets a reversed part down (the belt's `offBack`): off the BACK of the
+ * belt (-Z), a crate's room clear of its bed, and left of the furthest Fetch reaches at its lane's motor
+ * end (its stop, overshoot, body, hands and an L crate, at crew scale: a crate set inside that reach was
+ * swept away by Fetch's next lap); then drawn up to a unit toward the crate stack (never nearer it than
+ * 0.9, the stack's own room). Derived from AT and Fetch's tuning: it follows them as they move.
+ */
+const OFF_BACK: Vec3 = (() => {
+  const from = AT.belt.c[0] - AT.belt.half[0];
+  const k = CREW_SCALE;
+  const fetchReach = Math.min(AT.lane.a[0], AT.lane.b[0]) + (FETCH_TUNING.inset - FETCH_TUNING.overshoot - FETCH_TUNING.bodyHalfDepth - FETCH_TUNING.handGap) * k - CRATE_EDGE.L;
+  const p0: [number, number] = [Math.min(from + 0.2, fetchReach - CRATE_EDGE.L / 2 - 0.15), AT.belt.c[2] - AT.belt.half[2] - CRATE_EDGE.L / 2 - 0.2];
+  const dx = AT.stack[0] - p0[0];
+  const dz = AT.stack[1] - p0[1];
+  const d = Math.hypot(dx, dz);
+  const t = d > 0 ? Math.min(1.0, Math.max(0, d - 0.9)) / d : 0;
+  return [p0[0] + dx * t, 0, p0[1] + dz * t];
+})();
+
+/** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */
+const beltFeed = (ctx: SimContext): number => (ctx.setting('belt', BELT_FIELDS.running) === true ? (BELT_TUNING.speeds[(ctx.setting('belt', BELT_FIELDS.speed) as number) - 1] ?? 0) : 0);
+
 export const LINE = {
-  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2] },
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK },
   /** The striker's arm crosses the belt at its post's x. */
   strikerX: AT.striker.c[0],
   /** The roller ramp from the belt's far end to the dock's sill. */
@@ -290,7 +314,7 @@ export const bench: SceneDesc = {
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
   ],
 };

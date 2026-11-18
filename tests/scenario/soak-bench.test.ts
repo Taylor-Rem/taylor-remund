@@ -18,10 +18,21 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   const b = w.scene.bench;
   const seen = { shipped: 0, struck: 0, returned: 0, restocked: 0, undone: 0, rungs: 0, takenIn: 0, grabbed: 0, stoppedSteps: 0 };
 
+  // a part crosses each machine's mouth once per ride: once it leaves the belt it is not taken back onto
+  // it within a second unless a hand (the visitor's, or an undo) put it there
+  let riding = new Set<string>();
+  const left = new Map<string, number>();
+  const retakes: string[] = [];
   const step = (): void => {
     w.advance();
     if (w.setting('belt', 'running') === false) seen.stoppedSteps++;
-    for (const e of w.drainEvents()) {
+    const evs = w.drainEvents();
+    for (const e of evs) if (e.type === 'part.grabbed' || e.type === 'undone' || e.type === 'reset') left.clear();
+    const now = new Set((w.machine('belt') as BeltView).riding);
+    for (const id of riding) if (!now.has(id)) left.set(id, w.step);
+    for (const id of now) if (!riding.has(id) && left.has(id) && w.step - left.get(id)! < 60) retakes.push(`${id}@${w.step}`);
+    riding = now;
+    for (const e of evs) {
       if (e.type === 'shipped') seen.shipped++;
       if (e.type === 'struck' && e.part) seen.struck++;
       if (e.type === 'part.returned') seen.returned++;
@@ -87,7 +98,8 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   expect((w.machine('chute') as ChuteView).waiting).toBe(0);
   expect(w.undoStack()).toEqual([]);
   for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && p.id.startsWith('crate-spare')), `${p.id}: ${p.location.at}`).toBe(true);
-  console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps`);
+  console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps; retakes ${retakes.join(' ')}`);
+  expect(retakes).toEqual([]);
   expect(seen.shipped).toBeGreaterThan(10);
   expect(seen.struck).toBeGreaterThan(10);
   expect(seen.returned).toBeGreaterThan(3);

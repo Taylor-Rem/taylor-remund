@@ -17,6 +17,7 @@ import type { Crew, Patch, Revert, Text } from './standins/index.ts';
 import { checker } from './standins/replay.ts';
 import type { Checker } from './standins/replay.ts';
 import { roundsBench } from './fetch-helpers.ts';
+import { rideWatch } from './rides.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 
 const PARTS = BENCH.parts.map((p) => p.id);
@@ -106,8 +107,10 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
   let chk: Checker | null = null;
   const stats: Record<string, number> = { shipped: 0, struck: 0, returnedDoor: 0, returnedChute: 0, restocked: 0, takenIn: 0 };
   const watchFetch = o.rounds ? fetchWatch(() => b, stats) : null;
+  const rides = rideWatch();
   const b = line(seed, (ev) => {
     watchFetch?.(ev);
+    rides(ev, b.world.step);
     for (const e of ev) {
       if (e.type === 'shipped') stats['shipped']!++;
       if (e.type === 'struck') stats['struck']!++;

@@ -48,6 +48,8 @@ export const DOCK_TUNING = {
   doorClose: 0.55,
   /** The rollers carry a part to the door and through it at this speed (above the belt's middle speed, so a run off the belt does not pile up). */
   roll: 2.2,
+  /** Parts on the ramp keep at least this gap (units). */
+  gap: 0.06,
   /** A part waits at the threshold until the door is this open. */
   clear: 0.85,
   /** How far past the threshold a part goes before it is gone. */
@@ -76,6 +78,11 @@ export interface DockSpec {
   readonly ramp: RampSpec;
   /** The crate stack's ground point (x, z): fresh crates are set on it. */
   readonly stack: readonly [number, number];
+  /**
+   * The speed of whatever feeds the ramp (the belt's surface, read from the world's settings): the
+   * rollers never run slower than it, so a run off a fast belt does not close up on the ramp.
+   */
+  readonly feed?: (ctx: SimContext) => number;
 }
 
 export interface DockUnit extends MachineUnit {
@@ -313,11 +320,22 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       door = want ? Math.min(1, door + dt / T.doorOpen) : Math.max(0, door - dt / T.doorClose);
       if (ctx.bracketed) return;
 
-      for (const x of [...queue]) {
-        const step = T.roll * dt;
+      const step = Math.max(T.roll, spec.feed?.(ctx) ?? 0) * dt;
+      /** How far each has come (along the ramp, then through the door), first first: the one behind keeps its length and a gap. */
+      const along = (x: Shipment): number => x.s + x.inside;
+      const reach = (x: Shipment): number => Math.max(...[0, 2].map((k) => ctx.halfExtents(x.id)?.[k] ?? 0.3));
+      let ahead: Shipment | null = null;
+      for (const x of [...queue].sort((a, b) => along(b) - along(a))) {
+        const room = ahead ? along(ahead) - reach(ahead) - T.gap - reach(x) - along(x) : Infinity;
+        ahead = x;
+        if (room <= 0) {
+          ctx.drive(x.id, poseOf(x));
+          continue;
+        }
         // along the ramp to the sill; through the door once it is open
-        if (x.s < LEN) x.s = Math.min(LEN, x.s + step);
-        else if (x.inside > 0 || door >= T.clear) x.inside += step;
+        const go = Math.min(step, room);
+        if (x.s < LEN) x.s = Math.min(LEN, x.s + go);
+        else if (x.inside > 0 || door >= T.clear) x.inside += go;
         if (x.inside >= T.depth) {
           ship(x);
           continue;

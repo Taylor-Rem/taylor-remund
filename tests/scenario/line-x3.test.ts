@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'vitest';
 import { AT, BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import { throwPart, line } from './helpers.ts';
+import { rideWatch } from './rides.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
 import { defaultHalfExtents } from '../../src/workshop/sim/parts.ts';
@@ -126,22 +127,44 @@ describe('the dock and the chute', () => {
 });
 
 describe('the belt carries whatever is put on it', () => {
-  test('reversed, a part rides back and leaves by the motor end onto the bench, still the placing\'s', async () => {
+  test('reversed, a run rides back and is guided off the BACK of the belt at the motor end, set down still at the scene\'s spot, one at a time, still the placing\'s', async () => {
     const w = await benchWorld();
     const t = tape(w);
     t.run(30);
+    w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
+    t.run(1);
+    putOn(w, t, 'crate-3', onBelt(0.3));
+    expect(waitFor(w, t, 'crate-3', 'in')).toBe(true);
+    putOn(w, t, 'crate-2', onBelt(0.45));
+    expect(waitFor(w, t, 'crate-2', 'in')).toBe(true);
+    const placers = ['crate-3', 'crate-2'].map((id) => w.writer(id, 'location'));
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0 });
     t.run(1);
     expect((w.machine('belt') as BeltView).direction).toBe('backward');
-    putOn(w, t, 'crate-3', onBelt(0.3));
-    expect(waitFor(w, t, 'crate-3', 'in')).toBe(true);
-    const placer = w.writer('crate-3', 'location');
-    // back to the motor end, then pushed off the front onto the bench
-    expect(waitFor(w, t, 'crate-3', 'rest', 10 * HZ)).toBe(true);
-    const at = w.motion('crate-3')!.pose.p;
-    expect(at[2]).toBeGreaterThan(LINE.belt.z + LINE.belt.halfWidth);
-    expect(at[0]).toBeLessThan(LINE.belt.from + 1.2);
-    expect(w.writer('crate-3', 'location')).toBe(placer);
+    const watch = rideWatch();
+    let overlap = 0;
+    for (let i = 0; i < 14 * HZ; i++) {
+      watch(t.run(1), w.step);
+      const r = (w.machine('belt') as BeltView).riding;
+      for (let j = 1; j < r.length; j++) {
+        const a = w.motion(r[j - 1]!)!.pose.p[0] + w.halfExtents(r[j - 1]!)![0];
+        const b = w.motion(r[j]!)!.pose.p[0] - w.halfExtents(r[j]!)![0];
+        if (a > b + 1e-3) overlap++;
+      }
+    }
+    expect(overlap).toBe(0);
+    const spot = LINE.belt.offBack;
+    for (const [i, id] of ['crate-3', 'crate-2'].entries()) {
+      expect(w.part(id)!.location.at, id).toBe('rest');
+      const at = w.motion(id)!.pose.p;
+      // off the back (toward -Z), at the spot (the second beside the first, further from the belt)
+      expect(at[2], id).toBeLessThan(LINE.belt.z - LINE.belt.halfWidth);
+      expect(Math.abs(at[0] - spot[0]), id).toBeLessThan(0.3);
+      expect(at[2], id).toBeLessThanOrEqual(spot[2] + 0.3);
+      expect(w.writer(id, 'location'), id).toBe(placers[i]);
+    }
+    // set down still: neither tumbled off the spot afterwards
+    expect(t.of('part.rested').filter((x) => x.e.id === 'crate-3').length).toBeLessThanOrEqual(2);
     expect((w.machine('belt') as BeltView).riding).toEqual([]);
     w.dispose();
   }, 60_000);
