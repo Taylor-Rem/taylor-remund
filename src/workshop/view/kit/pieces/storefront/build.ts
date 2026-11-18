@@ -173,9 +173,10 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
         const xa = Math.max(-wx - 0.04, x0 + 0.004), xb = Math.min(wx + 0.04, x0 + sw - 0.004);
         if (xb - xa < 0.02) continue;
         const tilt = R.spread(0.02);
-        const g = box([xa, 0, -0.012], [xb, pitch + 0.035, 0.012], 0, ['nz']);
+        const g = box([xa, 0, -0.016], [xb, pitch + 0.03, 0.016], 0, ['nz']);
         // lie it on the pitch, its foot a little proud of the course below
-        transform(g, chain(onPitch(y, z), T(0, 0, 0.014 + c * 0.0), new Matrix4().makeRotationZ(tilt)));
+        // each slate's foot kicks out over the course below (the step's shadow is what reads as slates)
+        transform(g, chain(onPitch(y, z), T(0, 0, 0.018), new Matrix4().makeRotationZ(tilt), new Matrix4().makeRotationX(-0.12 + R.spread(0.03))));
         (R() < 0.12 ? dark : slates).push(g);
       }
     }
@@ -198,8 +199,15 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       b.add(painted(g, 'teal-light', seed + 15 + sx, 'z', 0.62));
     }
     // the ridge: a row of rounded clay tiles
-    const ridge = lathe(profile(0, 0).to(0.04, 0, { sharp: true }).to(0.042, 0.02, { smooth: true }).to(0.042, wx * 2 + 0.1, { smooth: true }).to(0, wx * 2 + 0.12), { segs: hi ? 8 : 6, band: 0 });
-    b.add(part('paper', transform(ridge, chain(T(-wx - 0.06, ridgeY + 0.005, ridgeZ), new Matrix4().makeRotationZ(-Math.PI / 2))), 'paint-orange', { seed: seed + 16, shade: 0.62 }));
+    // the ridge: a row of rounded clay tiles, each a short half-round with a lip, a little askew
+    const tiles: BufferGeometry[] = [];
+    const nt = 5;
+    const tl = (wx * 2 + 0.1) / nt;
+    for (let k = 0; k < nt; k++) {
+      const g = lathe(profile(0, 0).to(0.045, 0, { sharp: true }).to(0.045, 0.012, { sharp: true }).to(0.04, 0.016).to(0.04, tl - 0.006, { sharp: true }).to(0, tl - 0.006), { segs: 5, band: 0, caps: 'end' });
+      tiles.push(transform(g, chain(T(-wx - 0.05 + k * tl, ridgeY - 0.005, ridgeZ), new Matrix4().makeRotationZ(-Math.PI / 2), new Matrix4().makeRotationY(R.spread(0.15)))));
+    }
+    b.add(part('paper', mergeGeometries(tiles), 'cable-red', { seed: seed + 16, shade: 0.7, jitter: 0.06 }));
   }
   // the chimney stack: on the ridge, brick courses (each its own box, offset), a stone cap, two pots
   {
@@ -291,7 +299,7 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     }
   }
   // behind the slats: a dark recess, so the gaps and a turning slat show depth
-  b.add(part('wood', box([-pilIn - 0.01, FASCIA.y0 - 0.04, F - 0.03], [pilIn + 0.01, FASCIA.y1 + 0.01, F + 0.01], 0.006, ['nz']), 'teal-deep', { seed: seed + 45, shade: 0.9 }));
+  b.add(part('wood', box([-pilIn - 0.01, FASCIA.y0 - 0.04, F - 0.07], [pilIn + 0.01, FASCIA.y1 + 0.01, F - 0.035], 0.006, ['nz']), 'teal-deep', { seed: seed + 45, shade: 0.9 }));
   // a moulded ledge under the slats, and the cornice over everything
   {
     const ledge = extrude([[-(F - 0.02), FASCIA.y0 - 0.045], [-(F + 0.15), FASCIA.y0 - 0.045], [-(F + 0.17), FASCIA.y0 - 0.02], [-(F + 0.15), FASCIA.y0 - 0.008], [-(F - 0.02), FASCIA.y0 - 0.008]], pilIn * 2, { radius: 0.006, bevel: 0.008, segs: 2, band: 0 });
@@ -312,6 +320,8 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     transform(g, chain(T(-cw, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
     knock(g, [0.4 + R.spread(0.3), y0 + 0.1, F + 0.225], [0, 0.3, 1], 0.07, 0.008);
     b.add(painted(g, CREAM, seed + 47, 'x', 0.98));
+    // lead flashing dressed over the cornice's top, turned down at its lip (it breaks up the long cream top)
+    b.add(part('metal', box([-cw - 0.005, y0 + 0.108, F - 0.03], [cw + 0.005, y0 + 0.13, F + 0.15], 0.006, ['ny']), 'steel', { seed: seed + 51, shade: 0.5, jitter: 0.05 }));
     // returns: the cornice turns back along the sides
     for (const sx of [-1, 1]) {
       const rg = box([sx < 0 ? -cw : cw - 0.06, y0, -0.44], [sx < 0 ? -cw + 0.06 : cw, y0 + 0.11, F - 0.03], 0.012, ['ny']);
@@ -444,6 +454,7 @@ function fascia(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number): void 
     if (i === R.int(0, FASCIA.slats - 1)) knock(body, [hw * (R() < 0.5 ? 1 : -1), h / 2, t / 2], [0, 1, 1], 0.05, 0.006);
     const faceF = grid(-hw + c, hw - c, -h / 2 + c, h / 2 - c, t / 2 - 0.0005, FASCIA.cols, 1);
     const faceB = grid(-hw + c, hw - c, -h / 2 + c, h / 2 - c, -t / 2 + 0.0005, FASCIA.cols, 1, { back: true });
+    // painted wood (the crate's way); the fascia leans back to catch the lamp, so its paint reads true
     n.add(painted(mergeGeometries([body, faceF, faceB]), o.fascia, seed + 80 + i, 'x'));
     // the words: one strip of the atlas on each face
     if (o.words) {

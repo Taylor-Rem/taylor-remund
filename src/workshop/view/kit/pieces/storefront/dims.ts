@@ -46,7 +46,7 @@ export const FASCIA = {
   /** Slat thickness. */
   t: 0.044,
   /** The pins' plane: this far in front of the facade (clear of it when a slat stands flat). */
-  z: F + 0.1,
+  z: F + 0.13,
   /** Columns of vertices across a slat face: the paint wipe's resolution. */
   cols: 28,
 } as const;
@@ -69,7 +69,7 @@ export const WORDS = {
    * The fascia leans this many degrees toward the visitor (its pins are in the consoles, the
    * consoles lean with it); it shortens the capitals less at the default view.
    */
-  leanDeg: 8,
+  leanDeg: 15,
 } as const;
 
 /** The awning: a roller under the fascia, two drop arms, a striped canvas, a scalloped valance. */
