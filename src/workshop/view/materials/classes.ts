@@ -676,6 +676,10 @@ float level = mix(u_lampLevel, u_indicatorLevel, pFinish) * mix(u_intensity, 1.0
 // the edge of a lit bulb is deeper amber, the middle near white-hot
 vec3 hot = mix(pBase * pBase * pBase, pBase, core);
 pEmit = hot * level * mix(u_flicker, 1.0, pSteady) * mix(u_edge, 1.0, core);
+#ifdef LAMP_GLOW
+// the lamp's own glow takes the lamp's colour at its own luminance (materials/lamp-glow.ts)
+pEmit = mix(pEmit, dot(pEmit, vec3(0.2126, 0.7152, 0.0722)) * c_lampGlow, u_lampGlowMix);
+#endif
 pRough = 0.12;
 `,
   },

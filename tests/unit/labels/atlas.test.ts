@@ -63,7 +63,7 @@ describe('atlas layout', () => {
 
   it('writeRows (a redrawn band) lands where draw would put the whole region', () => {
     const p = new Page('flat', 0, 1, { w: 64, h: 64 });
-    const rect = p.shelves.alloc(5, 4)!;
+    const rect = p.alloc(5, 4)!;
     const rows = new Uint8Array(5 * 4 * 4);
     for (let i = 0; i < rows.length; i++) rows[i] = (i * 7) % 251;
     const whole = new Uint8Array(64 * 64 * 4);
@@ -83,7 +83,12 @@ describe('atlas layout', () => {
     expect(va.map.source).toBe(vb.map.source);
     expect(va.rough!.source).toBe(vb.rough!.source);
     expect(va.map.offset.x).toBeCloseTo(a.rect.x / 2048);
-    expect(va.map.repeat.y).toBeCloseTo(100 / 2048);
+    // the page holds only the rows used so far; the transform maps the virtual 2048 onto them
+    const rows = a.page.color.rows;
+    expect(rows).toBeLessThan(2048);
+    expect(rows % 64).toBe(0);
+    expect(va.map.repeat.y).toBeCloseTo(100 / rows);
+    expect(va.rough!.repeat.y).toBeCloseTo(100 / 2048 * (1024 / a.page.rough!.rows));
     const whole = a.page.wholeViews();
     expect(whole.map.channel).toBe(1);
     expect(whole.map.repeat.x).toBe(1);
@@ -92,6 +97,42 @@ describe('atlas layout', () => {
     expect(a.page.key('opaque').includes('|')).toBe(false);
     // too big for any page: no place (the label keeps a texture of its own)
     expect(at.place('relief', 3000, 10)).toBeNull();
+  });
+});
+
+describe('atlas memory', () => {
+  it('grows a page as shelves fill it, keeping what was written and every view on its region', () => {
+    const at = new Atlas(1);
+    const a = at.place('flat', 100, 40)!;
+    const v = a.page.views(a.rect);
+    const px = new Uint8Array(100 * 40 * 4).fill(7);
+    a.page.write(a.rect, px, null, null);
+    const before = a.page.color.rows;
+    // a v in the middle of the region, in page texels
+    const texel = (t: typeof v.map): number => (0.5 * t.repeat.y + t.offset.y) * a.page.color.rows;
+    const mid = texel(v.map);
+    for (let i = 0; i < 40; i++) at.place('flat', 900, 60);
+    expect(a.page.color.rows).toBeGreaterThan(before);
+    expect(texel(v.map)).toBeCloseTo(mid);
+    const d = a.page.color.data;
+    expect(d[(a.rect.y * a.page.w + a.rect.x) * 4]).toBe(7);
+  });
+
+  it('a sealed page takes no more labels and lets its CPU copy go once uploaded; a redrawn one keeps it', () => {
+    const at = new Atlas(1);
+    const a = at.place('flat', 100, 40)!;
+    const b = at.place('relief', 100, 40)!;
+    b.page.redrawn = true;
+    const va = a.page.views(a.rect);
+    b.page.views(b.rect);
+    at.seal();
+    expect(a.page.alloc(10, 10)).toBeNull();
+    const c = at.place('flat', 10, 10)!;
+    expect(c.page).not.toBe(a.page);
+    va.map.onUpdate!(va.map);
+    expect(a.page.cpuBytes()).toBe(0);
+    expect(b.page.cpuBytes()).toBeGreaterThan(0);
+    expect(() => a.page.color.data).toThrow();
   });
 });
 

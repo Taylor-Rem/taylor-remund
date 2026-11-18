@@ -4,10 +4,11 @@
 // measuring build skips the bake and changes nothing it measures.
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { BufferGeometry } from 'three';
 import { bakeTableStats, measured, measureOnly, useBakeTable } from '../../../src/workshop/view/kit/bake.ts';
-import { bakeKey, keyText, parseBakeTable, SCALE, UNCHANGED, writeBakeTable, type BakeMeta } from '../../../src/workshop/view/kit/bake-format.ts';
+import { bakeKey, inflateBakeTable, keyText, LEVELS, parseBakeTable, UNCHANGED, unwrapBakeFile, wrapBakeFile, writeBakeTable, type BakeMeta, type BakeTable } from '../../../src/workshop/view/kit/bake-format.ts';
 import { pieceBounds } from '../../../src/workshop/view/kit/compose.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { testBlock } from '../../../src/workshop/view/kit/pieces/test-block/index.ts';
@@ -39,20 +40,20 @@ function geometries(p: Piece): BufferGeometry[] {
 }
 const cavity = (p: Piece): number[] => geometries(p).flatMap((g) => Array.from({ length: g.getAttribute('surf').count }, (_, i) => g.getAttribute('surf').getY(i)));
 const stool = switchboardCatalogue.find((e) => e.name === 'stool')!;
-const shipped = (): ReturnType<typeof parseBakeTable> => {
+const shipped = (): Promise<BakeTable> => {
   const buf = readFileSync(join(REPO_ROOT, TABLE_BIN));
-  return parseBakeTable(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
+  return inflateBakeTable(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
 };
 /** Record the bakes of `build` live, as scripts/bake.ts does in the browser. */
-function recordBakes(build: () => void): Array<{ key: string; values: Uint16Array }> {
+function recordBakes(build: () => void): Array<{ key: string; values: Uint8Array }> {
   G.__bakeRecord = true;
   G.__bakeRecorded = [];
   build();
-  const out = G.__bakeRecorded.map((r) => ({ key: r.key, values: Uint16Array.from(r.values) }));
+  const out = G.__bakeRecorded.map((r) => ({ key: r.key, values: Uint8Array.from(r.values) }));
   delete G.__bakeRecord;
   return out;
 }
-const tableOf = (entries: Array<{ key: string; values: Uint16Array }>, meta: BakeMeta = META) => parseBakeTable(writeBakeTable(entries, meta).buffer as ArrayBuffer);
+const tableOf = (entries: Array<{ key: string; values: Uint8Array }>, meta: BakeMeta = META) => parseBakeTable(writeBakeTable(entries, meta).buffer as ArrayBuffer);
 
 describe('the shipped bake table', () => {
   it('was recorded by the bake code as it stands (else: node scripts/bake.ts)', () => {
@@ -61,9 +62,9 @@ describe('the shipped bake table', () => {
     expect(info!.codeHash, "the cavity bake's code changed since the bake table was recorded; its values are not this code's. Record it again: node scripts/bake.ts").toBe(codeHash());
   });
 
-  it('parses and holds what its record says', () => {
+  it('inflates and holds what its record says', async () => {
     const info = readInfo()!;
-    const t = shipped();
+    const t = await shipped();
     expect(t.index.size).toBe(info.entries);
     expect(t.values.length).toBe(info.vertices);
     expect(Object.keys(t.meta.measured).length).toBe(info.measurements);
@@ -71,10 +72,10 @@ describe('the shipped bake table', () => {
     expect(t.meta.inputs).toBe(info.inputsHash);
   });
 
-  it('Node builds a piece bit for bit as Chrome did: the bench\'s key is in the table Chrome recorded', () => {
+  it('Node builds a piece bit for bit as Chrome did: the bench\'s key is in the table Chrome recorded', async () => {
     // only meaningful while the table is current (else the bench may have changed since)
     if (readInfo()!.inputsHash !== inputsHash()) return;
-    const t = shipped();
+    const t = await shipped();
     const bench = benchCatalogue.find((e) => e.name === 'bench')!;
     const keys = recordBakes(() => bench.build({ seed: 1 })).map((r) => r.key);
     expect(keys.length).toBe(1);
@@ -83,7 +84,7 @@ describe('the shipped bake table', () => {
 });
 
 describe('looking the bake up', () => {
-  it('gives the live bake, to 1/131068 where it changed a vertex and bit for bit everywhere else', () => {
+  it('gives the live bake, to 1/508 where it changed a vertex and bit for bit everywhere else', () => {
     const rec = recordBakes(() => {
       testBlock({ seed: 3 });
       stool.build({ seed: 5 });
@@ -99,7 +100,7 @@ describe('looking the bake up', () => {
       expect(y.length).toBe(x.length);
       let worst = 0;
       for (let i = 0; i < x.length; i++) worst = Math.max(worst, Math.abs(x[i]! - y[i]!));
-      expect(worst).toBeLessThanOrEqual(0.5 / SCALE + 1e-7);
+      expect(worst).toBeLessThanOrEqual(0.5 / LEVELS + 1e-7);
       const gx = geometries(live), gy = geometries(looked);
       for (let k = 0; k < gx.length; k++) {
         const sx = gx[k]!.getAttribute('surf').array, sy = gy[k]!.getAttribute('surf').array;
@@ -126,6 +127,30 @@ describe('looking the bake up', () => {
     const bits = new Uint32Array(n.buffer, n.byteOffset, n.length);
     bits[7] = bits[7]! ^ 1;
     expect(keyText(bakeKey(items, {}))).not.toBe(k0);
+  });
+
+  it('the file is the body deflated: it inflates (DecompressionStream) to the same table, and refuses where it cannot', async () => {
+    const rec = recordBakes(() => testBlock({ seed: 3 }));
+    const body = writeBakeTable(rec, META);
+    const file = wrapBakeFile(deflateSync(body, { level: 9 }), body.length);
+    expect(file.length).toBeLessThan(body.length);
+    const t = await inflateBakeTable(file.buffer.slice(0) as ArrayBuffer);
+    expect([...t.index.keys()]).toEqual(rec.map((r) => r.key));
+    expect([...t.values]).toEqual([...rec[0]!.values]);
+    expect(unwrapBakeFile(file.buffer.slice(0) as ArrayBuffer).bodyBytes).toBe(body.length);
+    // a file of the old format is refused, not misread
+    const old = file.slice(0);
+    new Uint32Array(old.buffer, 0, 2)[1] = 1;
+    await expect(inflateBakeTable(old.buffer as ArrayBuffer)).rejects.toThrow(/format/);
+    // no DecompressionStream: no table (the live bake runs)
+    const g = globalThis as { DecompressionStream?: unknown };
+    const DS = g.DecompressionStream;
+    try {
+      delete g.DecompressionStream;
+      await expect(inflateBakeTable(file.buffer.slice(0) as ArrayBuffer)).rejects.toThrow(/DecompressionStream/);
+    } finally {
+      g.DecompressionStream = DS;
+    }
   });
 
   it('a table recorded under other bake code is not used at all', () => {

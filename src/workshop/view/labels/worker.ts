@@ -30,6 +30,18 @@ async function init(base: string, files: Record<string, ArrayBuffer>): Promise<v
   const faces = Object.values(FACES).map((f) => new FontFace(f.family, files[f.family] ?? `url(${base}${f.file}) format("woff2")`, { display: 'block' }));
   await Promise.all(faces.map((f) => f.load()));
   for (const f of faces) scope.fonts.add(f);
+  // warm up: the first canvas and the first glyph of each face in a worker are slow (measured
+  // over a second on the first job when it came while the main thread was building views);
+  // do it now, while the main thread waits for 'ready'
+  const c = new OffscreenCanvas(16, 16).getContext('2d', { willReadFrequently: true });
+  if (c) {
+    for (const f of Object.values(FACES)) {
+      c.font = `12px "${f.family}"`;
+      c.measureText('H');
+      c.fillText('H', 2, 12);
+    }
+    c.getImageData(0, 0, 16, 16);
+  }
 }
 
 scope.onmessage = (e: MessageEvent): void => {
