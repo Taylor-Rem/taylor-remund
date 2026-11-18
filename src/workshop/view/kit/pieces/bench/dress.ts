@@ -139,17 +139,18 @@ export function planMarks(R: Rng, x0: number, x1: number, zB: number, zF: number
   const m: Marks = { patches: [], drips: [], lines: [], residue: [] };
   const scale = W / 15;
   const n = (k: number): number => Math.max(1, Math.round(k * scale));
-  const segs = low ? 8 : 14;
+  // spokes round a patch: soft-edged grime needs few (P1 used 14; 9 reads the same and costs two thirds)
+  const segs = low ? 7 : 9;
   // worn tracks along the bench (things slid left and right), front half
   for (let i = 0; i < n(4); i++) {
     const [x, z] = spot(0.4);
-    m.patches.push({ x, z, rx: R.range(0.8, 1.8), rz: R.range(0.12, 0.26), rot: R.spread(0.08), surf: grimeProfile(R.range(0.85, 1)), rings: [0.5, 0.8, 1], segs });
+    m.patches.push({ x, z, rx: R.range(0.8, 1.8), rz: R.range(0.12, 0.26), rot: R.spread(0.08), surf: grimeProfile(R.range(0.85, 1)), rings: [0.55, 1], segs });
   }
   // grime where hands and tools rest
   for (let i = 0; i < n(6); i++) {
     const [x, z] = spot();
     const r0 = R.range(0.25, 0.6);
-    m.patches.push({ x, z, rx: r0 * R.range(1, 1.6), rz: r0, rot: R.spread(1.5), surf: grimeProfile(R.range(0.6, 0.95)), rings: [0.45, 0.8, 1], segs });
+    m.patches.push({ x, z, rx: r0 * R.range(1, 1.6), rz: r0, rot: R.spread(1.5), surf: grimeProfile(R.range(0.6, 0.95)), rings: [0.5, 1], segs });
   }
   // a sanded, lighter patch (somebody took a stain out)
   {
@@ -160,24 +161,24 @@ export function planMarks(R: Rng, x0: number, x1: number, zB: number, zF: number
   for (let i = 0; i < n(3); i++) {
     const [x, z] = spot(0.35);
     const r0 = R.range(0.15, 0.21);
-    const ring = { x, z, rx: r0, rz: r0 * R.range(0.94, 1.0), rot: R(), surf: ringProfile(1), rings: [0.7, 0.8, 0.86, 0.92, 1], segs: low ? 12 : 24 };
+    const ring = { x, z, rx: r0, rz: r0 * R.range(0.94, 1.0), rot: R(), surf: ringProfile(1), rings: [0.76, 0.86, 0.96, 1], segs: low ? 10 : 15 };
     m.patches.push(ring);
     if (i === 0 && !low) m.patches.push({ ...ring, x: x + R.spread(0.08), z: z + R.spread(0.06), surf: ringProfile(0.7) });
   }
   // filled knots and old screw holes, anywhere
   for (let i = 0; i < n(3); i++) {
     const x = x0 + 0.5 + R() * (W - 1), z = zB + 0.8 + R() * (zF - zB - 1.6);
-    m.patches.push({ x, z, rx: R.range(0.05, 0.09), rz: R.range(0.035, 0.05), rot: R.spread(0.3), surf: dotProfile(0.95), rings: [0.6, 1], segs: 10 });
+    m.patches.push({ x, z, rx: R.range(0.05, 0.09), rz: R.range(0.035, 0.05), rot: R.spread(0.3), surf: dotProfile(0.95), rings: [0.6, 1], segs: 7 });
   }
   if (!low) {
     for (let i = 0; i < n(5); i++) {
       const [x, z] = spot(0.45);
-      for (const dx of R() < 0.5 ? [0] : [0, R.range(0.1, 0.3)]) m.patches.push({ x: x + dx, z, rx: 0.016, rz: 0.016, rot: 0, surf: dotProfile(1), rings: [0.5, 1], segs: 7 });
+      for (const dx of R() < 0.5 ? [0] : [0, R.range(0.1, 0.3)]) m.patches.push({ x: x + dx, z, rx: 0.016, rz: 0.016, rot: 0, surf: dotProfile(1), rings: [0.5, 1], segs: 5 });
     }
     // knife cuts: short thin dark slits
     for (let i = 0; i < n(6); i++) {
       const [x, z] = spot(0.3);
-      m.patches.push({ x, z, rx: R.range(0.06, 0.16), rz: 0.006, rot: R.spread(Math.PI), surf: dotProfile(0.9), rings: [0.6, 1], segs: 8 });
+      m.patches.push({ x, z, rx: R.range(0.06, 0.16), rz: 0.006, rot: R.spread(Math.PI), surf: dotProfile(0.9), rings: [0.6, 1], segs: 6 });
     }
   }
   // paint: a cluster of drips and specks in the paint colours, sparse
