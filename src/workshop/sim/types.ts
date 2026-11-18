@@ -745,6 +745,17 @@ export interface PatchView extends MachineViewBase {
   readonly plug: { readonly from: Id; readonly to: Id } | null;
   /** S6: the job in hand, its stages in order with their lengths (seconds), as planned when it was picked up; null when free. */
   readonly plan: readonly { readonly state: PatchState; readonly length: number }[] | null;
+  /**
+   * S7: where a caught part is set down, world space: the bottom centre of the part on the shelf beside the
+   * board (the part's centre is this plus its half height, and 0.01). Fixed; it does not move with the stool.
+   */
+  readonly shelf: Vec3;
+  /**
+   * S7: where it climbs back onto its stool from, world space: its feet on the bench in front of the stool,
+   * wherever the stool is on its runner now. `walk` ends here; `climb` goes from here to the seat (`at`
+   * moves straight between them over `stateLength`).
+   */
+  readonly foot: Vec3;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

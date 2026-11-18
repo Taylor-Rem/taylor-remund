@@ -685,6 +685,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         stool: { x: stoolX, rest: restX, min: runnerMin, roll: roll ? { from: roll.from, to: roll.to, home: roll.home } : null },
         plan,
         plug: state === 'plug' && plugging ? { ...plugging } : null,
+        shelf: spec.shelf,
+        foot: footNow(),
       };
     },
   };
