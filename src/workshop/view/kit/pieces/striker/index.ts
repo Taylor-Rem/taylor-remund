@@ -10,8 +10,9 @@
  * follower rod rides it and lifts the arm from underneath, and a coil spring
  * hung from a gooseneck above throws the hammer down when the cam's step
  * lets go (pose.ts tells the whole mechanism). Beside it, standing on the
- * housing's right side on a bracket, an empty brass-framed card holder (the
- * house-tune card is P4). The station lamp sits on the gooseneck's crown.
+ * housing's right side on a bracket, an optional brass-framed card holder
+ * (`cardHolder: true`; off by default until the house-tune card exists, P4).
+ * The station lamp sits on the gooseneck's crown.
  *
  * Origin: the bench under the post's centre. +Z points at the belt (and the
  * visitor): the hammer's axis is STRIKER.reach in front of the pivot, which
@@ -25,7 +26,7 @@
  *
  * Sockets: `base`, `rail` (where the bracket meets the far rail's back face),
  * `hammer` (the felt's centre at rest, -Y down the hammer's axis), `grip`
- * (the hammer head, for a pointer), `card` (the holder's face, +Z out of it),
+ * (the hammer head, for a pointer), `card` (with the holder: its face, +Z out of it),
  * `lamp`.
  */
 import { Matrix4, Vector3 } from 'three';
@@ -55,6 +56,8 @@ const DEG = Math.PI / 180;
 export interface StrikerOptions extends KitOptions {
   /** Build already posed (a name from NAMED_POSES, or a pose). Rest is the default. */
   pose?: string | StrikerPose;
+  /** Build the card holder beside the housing (off by default: until the house-tune card exists, an empty frame reads as a blank board). */
+  cardHolder?: boolean;
 }
 
 /** Turns a lathe's +Y axis to +Z / +X. */
@@ -286,7 +289,7 @@ export function striker(o: StrikerOptions = {}): Piece {
   const standX = cx + hw + 0.27;
   const cardTilt = 24;
   const cardFace = chain(T(standX, 0.96, 0.02), mat({ rot: [-cardTilt, 0, 0] }));
-  {
+  if (o.cardHolder) {
     // a bent steel bracket off the housing's right wall, its foot screwed on, its end turned up under the holder
     const xw = cx + hw;
     const arm = sweep(polylinePath([[xw - 0.01, 0.78, 0.04], [standX - 0.04, 0.78, 0.04], [standX, 0.82, 0.03]], 0.05, 2), { section: sections.roundRect(0.014, 0.006, 1), radius: 0.01, up: [0, 0, 1], ends: 'flat', detail });
@@ -342,7 +345,7 @@ export function striker(o: StrikerOptions = {}): Piece {
     const head = new Vector3(0, 0.02, reach).applyMatrix4(AwRoot);
     b.socket('grip', T(head.x, head.y, head.z));
   }
-  b.socket('card', chain(YAW, cardFace));
+  if (o.cardHolder) b.socket('card', chain(YAW, cardFace));
   b.socket('lamp', chain(YAW, lampAt));
   const built = b.build();
   if (o.pose) {
@@ -361,8 +364,9 @@ export const catalogue: CatalogueEntry[] = [
         ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
         ...(opts.detail ? { detail: opts.detail } : {}),
         ...(typeof opts['pose'] === 'string' ? { pose: opts['pose'] } : {}),
+        ...(opts['cardHolder'] === true ? { cardHolder: true } : {}),
       }),
-    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 }, 'card holder': { cardHolder: true } },
     poses: Object.keys(NAMED_POSES),
     camera: { distance: 5 },
     note: 'The striker: every part that passes under it sounds.',
