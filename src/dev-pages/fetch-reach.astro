@@ -1,0 +1,262 @@
+---
+// /dev/fetch-reach/ (V Fetch round 3): the telescoping forearms on their own, under the stage's light.
+// Fetch at the bench's crew scale (1.5×), an S or L crate, a reach driven from a point moved by script
+// (the simulation's `CrewMember.hands` is not on `rewrite` yet): what the station view will be fed.
+//
+// Query: ?manual=1 (captures: drive with __reach.step(n))  ?scale=1.5  ?hud=0
+// Hooks: window.__reach
+//   cell({ dist, size: 'S'|'L', facing: 'side'|'toward', ppu })  a still: Fetch holding the crate out at
+//        `dist` (world units, centre to crate centre, at the carrying height); returns { short, tele, clip }
+//   play(name)  'set-down' | 'take' | 'tap' | 'demo' (all three, then again): starts a scripted reach
+//   step(n, fps = 30)  advance n frames of the script
+//   rest({ yaw, tele })  arms at rest (tele 0) or all the way out (tele 1), turned to `yaw` degrees
+//   look(ppu, focus?)  camera at so many pixels per unit on Fetch
+// Dev-only; never shipped.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Fetch reach</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; background: #12292c; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; left: 8px; bottom: 6px; font: 12px/1.35 ui-monospace, monospace; color: #bfe3d8; white-space: pre; pointer-events: none; text-shadow: 0 0 3px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <script>
+      import { Box3, Vector3, type Object3D } from 'three';
+      import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
+      import { fetchPorter, fetchNameTape } from '../workshop/view/kit/pieces/fetch-porter/index.ts';
+      import { PRESETS, poseFetch, TELE, type FetchPose } from '../workshop/view/kit/pieces/fetch-porter/rig.ts';
+      import { REST, blendPose } from '../workshop/view/kit/pieces/fetch-porter/perform.ts';
+      import { ReachMotion, gripOf, reachPose, REACH_HEIGHT, type V3 } from '../workshop/view/kit/pieces/fetch-porter/reach.ts';
+      import { crate, crateLabels, crateSpec } from '../workshop/view/kit/pieces/crate/index.ts';
+      import { LENS } from '../workshop/view/catalogue/distances.ts';
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('c') as HTMLCanvasElement;
+      const hud = document.getElementById('hud')!;
+      if (q.get('hud') === '0') hud.style.display = 'none';
+      const K = Number(q.get('scale') ?? '1.5');
+      const s = await mountShowcase(canvas, { manual: true });
+      crateLabels(s.labels);
+      const fetchObj = s.add(fetchPorter({ seed: 7, nameTape: fetchNameTape(s.labels) }), {});
+      fetchObj.scale.setScalar(K);
+      const crates: Record<'S' | 'L', Object3D> = {
+        S: s.add(crate({ size: 'S', seed: 3 }), { x: 40 }),
+        L: s.add(crate({ size: 'L', seed: 4 }), { x: 44 }),
+      };
+      // where each crate's centre is from its origin (they are built standing on y = 0)
+      const centre = (o: Object3D): Vector3 => {
+        o.position.set(0, 0, 0);
+        o.updateMatrixWorld(true);
+        return new Box3().setFromObject(o).getCenter(new Vector3());
+      };
+      // (built standing on y = 0, centred over the origin: the centre is half its height up)
+      void centre;
+      const off = { S: new Vector3(0, crateSpec('S').h / 2, 0), L: new Vector3(0, crateSpec('L').h / 2, 0) };
+      const hidden = (o: Object3D): void => void o.position.set(60, -20, 0);
+      hidden(crates.S);
+      hidden(crates.L);
+
+      let yaw = 0; // Fetch's facing (radians about +Y): 0 toward the camera, π/2 to the right of the screen
+      const place = (pose: FetchPose): void => {
+        poseFetch(fetchObj, pose);
+        fetchObj.rotation.set(0, yaw, 0);
+        fetchObj.updateMatrixWorld(true);
+      };
+      /** A point in Fetch's own space (scale 1) in the world. */
+      const toWorld = (p: Vector3): Vector3 => p.clone().applyMatrix4(fetchObj.matrixWorld);
+      const putCrate = (size: 'S' | 'L', worldCentre: Vector3 | null, spin = 0): void => {
+        const o = crates[size];
+        if (!worldCentre) return hidden(o);
+        o.rotation.set(0, yaw + spin, 0);
+        const c = off[size].clone().applyAxisAngle(new Vector3(0, 1, 0), yaw + spin);
+        o.position.copy(worldCentre).sub(c);
+        o.updateMatrixWorld(true);
+      };
+      const halfOf = (size: 'S' | 'L'): V3 => {
+        const sp = crateSpec(size);
+        return [sp.w / 2 / K, sp.h / 2 / K, sp.d / 2 / K];
+      };
+      const look = (ppu: number, focus?: Vector3): void => {
+        const d = innerHeight / (2 * Math.tan((LENS.fov * Math.PI) / 360) * ppu);
+        const f = focus ?? new Vector3(0, 0.75 * K * 0.8, 0);
+        s.look(new Box3(f.clone().subScalar(0.5), f.clone().addScalar(0.5)), d, { focus: f });
+      };
+      const render = (): void => s.loop.advance(0);
+      const project = (p: Vector3): { x: number; y: number } => {
+        const cam = s.stage.camera.camera;
+        cam.updateMatrixWorld(true);
+        const v = p.clone().project(cam);
+        return { x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
+      };
+      const clipOf = (pts: Vector3[], pad = 12): { x: number; y: number; width: number; height: number } => {
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (const p of pts) {
+          const a = project(p);
+          x0 = Math.min(x0, a.x); x1 = Math.max(x1, a.x); y0 = Math.min(y0, a.y); y1 = Math.max(y1, a.y);
+        }
+        return { x: Math.max(0, Math.round(x0 - pad)), y: Math.max(0, Math.round(y0 - pad)), width: Math.round(x1 - x0 + 2 * pad) & ~1, height: Math.round(y1 - y0 + 2 * pad) & ~1 };
+      };
+
+      // ── stills ──
+      function cell(o: { dist: number; size: 'S' | 'L'; facing: 'side' | 'toward'; ppu: number }): { short: number; tele: number; clip: ReturnType<typeof clipOf> } {
+        yaw = o.facing === 'side' ? Math.PI / 2 : 0;
+        const half = halfOf(o.size);
+        const target: V3 = [0, REACH_HEIGHT, o.dist / K];
+        const r = reachPose(target, { half });
+        const pose = blendPose(REST, r.pose, 1);
+        pose.arms = r.pose.arms;
+        // the eye on the crate it holds out (the station's look does this from the crate's position)
+        pose.headPitch = 0.8 * (pose.lean?.[0] ?? 0) - 0.12;
+        place(pose);
+        const g = toWorld(gripOf(pose, null));
+        putCrate(o.size, g, pose.spin ?? 0);
+        hidden(crates[o.size === 'S' ? 'L' : 'S']);
+        // frame Fetch and the farthest reach shown on the sheet the same way in every cell
+        const far = toWorld(new Vector3(0, REACH_HEIGHT, 1.75 / K));
+        const foot = toWorld(new Vector3(0, 0, -0.35));
+        const top = toWorld(new Vector3(0, 1.4, 0));
+        const mid = far.clone().add(foot).multiplyScalar(0.5);
+        mid.y = 0.6;
+        look(o.ppu, mid);
+        render();
+        render();
+        const ext = o.size === 'L' ? 0.45 : 0.3;
+        const pts = [far.clone().add(new Vector3(0, ext, 0)), far.clone().add(new Vector3(0, -far.y, 0)), foot, top, toWorld(new Vector3(0.45, 0, 0)), toWorld(new Vector3(-0.45, 0, 0)), toWorld(new Vector3(0, 0, 1.75 / K + ext / K))];
+        return { short: r.short * K, tele: r.tele * K, clip: clipOf(pts) };
+      }
+
+      /** Turn Fetch side-on or toward the camera and frame it with room for its farthest reach; returns the clip. */
+      function frameView(o: { facing: 'side' | 'toward'; ppu: number; far?: number }): ReturnType<typeof clipOf> {
+        yaw = o.facing === 'side' ? Math.PI / 2 : 0;
+        place({ ...REST });
+        const fd = (o.far ?? 1.4) / K;
+        const far = toWorld(new Vector3(0, REACH_HEIGHT, fd));
+        const foot = toWorld(new Vector3(0, 0, -0.35));
+        const top = toWorld(new Vector3(0, 1.45, 0));
+        const mid = far.clone().add(foot).multiplyScalar(0.5);
+        mid.y = 0.6;
+        look(o.ppu, mid);
+        render();
+        return clipOf([far.clone().add(new Vector3(0, 0.35, 0)), far.clone().setY(0), foot, top, toWorld(new Vector3(0.5, 0, 0)), toWorld(new Vector3(-0.5, 0, 0)), toWorld(new Vector3(0, 0, fd + 0.25))]);
+      }
+
+      function rest(o: { yaw?: number; tele?: number }): void {
+        yaw = ((o.yaw ?? 0) * Math.PI) / 180;
+        const t = o.tele ?? 0;
+        const arm = (side: 'left' | 'right') => ({ ...PRESETS.offer[side], tele: [TELE.out[0] * t, TELE.out[1] * t, TELE.out[2] * t] as [number, number, number] });
+        const pose: FetchPose = t > 0 ? { ...REST, arms: { left: arm('left'), right: arm('right') } } : { ...REST };
+        place(pose);
+        hidden(crates.S);
+        hidden(crates.L);
+        render();
+      }
+
+      // ── the scripted reach: a point every frame, as the simulation will give it ──
+      const motion = new ReachMotion();
+      type Beat = { name: string; length: number; at(t: number): { target: V3 | null; holding: boolean; crateAt: V3 | null; half: V3 | null } };
+      const ease = (t: number): number => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+      const mix = (a: V3, b: V3, k: number): V3 => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+      const CARRY: V3 = [0, 0.51, 0.39];
+      const FAR_OUT: V3 = [0, 0.66, 1.15 / K];
+      const FAR_DOWN: V3 = [0, 0.5, 1.15 / K];
+      const SHELF: V3 = [0, 0.52, 1.1 / K];
+      const PHONE: V3 = [0.32, 0.42, 0.62];
+      const S_HALF = (): V3 => halfOf('S');
+      const beats: Record<string, Beat> = {
+        'set-down': {
+          name: 'set-down', length: 2.4,
+          at(t) {
+            if (t < 0.3) return { target: null, holding: true, crateAt: null, half: S_HALF() };
+            if (t < 0.85) return { target: mix(CARRY, FAR_OUT, ease((t - 0.3) / 0.55)), holding: true, crateAt: null, half: S_HALF() };
+            if (t < 1.15) return { target: mix(FAR_OUT, FAR_DOWN, ease((t - 0.85) / 0.3)), holding: true, crateAt: null, half: S_HALF() };
+            if (t < 1.4) return { target: FAR_DOWN, holding: false, crateAt: FAR_DOWN, half: S_HALF() };
+            return { target: null, holding: false, crateAt: FAR_DOWN, half: S_HALF() };
+          },
+        },
+        take: {
+          name: 'take', length: 2.4,
+          at(t) {
+            if (t < 0.3) return { target: null, holding: false, crateAt: SHELF, half: S_HALF() };
+            if (t < 1.0) return { target: SHELF, holding: false, crateAt: SHELF, half: S_HALF() };
+            if (t < 1.15) return { target: SHELF, holding: true, crateAt: null, half: S_HALF() };
+            if (t < 1.7) return { target: mix(SHELF, CARRY, ease((t - 1.15) / 0.55)), holding: true, crateAt: null, half: S_HALF() };
+            return { target: null, holding: true, crateAt: null, half: S_HALF() };
+          },
+        },
+        tap: {
+          name: 'tap', length: 1.6,
+          at(t) {
+            if (t < 0.2 || t > 1.15) return { target: null, holding: false, crateAt: null, half: null };
+            const jab = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.6) / 0.16)));
+            return { target: [PHONE[0], PHONE[1] - 0.02 * jab, PHONE[2] + 0.03 * jab], holding: false, crateAt: null, half: null };
+          },
+        },
+      };
+      const order = ['take', 'set-down', 'tap'];
+      let playing: { beat: Beat; t: number; loop: boolean; idx: number } | null = null;
+      function play(name: string): void {
+        motion.reset();
+        if (name === 'demo') playing = { beat: beats[order[0]!]!, t: 0, loop: true, idx: 0 };
+        else playing = { beat: beats[name]!, t: 0, loop: false, idx: 0 };
+      }
+      let lastShort = 0;
+      function frame(dt: number): void {
+        if (!playing) return;
+        playing.t += dt;
+        if (playing.t > playing.beat.length) {
+          if (!playing.loop) playing.t = playing.beat.length;
+          else {
+            playing.idx = (playing.idx + 1) % order.length;
+            playing.beat = beats[order[playing.idx]!]!;
+            playing.t = 0;
+          }
+        }
+        const b = playing.beat.at(playing.t);
+        const out = motion.update({ target: b.target, half: b.half, holding: b.holding, dt, reducedMotion: q.get('rm') === '1' });
+        lastShort = out.short;
+        const base: FetchPose = b.holding ? { ...REST, arms: 'carry', squash: 0.14, lean: [-0.06, 0] } : { ...REST };
+        const pose = blendPose(base, out.pose, out.weight);
+        // the eye on the crate (the station's look does this from where the crate is)
+        pose.headPitch = 0.8 * (pose.lean?.[0] ?? 0) - 0.15 * out.weight + out.nod;
+        pose.lids = [0.08, 0.15];
+        place(pose);
+        const sizeNow: 'S' = 'S';
+        if (b.holding) putCrate(sizeNow, toWorld(gripOf(pose, null)), pose.spin ?? 0);
+        else if (b.crateAt) putCrate(sizeNow, toWorld(new Vector3(...b.crateAt)), 0);
+        else hidden(crates.S);
+        hidden(crates.L);
+        hud.textContent = `${playing.beat.name} ${playing.t.toFixed(2)}s  tele ${(out.tele * K).toFixed(3)}  short ${(out.short * K).toFixed(3)}`;
+      }
+      function step(n: number, fps = 30): void {
+        for (let i = 0; i < n; i++) frame(1 / fps);
+        render();
+      }
+
+      yaw = Math.PI / 2;
+      place({ ...REST });
+      look(220);
+      (window as unknown as { __reach: unknown }).__reach = { cell, rest, play, step, look, render, frameView, short: () => lastShort, setYaw: (d: number) => (yaw = (d * Math.PI) / 180) };
+      s.start();
+      if (q.get('manual') !== '1') {
+        play('demo');
+        let last = performance.now();
+        const tick = (): void => {
+          const now = performance.now();
+          step(1, 1000 / Math.max(1, now - last));
+          last = now;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+    </script>
+  </body>
+</html>
