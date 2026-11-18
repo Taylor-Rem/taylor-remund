@@ -170,7 +170,7 @@ export interface WorkshopLabels extends Labels {
   /** Resolves when every label asked for so far has its pixels (immediately without workers). */
   ready(): Promise<void>;
   /** Every label made so far, and the GPU memory their textures take (RGBA8 + mips; atlas pages counted whole). */
-  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number };
+  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number; perPage: Array<{ key: string; w: number; rows: number; labelTexels: number }> };
   entries(): readonly LabelEntry[];
   dispose(): void;
 }
@@ -489,7 +489,13 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       for (const e of made.values()) bytes += e.bytes;
       const pageBytes = atlas.bytes();
       const textures = own.size + atlas.pages.reduce((s, p) => s + p.maps().length, 0);
-      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes, cpuBytes: atlas.cpuBytes() };
+      const perPage = atlas.pages.map((p) => ({
+        key: p.key('opaque'),
+        w: p.w,
+        rows: p.color.rows,
+        labelTexels: [...made.values()].filter((e) => e.atlas && atlas.byKey(e.atlas.page)?.page === p).reduce((n, e) => n + e.px.w * e.px.h, 0),
+      }));
+      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes, cpuBytes: atlas.cpuBytes(), perPage };
     },
     dispose() {
       pool?.dispose();

@@ -9,7 +9,7 @@
  * A label's alpha (opaque, cut, sprayed) is the material's business, not the
  * page's: one page holds all three, and only the material differs.
  *
- * Layout. Shelf packing in cells of CELL texels; every region sits GUTTER
+ * Layout. Skyline packing in cells of CELL texels; every region sits GUTTER
  * texels inside its cell and the gutter repeats the region's edge texels, so
  * linear filtering at the region's edge sees what ClampToEdge saw on the
  * label's own texture, and every mip level up to CELL texels (level 4) is
@@ -62,9 +62,15 @@ export interface Rect {
   h: number;
 }
 
-/** Shelf packer over a w×h page, cells rounded up to CELL. */
+/**
+ * Skyline packer over a w×h page (bottom-left: each cell goes where its top
+ * would be lowest), cells rounded up to CELL. Labels arrive one at a time
+ * (online), of mixed heights; a skyline wastes far less than shelves did
+ * (the bench's relief page: 2048 × 1920 rows with shelves).
+ */
 export class Shelves {
-  private shelves: Array<{ y: number; h: number; x: number }> = [];
+  /** The skyline: x-sorted segments, each at the height of what is under it. */
+  private sky: Array<{ x: number; w: number; y: number }>;
   private top = 0;
   readonly w: number;
   readonly h: number;
@@ -74,6 +80,7 @@ export class Shelves {
     this.w = w;
     this.h = h;
     this.gutter = gutter;
+    this.sky = [{ x: 0, w, y: 0 }];
   }
   /** A cell for a w×h region (plus gutters), or null when the page is full. */
   alloc(w: number, h: number): Rect | null {
@@ -87,25 +94,45 @@ export class Shelves {
     const cw = Math.ceil((w + 2 * G) / CELL) * CELL;
     const ch = Math.ceil((h + 2 * G) / CELL) * CELL;
     if (cw > this.w || ch > this.h) return null;
-    // the lowest shelf it fits on without wasting more than half the shelf's height
-    let best: { y: number; h: number; x: number } | null = null;
-    for (const s of this.shelves) if (s.h >= ch && s.h <= ch * 2 && this.w - s.x >= cw && (!best || s.h < best.h)) best = s;
-    if (!best) {
-      if (this.top + ch > this.h) {
-        // no new shelf fits: any shelf with room, whatever its height
-        for (const s of this.shelves) if (s.h >= ch && this.w - s.x >= cw) best = s;
-        if (!best) return null;
-      } else {
-        best = { y: this.top, h: ch, x: 0 };
-        this.shelves.push(best);
-        this.top += ch;
+    let best: { i: number; x: number; y: number } | null = null;
+    for (let i = 0; i < this.sky.length; i++) {
+      const x = this.sky[i]!.x;
+      if (x + cw > this.w) break;
+      // the cell rests on the highest segment it spans
+      let y = 0;
+      for (let j = i, span = 0; span < cw; j++) {
+        const sg = this.sky[j]!;
+        y = Math.max(y, sg.y);
+        span = sg.x + sg.w - x;
+      }
+      if (y + ch > this.h) continue;
+      if (!best || y + ch < best.y + ch || (y + ch === best.y + ch && x < best.x)) best = { i, x, y };
+    }
+    if (!best) return null;
+    // raise the skyline under the cell
+    const x0 = best.x, x1 = best.x + cw, top = best.y + ch;
+    const next: Array<{ x: number; w: number; y: number }> = [];
+    for (const sg of this.sky) {
+      const a = sg.x, b = sg.x + sg.w;
+      if (b <= x0 || a >= x1) next.push(sg);
+      else {
+        if (a < x0) next.push({ x: a, w: x0 - a, y: sg.y });
+        if (b > x1) next.push({ x: x1, w: b - x1, y: sg.y });
       }
     }
-    const cell = { x: best.x, y: best.y, w: cw, h: ch };
-    best.x += cw;
-    return { x: cell.x + G, y: cell.y + G, w, h };
+    next.push({ x: x0, w: cw, y: top });
+    next.sort((p, q) => p.x - q.x);
+    // merge neighbours at the same height
+    this.sky = [];
+    for (const sg of next) {
+      const last = this.sky[this.sky.length - 1];
+      if (last && last.y === sg.y && last.x + last.w === sg.x) last.w += sg.w;
+      else this.sky.push({ ...sg });
+    }
+    this.top = Math.max(this.top, top);
+    return { x: x0 + G, y: best.y + G, w, h };
   }
-  /** Rows covered by shelves so far (the page's texture needs no more). */
+  /** Rows covered so far (the page's texture needs no more). */
   get height(): number {
     return this.top;
   }
