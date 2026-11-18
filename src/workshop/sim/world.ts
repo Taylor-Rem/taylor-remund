@@ -238,6 +238,8 @@ export function createWorld(opts: WorldOptions): World {
   let lastInput = 0;
   let lastChuteRelease = -Infinity;
   let hovered: Id | null = null;
+  /** S6: where the hand last was while it holds a unit (`Holding.kind === 'unit'`): letting go happens there. */
+  let unitHand: Vec3 = [0, 0, 0];
   const emit = (e: SimEvent): void => {
     events.push(e);
   };
@@ -365,10 +367,34 @@ export function createWorld(opts: WorldOptions): World {
     l.calm = 0;
   }
 
+  /** S6: the unit that says the hand can hold `id` (Patch, the lamp's shade), if `id` is not a loose part. */
+  const holderOf = (id: Id): Unit | undefined => (loose.has(id) ? undefined : units.find((u) => u.holds?.(id) === true));
+
+  /** S6: one grab for a unit that can be held: the world speaks to it in `drag` intents. */
+  function grabUnit(id: Id, grip: Vec3): boolean {
+    const u = holderOf(id);
+    if (!u?.intent?.({ type: 'drag', id, target: grip })) return false;
+    held = { kind: 'unit', id };
+    unitHand = grip;
+    return true;
+  }
+  function carryUnit(target: Vec3): void {
+    if (held?.kind !== 'unit') return;
+    unitHand = target;
+    holderOf(held.id)?.intent?.({ type: 'drag', id: held.id, target });
+  }
+  function letGoOfUnit(at: Vec3 = unitHand): void {
+    if (held?.kind !== 'unit') return;
+    const id = held.id;
+    held = null;
+    holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true });
+  }
+
   function grab(id: Id, grip: Vec3): boolean {
     if (bracket || held) return false;
     const l = loose.get(id);
-    if (!l || l.mode === 'chute' || l.mode === 'gone') return false;
+    if (!l) return grabUnit(id, grip);
+    if (l.mode === 'chute' || l.mode === 'gone') return false;
     // a machine may keep what it holds out of reach (the dock: a part at its door is behind the curtain)
     if (l.mode === 'machine' && l.holder !== null && unitById.get(l.holder)?.keeps?.(id)) return false;
     /** Parts a crew member was carrying that its being picked up sets loose (Fetch drops its crate). */
@@ -987,6 +1013,7 @@ export function createWorld(opts: WorldOptions): World {
   function reset(): boolean {
     if (bracket) return false;
     if (held?.kind === 'plug') cord.drop();
+    else if (held?.kind === 'unit') letGoOfUnit();
     else if (held) {
       release(lp(held.id), [0, 0, 0], [0, 0, 0]);
       held = null;
@@ -1021,6 +1048,7 @@ export function createWorld(opts: WorldOptions): World {
       case 'carry':
         if (bracket || !held) return false;
         if (held.kind === 'part') lp(held.id).target = intent.target;
+        else if (held.kind === 'unit') carryUnit(intent.target);
         else cord.carry(intent.target);
         return false;
       case 'release':
@@ -1029,11 +1057,19 @@ export function createWorld(opts: WorldOptions): World {
           cord.drop();
           return true;
         }
+        if (held.kind === 'unit') {
+          letGoOfUnit();
+          return true;
+        }
         letGoOfPart(lp(held.id), intent.velocity, 'release');
         return true;
       case 'place': {
         if (!held) return false;
         if (held.kind === 'plug') return cord.intent?.({ type: 'plug', cord: held.id, jack: typeof intent.at === 'string' ? intent.at : null }) ?? false;
+        if (held.kind === 'unit') {
+          letGoOfUnit(typeof intent.at === 'string' ? (mouthById.get(intent.at)?.drop ?? unitHand) : intent.at);
+          return true;
+        }
         const at = typeof intent.at === 'string' ? mouthById.get(intent.at)?.drop : intent.at;
         if (!at) return false; // not a mouth of this scene
         const l = lp(held.id);

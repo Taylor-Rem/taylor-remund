@@ -141,6 +141,13 @@ export interface Unit {
   keeps?(part: Id): boolean;
   /** Every event of this step, at its end (the one bus, § E4 invariant 2). Listen; never commit from here. */
   heard?(events: readonly SimEvent[]): void;
+  /**
+   * S6: can the visitor's hand take hold of `id` (this unit, or a part of it that is not a loose part:
+   * Patch, the lamp's shade)? If so the world turns `grab`, `carry` and `release` of it into `drag`
+   * intents for this unit (`target` the hand, `end: true` on letting go) and `holding()` says
+   * `{ kind: 'unit', id }` meanwhile.
+   */
+  holds?(id: Id): boolean;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */
   intent?(intent: Intent): boolean;
   /** Before physics. */

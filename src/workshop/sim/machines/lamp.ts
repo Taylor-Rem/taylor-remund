@@ -125,7 +125,7 @@ export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
     id,
     station: spec.station,
     name: spec.name,
-    affordances: ['slide'],
+    affordances: ['grab', 'slide'],
     tell() {
       lampState.tell();
       ctx.emit({ type: 'tell', id });
@@ -134,6 +134,9 @@ export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
       misfire.hit(level);
       ctx.emit({ type: 'misfire', id, level });
     },
+
+    // S6: one grab: the world turns grab / carry / release of the shade into the `drag` intents below
+    holds: (what: Id): boolean => what === id,
 
     intent(intent: Intent): boolean {
       if (intent.type !== 'drag' || intent.id !== id || ctx.bracketed) return false;
@@ -174,7 +177,9 @@ export function createLamp(ctx: SimContext, spec: LampSpec): LampUnit {
     abort() {},
 
     pre() {
-      if (drag && !ctx.bracketed && ctx.clock.step - drag.last > steps(LAMP_TUNING.dragTimeout)) letGo();
+      // a drag whose end was lost is let go; not one the world's hand still holds (it always says when it lets go)
+      const inHand = ctx.holding()?.kind === 'unit' && ctx.holding()?.id === id;
+      if (drag && !inHand && !ctx.bracketed && ctx.clock.step - drag.last > steps(LAMP_TUNING.dragTimeout)) letGo();
     },
     bracket(on) {
       if (on) drag = null; // a rung: handles do not respond; the arm goes back to where it was set

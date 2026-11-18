@@ -300,6 +300,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       ctx.emit({ type: 'misfire', id, level });
     },
 
+    // S6: one grab: the world turns grab / carry / release of Patch into the `drag` intents below
+    holds: (what: Id): boolean => what === id,
+
     intent(intent: Intent): boolean {
       if (intent.type !== 'drag' || intent.id !== id || ctx.bracketed) return false;
       if (state !== 'held') {

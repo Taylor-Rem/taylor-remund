@@ -94,8 +94,12 @@ export interface PartMotion {
   readonly mode: BodyMode;
 }
 
-/** What the visitor's hand holds: a loose part, or the cord's plug. */
-export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id };
+/**
+ * What the visitor's hand holds: a loose part, the cord's plug, or (S6) a unit that can be held without
+ * being a loose part (`kind: 'unit'`: Patch lifted off its stool, the lamp by its shade; `id` is the
+ * unit's id). All three come from the one gesture: `grab`, `carry`, `release`.
+ */
+export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id };
 
 // ───────────────────────── effects and causes (§ E5) ─────────────────────────
 
@@ -216,7 +220,11 @@ export type Intent =
   | { readonly type: 'press'; readonly id: Id }
   /** A continuous handle set to a value 0..1 (a dial, a slider). */
   | { readonly type: 'turn'; readonly id: Id; readonly value: number }
-  /** Pick a loose part up. `grip` is where on the part (world space) it was taken. */
+  /**
+   * Pick a loose part up. `grip` is where on the part (world space) it was taken. (S6) The same gesture
+   * takes hold of a unit that can be held (Patch, the lamp's shade: `id` is the unit's): `carry` moves it
+   * and `release` lets it go, as `drag` did.
+   */
   | { readonly type: 'grab'; readonly id: Id; readonly grip: Vec3 }
   /** While carrying: where the held part should be heading (world space), every frame the pointer moves. */
   | { readonly type: 'carry'; readonly target: Vec3 }
@@ -243,6 +251,7 @@ export type Intent =
    * Drag something that is a handle or a crew member rather than a loose part (§ D 13, § D 14): the
    * lamp by its shade (`id` the lamp), Patch off its stool (`id` Patch). Sent each frame the hand moves,
    * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
+   * (S6) Kept while the input layer moves to `grab`/`carry`/`release`, which now reach the same units.
    */
   | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean };
 
