@@ -21,7 +21,7 @@ export const DOCK = {
   turn: 40,
   /** The clear opening (door-local): width, and height above the sill. A robot 1.6 tall and 1.25 wide passes. */
   openW: 1.48,
-  openH: 1.72,
+  openH: 1.7,
   /** Sill height: the top of the threshold plate, where the ramp lands. */
   sillY: 0.1,
   /** Jamb (post) width across the door. */
@@ -30,7 +30,7 @@ export const DOCK = {
   shutterZ: -0.04,
   slatPitch: 0.1,
   /** The drum housing over the opening: height. */
-  housingH: 0.3,
+  housingH: 0.28,
   /** How far the bay runs back from the door plane (door-local -Z). */
   bayDepth: 0.85,
   /** The lip of the threshold in front of the door (door-local +Z) where the ramp meets it. */
