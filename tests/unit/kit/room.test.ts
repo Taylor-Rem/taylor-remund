@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { backWall, bench, benchFrame, catalogue as benchCatalogue, FLOOR_Y } from '../../../src/workshop/view/kit/pieces/bench/index.ts';
+import { backWall, bench, benchFrame, benchHole, catalogue as benchCatalogue, FLOOR_Y } from '../../../src/workshop/view/kit/pieces/bench/index.ts';
+import { OPENING } from '../../../src/workshop/view/kit/pieces/revert-hatch/index.ts';
 import { bayStrips, catalogue as roomCatalogue, estimateBayLabels, floor, reservedBay, ROOM, roomEnd, roomWall } from '../../../src/workshop/view/kit/pieces/room/index.ts';
 import { catalogue as windowCatalogue, SCENE, STEADY, WINDOW, windowHole, windowPiece } from '../../../src/workshop/view/kit/pieces/window/index.ts';
 import { loadCatalogue } from '../../../src/workshop/view/kit/pieces/registry.ts';
@@ -70,6 +71,40 @@ describe('the vignette', () => {
   });
   it('the bench top at the bench page\'s 18 x 10 fits in 4,000 triangles', () => {
     expect(bench({ sections: 3, width: 6, depth: 10 }).triangles).toBeLessThanOrEqual(4000);
+  });
+});
+
+describe('a hole through the bench top (Revert\'s hatch)', () => {
+  const hole = benchHole(-3.6, 0.35, OPENING.w * 1.2, OPENING.d * 1.2);
+  const plain = bench({ sections: 3, width: 6, depth: 10 });
+  const holed = bench({ sections: 3, width: 6, depth: 10, openings: [hole] });
+
+  it('costs little: the cut boards and nothing else', () => {
+    // eslint-disable-next-line no-console
+    console.log(`bench top 18 x 10: ${plain.triangles} plain, ${holed.triangles} with the hatch's hole (+${holed.triangles - plain.triangles})`);
+    expect(holed.triangles - plain.triangles).toBeLessThan(400);
+    expect(holed.triangles).toBeLessThanOrEqual(4200);
+  });
+
+  it('leaves the hole open: nothing of the top inside it, and its cut faces dark', () => {
+    let dark = 0;
+    for (const q of parts(holed)) {
+      const pos = q.geometry.getAttribute('position'), sf = q.geometry.getAttribute('surf');
+      q.geometry.computeBoundingBox();
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), z = pos.getZ(i);
+        const inside = x > hole.x0 + 1e-3 && x < hole.x1 - 1e-3 && z > hole.z0 + 1e-3 && z < hole.z1 - 1e-3;
+        // the apron and the nose are not in the hole's rows; nothing at all may stand inside it
+        if (inside) throw new Error(`inside the hole: ${q.material} at ${x.toFixed(3)}, ${pos.getY(i).toFixed(4)}, ${z.toFixed(3)}`);
+        const onEdge = Math.abs(x - hole.x0) < 1e-4 || Math.abs(x - hole.x1) < 1e-4 || Math.abs(z - hole.z0) < 1e-4 || Math.abs(z - hole.z1) < 1e-4;
+        if (onEdge && pos.getY(i) < -0.01 && sf.getY(i) === 1) dark++;
+      }
+    }
+    expect(dark).toBeGreaterThan(8);
+  });
+
+  it('changes nothing without one', () => {
+    expect(bench({ sections: 3, width: 6, depth: 10, openings: [] }).triangles).toBe(plain.triangles);
   });
 });
 

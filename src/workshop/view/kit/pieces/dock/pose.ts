@@ -48,7 +48,7 @@ export const NAMED_POSES: Readonly<Record<string, DockPose>> = {
   /** Something coming back out: the door half up, the flap kicked out toward the visitor. */
   returning: { door: 0.62, flap: -30, bell: -6, clapper: 8, lamp: 1, rollers: -1.5 },
   /** The bell at the top of its swing (a still of the ring). */
-  ring: { door: 0, bell: 24, clapper: -22, lamp: 1 },
+  ring: { door: 0, bell: 30, clapper: -12, lamp: 1 },
 };
 
 /** Per-slat data the pose needs: name, its bottom edge at rest (door-local y), and its height. */

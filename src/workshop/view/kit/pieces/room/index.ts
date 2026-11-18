@@ -44,8 +44,8 @@ export const ROOM = {
    * the other (the blockout's placing, P2): plain RESERVED behind, 3.0 x 1.8; INSPECTION in front, 3.6 x 2.0.
    */
   bays: [
-    { which: 'next' as BayName, x: -6.7, z: -2.55, w: 3.0, d: 1.8 },
-    { which: 'inspection' as BayName, x: -6.5, z: -0.35, w: 3.6, d: 2.0 },
+    { which: 'next' as BayName, x: -6.6, z: -2.6, w: 3.0, d: 1.8 },
+    { which: 'inspection' as BayName, x: -6.8, z: 0.25, w: 3.6, d: 2.0 },
   ],
 } as const;
 
