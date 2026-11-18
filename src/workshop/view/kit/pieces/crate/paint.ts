@@ -476,5 +476,6 @@ export function crateLook(object: Object3D, tokens: readonly Token[]): { paint: 
       }
     }
   });
-  return { paint: paint ?? null, tape };
+  // positions are float32: a whole strip reads 0.99998
+  return { paint: paint ?? null, tape: tape === null ? null : Math.round(tape * 1e3) / 1e3 };
 }

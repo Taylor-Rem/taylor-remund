@@ -5,11 +5,12 @@
  * part in one step (an undo restores it at once, a put-away sets it on the
  * stack at once); this draws the trip.
  *
- * It draws over the parts view: it runs after it (a crew-order view) and, while
- * a hop plays, overwrites that part's matrix (`part:<id>`, the parts view's
- * group) with the arc's pose. When the hop lands the parts view's own pose is
- * where the part already is, so there is no jump. View only: nothing here is
- * written back.
+ * It draws through the parts view's overlay (`partsHooks(scene).overlays`,
+ * brief W5): while a hop plays, the part's drawn matrix is the arc's pose and
+ * its contact shadow goes with it (a hop begun after the parts view drew a
+ * frame is drawn by `update` for that one frame). When the hop lands the parts
+ * view's own pose is where the part already is, so there is no jump. View
+ * only: nothing here is written back.
  *
  * A hop: anticipation is the part's own stillness (it waits its turn at the
  * pose it left), then it lifts, travels on an arc whose height grows with the
@@ -19,6 +20,7 @@
  */
 import { Matrix4, Quaternion, Vector3, type Object3D, type Scene } from 'three';
 import type { Id, Pose } from '../../sim/types.ts';
+import { partsHooks, unhook, type PartsOverlay } from './parts.ts';
 
 /** Tune here. Seconds and units. */
 export const HOP_FEEL = {
@@ -84,6 +86,8 @@ export interface PartHops {
   /** Is this part mid-hop (or waiting its turn)? */
   busy(id: Id): boolean;
   clear(): void;
+  /** Take the overlay off the parts view (the owning view's dispose). */
+  dispose(): void;
 }
 
 export function createHops(scene: Scene): PartHops {
@@ -100,6 +104,50 @@ export function createHops(scene: Scene): PartHops {
   };
   const span = (a: Pose, b: Pose | null): number => (b ? Math.hypot(b.p[0] - a.p[0], b.p[1] - a.p[1], b.p[2] - a.p[2]) : 1);
 
+  /** The hop's pose at `time` into `out`; false when it has no landing to go to. */
+  const poseOf = (h: Hop, time: number, now: (id: Id) => Pose | undefined, out: Matrix4): boolean => {
+    const age = time - h.start;
+    const to = h.to ?? now(h.id);
+    if (!to) return false;
+    pa.set(h.from.p[0], h.from.p[1], h.from.p[2]);
+    pb.set(to.p[0], to.p[1], to.p[2]);
+    qa.set(h.from.q[0], h.from.q[1], h.from.q[2], h.from.q[3]);
+    qb.set(to.q[0], to.q[1], to.q[2], to.q[3]);
+    // the height of the part's centre above its lowest point does not change: the parts view composes the same way
+    if (age < 0) {
+      // waiting its turn where it was left
+      out.compose(pa, qa, one);
+    } else if (age < h.dur) {
+      const u = age / h.dur;
+      // lift off quick, hang, come down: an eased parameter along the arc
+      const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+      arc(pc, pa, pb, h.via, h.height, 0.15 * u + 0.85 * e);
+      qa.slerp(qb, Math.min(1, e * 1.1));
+      out.compose(pc, qa, one);
+    } else {
+      // landed: a dip that springs back
+      const k = Math.min(1, (age - h.dur) / F.landTime);
+      pb.y -= F.land * Math.sin(Math.PI * k) * (1 - k * 0.5);
+      out.compose(pb, qb, one);
+    }
+    return true;
+  };
+  const live = (h: Hop, time: number): boolean => time - h.start <= h.dur + F.landTime + h.stay;
+
+  // drawn through the parts view's overlay (brief W5), so the part's contact shadow travels with it
+  const drawnAt = new Map<Id, number>();
+  const overlay: PartsOverlay = {
+    pose(id, frame, out) {
+      const h = hops.find((x) => x.id === id);
+      if (!h || !live(h, frame.time)) return false;
+      if (!poseOf(h, frame.time, (pid) => frame.world.motion(pid)?.pose, out)) return false;
+      drawnAt.set(id, frame.time);
+      return true;
+    },
+  };
+  const hooks = partsHooks(scene);
+  hooks.overlays.push(overlay);
+
   return {
     add(id, from, start, o = {}) {
       for (let i = hops.length - 1; i >= 0; i--) if (hops[i]!.id === id) hops.splice(i, 1);
@@ -115,6 +163,7 @@ export function createHops(scene: Scene): PartHops {
         vanish: o.vanish ?? false,
         stay: o.stay ?? 0,
       });
+      drawnAt.delete(id);
     },
     chain(items, start) {
       let t = start;
@@ -134,43 +183,27 @@ export function createHops(scene: Scene): PartHops {
       for (let i = hops.length - 1; i >= 0; i--) {
         const h = hops[i]!;
         const g = group(h.id);
-        const age = time - h.start;
-        const end = h.dur + F.landTime + h.stay;
-        if (!g || age > end) {
+        if (!g || !live(h, time)) {
           if (g && h.vanish) g.visible = false;
           hops.splice(i, 1);
+          drawnAt.delete(h.id);
           continue;
         }
-        const to = h.to ?? now(h.id);
-        if (!to) continue;
-        pa.set(h.from.p[0], h.from.p[1], h.from.p[2]);
-        pb.set(to.p[0], to.p[1], to.p[2]);
-        qa.set(h.from.q[0], h.from.q[1], h.from.q[2], h.from.q[3]);
-        qb.set(to.q[0], to.q[1], to.q[2], to.q[3]);
-        // the height of the part's centre above its lowest point does not change: the parts view composes the same way
-        if (age < 0) {
-          // waiting its turn where it was left
-          m.compose(pa, qa, one);
-        } else if (age < h.dur) {
-          const u = age / h.dur;
-          // lift off quick, hang, come down: an eased parameter along the arc
-          const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
-          arc(pc, pa, pb, h.via, h.height, 0.15 * u + 0.85 * e);
-          qa.slerp(qb, Math.min(1, e * 1.1));
-          m.compose(pc, qa, one);
-        } else {
-          // landed: a dip that springs back
-          const k = Math.min(1, (age - h.dur) / F.landTime);
-          pb.y -= F.land * Math.sin(Math.PI * k) * (1 - k * 0.5);
-          m.compose(pb, qb, one);
-        }
         g.visible = true;
-        g.matrix.copy(m);
-        g.matrixWorldNeedsUpdate = true;
+        // a hop begun after the parts view drew this frame: drawn here once, the overlay has it from the next
+        if (drawnAt.get(h.id) !== time && poseOf(h, time, now, m)) {
+          g.matrix.copy(m);
+          g.matrixWorldNeedsUpdate = true;
+        }
       }
     },
     clear() {
       hops.length = 0;
+      drawnAt.clear();
+    },
+    dispose() {
+      hops.length = 0;
+      unhook(hooks.overlays, overlay);
     },
   };
 }

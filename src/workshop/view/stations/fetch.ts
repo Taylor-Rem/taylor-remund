@@ -27,6 +27,8 @@ import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts'
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
 import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
+import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
+import { partShows, partsHooks, paintToken, type PartWork } from './parts.ts';
 import {
   AngleSpring, Cadence, Derivative, Spring, SpringVec, clamp, damp, fbm1, lerp, outBack, reducedMotionParams, smoothstep, track, wrapAngle,
 } from '../anim/index.ts';
@@ -1043,6 +1045,12 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const CATCH = 0.3;
     const dp = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
     const dd0 = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
+    // its paint as drawn (built cream: bare); the platen works on it through the parts hooks
+    const hooks = partsHooks(ctx.scene);
+    const work: PartWork = { paint: null, label: null };
+    const drawnPaint = { settled: true, from: 'bare', to: 'bare', t: 1 };
+    const paintAxis = new Vector3();
+    const qInv = new Quaternion();
 
     const view: StationView = {
       root,
@@ -1120,6 +1128,24 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           if (name === 'root') continue;
           const o = nodes.get(name);
           if (o) mat.decompose(o.position, o.quaternion, o.scale);
+        }
+        // its paint (brief W5): the platen's wipe while it works on Fetch, the field at rest; written only on a change
+        const self = w.part(id);
+        if (self) {
+          partShows(hooks, self, frame, work);
+          const p = work.paint!;
+          const settled = p.t >= 1 || p.t <= 0 || p.from === p.to;
+          const shown = p.t <= 0 ? p.from : p.to;
+          const changed = settled ? !drawnPaint.settled || drawnPaint.from !== shown : drawnPaint.settled || drawnPaint.from !== p.from || drawnPaint.to !== p.to || Math.abs(drawnPaint.t - p.t) > 1e-4;
+          if (changed) {
+            paintAxis.set(p.axis[0], p.axis[1], p.axis[2]).applyQuaternion(qInv.copy(qa).invert());
+            if (settled) paintPorter(obj, { from: paintToken(shown), to: paintToken(shown), t: 1 });
+            else paintPorter(obj, { from: paintToken(p.from), to: paintToken(p.to), t: p.t, axis: [paintAxis.x, paintAxis.y, paintAxis.z], seed });
+            drawnPaint.settled = settled;
+            drawnPaint.from = settled ? shown : p.from;
+            drawnPaint.to = p.to;
+            drawnPaint.t = p.t;
+          }
         }
         if (member.carrying && motion.mode === 'crew' && w.mode(member.carrying) === 'crew') {
           if (carriedObj?.id !== member.carrying) carriedObj = { id: member.carrying, o: ctx.scene.getObjectByName(`part:${member.carrying}`) };
