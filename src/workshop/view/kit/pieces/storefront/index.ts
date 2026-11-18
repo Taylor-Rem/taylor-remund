@@ -80,7 +80,11 @@ export function storefront(o: StorefrontOptions = {}): Piece {
   });
   registerPaint(p, FASCIA_NODES, fascia);
   registerPaint(p, AWNING_NODES, awning);
-  if (o.pose) poseStorefront(p.root, { ...REST, ...o.pose });
+  if (o.pose) {
+    // the window's light follows the card unless the pose names it
+    const { lights: _l, ...rest } = REST;
+    poseStorefront(p.root, { ...rest, ...o.pose });
+  }
   return p;
 }
 
