@@ -899,9 +899,11 @@ export class FetchPerformer {
       // in the hand it hangs from the hand and twists round to face the visitor (a slow pendulum twist that
       // overshoots and settles); let go, it twists back to however it falls
       const fq = new Vector3(0, 0, 1).applyQuaternion(Q);
-      const rel = inHand ? wrapAngle(Math.atan2(visitor.x - P.x, visitor.z - P.z) - Math.atan2(fq.x, fq.z)) : 0;
-      if (rm) this.twist.set(rel);
-      else this.twist.step(this.twist.x + wrapAngle(rel - this.twist.x), dt);
+      if (inHand) {
+        const rel = wrapAngle(Math.atan2(visitor.x - P.x, visitor.z - P.z) - Math.atan2(fq.x, fq.z));
+        if (rm) this.twist.set(rel);
+        else this.twist.step(this.twist.x + wrapAngle(rel - this.twist.x), dt);
+      } else this.twist.v *= Math.exp(-8 * dt); // falling: it keeps the turn it had; it rights itself from there
       const tq = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), this.twist.x);
       const off = new Vector3(0, -i.half[1], 0).applyQuaternion(Q).applyQuaternion(tq);
       root.compose(P.clone().add(off), tq.multiply(Q), new Vector3(1, 1, 1));
