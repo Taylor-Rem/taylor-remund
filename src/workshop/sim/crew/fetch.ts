@@ -226,8 +226,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let bounce: { id: Id; dv: Vec3 } | null = null;
   /** A nudge's look: at this part until this step. */
   let nudge: { id: Id; until: number } | null = null;
-  /** Free parts' recent motion, to know how a part was moving just before it hit (last two steps). */
-  const motion = new Map<Id, { p: Vec3; v: Vec3; vPrev: Vec3; age: number }>();
+  /** Free parts' recent motion, to know how a part was moving just before it hit: its velocity over each of the last few steps, newest last. */
+  const motion = new Map<Id, { p: Vec3; v: Vec3; hist: Vec3[] }>();
+  /** How many steps of a part's motion are kept (a hit can be reported a step or two after the first touch). */
+  const HISTORY = 5;
   let gaze: Gaze | null = null;
   let handsUp = false;
 
@@ -537,9 +539,13 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       let vx = 0;
       let vz = 0;
       let speed: number;
-      if (m && m.age >= 2) {
-        [vx, , vz] = m.vPrev;
-        speed = vx * nx + vz * nz;
+      if (m && m.hist.length >= 2) {
+        // the fastest it came at Fetch over the last few steps (the step of the hit itself already bounced)
+        speed = -Infinity;
+        for (const hv of m.hist) {
+          const toward = hv[0] * nx + hv[2] * nz;
+          if (toward > speed) [speed, vx, vz] = [toward, hv[0], hv[2]];
+        }
       } else {
         speed = e.strength / (mass * (1 + MATERIAL[part.material].restitution));
         vx = nx * speed;
@@ -596,7 +602,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       const p = ctx.pose(id) as Pose;
       const m = motion.get(id);
       const nv: Vec3 = m ? [(p.p[0] - m.p[0]) * HZ, (p.p[1] - m.p[1]) * HZ, (p.p[2] - m.p[2]) * HZ] : [0, 0, 0];
-      motion.set(id, { p: p.p, v: nv, vPrev: m ? m.v : nv, age: m ? m.age + 1 : 0 });
+      motion.set(id, { p: p.p, v: nv, hist: m ? [...m.hist.slice(-(HISTORY - 1)), nv] : [] });
     }
     // the eye: what the visitor carries, else the nearest thing on the move
     gaze = null;

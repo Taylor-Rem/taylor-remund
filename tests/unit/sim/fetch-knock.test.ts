@@ -84,11 +84,16 @@ function hitFetch(world: World, physics: StubPhysics, id: string, speed: number,
   const dx = f.x - p[0];
   const dz = f.z - p[2];
   const d = Math.hypot(dx, dz);
-  // the stub keeps 80% of a sliding body's speed each step: start fast enough to arrive at `speed`
-  physics.setPose(id, { p: [f.x - (dx / d) * 1.2, 0.6, f.z - (dz / d) * 1.2], q: [0, 0, 0, 1] });
-  physics.setVelocity(id, [(dx / d) * speed * 1.25 * 1.25, 0, (dz / d) * speed * 1.25 * 1.25]);
-  physics.wake(id);
-  const out = run(world, 2);
+  // put it on a run at Fetch and keep it at `speed` for a few steps (the stub would slow it), long enough for the jump to it to be forgotten
+  const n = 8;
+  const from = 0.7 + (speed * n) / 60;
+  physics.setPose(id, { p: [f.x - (dx / d) * from, 0.6, f.z - (dz / d) * from], q: [0, 0, 0, 1] });
+  const out: SimEvent[] = [];
+  for (let i = 0; i < n; i++) {
+    physics.setVelocity(id, [(dx / d) * speed, 0, (dz / d) * speed]);
+    physics.wake(id);
+    out.push(...run(world, 1));
+  }
   physics.contact({ a: id, b: 'fetch', impulse });
   out.push(...run(world, 2));
   return out;
