@@ -495,8 +495,8 @@ export function createWorld(opts: WorldOptions): World {
       goal = qmul(qaxis(axis, Math.min(T.leanMax, hs * T.lean)), level);
     }
     const err = rotationVector(qmul(goal, qconj(st.pose.q)));
-    // and back toward the yaw it had when picked up, gently
-    let dyaw = l.grabYaw - yawOf(st.pose.q);
+    // and back toward the yaw it had when picked up, gently (a crew member held turns to the way it wants to face: Fetch to the visitor)
+    let dyaw = (crewHandles.get(l.id)?.heldYaw?.() ?? l.grabYaw) - yawOf(st.pose.q);
     dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
     const wGoal = clampLength(add(scale(err, T.levelRate), [0, dyaw * T.levelRate * T.yawHold, 0]), T.levelSpeed);
     const w = add(scale(st.angvel, T.sway), scale(wGoal, 1 - T.sway));

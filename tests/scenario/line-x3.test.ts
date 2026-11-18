@@ -95,7 +95,7 @@ describe('the dock and the chute', () => {
     // and it hurries back to its lane
     t.run(8 * HZ);
     expect(w.mode('fetch')).toBe('crew');
-    expect(Math.abs(w.crew('fetch')!.z - BENCH.runner.lane.a[1])).toBeLessThan(0.01);
+    expect(Math.abs(w.crew('fetch')!.z - BENCH.runner.lane.points[0]![1])).toBeLessThan(0.01);
     // the lever: Fetch's location is no longer the shipping's to restore (Revert's card)
     let u: Extract<SimEvent, { type: 'undone' }> | undefined;
     for (let i = 0; i < 4 && !u?.restores.some((r) => r.target === 'fetch') && !u?.kept.some((k) => k.target === 'fetch'); i++) {
@@ -179,9 +179,9 @@ describe('the belt carries whatever is put on it', () => {
       const lane = w.scene.runner.lane;
       const fh = w.halfExtents('fetch')!;
       const reach = Math.hypot(fh[0], fh[2]);
-      const stopA = lane.a[0] + FETCH_TUNING.inset * (w.scene.crewScale ?? 1);
+      const stopA = lane.points[0]![0] + FETCH_TUNING.inset * (w.scene.crewScale ?? 1);
       const ph = w.halfExtents(id)!;
-      const intoLane = at[0] + ph[0] > stopA - reach && at[2] - ph[2] < lane.a[1] + reach;
+      const intoLane = at[0] + ph[0] > stopA - reach && at[2] - ph[2] < lane.points[0]![1] + reach;
       expect(intoLane, `${id} set down on Fetch's lane at ${at[0].toFixed(2)}, ${at[2].toFixed(2)}`).toBe(false);
       // where it was set down is the placing's (Fetch may knock it on afterwards, which is not the visitor's)
       const first = t.of('effect').find((x) => x.step > leverStep && x.e.effect.target === id && x.e.effect.field === 'location');

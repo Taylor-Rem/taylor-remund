@@ -70,22 +70,44 @@ export interface MouthSpec {
 /** Makes a machine or a crew member for a world: the scene lists them, the world runs them in this order. */
 export type UnitFactory = (ctx: SimContext) => Unit;
 
+/**
+ * Fetch's lane of tape (S5 round 2): a path of straight runs through two or more ground points (x, z),
+ * ridden end to end. At each corner the robot leans round an arc (`FETCH_TUNING.cornerRadius` × crewScale,
+ * less where a run is too short for it), slowing to `cornerSpeed` (`sim/path.ts`). A layout's rules: a
+ * corner turns at most 135°; a run between two corners is at least twice the corner's tangent length
+ * (0.9 for a right angle at crewScale 1.5) or the corner is tightened; two runs pass no closer than the
+ * tape's width plus Fetch's footprint (see the hand-in, and `laneOutline`).
+ */
 export interface Lane {
-  /** Ground points (x, z) of the segment's ends. */
-  readonly a: readonly [number, number];
-  readonly b: readonly [number, number];
+  readonly points: readonly (readonly [number, number])[];
 }
+
+/**
+ * Where on its path Fetch stands to handle something (S5 round 2): a fraction of the path's whole length
+ * (0 at its first point, 1 at its last), or a ground point (x, z), taken to the nearest point of the path.
+ * Without one, it stands at the point of its path nearest the thing.
+ */
+export type StandPoint = number | readonly [number, number];
 
 export interface FetchSpec {
   /** Fetch's part id (it is a part of kind `robot` too). */
   readonly id: Id;
   readonly lane: Lane;
-  /** Where on the lane it starts, 0 at `a` to 1 at `b`. */
+  /** Where on the lane it starts, as a fraction of the whole path (0 at its first point, 1 at its last). */
   readonly start: number;
   /** The crate in its hands at the start, if any. */
   readonly carrying: Id | null;
-  /** Where on the lane (0..1) it fumbles. */
+  /** Where on the lane it fumbles, as a fraction of the whole path. */
   readonly fumbleAt: number;
+  /**
+   * S5 round 2: the farthest the centre of its grip can be from its own centre, world units, measured on
+   * the bench (horizontally: its arms telescope up as well as out). Not scaled again by `crewScale`.
+   * Every "can it reach" reads it: the attract lap's check, taking, setting down, the tap, the stretch
+   * that ends in OUT OF MY LANE. Without it, P2's number: `(FETCH_TUNING.reach + handForward) × crewScale`.
+   */
+  readonly reach?: number;
+  /** S5 round 2: where on its path it stands for each thing it handles (`StandPoint`); each optional. */
+  readonly stands?: { readonly stack?: StandPoint; readonly tray?: StandPoint; readonly phone?: StandPoint; readonly feed?: StandPoint };
   /** The heading it turns to while winding up the fumble (radians about +Y; 0 faces +Z, the camera). */
   readonly fumbleHeading: number;
   /** The heading it turns to after letting go, for the offer (0 faces +Z, the camera). */

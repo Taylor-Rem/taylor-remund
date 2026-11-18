@@ -123,8 +123,12 @@ export interface ViewContext {
    * (`fixedView` for a static world-space piece, `shadowProxy`, `shadowDetail`, …).
    */
   realize(piece: Piece, o?: import('./kit/realize.ts').RealizeOptions): Object3D;
-  /** Make an object answer to the pointer as this interactable or part. */
-  pickable(id: Id, object: Object3D): void;
+  /**
+   * Make an object answer to the pointer as this interactable or part. Without options the target is
+   * the box round the object's meshes; `box` (in the object's own frame) gives a target of its own (a
+   * bone has no meshes; a shade is smaller than its lamp), `pad` grows it (world units).
+   */
+  pickable(id: Id, object: Object3D, opts?: import('./picking.ts').PickableOptions): void;
 }
 
 /** One frame's worth of what a view may read. */

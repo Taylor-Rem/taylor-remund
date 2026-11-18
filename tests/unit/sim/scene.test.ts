@@ -43,8 +43,8 @@ describe('the vignette layout', () => {
   });
 
   test("Fetch and the crate in its hands clear every static along the whole lane, overshoot included, in every heading it uses", () => {
-    const [ax, az] = AT.lane.a;
-    const [bx, bz] = AT.lane.b;
+    const [ax, az] = AT.lane.points[0]!;
+    const [bx, bz] = AT.lane.points[AT.lane.points.length - 1]!;
     const len = Math.hypot(bx - ax, bz - az);
     const reach = FETCH_TUNING.bodyHalfDepth + FETCH_TUNING.handGap + S_HALF[2];
     let closest = Infinity;
@@ -75,7 +75,7 @@ describe('the vignette layout', () => {
   });
 
   test("the lane's tape (±0.52 round the lane) stays off every static's footprint", () => {
-    const tape: AABB = { min: [Math.min(AT.lane.a[0], AT.lane.b[0]) - 0.52, 0, AT.lane.a[1] - 0.52], max: [Math.max(AT.lane.a[0], AT.lane.b[0]) + 0.52, 0.001, AT.lane.b[1] + 0.52] };
+    const tape: AABB = { min: [Math.min(AT.lane.points[0]![0], AT.lane.points[AT.lane.points.length - 1]![0]) - 0.52, 0, AT.lane.points[0]![1] - 0.52], max: [Math.max(AT.lane.points[0]![0], AT.lane.points[AT.lane.points.length - 1]![0]) + 0.52, 0.001, AT.lane.points[AT.lane.points.length - 1]![1] + 0.52] };
     for (const s of statics) {
       if (s.id === 'bench') continue;
       const foot: AABB = { min: [s.box.min[0], 0, s.box.min[2]], max: [s.box.max[0], 0.001, s.box.max[2]] };

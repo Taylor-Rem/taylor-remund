@@ -35,6 +35,7 @@ import { storefront } from '../machines/storefront.ts';
 import { lamp } from '../machines/lamp.ts';
 import { patch } from '../crew/patch.ts';
 import { FETCH_TUNING } from '../crew/fetch.ts';
+import { lanePath } from '../path.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -113,7 +114,7 @@ export const AT = {
   /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. 2.02 from the lane's left stop (Fetch's rounds: 1.7 to 2.3); with the chute's landing and the deflector's set-down spot (LINE.belt.offBack) a cluster beside the lane's end, none under its wheel. */
   stack: [-6.0, 1.75] as const,
   /** Fetch's lane of yellow tape (x, z): in front of the console, behind the striker's post and the belt. Its stops (0.45 in) reach the stack, the belt's drop, the phone and the platen's tray. */
-  lane: { a: [-4.45, 2.05] as const, b: [4.3, 2.05] as const },
+  lane: { points: [[-4.45, 2.05], [4.3, 2.05]] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
   fetchStart: 0.48,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
@@ -141,9 +142,11 @@ const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
 const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
 const box = (id: string, b: Box, extra: Partial<StaticSpec> = {}): StaticSpec => ({ id, shape: { type: 'box', half: b.half }, pose: pose(b.c, (b.yaw ?? 0) * DEG), ...extra });
-const laneT = (x: number): number => (x - AT.lane.a[0]) / (AT.lane.b[0] - AT.lane.a[0]);
-const lanePoint = (t: number): [number, number] => [AT.lane.a[0] + (AT.lane.b[0] - AT.lane.a[0]) * t, AT.lane.a[1] + (AT.lane.b[1] - AT.lane.a[1]) * t];
-const [fx, fz] = lanePoint(AT.fetchStart);
+/** Fetch's lane as the path it rides (S5 round 2: runs of tape, corners rounded): fractions along it, and points on it. */
+const lanePathOf = () => lanePath(AT.lane.points, FETCH_TUNING.cornerRadius * CREW_SCALE);
+/** The fraction of the path at the point of it nearest x on its first run (for a mark given as an x). */
+const laneT = (x: number): number => lanePathOf().nearest(x, AT.lane.points[0][1]) / lanePathOf().length;
+const lanePoint = (t: number): [number, number] => lanePathOf().at(t * lanePathOf().length);
 
 /** Unpainted wood: a fresh crate's colour. */
 export const BARE = 'bare';
@@ -332,8 +335,9 @@ const S4_UNITS = [
  * (riding the belt or rolling through the dock, plus the one in its hands); only while the belt runs
  * forward. At the middle speed a crate takes about nine seconds from the drop to the door, so about two
  * ride at once: the striker plays a note every few seconds, and a stopped belt never floods.
- * The layout must keep the stack within Fetch's reach of its tape (`FETCH_TUNING.reach + handForward`,
- * × `CREW_SCALE`: 2.50 from the nearest point of the lane between its stops) and the drop likewise.
+ * The layout must keep the stack and the drop within Fetch's reach (`runner.reach`; without it P2's
+ * `(FETCH_TUNING.reach + handForward) × CREW_SCALE`, 2.50) of where it stands for each (`runner.stands`;
+ * without one, the nearest point of its path between its stops). `canRunLap(bench)` says which place fails.
  */
 const FETCH_ROUNDS: FetchRounds = {
   stack: AT.stack,
@@ -463,18 +467,22 @@ function s6PatchRunner(): { rest: number; jacks: Record<string, number>; quiet: 
 }
 
 /**
- * Fetch's lane as the bench its wheel and body cover (S6): the tape between its stops, widened by its
- * footprint. Nothing is set down there by a machine (the belt's deflector skips a place inside it).
+ * Fetch's lane as the bench its wheel and body cover (S6): each run of tape between its stops, widened by its
+ * footprint (one box per run, S5 round 2). Nothing is set down there by a machine (the belt's deflector skips a place inside it).
  */
-function s6LaneBand(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+function s6LaneBands(): { minX: number; maxX: number; minZ: number; maxZ: number }[] {
   const inset = FETCH_TUNING.inset * CREW_SCALE;
   const r = Math.hypot(FETCH_HALF[0], FETCH_HALF[2]);
-  const [ax, az] = AT.lane.a;
-  const [bx, bz] = AT.lane.b;
-  const len = Math.hypot(bx - ax, bz - az);
-  const s0: [number, number] = [ax + ((bx - ax) * inset) / len, az + ((bz - az) * inset) / len];
-  const s1: [number, number] = [bx - ((bx - ax) * inset) / len, bz - ((bz - az) * inset) / len];
-  return { minX: Math.min(s0[0], s1[0]) - r, maxX: Math.max(s0[0], s1[0]) + r, minZ: Math.min(s0[1], s1[1]) - r, maxZ: Math.max(s0[1], s1[1]) + r };
+  const pts = AT.lane.points;
+  return pts.slice(1).map((b, i) => {
+    const a = pts[i] as readonly [number, number];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const ia = i === 0 ? inset : 0;
+    const ib = i === pts.length - 2 ? inset : 0;
+    const s0: [number, number] = [a[0] + ((b[0] - a[0]) * ia) / len, a[1] + ((b[1] - a[1]) * ia) / len];
+    const s1: [number, number] = [b[0] - ((b[0] - a[0]) * ib) / len, b[1] - ((b[1] - a[1]) * ib) / len];
+    return { minX: Math.min(s0[0], s1[0]) - r, maxX: Math.max(s0[0], s1[0]) + r, minZ: Math.min(s0[1], s1[1]) - r, maxZ: Math.max(s0[1], s1[1]) + r };
+  });
 }
 
 /**
@@ -538,7 +546,7 @@ export const bench: SceneDesc = {
     { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
     { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx - 0.03, e.L + e.M + e.S / 2, sz + 0.02], 0.13) },
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
-    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
+    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(AT.fetchStart)[0], FETCH_HALF[1], lanePoint(AT.fetchStart)[1]]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
     ...S4_PARTS,
   ],
@@ -562,7 +570,7 @@ export const bench: SceneDesc = {
   },
   runner: {
     id: 'fetch',
-    lane: { a: AT.lane.a, b: AT.lane.b },
+    lane: { points: AT.lane.points },
     start: AT.fetchStart,
     carrying: 'crate-4',
     fumbleAt: laneT(AT.fumbleX),
@@ -576,7 +584,7 @@ export const bench: SceneDesc = {
   crewScale: CREW_SCALE,
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
-    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: [s6LaneBand()] }),
+    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 3 }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
