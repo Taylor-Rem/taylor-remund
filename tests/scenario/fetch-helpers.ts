@@ -54,6 +54,8 @@ export function roundsBench(): SceneDesc {
       striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
       dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: NEAR_STACK }),
       chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+      // (S3) the rest of the bench's units as they are (the Patchlamp station: the scene's platen mouth needs its machine)
+      ...(bench.units ?? []).slice(4),
     ],
   };
 }

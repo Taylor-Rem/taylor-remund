@@ -99,7 +99,9 @@ describe('fonts', () => {
 });
 
 describe('contentById', () => {
-  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp', 'name.belt.dial', 'name.belt.lever', 'name.striker', 'name.dock', 'name.chute', 'mark.shipped', 'mark.return'];
+  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp', 'name.belt.dial', 'name.belt.lever', 'name.striker', 'name.dock', 'name.chute', 'mark.shipped', 'mark.return',
+    // the Patchlamp station (S3)
+    'name.line', 'name.patch', 'name.platen', 'name.storefront', 'name.jack.platen', 'name.jack.belt', 'name.jack.reserved', 'slip.reserved', 'slip.platen-full'];
 
   it('resolves every id the simulation speaks in, to the right entry', () => {
     for (const id of ids) expect(contentById(id).text, id).toBeTruthy();
