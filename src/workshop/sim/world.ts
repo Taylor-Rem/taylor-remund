@@ -92,6 +92,10 @@ export const LOOSE_TUNING = {
   cancelDistance: 0.2,
   /** Spacing of returns up the chute when several fall at once, seconds. */
   chuteGap: 0.6,
+  /** After a put-back: for how long, and how near (units, radians), coming to rest again counts as staying put. */
+  anchorTime: 1.5,
+  anchorNear: 0.03,
+  anchorAngle: 0.06,
 } as const;
 
 /** The world as the input, view, audio, ui and shell layers use it. */
@@ -151,6 +155,12 @@ interface Loose {
   exit: Pose | null;
   /** Sent up the chute by a machine: the cause its rest is charged to (else the history's choice, rule 4). */
   returnCause: { readonly cause: Cause | null } | null;
+  /**
+   * Just put back by an undo or a reset (rule 9): the engine may nudge a body set down exactly where it
+   * rested (a fresh contact, no warm start). If it comes to rest again before `until`, within a hair of
+   * `pose`, it is set back there exactly, with nothing committed (a real knock moves it further).
+   */
+  anchor: { readonly pose: Pose; readonly until: number } | null;
   chuteAt: number;
   /** Where it is held, in its own frame. */
   grip: Vec3;
@@ -260,7 +270,7 @@ export function createWorld(opts: WorldOptions): World {
     const pose0 = spec.shipped ? HIDDEN : spec.pose;
     physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: pose0, mass, friction: m.friction, restitution: m.restitution, linearDamping: m.linearDamping, angularDamping: m.angularDamping, ccd: true });
     if (spec.shipped) physics.setEnabled(spec.id, false);
-    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: spec.shipped ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map() });
+    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: spec.shipped ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map() });
     registry.add({
       id: spec.id,
       station: spec.station,
@@ -381,6 +391,7 @@ export function createWorld(opts: WorldOptions): World {
     setMode(l, 'held');
     l.crewBy = null;
     l.chargeTo = null;
+    l.anchor = null;
     // the grip point in the part's own frame, kept inside the part
     const local = rotate(qconj(pose.q), sub(grip, pose.p));
     l.grip = [Math.max(-l.half[0], Math.min(l.half[0], local[0])), Math.max(-l.half[1], Math.min(l.half[1], local[1])), Math.max(-l.half[2], Math.min(l.half[2], local[2]))];
@@ -538,6 +549,7 @@ export function createWorld(opts: WorldOptions): World {
       const st = physics.state(l.id);
       const lin = length(st.linvel);
       const ang = length(st.angvel);
+      const anchored = l.anchor !== null && clock.step <= l.anchor.until;
       if (lin > T.wakeLinear || ang > T.wakeAngular) {
         if (!l.unsettled) history.disturbed(l.id); // § E5 rule 4: set moving by something else; an open window takes it
         l.unsettled = true;
@@ -551,6 +563,17 @@ export function createWorld(opts: WorldOptions): World {
       // at rest
       l.unsettled = false;
       l.calm = 0;
+      const a = l.anchor;
+      l.anchor = null;
+      if (a && anchored && dist(a.pose.p, st.pose.p) < T.anchorNear && qangle(a.pose.q, st.pose.q) < T.anchorAngle) {
+        // a put-back part settling: back exactly where its location says, nothing to commit
+        physics.setPose(l.id, a.pose);
+        physics.setVelocity(l.id, [0, 0, 0], [0, 0, 0]);
+        physics.sleep(l.id);
+        l.pose = a.pose;
+        history.take(l.id); // not a move: out of any window it joined while it wobbled
+        continue;
+      }
       if (offBench(st.pose.p)) {
         // resting somewhere that is not the bench (on top of the back wall): the edge takes it
         physics.setEnabled(l.id, false);
@@ -599,7 +622,7 @@ export function createWorld(opts: WorldOptions): World {
     for (const l of loose.values()) if (l.mode !== 'chute' && l.mode !== 'gone') m.set(l.id, physics.pose(l.id));
     return m;
   }
-  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, holder: l.holder, exit: l.exit, returnCause: l.returnCause, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
+  const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, holder: l.holder, exit: l.exit, returnCause: l.returnCause, anchor: l.anchor, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
 
   // ── the history (§ E5) ──
   history.bind({
@@ -670,6 +693,7 @@ export function createWorld(opts: WorldOptions): World {
     l.pose = pose;
     l.prev = pose; // a jump, never interpolated; the view draws the hop from `Restore.pose`
     l.contacts = new Map();
+    l.anchor = loc.at === 'rest' ? { pose, until: clock.step + steps(T.anchorTime) } : null;
   }
 
   /** Where a part's body is for an undo's hop: where it went out, if it is out of the world. */

@@ -59,13 +59,26 @@ export function putOn(world: World, t: Tape, id: Id, to: Vec3, steps = 30): void
   const h = world.halfExtents(id)![1];
   world.dispatch({ type: 'grab', id, grip: m.pose.p });
   const target: Vec3 = [to[0], to[1] + h + 0.12, to[2]];
-  for (const p of line([m.pose.p[0], m.pose.p[1] + 0.6, m.pose.p[2]], target, steps)) {
+  // up clear of everything, across, and down
+  const high = Math.max(m.pose.p[1], target[1]) + 1.8;
+  const a: Vec3 = [m.pose.p[0], high, m.pose.p[2]];
+  const b: Vec3 = [target[0], high, target[2]];
+  for (const p of [...line(m.pose.p, a, 12), ...line(a, b, steps), ...line(b, target, 12)]) {
     world.dispatch({ type: 'carry', target: p });
     t.run(1);
   }
   t.run(20); // let it settle in the hand
   world.dispatch({ type: 'release', velocity: [0, 0, 0] });
   t.run(1);
+}
+
+/** Run until `id` has a durable location of kind `at` (or `max` steps). */
+export function waitFor(world: World, t: Tape, id: Id, at: 'rest' | 'in' | 'shipped', max = 300): boolean {
+  for (let i = 0; i < max; i++) {
+    if (world.part(id)!.location.at === at && world.mode(id) !== 'held') return true;
+    t.run(1);
+  }
+  return false;
 }
 
 /** A point on the belt's surface `u` of the way from its motor end (0) to its far end (1). */
