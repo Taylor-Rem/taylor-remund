@@ -444,6 +444,12 @@ export interface StrikerView extends MachineViewBase {
   readonly since: number;
   /** The part last struck, or null. */
   readonly last: Id | null;
+  /**
+   * S7: seconds until the next strike on the belt as it now runs (the nearest riding part coming toward
+   * the arm, at the pace it moved this step), or null when nothing is coming (stopped, empty, a part
+   * waiting, a rung playing). At top speed a strike can fall due within a few frames: raise the arm by it.
+   */
+  readonly next: number | null;
 }
 
 /** The dock (§ B1: ships it, out, with a bell; § D 7). */

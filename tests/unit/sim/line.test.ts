@@ -265,6 +265,35 @@ describe('the striker', () => {
     expect(world.durable()).toEqual(before);
   });
 
+  test('S7: it tells the view when the next strike is due, at every speed; null when nothing is coming', () => {
+    for (const detent of [1, 5]) {
+      const { world, physics } = benchStub();
+      run(world, 2);
+      expect(strikerOf(world).next).toBeNull();
+      world.dispatch({ type: 'turn', id: 'belt-dial', value: (detent - 1) / 4 });
+      run(world, 40);
+      setOnBelt(world, physics, 'crate-1', LINE.strikerX - 3);
+      run(world, 10); // riding at the belt's pace
+      const said = strikerOf(world).next;
+      expect(said, `detent ${detent}`).not.toBeNull();
+      const from = world.step;
+      let at = -1;
+      for (let i = 0; i < 10 * HZ && at < 0; i++) for (const e of run(world, 1)) if (e.type === 'struck') at = world.step;
+      // within a step of what it said
+      expect(Math.abs((at - from) / HZ - said!), `detent ${detent}`).toBeLessThanOrEqual(1.5 / HZ);
+      // counting down as it comes, and null once nothing else is coming
+      expect(strikerOf(world).next).toBeNull();
+    }
+    // stopped: nothing is coming
+    const { world, physics } = benchStub();
+    run(world, 2);
+    setOnBelt(world, physics, 'crate-1', LINE.strikerX - 1.9);
+    run(world, 20);
+    lever(world, 0.5);
+    run(world, 60);
+    expect(strikerOf(world).next).toBeNull();
+  });
+
   test('notes: three sizes, three notes, large is low; metal an octave above wood', () => {
     expect(NOTE.L).toBeLessThan(NOTE.M);
     expect(NOTE.M).toBeLessThan(NOTE.S);
