@@ -48,6 +48,8 @@ export const PHONE_COLOURS = {
   'patch-text': t('ink'),
   /** The slip's lower edge (paper thickness). */
   'patch-edge': mix(mix(t('steel'), t('paper'), 0.62), t('wood'), 0.4),
+  /** The second impression of off-register ink. */
+  'patch-ghost': mix(t('ink'), mix(t('steel'), t('paper'), 0.62), 0.6),
   /** A refused slip's edge. */
   refused: t('cable-red'),
   /** A ready-made text's key (paper on rubber). */

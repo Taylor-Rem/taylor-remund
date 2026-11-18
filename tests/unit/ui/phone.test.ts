@@ -73,9 +73,12 @@ describe('phone colours', () => {
   it('come from the palette only: no colour literal in the panel files', () => {
     for (const f of ['phone.css', 'panel.ts', 'model.ts', 'colours.ts', 'fake.ts']) {
       const src = readFileSync(join(ROOT, 'src/workshop/ui/phone', f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-      expect(src, f).not.toMatch(/#[0-9a-f]{3,8}\b(?![\w-])|\b(?:rgba?|hsla?|oklch|oklab|hwb|lab|lch)\(|gradient\(/i);
+      expect(src, f).not.toMatch(/#[0-9a-f]{3,8}\b(?![\w-])|\b(?:rgba?|hsla?|oklch|oklab|hwb|lab|lch)\(/i);
     }
     const css = readFileSync(join(ROOT, 'src/workshop/ui/phone/phone.css'), 'utf8');
+    // no gradient is ever painted: one may only cut an alpha mask
+    const declarations = css.replace(/\/\*[\s\S]*?\*\//g, '').split(/[;{}]/);
+    for (const d of declarations.filter((d) => /gradient\(/.test(d))) expect(d.trim()).toMatch(/^(-webkit-)?mask\s*:/);
     const used = new Set([...css.matchAll(/var\(--ph-([\w-]+)\)/g)].map((m) => m[1]!));
     for (const role of used) expect(Object.keys(PHONE_COLOURS), role).toContain(role);
     expect(Object.keys(cssVariables())).toHaveLength(Object.keys(PHONE_COLOURS).length);

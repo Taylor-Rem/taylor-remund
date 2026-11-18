@@ -277,13 +277,22 @@
 .ph-working {
   align-self: flex-start;
   max-width: 88%;
-  padding: 9px 13px 10px;
-  border-radius: 3px;
+  padding: 12px 13px 9px;
+  border-radius: 0 0 3px 3px;
+  border-bottom: 2px solid var(--ph-patch-edge);
   background: var(--ph-patch);
   color: var(--ph-patch-text);
   font: 500 15px/1.42 var(--print);
+  /* printed: the ink a hair off register */
+  text-shadow: 0.6px 0.4px 0 var(--ph-patch-ghost);
   transform: rotate(var(--tilt, 0deg));
-  box-shadow: 0 2px 0 var(--ph-patch-edge);
+  /* torn off the printer: a toothed top edge (an alpha mask, nothing drawn) */
+  -webkit-mask:
+    conic-gradient(from -40deg at 50% 100%, black 80deg, transparent 0) 0 0 / 9px 5px repeat-x,
+    linear-gradient(black, black) 0 5px / 100% 100% no-repeat;
+  mask:
+    conic-gradient(from -40deg at 50% 100%, black 80deg, transparent 0) 0 0 / 9px 5px repeat-x,
+    linear-gradient(black, black) 0 5px / 100% 100% no-repeat;
 }
 .ph-refused {
   border-left: 5px solid var(--ph-refused);
