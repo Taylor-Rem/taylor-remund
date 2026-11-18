@@ -24,11 +24,15 @@ import { sheet } from '../../cheap.ts';
 import { rng } from '../../rng.ts';
 import { laneTape } from '../bench/index.ts';
 import { room } from './words.ts';
+import { ATTR } from '../../types.ts';
 
 export type BayName = keyof typeof room.bays;
 
 /** Height of a capital on the bay's label (world units; flat on the bench, so bigger than an upright tape's 0.26). */
 export const BAY_CAP = 0.33;
+
+/** How much older the bays' tape is than the lane's: its colour taken down, a scuff along all of it. */
+const AGE = { tone: 0.82, scuff: 0.35 };
 
 export interface BayLabelRef {
   key: string;
@@ -77,6 +81,14 @@ export function reservedBay(o: ReservedBayOptions = {}): Piece {
   const hx = w / 2, hz = d / 2;
   const j = (): number => R.spread(0.025);
   const tape = laneTape({ seed: seed + 1, detail, width: 0.11, points: [[-hx + j(), -hz + j()], [hx + j(), -hz + j()], [hx + j(), hz + j()], [-hx + j(), hz + j()], [-hx, -hz]] });
+  // older than Fetch's lane: dirtier yellow, scuffed duller all along where things were dragged over it
+  for (const q of tape.root.parts) {
+    const col = q.geometry.getAttribute(ATTR.color), s = q.geometry.getAttribute(ATTR.surf);
+    for (let i = 0; i < col.count; i++) {
+      col.setXYZ(i, col.getX(i) * AGE.tone, col.getY(i) * AGE.tone, col.getZ(i) * AGE.tone * 0.9);
+      s.setX(i, Math.max(s.getX(i), AGE.scuff * (0.6 + 0.4 * Math.sin(i * 1.7) ** 2)));
+    }
+  }
   b.add(...tape.root.parts);
   // the label: one or two strips, flat, near the front of the bay, a little crooked
   const strips = o.labels ?? estimateBayLabels(which).map((q) => ({ key: '', ...q }));
