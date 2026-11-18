@@ -29,6 +29,7 @@ import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knocked
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
 import { partShows, partsHooks, paintToken, type PartWork } from './parts.ts';
+import type { Token } from '../palette.ts';
 import {
   AngleSpring, Cadence, Derivative, Spring, SpringVec, clamp, damp, fbm1, lerp, outBack, reducedMotionParams, smoothstep, track, wrapAngle,
 } from '../anim/index.ts';
@@ -1048,7 +1049,9 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     // its paint as drawn (built cream: bare); the platen works on it through the parts hooks
     const hooks = partsHooks(ctx.scene);
     const work: PartWork = { paint: null, label: null };
-    const drawnPaint = { settled: true, from: 'bare', to: 'bare', t: 1 };
+    let builtIn: string | undefined;
+    const enamel = (c: string): Token | null => (c === builtIn ? null : paintToken(c));
+    const drawnPaint = { settled: true, from: '', to: '', t: 1 };
     const paintAxis = new Vector3();
     const qInv = new Quaternion();
 
@@ -1132,6 +1135,11 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         // its paint (brief W5): the platen's wipe while it works on Fetch, the field at rest; written only on a change
         const self = w.part(id);
         if (self) {
+          // the colour the scene starts it in is its own cream enamel (the scene names it otherwise: see the W5 report)
+          if (builtIn === undefined) {
+            builtIn = w.scene.parts.find((p) => p.id === id)?.colour ?? self.colour;
+            drawnPaint.from = drawnPaint.to = builtIn;
+          }
           partShows(hooks, self, frame, work);
           const p = work.paint!;
           const settled = p.t >= 1 || p.t <= 0 || p.from === p.to;
@@ -1139,8 +1147,8 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           const changed = settled ? !drawnPaint.settled || drawnPaint.from !== shown : drawnPaint.settled || drawnPaint.from !== p.from || drawnPaint.to !== p.to || Math.abs(drawnPaint.t - p.t) > 1e-4;
           if (changed) {
             paintAxis.set(p.axis[0], p.axis[1], p.axis[2]).applyQuaternion(qInv.copy(qa).invert());
-            if (settled) paintPorter(obj, { from: paintToken(shown), to: paintToken(shown), t: 1 });
-            else paintPorter(obj, { from: paintToken(p.from), to: paintToken(p.to), t: p.t, axis: [paintAxis.x, paintAxis.y, paintAxis.z], seed });
+            if (settled) paintPorter(obj, { from: enamel(shown), to: enamel(shown), t: 1 });
+            else paintPorter(obj, { from: enamel(p.from), to: enamel(p.to), t: p.t, axis: [paintAxis.x, paintAxis.y, paintAxis.z], seed });
             drawnPaint.settled = settled;
             drawnPaint.from = settled ? shown : p.from;
             drawnPaint.to = p.to;
