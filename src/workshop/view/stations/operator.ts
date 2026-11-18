@@ -35,9 +35,10 @@ import {
   CLIMB_LENGTH, JOB_LENGTH, LOOK_LENGTH, NOTICE_LENGTH, REACTION_LENGTH, REST_X, SEATED, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, notice, resolvePose,
   returnToStool, rollLength, rollTo, theLook, toPose, walkDuration, withBlinks, withBreath, type JobTargets, type V3,
+  WORK_SWIVEL, mixPose, pawPoint, reach, type FullPose,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
-import { clamp01, damp } from '../anim/index.ts';
+import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
 import { jackName, patchlampBus } from './patchlamp-bus.ts';
 
 /** Tune here: seconds, rates in 1/s. */
@@ -70,7 +71,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk';
 
 const JOB_SPAN: Partial<Record<PatchState, [number, number]>> = { drawer: [0, 2.5], work: [2.5, 5.3], check: [5.3, 7.8], reply: [7.8, 9.2] };
 
@@ -158,6 +159,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let walkSim = 1;
     let reactFrom: V3 = [0, 0, 1];
     let lookStart = 0;
+    /** The cord's move (state `plug`): the poses of the paw at the plug, yanking it, and at the new jack. */
+    let plugKeys: { base: FullPose; at: FullPose; yank: FullPose; to: FullPose } | null = null;
+    const pawW = new Vector3();
     let drawer = 0;
     let drawerShown = -1;
     const drawers: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
@@ -229,6 +233,21 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               rollTo_ = (v.stool.roll?.to ?? v.stool.x) - BOARD_X;
               enter('roll', t, true);
               break;
+            case 'plug': {
+              const from = jackName(v.plug?.from ?? null), to = jackName(v.plug?.to ?? null);
+              plugKeys = null;
+              if (from && to) {
+                const L = BOARD_WHOLE;
+                const grip = (j: JackName): V3 => boardToRoot([L.jackX[j], L.jackY, L.panelZ + L.plateT + 0.3], stoolB);
+                const base = atWork(targetsFor(to));
+                const a = grip(from), b = grip(to);
+                const mid: V3 = [(a[0] + b[0]) / 2 + 0.05, Math.max(a[1], b[1]) - 0.02, (a[2] + b[2]) / 2 + 0.2];
+                const r = (p: V3): FullPose => resolvePose(reach(p, 'right', base, { swivel: WORK_SWIVEL }).pose);
+                plugKeys = { base: resolvePose(entry), at: r(a), yank: r(mid), to: r(b) };
+              }
+              enter('plug', t, true);
+              break;
+            }
             case 'drawer':
             case 'work':
             case 'check':
@@ -295,6 +314,21 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             const r = rollTo(U * len, { fromX: rollFrom, toX: rollTo_, from: entry, to: restPose(rollTo_) });
             stoolB = r.stoolX;
             pose = r.pose;
+            break;
+          }
+          case 'plug': {
+            // reach for the plug, a yank that brings it out on its cord, across, and into the new jack
+            const K = plugKeys;
+            if (!K) {
+              pose = entry;
+              break;
+            }
+            let f: FullPose;
+            if (U < 0.3) f = mixPose(K.base, K.at, inOutCubic(U / 0.3));
+            else if (U < 0.5) f = mixPose(K.at, K.yank, outCubic((U - 0.3) / 0.2));
+            else if (U < 0.85) f = mixPose(K.yank, K.to, inOutQuad((U - 0.5) / 0.35));
+            else f = mixPose(K.to, K.base, inOutCubic((U - 0.85) / 0.15) * 0.25);
+            pose = toPose(f);
             break;
           }
           case 'job': {
@@ -407,6 +441,11 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
         apply(pose);
+        if (mode === 'plug' && st === 'plug') {
+          const p = pawPoint(pose, 'right');
+          pawW.set(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld);
+          bus.paw = { x: pawW.x, y: pawW.y, z: pawW.z, u: U };
+        } else bus.paw = null;
 
         // ── the drawer of the jack in hand follows the paw; any other closes ──
         for (const j of JACKS) {

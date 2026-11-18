@@ -31,7 +31,7 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix, splitStatic, type StaticPool } from './set.ts';
 import { CORD_FEEL, Rope } from './cord.ts';
 import { JACKS, BOARD_WHOLE, cordPlug, cordGeometry, updateCord, poseSwitchboard, type JackName, type SwitchboardPose } from '../kit/pieces/switchboard/index.ts';
-import { damp } from '../anim/index.ts';
+import { damp, inOutCubic, outCubic } from '../anim/index.ts';
 import { patchlampBus, jackName } from './patchlamp-bus.ts';
 
 /** Tune here: units, seconds, rates in 1/s. */
@@ -63,6 +63,9 @@ export const BOARD_FEEL = {
   /** A call waiting: the lens blinks at this period, lit this share of it. */
   ringPeriod: 0.7,
   ringDuty: 0.55,
+  /** Hover: the seated plug eases out a hair; a jack's collar stirs. */
+  hoverOut: 0.035,
+  hoverCollar: 0.28,
   /** A misfire's jump (units at level 1). */
   misfireJump: 0.07,
 };
@@ -179,6 +182,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
     let hang = 0; // 0 .. 1 hanging (on the way home after a drop away from any jack)
     let heldYaw = 0;
     let seat = 0, seatV = 0;
+    let hover = 0;
     let swingX = 0, swingZ = 0;
     let first = true;
     let lastHeld: Vector3 | null = null;
@@ -237,15 +241,39 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
           goal.copy(refuseFrom);
           goal.z -= F.refuseIn * Math.sin(Math.min(1, u * 2.2) * Math.PI) * (1 - u);
         }
+        // Patch moving the cord itself (attract mode): out of its jack on a yank, in the paw, into the new jack
+        const pp = patch?.state === 'plug' && patch.plug ? patch.plug : null;
+        const paw = pp ? bus.paw : null;
+        let inPaw = false;
+        if (pp && paw) {
+          const a = jackAt.get(pp.from), b = jackAt.get(pp.to);
+          if (a && b) {
+            const u = paw.u;
+            if (u < 0.3) {
+              goal.copy(a);
+              goal.z += 0.03 * Math.max(0, (u - 0.18) / 0.12);
+            } else if (u < 0.5) {
+              const kk = outCubic((u - 0.3) / 0.2);
+              goal.set(a.x + (paw.x - a.x) * kk, a.y + (paw.y - a.y) * kk + 0.12 * Math.sin(Math.PI * kk), a.z + 0.03 + (paw.z - a.z - 0.03) * kk);
+            } else if (u < 0.85) goal.set(paw.x, paw.y, paw.z);
+            else {
+              const kk = inOutCubic((u - 0.85) / 0.15);
+              goal.set(paw.x + (b.x - paw.x) * kk, paw.y + (b.y - paw.y) * kk, paw.z + (b.z + F.seatFrom - paw.z) * kk);
+            }
+            inPaw = u >= 0.3;
+          }
+        }
+        const hovGoal = !v.lifted && !pp && frame.hovered === 'cord' && !w.bracketed ? F.hoverOut : 0;
+        hover = reduced ? hovGoal : damp(hover, hovGoal, 22, dt);
         if (first) {
           pos.copy(goal);
           first = false;
         }
-        const k = reduced && !v.lifted ? 1 : 1 - Math.exp(-(v.lifted || refusing ? F.follow : F.home) * dt);
+        const k = (reduced && !v.lifted) || inPaw ? 1 : 1 - Math.exp(-(v.lifted || refusing || pp ? F.follow : F.home) * dt);
         prevVel.copy(vel);
         vel.subVectors(goal, pos).multiplyScalar(k / Math.max(dt, 1e-4));
         pos.lerp(goal, k);
-        if (!v.lifted && !refusing && pos.distanceTo(home) < 0.004) pos.copy(home);
+        if (!v.lifted && !refusing && !pp && pos.distanceTo(home) < 0.004) pos.copy(home);
 
         // the attitude: seated; held (nose to the board, a little down, turned toward the nearest jack); hanging on the way home
         let nearest: JackName | null = null;
@@ -259,8 +287,8 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
             nearest = n;
           }
         }
-        const heldGoal = v.lifted || refusing ? 1 : 0;
-        held = reduced ? heldGoal : damp(held, heldGoal, v.lifted ? 16 : 10, dt);
+        const heldGoal = v.lifted || refusing || (inPaw && paw!.u < 0.9) ? 1 : 0;
+        held = reduced ? heldGoal : damp(held, heldGoal, v.lifted || inPaw ? 16 : 10, dt);
         const hangGoal = !v.lifted && t - homeAt < 0.7 ? 1 : 0;
         hang = reduced ? 0 : damp(hang, hangGoal, hangGoal ? 10 : 7, dt);
         if (v.lifted && nearest) {
@@ -296,7 +324,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
           const s = v.misfire.since;
           if (s < 0.5) jump = F.misfireJump * v.misfire.level * Math.max(0, Math.sin(Math.min(1, s / 0.35) * Math.PI)) * (1 - s / 0.5);
         }
-        if (!v.lifted) plug.position.z += (1 - held) * (seat + jump);
+        if (!v.lifted) plug.position.z += (1 - held) * (seat + jump + hover);
 
         // ── the jacks: lenses and collars ──
         const offering = new Set((line?.offering ?? []).map((id) => jackName(id)));
@@ -306,7 +334,8 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
         for (const j of JACKS) {
           // collars: lifted while offered; the nearest stands tallest; all breathe, out of step
           const off = offering.has(j);
-          const target = off ? (j === nearest && nd < F.nearWithin ? F.offerNear : F.offer) : 0;
+          const hov = frame.hovered === `jack-${j}` && !w.bracketed && !v.lifted;
+          const target = off ? (j === nearest && nd < F.nearWithin ? F.offerNear : F.offer) : hov ? F.hoverCollar : 0;
           if (reduced) {
             offer[j] = target;
             offerV[j] = 0;
@@ -353,6 +382,8 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
           let far = 0;
           for (const p of jackAt.values()) far = Math.max(far, p.distanceTo(rootAt));
           rope = new Rope(rootAt, end, C.points, far + C.slack);
+          // settled before it is first seen: two seconds of hanging
+          for (let i = 0; i < 40; i++) rope.step(0.05, rootAt, tRoot, end, tEnd, floor);
         }
         rope.step(reduced ? Math.min(dt, 1 / 60) : dt, rootAt, tRoot, end, tEnd, floor);
         if (tubeGeom) {

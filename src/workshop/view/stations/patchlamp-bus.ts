@@ -17,6 +17,11 @@ export interface PatchlampBus {
   stations: Partial<Record<JackName, Object3D>>;
   /** The phone (its moving node), for the panel's `anchor`. */
   phone: Object3D | null;
+  /**
+   * Patch moving the cord itself (state `plug`, attract mode): its right paw's palm (world), and how far
+   * through the stage it is. The board's view draws the plug from it (a frame late: the crew updates after the board).
+   */
+  paw: { x: number; y: number; z: number; u: number } | null;
 }
 
 const buses = new WeakMap<object, PatchlampBus>();
@@ -24,7 +29,7 @@ const buses = new WeakMap<object, PatchlampBus>();
 export function patchlampBus(key: object): PatchlampBus {
   let b = buses.get(key);
   if (!b) {
-    b = { board: null, drawers: { storefront: 0, platen: 0, belt: 0, lamp: 0 }, stations: {}, phone: null };
+    b = { board: null, drawers: { storefront: 0, platen: 0, belt: 0, lamp: 0 }, stations: {}, phone: null, paw: null };
     buses.set(key, b);
   }
   return b;
