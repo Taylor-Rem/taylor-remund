@@ -68,6 +68,8 @@ export const AT = {
   /** Where the stool stands on the runner to work each live jack (x, z), and at rest (`stool` below). */
   stoolAt: { storefront: [-1.15, -3.46] as const, platen: [-0.13, -3.46] as const, belt: [0.87, -3.46] as const, lamp: [1.77, -3.46] as const },
   keyshelf: [1.4, 0.89, -4.1] as Vec3,
+  /** The lamp's clamp on the wall rail (x, z): the view's LAYOUT `lamp` (the bench test holds them together). */
+  lamp: [-3.1, -5] as const,
   /** Patch's stool, lowered (seat 0.62 over the runner's top 0.052), at rest at the runner's right end. */
   stool: { c: [3.02, 0.369, -3.46], half: [0.316, 0.317, 0.32] } as Box,
 
@@ -350,7 +352,7 @@ export const PATCHLAMP = (() => {
    * reachable region in its own (x, z) (view/kit/pieces/lamp/aim.ts `REACH`; tests/unit/sim/lamp-reach.test.ts
    * holds the two together), `homeAim` its opening aim in the same space.
    */
-  const clamp: Vec3 = [-3.1, 0, -5];
+  const clamp: Vec3 = [AT.lamp[0], 0, AT.lamp[1]];
   const REACH: readonly (readonly [number, number])[] = [[-5.8, 0.6], [-5.8, 10], [11.0, 10], [11.9, 8.6], [11.9, 6.2], [8.6, 0.6]];
   const homeAim = [5.1, 4.9] as const;
   const lamp = {
