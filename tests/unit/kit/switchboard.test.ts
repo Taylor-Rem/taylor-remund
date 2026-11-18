@@ -240,11 +240,11 @@ describe('the plug and the cord', () => {
 
 describe('Patch on the stool, at the board', () => {
   it("Patch's reach paw from the seat socket gets at least as high as the live jacks", async () => {
-    const { patchToy, posePatch, SIT_YAW } = await import('../../../src/workshop/view/kit/pieces/patch-toy/index.ts');
+    const { patchFelt, posePatch, SIDE_ON } = await import('../../../src/workshop/view/kit/pieces/patch-felt/index.ts');
     const s = stool();
-    const o: Object3D = K.realize(patchToy({}), stub);
+    const o: Object3D = K.realize(patchFelt({}), stub);
     o.position.copy(pos(s.sockets!['seat']!));
-    o.rotation.y = (SIT_YAW * Math.PI) / 180;
+    o.rotation.y = SIDE_ON;
     posePatch(o, { arms: 'reach' });
     o.updateMatrixWorld(true);
     const paw = o.getObjectByName('pawL')!.getWorldPosition(new Vector3());
