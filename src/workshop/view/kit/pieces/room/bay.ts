@@ -29,7 +29,7 @@ import { ATTR } from '../../types.ts';
 export type BayName = keyof typeof room.bays;
 
 /** Height of a capital on the bay's label (world units; flat on the bench, so bigger than an upright tape's 0.26). */
-export const BAY_CAP = 0.33;
+export const BAY_CAP = 0.34;
 
 /** How much older the bays' tape is than the lane's: colour taken down and browner, scuffs and grime in patches, one corner lifted. */
 const AGE = { tone: 0.78, scuff: 0.7, grime: 0.7, lift: 0.045, liftReach: 0.28, mottle: 0.38 };
