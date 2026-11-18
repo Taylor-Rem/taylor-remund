@@ -83,6 +83,11 @@ export interface DockSpec {
    * rollers never run slower than it, so a run off a fast belt does not close up on the ramp.
    */
   readonly feed?: (ctx: SimContext) => number;
+  /**
+   * S6: the stack holds at most this many crates: a crate that ships while it is full is not replaced (the
+   * spare stays behind the door), so a fourth crate dropped on a tower of three never topples it.
+   */
+  readonly stackMax?: number;
 }
 
 export interface DockUnit extends MachineUnit {
@@ -214,6 +219,15 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
 
   /** A fresh crate onto the stack, as the system. */
   function restock(size: Part['size']): void {
+    if (spec.stackMax !== undefined) {
+      const [sx, sz] = spec.stack;
+      const standing = ctx.parts().filter((id) => {
+        const m = ctx.mode(id);
+        const p = ctx.pose(id)?.p;
+        return ctx.part(id)?.kind === 'crate' && (m === 'free' || m === 'held') && !!p && Math.hypot(p[0] - sx, p[2] - sz) <= 0.55;
+      }).length;
+      if (standing >= spec.stackMax) return;
+    }
     const crates = ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at === 'shipped' && ctx.mode(id) === 'gone');
     const free = crates.filter((id) => !isTxn(ctx.writer(id, 'location')));
     const spare = free.find((id) => ctx.part(id)?.size === size && !shippedOrder.includes(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));

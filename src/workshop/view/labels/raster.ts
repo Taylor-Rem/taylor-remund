@@ -208,7 +208,8 @@ export function valueNoise(seed: number | string): Noise2 {
     perm[j] = t;
   }
   for (let i = 0; i < N; i++) perm[N + i] = perm[i]!;
-  const v = (ix: number, iy: number): number => vals[perm[(perm[ix & 255]! + iy) & 511]!]!;
+  // the four corners looked up inline (hot: millions of calls per start-up); the same
+  // arithmetic, in the same order, as lerp(lerp(v00, v10, sx), lerp(v01, v11, sx), sy)
   return (x, y) => {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
@@ -216,7 +217,15 @@ export function valueNoise(seed: number | string): Noise2 {
     const fy = y - iy;
     const sx = fx * fx * (3 - 2 * fx);
     const sy = fy * fy * (3 - 2 * fy);
-    return lerp(lerp(v(ix, iy), v(ix + 1, iy), sx), lerp(v(ix, iy + 1), v(ix + 1, iy + 1), sx), sy);
+    const p0 = perm[ix & 255]!;
+    const p1 = perm[(ix + 1) & 255]!;
+    const v00 = vals[perm[(p0 + iy) & 511]!]!;
+    const v10 = vals[perm[(p1 + iy) & 511]!]!;
+    const v01 = vals[perm[(p0 + iy + 1) & 511]!]!;
+    const v11 = vals[perm[(p1 + iy + 1) & 511]!]!;
+    const a = v00 + (v10 - v00) * sx;
+    const b = v01 + (v11 - v01) * sx;
+    return a + (b - a) * sy;
   };
 }
 
@@ -225,12 +234,13 @@ export function fbm(seed: number | string, octaves = 4): Noise2 {
   const layers = Array.from({ length: octaves }, (_, i) => valueNoise(`${seed}/${i}`));
   let norm = 0;
   for (let i = 0; i < octaves; i++) norm += 0.5 ** i;
+  const n = layers.length;
   return (x, y) => {
     let s = 0;
     let f = 1;
     let a = 1;
-    for (const n of layers) {
-      s += n(x * f, y * f) * a;
+    for (let i = 0; i < n; i++) {
+      s += layers[i]!(x * f, y * f) * a;
       f *= 2.03;
       a *= 0.5;
     }

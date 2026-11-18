@@ -8,8 +8,8 @@ import { toolwall, tool, toolShape, hangOf, catalogue, estimateTape, toolName, B
 import { world } from '../../../src/workshop/view/labels/content.ts';
 import { checkGeometry } from './helpers.ts';
 
-const WALL_BUDGET = 14000;
-const TOOL_BUDGET = 1600; // "a tool about 1,200": the spanner and the pliers run to ~1,550, the rest under
+const WALL_BUDGET = 8400; // census cap 10,000 with eight tools: two more of about 900 each (tool, pegs, shadow, tape) must still fit
+const TOOL_BUDGET = 1200; // a tool about 800; the pliers run to ~1,100
 
 const stub: Materials = { of: (): Material => new MeshBasicMaterial(), textured: (): Material => new MeshBasicMaterial(), update() {}, dispose() {} };
 

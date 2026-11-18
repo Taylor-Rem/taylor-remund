@@ -43,6 +43,8 @@ function fakeLabels(): Labels & { made: string[] } {
     normalMap: () => null,
     roughnessMap: (k) => rough.get(k) ?? null,
     transparent: (k) => k.startsWith('tape') || k.startsWith('stencil') || k.startsWith('slip'),
+    region: (name, size) => ({ key: key('region')(name), px: { w: 1, h: 1 }, size, draw: () => {}, put: () => {} }),
+    ready: () => Promise.resolve(),
   };
 }
 
