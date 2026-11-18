@@ -188,6 +188,9 @@ export async function census(url: string, o: { w: number; h: number; shots: stri
         const w = window as unknown as Win & { __cpu: { acc: Record<string, number>; frames: number } };
         const ws = w.__vignette.ws as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
         const cpu = { acc: {} as Record<string, number>, frames: 0 };
+        // RADV reports a timer disjoint on most polls while other GPU work runs: keep the samples
+        // (the window's median absorbs the odd bad one) rather than lose them all
+        ws.stage.gpuTimer.strict = false;
         w.__cpu = cpu;
         const wrap = (obj: Record<string, any>, key: string, label: string): void => { // eslint-disable-line @typescript-eslint/no-explicit-any
           const f = obj[key] as (...a: unknown[]) => unknown;

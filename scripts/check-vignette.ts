@@ -11,7 +11,9 @@
 //    coordinate, times the label's cap height as a fraction of its height
 //    (labels.capHeight / labels.size). Medians per label.
 // 2. Draw calls and triangles of the scene draw, shadow pass included,
-//    against § E7 (180, 250,000), at 1440×900 and at 390×844.
+//    against § E7 (180, 250,000), at 1440×900 and at 390×844, with the split
+//    between the main pass and the shadow pass (stage/census.ts: the counting
+//    method every piece builder uses; `npm run perf -- --census` has it by piece).
 // 3. Flicker: two consecutive frames of the still scene (no step, dt 0)
 //    must be pixel-identical (z-fighting, shadow acne that crawls, any
 //    temporal noise), at the default view and in the close views.
@@ -107,6 +109,22 @@ async function run(target: string): Promise<Result> {
         const { calls, triangles } = m.scene;
         (calls <= BUDGET.calls ? pass : fail)(`${name}: draw calls ${calls} (budget ${BUDGET.calls}, shadow pass included)`);
         (triangles <= BUDGET.triangles ? pass : fail)(`${name}: triangles ${triangles} (budget ${BUDGET.triangles})`);
+        const split = (await s.page.evaluate(() => {
+          const w = (window as unknown as { __workshop?: { census?(): { totals: Record<string, { calls: number; triangles: number }> } } }).__workshop;
+          return w?.census ? w.census().totals : null;
+        })) as Record<string, { calls: number; triangles: number }> | null;
+        if (split) {
+          data[`${name}-split`] = split;
+          lines.push(`     ${name}: main pass ${split['main']!.calls} calls ${split['main']!.triangles} tris · shadow pass ${split['shadow']!.calls} calls ${split['shadow']!.triangles} tris · post ${split['post']!.calls} full-screen draws`);
+        }
+        const split = (await s.page.evaluate(() => {
+          const w = (window as unknown as { __workshop?: { census?(): { totals: Record<string, { calls: number; triangles: number }> } } }).__workshop;
+          return w?.census ? w.census().totals : null;
+        })) as Record<string, { calls: number; triangles: number }> | null;
+        if (split) {
+          data[`${name}-split`] = split;
+          lines.push(`     ${name}: main pass ${split['main']!.calls} calls ${split['main']!.triangles} tris · shadow pass ${split['shadow']!.calls} calls ${split['shadow']!.triangles} tris · post ${split['post']!.calls} full-screen draws`);
+        }
         if (name === 'wide') {
           const seen = m.labels.filter((l) => l.onScreen);
           const byText = new Map<string, LabelCap>();
