@@ -33,7 +33,7 @@ import { bevelBox, stud } from '../../cheap.ts';
 import { handle } from '../../details.ts';
 import { finish, MeshData } from '../../mesh.ts';
 import { rng, type Rng } from '../../rng.ts';
-import { grain, setFinish } from '../../space.ts';
+import { grain } from '../../space.ts';
 import { tint } from '../../surface.ts';
 import { ATTR } from '../../types.ts';
 import { linear, type Token } from '../../../palette.ts';
@@ -66,6 +66,9 @@ const PAINT_SHADE = 1.0;
 
 /** The sky's glow: its colour's level (the bulb class multiplies it up to an indicator's brightness). */
 export const SKY = { level: 0.3, snow: 1.1, far: 0.62, mid: 0.5, near: 0.42, edge: 0.35 };
+
+/** The finish value the bulb class reads as steady (above 1.5: materials/classes.ts `bulb`). */
+export const STEADY = 2;
 
 /** Linear colour between two tokens (t = 0 a, 1 b), times k. */
 function mixToken(a: Token, b: Token, t: number, k = 1): [number, number, number] {
@@ -265,7 +268,14 @@ export function windowPiece(o: KitOptions = {}): Piece {
   // camera's 33 degrees: a layer d behind the sash is built 0.65 d lower (`sunk`).
   const sc = b; // static: the scenery is part of the root (a node would make the window a skinned mesh)
   const sunk = (z: number): number => DROP * (-z + zs1);
-  const glow = (g: BufferGeometry, c: readonly [number, number, number]): BufferGeometry => setFinish(setColour(g, c), 1);
+  const glow = (g: BufferGeometry, c: readonly [number, number, number]): BufferGeometry => {
+    // finish 2: the bulb class's steady level (indicator brightness, but outside: the lamp's dimmer and flicker do not reach it)
+    setColour(g, c);
+    const sf = g.getAttribute(ATTR.surf);
+    for (let i = 0; i < sf.count; i++) sf.setZ(i, STEADY);
+    sf.needsUpdate = true;
+    return g;
+  };
   /** A cut-out at depth z from a ridge given as it reads: its face glows, its sawn edge is matte paint a step darker (a hair of outline). */
   const layer = (z: number, ridge: ReadonlyArray<readonly [number, number]>, c: readonly [number, number, number], bottom = -0.6): void => {
     const d = sunk(z);
