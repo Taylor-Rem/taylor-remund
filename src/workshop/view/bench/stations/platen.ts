@@ -1,15 +1,17 @@
-/** The platen (station `patchlamp`), at rest and static until its view lands: placed at its own origin. */
+/**
+ * The platen (station `patchlamp`; W2 part 4), at its own origin: its base merged into the set, its arm,
+ * tray, tape head, sight tube, gauge, wheel and lamp performed from the simulation's beats
+ * (`view/stations/platen.ts`).
+ */
 import { LAYOUT, origin } from '../../bench.ts';
-import { ORDER, at, staticStation, type BenchStation } from '../station.ts';
+import { createPlatenView } from '../../stations/platen.ts';
+import { ORDER, at, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'platen',
   order: ORDER.pool,
   make(k) {
-    return staticStation(k, (build) => {
-      const p = build('platen');
-      const [x, z] = origin(LAYOUT.stations.platen);
-      return p ? [{ piece: p, at: at(x, 0, z) }] : [];
-    });
+    const [x, z] = origin(LAYOUT.stations.platen);
+    return createPlatenView({ entry: k.entry('platen'), at: at(x, 0, z), seed: k.seed, pool: k.pool, key: k });
   },
 };
