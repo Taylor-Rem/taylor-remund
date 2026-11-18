@@ -28,7 +28,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 // ---- dimensions shared by the builder and the rig (world units, crew scale) ----
 
 /** The treads: centre line x, half width, the end wheels' axle z, pitch radius, shoe thickness, shoes per side. */
-export const TRACK = { x: 0.585, hw: 0.125, axleZ: 0.355, rp: 0.14, shoeT: 0.036, n: 20 } as const;
+export const TRACK = { x: 0.585, hw: 0.125, axleZ: 0.355, rp: 0.14, shoeT: 0.036, n: 18 } as const;
 /** Axle height: the shoes' outer faces touch the bench. */
 export const AXLE_Y = TRACK.rp + TRACK.shoeT;
 /** The path the shoes' mid-thickness rides on: the radius at the ends and the loop's length. */

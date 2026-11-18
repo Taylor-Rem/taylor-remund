@@ -52,14 +52,38 @@ const turn = (p: Parameters<typeof lathe>[0], o: LatheOptions = {}): BufferGeome
  * nobody could take for Fetch's cream), per vertex. Much more worn than
  * anything else on the bench: its wear signal is pushed up.
  */
-export function enamel(g: BufferGeometry, o: { seed?: number; shade?: number; jitter?: number; wear?: number; toward?: Token; mix?: number } = {}): KitPart {
-  const sh = (o.shade ?? 1) * 0.84;
+export function enamel(
+  g: BufferGeometry,
+  o: { seed?: number; shade?: number; jitter?: number; wear?: number; toward?: Token; mix?: number; battered?: number; ground?: number } = {},
+): KitPart {
+  const sh = (o.shade ?? 1) * 0.8;
   const p = part('steel', g, 'steel', { seed: o.seed ?? 0, jitter: o.jitter ?? 0.035, shade: sh, warm: 0.02 });
   const t = linear(o.toward ?? 'teal-light');
-  const k = o.mix ?? 0.4;
+  const k = o.mix ?? 0.36;
   const c = p.geometry.getAttribute('color');
-  for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * (1 - k) + t[0] * sh * k, c.getY(i) * (1 - k) + t[1] * sh * k, c.getZ(i) * (1 - k) + t[2] * sh * k);
+  const pos = p.geometry.getAttribute('position');
+  const sf = p.geometry.getAttribute('surf');
+  const s0 = (o.seed ?? 0) * 0.37;
+  for (let i = 0; i < c.count; i++) {
+    let r = c.getX(i) * (1 - k) + t[0] * sh * k, gg = c.getY(i) * (1 - k) + t[1] * sh * k, b = c.getZ(i) * (1 - k) + t[2] * sh * k;
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (o.ground !== undefined) {
+      // road dirt: the lower a surface sits, the dirtier and darker it is
+      const wy = y + o.ground;
+      const d = 0.78 + 0.22 * Math.min(1, Math.max(0, (wy - 0.12) / 0.5));
+      r *= d;
+      gg *= d;
+      b *= d * 0.97;
+    }
+    c.setXYZ(i, r, gg, b);
+    if (o.battered) {
+      // battered all over, not only on its edges: a slow seeded field lifts the wear of whole patches of face
+      const f = 0.5 + 0.5 * Math.sin(x * 6.1 + s0) * Math.sin(y * 7.3 + 1.7 + s0) * Math.sin(z * 5.2 + 0.6);
+      sf.setX(i, Math.max(sf.getX(i), o.battered * f * f));
+    }
+  }
   c.needsUpdate = true;
+  sf.needsUpdate = true;
   return wearScale(p, o.wear ?? 1.35);
 }
 
@@ -126,7 +150,7 @@ export function buildWheel(n: NodeBuilder, side: 1 | -1, c: Ctx, seed: number): 
       .to(0.07, 0.012, { fillet: 0.005, segs: 1 })
       .to(0.05, 0.024, { fillet: 0.008, segs: 1 })
       .curve(0, 0.036, 0.04, 0.036, 2),
-    { segs: 12, caps: 'end' },
+    { segs: 10, caps: 'end' },
   );
   n.add(setFinish(part('brass', transform(cap, aim([out, 0, 0], [side, 0, 0])), 'brass', { seed: seed + 1, warm: 0.04, jitter: 0.06 }), 0.35));
   // one steel bolt off centre: the mark that shows the hub turning
@@ -164,7 +188,7 @@ export function buildHull(n: NodeBuilder, c: Ctx): void {
     const f = Math.min(1, Math.max(0, (z - zk) / (d / 2 - zk)));
     return [x, y - BODY_Y, z - Math.max(0, y - FACE.chin) * TAN_RAKE * f];
   });
-  n.add(enamel(raked, { seed: c.seed + 10, wear: 1.5 }));
+  n.add(enamel(raked, { seed: c.seed + 10, wear: 1.5, battered: 0.42, ground: BODY_Y }));
   // the lower hull between the treads, darker, set back under the bumper
   const lower = roundedBox({ w: LOWER.w, h: LOWER.y1 - LOWER.y0, d: LOWER.d, r: 0.04, rPlan: 0.06, detail: 'low', band: 0 });
   n.add(enamel(transform(lower, T(0, by(LOWER.y0), 0)), { seed: c.seed + 11, shade: 0.5, mix: 0.45 }));
@@ -178,6 +202,20 @@ export function buildHull(n: NodeBuilder, c: Ctx): void {
     const pm = chain(onFace(0.27, 0.418, 0.001), askew(c.seed + 12, 3));
     n.add(setFinish(part('brass', transform(bevelBox({ min: [-0.09, -0.032, 0], max: [0.09, 0.032, 0.009], c: 0.004, omit: ['nz'] }), pm), 'brass', { seed: c.seed + 13, shade: 0.8 }), 0.2));
     for (const s of [-1, 1]) n.small(() => place(rivet(0.016, c.seed + 14 + s, 'brass', 'brass'), chain(pm, T(s * 0.07, 0, 0.009), new Matrix4().makeRotationX(Math.PI / 2))));
+  }
+
+  // ---- repairs: a patch plate riveted over a hole low on the face, in paint that never matched;
+  // and a strip of floor tape holding the deck's corner together ----
+  {
+    const pm = chain(onFace(-0.3, 0.45, 0.001), new Matrix4().makeRotationZ(0.11));
+    n.add(enamel(transform(bevelBox({ min: [-0.13, -0.06, 0], max: [0.1, 0.05, 0.008], c: 0.004, omit: ['nz'] }), pm), { seed: c.seed + 16, shade: 0.95, mix: 0.5, toward: 'cable-red', wear: 2.5 }));
+    for (const [x, y] of [[-0.082, -0.04], [0.082, -0.04], [-0.082, 0.04], [0.082, 0.04]] as const) {
+      const sd = c.R.int(0, 999);
+      n.small(() => place(rivet(0.016, sd), chain(pm, T(x, y, 0.008), new Matrix4().makeRotationX(Math.PI / 2))));
+    }
+    const tape = bevelBox({ min: [-0.15, 0, -0.03], max: [0.15, 0.003, 0.03], c: 0.001, omit: ['ny'] });
+    const tm = chain(T(0.5, by(HULL.y1) - 0.004, -0.36), new Matrix4().makeRotationY(-0.6));
+    n.add(part('steel', deform(transform(tape, tm), (x, y, z) => [x, y - Math.max(0, x - 0.5) * 0.6 - Math.max(0, z - 0.14) * 0.6, z]), 'tape-yellow', { seed: c.seed + 17, shade: 0.85 }));
   }
 
   // ---- the bumper: a hazard bar between the treads ----
@@ -238,7 +276,7 @@ export function buildEye(n: NodeBuilder, lamp: NodeBuilder, lid: NodeBuilder, c:
       .to(a - 0.007, 0.008, { fillet: 0.004, segs: 1 })
       .to(a - 0.007, -0.004)
       .close(),
-    { segs: 16 },
+    { segs: 14 },
   );
   n.add(setFinish(part('brass', transform(bz, Y_TO_Z), 'brass', { seed: seed + 2, warm: 0.04, jitter: 0.05 }), 0.4));
   // the lamp: a lit disc riding on the lens sphere, with a hotter core
@@ -344,7 +382,7 @@ function leaf(card: CardSpec, x0: number, x1: number, y0: number, back: boolean)
   const lw = x1 - x0;
   const right = x1 > 0;
   const curl = (u: number, v: number): number => 0.014 * Math.sin(Math.PI * u) * v + (right && u > 0.86 && v > 0.84 ? 0.03 * ((u - 0.86) / 0.14) * ((v - 0.84) / 0.16) : 0);
-  const g = transform(sheet({ w: lw, h: card.h, t: 0.006, nx: 5, ny: 4, lift: curl, back }), T((x0 + x1) / 2, y0 + card.h / 2, -0.003));
+  const g = transform(sheet({ w: lw, h: card.h, t: 0.006, nx: 4, ny: 3, lift: curl, back }), T((x0 + x1) / 2, y0 + card.h / 2, -0.003));
   if (!back) {
     const uv = g.getAttribute('uv') as BufferAttribute;
     const u0 = (x0 + card.w / 2) / card.w, u1 = (x1 + card.w / 2) / card.w;
