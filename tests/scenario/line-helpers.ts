@@ -71,11 +71,18 @@ export function putOn(world: World, t: Tape, id: Id, to: Vec3, steps = 30): void
   const high = Math.max(m.pose.p[1], target[1]) + 1.8;
   const a: Vec3 = [m.pose.p[0], high, m.pose.p[2]];
   const b: Vec3 = [target[0], high, target[2]];
-  for (const p of [...line(m.pose.p, a, 12), ...line(a, b, steps), ...line(b, target, 12)]) {
+  // across no faster than about 6 units a second (the carry spring's pace), so the hand arrives
+  const across = Math.max(steps, Math.ceil((Math.hypot(b[0] - a[0], b[2] - a[2]) / 6) * 60));
+  for (const p of [...line(m.pose.p, a, 12), ...line(a, b, across), ...line(b, target, 12)]) {
     world.dispatch({ type: 'carry', target: p });
     t.run(1);
   }
   t.run(20); // let it settle in the hand
+  for (let i = 0; i < 90; i++) {
+    const p = world.motion(id)!.pose.p;
+    if (Math.hypot(p[0] - target[0], p[2] - target[2]) < 0.06) break;
+    t.run(1);
+  }
   world.dispatch({ type: 'release', velocity: [0, 0, 0] });
   t.run(1);
 }

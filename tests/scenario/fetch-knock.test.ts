@@ -164,6 +164,8 @@ describe('knocked', () => {
       const sx = f.x + Math.sin(yaw) * from;
       const sz = f.z + Math.cos(yaw) * from;
       if (OBS.some((o) => distanceTo(o, sx, sz) < 0.5) || sx < -8.5 || sx > 8.5 || sz < -4.5 || sz > 4.6) continue;
+      // (nor from inside another robot's body: Revert is a body now, not a static, since S4)
+      if ([...w.parts()].some((p) => p.kind === 'robot' && p.id !== 'fetch' && Math.hypot(w.motion(p.id)!.pose.p[0] - sx, w.motion(p.id)!.pose.p[2] - sz) < Math.max(w.halfExtents(p.id)![0], w.halfExtents(p.id)![2]) + 0.5)) continue;
       const ev = throwAndSee(w, id, { yaw, speed: r.range(3.5, 7.5), aimSide: r.range(-0.3, 0.3) });
       const watch = watchKnock(w, steps(9));
       const k = knocks([...ev, ...watch.ev]);

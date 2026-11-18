@@ -13,6 +13,7 @@ import type { Rng } from '../../src/workshop/sim/rng.ts';
 import type { Location, Pose, SimEvent } from '../../src/workshop/sim/types.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
 import { HISTORY_TUNING } from '../../src/workshop/sim/history.ts';
+import { undoLever } from '../../src/workshop/sim/machines/undo-lever.ts';
 import { AT as V } from '../../src/workshop/sim/scenes/vignette.ts';
 import { line } from '../../src/workshop/sim/machines/line.ts';
 import { storefront } from '../../src/workshop/sim/machines/storefront.ts';
@@ -77,7 +78,8 @@ interface Options {
 function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: number; start: ReturnType<Bench['world']['durable']> } {
   const r = rng(`history-${seed}`);
   let chk: Checker | null = null;
-  const b: Bench = bench(seed, o.station ? { units: STATION } : {}, (ev: readonly SimEvent[]) => {
+  // the real UNDO lever (S4) beside the stand-ins: half the pulls go through it; and the Patchlamp station (S3) when asked
+  const b: Bench = bench(seed, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }), ...(o.station ? STATION : [])] }, (ev: readonly SimEvent[]) => {
     // HISTORY_TRACE=1 prints every event and every open window, step by step (with HISTORY_SEED, to read one failure)
     if (trace) {
       const windows = b.world.undoStack().filter((t) => t.moving.length > 0);
@@ -135,7 +137,11 @@ function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: 
     } else if (k < 58) {
       text(b, { kind: 'undo-that' });
     } else if (k < 70) {
-      lever(b);
+      if (r.chance(0.5)) lever(b);
+      else {
+        b.world.dispatch({ type: 'press', id: 'undo-lever' });
+        b.run(1);
+      }
     } else if (k < 76 && visitor) {
       b.world.dispatch({ type: 'unplug', cord: 'cord' });
       b.world.dispatch({ type: 'plug', cord: 'cord', jack: r.pick(JACKS) });

@@ -76,7 +76,9 @@ describe('the layout table and the simulation agree', () => {
   ];
   it.each(bodies)('%s stands where its body is', (key, id) => {
     const s = S[key];
-    const st = scene.statics.find((q) => q.id === id)!;
+    // Revert is a loose part since S4 (it can be picked up): its body starts on its hatch
+    const part = scene.parts.find((q) => q.id === id && q.half);
+    const st = scene.statics.find((q) => q.id === id) ?? (part ? { id, shape: { type: 'box' as const, half: part.half! }, pose: part.pose } : undefined)!;
     expect(st, id).toBeTruthy();
     expect(st.pose.p[0]).toBeCloseTo(s.x, 6);
     expect(st.pose.p[2]).toBeCloseTo(s.z, 6);
@@ -391,7 +393,7 @@ describe('the real pieces', () => {
     inside('platen-tank', 'platen');
     inside('storefront', 'storefront');
     inside('dock', 'dock');
-    inside('revert', 'revert');
+    // Revert is a loose part since S4, not a static (its home on the hatch is checked above)
   });
 });
 

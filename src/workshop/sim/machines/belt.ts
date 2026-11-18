@@ -21,20 +21,28 @@
  * (law 2) and taken in: its location becomes `in` the belt (charged to
  * whoever placed it, § E5 rule 4) and it rides by script, kinematic, at the
  * surface's speed. It can be taken off at any moment (picked up). Running
- * forward it leaves the far end onto the dock's ramp (handed to physics,
- * its next rest charged to the same placer); running backward it reaches the
- * motor housing and is pushed off the front of the belt onto the bench.
- * Undone mid-ride, the ride is cancelled and the part goes back where it
- * was before; it never stops halfway.
+ * forward it is set down still on the dock's ramp head past the far end
+ * (its rest is charged to the same placer, and the dock takes it in that
+ * step); running backward it reaches the motor housing and the deflector
+ * guides it off the BACK of the belt and sets it down still at the scene's
+ * `offBack` spot (or the next free place beside it, away from the belt). Undone mid-ride, the ride
+ * is cancelled and the part goes back where it was before; it never stops
+ * halfway.
  *
- * What size changes: where a part leaves. A part tips off the far end when
- * its centre passes the end roller, so a large crate rides a little further
- * past the striker before it drops than a small one; at the motor end a part
- * is pushed off when its near face meets the housing. Speed does not depend
- * on size (a belt carries everything at its own speed: that is what makes
- * the striker a metronome).
+ * Order and spacing: riding parts never overlap. Each keeps `gap` to the one
+ * ahead of it (they queue behind a part held at an end), the head waits at
+ * the far end until the ramp's head is clear of the part ahead by both their
+ * lengths, and at the motor end one part at a time goes round the
+ * deflector.
+ *
+ * What size changes: where a part leaves and how close parts queue. A part
+ * is set down past the far end when its centre passes it, so a large crate
+ * rides a little further past the striker than a small one; at the motor
+ * end it turns off when its near face meets the housing; queued parts keep
+ * their lengths apart. Speed does not depend on size (a belt carries
+ * everything at its own speed: that is what makes the striker a metronome).
  */
-import type { BeltView, Cause, Id, Instruction, Intent, Outcome, Part, Pose, Quat, Restore, StationId, Value } from '../types.ts';
+import type { BeltView, Cause, Id, Instruction, Intent, Outcome, Part, Pose, Quat, Restore, StationId, Value, Vec3 } from '../types.ts';
 import type { Job } from '../history.ts';
 import type { LostReason, MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
@@ -52,10 +60,16 @@ export const BELT_TUNING = {
   ease: 12,
   /** A misfire's lurch: the surface is kicked back to this speed (per level) for this long. */
   lurch: { speed: -1.6, seconds: 0.3 },
-  /** A part leaves the far end this far past the end (its centre), set down still on the ramp's head (the dock takes it in the same step). */
-  exit: 0.02,
-  /** At the motor end parts are pushed off the front at this speed, and let go with this much of it. */
-  shunt: { speed: 1.2, letGo: 0.5 },
+  /**
+   * A part leaves the far end this far past the end (its centre), set down still on the ramp's head (the
+   * dock takes it in the same step). Far enough that the engine settling it cannot nudge its centre back
+   * over the end into the belt's own mouth.
+   */
+  exit: 0.15,
+  /** Riding parts keep at least this gap between them (units); the head waits at the far end until the ramp is clear by as much. */
+  gap: 0.06,
+  /** At the motor end the deflector guides a part off the back of the belt onto the bench in this long (seconds), and sets it down still. */
+  guide: 0.7,
 } as const;
 
 export const BELT_FIELDS = { speed: 'speed', direction: 'direction', running: 'running' } as const;
@@ -75,6 +89,10 @@ export interface BeltSpec {
   readonly halfWidth: number;
   readonly dial: { readonly id: Id; readonly name: string };
   readonly lever: { readonly id: Id; readonly name: string };
+  /** Running backward, parts leave the motor end off the back of the belt and are set down still here (bench point, y the bench top). */
+  readonly offBack: Vec3;
+  /** The x at which a part riding backward meets the deflector (its near face). */
+  readonly deflectAt: number;
 }
 
 export interface BeltUnit extends MachineUnit {
@@ -91,8 +109,8 @@ interface Ride {
   /** Half its extent along X and Z (its box, turned as it lies). */
   readonly ex: number;
   readonly ez: number;
-  /** Being pushed off the front at the motor end. */
-  shunt: boolean;
+  /** Being guided off the back at the motor end: seconds into it, from where, to where. */
+  guide: { t: number; readonly a: Vec3; readonly b: Vec3 } | null;
 }
 
 const isDetent = (n: number) => (v: Value) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= n;
@@ -158,7 +176,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
     const { ex, ez } = extents(part, at.q);
     const x = Math.min(spec.to, Math.max(spec.from + ex, at.x));
     const z = Math.min(spec.z + spec.halfWidth, Math.max(spec.z - spec.halfWidth, at.z));
-    rides.push({ id: part, job, x, y: at.y, z, q: at.q, ex, ez, shunt: false });
+    rides.push({ id: part, job, x, y: at.y, z, q: at.q, ex, ez, guide: null });
     ctx.drive(part, { p: [x, at.y, z], q: at.q }, true);
   }
 
@@ -191,6 +209,116 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
       t,
     );
     return true;
+  }
+
+  /** A part's radius on the bench plane (its box's larger half extent across). */
+  const radius = (part: Id): number => {
+    const h = ctx.halfExtents(part) ?? [0.3, 0.3, 0.3];
+    return Math.max(h[0], h[2]);
+  };
+
+  /**
+   * How far the head `r` may go toward the far end: while anything not riding the belt (the one ahead
+   * rolling up the ramp, or anything lying there) is within the two parts' reach of the hand-off point, it
+   * waits at the end, and never closer to such a part than the gap. So a part never enters the ramp before
+   * the one ahead has cleared its length.
+   */
+  function headLimit(r: Ride): number {
+    const hx = spec.to + T.exit;
+    let limit = Infinity;
+    for (const other of ctx.parts()) {
+      if (other === r.id || rides.some((x) => x.id === other && !x.guide)) continue;
+      const m = ctx.mode(other);
+      if (m === 'gone' || m === 'chute' || m === 'held') continue;
+      const p = ctx.pose(other);
+      if (!p || p.p[1] > spec.top + 1.6 || p.p[0] < spec.to - 0.05) continue;
+      const ro = radius(other);
+      if (Math.abs(p.p[2] - spec.z) < ro + spec.halfWidth) limit = Math.min(limit, p.p[0] - ro - T.gap - r.ex);
+      if (Math.hypot(p.p[0] - hx, p.p[2] - spec.z) < ro + r.ex + T.gap) limit = Math.min(limit, spec.to);
+    }
+    return limit;
+  }
+
+  /**
+   * Where a part guided off the back is set down: the scene's spot (the slide's foot), or, if something
+   * lies there, the next free place a part's width along the foot (+X, up to three); failing those, on top.
+   */
+  function offBackFor(r: Ride): Vec3 {
+    const [x0, y0, z0] = spec.offBack;
+    const h = r.y - spec.top;
+    const near = (x: number, z: number): { top: number; taken: boolean } => {
+      let top = y0;
+      let taken = false;
+      for (const other of ctx.parts()) {
+        if (other === r.id) continue;
+        const m = ctx.mode(other);
+        const p = ctx.pose(other);
+        if (!p || (m !== 'free' && m !== 'held' && m !== 'crew')) continue;
+        if (Math.hypot(p.p[0] - x, p.p[2] - z) > radius(other) + Math.max(r.ex, r.ez) + T.gap) continue;
+        taken = true;
+        top = Math.max(top, p.p[1] + (ctx.halfExtents(other)?.[1] ?? 0.3));
+      }
+      return { top, taken };
+    };
+    const step = 2 * Math.max(r.ex, r.ez) + 0.1;
+    for (let k = 0; k < 4; k++) {
+      const x = x0 + k * step;
+      if (!near(x, z0).taken) return [x, y0 + h + 0.005, z0];
+    }
+    return [x0, near(x0, z0).top + h + 0.005, z0];
+  }
+
+  /** One step of carrying: in the order they lie along the way they go, each keeps its gap to the one ahead. */
+  function carry(): void {
+    const fwd = surface >= 0;
+    const order = rides.filter((r) => !r.guide).sort((a, b) => (fwd ? b.x - a.x : a.x - b.x));
+    const guiding = rides.some((r) => r.guide);
+    let ahead: Ride | null = null;
+    for (const r of order) {
+      let next = r.x + surface * dt;
+      if (fwd) {
+        if (ahead) next = Math.min(next, ahead.x - ahead.ex - T.gap - r.ex);
+        else next = Math.min(next, headLimit(r));
+        next = Math.max(next, r.x); // held, it waits where it is; it is never pushed backward
+      } else {
+        if (ahead) next = Math.max(next, ahead.x + ahead.ex + T.gap + r.ex);
+        else if (guiding) next = Math.max(next, spec.deflectAt + r.ex);
+        next = Math.min(next, r.x);
+      }
+      if (fwd && !ahead && surface > 0 && (ctx.pose(r.id)?.p[0] ?? r.x) > spec.to + T.exit) {
+        // the far end (judged where the body is: the last drive has landed): set down on the ramp's head; its rest is the placer's (rule 4)
+        end(r);
+        ctx.release(r.id, [0, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
+        continue;
+      }
+      if (!fwd && !ahead && !guiding && next - r.ex <= spec.deflectAt) {
+        // the motor end: the deflector guides it off the back of the belt, down the slide
+        next = spec.deflectAt + r.ex;
+        r.guide = { t: 0, a: [next, r.y, r.z], b: offBackFor(r) };
+      }
+      r.x = next;
+      ctx.drive(r.id, { p: [r.x, r.y, r.z], q: r.q });
+      ahead = r;
+    }
+    for (const r of rides.filter((x) => x.guide)) {
+      const g = r.guide as NonNullable<Ride['guide']>;
+      if (g.t >= T.guide) {
+        // the last drive has landed: set it down still, the placer's
+        end(r);
+        ctx.release(r.id, [0, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
+        continue;
+      }
+      g.t = Math.min(T.guide, g.t + dt);
+      const u = g.t / T.guide;
+      const ease = (v: number): number => v * v * (3 - 2 * v);
+      // along the deflector off the back first (toward -Z), then down the slide to the spot
+      const zu = ease(Math.min(1, u * 2));
+      const xu = ease(Math.max(0, u * 2 - 1));
+      const p: Vec3 = [g.a[0] + (g.b[0] - g.a[0]) * xu, g.a[1] + (g.b[1] - g.a[1]) * xu, g.a[2] + (g.b[2] - g.a[2]) * zu];
+      r.x = p[0];
+      r.z = p[2];
+      ctx.drive(r.id, { p, q: r.q });
+    }
   }
 
   const unit: BeltUnit = {
@@ -312,31 +440,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
       const shown = ctx.clock.step < lurchUntil ? T.lurch.speed * (beat.view()?.level ?? 1) : surface;
       phase += shown * dt;
       if (ctx.bracketed) return; // a rung plays: nothing rides (the lurch is the surface's alone)
-      for (const r of [...rides]) {
-        if (r.shunt) {
-          r.z += T.shunt.speed * dt;
-          ctx.drive(r.id, { p: [r.x, r.y, r.z], q: r.q });
-          if (r.z > spec.z + spec.halfWidth + 0.02) {
-            // off the front edge at the motor end: let it drop onto the bench, the placer's still
-            end(r);
-            ctx.release(r.id, [0, 0, T.shunt.speed * T.shunt.letGo], [0, 0, 0], ctx.history.chargeMachine(r.id));
-          }
-          continue;
-        }
-        // (judged where the body is now: the drive of the last step has landed)
-        if (surface > 0 && (ctx.pose(r.id)?.p[0] ?? r.x) > spec.to + T.exit) {
-          // the far end: set down on the dock's ramp; where it rests is the placer's (rule 4)
-          end(r);
-          ctx.release(r.id, [0, 0, 0], [0, 0, 0], ctx.history.chargeMachine(r.id));
-          continue;
-        }
-        r.x += surface * dt;
-        if (surface < 0 && r.x - r.ex <= spec.from) {
-          r.x = spec.from + r.ex;
-          r.shunt = true;
-        }
-        ctx.drive(r.id, { p: [r.x, r.y, r.z], q: r.q });
-      }
+      carry();
     },
 
     view(): BeltView {
