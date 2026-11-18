@@ -17,10 +17,10 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import type { FetchRounds, MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
-import { belt } from '../machines/belt.ts';
+import { belt, BELT_FIELDS } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
@@ -193,6 +193,30 @@ const MOUTHS: readonly MouthSpec[] = [
 /** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
 const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
 
+// ───────────── Fetch's rounds (S5): positions from AT and the belt's mouth; the pace and the cap are its own ─────────────
+
+/**
+ * In play mode Fetch takes the top fresh crate off the stack and sets it on the belt's motor end (the
+ * belt mouth's drop point), at most one every `every` seconds and never more than `cap` in play
+ * (riding the belt or rolling through the dock, plus the one in its hands); only while the belt runs
+ * forward. At the middle speed a crate takes about nine seconds from the drop to the door, so about two
+ * ride at once: the striker plays a note every few seconds, and a stopped belt never floods.
+ * The layout must keep the stack within Fetch's reach of its tape (`FETCH_TUNING.reach + handForward`,
+ * × `CREW_SCALE`: 2.50 from the nearest point of the lane between its stops) and the drop likewise.
+ */
+const FETCH_ROUNDS: FetchRounds = {
+  stack: AT.stack,
+  stackRadius: 0.55,
+  mouth: 'belt',
+  inPlay: ['belt', 'dock'],
+  cap: 3,
+  every: 5,
+  feedWhen: [
+    { target: 'belt', field: BELT_FIELDS.running, is: true },
+    { target: 'belt', field: BELT_FIELDS.direction, is: 'forward' },
+  ],
+};
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -259,6 +283,7 @@ export const bench: SceneDesc = {
     offerHeading: AT.fumble.offerHeading,
     toss: { linvel: AT.fumble.linvel, angvel: AT.fumble.angvel },
     outward: [0, 1.6, 14],
+    rounds: FETCH_ROUNDS,
   },
   crewScale: CREW_SCALE,
   mouths: MOUTHS,
