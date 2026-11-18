@@ -66,11 +66,11 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
     const r = 0.14;
     const d = H.zFoot - H.zBack;
     const g = profiledBox(
-      { w: W + 0.16, d: d + 0.14, rPlan: r, detail, band: 0 },
+      { w: W + 0.16, d: d + 0.14, rPlan: r, detail: 'low', band: 0 },
       profile(0, 0)
         .to(r, 0, { sharp: true })
-        .to(r, 0.035, { fillet: 0.012, segs: 2 })
-        .to(r - 0.07, 0.045, { fillet: 0.015, segs: 2 })
+        .to(r, 0.035, { fillet: 0.012, segs: 1 })
+        .to(r - 0.07, 0.045, { fillet: 0.015, segs: 1 })
         .to(r - 0.08, H.plinth, { fillet: 0.01, segs: 1 })
         .to(0, H.plinth),
     );
@@ -90,7 +90,7 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
   const y0 = H.plinth - 0.01;
   {
     const outline: Array<[number, number]> = [[-H.zFoot + 0.04, y0], [-H.zFrontTop, H.yFrontTop], [-H.zDeskTop, H.yTop], [-H.zBack, H.yTop], [-H.zBack, y0]];
-    const g = extrude(outline, W, { radius: [0.04, 0.06, 0.07, 0.07, 0.04], bevel: 0.035, segs: 2, detail });
+    const g = extrude(outline, W, { radius: [0.04, 0.06, 0.07, 0.07, 0.04], bevel: 0.035, segs: 2, detail, band: 0 });
     transform(g, chain(T(xm - W / 2, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
     // a knock on the desk's front edge and one low on the front
     dentKeep(g, [xm - 0.25 + R.spread(0.08), H.yFrontTop + 0.01, H.zFrontTop - 0.01], [0, 1, -1], 0.08, 0.012);
@@ -126,7 +126,7 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
     const rr = 0.1;
     const g = lathe(
       profile(0, 0).to(rr, 0, { sharp: true }).to(rr, 0.014, { fillet: 0.006, segs: 2 }).to(rr - 0.016, 0.02, { fillet: 0.004, segs: 1 }).to(rr - 0.03, 0.012, { fillet: 0.004, segs: 1 }).to(0, 0.012),
-      { segs: hi ? 16 : 12, detail, band: 0, caps: 'end' },
+      { segs: hi ? 12 : 10, detail, band: 0, caps: 'end' },
     );
     b.add(setFinish(part('brass', transform(g, chain(dialAt, mat({ rot: [90, 0, 0] }))), 'brass', { seed: seed + 121, warm: 0.03 }), 0.25));
     for (let i = 0; i < 3; i++) {
@@ -142,7 +142,7 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
     b.add(setFinish(part('brass', transform(g, chain(leverAt, mat({ rot: [90, 0, 0] }))), 'brass', { seed: seed + 125, warm: 0.03 }), 0.25));
     // the slot, blanked by a dark strip a hair below the plate's face
     const sl = slab({ w: lw - 0.09, d: 0.026, t: 0.004, r: 0.012, bevel: 0.0015, detail: 'low', band: 0, open: true });
-    b.add(part('rubber', transform(sl, chain(leverAt, T(0, 0, 0.014), mat({ rot: [90, 0, 0] }))), 'ink'));
+    b.add(part('steel', transform(sl, chain(leverAt, T(0, 0, 0.014), mat({ rot: [90, 0, 0] }))), 'ink'));
     for (const sx of [-1, 1]) b.small(() => place([part('brass', stud(0.012, 0.008, 6), 'brass', { seed: seed + 126 + sx, shade: 0.8 })], chain(leverAt, T(sx * (lw / 2 - 0.028), 0, 0.016), mat({ rot: [90, 0, 0] }))));
   }
   // the lamp's brass bezel, top right of the panel (the lamp itself is a node the view lights)
@@ -190,18 +190,18 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
         .to(mR * 0.94, mL - 0.02, { fillet: 0.02, segs: 2 })
         .to(mR * 0.5, mL + 0.01, { fillet: 0.02, segs: 2 })
         .to(0, mL + 0.01),
-      { segs: hi ? 20 : 14, detail, band: 0 },
+      { segs: hi ? 12 : 10, detail, band: 0 },
     );
     b.add(part('steel', transform(body, axis), 'teal-light', { seed: seed + 140, shade: 0.9, jitter: 0.03 }));
     // the fins, between two rings that hide their open ends
     const fins = ridgedBand(mR + 0.012, mL - 0.2, hi ? 22 : 16, 0.028);
     b.add(part('steel', transform(fins, chain(axis, T(0, 0.1, 0))), 'teal-light', { seed: seed + 141, shade: 0.95 }));
     for (const yy of [0.08, mL - 0.11]) {
-      const ring = lathe(profile(mR * 0.9, 0).to(mR + 0.02, 0, { fillet: 0.006, segs: 1 }).to(mR + 0.02, 0.03, { fillet: 0.006, segs: 1 }).to(mR * 0.9, 0.03), { segs: hi ? 16 : 12, detail, band: 0, caps: false });
+      const ring = lathe(profile(mR * 0.9, 0).to(mR + 0.02, 0, { chamfer: 0.006 }).to(mR + 0.02, 0.03, { chamfer: 0.006 }).to(mR * 0.9, 0.03), { segs: hi ? 12 : 10, detail, band: 0, caps: false });
       b.add(part('steel', transform(ring, chain(axis, T(0, yy, 0))), 'teal-light', { seed: seed + 142, shade: 0.85 }));
     }
     // the fan cowl on the left end: a domed cap with a brass centre boss
-    const cowl = lathe(profile(0, 0).to(mR * 0.86, 0, { sharp: true }).to(mR * 0.86, 0.05, { fillet: 0.03, segs: 2 }).to(mR * 0.3, 0.11, { fillet: 0.04, segs: 2 }).to(0, 0.115), { segs: hi ? 18 : 12, detail, band: 0 });
+    const cowl = lathe(profile(0, 0).to(mR * 0.86, 0, { sharp: true }).to(mR * 0.86, 0.05, { fillet: 0.03, segs: 2 }).to(mR * 0.3, 0.11, { fillet: 0.04, segs: 2 }).to(0, 0.115), { segs: hi ? 14 : 10, detail, band: 0 });
     b.add(part('steel', transform(cowl, chain(T(mx - mL / 2 + 0.01, my, mz), new Matrix4().makeRotationZ(Math.PI / 2))), 'teal-light', { seed: seed + 143, shade: 0.8 }));
     b.add(part('brass', transform(lathe(profile(0, 0).to(0.035, 0, { sharp: true }).to(0.03, 0.02, { fillet: 0.01, segs: 2 }).to(0, 0.022), { segs: 10, detail, band: 0 }), chain(T(mx - mL / 2 - 0.1, my, mz), new Matrix4().makeRotationZ(Math.PI / 2))), 'brass', { seed: seed + 144 }));
     // the cradle: two saddles bolted to the cabinet top
@@ -211,19 +211,19 @@ export function buildMotor(b: NodeBuilder, x1: number, seed: number, R: Rng, det
       for (const sz of [-0.13, 0.13]) b.small(() => [part('metal', transform(hexHead(0.05, 0.025, R.range(0, 1)), T(mx + sx, H.yTop + 0.09, mz + sz)), 'steel', { seed: seed + 146 })]);
     }
     // the terminal box on top, its lid, four screws
-    const tb = roundedBox({ w: 0.22, h: 0.12, d: 0.17, r: 0.025, detail, band: 0 });
+    const tb = bevelBox({ min: [-0.11, 0, -0.085], max: [0.11, 0.12, 0.085], c: 0.022, omit: ['ny'] });
     const tx = mx + 0.12, ty = my + mR - 0.02;
     b.add(part('steel', transform(tb, T(tx, ty, mz + 0.02)), 'teal-light', { seed: seed + 147, shade: 0.95 }));
-    b.add(part('steel', transform(slab({ w: 0.24, d: 0.19, t: 0.02, r: 0.03, bevel: 0.007, detail, band: 0 }), T(tx, ty + 0.12, mz + 0.02)), 'teal-light', { seed: seed + 148, shade: 1.05 }));
+    b.add(part('steel', transform(bevelBox({ min: [-0.12, 0, -0.095], max: [0.12, 0.022, 0.095], c: 0.008, omit: ['ny'] }), T(tx, ty + 0.12, mz + 0.02)), 'teal-light', { seed: seed + 148, shade: 1.05 }));
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) b.small(() => [part('metal', transform(stud(0.012, 0.008, 6), T(tx + sx * 0.09, ty + 0.14, mz + 0.02 + sz * 0.07)), 'steel', { seed: seed + 149 })]);
     // the cable: out of the box's right side, down into the cabinet top through a brass gland
     const cr = 0.024;
     const pts: Array<[number, number, number]> = [[tx + 0.11, ty + 0.06, mz + 0.02], [tx + 0.2, ty + 0.05, mz + 0.03], [tx + 0.27, ty - 0.08, mz + 0.06], [tx + 0.28, H.yTop + 0.03, mz + 0.1]];
-    b.add(part('rubber', sweep(polylinePath(pts, 0.07, 2), { radius: cr, detail, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 150, shade: 1.3 }));
+    b.add(part('steel', sweep(polylinePath(pts, 0.07, 2), { radius: cr, detail, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 150, shade: 1.3 }));
     b.add(part('brass', transform(hexHead(0.07, 0.03, 0.3), T(tx + 0.28, H.yTop - 0.005, mz + 0.1)), 'brass', { seed: seed + 151 }));
     // the lifting eye on top of the barrel, left of the box
     const ex = mx - 0.16;
-    b.add(part('metal', transform(torus({ R: 0.036, r: 0.011, segs: 12, tubeSegs: 6, detail }), chain(T(ex, my + mR + 0.05, mz), new Matrix4().makeRotationX(Math.PI / 2), T(0, -0.011, 0))), 'steel', { seed: seed + 152 }));
+    b.add(part('metal', transform(torus({ R: 0.036, r: 0.011, segs: 10, tubeSegs: 5, detail }), chain(T(ex, my + mR + 0.05, mz), new Matrix4().makeRotationX(Math.PI / 2), T(0, -0.011, 0))), 'steel', { seed: seed + 152 }));
     b.add(part('metal', transform(lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.024, 0.012, { fillet: 0.005, segs: 1 }).to(0.012, 0.02, { sharp: true }).to(0.012, 0.03).to(0, 0.03), { segs: 8, detail, band: 0 }), T(ex, my + mR - 0.012, mz)), 'steel', { seed: seed + 153 }));
   }
 
@@ -254,19 +254,17 @@ export function oilCup(seed: number, detail: 'high' | 'low'): ReturnType<typeof 
   const hi = detail === 'high';
   const out = [part('brass', hexHead(0.056, 0.026, 0.2), 'brass', { seed, shade: 0.85 })];
   const body = lathe(
-    profile(0, 0.024)
-      .to(0.016, 0.024, { sharp: true })
+    profile(0.016, 0.024)
       .to(0.013, 0.05, { smooth: true })
       .to(0.034, 0.075, { fillet: 0.012, segs: 1 })
       .to(0.036, 0.11, { fillet: 0.01, segs: 1 })
-      .to(0.031, 0.118, { sharp: true })
-      .to(0, 0.118),
-    { segs: hi ? 9 : 7, detail, band: 0 },
+      .to(0.031, 0.118, { sharp: true }),
+    { segs: hi ? 8 : 6, detail, band: 0, caps: false },
   );
   out.push(part('brass', body, 'brass', { seed: seed + 1, warm: 0.04 }));
-  const lid = lathe(profile(0, 0.118).to(0.036, 0.118, { sharp: true }).to(0.036, 0.126, { fillet: 0.004, segs: 1 }).curve(0, 0.15, 0.026, 0.15, 2), { segs: hi ? 9 : 7, detail, band: 0 });
+  const lid = lathe(profile(0.03, 0.118).to(0.036, 0.118, { sharp: true }).to(0.036, 0.126, { fillet: 0.004, segs: 1 }).curve(0, 0.15, 0.026, 0.15, 2), { segs: hi ? 8 : 6, detail, band: 0, caps: false });
   out.push(setFinish(part('brass', lid, 'brass', { seed: seed + 2, warm: 0.04 }), 0.6));
   // the flip tab at the front
-  out.push(part('brass', transform(slab({ w: 0.022, d: 0.03, t: 0.006, r: 0.008, bevel: 0.002, detail: 'low', band: 0 }), chain(T(0, 0.13, 0.036), mat({ rot: [-30, 0, 0] }))), 'brass', { seed: seed + 3 }));
+  out.push(part('brass', transform(bevelBox({ min: [-0.011, 0, -0.015], max: [0.011, 0.006, 0.015], c: 0.002 }), chain(T(0, 0.13, 0.036), mat({ rot: [-30, 0, 0] }))), 'brass', { seed: seed + 3 }));
   return out;
 }

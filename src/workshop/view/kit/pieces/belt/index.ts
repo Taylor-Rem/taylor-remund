@@ -87,7 +87,7 @@ function railGeom(x0: number, x1: number, side: 1 | -1, detail: 'high' | 'low'):
   const radii = [0.016, 0.03, 0.03, 0.018, 0.012, 0.016, 0.016, 0.012];
   const outline = zy.map(([z, y]) => [-side * z, y] as [number, number]);
   const len = x1 - x0;
-  const g = extrude(outline, len, { radius: radii, bevel: 0.012, segs: 2, detail });
+  const g = extrude(outline, len, { radius: radii, bevel: 0.012, segs: 1, detail, band: 0 });
   transform(g, chain(T(x0, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
   return grain(g, 'x');
 }
@@ -112,7 +112,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const t = BELT.thickness, wdt = BELT.width;
     const c = Math.min(t * 0.45, wdt * 0.1);
     const pts = loopPoints(g, hi ? 1.0 : 2.0, hi ? 8 : 6).map(([x, y]) => new Vector3(x, y, 0));
-    const gg = sweep({ points: pts, closed: true }, { section: sections.roundRect(wdt / 2 - c, t / 2 - c, 2), radius: c, up: [0, 0, 1], uv: true });
+    const gg = sweep({ points: pts, closed: true }, { section: sections.roundRect(wdt / 2 - c, t / 2 - c, 1), radius: c, up: [0, 0, 1], uv: true });
     b.add(part('belt', gg, 'ink', { seed: seed + 1, shade: 0.55 }));
   }
   {
@@ -131,23 +131,25 @@ export function belt(o: BeltOptions = {}): Piece {
     const zc = (zi + zo) / 2;
     for (let i = 0; i < n; i++) {
       const x = xa + ((xb - xa) * i) / (n - 1) + (i > 0 && i < n - 1 ? R.spread(0.15) : 0);
-      const r = 0.03, h = yR0 + 0.004 - 0.03;
-      const leg = profiledBox(
-        { w: 0.13, d: 0.1, rPlan: r, detail, band: 0 },
+      const h = yR0 + 0.004 - 0.03;
+      // a turned post, octagonal and squashed to the old 0.13 × 0.1 plan: under the rail, in its shadow, 13 px wide
+      const leg = lathe(
         profile(0, 0)
-          .to(r + 0.05, 0, { sharp: true })
-          .to(r + 0.05, 0.012, { fillet: 0.008, segs: 1 })
-          .to(r + 0.008, 0.07, { fillet: 0.04, segs: 2 })
-          .to(r, h - 0.03, { smooth: true })
-          .to(r + 0.022, h, { fillet: 0.012, segs: 1 })
+          .to(0.08, 0, { sharp: true })
+          .to(0.075, 0.016, { fillet: 0.008, segs: 1 })
+          .to(0.04, 0.075, { fillet: 0.04, segs: 1 })
+          .to(0.036, h - 0.03, { smooth: true })
+          .to(0.056, h, { sharp: true })
           .to(0, h),
+        { segs: 8, detail, band: 0, caps: 'end' },
       );
-      b.add(part('steel', transform(leg, chain(T(x, 0.03, zc), mat({ rot: [0, R.spread(1.5), R.spread(0.8)] }))), 'teal-panel', { seed: seed + 10 + i, shade: 0.95, jitter: 0.04 }));
+      b.add(part('steel', transform(leg, chain(T(x, 0.03, zc), mat({ rot: [0, 22.5 + R.spread(1.5), R.spread(0.8)] }), new Matrix4().makeScale(1.0, 1, 0.78))), 'teal-panel', { seed: seed + 10 + i, shade: 0.95, jitter: 0.04 }));
       // the foot plate and its four bolts
-      const foot = roundedBox({ w: 0.3, h: 0.032, d: 0.25, rPlan: 0.05, r: 0.01, segs: 2, detail, band: 0, open: true });
+      const foot = bevelBox({ min: [-0.15, 0, -0.125], max: [0.15, 0.032, 0.125], c: 0.012, omit: ['ny'] });
       b.add(part('steel', transform(foot, chain(T(x, 0, zc + 0.01), mat({ rot: [0, R.spread(3), 0] }))), 'teal-panel', { seed: seed + 20 + i, shade: 0.8 }));
+      // the front two bolts (the back two are under the rail's shadow, a stud each)
       for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        const gg = transform(hexHead(0.05, 0.028, R.range(0, Math.PI / 3)), T(x + sx * 0.112, 0.03, zc + 0.01 + sz * 0.085));
+        const gg = sz > 0 ? transform(hexHead(0.05, 0.028, R.range(0, Math.PI / 3)), T(x + sx * 0.112, 0.03, zc + 0.01 + sz * 0.085)) : transform(stud(0.022, 0.016, 5), T(x + sx * 0.112, 0.03, zc + 0.01 + sz * 0.085));
         b.small(() => [part('metal', gg, 'steel', { seed: seed + 30 + i, jitter: 0.08 })]);
       }
     }
@@ -163,8 +165,8 @@ export function belt(o: BeltOptions = {}): Piece {
   const drumL = rollers[0]!, drumR = rollers[rollers.length - 1]!;
   const brassCap = (r: number, h: number): BufferGeometry =>
     lathe(
-      profile(0, 0).to(r, 0, { sharp: true }).to(r, h * 0.4, { fillet: h * 0.15, segs: 1 }).to(r * 0.8, h * 0.55, { sharp: true }).to(r * 0.78, h, { fillet: h * 0.3, segs: 2 }).to(0, h),
-      { segs: hi ? 11 : 8, detail, band: 0 },
+      profile(r, 0).to(r, h * 0.4, { fillet: h * 0.15, segs: 1 }).to(r * 0.8, h * 0.55, { sharp: true }).to(r * 0.76, h, { fillet: h * 0.3, segs: 1 }).to(0, h),
+      { segs: hi ? 9 : 7, detail, band: 0, caps: false },
     );
   // the chain guard: a stadium of yellow enamel from the gearbox sprocket to the drive drum, proud of everything
   const guardZ = Math.max(zo, 0.71) + 0.01;
@@ -174,7 +176,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const ra = 0.15, rb = 0.125;
     const ang = Math.atan2(ay - sy, ax - sx);
     const pts: Array<[number, number]> = [];
-    const n = 7;
+    const n = 5;
     for (let i = 0; i <= n; i++) {
       const a = ang - Math.PI / 2 + (Math.PI * i) / n;
       pts.push([ax + Math.cos(a) * ra, ay + Math.sin(a) * ra]);
@@ -184,7 +186,7 @@ export function belt(o: BeltOptions = {}): Piece {
       pts.push([sx + Math.cos(a) * rb, sy + Math.sin(a) * rb]);
     }
     const gd = 0.07;
-    const gg = extrude(pts, gd, { radius: 0.03, bevel: 0.018, bevelBase: 0, caps: 'end', segs: 2, detail });
+    const gg = extrude(pts, gd, { radius: 0.03, bevel: 0.018, bevelBase: 0, caps: 'end', segs: 2, detail, band: 0 });
     // pillow the face a little, so the lamp rolls across it instead of lying flat on it
     deform(gg, (x, y, z) => {
       const ex = ax - sx, ey = ay - sy;
@@ -206,7 +208,7 @@ export function belt(o: BeltOptions = {}): Piece {
       b.small(() => [part('metal', transform(stud(0.016, 0.01, 6), aim([midx + Math.cos(ang + Math.PI / 2) * k * 0.085, midy + Math.sin(ang + Math.PI / 2) * k * 0.085, guardZ + gd], [0, 0, 1])), 'steel', { seed: seed + 41 })]);
     }
     // the drive drum's bearing flange on the guard's face
-    const fg = lathe(profile(0, 0).to(0.075, 0, { sharp: true }).to(0.075, 0.016, { fillet: 0.006, segs: 2 }).to(0.05, 0.022, { fillet: 0.006, segs: 1 }).to(0.045, 0.04, { fillet: 0.008, segs: 1 }).to(0, 0.04), { segs: hi ? 14 : 10, detail, band: 0 });
+    const fg = lathe(profile(0, 0).to(0.075, 0, { sharp: true }).to(0.075, 0.016, { fillet: 0.006, segs: 2 }).to(0.05, 0.022, { fillet: 0.006, segs: 1 }).to(0.045, 0.04, { fillet: 0.008, segs: 1 }).to(0, 0.04), { segs: hi ? 10 : 8, detail, band: 0, caps: 'end' });
     b.add(part('brass', transform(fg, aim([ax, ay, guardZ + gd - 0.004], [0, 0, 1])), 'brass', { seed: seed + 42, warm: 0.03 }));
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2 + 0.3;
@@ -228,7 +230,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const blk = bevelBox({ min: [-0.11, -0.065, 0], max: [0.11, 0.065, 0.06], c: 0.012, omit: ['nz'] });
     b.add(part('brass', transform(blk, T(drumR.x - 0.02, drumR.y, dz)), 'brass', { seed: seed + 47, shade: 0.85, warm: 0.03 }));
     // the slot it slides in: a dark strip on the web, longer than the block
-    b.add(part('rubber', transform(slab({ w: 0.36, d: 0.05, t: 0.004, r: 0.02, bevel: 0.0015, detail: 'low', band: 0, open: true }), chain(T(drumR.x - 0.06, drumR.y, dz + 0.001), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 0.6 }));
+    b.add(part('steel', transform(slab({ w: 0.36, d: 0.05, t: 0.004, r: 0.02, bevel: 0.0015, detail: 'low', band: 0, open: true }), chain(T(drumR.x - 0.06, drumR.y, dz + 0.001), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 0.6 }));
     const d1 = n0.node(drumR.name, capAt(drumR.x, drumR.y, dz + 0.06));
     d1.add(part('brass', transform(brassCap(0.034, 0.034), new Matrix4().makeRotationX(Math.PI / 2)), 'brass', { seed: seed + 48, warm: 0.04 }));
     d1.add(part('brass', transform(stud(0.008, 0.012, 6), T(0, 0.032, 0.02)), 'brass', { seed: seed + 49 }));
@@ -244,12 +246,12 @@ export function belt(o: BeltOptions = {}): Piece {
     // return idlers: hung from drop brackets under the near rail; the brass cap is the node
     for (const r of rollers.slice(1, -1)) {
       // the idler's tube (static: under the belt, only its front end is ever seen)
-      const tube = lathe(profile(RET_R * 0.6, 0).to(RET_R, 0, { fillet: 0.006, segs: 1 }).to(RET_R, 0.3, { sharp: true }), { segs: 9, detail, band: 0, caps: false });
+      const tube = lathe(profile(RET_R, 0).to(RET_R, 0.3, { sharp: true }), { segs: 6, detail, band: 0, caps: false });
       b.add(part('metal', transform(tube, aim([r.x, r.y, zw + 0.01], [0, 0, -1])), 'steel', { seed: seed + 60, shade: 0.85 }));
       // a drop bracket: a bent strap from under the rail's bottom flange down past the axle
-      const bracket = bevelBox({ min: [-0.045, r.y - 0.06, zo - 0.02], max: [0.045, yR0 + 0.004, zo + 0.006], c: 0.01 });
+      const bracket = bevelBox({ min: [-0.045, r.y - 0.06, zo - 0.02], max: [0.045, yR0 + 0.004, zo + 0.006], c: 0.01, omit: ['nz', 'py'] });
       b.add(part('steel', transform(bracket, T(r.x, 0, 0)), 'teal-panel', { seed: seed + 61, shade: 0.9 }));
-      b.add(part('metal', transform(hexHead(0.034, 0.016, R.range(0, 1)), aim([r.x, yR0 - 0.02, zo + 0.006], [0, 0, 1])), 'steel', { seed: seed + 62 }));
+      b.add(part('metal', transform(stud(0.018, 0.012, 6), aim([r.x, yR0 - 0.02, zo + 0.006], [0, 0, 1])), 'steel', { seed: seed + 62 }));
       const nd = n0.node(r.name, T(r.x, r.y, zo + 0.006));
       nd.add(part('brass', transform(brassCap(0.03, 0.03), new Matrix4().makeRotationX(Math.PI / 2)), 'brass', { seed: seed + 63, warm: 0.04 }));
       nd.add(part('brass', transform(stud(0.007, 0.01, 6), T(0, 0.026, 0.018)), 'brass', { seed: seed + 64 }));
@@ -264,7 +266,7 @@ export function belt(o: BeltOptions = {}): Piece {
     for (let i = 0; i < n; i++) {
       const x = x0 + i * pitch;
       if (Math.abs(x) < 0.25 && L >= 4) continue; // the splice plate is here
-      const gg = transform(hexHead(0.046, 0.024, R.range(0, Math.PI / 3)), aim([x, yI, zw], [0, 0, 1]));
+      const gg = transform(stud(0.026, 0.02, 6), aim([x, yI, zw], [0, 0, 1]));
       b.add(part('metal', gg, 'steel', { seed: seed + 70 + i, jitter: 0.07 }));
     }
     // the drive drum's own bearing on the near rail (behind the guard) is not seen; the far rail's not at all
@@ -275,10 +277,10 @@ export function belt(o: BeltOptions = {}): Piece {
     b.add(part('steel', transform(sp, T(0.03, 0, 0)), 'teal-panel', { seed: seed + 80, shade: 0.85 }));
     const ys = [yR0 + fl + 0.05, yR1 - fl - 0.05];
     for (const x of [-0.13, -0.05, 0.11, 0.19]) for (const y of ys) {
-      b.small(() => [part('metal', transform(hexHead(0.038, 0.018, R.range(0, 1)), aim([x, y, zw + 0.018], [0, 0, 1])), 'steel', { seed: seed + 81, jitter: 0.07 })]);
+      b.small(() => [part('metal', transform(stud(0.02, 0.016, 6), aim([x, y, zw + 0.018], [0, 0, 1])), 'steel', { seed: seed + 81, jitter: 0.07 })]);
     }
     // the joint itself: a hairline in the rail's top flange
-    b.add(part('rubber', transform(bevelBox({ min: [-0.003, yR1 - 0.0005, zi + 0.01], max: [0.003, yR1 + 0.001, zo - 0.01] }), T(0.03, 0, 0)), 'ink'));
+    b.add(part('steel', transform(bevelBox({ min: [-0.003, yR1 - 0.0005, zi + 0.01], max: [0.003, yR1 + 0.001, zo - 0.01] }), T(0.03, 0, 0)), 'ink'));
   }
   // an oil cup on the near rail's top flange over the tail drum's bearing
   b.add(place(oilCup(seed + 90, detail), chain(T(drumR.x - 0.05, yR1, (zi + zo) / 2 + 0.01), mat({ rot: [R.spread(4), 0, R.spread(4)] }))));
@@ -296,7 +298,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const reach = half + g.r + 0.2;
     const z0 = zo - 0.02;
     const pts: Array<[number, number, number]> = [[xe, y, z0], [reach - 0.02, y, z0], [reach + 0.05, y, z0 - 0.15], [reach + 0.05, y, -z0 + 0.15], [reach - 0.02, y, -z0], [xe, y, -z0]];
-    b.add(part('metal', sweep(polylinePath(pts, 0.12, hi ? 3 : 2), { radius: 0.027, detail, segs: 8, ends: 'flat' }), 'steel', { seed: seed + 95, shade: 1.05 }));
+    b.add(part('metal', sweep(polylinePath(pts, 0.12, hi ? 3 : 2), { radius: 0.027, detail, segs: 6, ends: 'flat' }), 'steel', { seed: seed + 95, shade: 1.05 }));
     // a drop leg from the front corner to the bench, so it is not hanging in the air
     b.add(part('metal', sweep(polylinePath([[reach - 0.02, y, z0], [reach + 0.01, y * 0.5, z0 + 0.03], [reach + 0.02, 0.02, z0 + 0.04]], 0.1, 2), { radius: 0.017, detail, segs: 6, ends: 'flat' }), 'steel', { seed: seed + 96 }));
     b.add(part('brass', transform(lathe(profile(0, 0).to(0.04, 0, { sharp: true }).to(0.04, 0.012, { fillet: 0.005, segs: 1 }).to(0.026, 0.02, { fillet: 0.005, segs: 1 }).to(0.024, 0.05, { fillet: 0.008, segs: 1 }).to(0, 0.05), { segs: 10, detail, band: 0 }), T(reach + 0.02, 0, z0 + 0.04)), 'brass', { seed: seed + 97 }));

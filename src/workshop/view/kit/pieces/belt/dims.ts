@@ -23,7 +23,7 @@ export const BELT = {
   /** The default overall length (belt end to belt end). */
   defaultLength: 6,
   /** Most distance between legs. */
-  legPitch: 2.7,
+  legPitch: 3.2,
   /** Width of the motor housing at the left end (X), and its gap to the belt's end. */
   motorW: 0.98,
   motorGap: 0.06,
