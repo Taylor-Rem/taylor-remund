@@ -23,7 +23,7 @@ export {
   mergeGeometries, merge, NodeBuilder, PieceBuilder, piece, countTriangles, pieceBounds, budget,
 } from './compose.ts';
 export type { PartsLike, Placement, PieceOptions, Budget, BudgetRow } from './compose.ts';
-export { realize, drawStats, sourcesOf } from './realize.ts';
+export { realize, drawStats, sourcesOf, SHADOW_LAYER } from './realize.ts';
 export { bevelBox, innerBox, skin, decalBands, stud, mergeMarked, sheet, cylinderRibbons, ridgedBand, hexHead, stripes, DIGIT_STROKES } from './cheap.ts';
 export type { BevelBoxOptions, FaceName, SheetOptions } from './cheap.ts';
 export { grain, setFinish, lposOf, offsetLpos } from './space.ts';
