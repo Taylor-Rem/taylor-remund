@@ -8,10 +8,10 @@
  * list to add, replace or remove a station: they add, replace or remove a
  * file. How to write one is in the note at the top of `view/bench.ts`.
  */
-import { Group, Matrix4 } from 'three';
+import { Box3, Group, Matrix4 } from 'three';
 import type { SceneDesc, WorldView } from '../../sim/types.ts';
 import type { Labels, StationViewFactory } from '../types.ts';
-import type { Piece } from '../kit/types.ts';
+import type { KitPart, Piece, PieceNode } from '../kit/types.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import type { Fit } from '../vignette.ts';
 import type { StaticPool } from '../stations/set.ts';
@@ -84,6 +84,27 @@ export function staticStation(k: BenchKit, items: (build: (name: string, opts?: 
     k.pool.items.push(...items(build, ctx.labels));
     return { root: new Group(), update() {}, dispose() {} };
   };
+}
+
+/**
+ * The piece with every part that lies wholly below `y` (world, placed at `at`) left out of the shadow
+ * pass: under the bench top nothing the key light reaches needs a shadow from it (the frame, the legs,
+ * the floor, a riser in the dark). `y` Infinity: nothing of it casts. A new tree; the piece is not changed.
+ */
+export function castAbove(p: Piece, at: Matrix4, y = 0.001): Piece {
+  const box = new Box3();
+  const walk = (n: PieceNode, parent: Matrix4): PieceNode => {
+    const w = n.transform ? parent.clone().multiply(n.transform) : parent;
+    const parts = n.parts.map((q): KitPart => {
+      q.geometry.computeBoundingBox();
+      const below = !q.geometry.boundingBox || box.copy(q.geometry.boundingBox).applyMatrix4(w).max.y < y;
+      return below ? { ...q, castShadow: false } : q;
+    });
+    const out: PieceNode = { ...n, parts };
+    if (n.children) out.children = n.children.map((c) => walk(c, w));
+    return out;
+  };
+  return { ...p, root: walk(p.root, at) };
 }
 
 /** A translation, and a translation with a uniform scale. */

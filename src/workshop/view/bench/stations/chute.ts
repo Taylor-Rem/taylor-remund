@@ -4,7 +4,7 @@
  * the stack where a returned part lands.
  */
 import { CHUTE_AIM, CHUTE_RUN, LAYOUT, origin } from '../../bench.ts';
-import { ORDER, at, staticStation, type BenchStation } from '../station.ts';
+import { ORDER, at, castAbove, staticStation, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'chute',
@@ -13,7 +13,9 @@ export const station: BenchStation = {
     return staticStation(k, (build) => {
       const p = build('chute', { run: CHUTE_RUN, aim: CHUTE_AIM });
       const [x, z] = origin(LAYOUT.stations.chute);
-      return p ? [{ piece: p, at: at(x, 0, z) }] : [];
+      // its riser below the bench top casts nothing
+      const m = at(x, 0, z);
+      return p ? [{ piece: castAbove(p, m), at: m }] : [];
     });
   },
 };
