@@ -73,7 +73,7 @@ import { SPRINGS, LIT_LEVELS, HIDDEN, nodeTransforms } from './pose.ts';
 export { DIM, LAMP_PLACE, STAGE_AIM, STAGE_BULB, solveArm, stageTarget } from './rig.ts';
 export type { ArmSolution, V3 } from './rig.ts';
 export {
-  HOME, LIMITS, JOINTS, MECH, REACH, AIM_FEEL, AIM_TARGETS, aimLamp, armFrames, jointsOf, inReach, nearestInReach, landing, lampLight, leanFor, planeOf, clampJoints,
+  HOME, LIMITS, JOINTS, MECH, REACH, AIM_FEEL, AIM_TARGETS, aimLamp, armFrames, jointsOf, inReach, nearestInReach, reachInWorld, LEAN_ZERO, landing, lampLight, leanFor, planeOf, clampJoints,
 } from './aim.ts';
 export type { LampPose, Joint, Aimed, AimOptions, ArmFrames } from './aim.ts';
 export { nodeTransforms, lampSockets, SPRINGS, LIT_LEVELS, HIDDEN, springLength, springRest, ringX } from './pose.ts';

@@ -374,6 +374,11 @@ const WIND = Math.sign(REACH.reduce((s, [ax, az], i) => {
   return s + (ax * bz - bx * az);
 }, 0));
 
+/** REACH in world (x, z) for a lamp clamped with its origin at `place` (no yaw): for a simulation that keeps the aim in world space. */
+export function reachInWorld(place: V3): Array<[number, number]> {
+  return REACH.map(([x, z]) => [x + place[0], z + place[2]]);
+}
+
 /** True when (x, z) is inside REACH (or on its edge). */
 export function inReach(x: number, z: number): boolean {
   const n = REACH.length;
