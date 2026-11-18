@@ -8,7 +8,13 @@
 import { Box3, Ray, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { CREW_SCALE, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MUST_SEE, SIGN_WORDS, homeBox, homeEdge, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
+import { BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
+import { Quaternion, type Matrix4 } from 'three';
+import { storefront } from '../../../src/workshop/view/kit/pieces/storefront/index.ts';
+import { platen } from '../../../src/workshop/view/kit/pieces/platen/index.ts';
+import { dock } from '../../../src/workshop/view/kit/pieces/dock/index.ts';
+import { revert } from '../../../src/workshop/view/kit/pieces/revert/index.ts';
+import { revertHatch } from '../../../src/workshop/view/kit/pieces/revert-hatch/index.ts';
 import { MeshBasicMaterial, type Material, type Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
@@ -66,7 +72,7 @@ describe('the layout table and the simulation agree', () => {
   /** Stations with a body: the spot's origin is the body's centre, its footprint and height the body's. */
   const bodies: Array<[StationKey, string]> = [
     ['board', 'board'], ['stool', 'stool'], ['phone', 'phone'], ['button', 'console'],
-    ['undo', 'undo'], ['platen', 'platen'], ['storefront', 'storefront'], ['striker', 'striker'], ['dock', 'dock'], ['revert', 'revert'],
+    ['undo', 'undo'], ['striker', 'striker'],
   ];
   it.each(bodies)('%s stands where its body is', (key, id) => {
     const s = S[key];
@@ -116,6 +122,7 @@ describe('the footprints', () => {
   const onBench = (Object.entries(S) as Array<[StationKey, Spot]>).filter(([, s]) => s.z > -5);
   /** Overlaps that are meant: the striker's post stands on the belt's far rail; the stool tucks against the board's frame post; Revert parks on its hatch; the dock's mouth meets the belt's end (its turned footprint's box overlaps). */
   const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock']);
+  // the real pieces' footprints are their bounds (the platen's conduit, the storefront's jack box, the dock's ramp included)
   it('lie on the bench and do not overlap (except where one stands on another)', () => {
     for (const [k, s] of onBench) {
       const b = spotBox(s);
@@ -228,6 +235,18 @@ describe('the camera homes', () => {
       const c = b.getCenter(new Vector3());
       return [c.x, b.min.y + (b.max.y - b.min.y) * f, b.max.z - 0.05];
     };
+    /** A real piece's sockets, placed at its spot's origin: what a visitor must see of it. */
+    const sockets = (k: StationKey, p: { sockets?: Record<string, Matrix4> }, names: readonly string[]): Record<string, Vec3> => {
+      const o = S[k].at!;
+      const out: Record<string, Vec3> = {};
+      for (const n of names) {
+        const m = p.sockets?.[n];
+        if (!m) throw new Error(`${k}: no socket ${n}`);
+        const v = new Vector3().setFromMatrixPosition(m);
+        out[`${k} ${n}`] = [v.x + o[0], v.y, v.z + o[1]];
+      }
+      return out;
+    };
     const targets: Record<string, Vec3> = {
       'button cap': scene.button.at,
       ...Object.fromEntries(scene.cord.jacks.map((j) => [j.id, j.at])),
@@ -241,8 +260,12 @@ describe('the camera homes', () => {
       'striker head': top('striker', 0.95),
       'dock mouth': [S.dock.x - 0.4, 0.8, S.dock.z + 0.3],
       'belt dial and lever (on its motor)': [S.belt.x - S.belt.w / 2 + 0.6, 0.9, S.belt.z + S.belt.d / 2 - 0.1],
-      mailbox: [SHIPPED.mailbox.x, SHIPPED.mailbox.postH + 0.15, SHIPPED.mailbox.z + 0.17],
-      clipboard: [SHIPPED.mailbox.x, SHIPPED.clipboard.y + 0.2, SHIPPED.mailbox.z + 0.15],
+      mailbox: [MAILBOX.x, MAILBOX.postH + 0.15, MAILBOX.z + 0.17],
+      'résumé clipboard': [MAILBOX.x, MAILBOX.clipboard.y + 0.2, MAILBOX.z + 0.15],
+      'mailbox foot': [MAILBOX.x, 0.1, MAILBOX.z + 0.1],
+      ...sockets('platen', platen({ detail: 'low' } as never), ['seat', 'plate', 'jack', 'lamp', 'tapehead.face']),
+      ...sockets('storefront', storefront({ detail: 'low' } as never), ['words', 'window', 'jack', 'lamp']),
+      ...sockets('dock', dock({ detail: 'low', reach: DOCK_REACH }), ['door', 'threshold', 'bell', 'lamp', 'in']),
       'revert top': top('revert', 1),
       'return chute': top('chute', 0.9),
       "revert's hatch": [S.hatch.x, 0.05, S.hatch.z],
@@ -254,15 +277,23 @@ describe('the camera homes', () => {
       targets[`shipped crate ${i}`] = [f.c.x, f.c.y, f.c.z + 0.01];
       targets[`shipped crate ${i} foot`] = [f.c.x, f.c.y - f.h / 2 + 0.06, f.c.z + 0.01];
     });
-    const blockers = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, body(s.id)] as const);
+    // oriented boxes: each static in its own frame (the dock's portal and bay turn -50°), the ray taken into it
+    const blockers = scene.statics
+      .filter((s) => s.id !== 'bench' && s.id !== 'back-wall' && s.shape.type === 'box')
+      .map((s) => {
+        const half = (s.shape as { half: Vec3 }).half;
+        const inv = new Quaternion(...s.pose.q).invert();
+        return { id: s.id, c: new Vector3(...s.pose.p), inv, box: new Box3(new Vector3(-half[0], -half[1], -half[2]), new Vector3(...half)) };
+      });
     for (const [name, t] of Object.entries(targets)) {
       const to = new Vector3(...t);
-      const ray = new Ray(eye, to.clone().sub(eye).normalize());
       const dist = eye.distanceTo(to);
-      for (const [id, b] of blockers) {
-        if (b.clone().expandByScalar(0.08).containsPoint(to)) continue; // its own body
-        const hit = ray.intersectBox(b, new Vector3());
-        expect(hit && eye.distanceTo(hit) < dist - 0.05 ? `${name} hidden by ${id}` : null).toBe(null);
+      for (const b of blockers) {
+        const o = eye.clone().sub(b.c).applyQuaternion(b.inv), p = to.clone().sub(b.c).applyQuaternion(b.inv);
+        if (b.box.clone().expandByScalar(0.08).containsPoint(p)) continue; // its own body
+        const hit = new Ray(o, p.clone().sub(o).normalize()).intersectBox(b.box, new Vector3());
+        if (hit && o.distanceTo(hit) < dist - 0.05 && process.env["BENCH_REPORT"]) console.log("HIDDEN", name, b.id, JSON.stringify(to), JSON.stringify(eye), JSON.stringify(hit.clone().applyQuaternion(b.inv.clone().invert()).add(b.c)));
+        expect(hit && o.distanceTo(hit) < dist - 0.05 ? `${name} hidden by ${b.id}` : null).toBe(null);
       }
     }
   });
@@ -312,6 +343,7 @@ describe('Patch at the crew scale', () => {
 describe('the Shipped zone', () => {
   it('stands its pallets, crates and mailbox inside its footprint, as the simulation has them', () => {
     const z = spotBox(S.shipped);
+    expect(z.intersectsBox(mailboxBox())).toBe(false);
     for (const { id, box } of shippedBoxes()) {
       expect(z.containsBox(new Box3(box.min.clone().setY(0), box.max.clone().setY(0))), id).toBe(true);
       const b = body(id);
@@ -320,6 +352,46 @@ describe('the Shipped zone', () => {
     }
     expect(SHIPPED.pallets.length).toBe(4);
     for (const p of SHIPPED.pallets) expect(p.crates.length).toBeGreaterThanOrEqual(2);
+    const m = body('mailbox'), mb = mailboxBox();
+    expect(m.min.distanceTo(mb.min)).toBeLessThan(1e-6);
+    expect(m.max.distanceTo(mb.max)).toBeLessThan(1e-6);
+  });
+});
+
+describe('the real pieces', () => {
+  const near = (a: number, b: number, tol = 0.02): boolean => Math.abs(a - b) <= tol;
+  it.each([
+    ['storefront', () => storefront({ detail: 'low' } as never), 1],
+    ['platen', () => platen({ detail: 'low' } as never), 1],
+    ['dock', () => dock({ detail: 'low', reach: DOCK_REACH }), 1],
+    ['revert', () => revert({ detail: 'low', pose: 'idle' } as never), REVERT_SCALE],
+    ['hatch', () => revertHatch({ detail: 'low', pose: 'open' } as never), REVERT_SCALE],
+  ] as const)('%s stands in its spot (the layout carries its real bounds)', (key, make, k) => {
+    const b = pieceBounds(make());
+    const B = BOUNDS[key];
+    expect(near(b.min.x * k, B.x[0]) && near(b.max.x * k, B.x[1]) && near(b.min.z * k, B.z[0]) && near(b.max.z * k, B.z[1]) && near(b.max.y * k, B.h, 0.03), `${key}: ${b.min.x * k}..${b.max.x * k}, ${b.min.z * k}..${b.max.z * k}, h ${b.max.y * k}`).toBe(true);
+  });
+
+  it("fits the dock's ramp to the belt's bed end", () => {
+    const d = S.dock.at!;
+    // bed end plus the gap, at the ramp's start
+    expect(d[0] + DOCK_REACH[0] - 0.12).toBeCloseTo(AT.belt.c[0] + AT.belt.half[0], 6);
+    expect(d[1] + DOCK_REACH[1]).toBeCloseTo(AT.belt.c[2], 6);
+  });
+  it("keeps every real piece's bodies inside its footprint", () => {
+    const inside = (id: string, k: StationKey): void => {
+      const s = scene.statics.find((q) => q.id === id)!;
+      const half = (s.shape as { half: Vec3 }).half;
+      const q = new Quaternion(...s.pose.q);
+      const f = spotBox(S[k]).expandByScalar(0.05);
+      for (const c of corners(new Box3(new Vector3(-half[0], -half[1], -half[2]), new Vector3(...half)))) expect(f.containsPoint(c.applyQuaternion(q).add(new Vector3(...s.pose.p))), `${id} in ${k}`).toBe(true);
+    };
+    inside('platen', 'platen');
+    inside('platen-column', 'platen');
+    inside('platen-tank', 'platen');
+    inside('storefront', 'storefront');
+    inside('dock', 'dock');
+    inside('revert', 'revert');
   });
 });
 
