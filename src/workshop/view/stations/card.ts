@@ -15,7 +15,8 @@
  * A press while a card is up takes it away at once. With reduced motion it
  * rises and falls on a short ease, without a wobble.
  *
- * It stands left of the Button and behind it, raised high enough that the
+ * It stands well left of the Button and behind it (in front of the gap between the
+ * tool wall and the switchboard, so it never covers a jack tape), raised high enough that the
  * console, the cap and the parked guard stay clear of it at the default view.
  */
 import { Group, Quaternion, Vector3, type Object3D } from 'three';
@@ -28,7 +29,7 @@ import type { CardArmPose } from '../kit/pieces/card-arm/index.ts';
 /** Tune here. */
 export const CARD_FEEL = {
   /** Where the slot is, in the Button pedestal's frame (x right, z toward the visitor). */
-  slot: { x: -1.24, z: -1.0, yaw: 2.5 },
+  slot: { x: -2.3, z: -1.0, yaw: 2.5 },
   /** The pop: the stick's spring (lift is a fraction of the stow depth, so keep the overshoot small). */
   popOmega: 15,
   popDamping: 0.62,

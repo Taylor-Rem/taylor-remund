@@ -74,7 +74,8 @@ describe('the vignette on the simulation scene', () => {
     const b = body('board');
     expect(fit.stool.seat[1]).toBeGreaterThan(0.5);
     // the designs face -X, side-on: the board on their front-left, so the stool stands past the board's right end
-    expect(fit.stool.seat[0] - 0.3).toBeGreaterThan(b.max.x);
+    // (the board's body includes its frame post, so it is the seat's centre that must be past it)
+    expect(fit.stool.seat[0]).toBeGreaterThan(b.max.x);
   });
 
   it('reports the pieces against the simulation', () => {

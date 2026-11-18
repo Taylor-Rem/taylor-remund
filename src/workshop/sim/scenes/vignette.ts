@@ -30,14 +30,14 @@ export const AT = {
   /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. */
   stack: [-3.05, -0.25] as const,
   /** The Button's console (the body only: guard, counter and cable are not colliders). Deck top at y 1.04. */
-  console: { c: [0.15, 0.52, 0.5], half: [1.05, 0.52, 0.71] } as Box,
+  console: { c: [0.15, 0.52, 0.55], half: [1.05, 0.52, 0.76] } as Box,
   /** The Button's cap on the console deck (where the interactable is). */
   buttonCap: [0.47, 1.25, 0.35] as Vec3,
-  /** The switchboard against the back wall (with its keyshelf), and its two live jacks. Provisional jacks. */
-  board: { c: [1.05, 1.41, -4.35], half: [2.2, 1.41, 0.65] } as Box,
-  jacks: { storefront: [0.05, 1.6, -3.9] as Vec3, lamp: [2.09, 1.6, -3.9] as Vec3 },
-  /** Patch's stool (seat top 0.60). */
-  stool: { c: [-1.25, 0.3, -3.35], half: [0.31, 0.3, 0.31] } as Box,
+  /** The switchboard against the back wall (with its keyshelf, frame and crest), and its two live jacks (measured from the piece). */
+  board: { c: [1.05, 1.554, -4.335], half: [2.3, 1.554, 0.655] } as Box,
+  jacks: { storefront: [0.05, 1.6, -4.264] as Vec3, lamp: [2.09, 1.6, -4.264] as Vec3 },
+  /** Patch's tall stool at the board's right end (seat top 1.15), where both jack tapes stay clear of Patch. */
+  stool: { c: [3.6, 0.577, -3.4], half: [0.324, 0.578, 0.322] } as Box,
   /** The phone. */
   phone: { c: [2.75, 0.36, -1.55], half: [0.21, 0.36, 0.15] } as Box,
   /** The belt's bed (carrying surface at y 0.5; static in P1) and its motor housing. */
