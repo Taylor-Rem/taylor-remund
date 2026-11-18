@@ -33,6 +33,14 @@ export { DT, HZ } from './clock.ts';
 export { rng } from './rng.ts';
 export type { Rng } from './rng.ts';
 export { registryProblems } from './registry.ts';
+// the Patchlamp station (S3): the words Patch understands, and the station's tunings and numbers
+export { parse, MAX_TEXT, UNDO_REPLIES, PAINTS, PICTURES, JACKS, REPLY_IDS, jackOf } from './instruct/index.ts';
+export type { Colour, Instruction, Jack, LampColour, Parsed, Picture, Refusal, RefusalReason, Reply, ReplyId, ReplyLine, Verb } from './instruct/index.ts';
+export { PATCHLAMP } from './scenes/bench.ts';
+export { PATCH_TUNING } from './crew/patch.ts';
+export { LAMP_TUNING } from './machines/lamp.ts';
+export { STOREFRONT_START } from './machines/storefront.ts';
+export { PATCHLAMP_BEAT_SECONDS, STOREFRONT_FIELDS, LAMP_FIELDS, WINDOW_PICTURES } from './machines/shared/patchlamp.ts';
 
 /** Load Rapier (its wasm arrives now, not with the page) and make the physics port. */
 export async function createRapierPhysics(): Promise<import('./physics/port.ts').PhysicsPort> {

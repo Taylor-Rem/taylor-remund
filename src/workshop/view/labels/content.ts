@@ -6,6 +6,7 @@ import worldJson from '../../../content/world.json';
 import lineJson from '../../../content/line.json';
 import buttonJson from '../../../content/button.json';
 import revertJson from '../../../content/revert.json';
+import patchlampJson from '../../../content/patchlamp.json';
 import { assertContent } from '../../../content/schema.ts';
 import type { Entry } from '../../../content/schema.ts';
 import type { PhoneMessage } from './layout.ts';
@@ -14,6 +15,7 @@ const raw = assertContent(worldJson, 'src/content/world.json');
 const line = assertContent(lineJson, 'src/content/line.json');
 const button = assertContent(buttonJson, 'src/content/button.json');
 const revert = assertContent(revertJson, 'src/content/revert.json');
+const patchlamp = assertContent(patchlampJson, 'src/content/patchlamp.json');
 
 const isFrom = (v: unknown): v is PhoneMessage['from'] => v === 'owner' || v === 'patch';
 
@@ -93,6 +95,16 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.revert': button.names.revert as Entry,
   'name.undo-lever': button.names.lever as Entry,
   'name.button.cover': button.names.cover as Entry,
+  // the Patchlamp station (S3: src/content/patchlamp.json)
+  'name.line': patchlamp.names.line as Entry,
+  'name.patch': patchlamp.names.patch as Entry,
+  'name.platen': patchlamp.names.platen as Entry,
+  'name.storefront': patchlamp.names.storefront as Entry,
+  'name.jack.platen': patchlamp.names.jack.platen as Entry,
+  'name.jack.belt': patchlamp.names.jack.belt as Entry,
+  'name.jack.reserved': patchlamp.names.jack.reserved as Entry,
+  'slip.reserved': patchlamp.slips.reserved as Entry,
+  'slip.platen-full': patchlamp.slips.platenFull as Entry,
 };
 
 /** Every content id this module resolves. */

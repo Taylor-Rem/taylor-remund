@@ -18,6 +18,7 @@
  * `sim/scenes/vignette.ts` `AT`. Never copy them into `view`.
  */
 import type { SceneDesc } from './scene.ts';
+import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
 
 export type { SceneDesc };
 
@@ -230,7 +231,20 @@ export type Intent =
   /** Pull the UNDO lever (or press `U`): take back the most recent transaction (§ E5 rule 8). */
   | { readonly type: 'undo' }
   /** "Reset the workshop" (settings): every durable field back to how the visit began, the history emptied. */
-  | { readonly type: 'reset' };
+  | { readonly type: 'reset' }
+  // ── the Patchlamp station (S3) ──
+  /**
+   * Send a text down the cord to whatever live jack it is in (the phone, § D 3): the visitor's own
+   * words, 1 to 240 characters, as typed. The line answers with `line.*` events and `LineView.log`.
+   * Not handled while a Button rung plays (the world drops it; the phone line holds it until the rung ends).
+   */
+  | { readonly type: 'text'; readonly text: string }
+  /**
+   * Drag something that is a handle or a crew member rather than a loose part (§ D 13, § D 14): the
+   * lamp by its shade (`id` the lamp), Patch off its stool (`id` Patch). Sent each frame the hand moves,
+   * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
+   */
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean };
 
 // ───────────────────────── events: what `view` and `audio` may hear ─────────────────────────
 
@@ -334,7 +348,25 @@ export type SimEvent =
    */
   | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
   /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
-  | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id };
+  | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id }
+  // ── the Patchlamp station (S3: § B2 X1, § D 3-4, § B5 Patch) ──
+  /**
+   * A text went down the line (`n` numbers the visit's texts from 1) into `jack` (a scene jack id;
+   * `line` its name: storefront, platen, belt or lamp). `text` is the visitor's own words, as typed.
+   */
+  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  /** Patch has picked text `n` up and is on it: the job's stages are `PatchView.state`. */
+  | { readonly type: 'line.working'; readonly n: number }
+  /** Patch texts back (reply ids, sim/instruct `Reply`): the change it made and checked, or help, who, thanks, "undo that". */
+  | { readonly type: 'line.reply'; readonly n: number; readonly reply: Reply; readonly mailbox: boolean }
+  /** Text `n` changed nothing; the slip it texts back says why (never a bare "no"). */
+  | { readonly type: 'line.refused'; readonly n: number; readonly reason: RefusalReason; readonly reply: Reply; readonly mailbox: boolean }
+  /** An unparsed text is Taylor's: the mailbox's flag goes up. Nothing is sent anywhere. */
+  | { readonly type: 'mailbox.flag'; readonly n: number }
+  /** The plug seated in a live jack: the station on that line (`station`, its unit id) answers with one beat (§ D 4). */
+  | { readonly type: 'jack.answered'; readonly jack: Id; readonly station: Id }
+  /** A part thrown at Patch got one of three answers (§ B5): it ducked, caught it (and set it on the keyshelf), or took it on the head. */
+  | { readonly type: 'patch.reacted'; readonly part: Id; readonly answer: PatchAnswer };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
@@ -512,7 +544,149 @@ export interface UndoLeverView extends MachineViewBase {
 }
 
 /** Every machine's view state; narrow on `kind`. A new machine adds its interface here. */
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView;
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView;
+
+// ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
+
+/** Patch's answer to a part thrown at it (§ B5), chosen by where the part is going. */
+export type PatchAnswer = 'duck' | 'catch' | 'bonk';
+
+/**
+ * One change a Patchlamp station is showing (§ B2 X1: "each change a beat the view can perform and
+ * reverse"). The durable value is already `to` (the change committed in one step, § E5 rule 1); the
+ * beat is the showing of it. `how` is `change` (perform it), `undo` (perform it backwards: paint drains
+ * up the nozzle, a label peels off, the slats turn back) or `reset`.
+ */
+export interface StationBeat {
+  /** The durable field: the station's own setting, or `colour` / `label` of the part on the platen's tray. */
+  readonly field: string;
+  /** The part changed (the platen), or null for the station's own setting. */
+  readonly part: Id | null;
+  readonly from: Value;
+  readonly to: Value;
+  readonly how: 'change' | 'undo' | 'reset';
+  /** Seconds since it began. A beat is listed for `PATCHLAMP_BEAT_SECONDS` (sim/machines/storefront.ts) after it begins. */
+  readonly since: number;
+}
+
+/** What every station on a Patchlamp line shows besides its own settings. */
+export interface StationOnLineView extends MachineViewBase {
+  /** The scene jack whose line reaches this station. */
+  readonly jack: Id;
+  /** Seconds since the plug last seated in that jack: the station answers with one beat (§ D 4). Infinity before. */
+  readonly answered: number;
+  /** Changes being shown, oldest first: one per field. */
+  readonly beats: readonly StationBeat[];
+}
+
+/** The window's picture: one of the drawn set (sim/instruct `PICTURES`) or the empty frame. */
+export type WindowPicture = 'mountains' | 'sun' | 'boat' | 'tree' | 'house' | 'none';
+
+/** The storefront (§ B2 X1): durable settings a text changes. */
+export interface StorefrontView extends StationOnLineView {
+  readonly kind: 'storefront';
+  /** The fascia's paint (one of the 8 paints). Durable. */
+  readonly sign: PaintName;
+  /** The fascia's words, capitals, at most 16; '' means the fascia's own words (src/content/storefront.json). Durable. */
+  readonly words: string;
+  /** The awning's paint. Durable. */
+  readonly awning: PaintName;
+  /** OPEN (the window lit) or CLOSED. Durable. */
+  readonly open: boolean;
+  /** The picture in the window. Durable. */
+  readonly picture: WindowPicture;
+}
+
+/** The platen (§ B1: the tray under the nozzle; changes the colour and label of whatever is on it). */
+export interface PlatenView extends StationOnLineView {
+  readonly kind: 'platen';
+  /** The part on the tray (taken in and held there, Fetch included), or null. Its colour and label are on the part. */
+  readonly onTray: Id | null;
+  /** Where the tray seats a part: the bottom centre, world space. */
+  readonly seat: Vec3;
+}
+
+/** The workshop's one lamp (§ B2 X1 LAMP, § D 14): durable settings the stage tints and aims the key light by. */
+export interface LampView extends StationOnLineView {
+  readonly kind: 'lamp';
+  /** Off is night (§ B2 X1). Durable. */
+  readonly on: boolean;
+  /** Brightness step, 1 (dimmest) to `levels`; the visit starts at `home.level`. Durable. */
+  readonly level: number;
+  readonly levels: number;
+  /** One of the 8 paints, or `warm`: its own amber light. Durable. */
+  readonly colour: PaintName | 'warm';
+  /** Where the bulb is (world): the durable arm setting, or where the hand has it while it is dragged. */
+  readonly bulb: Vec3;
+  /** The point the shade points at (world, on the bench top). */
+  readonly aim: Vec3;
+  /** The visit's starting lamp: a new visit and "Reset the workshop" start here (the opening picture). */
+  readonly home: { readonly bulb: Vec3; readonly aim: Vec3; readonly level: number };
+  /** The visitor has the shade in hand. */
+  readonly dragging: boolean;
+}
+
+/**
+ * One entry of the phone conversation (the phone line, `ui/phone/world-line.ts`, reads these). They
+ * carry ids, never our sentences; `text` is the visitor's own words.
+ */
+export type LineEntry =
+  | { readonly kind: 'sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  | { readonly kind: 'working'; readonly n: number }
+  | { readonly kind: 'reply'; readonly n: number; readonly reply: Reply; readonly mailbox: boolean }
+  | { readonly kind: 'refused'; readonly n: number; readonly reason: RefusalReason; readonly reply: Reply; readonly mailbox: boolean };
+
+/** The phone line through the switchboard (§ B2 X1): texts in, one job at a time, replies out. */
+export interface LineView extends MachineViewBase {
+  readonly kind: 'line';
+  /** The live line the cord is in, or null while the plug is lifted (no text can be sent). */
+  readonly line: Jack | null;
+  /** The scene jack the cord is in (durable; while lifted, the one it came from). */
+  readonly jack: Id;
+  /** While the visitor holds the plug: the live jacks offering themselves (§ D 4). Empty otherwise. */
+  readonly offering: readonly Id[];
+  /** The jack whose text Patch has in hand or is waiting on (its lens lamp shows the call, § B5), or null. */
+  readonly ringing: Id | null;
+  /** Texts waiting behind the one in hand. */
+  readonly waiting: number;
+  /** The text in hand: its number and jack, and the unit on that line. Null when Patch is free. */
+  readonly job: { readonly n: number; readonly jack: Id; readonly station: Id } | null;
+  /** Seconds since the mailbox flag last went up (Infinity before). Nothing is ever sent. */
+  readonly mailbox: number;
+  /** The conversation so far this visit, oldest first. `logStart` is the index of `log[0]` (the oldest are dropped past a cap). */
+  readonly log: readonly LineEntry[];
+  readonly logStart: number;
+}
+
+/**
+ * Patch's states (§ B5). The job: `notice` (turns to the board), `drawer` (pulls open the drawer for
+ * that jack), `work` (does it; the change commits at the end of this stage), `check` (leans out toward
+ * the station to see the result is really there), `reply` (texts back). Then `seated`. With the
+ * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
+ * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
+ */
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb';
+
+/** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
+export interface PatchView extends MachineViewBase {
+  readonly kind: 'patch';
+  readonly state: PatchState;
+  /** Seconds since `state` began, and how long it lasts (Infinity for one that waits on something). */
+  readonly stateTime: number;
+  readonly stateLength: number;
+  /** Where Patch is: its seat on the stool, the visitor's hand (held), or its feet on the bench (walking). */
+  readonly at: Vec3;
+  /** Facing, radians about +Y (0 faces +Z, the camera). */
+  readonly heading: number;
+  /** The drawer pulled open (the jack whose folder it is), or null. */
+  readonly drawer: Id | null;
+  /** The unit the job in hand is for (the station on its line), or null. */
+  readonly serving: Id | null;
+  /** What it is looking at (the dead plug, the lever, the visitor, the station it checks, a part coming), or null. */
+  readonly lookAt: Vec3 | null;
+  /** The part in its hands (a catch), or null. */
+  readonly holding: Id | null;
+}
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
 
