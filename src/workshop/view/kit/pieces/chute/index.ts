@@ -78,7 +78,7 @@ export interface ChuteOptions extends KitOptions {
 }
 
 /** The arrow's capital height. */
-export const ARROW_CAP = 0.17;
+export const ARROW_CAP = 0.24;
 
 /** Make the chute's stencil (the crates' own up-arrow, from world.json) and return its key and size. */
 export function chuteLabels(labels: Labels): ChuteLabelRefs {
@@ -188,7 +188,7 @@ export function chute(o: ChuteOptions = {}): Piece {
     }
     // the dark down the throat: a plug deep inside, where the inner wall ends
     const plug = roundedBox({ w: 2 * (CHUTE.hx + w - t) - 0.01, h: 0.01, d: 2 * (CHUTE.hz + w - t) - 0.01, r: 0.004, rPlan: 0.05, detail: 'low', open: true });
-    b.add(part('rubber', transform(plug, chain(mouthM, T(0, 0, -0.33), new Matrix4().makeRotationX(Math.PI / 2))), 'ink', { shade: 0.15 }));
+    b.add(part('metal', transform(plug, chain(mouthM, T(0, 0, -0.33), new Matrix4().makeRotationX(Math.PI / 2))), 'ink', { shade: 0.15 }));
   }
   // the collar: a square flange bolted down where the duct comes through the bench top
   {
@@ -276,9 +276,9 @@ export function chute(o: ChuteOptions = {}): Piece {
     const fl = b.node('flap', hinge);
     // the plate hangs down (-Y) from the hinge, a little in front of the lip
     const fw = 2 * ax - 0.06, fh = 2 * ay - 0.05;
-    const plate = roundedBox({ w: fw, h: 0.018, d: fh, r: 0.007, rPlan: 0.05, segs: 2, detail, band: 0.012 });
+    // a bevelled plate: its wear lives on the chamfer, so the paint chips at the edges, not across the face
+    const g = bevelBox({ min: [-fw / 2, -fh - 0.01, -0.009], max: [fw / 2, -0.01, 0.009], c: 0.007, band: 0.025, wear: 0.8 });
     // a pressed rib across it
-    const g = transform(plate, chain(T(0, -fh / 2 - 0.01, 0.0), new Matrix4().makeRotationX(Math.PI / 2)));
     fl.add(part('steel', g, 'tape-yellow', { seed: seed + 40, shade: 0.95, jitter: 0.03 }));
     const rib = bevelBox({ min: [-fw / 2 + 0.06, -fh * 0.55 - 0.02, 0.009], max: [fw / 2 - 0.06, -fh * 0.55 + 0.02, 0.022], c: 0.009, omit: ['nz'] });
     fl.add(part('steel', rib, 'tape-yellow', { seed: seed + 41, shade: 1.05 }));

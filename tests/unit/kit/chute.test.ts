@@ -25,7 +25,7 @@ describe('the return chute', () => {
     expect(p.triangles).toBeLessThanOrEqual(CAP);
     expect(p.triangles).toBe(K.countTriangles(p));
     expect(chute({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
-    expect(b.meshes).toBeLessThanOrEqual(5);
+    expect(b.meshes).toBeLessThanOrEqual(3);
   });
 
   it('builds deterministically', () => {

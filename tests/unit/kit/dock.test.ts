@@ -28,7 +28,7 @@ describe('the dock', () => {
     expect(p.triangles).toBeLessThanOrEqual(CAP);
     expect(p.triangles).toBe(K.countTriangles(p));
     expect(dock({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
-    expect(b.meshes).toBeLessThanOrEqual(7);
+    expect(b.meshes).toBeLessThanOrEqual(5);
   });
 
   it('builds deterministically, and another seed differs', () => {

@@ -320,12 +320,12 @@ export function dock(o: DockOptions = {}): Piece {
       bay.add(part('metal', sweep({ points: pts }, { radius: 0.005, segs: 4, detail: 'low', ends: 'flat' }), 'steel', { seed: seed + 91, shade: 0.8 }));
     }
     const lamp = bay.node('lamp', T(lampAt.x, lampAt.y + 0.08, lampAt.z));
-    const glass = (cls: 'bulb' | 'glass'): KitPart => {
+    const glass = (cls: 'bulb' | 'dark'): KitPart => {
       const g = lathe(profile(0, 0).to(0.062, 0, { sharp: true }).to(0.07, 0.04, { smooth: true }).curve(0.05, 0.11, 0, 0.12, 3), { segs: hi ? 10 : 8, detail, band: 0 });
-      return cls === 'bulb' ? setFinish(part('bulb', g, 'amber-glow', { seed: seed + 92 }), 0.55) : setFinish(part('glass', g, 'amber', { seed: seed + 93, shade: 0.35 }), 0.6);
+      return cls === 'bulb' ? setFinish(part('bulb', g, 'amber-glow', { seed: seed + 92 }), 0.55) : setFinish(part('brass', g, 'amber', { seed: seed + 93, shade: 0.3 }), 1); // the dark lens, polished: no glass class (one mesh fewer)
     };
     lamp.node('lamp.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(glass('bulb'));
-    lamp.node('lamp.unlit').add(glass('glass'));
+    lamp.node('lamp.unlit').add(glass('dark'));
   }
 
   // ======================================================================
