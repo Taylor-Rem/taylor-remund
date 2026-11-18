@@ -190,7 +190,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
   mark('loader');
   const root = o.root;
   const reduced = o.reducedMotion;
-  const fadeMs = reduced ? 0 : (o.fadeMs ?? 180);
+  const fadeMs = reduced ? 0 : (o.fadeMs ?? 150);
   const progress = new Progress();
   let releaseHold: (() => void) | null = null;
   const state: HandoffState = {
@@ -277,7 +277,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     stepToPicture(ws, o.posters ?? o.renderBand ?? { step: 0, settle: 0 });
     let quiet = 0;
     let last = await frame();
-    for (let i = 0; i < 60 && quiet < 3; i++) {
+    for (let i = 0; i < 60 && quiet < 2; i++) {
       // a resize meanwhile may have changed the band: adopt again
       if (o.posters && !o.renderBand) adopt(ws.stage);
       ws.advance(0);
@@ -285,13 +285,13 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       quiet = t - last < 40 ? quiet + 1 : 0;
       last = t;
       state.settleFrames = i + 1;
-      report('settle', Math.min(quiet, 3), 3);
+      report('settle', Math.min(quiet, 2), 2);
     }
     measure('settle', ts);
     report('settle', 1);
+    // the last step of the warm-up is quick (`warm-done`), and the picture must be fully warm before it is replaced
+    root.classList.add('warm-done');
     warm(1);
-
-    // the picture must be fully warm before it is replaced
     if (!reduced && root.classList.contains('warming')) await wait(warmTransitionMs(root));
     await holdHere('held-picture');
 

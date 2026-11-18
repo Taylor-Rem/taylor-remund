@@ -175,6 +175,8 @@ export interface TraceSummary {
   compile: Record<string, number>;
   /** Image decode by thread, ms. */
   decode: Record<string, number>;
+  /** The page's `b1:` measures on the trace clock (µs), to cut the CPU profile by phase. */
+  windows: { name: string; start: number; end: number }[];
 }
 
 export interface Run {
@@ -183,6 +185,33 @@ export interface Run {
   page: PageData;
   trace: TraceSummary | null;
   profile: Record<string, number> | null;
+  /** Per `b1:` phase: the functions with the most self time (name @ chunk:line, ms). */
+  phases: Record<string, [string, number][]> | null;
+}
+
+/** Self time by function inside each window (profile and trace share the TimeTicks clock). */
+export function profileByPhase(profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[]; startTime: number }, windows: TraceSummary['windows'], top = 6): Record<string, [string, number][]> {
+  const byId = new Map<number, ProfileNode>();
+  for (const n of profile.nodes) byId.set(n.id, n);
+  const out: Record<string, [string, number][]> = {};
+  const acc = windows.map(() => new Map<string, number>());
+  let t = profile.startTime;
+  for (let i = 0; i < profile.samples.length; i++) {
+    t += profile.timeDeltas[i] ?? 0;
+    const dt = (profile.timeDeltas[i + 1] ?? 0) / 1000;
+    const n = byId.get(profile.samples[i]!);
+    if (!n) continue;
+    const f = n.callFrame;
+    const file = f.url ? f.url.replace(/^.*\//, '').replace(/\.[A-Za-z0-9_-]{8}\.js$/, '.js') : '';
+    const key = `${f.functionName || '(anonymous)'}${file ? ` @${file}:${f.lineNumber + 1}:${(f.columnNumber ?? 0) + 1}` : ''}`;
+    windows.forEach((w, k) => {
+      if (t >= w.start && t < w.end) acc[k]!.set(key, (acc[k]!.get(key) ?? 0) + dt);
+    });
+  }
+  windows.forEach((w, k) => {
+    out[w.name] = [...acc[k]!.entries()].sort((a, b) => b[1] - a[1]).slice(0, top);
+  });
+  return out;
 }
 
 const INIT = `(() => {
@@ -292,12 +321,30 @@ export function summariseTrace(events: TraceEvent[]): TraceSummary {
     wasm,
     compile: byThread(/^(v8\.compile|v8\.compileModule|v8\.parseOnBackground|V8\.CompileCode|v8\.produceCache|v8\.produceModuleCache|V8\.ScriptCompiler|v8\.compileLazy)/),
     decode: byThread(/^(Decode Image|ImageDecodeTask|Decode LazyPixelRef)/),
+    windows: userTimingWindows(events),
   };
+}
+
+/** The page's `b1:` measures as they appear in the trace (async begin/end pairs on the trace clock). */
+function userTimingWindows(events: TraceEvent[]): TraceSummary['windows'] {
+  const open = new Map<string, number>();
+  const out: TraceSummary['windows'] = [];
+  for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
+    if (!e.name.startsWith('b1:') || !/user_timing/.test(e.cat)) continue;
+    const x = e as { id?: unknown; id2?: unknown };
+    const key = `${e.name}#${JSON.stringify(x.id ?? x.id2 ?? '')}`;
+    if (e.ph === 'b') open.set(key, e.ts);
+    else if (e.ph === 'e' && open.has(key)) {
+      out.push({ name: e.name.slice(3), start: open.get(key)!, end: e.ts });
+      open.delete(key);
+    }
+  }
+  return out;
 }
 
 interface ProfileNode {
   id: number;
-  callFrame: { functionName: string; url: string; lineNumber: number };
+  callFrame: { functionName: string; url: string; lineNumber: number; columnNumber?: number };
   children?: number[];
   hitCount?: number;
 }
@@ -379,9 +426,11 @@ export async function coldLoad(url: string, o: LoadOptions): Promise<Run> {
     await page.waitForTimeout(400);
     const data = await collect(page);
     let profile: Record<string, number> | null = null;
+    let raw: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[]; startTime: number } | null = null;
     if (o.profile) {
       const { profile: p } = (await cdp.send('Profiler.stop')) as unknown as { profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[]; startTime: number; endTime: number } };
       profile = profileByFile(p);
+      raw = p;
     }
     let trace: TraceSummary | null = null;
     if (o.trace) {
@@ -389,13 +438,14 @@ export async function coldLoad(url: string, o: LoadOptions): Promise<Run> {
       const json = JSON.parse(buf.toString()) as { traceEvents: TraceEvent[] };
       trace = summariseTrace(json.traceEvents);
     }
+    const phases = raw && trace ? profileByPhase(raw, trace.windows) : null;
     const renderer = await page.evaluate(() => {
       const c = document.createElement('canvas').getContext('webgl2');
       const e = c?.getExtension('WEBGL_debug_renderer_info');
       return c ? String(e ? c.getParameter(e.UNMASKED_RENDERER_WEBGL) : c.getParameter(c.RENDERER)) : 'no webgl2';
     });
     if (errors.length) throw new Error(`page error: ${errors[0]}`);
-    return { throttle: o.throttle, renderer, page: data, trace, profile };
+    return { throttle: o.throttle, renderer, page: data, trace, profile, phases };
   } finally {
     await browser.close();
   }
@@ -457,6 +507,13 @@ export function describe(run: Run, detail: boolean): string {
     const top = Object.entries(run.profile).filter(([k]) => !k.startsWith('(')).sort((a, b) => b[1] - a[1]).slice(0, 40);
     L.push('    CPU profile, inclusive ms by chunk (a chunk is a piece or a module):');
     for (const [k, v] of top) L.push(`      ${v.toFixed(0).padStart(6)}  ${k}`);
+  }
+  if (run.phases) {
+    L.push('    CPU profile by phase, self ms of the top functions (names are minified in the bundle; the chunk says whose):');
+    for (const [k, fns] of Object.entries(run.phases)) {
+      if (k === 'to usable' || !fns.length) continue;
+      L.push(`      ${k}: ${fns.map(([f, v]) => `${f} ${v.toFixed(0)}`).join(' · ')}`);
+    }
   }
   if (d.handoff) L.push(`    handoff: ${JSON.stringify(d.handoff)}`);
   return L.join('\n');

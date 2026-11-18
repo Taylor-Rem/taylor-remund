@@ -154,6 +154,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   // 2. the stage, the fonts
   const stage = createStage(canvas, { ...opts.stage, tier: opts.tier, reducedMotion: opts.reducedMotion });
   const picking = new Picking();
+  // an empty frame: the post chain's programs start compiling now, not on the first real frame
+  stage.render();
   measure('stage', t0);
   progress('stage', 1, 1);
   const tl = now();
@@ -182,6 +184,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     const view = opts.stations[i]!(ctx);
     views.push(view);
     measure(`view ${i} ${view.root.name || opts.stations[i]!.name || 'station'}`, tv);
+    // hand this view's new materials to the driver now: they compile in parallel while the next views are built
+    startCompile(stage);
     progress('views', i + 1, n);
   }
 
@@ -365,6 +369,15 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
  * KHR_parallel_shader_compile). The post chain's passes and the shadow depth
  * programs still compile on the first frame.
  */
+function startCompile(stage: Stage): void {
+  try {
+    stage.scene.updateMatrixWorld(true);
+    stage.renderer.compile(stage.scene, stage.camera.camera);
+  } catch {
+    /* the first frame compiles whatever is left */
+  }
+}
+
 async function compileShaders(stage: Stage): Promise<void> {
   try {
     stage.scene.updateMatrixWorld(true);
