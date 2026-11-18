@@ -1,10 +1,10 @@
 {
   "replies": {
-    "change.sign": { "text": "Sign's {colour}.", "kind": "voice", "provisional": true, "source": "S0 brief, the example reply \"Sign's red. I checked.\"; REWRITE.md § B2 X1 (STOREFRONT: sign colour)" },
+    "change.sign": { "text": "Sign's {colour}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: sign colour)" },
     "change.words": { "text": "Sign says {words}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: sign words)" },
     "change.awning": { "text": "Awning's {colour}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: awning colour)" },
-    "change.open": { "text": "Door says OPEN.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: open or closed); ART-P2 STOREFRONT (a door sign that flips between OPEN and CLOSED)" },
-    "change.closed": { "text": "Door says CLOSED.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: open or closed); ART-P2 STOREFRONT (a door sign that flips between OPEN and CLOSED)" },
+    "change.open": { "text": "Door says OPEN.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: open or closed)" },
+    "change.closed": { "text": "Door says CLOSED.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: open or closed)" },
     "change.picture": { "text": "{picture} in the window.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window)" },
     "change.picture.none": { "text": "Window's empty.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window)" },
     "change.picture.next": { "text": "New picture in the window.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window)" },
@@ -24,7 +24,7 @@
     "change.lamp.colour": { "text": "Lamp's {colour}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (LAMP: a colour; \"Make it blue\" into LAMP)" },
     "change.lamp.warm": { "text": "Lamp's back to warm.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X3 (\"the light returns to amber\")" },
 
-    "done.checked": { "text": "I checked.", "kind": "fact", "provisional": true, "source": "S0 brief, the example reply \"Sign's red. I checked.\"; patchlamp CLAIMS.md § Hero, \"Patch makes the change, checks it's live, texts you back\"; REWRITE.md § B5 (Patch leans out to check the result is really there); BRAND.md § The character (\"says what it changed and where it checked\")" },
+    "done.checked": { "text": "I checked.", "kind": "fact", "provisional": true, "source": "patchlamp CLAIMS.md § Hero, \"Patch makes the change, checks it's live, texts you back\"; REWRITE.md § B5 (Patch leans out to check the result is really there); BRAND.md § The character (\"says what it changed and where it checked\")" },
     "done.patched": { "text": "Patched.", "kind": "voice", "provisional": true, "source": "patchlamp BRAND.md § The name (\"Patched.\" ends every finished job)" },
 
     "undo.done": { "text": "Put it back.", "kind": "fact", "provisional": true, "source": "patchlamp CLAIMS.md § Hero, \"'Undo that last change' puts it back\"; REWRITE.md § F3 (\"Undo that\" puts it back)" },
@@ -44,11 +44,11 @@
     "mailbox": { "text": "That one's for Taylor. His mailbox is over there.", "kind": "fact", "source": "REWRITE.md § B2 X1 (verbatim); patchlamp CLAIMS.md § Hero, \"Out-of-scope asks: Patch says so and passes to Taylor\"" },
     "not-here": { "text": "Not on this line.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2 (never a bare refusal: say what it wanted instead; the help line follows)" },
     "colour.unknown": { "text": "I've got eight paints: {paints}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 (colour: the 8 paint colours)" },
-    "picture.unknown": { "text": "I've got these for the window: {pictures}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (a photo in the window); ART-P2 STOREFRONT (one of a few simple drawn pictures)" },
+    "picture.unknown": { "text": "I've got these for the window: {pictures}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B2 X1 (a photo in the window)" },
     "words.empty": { "text": "What should it say? Up to 16 characters.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 (label: up to 16 characters)" },
     "words.long": { "text": "The tape takes 16 characters. That was {count}.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 (label: up to 16 characters)" },
     "words.glyphs": { "text": "I can only print A to Z, 0 to 9 and plain punctuation.", "kind": "voice", "provisional": true, "source": "src/workshop/view/labels/fonts.ts (the sign and tape faces' character set)" },
-    "words.blocked": { "text": "Not printing that one. Try other words.", "kind": "voice", "provisional": true, "source": "S0 brief (nothing that could embarrass Taylor in a screenshot; a refusal is a specific slip); the rule is src/workshop/sim/instruct/tape.ts" },
+    "words.blocked": { "text": "Not printing that one. Try other words.", "kind": "voice", "provisional": true, "source": "the rule is src/workshop/sim/instruct/tape.ts" },
 
     "platen.empty": { "text": "Tray's empty. Put something on it first.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2 (say specifically what it wanted instead)" },
     "belt.fastest": { "text": "Belt's as fast as it goes.", "kind": "voice", "provisional": true, "source": "REWRITE.md § B1 law 2" },
@@ -70,23 +70,23 @@
   },
 
   "pictures": {
-    "mountains": { "text": "mountains", "kind": "ui", "provisional": true, "source": "ART-P2 STOREFRONT (a few simple drawn pictures); REWRITE.md § C (the window shows cut-out mountains)" },
-    "sun": { "text": "sun", "kind": "ui", "provisional": true, "source": "ART-P2 STOREFRONT (a few simple drawn pictures)" },
-    "boat": { "text": "boat", "kind": "ui", "provisional": true, "source": "ART-P2 STOREFRONT (a few simple drawn pictures)" },
-    "tree": { "text": "tree", "kind": "ui", "provisional": true, "source": "ART-P2 STOREFRONT (a few simple drawn pictures)" },
-    "house": { "text": "house", "kind": "ui", "provisional": true, "source": "ART-P2 STOREFRONT (a few simple drawn pictures)" }
+    "mountains": { "text": "mountains", "kind": "ui", "provisional": true, "source": "REWRITE.md § C (the window shows cut-out mountains)" },
+    "sun": { "text": "sun", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window); the set of drawn pictures is the storefront piece's" },
+    "boat": { "text": "boat", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window); the set of drawn pictures is the storefront piece's" },
+    "tree": { "text": "tree", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window); the set of drawn pictures is the storefront piece's" },
+    "house": { "text": "house", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (STOREFRONT: a photo in the window); the set of drawn pictures is the storefront piece's" }
   },
 
   "ready": {
     "storefront": [
-      { "text": "Make the sign red.", "kind": "voice", "from": "owner", "provisional": true, "source": "S0 brief (\"Sign's red. I checked.\"); REWRITE.md § B10 (ready-made texts first)" },
+      { "text": "Make the sign red.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B10 (ready-made texts first)" },
       { "text": "We're closed.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B2 X1 (open or closed); § B10" },
       { "text": "Paint the awning blue.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B2 X1 (awning colour); § B10" },
       { "text": "Put mountains in the window.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B2 X1 (a photo in the window); § B10" }
     ],
     "platen": [
       { "text": "Make it blue.", "kind": "voice", "from": "owner", "source": "REWRITE.md § B3, attract mode (\"Make it blue.\", verbatim)" },
-      { "text": "Call it FRAGILE.", "kind": "voice", "from": "owner", "provisional": true, "source": "S0 brief (\"call it FRAGILE\"); REWRITE.md § B2 X1 (label); § B10" },
+      { "text": "Call it FRAGILE.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B2 X1 (label); § B10" },
       { "text": "Paint it yellow.", "kind": "voice", "from": "owner", "provisional": true, "source": "REWRITE.md § B2 X1 (colour); § B10" }
     ],
     "belt": [
