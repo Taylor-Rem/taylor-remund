@@ -26,6 +26,7 @@ import { undoLever, undoLabels, poseUndoLever } from '../kit/pieces/undo-lever/i
 import type { UndoPose } from '../kit/pieces/undo-lever/index.ts';
 import { Spring } from '../anim/index.ts';
 import { createHops, type PartHops } from './hops.ts';
+import { nodeBounds, proxyOn } from './proxy.ts';
 
 /** Tune here. Fractions of the lever's travel, seconds. */
 export const UNDO_FEEL = {
@@ -44,6 +45,10 @@ export const UNDO_FEEL = {
   rattleHz: 17,
   /** The slow blink of a tell (Hz; the § B4 limit is three a second). */
   blinkHz: 1.25,
+  /** Hovered: the latch stirs (fraction of its squeeze), the lever leans a hair (fraction of travel), eased (1/s). */
+  hoverLatch: 0.3,
+  hoverPull: 0.018,
+  hoverRate: 20,
   /** Hops start a beat after the pull lands. */
   hopDelay: 0.08,
 } as const;
@@ -75,8 +80,13 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
     const root = new Group();
     root.name = 'undo-station';
     ctx.scene.add(root);
-    const obj = ctx.realize(undoLever({ labels: undoLabels(ctx.labels), seed: opts.seed ?? 1, detail: ctx.tier === 'low' ? 'low' : 'high' }));
+    const built = undoLever({ labels: undoLabels(ctx.labels), seed: opts.seed ?? 1, detail: ctx.tier === 'low' ? 'low' : 'high' });
+    const obj = ctx.realize(built);
     root.add(obj);
+    // the pick target is the lever itself, riding on it down its arc (generous: a finger needs 44 px)
+    const leverBone = obj.getObjectByName('lever');
+    const target = leverBone ? proxyOn(leverBone, nodeBounds(built, 'lever'), 'lever:proxy', 0.1) : obj;
+    let hover = 0;
     let placed = false;
     const pull = new Spring(0, { omega: F.pullOmega, zeta: F.pullDamping });
     const latch = new Spring(0, { omega: F.latchOmega, zeta: F.latchDamping });
@@ -89,7 +99,7 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
     const place = (w: WorldView): void => {
       placed = true;
       root.position.set(opts.at[0], w.scene.bench.top, opts.at[1]);
-      ctx.pickable(id, obj);
+      ctx.pickable(id, target);
     };
 
     /** The undo's loose parts, hopping back last moved first (the restores come most recent first). */
@@ -143,11 +153,14 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
             } else if (pull.x < 0.95) atStop = false;
             latch.step(v.latch, dt);
           }
-          let p = pull.x;
+          // hovered, the latch stirs under the pointer and the lever leans a hair into the hand
+          const live = !w.bracketed && w.holding() === null && v.phase === 'rest';
+          hover = R ? 0 : hover + ((frame.hovered === id && live ? 1 : 0) - hover) * (1 - Math.exp(-F.hoverRate * dt));
+          let p = pull.x + F.hoverPull * hover;
           const ma = now - misfireAt;
           if (!R && ma >= 0 && ma < 0.5) p += F.rattle * Math.exp(-7 * ma) * Math.sin(2 * Math.PI * F.rattleHz * ma);
           pose.pull = p;
-          pose.latch = Math.max(0, Math.min(1, latch.x));
+          pose.latch = Math.max(0, Math.min(1, latch.x + F.hoverLatch * hover * (0.85 + 0.15 * Math.sin(now * 9))));
           // its lamp: lit while there is something to undo; a slow blink as a tell
           pose.lamp = v.lamp === 'blink' ? Math.sin(2 * Math.PI * F.blinkHz * now) > -0.2 : v.armed;
         }

@@ -78,6 +78,9 @@ export const REVERT_FEEL = {
   glare: { wait: 0.25, on: 0.55, hold: 0.4, off: 0.3 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
+  /** Before it rises: the card's top peeks out of the slot this far (fraction of its rise) and waits this long. */
+  peek: 0.09,
+  peekHold: 0.3,
   cardDamping: 0.58,
   openAt: 0.8,
   openOmega: 15,
@@ -132,6 +135,7 @@ const tmpM = new Matrix4();
 const tmpS = new Matrix4();
 const tmpV = new Vector3();
 const tmpV2 = new Vector3();
+const tmpV3 = new Vector3();
 const tmpQ = new Quaternion();
 const tmpQ2 = new Quaternion();
 const Y = new Vector3(0, 1, 0);
@@ -256,14 +260,16 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     };
 
     /** The direction to the camera in Revert's own frame, as a gaze (-1..1). */
-    const gazeAtCamera = (out: [number, number], heading: number, at: Vector3): [number, number] => {
-      const cam = ctx.stage.camera.camera.position;
-      tmpV.copy(cam).sub(at);
+    const gazeAtCamera = (out: [number, number], heading: number, at: Vector3): [number, number] => gazeAt(out, heading, at, ctx.stage.camera.camera.position);
+    /** The direction from `at` to `target` in Revert's own frame, as a gaze (-1..1). */
+    const gazeAt = (out: [number, number], heading: number, at: Vector3, target: Vector3): [number, number] => {
+      const dx = target.x - at.x, dy = target.y - at.y, dz = target.z - at.z;
+      tmpV3.set(dx, dy, dz);
       const c = Math.cos(-heading), s = Math.sin(-heading);
-      const lx = tmpV.x * c + tmpV.z * s;
-      const lz = -tmpV.x * s + tmpV.z * c;
+      const lx = tmpV3.x * c + tmpV3.z * s;
+      const lz = -tmpV3.x * s + tmpV3.z * c;
       const yaw = Math.atan2(lx, Math.max(0.2, lz));
-      const pitchUp = Math.atan2(tmpV.y, Math.hypot(lx, lz)) - 0.55; // the face is raked back toward a camera ~33° up
+      const pitchUp = Math.atan2(tmpV3.y, Math.hypot(lx, lz)) - 0.55; // the face is raked back toward a camera ~33° up
       out[0] = clamp(yaw * 1.4, -1, 1);
       out[1] = clamp(pitchUp * 2, -1, 1);
       return out;
@@ -445,7 +451,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         if (cranking && !R) pose.roll = (pose.roll ?? 0) + F.crankLean * Math.sin(crankAngle) - 0.06;
 
         // the face
-        faceFor(rv, now, dt, heading, body);
+        faceFor(rv, now, dt, heading, body, frame.hovered === bodyId && !w.bracketed ? frame.pointer : null);
         // the card
         cardFor(rv, now, dt);
         // the arm, the broom, the fit, the limp
@@ -482,7 +488,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       }
     }
 
-    function faceFor(rv: RevertView, now: number, dt: number, heading: number, b: Object3D): void {
+    function faceFor(rv: RevertView, now: number, dt: number, heading: number, b: Object3D, pointer: readonly [number, number, number] | null): void {
       const eyes = rv.eyes;
       state.eyes = eyes;
       let goal: RevertPose;
@@ -521,6 +527,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       if (eyes === 'one' && !R) {
         // asleep, one eye open, lazily following the pointer
         gx = -0.25 + 0.2 * noise1(now * 0.15, seed + 5);
+      }
+      // hovered: the eyes slide to the pointer; the head does not move
+      if (pointer && rv.drawn && eyes !== 'rolled') {
+        gazeAt(look, heading, tmpV2, tmpV.set(pointer[0], pointer[1], pointer[2]));
+        gx = look[0];
+        gy = look[1];
       }
       // the slow glare at the visitor after a press (§ B5: at most a second and a half)
       const G = F.glare;
@@ -580,8 +592,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
             cardAt = now;
             break;
           }
-          cardLift.step(1, dt);
-          if (R ? s > 0.2 : cardLift.x > F.openAt && s > 0.25) {
+          // anticipation: the card's top peeks out of the slot and stops, then up it goes
+          cardLift.step(R || s >= F.peekHold ? 1 : F.peek, dt);
+          if (R ? s > 0.2 : cardLift.x > F.openAt && s > F.peekHold + 0.2) {
             const before = cardOpen.x;
             cardOpen.step(1, dt);
             if (before < 0.5 && cardOpen.x >= 0.5 && !R) wobble.kick(F.openWobble * 6);

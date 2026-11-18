@@ -22,6 +22,7 @@
 import { Group, Quaternion, Vector3 } from 'three';
 import type { CoverState, Id, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
+import { nodeBounds, proxyOn, proxyOnOff } from './proxy.ts';
 import { button as buttonPiece, buttonLabels, poseButton, POSE } from '../kit/pieces/button/index.ts';
 
 /** Tune here. Rates in rad/s, times in seconds, travel as fractions of the cap's travel. */
@@ -59,6 +60,9 @@ export const BUTTON_FEEL = {
   coverBounce: 0.3,
   /** While Revert fits the cover it comes down this long into Revert's `fit`. */
   coverFitAt: 0.55,
+  /** Hovered, the cover stirs on its hinge this much (guard fraction), eased at this rate (1/s). */
+  coverHover: 0.035,
+  coverHoverRate: 22,
 } as const;
 
 /** The guard's swing from parked to shut, radians (the piece's POSE). */
@@ -137,8 +141,13 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const body = new Group(); // the console, which shudders
     root.add(body);
     const refs = opts.labels === false ? undefined : buttonLabels(ctx.labels);
-    const obj = ctx.realize(buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high') }));
+    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high') });
+    const obj = ctx.realize(built);
     body.add(obj);
+    // the cover's pick target rides on the guard's hinge (W3 hover: what can be touched must look it)
+    const guardBone = obj.getObjectByName('guard');
+    const coverProxy = guardBone ? proxyOn(guardBone, nodeBounds(built, 'guard'), 'cover:proxy', 0.05) : null;
+    let coverHover = 0;
 
     let id: Id | null = null;
     const cap = { x: 0, v: 0 };
@@ -152,6 +161,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const tape: Sample[] = [];
     let replaying = false;
     let wasShut = false;
+    let fitted = false;
     let flinchDur = 3;
     let rewDur = 1.2;
     const state: ButtonViewState = { press: 0, guard: 0, count: 0, shudder: shud };
@@ -163,6 +173,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
       id = w.scene.button.id;
       ctx.pickable(id, obj);
       const b = w.button();
+      if (coverProxy) ctx.pickable(b.coverId, coverProxy);
       count.x = countTo = b.presses;
     };
 
@@ -249,7 +260,10 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
           // the guard, which is the flip-up cover (§ B4 rung 3): parked open, or shut over the cap. It
           // drops shut under its own weight and bounces on the cap's rim; lifted, it swings back onto its
           // parked stop. While Revert fits it, it comes down when Revert's arm turns it (`coverGoal`).
-          const shut = coverGoal(w, b.cover) === 1;
+          // once Revert has turned it down it stays down (the simulation calls it shut a little later, on its own clock)
+          if (b.cover !== 'fitting') fitted = false;
+          else if (!fitted && coverGoal(w, b.cover) === 1) fitted = true;
+          const shut = b.cover === 'shut' || fitted;
           if (shut && !wasShut && !reduced) guard.v = Math.max(guard.v, F.coverNudge);
           wasShut = shut;
           if (reduced) {
@@ -284,7 +298,10 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
               guard.v = 0;
             }
           }
-          state.guard = guard.x;
+          // hovered, the cover twitches on its hinge: a hair up off the cap when shut, a hair toward it when lifted
+          const coverLive = (b.cover === 'shut' || b.cover === 'open') && b.phase === 'idle' && !w.bracketed && w.holding() === null;
+          coverHover = reduced ? 0 : coverHover + ((frame.hovered === b.coverId && coverLive ? 1 : 0) - coverHover) * (1 - Math.exp(-F.coverHoverRate * dt));
+          state.guard = guard.x + (b.cover === 'shut' ? -1 : 1) * F.coverHover * coverHover;
           // the console's shudder on its bolts
           const ts = now - shudderAt;
           if (ts >= 0 && ts < 0.8) {
@@ -304,6 +321,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         }
         state.count = Math.max(0, count.x);
 
+        if (coverProxy) proxyOnOff(coverProxy, b.cover !== 'none');
         body.position.set(shud[0], shud[1], shud[2]);
         poseButton(obj, { press: state.press, guard: state.guard, count: state.count });
       },
