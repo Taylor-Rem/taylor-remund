@@ -1,9 +1,11 @@
 // The line's part of REWRITE.md § B2 X3 ("a shipped crate comes back in through the dock door"), § D 7
 // (a tool or a robot comes back up the chute with RETURN TO SENDER), § B1's bench edge, and § E5 rules
 // 4, 9 and 10 on the real belt and dock. Whole bench, real Rapier.
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
 import { describe, expect, test } from 'vitest';
 import { AT, BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import { throwPart, line } from './helpers.ts';
+import { rideWatch } from './rides.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
 import { defaultHalfExtents } from '../../src/workshop/sim/parts.ts';
@@ -126,22 +128,62 @@ describe('the dock and the chute', () => {
 });
 
 describe('the belt carries whatever is put on it', () => {
-  test('reversed, a part rides back and leaves by the motor end onto the bench, still the placing\'s', async () => {
+  test('reversed, a run rides back and is guided off the BACK of the belt at the motor end, set down still at the scene\'s spot, one at a time, still the placing\'s', async () => {
     const w = await benchWorld();
     const t = tape(w);
     t.run(30);
-    w.dispatch({ type: 'turn', id: 'belt-lever', value: 0 });
+    w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     t.run(1);
-    expect((w.machine('belt') as BeltView).direction).toBe('backward');
     putOn(w, t, 'crate-3', onBelt(0.3));
     expect(waitFor(w, t, 'crate-3', 'in')).toBe(true);
-    const placer = w.writer('crate-3', 'location');
-    // back to the motor end, then pushed off the front onto the bench
-    expect(waitFor(w, t, 'crate-3', 'rest', 10 * HZ)).toBe(true);
-    const at = w.motion('crate-3')!.pose.p;
-    expect(at[2]).toBeGreaterThan(LINE.belt.z + LINE.belt.halfWidth);
-    expect(at[0]).toBeLessThan(LINE.belt.from + 1.2);
-    expect(w.writer('crate-3', 'location')).toBe(placer);
+    putOn(w, t, 'crate-2', onBelt(0.45));
+    expect(waitFor(w, t, 'crate-2', 'in')).toBe(true);
+    const placers = ['crate-3', 'crate-2'].map((id) => w.writer(id, 'location'));
+    w.dispatch({ type: 'turn', id: 'belt-lever', value: 0 });
+    t.run(1);
+    const leverStep = w.step;
+    expect((w.machine('belt') as BeltView).direction).toBe('backward');
+    const watch = rideWatch();
+    let overlap = 0;
+    /** Where the deflector set each down (Fetch's lane ends close by and may knock it on afterwards: see the hand-in). */
+    const setDown = new Map<string, readonly [number, number, number]>();
+    for (let i = 0; i < 14 * HZ; i++) {
+      const ev = t.run(1);
+      watch(ev, w.step);
+      // the moment the belt lets it go (no longer riding), where it was set down
+      const riding = (w.machine('belt') as BeltView).riding;
+      for (const id of ['crate-3', 'crate-2']) if (!setDown.has(id) && !riding.includes(id) && w.mode(id) === 'free') setDown.set(id, w.motion(id)!.pose.p);
+      // on the belt itself (a part going off the back over the deflector has left its width)
+      const r = (w.machine('belt') as BeltView).riding.filter((id) => Math.abs(w.motion(id)!.pose.p[2] - LINE.belt.z) < LINE.belt.halfWidth);
+      for (let j = 1; j < r.length; j++) {
+        const a = w.motion(r[j - 1]!)!.pose.p[0] + w.halfExtents(r[j - 1]!)![0];
+        const b = w.motion(r[j]!)!.pose.p[0] - w.halfExtents(r[j]!)![0];
+        if (a > b + 1e-3) overlap++;
+      }
+    }
+    expect(overlap).toBe(0);
+    const spot = LINE.belt.offBack;
+    for (const [i, id] of ['crate-3', 'crate-2'].entries()) {
+      expect(w.part(id)!.location.at, id).toBe('rest');
+      const at = setDown.get(id)!;
+      expect(at, id).toBeDefined();
+      // off the back (toward -Z), at the slide's foot, each in a free place along it
+      expect(at[2], id).toBeLessThan(LINE.belt.z - LINE.belt.halfWidth);
+      expect(Math.abs(at[2] - spot[2]), id).toBeLessThan(0.05);
+      expect(at[0] - spot[0], id).toBeGreaterThan(-0.05);
+      expect(at[0] - spot[0], id).toBeLessThan(2); // (on the spot, or along the foot when something stands there: Fetch's lane ends here)
+      // (S6) never on Fetch's lane, where its wheel goes: the tape between its stops, widened by its footprint
+      const lane = w.scene.runner.lane;
+      const fh = w.halfExtents('fetch')!;
+      const reach = Math.hypot(fh[0], fh[2]);
+      const stopA = lane.a[0] + FETCH_TUNING.inset * (w.scene.crewScale ?? 1);
+      const ph = w.halfExtents(id)!;
+      const intoLane = at[0] + ph[0] > stopA - reach && at[2] - ph[2] < lane.a[1] + reach;
+      expect(intoLane, `${id} set down on Fetch's lane at ${at[0].toFixed(2)}, ${at[2].toFixed(2)}`).toBe(false);
+      // where it was set down is the placing's (Fetch may knock it on afterwards, which is not the visitor's)
+      const first = t.of('effect').find((x) => x.step > leverStep && x.e.effect.target === id && x.e.effect.field === 'location');
+      expect(first?.e.effect.cause, id).toBe(placers[i]);
+    }
     expect((w.machine('belt') as BeltView).riding).toEqual([]);
     w.dispose();
   }, 60_000);
@@ -186,6 +228,44 @@ describe('the belt carries whatever is put on it', () => {
     expect(Math.abs(w.motion('crate-3')!.pose.p[0] - x)).toBeLessThan(0.05);
     expect(t.until((e) => e.type === 'shipped' && e.part === 'crate-3', 12 * HZ)).not.toBeNull();
     expect(w.writer('crate-3', 'location')).toBe(placer);
+    w.dispose();
+  }, 60_000);
+});
+
+describe('behind the curtain', () => {
+  test('a part at the dock\'s door cannot be grabbed; on the ramp before it, it can, and let go it never ends inside the dock or under the bench top', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    t.run(30);
+    putOn(w, t, 'crate-1', onBelt(0.93));
+    // on the ramp, rolling: it can be taken off (and the dock lets it go)
+    expect(t.until((e) => e.type === 'taken-in' && e.id === 'dock', 4 * HZ)).not.toBeNull();
+    const m = w.motion('crate-1')!;
+    w.dispatch({ type: 'grab', id: 'crate-1', grip: m.pose.p });
+    t.run(1);
+    expect(w.holding()).toEqual({ kind: 'part', id: 'crate-1' });
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    expect(t.until((e) => e.type === 'part.rested' && e.id === 'crate-1', 3 * HZ)).not.toBeNull();
+    // back on the ramp head it is taken in again, and rolls to the door; there it is behind the curtain
+    let refused = 0;
+    for (let i = 0; i < 6 * HZ && w.part('crate-1')!.location.at !== 'shipped'; i++) {
+      const dock = w.machine('dock') as { shipping: readonly string[] };
+      if (dock.shipping.includes('crate-1') && w.mode('crate-1') === 'machine') {
+        const p = w.motion('crate-1')!.pose.p;
+        const past = (p[0] - LINE.door.sill[0]) * LINE.door.inward[0] + (p[2] - LINE.door.sill[2]) * LINE.door.inward[2];
+        if (past > -1e-3) {
+          w.dispatch({ type: 'grab', id: 'crate-1', grip: p });
+          t.run(1);
+          expect(w.holding()).toBeNull();
+          refused++;
+          continue;
+        }
+      }
+      t.run(1);
+    }
+    expect(refused, `${w.mode('crate-1')} ${JSON.stringify(w.part('crate-1')!.location).slice(0, 60)} ${JSON.stringify(w.motion('crate-1')!.pose.p)}`).toBeGreaterThan(0);
+    expect(w.part('crate-1')!.location.at).toBe('shipped');
+    for (const p of w.parts()) if (w.mode(p.id) === 'free') expect(w.motion(p.id)!.pose.p[1], p.id).toBeGreaterThan(0);
     w.dispose();
   }, 60_000);
 });

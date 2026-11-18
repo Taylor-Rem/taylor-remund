@@ -4,7 +4,7 @@
  *
  *  - pose: `world.motion(id)` interpolated by `frame.alpha` (prev → pose),
  *    except across a teleport (`prev === pose`: the chute, a crew member
- *    righting itself); hidden while `mode === 'chute'`;
+ *    righting itself); hidden while `mode` is `chute` or `gone` (shipped);
  *  - hovered: lifts a hair, eased over a few frames;
  *  - picked up: the simulation lifts it; its contact shadow shrinks and
  *    fades as it rises, so the shadow separates on every tier;
@@ -184,7 +184,7 @@ export function createPartsView(opts: PartsViewOptions): StationViewFactory {
           if (!include(part)) continue;
           const e = entries.get(part.id) ?? make(part);
           const m = w.motion(part.id);
-          if (!m || m.mode === 'chute') {
+          if (!m || m.mode === 'chute' || m.mode === 'gone') {
             e.root.visible = false;
             e.s = e.v = e.lift = 0;
             continue;

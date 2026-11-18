@@ -17,10 +17,13 @@ import type { Crew, Patch, Revert, Text } from './standins/index.ts';
 import { checker } from './standins/replay.ts';
 import type { Checker } from './standins/replay.ts';
 import { roundsBench } from './fetch-helpers.ts';
+import { rideWatch } from './rides.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 
 const PARTS = BENCH.parts.map((p) => p.id);
 const VISIBLE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch'] as const;
+/** What the visitor may pick up: the crates, Fetch, and Revert once it has come up (S4). */
+const HANDLED = [...VISIBLE, 'revert'] as const;
 const JACKS = BENCH.cord.jacks.map((j) => j.id);
 const only = process.env.LINE_SEED !== undefined ? Number(process.env.LINE_SEED) : null;
 const seeds = (n: number, base: number): number[] => (only !== null ? [only] : Array.from({ length: n }, (_, i) => base + i));
@@ -86,7 +89,7 @@ function fetchWatch(b: () => Line, stats: Record<string, number>): (ev: readonly
     }
     carrying = now;
     for (const e of ev) {
-      if (e.type === 'effect' && e.effect.cause === 'crew' && e.effect.target !== 'fetch' && w.touched(e.effect.target) && w.writer(e.effect.target, e.effect.field) === 'crew') throw new Error(`rule 5: the crew wrote ${e.effect.target}.${e.effect.field}, which the visitor touched`);
+      if (e.type === 'effect' && e.effect.cause === 'crew' && w.part(e.effect.target)?.kind !== 'robot' /* § E5 D7: a robot's own fields (Fetch, Revert) */ && w.touched(e.effect.target) && w.writer(e.effect.target, e.effect.field) === 'crew') throw new Error(`rule 5: the crew wrote ${e.effect.target}.${e.effect.field}, which the visitor touched`);
       if (e.type === 'crew.state' && e.id === 'fetch' && e.state === 'place') stats['fetchPlaced'] = (stats['fetchPlaced'] ?? 0) + 1;
     }
     for (const p of w.parts()) {
@@ -106,8 +109,10 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
   let chk: Checker | null = null;
   const stats: Record<string, number> = { shipped: 0, struck: 0, returnedDoor: 0, returnedChute: 0, restocked: 0, takenIn: 0 };
   const watchFetch = o.rounds ? fetchWatch(() => b, stats) : null;
+  const rides = rideWatch();
   const b = line(seed, (ev) => {
     watchFetch?.(ev);
+    rides(ev, b.world.step);
     for (const e of ev) {
       if (e.type === 'shipped') stats['shipped']!++;
       if (e.type === 'struck') stats['struck']!++;
@@ -121,7 +126,7 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
   const start = b.world.durable();
   const w = b.world;
   let actions = 0;
-  const grabbable = (crew: boolean): Id[] => VISIBLE.filter((id) => (crew || id !== 'fetch') && ['free', 'crew', 'machine'].includes(w.mode(id) ?? ''));
+  const grabbable = (crew: boolean): Id[] => HANDLED.filter((id) => (crew || (id !== 'fetch' && id !== 'revert')) && ['free', 'crew', 'machine'].includes(w.mode(id) ?? ''));
   const act = (): void => {
     const k = r.int(100);
     const visitor = o.maxActions === undefined || actions < o.maxActions;
@@ -160,7 +165,8 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
       w.dispatch({ type: 'press', id: PHONE });
       b.run(1);
     } else if (k < 72) {
-      w.dispatch({ type: 'undo' });
+      // the UNDO lever itself (S4), or the U key: the same undo
+      w.dispatch(r.chance(0.5) ? { type: 'press', id: 'undo-lever' } : { type: 'undo' });
       b.run(1);
     } else if (k < 75) {
       w.dispatch({ type: 'press', id: 'button' });

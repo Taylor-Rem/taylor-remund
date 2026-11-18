@@ -252,7 +252,8 @@ function isOnlyColour(raw: string): boolean {
 const GREETING = /^(?:hi|hello|hey|hiya|howdy|yo|sup|whats up|wassup|good (?:morning|afternoon|evening)|hola|greetings)(?: there)?(?: patch)?$/;
 const THANKS = /^(?:thanks|thank you|thanks a lot|thx|ty|cheers|nice|cool|great|perfect|awesome|love it|neat|sweet|wow|lol|haha|ha|ok|okay|k|kk|good|good job|nice job|nice one|well done)(?: patch)?$/;
 const WHO =
-  /\b(?:who|what) (?:are|r) (?:you|u|ya)\b|\bwho is (?:this|that|patch)\b|\bwhos (?:this|that|patch)\b|\bwhat is patch\b|\b(?:are|r) (?:you|u) (?:a |an )?(?:bot|robot|ai|human|real|person|claude|chatgpt|gpt|raccoon|machine|computer)\b|\b(?:your|ur) name\b|\bintroduce yourself\b|\bwho am i (?:talking|texting) (?:to|with)\b/;
+  /\b(?:who|what) (?:are|r) (?:you|u|ya)\b|\bwho is (?:this|that|patch)\b|\bwhos (?:this|that|patch)\b|\bwhat is patch\b|\b(?:are|r) (?:you|u) (?:a |an )?(?:bot|robot|ai|human|real|person|claude|chatgpt|gpt|raccoon|machine|computer)\b|\b(?:your|ur) name\b|\bintroduce yourself\b|\bwho am i (?:talking|texting) (?:to|with)\b|\bis (?:this|that|it|patch) (?:a |an )?(?:real|ai|bot|robot|human|person|claude|chatgpt|gpt|machine|computer)\b/;
+// (S3) "is this real ai", "is this a real person", "is it a bot": the who-answer, like "are you real".
 const HELP =
   /^(?:\?+|help(?: me)?|what can (?:you|u|i) (?:do|say|text|change|type|ask)|what do (?:i|you) (?:do|say|type|text)|what do you do|options|commands|menu|how (?:does this|do i|does it|do you|does this thing) work|instructions|what now|idk|huh|what|what is this|whats this|what can you change)$|\bhelp\b/;
 const UNDO =
@@ -399,6 +400,12 @@ function features(toks: readonly string[], jack: Jack): Piece[] {
     else if (weakJack === 'belt' && !said('belt', 'speed')) change({ jack: 'belt', key: 'speed', value: upWord ? 1 : -1 });
   }
 
+  // (S3) Something the window has no picture of ("put a cat in the window"): the list of pictures, not the mailbox.
+  if (pieces.length === 0 && s.includes(' window ') && toks.some((t) => !KNOWN.has(t) && !/^\d+$/.test(t))) {
+    pieces.push({ t: 'picture-unknown' });
+    return pieces;
+  }
+
   // Only a noun of this jack ("the awning?"): say what can be done with it here.
   if (pieces.length === 0 && nouns.length > 0 && nouns.every((n) => n.jack === jack) && toks.every((t) => FILLER.has(t) || nounJack(t) !== null)) {
     pieces.push({ t: 'meta', verb: 'help' });
@@ -478,8 +485,8 @@ export const UNDO_REPLIES = {
   done: [{ id: 'undo.done' }, { id: 'done.checked' }],
   /** Nothing made by text is left to take back. */
   nothing: [{ id: 'undo.nothing' }],
-  /** The last text's change has been written over since (the dial was turned): left alone, still on the stack. */
-  blocked: [{ id: 'undo.blocked' }],
+  /** The last text's change has been written over since (the dial was turned): left alone, still on the stack. (S3) And the lever takes things back in order (§ E5 rule 12). */
+  blocked: [{ id: 'undo.blocked' }, { id: 'undo.lever' }],
 } as const satisfies Record<string, readonly ReplyLine[]>;
 
 const DONE: readonly ReplyLine[] = [{ id: 'done.checked' }, { id: 'done.patched' }];

@@ -290,6 +290,14 @@ export const TABLE: readonly Row[] = [
   ['lamp', 'are you a bot', WHO],
   ['lamp', 'are you real', WHO],
   ['lamp', 'who is this', WHO],
+  // (S3 follow-ups) a picture the window has not got lists the pictures; "is this real ai" is a who
+  ['storefront', 'put a cat in the window', no('picture-unknown')],
+  ['storefront', 'a dog in the window please', no('picture-unknown')],
+  ['lamp', 'put a cat in the window', OUT('storefront')],
+  ['storefront', 'is this real ai', WHO],
+  ['belt', 'are you a real person', WHO],
+  ['platen', 'is this a real person?', WHO],
+  ['lamp', 'is it a bot', WHO],
   ['lamp', '?', HELP],
   ['lamp', 'hello?', HELP],
 

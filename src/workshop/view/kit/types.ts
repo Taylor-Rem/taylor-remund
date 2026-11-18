@@ -77,6 +77,13 @@ export interface KitPart {
    * It still receives shadows. Parts of a different castShadow never merge.
    */
   castShadow?: false;
+  /**
+   * How the part casts through its piece's shadow proxy (kit/realize.ts): 'none' casts nothing
+   * (as castShadow: false, but it merges with its neighbours); 'hull' casts as its convex hull,
+   * shrunk a hair inside the surface (for a dense part whose shadow is its outline: a coil,
+   * a knurled knob, a grille). Default: the part itself, simplified.
+   */
+  shadow?: 'hull' | 'none';
 }
 
 /**

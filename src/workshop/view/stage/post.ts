@@ -68,8 +68,15 @@ export function defaultFlags(): PassFlags {
 
 /** Tuned by eye on the stage dev page; see the W1 report. */
 export const LOOK = {
-  /** MSAA samples of the scene target when `msaa` is on. */
+  /**
+   * FRAME-TIME SWITCHES (H1; the defaults are the G1 look, unchanged). `msaa`: samples of the
+   * scene target when the `msaa` pass is on (4; 2 is the cheaper choice). `ao`: 'gtao' (the
+   * screen-space pass) or 'baked' (no GTAO pass: only the cavity baked into the geometry
+   * darkens creases). A cheaper GTAO is `gtao.scale` (0.5 of the screen; 0.25 is a quarter
+   * resolution) and `gtao.samples` / `gtao.denoise`.
+   */
   msaa: 4,
+  ao: 'gtao' as 'gtao' | 'baked',
   /** 1.1 (was 1.0): with the real, darker bench the frame read murky; the hot spot still stays below clipping on cream and wood. */
   exposure: 1.1,
   toneMap: 'neutral' as ToneMap,
@@ -608,11 +615,12 @@ export class PostChain {
   private syncDefines(): void {
     const f = this.flags;
     const keyShadow = !!this.keyLight?.castShadow && !!this.keyLight.shadow.map?.depthTexture;
-    const key = [f.gtao, f.bloom, f.focus, f.grade, f.vignette, f.fog, f.shadowTint, keyShadow, this.toneMap, this.debugView].join();
+    const ao = f.gtao && LOOK.ao === 'gtao';
+    const key = [ao, f.bloom, f.focus, f.grade, f.vignette, f.fog, f.shadowTint, keyShadow, this.toneMap, this.debugView].join();
     if (key === this.definesKey) return;
     this.definesKey = key;
     const d: Record<string, string> = {};
-    if (f.gtao) d.USE_AO = '';
+    if (ao) d.USE_AO = '';
     if (f.bloom) d.USE_BLOOM = '';
     if (f.focus) d.USE_FOCUS = '';
     if (f.grade) d.USE_GRADE = '';
@@ -710,7 +718,7 @@ export class PostChain {
     timer?.end();
     this.sceneInfo = { calls: info.render.calls, triangles: info.render.triangles };
 
-    if (this.flags.gtao) {
+    if (this.flags.gtao && LOOK.ao === 'gtao') {
       timer?.begin('gtao');
       // Output Off: it computes the denoised AO map and writes nothing else.
       this.gtao.render(r, this.sceneRT, this.sceneRT, 0, false);

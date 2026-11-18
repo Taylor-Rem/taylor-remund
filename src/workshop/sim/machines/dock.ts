@@ -48,6 +48,8 @@ export const DOCK_TUNING = {
   doorClose: 0.55,
   /** The rollers carry a part to the door and through it at this speed (above the belt's middle speed, so a run off the belt does not pile up). */
   roll: 2.2,
+  /** Parts on the ramp keep at least this gap (units). */
+  gap: 0.06,
   /** A part waits at the threshold until the door is this open. */
   clear: 0.85,
   /** How far past the threshold a part goes before it is gone. */
@@ -63,8 +65,8 @@ export const DOCK_TUNING = {
   /** A misfire jumps the door open for this long (per level); an undo's return opens it for this long. */
   misfireOpen: 0.45,
   unshipOpen: 0.9,
-  /** A restocked crate is let go this far above whatever is on the stack. */
-  restockDrop: 0.3,
+  /** A restocked crate is set down this far above whatever is on the stack (a hair: dropped from higher, it toppled the stack). */
+  restockDrop: 0.02,
 } as const;
 
 export interface DockSpec {
@@ -76,6 +78,11 @@ export interface DockSpec {
   readonly ramp: RampSpec;
   /** The crate stack's ground point (x, z): fresh crates are set on it. */
   readonly stack: readonly [number, number];
+  /**
+   * The speed of whatever feeds the ramp (the belt's surface, read from the world's settings): the
+   * rollers never run slower than it, so a run off a fast belt does not close up on the ramp.
+   */
+  readonly feed?: (ctx: SimContext) => number;
 }
 
 export interface DockUnit extends MachineUnit {
@@ -267,6 +274,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       returns = returns.filter((r) => r.job?.cause !== cause);
     },
 
+    // behind the curtain: once its leading face passes the door's plane (`lipZ` past the sill, S6) it is inside the bay's
+    // collider; it can no longer be taken. Short of it, waiting on the sill, it can.
+    keeps: (part: Id): boolean => queue.some((x) => x.id === part && x.s + x.inside + Math.max(...[0, 2].map((k) => ctx.halfExtents(part)?.[k] ?? 0.3)) > LEN + R.lipZ),
+
     lost(part: Id) {
       const s = queue.find((x) => x.id === part);
       if (!s) return;
@@ -313,11 +324,22 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       door = want ? Math.min(1, door + dt / T.doorOpen) : Math.max(0, door - dt / T.doorClose);
       if (ctx.bracketed) return;
 
-      for (const x of [...queue]) {
-        const step = T.roll * dt;
+      const step = Math.max(T.roll, spec.feed?.(ctx) ?? 0) * dt;
+      /** How far each has come (along the ramp, then through the door), first first: the one behind keeps its length and a gap. */
+      const along = (x: Shipment): number => x.s + x.inside;
+      const reach = (x: Shipment): number => Math.max(...[0, 2].map((k) => ctx.halfExtents(x.id)?.[k] ?? 0.3));
+      let ahead: Shipment | null = null;
+      for (const x of [...queue].sort((a, b) => along(b) - along(a))) {
+        const room = ahead ? along(ahead) - reach(ahead) - T.gap - reach(x) - along(x) : Infinity;
+        ahead = x;
+        if (room <= 0) {
+          ctx.drive(x.id, poseOf(x));
+          continue;
+        }
         // along the ramp to the sill; through the door once it is open
-        if (x.s < LEN) x.s = Math.min(LEN, x.s + step);
-        else if (x.inside > 0 || door >= T.clear) x.inside += step;
+        const go = Math.min(step, room);
+        if (x.s < LEN) x.s = Math.min(LEN, x.s + go);
+        else if (x.inside > 0 || door >= T.clear) x.inside += go;
         if (x.inside >= T.depth) {
           ship(x);
           continue;
