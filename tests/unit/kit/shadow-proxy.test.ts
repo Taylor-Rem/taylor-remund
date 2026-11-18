@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { MeshBasicMaterial, Quaternion, Vector3 } from 'three';
 import type { Mesh, Object3D, SkinnedMesh } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
-import { cluster, detailMask, shadowTriangles, SHADOW_LAYER, SHADOW_WELD } from '../../../src/workshop/view/kit/realize.ts';
+import { cluster, cullAway, detailMask, shadowTriangles, SHADOW_LAYER, SHADOW_WELD } from '../../../src/workshop/view/kit/realize.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import { catalogue as crateCat, repaint } from '../../../src/workshop/view/kit/pieces/crate/index.ts';
 import { catalogue as porterCat } from '../../../src/workshop/view/kit/pieces/fetch-porter/index.ts';
@@ -148,5 +148,43 @@ describe('detailMask and cluster', () => {
     // different bones never weld together
     const r2 = cluster([0, 0, 0, 0.001, 0, 0, 0, 1, 0], [0, 1, 0], 0.1);
     expect(r2.pos.length).toBe(9);
+  });
+});
+
+describe('fixedView', () => {
+  it('a box keeps every face a fixed-pitch camera can see the front of, and loses its back and bottom', () => {
+    const g = K.roundedBox({ w: 1, h: 1, d: 1, r: 0.001, segs: 1 });
+    const out = cullAway(g);
+    const normals = (geo: typeof g): Vector3[] => {
+      const p = geo.getAttribute('position');
+      const idx = geo.index!;
+      const r: Vector3[] = [];
+      for (let t = 0; t < idx.count / 3; t++) {
+        const a = new Vector3().fromBufferAttribute(p, idx.getX(t * 3));
+        const b = new Vector3().fromBufferAttribute(p, idx.getX(t * 3 + 1)).sub(a);
+        const c = new Vector3().fromBufferAttribute(p, idx.getX(t * 3 + 2)).sub(a);
+        const n = b.cross(c);
+        if (n.length() > 1e-9) r.push(n.normalize());
+      }
+      return r;
+    };
+    const kept = normals(out);
+    expect(kept.length).toBeLessThan(normals(g).length);
+    expect(kept.some((n) => n.y > 0.99)).toBe(true); // top
+    expect(kept.some((n) => n.z > 0.99)).toBe(true); // front
+    expect(kept.some((n) => n.x > 0.99)).toBe(true); // a side (seen from a panned camera)
+    expect(kept.some((n) => n.z < -0.99)).toBe(false); // back
+    expect(kept.some((n) => n.y < -0.99)).toBe(false); // bottom
+  });
+
+  it('applies to single-node pieces only, and keeps the full shape in the shadow proxy', () => {
+    const b = K.piece('f', { ao: false });
+    b.add(K.part('steel', K.roundedBox({ w: 1, h: 1, d: 1 })), K.part('wood', K.roundedBox({ w: 2, h: 0.2, d: 2 })));
+    const p = b.build();
+    const full = shadowTriangles(K.realize(p, stub, { shadowWeld: 0, shadowDetail: 0 }));
+    const o = K.realize(p, stub, { fixedView: true, shadowWeld: 0, shadowDetail: 0 });
+    expect(shadowTriangles(o)).toBe(full);
+    const visible = meshes(o).filter((m) => !m.userData['shadowProxy']).reduce((n, m) => n + m.geometry.index!.count / 3, 0);
+    expect(visible).toBeLessThan(p.triangles);
   });
 });

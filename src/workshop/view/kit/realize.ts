@@ -66,7 +66,23 @@ export interface RealizeOptions {
   shadowDetail?: number;
   /** Proxies only: the vertex-clustering cell (units); 0 leaves the proxy's shape exact. Default SHADOW_WELD. */
   shadowWeld?: number;
+  /**
+   * The piece stands as built, in world space, and never moves or turns (the merged static
+   * set). The camera never orbits (REWRITE.md § B6: fixed pitch, pan and zoom only), so a
+   * triangle that faces away from every direction a camera inside FIXED_VIEW could see it
+   * from is never drawn: the visible meshes leave it out (the shadow proxy keeps it).
+   * Single-node pieces only. Debug and A/B: `?fixedView=set,…` on a dev page.
+   */
+  fixedView?: boolean;
 }
+
+/**
+ * The views FIXED_VIEW culling allows for: the camera's pitch range (degrees down) and the
+ * tangents of its half field of view, vertically and horizontally (generous: an ultra-wide
+ * 2.6:1 window at 22 degrees). A visible point sees the camera inside this frustum,
+ * wherever the camera has panned or zoomed to.
+ */
+export const FIXED_VIEW = { pitch: [26, 40] as const, tanV: 0.21, tanH: 0.55, margin: 0.03 };
 
 /** The layer shadow proxies live on; only the key light's shadow camera renders it (stage/light.ts). */
 export const SHADOW_LAYER = 3;
@@ -349,9 +365,59 @@ function detailOf(o: RealizeOptions): Detail {
 
 // ---- nodes backend ------------------------------------------------------------
 
+const awayCache = new WeakMap<BufferGeometry, BufferGeometry>();
+
+/** The directions (unit, toward the camera) at the corners of every view FIXED_VIEW allows. */
+function viewCorners(): Vector3[] {
+  const out: Vector3[] = [];
+  for (const deg of FIXED_VIEW.pitch) {
+    const p = (deg * Math.PI) / 180;
+    const m = new Vector3(0, Math.sin(p), Math.cos(p));
+    const up = new Vector3(0, Math.cos(p), -Math.sin(p));
+    for (const sv of [-1, 1]) for (const sh of [-1, 1]) out.push(m.clone().addScaledVector(up, sv * FIXED_VIEW.tanV).add(new Vector3(sh * FIXED_VIEW.tanH, 0, 0)).normalize());
+  }
+  return out;
+}
+
+/**
+ * The geometry without the triangles no allowed view can see the front of (sharing its
+ * attributes; a new index). Its positions must already be in world space.
+ */
+export function cullAway(g: BufferGeometry): BufferGeometry {
+  const hit = awayCache.get(g);
+  if (hit) return hit;
+  const pos = g.getAttribute('position');
+  const idx = g.index;
+  const tris = Math.floor((idx ? idx.count : pos.count) / 3);
+  const corners = viewCorners();
+  const a = new Vector3(), b = new Vector3(), c = new Vector3();
+  const keep: number[] = [];
+  for (let t = 0; t < tris; t++) {
+    const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+    a.fromBufferAttribute(pos, i0);
+    b.fromBufferAttribute(pos, i1).sub(a);
+    c.fromBufferAttribute(pos, i2).sub(a);
+    const n = b.cross(c);
+    const len = n.length();
+    // degenerate: keep (it draws nothing either way)
+    if (len < 1e-12 || corners.some((d) => n.dot(d) / len > -FIXED_VIEW.margin)) keep.push(i0, i1, i2);
+  }
+  let out = g;
+  if (keep.length < tris * 3) {
+    out = new BufferGeometry();
+    for (const [k, v] of Object.entries(g.attributes)) out.setAttribute(k, v);
+    out.setIndex(keep);
+    out.userData = { ...g.userData };
+    out.computeBoundingBox();
+    out.computeBoundingSphere();
+  }
+  awayCache.set(g, out);
+  return out;
+}
+
 function meshOf(node: PieceNode, part: KitPart, materials: Materials, o: RealizeOptions, proxied: boolean): Mesh {
   const material = materialOf(part, materials);
-  const mesh = new Mesh(part.geometry, material);
+  const mesh = new Mesh(o.fixedView ? cullAway(part.geometry) : part.geometry, material);
   mesh.name = `${node.name}.${partName(part)}`;
   shadows(mesh, part, material, o, proxied);
   return mesh;
@@ -576,6 +642,9 @@ export function realize(piece: Piece, materials: Materials, o: RealizeOptions = 
   top.userData['kitPiece'] = piece.name;
   const backend = o.backend ?? debugBackend() ?? 'auto';
   const multi = (piece.root.children?.length ?? 0) > 0;
+  const fixed = o.fixedView ?? new RegExp(`[?&]fixedView=([^&]*,)?${piece.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(,|&|$)`).test(search());
+  if (fixed && !multi) o = { ...o, fixedView: true };
+  else if (o.fixedView) o = { ...o, fixedView: false };
   if (backend === 'skinned' || (backend === 'auto' && multi)) {
     realizeSkinned(piece, materials, o, top);
     return top;
