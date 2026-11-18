@@ -32,7 +32,7 @@ import { extrude, lathe } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
-import { bevelBox, hexHead, ridgedBand, stud } from '../../cheap.ts';
+import { bevelBox, hexHead, stud } from '../../cheap.ts';
 import type { Rng } from '../../rng.ts';
 
 const DEG = Math.PI / 180;
@@ -48,13 +48,13 @@ export const DIAL = {
   top: 0.142,
   /** The scale sector: inner and outer radius. */
   scale0: 0.25,
-  scale1: 0.34,
+  scale1: 0.33,
 } as const;
 
 /** The lever: its throw each side of upright, its reach to the ball's centre, the ball. */
 export const LEVER = {
-  throwDeg: 36,
-  reach: 0.44,
+  throwDeg: 30,
+  reach: 0.41,
   ballR: 0.082,
   /** The gate's slot radius. */
   slotR: 0.28,
@@ -116,7 +116,7 @@ export function buildControls(b: NodeBuilder, desk: (u: number, v: number, out?:
   // ======================================================================
   // THE DIAL
   // ======================================================================
-  const dialU = -0.3, dialV = -0.03;
+  const dialU = -0.32, dialV = -0.03;
   const dialAt = face(dialU, dialV);
   {
     // the scale sector: cream enamel, a little proud of the desk
@@ -146,15 +146,19 @@ export function buildControls(b: NodeBuilder, desk: (u: number, v: number, out?:
     b.add(setFinish(part('brass', put(bz, dialAt), 'brass', { seed: seed + 9, warm: 0.03, shade: 0.9 }), 0.3));
     // the knob: its own node, turning about +Y (out of the desk)
     const n = b.node('dial', dialAt);
-    const skirt = lathe(profile(DIAL.r, 0.02).to(DIAL.r, 0.036, { fillet: 0.008, segs: 1 }).to(DIAL.knurlR, 0.046, { sharp: true }), { segs: 16, detail, band: 0, caps: false });
-    n.add(part('brass', skirt, 'brass', { seed: seed + 10, warm: 0.04 }));
-    const kn = transform(ridgedBand(DIAL.knurlR, 0.064, hi ? 24 : 18, 0.013), T(0, 0.046, 0));
-    n.add(part('brass', kn, 'brass', { seed: seed + 11, shade: 0.85, warm: 0.05 }));
-    const crown = lathe(
-      profile(DIAL.knurlR + 0.002, 0.11).to(DIAL.knurlR - 0.008, 0.124, { fillet: 0.008, segs: 1 }).to(0.13, DIAL.top - 0.006, { fillet: 0.05, segs: 1 }).to(0, DIAL.top),
-      { segs: 16, detail, band: 0, caps: false },
-    );
-    n.add(setFinish(part('brass', crown, 'brass', { seed: seed + 12, warm: 0.03 }), 0.45));
+    // the grip: a fluted brass body (ten scallops round its rim, so its outline says 'turn me' face-on), its top edge bevelled
+    const lobes = 10, np = lobes * 4;
+    const rim: Array<[number, number]> = [];
+    for (let i = 0; i < np; i++) {
+      const th = (i / np) * Math.PI * 2;
+      const r = DIAL.r - 0.012 + 0.012 * Math.cos(lobes * th);
+      rim.push([Math.cos(th) * r, Math.sin(th) * r]);
+    }
+    const body = extrude(rim, 0.1, { axis: 'y', bevel: 0.016, bevelBase: 0, radius: 0, segs: 1, detail, band: 0, caps: 'end' });
+    n.add(part('brass', transform(body, T(0, 0.02, 0)), 'brass', { seed: seed + 11, shade: 0.82, warm: 0.05 }));
+    // a domed, polished cap in the middle of the grip's top
+    const crown = lathe(profile(0.15, 0.118).to(0.15, 0.124, { sharp: true }).to(0.09, DIAL.top - 0.004, { fillet: 0.04, segs: 1 }).to(0, DIAL.top), { segs: 14, detail, band: 0, caps: false });
+    n.add(setFinish(part('brass', crown, 'brass', { seed: seed + 12, warm: 0.03 }), 0.55));
     // the pointer fin: cream, from a short tail across the crown to a point past the knurl, over the scale
     const fin = extrude([[-0.03, 0.1], [0.03, 0.1], [0.03, -0.17], [0, -DIAL.r - 0.026], [-0.03, -0.17]], 0.034, { axis: 'y', bevel: 0.008, bevelBase: 0, radius: [0.012, 0.012, 0.01, 0.006, 0.01], segs: 1, detail, band: 0, caps: 'end' });
     n.add(setFinish(part('steel', transform(fin, T(0, DIAL.top - 0.022, 0)), 'paper', { seed: seed + 13, shade: 1.0 }), 0.6));
@@ -231,7 +235,7 @@ export function buildControls(b: NodeBuilder, desk: (u: number, v: number, out?:
   // ======================================================================
   // THE LAMP: a brass bezel at the desk's top right; the glass is the lamp node's two twins
   // ======================================================================
-  const lampAt = desk(0.53, 0.31, 0.0);
+  const lampAt = desk(0.55, 0.32, 0.0);
   {
     const bz = lathe(profile(0.034, 0).to(0.058, 0, { sharp: true }).to(0.058, 0.022, { fillet: 0.008, segs: 1 }).to(0.036, 0.03, { fillet: 0.005, segs: 1 }), { segs: 10, detail, band: 0, caps: false });
     b.add(setFinish(part('brass', transform(bz, chain(lampAt, up)), 'brass', { seed: seed + 40 }), 0.4));
