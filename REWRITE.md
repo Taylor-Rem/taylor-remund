@@ -829,6 +829,22 @@ camera.
 | Tool wall | `#tools` | back left | tools on a shadow board |
 | Mailbox | `#contact` | front right | a flag |
 
+*As built in P2 (2026-11-18), settled by rendering the whole bench.* The
+bench is 18 units wide and 10 deep, not 20: at 20 the camera pulls back
+until the crew is too small to have character. The crew is drawn 1.5
+times the size the sketch assumed (Fetch about 1.5 units tall), the
+machines and crates at the size approved at G1. Both reserved bays are in
+the left third, one behind the other; the right-centre of the bench is
+kept for the shipped pallets of P4, with the mailbox and the clipboard at
+the front right where nothing stands in front of them. Revert comes up
+through a hatch in the bench top, on a lift, not out of a cupboard: the
+camera sees the top of the bench far better than its front. The belt
+feeds the dock by a short curved roller ramp, so the dock can stand
+turned toward the visitor. The return chute rises from below the bench's
+front-left corner. The home view shows the bench's whole front edge and
+about a hundred pixels of what is under it; panned to an end, the
+bench's corner, its legs and the room beyond.
+
 **How attention is guided without a path.** The lamp makes the centre the
 brightest place. Motion draws the eye left to right along the belt. Tells
 (§ B3) point at whatever is nearest and untouched.
@@ -1268,6 +1284,30 @@ history cannot interfere with the Button.
 | Paints a crate, leaves it for five minutes; Revert puts it away | T's entry about that crate was deleted when Revert put it away; T, left empty, left the stack. | The lever undoes whatever came before it, or reports there is nothing left. |
 | Ships Fetch | T: Fetch's location = `shipped`. Ten seconds later Fetch comes back up the chute by itself: written by `crew`. | Fetch's location is no longer T's to restore. Revert's card says someone has moved that since. |
 | Presses the Button mid-experiment | Nothing. The rung is bracketed. | Undoes the action before the press, exactly as if the Button had not been pressed. |
+
+*As built in P2 (2026-11-18, milestone M2). Where the rules above were
+silent or in conflict, the model decides as follows; each is commented at
+its place in `src/workshop/sim/history.ts`.*
+- A transaction that writes a field again after the crew or the system
+  wrote it in between re-bases its entry, so the lever never restores a
+  value a surviving write had replaced.
+- At most one release window is open at a time: any new action, a text or
+  a turn included, takes over the parts still moving. After six seconds a
+  part still moving rests as `system` and is not undoable.
+- An undone or pruned transaction never commits again. Work still pending
+  under a transaction that is forgotten finishes, charged to `system`.
+- "Undo that" is not itself a transaction. There is no redo.
+- A commit under an id no action opened is an error, not a no-op.
+- The crew may write its own robot's fields in play mode (Fetch coming
+  back "written by `crew`" needs it).
+- Rule 9: a part is put back exactly where it was, not at "the nearest
+  free spot": the replay check requires the restored value to equal the
+  recorded one, and the physics separates anything that now overlaps.
+- When Revert puts a part away its "touched by the visitor" mark is
+  cleared. Undo is allowed while the visitor is holding something.
+- Undo is published as data: one `undone` event listing what was
+  restored, most recent first, with the pose each body was at, so every
+  station draws its own part of the change running backwards.
 
 **What the tests hold** (§ E8). History tests run against stand-in
 machines with scripted rest events in place of physics, so every one is

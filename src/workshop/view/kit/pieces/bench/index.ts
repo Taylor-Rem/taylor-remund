@@ -32,6 +32,10 @@ import { finish, MeshData } from '../../mesh.ts';
 import { rng, type Rng } from '../../rng.ts';
 import { ATTR } from '../../types.ts';
 import { bevelBox, stud } from '../crate/geo.ts';
+import type { FaceName } from '../../cheap.ts';
+import { benchFrame, FLOOR_Y } from './frame.ts';
+
+export { benchFrame, FLOOR_Y } from './frame.ts';
 import { blob, patchGeometry, planMarks, PATCH_LIFT, type Patch } from './dress.ts';
 import { mergeGeometries } from '../../compose.ts';
 import { setFinish } from '../../space.ts';
@@ -52,10 +56,15 @@ export interface BenchSectionOptions extends KitOptions {
 }
 
 const NOSE_R = 0.15; // the worn, rounded front edge
-const NOSE_STEP = 0.11; // rows along X on the nose (the dings need them)
+const NOSE_STEP_LOW = 0.22; // rows along X on the nose at detail 'low' (no dings)
 
-/** The front plank: a flat top that rolls over a fat rounded nose into the front face; built along X with rows for the dings. */
-function nosePlank(x0: number, x1: number, zBack: number, zFront: number, T: number, detail: 'high' | 'low', caps: { left: boolean; right: boolean }): BufferGeometry {
+/**
+ * The front plank: a flat top that rolls over a fat rounded nose into the front face, built along X.
+ * The nose is straight between its dings, so it needs rows only at its ends and round each ding
+ * (`rows`: x positions, each ding's centre and its reach either side); a ding is then pressed in
+ * with `dent`. (P1 built a row every 0.11 along the whole length: 3,500 triangles for the same picture.)
+ */
+function nosePlank(x0: number, x1: number, zBack: number, zFront: number, T: number, detail: 'high' | 'low', caps: { left: boolean; right: boolean }, rowsAt: readonly number[] = []): BufferGeometry {
   const r = NOSE_R, rb = 0.025, cb = 0.012;
   const arc = detail === 'low' ? 3 : 6;
   // cross-section (z, y, nz, ny), from the back of the top round the nose to the underside
@@ -70,18 +79,23 @@ function nosePlank(x0: number, x1: number, zBack: number, zFront: number, T: num
   sec.push([zFront, -T + rb, 1, 0]);
   sec.push([zFront - rb * 0.3, -T + rb * 0.3, 0.7, -0.7]);
   sec.push([zFront - rb, -T, 0, -1]);
-  const n = Math.max(2, Math.round((x1 - x0) / (detail === 'low' ? NOSE_STEP * 2 : NOSE_STEP)));
+  const xs: number[] = [x0, x1];
+  if (detail === 'low') {
+    const k = Math.max(1, Math.round((x1 - x0) / NOSE_STEP_LOW));
+    for (let i = 1; i < k; i++) xs.push(x0 + ((x1 - x0) * i) / k);
+  }
+  for (const x of rowsAt) if (x > x0 + 0.01 && x < x1 - 0.01) xs.push(x);
+  xs.sort((a, b) => a - b);
+  const xr = xs.filter((x, i) => i === 0 || x - xs[i - 1]! > 0.008);
+  const n = xr.length - 1;
   const md = new MeshData();
   const rows: number[][] = [];
-  for (let i = 0; i <= n; i++) {
-    const x = x0 + ((x1 - x0) * i) / n;
-    rows.push(sec.map(([z, y, nz, ny]) => md.v(x, y, z, 0, ny, nz)));
-  }
+  for (const x of xr) rows.push(sec.map(([z, y, nz, ny]) => md.v(x, y, z, 0, ny, nz)));
   for (let i = 0; i < n; i++) for (let k = 0; k < sec.length - 1; k++) md.quad(rows[i]![k]!, rows[i]![k + 1]!, rows[i + 1]![k + 1]!, rows[i + 1]![k]!);
   // the back chamfer down into the seam, and the end caps (end grain at the bench's ends)
   for (const [xi, sx] of [[0, -1], [n, 1]] as const) {
     if (!(sx < 0 ? caps.left : caps.right)) continue;
-    const x = x0 + ((x1 - x0) * xi) / n;
+    const x = xr[xi]!;
     const pts: Array<[number, number]> = [[zBack, -cb], ...sec.map(([z, y]) => [z, y] as [number, number]), [zBack, -T]];
     const ids = pts.map(([z, y]) => md.v(x, y, z, sx, 0, 0));
     const cz = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
@@ -108,6 +122,28 @@ function darkenDown(g: BufferGeometry, yTop: number, yBottom: number, amount: nu
   }
   s.needsUpdate = true;
   return g;
+}
+
+/** The diet (P2): every KNOCK_EVERY-th knock along the nose is kept, KNOCK_GROW times as big. */
+const KNOCK_EVERY = 3;
+const KNOCK_GROW = 1.25;
+
+/**
+ * A cut nail's head, driven flush: a low square pyramid, its faces bevelled toward the light
+ * (4 triangles; a round stud is 15, and at the bench's distance a nail head is two pixels).
+ */
+function nailHead(r: number, h: number): BufferGeometry {
+  const md = new MeshData();
+  const top = md.v(0, h, 0, 0, 1, 0);
+  const base = [0, 1, 2, 3].map((i) => {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    return md.v(Math.cos(a) * r, 0, Math.sin(a) * r, Math.cos(a) * 0.55, 0.85, Math.sin(a) * 0.55);
+  });
+  for (let i = 0; i < 4; i++) md.tri(base[i]!, base[(i + 1) % 4]!, top);
+  const g = finish(md);
+  const s = g.getAttribute(ATTR.surf);
+  for (let i = 0; i < s.count; i++) s.setXYZ(i, i === 0 ? 0.8 : 0.3, 0, 0);
+  return grain(g, 'y');
 }
 
 /** How dark the bench reads against what stands on it: the `wood` token, taken well down (walnut in lamplight, not pine). */
@@ -157,19 +193,26 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
       // the nose plank, one length per section
       for (let k = 0; k < cuts.length - 1; k++) {
         const xa = cuts[k]! + (k > 0 ? seam : 0), xb = cuts[k + 1]! - (k < cuts.length - 2 ? seam : 0);
-        const g = nosePlank(xa, xb, za, zb, T, o.detail, { left: true, right: true });
+        // knocks along the front edge where things were dropped: drawn as P1 drew them (so every later draw
+        // is the same), and every other one kept: half the knocks, the bigger ones, read the same at any distance
+        const knocks: Array<{ x: number; a: number; r: number; d: number }> = [];
+        let end = xa;
         if (!low) {
-          // knocks along the front edge where things were dropped
           const dings = Math.max(2, Math.round((xb - xa) * 1.5));
           for (let d = 0; d < dings; d++) {
             const x = xa + 0.25 + R() * (xb - xa - 0.5);
             const a = R.range(0.2, 1.3);
-            dent(g, [x, -NOSE_R + Math.cos(a) * NOSE_R, zb - NOSE_R + Math.sin(a) * NOSE_R], [0, Math.cos(a), Math.sin(a)], R.range(0.035, 0.09), R.range(0.008, 0.02));
+            const r = R.range(0.035, 0.09), dd = R.range(0.008, 0.02);
+            if (d % KNOCK_EVERY === 0) knocks.push({ x, a, r: r * KNOCK_GROW, d: dd * KNOCK_GROW });
           }
           // a chipped corner at one end of the length
-          const end = R() < 0.5 ? xa : xb;
-          dent(g, [end, -0.02, zb - 0.02], [end === xa ? -1 : 1, 0.6, 0.6], 0.12, 0.035);
+          end = R() < 0.5 ? xa : xb;
         }
+        const rowsAt = knocks.flatMap((k) => [k.x - k.r, k.x, k.x + k.r]);
+        if (!low) rowsAt.push(end === xa ? xa + 0.12 : xb - 0.12, end === xa ? xa + 0.06 : xb - 0.06);
+        const g = nosePlank(xa, xb, za, zb, T, o.detail, { left: true, right: true }, rowsAt);
+        for (const k of knocks) dent(g, [k.x, -NOSE_R + Math.cos(k.a) * NOSE_R, zb - NOSE_R + Math.sin(k.a) * NOSE_R], [0, Math.cos(k.a), Math.sin(k.a)], k.r, k.d);
+        if (!low) dent(g, [end, -0.02, zb - 0.02], [end === xa ? -1 : 1, 0.6, 0.6], 0.12, 0.035);
         boards.push({ g, tone: tone(), xa, xb, za, zb: zb - NOSE_R, y: 0 });
       }
     } else {
@@ -242,7 +285,7 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
         for (const f of [0.24, 0.76]) {
           if (R() < 0.12) continue; // pulled, or never driven
           const at: [number, number, number] = [bx + R.spread(0.03), bd.y, bd.za + w * f + R.spread(0.04)];
-          const s = grain(stud(0.016, 0.0045, 5), 'y');
+          const s = nailHead(0.016, 0.0045);
           b.add(part('metal', transform(s, aim(at, [0, 1, 0], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.45, jitter: 0.15 }));
         }
       }
@@ -267,7 +310,7 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
     b.add(part('metal', plate, 'steel', { seed: R.int(0, 1e6), shade: 0.55, jitter: 0.06 }));
     for (const [dx, dy] of [[-0.11, -0.09], [0.11, -0.09], [-0.11, 0.09], [0.11, 0.09]] as const) {
       const s = R.int(0, 999);
-      b.small(() => hexBolt({ af: 0.05, washer: true, detail: o.detail, seed: s }).map((q) => ({ ...q, geometry: transform(q.geometry, aim([xc + dx + R.spread(0.004), yc + dy + R.spread(0.004), za + pt], [0, 0, 1], R.range(0, 60))) })));
+      b.small(() => hexBolt({ af: 0.05, cheap: true, detail: o.detail, seed: s }).map((q) => ({ ...q, geometry: transform(q.geometry, aim([xc + dx + R.spread(0.004), yc + dy + R.spread(0.004), za + pt], [0, 0, 1], R.range(0, 60))) })));
     }
   }
 }
@@ -437,11 +480,34 @@ export function laneTape(o: LaneTapeOptions): Piece {
 
 // ---- the back wall --------------------------------------------------------------------
 
+/** A hole through the wall (a window), in the wall's own x and height. */
+export interface WallOpening {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
 export interface BackWallOptions extends KitOptions {
   /** Along X (default 20). */
   width?: number;
   /** Default 6. */
   height?: number;
+  /**
+   * Where the boards stop at the bottom (default 0: the bench top). Below 0 the
+   * wall runs down behind the bench to the floor (the room, V), and a plain
+   * skirting runs along its foot.
+   */
+  base?: number;
+  /** Holes cut through the boards (a window); the boards stop short of them. Default none. */
+  openings?: readonly WallOpening[];
+  /** The bench-top skirting runs only over [x0, x1] (the bench's length) instead of the whole wall. */
+  skirting?: { x0: number; x1: number };
+  /**
+   * Past |x| = from, boards take a darker tone, reaching `amount` of their
+   * own by |x| = to (default none): the wall running on into the dark.
+   */
+  fade?: { from: number; to: number; amount?: number };
 }
 
 /** The dark boarded wall behind the bench (see the file note). */
@@ -474,20 +540,40 @@ export function backWall(o: BackWallOptions = {}): Piece {
     for (let i = 0; i < pos.count; i++) lp.setXYZ(i, pos.getY(i), pos.getX(i), pos.getZ(i));
     return g;
   };
+  const base = o.base ?? 0;
+  const holes = o.openings ?? [];
+  const inHole = (px: number, py: number, pad = 0): boolean => holes.some((h) => px > h.x0 - pad && px < h.x1 + pad && py > h.y0 - pad && py < h.y1 + pad);
+  const fadeK = (xc: number): number => {
+    const f = o.fade;
+    if (!f) return 1;
+    const t = Math.min(1, Math.max(0, (Math.abs(xc) - f.from) / (f.to - f.from)));
+    return 1 - (1 - (f.amount ?? 0.45)) * t * t * (3 - 2 * t);
+  };
   while (x < width / 2 - 1e-3) {
     const bw = Math.min(width / 2 - x, 0.68 + R.spread(0.12));
     const gap = 0.012;
     const xa = x, xb = x + bw - gap;
-    // a board standing up: built along X (its grain), then stood on end
-    const g = bevelBox({ min: [0, xa, -t], max: [height + R.spread(0.02), xb, 0], c: low ? 0.006 : 0.01, omit: ['nz', 'nx'], wear: 0.6 });
+    // a board standing up: built along X (its grain), then stood on end; cut short round a hole
+    const top = height + R.spread(0.02);
+    const cut = holes.find((h) => xa < h.x1 && xb > h.x0);
+    // a board across a hole's edge is cut there (the casing hides the cut): full height outside the hole, short inside it
+    const cells: Array<[number, number, number, number]> = [];
+    if (cut) {
+      const ca = Math.max(xa, cut.x0), cb = Math.min(xb, cut.x1);
+      if (ca - xa > 0.01) cells.push([xa, ca, base, top]);
+      cells.push([ca, cb, base, cut.y0], [ca, cb, cut.y1, top]);
+      if (xb - cb > 0.01) cells.push([cb, xb, base, top]);
+    } else cells.push([xa, xb, base, top]);
+    const pieces = cells.filter(([x0c, x1c, a, b2]) => b2 - a > 0.02 && x1c - x0c > 0.01).map(([x0c, x1c, a, b2]) => bevelBox({ min: [a, x0c, -t], max: [b2, x1c, 0], c: low ? 0.006 : 0.01, omit: ['nz', 'nx'], wear: 0.6 }));
+    const g = pieces.length > 1 ? mergeGeometries(pieces) : pieces[0]!;
     transform(g, toWall);
     transform(g, flipX);
     // a step lighter than the room: between teal-deep and teal-panel, board by board
     const tone = R() < 0.5 ? { token: 'teal-deep' as const, shade: R.range(1.35, 1.75) } : { token: 'teal-panel' as const, shade: R.range(0.55, 0.72) };
-    const tn = { seed: R.int(0, 1e6), jitter: 0.06, shade: tone.shade, warm: R.spread(0.05) };
+    const tn = { seed: R.int(0, 1e6), jitter: 0.06, shade: tone.shade * fadeK((xa + xb) / 2), warm: R.spread(0.05) };
     tint(g, tone.token, tn);
     const more: BufferGeometry[] = [];
-    if (!low) {
+    if (!low && !cut) {
       const ox0 = Math.max(xa + 0.02, ghost.x0), ox1 = Math.min(xb - 0.02, ghost.x0 + ghost.w);
       if (ox1 - ox0 > 0.05) {
         more.push(wallPatch({ x: (ox0 + ox1) / 2, z: ghost.y0 + ghost.h / 2, rx: (ox1 - ox0) / 2, rz: ghost.h / 2, rot: 0, surf: (tt) => [tt >= 1 ? 0 : 0.75, 0], rings: [0.96, 1], segs: 4, square: true }, 0.0012));
@@ -502,17 +588,39 @@ export function backWall(o: BackWallOptions = {}): Piece {
     if (!low) for (const yy of [1.35, 3.9]) nails.push([(xa + xb) / 2 + R.spread(0.05), yy + R.spread(0.04)]);
     x += bw;
   }
-  // the skirting and a dado rail
-  const sk = bevelBox({ min: [-width / 2, 0, 0], max: [width / 2, skirtH, skirtT], c: 0.016, omit: ['ny', 'nz'], wear: 0.8 });
+  // the skirting and a dado rail (the rail stops at a hole and starts again past it)
+  const skx = o.skirting ?? { x0: -width / 2, x1: width / 2 };
+  const sk = bevelBox({ min: [skx.x0, 0, 0], max: [skx.x1, skirtH, skirtT], c: 0.016, omit: ['ny', 'nz'], wear: 0.8 });
   b.add(large(part('wood', sk, 'wood', { seed: R.int(0, 1e6), shade: 0.45, jitter: 0.04 })));
-  const dado = bevelBox({ min: [-width / 2, dadoY, 0], max: [width / 2, dadoY + dadoH, 0.035], c: 0.012, omit: ['nz'], wear: 0.85 });
-  b.add(large(part('wood', dado, 'teal-panel', { seed: R.int(0, 1e6), shade: 0.55, jitter: 0.04 })));
+  const dadoSeed = R.int(0, 1e6);
+  const dadoRuns: Array<[number, number]> = [];
+  {
+    let from = -width / 2;
+    for (const h of [...holes].filter((q) => dadoY + dadoH > q.y0 && dadoY < q.y1).sort((p, q) => p.x0 - q.x0)) {
+      dadoRuns.push([from, h.x0 - 0.12]);
+      from = h.x1 + 0.12;
+    }
+    dadoRuns.push([from, width / 2]);
+  }
+  for (const [d0, d1] of dadoRuns) {
+    if (d1 - d0 < 0.05) continue;
+    const ends: FaceName[] = [...(d0 > -width / 2 ? [] : ['nx' as const]), ...(d1 < width / 2 ? [] : ['px' as const])];
+    const dado = bevelBox({ min: [d0, dadoY, 0], max: [d1, dadoY + dadoH, 0.035], c: 0.012, omit: ['nz', ...(holes.length ? ends : [])], wear: 0.85 });
+    b.add(large(part('wood', dado, 'teal-panel', { seed: dadoSeed, shade: 0.55, jitter: 0.04 })));
+  }
+  // down to the floor: a plain skirting along the wall's foot
+  if (base < 0) {
+    const fs = bevelBox({ min: [-width / 2, base, 0], max: [width / 2, base + 0.3, 0.05], c: 0.016, omit: ['ny', 'nz', 'nx', 'px'], wear: 0.6 });
+    b.add(large(part('wood', fs, 'wood', { seed: R.int(0, 1e6), shade: 0.3, jitter: 0.04 })));
+  }
   // nail heads (some boards lost theirs), the two that held whatever hung there, and the dado's
   if (!low) {
     nails.push([ghost.x0 + ghost.w * 0.2, ghost.y0 + ghost.h - 0.06, 0.0001], [ghost.x0 + ghost.w * 0.8, ghost.y0 + ghost.h - 0.06, 0.0001]);
     for (let xx = -width / 2 + 0.4; xx < width / 2 - 0.2; xx += R.range(1.1, 1.8)) nails.push([xx, dadoY + dadoH / 2, 0.035]);
   }
   for (const nl of nails) {
+    if (inHole(nl[0]!, nl[1]!, 0.15)) continue;
+    if (o.fade && fadeK(nl[0]!) < 0.75) continue; // nobody sees a nail in the dark
     if (nl.length === 2 && R() < 0.3) continue;
     const s = grain(stud(0.011, 0.005, 5), 'y');
     b.add(part('metal', transform(s, aim([nl[0]!, nl[1]!, nl[2] ?? 0], [0, 0, 1], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.35, jitter: 0.12 }));
@@ -548,11 +656,30 @@ export const catalogue: CatalogueEntry[] = [
   },
   {
     name: 'back-wall',
-    build: (opts = {}) => backWall({ ...kit(opts), width: num(opts['width'], 12), height: num(opts['height'], 5) }),
-    variants: { wall: {} },
+    build: (opts = {}) =>
+      backWall({
+        ...kit(opts),
+        width: num(opts['width'], 12),
+        height: num(opts['height'], 5),
+        ...(typeof opts['base'] === 'number' ? { base: opts['base'] } : {}),
+        ...(Array.isArray(opts['openings']) ? { openings: opts['openings'] as WallOpening[] } : {}),
+        ...(isSpan(opts['skirting']) ? { skirting: opts['skirting'] } : {}),
+        ...(isFade(opts['fade']) ? { fade: opts['fade'] } : {}),
+      }),
+    variants: { wall: {}, 'with a window': { width: 16, base: -2, openings: [{ x0: 2.4, x1: 5.6, y0: 1.7, y1: 4.4 }], skirting: { x0: -6, x1: 6 }, fade: { from: 5, to: 8 } } },
     camera: { distance: 14 },
-    note: 'Dark boarded back wall with a skirting and a few nail heads; face at z = 0.',
+    note: 'Dark boarded back wall with a skirting and a few nail heads; face at z = 0. Options: base (run down to the floor), openings (a window), skirting span, fade past the bench ends.',
+  },
+  {
+    name: 'bench-frame',
+    build: (opts = {}) => benchFrame({ ...kit(opts), sections: num(opts['sections'], 3), width: num(opts['width'], 6), depth: num(opts['depth'], 10), floor: num(opts['floor'], FLOOR_Y) }),
+    variants: { frame: {}, low: { detail: 'low' } },
+    camera: { distance: 22 },
+    note: 'What holds the bench up: front legs into the dark, knee braces, a low rail, carriage bolts. Same origin as bench (top at y = 0); only what the camera sees is built.',
   },
 ];
+
+const isSpan = (v: unknown): v is { x0: number; x1: number } => !!v && typeof v === 'object' && typeof (v as { x0?: unknown }).x0 === 'number' && typeof (v as { x1?: unknown }).x1 === 'number';
+const isFade = (v: unknown): v is { from: number; to: number; amount?: number } => !!v && typeof v === 'object' && typeof (v as { from?: unknown }).from === 'number' && typeof (v as { to?: unknown }).to === 'number';
 
 export type { Rng };

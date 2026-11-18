@@ -4,10 +4,10 @@
  * they meet through this context: parts, the commit funnel, the event bus
  * (REWRITE.md § E4 invariant 2).
  */
-import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Part, Pose, SimEvent, Value, Vec3 } from './types.ts';
+import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Location, Part, Pose, Restore, SimEvent, Value, Vec3 } from './types.ts';
 import type { Clock } from './clock.ts';
 import type { Rng } from './rng.ts';
-import type { Change, HistoryHooks } from './history.ts';
+import type { Change, HistoryHooks, UndoOutcome, UndoRequest } from './history.ts';
 import type { SceneDesc } from './scene.ts';
 
 export type { BodyMode, Holding } from './types.ts';
@@ -74,6 +74,16 @@ export interface SimContext {
   /** Say which crew member speaks for a part (Fetch for `fetch`). */
   crewFor(part: Id, handle: CrewHandle): void;
 
+  // the history (§ E5): opening, charging and pending work are on `history`; these two need the world's bodies
+  /**
+   * Take a transaction back: the lever (`{ by: 'lever' }`), or "undo that" texted through `jack`
+   * (`{ by: 'text', jack }`, rule 12: all or nothing). Everything is applied in this step; the world
+   * emits `undone` (or `undo.refused`) and calls every unit's `restored`.
+   */
+  undo(req: UndoRequest): UndoOutcome;
+  /** Revert puts a part away (rule 14): its history entries are forgotten, then its location is written as `system`. */
+  putAway(part: Id, at: Location): CommitResult;
+
   // the Button's bracket (§ E5 "The Button is bracketed"), implemented by the world
   beginBracket(): void;
   beginRewind(steps: number): void;
@@ -91,4 +101,10 @@ export interface Unit {
   post?(): void;
   /** The Button's bracket opened or closed (the crew freezes). */
   bracket?(on: boolean): void;
+  /**
+   * An undo or a reset has just put these fields back (§ E5 rules 8-11), all in this step. A machine
+   * whose mouth a part was restored `in`, or the dock for a part restored from `shipped`, takes it back
+   * here; its pending work for an undone transaction was already dropped through its job's `abort`.
+   */
+  restored?(restores: readonly Restore[]): void;
 }

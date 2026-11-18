@@ -6,8 +6,6 @@
 // page the owner uses and scores at gate G1. Dev-only; never shipped.
 //
 // Query:
-//   ?patch=patch-felt|patch-toy    which Patch (default: whichever is registered)
-//   ?fetch=<name>                  which Fetch design (default fetch-porter)
 //   ?shot=home|button|fetch|patch|cord   the camera (default home: wide, or the cluster on a portrait phone)
 //   ?view=wide|phone               force a framing
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
@@ -72,7 +70,7 @@
         addEventListener('pointerup', () => dot.classList.remove('down'));
       }
 
-      const vig = await loadVignette({ patch: q.get('patch'), fetch: q.get('fetch'), seed });
+      const vig = await loadVignette({ seed });
       const portrait = (): boolean => q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight);
 
       /** Close views (§ G P1: close on the Button, on Fetch, on Patch). */
