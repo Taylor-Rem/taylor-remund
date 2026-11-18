@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
+import bakeTable from './integrations/bake-table.ts';
 import cname from './integrations/cname.ts';
 import devPages from './integrations/dev-pages.ts';
 import legacyPassthrough from './integrations/legacy-passthrough.ts';
@@ -17,7 +18,7 @@ export default defineConfig({
   // byte (§ E8), so no HTML compression anywhere.
   compressHTML: false,
   devToolbar: { enabled: false },
-  integrations: [cname(), legacyPassthrough(), devPages()],
+  integrations: [cname(), legacyPassthrough(), devPages(), bakeTable()],
   // Agent worktrees live under .claude/worktrees/ (git-ignored copies of the
   // project); the dev server must not watch or serve them.
   vite: {

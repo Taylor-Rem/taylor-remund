@@ -39,15 +39,22 @@ export const MIN_FETCH_PX = 80;
 const NAME_WORDS = new Set((site as unknown as { strip: { name: { text: string } } }).strip.name.text.toUpperCase().split(/\s+/));
 /** The reserved bays' label tape (flat on the bench; the room's words), as strips or whole. */
 const BAY_WORDS = new Set(Object.values((room as unknown as { bays: Record<string, { text: string }> }).bays).flatMap((b) => [b.text, ...b.text.split(' ')]));
-export function gated(register: string, text: string): boolean {
+/**
+ * The bays' tape is made at their capital height (room/bay.ts BAY_CAP, repeated: Node runs this without
+ * Vite); the whole switchboard also carries a small RESERVED strip over its capped jacks, which is not a
+ * bay's label and not gated. Labels are told apart by their texture key (`tape:black@0.34/|RESERVED`).
+ */
+const BAY_KEY = '@0.34/';
+export function gated(register: string, text: string, key = ''): boolean {
   if (register === 'sign' && text.split(' ').every((w) => NAME_WORDS.has(w))) return true;
-  if (register === 'tape' && BAY_WORDS.has(text)) return true;
+  if (register === 'tape' && BAY_WORDS.has(text)) return !key || key.includes(BAY_KEY);
   return gatedVignette(register, text);
 }
 
 const CLUSTER = ['button', 'phone', 'stool'];
 
 interface LabelCap {
+  key: string;
   register: string;
   text: string;
   px: number;
@@ -110,14 +117,14 @@ async function run(target: string, crew?: string): Promise<Result> {
           // labels
           const byText = new Map<string, LabelCap>();
           for (const l of m.labels.filter((x) => x.onScreen)) {
-            const k = `${l.register}|${l.text}`;
+            const k = l.key;
             const prev = byText.get(k);
             if (!prev || l.px < prev.px) byText.set(k, l);
           }
           const rows = [...byText.values()].sort((a, b) => a.px - b.px);
           for (const l of rows) {
             const line = `${name}: ${l.register.padEnd(7)} ${JSON.stringify(l.text).padEnd(16)} capitals ${l.px.toFixed(1)} px`;
-            if (!gated(l.register, l.text)) lines.push(`     ${line} (not gated)`);
+            if (!gated(l.register, l.text, l.key)) lines.push(`     ${line} (not gated)`);
             else if (w < 1440) lines.push(`     ${line} (the rule is set at 1440 wide: reported)`);
             else (l.px >= MIN_CAP_PX ? pass : fail)(`${line} (min ${MIN_CAP_PX})`);
           }

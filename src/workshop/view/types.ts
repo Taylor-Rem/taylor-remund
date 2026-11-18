@@ -92,8 +92,11 @@ export interface ViewContext {
   readonly labels: Labels;
   readonly tier: Tier;
   readonly reducedMotion: boolean;
-  /** Turn a kit Piece into Three.js objects (the only way meshes are made). */
-  realize(piece: Piece): Object3D;
+  /**
+   * Turn a kit Piece into Three.js objects (the only way meshes are made). Options: kit/realize.ts
+   * (`fixedView` for a static world-space piece, `shadowProxy`, `shadowDetail`, …).
+   */
+  realize(piece: Piece, o?: import('./kit/realize.ts').RealizeOptions): Object3D;
   /** Make an object answer to the pointer as this interactable or part. */
   pickable(id: Id, object: Object3D): void;
 }

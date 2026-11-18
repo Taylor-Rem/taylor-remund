@@ -19,11 +19,11 @@ export type { Path, SweepOptions } from './sweep.ts';
 export { transform, flipWinding, deform, taper, bend, bulge, dent } from './deform.ts';
 export * from './details.ts';
 export {
-  flat, part, texturedPart, paint, withVariant, large, noShadow, mat, T, Rdeg, chain, aim, place, apply, array, mirror, alongEdge, ring, grid,
+  flat, part, texturedPart, paint, withVariant, large, noShadow, withShadow, mat, T, Rdeg, chain, aim, place, apply, array, mirror, alongEdge, ring, grid,
   mergeGeometries, merge, NodeBuilder, PieceBuilder, piece, countTriangles, pieceBounds, budget,
 } from './compose.ts';
 export type { PartsLike, Placement, PieceOptions, Budget, BudgetRow } from './compose.ts';
-export { realize, drawStats, sourcesOf } from './realize.ts';
+export { realize, drawStats, sourcesOf, SHADOW_LAYER } from './realize.ts';
 export { bevelBox, innerBox, skin, decalBands, stud, mergeMarked, sheet, cylinderRibbons, ridgedBand, hexHead, stripes, DIGIT_STROKES } from './cheap.ts';
 export type { BevelBoxOptions, FaceName, SheetOptions } from './cheap.ts';
 export { grain, setFinish, lposOf, offsetLpos } from './space.ts';

@@ -235,6 +235,8 @@
       key.position.copy(keyDir).add(focus);
       key.target.position.copy(focus);
       key.castShadow = true;
+      // the kit casts through shadow proxies on their own layer (kit/realize.ts)
+      key.shadow.camera.layers.enable(K.SHADOW_LAYER);
       key.shadow.mapSize.set(2048, 2048);
       key.shadow.radius = 4;
       key.shadow.bias = -0.0005;
