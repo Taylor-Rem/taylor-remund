@@ -443,7 +443,7 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
         for (const q of flatten(added)) {
           const n = (q.geometry.index ? q.geometry.index.count : q.geometry.getAttribute('position').count) / 3;
           t.triangles += n;
-          if (q.castShadow !== false) t.casting += n;
+          if (q.castShadow !== false && q.shadow !== 'none') t.casting += n;
         }
       }
       return out;

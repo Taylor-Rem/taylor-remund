@@ -87,8 +87,8 @@ export function staticStation(k: BenchKit, items: (build: (name: string, opts?: 
 }
 
 /**
- * The piece with every part that lies wholly below `y` (world, placed at `at`) left out of the shadow
- * pass: under the bench top nothing the key light reaches needs a shadow from it (the frame, the legs,
+ * The piece with every part that lies wholly below `y` (world, placed at `at`) casting no shadow (`shadow:
+ * 'none'`, kit/realize.ts): under the bench top nothing the key light reaches needs a shadow from it (the frame, the legs,
  * the floor, a riser in the dark). `y` Infinity: nothing of it casts. A new tree; the piece is not changed.
  */
 export function castAbove(p: Piece, at: Matrix4, y = 0.001): Piece {
@@ -98,7 +98,7 @@ export function castAbove(p: Piece, at: Matrix4, y = 0.001): Piece {
     const parts = n.parts.map((q): KitPart => {
       q.geometry.computeBoundingBox();
       const below = !q.geometry.boundingBox || box.copy(q.geometry.boundingBox).applyMatrix4(w).max.y < y;
-      return below ? { ...q, castShadow: false } : q;
+      return below ? { ...q, shadow: 'none' as const } : q;
     });
     const out: PieceNode = { ...n, parts };
     if (n.children) out.children = n.children.map((c) => walk(c, w));

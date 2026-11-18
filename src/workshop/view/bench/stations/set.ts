@@ -13,8 +13,8 @@ import { OPENING } from '../../kit/pieces/revert-hatch/index.ts';
 import { ROOM, roomWall } from '../../kit/pieces/room/index.ts';
 import { signLabels } from '../../kit/pieces/sign/index.ts';
 import { STOOL_SEAT } from '../../kit/pieces/switchboard/index.ts';
-import { Matrix4 } from 'three';
-import { ORDER, castAbove, type BenchStation } from '../station.ts';
+import { withShadow } from '../../kit/compose.ts';
+import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'set',
@@ -30,9 +30,8 @@ export const station: BenchStation = {
     const H = S.hatch, hk = k.crewScale / 1.25;
     const hole = benchHole(H.at![0], H.at![1], OPENING.w * hk, OPENING.d * hk);
     // the bench top and the wall receive shadows and cast none: nothing under the top, nothing behind the wall, is in the key's light
-    const I = new Matrix4();
-    const bench: Entry | undefined = benchE ? { ...benchE, build: (opts = {}) => castAbove(benchE.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth, openings: [hole] }), I) } : undefined;
-    const wall: Entry | undefined = wallE ? { ...wallE, build: (opts = {}) => castAbove(wallE.build({ ...opts, ...(k.room ? roomWall() : {}) }), I, Infinity) } : wallE;
+    const bench: Entry | undefined = benchE ? { ...benchE, build: (opts = {}) => withShadow(benchE.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth, openings: [hole] }), 'none') } : undefined;
+    const wall: Entry | undefined = wallE ? { ...wallE, build: (opts = {}) => withShadow(wallE.build({ ...opts, ...(k.room ? roomWall() : {}) }), 'none') } : wallE;
     // the stool lowered for the whole board (Patch at 1.5× on it works the jack row)
     const stoolE = E('stool');
     const stool: Entry | undefined = stoolE ? { ...stoolE, build: (opts = {}) => stoolE.build({ ...opts, seatY: STOOL_SEAT }) } : undefined;
