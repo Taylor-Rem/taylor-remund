@@ -89,6 +89,7 @@ tests/              unit/, scenario/ (headless simulation), browser/ (Playwright
 scripts/            verify and the checks it runs; capture and perf tools
 integrations/       local Astro integrations: CNAME into the output, dev-only pages, legacy passthrough (temporary)
 legal-reference/    the approved text of record for the four compliance pages (byte-exact)
+reference/          the pictures approved at G1: the standard for the look (never regenerated)
 legacy/             the old plain-HTML site, kept for migration; /resume/ and /ai/ are served from it until P3
 public/             assets/ at their old URLs, fonts/, robots.txt
 ```
@@ -117,8 +118,9 @@ enforces the table in `REWRITE.md` § E2:
 
 ## The look
 
-`REWRITE.md` § A is the direction; the pictures approved at gate G1 are the
-standard everything later is compared against.
+`REWRITE.md` § A is the direction; the pictures approved at gate G1
+(2026-11-18) are in `reference/g1/` and are the standard everything later
+is compared against.
 
 - Every mesh comes from a kit function (`src/workshop/view/kit/`); nothing
   is built from raw primitives at the point of use. Materials are made only

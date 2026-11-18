@@ -1,10 +1,9 @@
 # REWRITE — taylorremund.com, the workshop
 
 **Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). P0 and
-P1 are built; the build is stopped at G1, first attempt, waiting for
-Taylor's scores** (packet handed over 2026-11-17; § G P1 "As built in P1"
-lists what differs from this file). G1 is a hard stop: nothing of the
-wider environment is produced until Taylor has passed the look. Branch
+P1 are built and G1 passed on 2026-11-18 (§ Approval log); P2, the
+playable bench, is being built and stops at G2** (§ G P2 lists what
+Taylor added on 2026-11-18). Branch
 `rewrite`, local only. `main` is the live site and stays untouched until
 the cutover.
 
@@ -360,8 +359,9 @@ means expected to prevent it; G1 judges the result, not the means.
 - **Characters with appeal:** a silhouette that reads at thumbnail size,
   eyes that look at things, weight in every move.
 
-**Palette.** Taken from the exchange-room picture. Starting values; G1
-fixes them, and after G1 a material uses no other colour.
+**Palette.** Taken from the exchange-room picture. Fixed at G1
+(2026-11-18), the four paints at the foot of the table included; a
+material uses no other colour.
 
 | token | value | used for |
 |---|---|---|
@@ -379,10 +379,23 @@ fixes them, and after G1 a material uses no other colour.
 | `button-red` | `#d6322b` | the Button and nothing else |
 | `tape-yellow` | `#e3b21c` | lane tape on the bench |
 | `steel` | `#7d8790` | rollers, rails, tools |
+| `paint-orange` | `#c2622d` | a paint; the RUST tool |
+| `paint-green` | `#5d8a4e` | a paint; the VUE tool |
+| `paint-blue` | `#3d6c9e` | a paint; the PYTHON tool; "make it blue" |
+| `paint-violet` | `#6b5290` | a paint; the PHP tool |
 
 **Light.** One key light, the lamp, warm, from the upper back left. A dim
 cool fill from the window. The bench is bright; the room falls away into
 `teal-deep`, never pure black. Only bulbs and indicator lamps glow.
+
+**The dark has something in it** (put to Taylor 2026-11-18, who had noted
+that outside the workshop "is just dark"). The bench is an object: a front
+apron, legs going down into shadow, a floor below that catches a faint
+pool of the lamp's spill. The back wall runs on past the bench ends and
+fades. A few dim, generic workshop shapes stand at the room's edge
+(shelving, pipes), barely lit and not usable; nothing among them says
+anything personal about Taylor. The camera's limits never frame plain
+nothing. It stays a workbench, not a room. He approves its picture in P2.
 
 **Text in the world, three registers.**
 
@@ -394,7 +407,12 @@ cool fill from the window. The bench is bright; the room falls away into
 **Type on the HTML pages.** Recommended: IBM Plex Sans for reading, IBM
 Plex Mono for labels and data, one stencil display face for the name only;
 all open licences. This drops Inter and Space Grotesk, the most common
-pairing on generated sites. Confirmed at G1 with the rest of the look.
+pairing on generated sites. Not shown at G1 (no conventional page existed
+yet); shown with the first page built in P3 and confirmed at G4.
+
+**Type in the world**, fixed at G1 (2026-11-18): Alfa Slab One (the sign),
+Barlow Semi Condensed (label tape and plates), Stardos Stencil (crates),
+Iosevka Fixed Slab (cards and slips); self-hosted, 34.6 KB together.
 
 **Motion.** Mechanical and weighted. Things anticipate, overshoot a little
 and settle. Nothing fades or floats in the way an interface does.
@@ -520,7 +538,7 @@ a robot, which doubles its speed but not the inspector's (X5); the sorter
 feeding the belt in size order; a gate that keeps an order out of the wrong
 restaurant's window; hold-to-rewind.
 
-**What a visitor can discover in release 1.** Fifteen things, from thirteen
+**What a visitor can discover in release 1.** Sixteen things, from fourteen
 interactions:
 
 1. Things can be picked up and thrown, and each has a note.
@@ -539,7 +557,8 @@ interactions:
 13. Hatches show the real thing.
 14. The house tune.
 15. The crew has opinions: pick Fetch up, pull Patch's cord mid-job, leave
-    Revert in peace.
+    Revert in peace, lift Patch off its stool, throw a crate at either.
+16. The lamp's arm moves, and the shadows with it.
 
 ### B3. The first thirty seconds
 
@@ -631,6 +650,9 @@ carries parts between stations inside lanes of yellow tape.
   looks at its empty hands and salutes.
 - *Picked up:* its wheel spins in the air. Put down outside its lanes, it
   hurries back.
+- *Hit by a thrown part* (Taylor, 2026-11-18): it is shoved and spun, not
+  merely bumped into; it wobbles, finds its balance and goes back to its
+  lane.
 - *Its boundary:* it cannot cross the tape. Reaching for something outside
   it, it stretches, gives up, and prints a slip: "OUT OF MY LANE."
 
@@ -647,14 +669,19 @@ and a crank on its back. It lives in a cupboard under the bench.
 - *Picked up:* it is heavy and goes limp.
 
 **Patch, the operator.** The raccoon in a cardigan and headset from
-Patchlamp's brand picture, on a stool at the switchboard. Patch does not
-leave the stool.
+Patchlamp's brand picture, on a stool at the switchboard. The stool is
+Patch's place: it never walks the bench.
 
 - *What it does:* when a text arrives the line's lamp lights, Patch pulls
   open the drawer labelled for that jack (the folder), does the work, leans
   out to check the result is really there, and texts back.
 - *With the visitor:* pull the cord out mid-job and Patch looks at the dead
   plug, then slowly at the visitor.
+- *Picked up* (Taylor, 2026-11-18): Patch can be lifted off the stool. It
+  hangs there unimpressed; put down anywhere, it goes back to the stool
+  and climbs up.
+- *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
+  duck, a catch, the look); it is never hurt.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
 - *Brand rules apply:* Patch is "it", says "I" of itself, and names Taylor.
 
@@ -825,7 +852,7 @@ of experience" under what must not be done.
 
 ## D. Interaction inventory
 
-Release 1 has thirteen. Every one is finished to the standard G1 sets, or
+Release 1 has fourteen. Every one is finished to the standard G1 sets, or
 it is not in the release.
 
 **1. Pick up and throw anything loose.** *Input:* drag, or tap then tap.
@@ -847,7 +874,12 @@ words turn into a physical change, the way the product works.
 
 **4. Re-patch the cord.** X1. *Input:* drag the plug to another jack.
 *Feedback:* the cord swings like a rope, the jack's lamp lights, the
-phone's ready-made texts change to suit. *Reset:* UNDO, or "Reset the
+phone's ready-made texts change to suit. From Taylor's notes of
+2026-11-18: the lifted plug keeps the angle of a hand holding it and does
+not drop to point straight down; while it is held the live jacks show
+themselves and it seats in the nearest; and the station on the new line
+answers at once when the plug goes in, so each jack is visibly a
+different place. *Reset:* UNDO, or "Reset the
 workshop". *Why:* one familiar action suddenly works on everything, the
 lamp most of all.
 
@@ -886,7 +918,15 @@ open, not to read.
 **12. The mailbox and the clipboard.** § B7. *Why:* the practical things
 are also pleasant to use.
 
-**13. The crew.** § B5. Poke, pick up, paint, hand things to.
+**13. The crew.** § B5. Poke, pick up, paint, hand things to, throw
+things at.
+
+**14. The lamp's arm** (added by Taylor, 2026-11-18). *Input:* drag the
+lamp by its shade. *Behaviour:* the arm swings within what its joints
+allow and the one key light goes with it, so every shadow on the bench
+moves. *Reset:* UNDO, or "Reset the workshop"; a new visit starts with the
+lamp at home, so the opening picture stays true. *Why:* playing with the
+shadows of a miniature is a pleasure of its own.
 
 One written secret, the house tune (§ B2 X2). The other surprises are not
 written at all; they fall out of the laws: a blue robot, a shipped Fetch,
@@ -1429,6 +1469,7 @@ reserved bays.
 - The belt with its dial and lever, the striker, the dock, the return
   chute.
 - The UNDO lever.
+- The lamp's arm (added 2026-11-18).
 - The tool wall, eight tools.
 - The shipped pallets; crates that open.
 - The mailbox and the résumé clipboard.
@@ -1439,7 +1480,7 @@ reserved bays.
 **Around it.** The strip, the paperwork, the controls list, three tiers,
 settings. Every conventional page of § F1, and the 404.
 
-That is thirteen interactions and fifteen things to discover (§ B2). It is
+That is fourteen interactions and sixteen things to discover (§ B2). It is
 the default, not a fallback. If G2's testers find it thin, the answer is
 Taylor's to choose at that gate: pull the first arrival forward, or
 deepen what is there.
@@ -1564,9 +1605,9 @@ Nothing of the wider environment is produced before G1 passes. **The six
 approved pictures become the standard**: every later gate compares what is
 new against them, and anything below them is finished or removed.
 
-*As built in P1 (2026-11-17). Swaps and additions, each listed in the G1
-packet's "found on the way". The sections they touch are left as written
-until Taylor rules at the gate; the code is as described here.*
+*As built in P1 (2026-11-17), and as it stands after G1 passed on
+2026-11-18. Swaps and additions, each listed in the G1 packet's "found on
+the way".*
 - **The Button stands on a console** 2.1 units wide, not a slim pedestal,
   so DO NOT TOUCH measures 20 px capitals at the default view. Its cover
   is a wire guard, parked open.
@@ -1576,25 +1617,27 @@ until Taylor rules at the gate; the code is as described here.*
 - **Patch sits on a tall stool at the board's right end**, not in front of
   the board, and the jack tapes are above the jacks, so both tapes read
   whole whichever jack the plug is in. The two live jacks are STOREFRONT
-  and LAMP. Patch does not yet reach a jack.
-- **Two designs each of Fetch and Patch** were built. The build uses
-  `fetch-porter` (cream enamel) and `patch-felt`; `fetch-bulb` and
-  `patch-toy` remain in the kit until Taylor chooses.
-- **Palette (§ A):** four provisional paint tokens, `paint-orange`,
-  `paint-green`, `paint-blue`, `paint-violet`, beside the fourteen of § A.
+  and LAMP. Patch does not yet reach a jack (P2 work).
+- **Two designs each of Fetch and Patch** were built. `fetch-porter`
+  (cream enamel) and `patch-felt` are the crew as passed at G1;
+  `fetch-bulb` and `patch-toy` are taken out of the kit in P2.
+- **Palette (§ A):** four paint tokens, `paint-orange`, `paint-green`,
+  `paint-blue`, `paint-violet`, beside the fourteen of § A; fixed at G1.
   § B1 asks for eight paints and "make it blue"; § A had no blue.
 - **Type in the world:** Alfa Slab One (sign), Barlow Semi Condensed (tape
   and plates), Stardos Stencil (crates), Iosevka Fixed Slab (cards);
-  self-hosted, 34.6 KB. Confirmed or changed at G1 with the palette.
+  self-hosted, 34.6 KB. Fixed at G1.
 - **Crate stencil:** two arrows and a size letter; no words.
 - **Drawing:** a piece with moving parts is one skinned mesh per material
   (`realize`, backend `skinned`); the static set is merged per material.
 - **Development page:** `/dev/vignette/` (`?patch=`, `?fetch=`, `?shot=`,
   `?manual=1`, `?hud=0`); `scripts/check-vignette.ts` measures labels,
   draw calls, triangles and still-frame identity on the real GPU.
-- **Not started:** M2 (history) and M5 (pages). The milestone table would
-  allow them after M0; the phase list puts them after G1, and the stricter
-  reading was taken.
+- **Not started in P1:** M2 (history) and M5 (pages). The milestone table
+  would allow them after M0; the phase list puts them after G1, and the
+  stricter reading was taken. M5 waits for G2 on the same reading.
+- **The reference pictures** are in `reference/g1/` with the address and
+  simulation step each was taken at.
 
 **P2. The playable bench: do people play with it?** *Depends on:* G1.
 - First, alone: the history model of § E5 with its tests, against stand-in
@@ -1604,6 +1647,26 @@ until Taylor rules at the gate; the code is as described here.*
 - Use the real contracts of § E4 from the start, so P3 hardens this code
   and does not rewrite it.
 - Measure the compressed size of the physics file and time-to-usable.
+  (First measurement, 2026-11-18, the vignette bundled: usable after about
+  3 s on the reference laptop with nothing on screen meanwhile; about
+  1.5 MB compressed, of which the physics file is 1.14 MB.)
+- **From Taylor's notes on the vignette (2026-11-18), built in this
+  phase:** the belt carries what is put on it; each jack is visibly a
+  different place and the lifted plug behaves like a held thing (§ D 4);
+  Patch can be lifted off the stool and answers a thrown crate, and Fetch
+  is knocked about by one (§ B5); the lamp's arm can be dragged (§ D 14);
+  the sign reads his full name; the room beyond the bench has something in
+  it (§ A); and a visitor is never shown a blank page while it loads: the
+  picture-first loading of § B3 and § E6 is brought forward from P3 in a
+  plain form, in time for G2's testers.
+- **From the lead's own list at G1:** it must be plainer what can be
+  touched (the hover and tell grammar of § B1 on everything usable, and
+  nothing that looks loose and is not); Fetch and Patch must be larger in
+  the frame at the default view; and frame-time, triangle and draw-call
+  headroom is won back before the bench is widened.
+- Part notes, the bell and the handle clicks are synthesised in this
+  phase, because X2 cannot be judged silent (§ B9); the fuller sound of P5
+  is still P5.
 - **Gate G2 (Taylor, with numbers).** Three people who have not seen it,
   using the protocol of § I: at least two act within twenty seconds
   unprompted and use three different things within two minutes. The feel
@@ -1671,7 +1734,7 @@ music. More than one room.
 **Shortcuts that keep the quality.**
 
 - One fixed camera angle means only one side of anything needs to be good.
-- One robot rig serves every robot. Patch never leaves the stool.
+- One robot rig serves every robot. Patch never walks the bench (§ B5).
 - Machines are scripted; only loose parts are simulated.
 - Undo restores recorded values; nothing needs inverse code.
 - A crate opens to one standing card, the same mechanism for all of them.
@@ -1853,7 +1916,7 @@ about Taylor that he has not supplied.
 | gate | what it approves | date | by |
 |---|---|---|---|
 | G0 | This specification; building may begin at P0 and stops at G1 | 2026-11-17 | Taylor: "I am authorizing G0 and the start of implementation." Not authorised by this line: deploying, pushing the branch, changing production, or passing any later gate. |
-| G1 | The look; the method for producing the rest of the bench | | |
+| G1 | The look; the method for producing the rest of the bench | 2026-11-18 | Taylor, after playing the vignette on his own laptop: "G1 passed. I really like it a lot. You're good to continue with the plan". Passed on the first attempt. With it, by the terms put to him that day: the cream-enamel Fetch, the felt Patch, the four added paints and the four world typefaces stand. He gave notes instead of the six scores and ran no cold-viewer test; his notes are in § G P2. Not authorised by this line: pushing the branch, deploying, or passing any later gate. |
 | G2 | The bench plays; release 1's list confirmed | | |
 | G4 | Both hatches, the paperwork, the truth table, the crew's lines | | |
 | G5 | The whole bench holds the standard | | |
