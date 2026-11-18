@@ -51,7 +51,7 @@ describe('revert (Revert, the caretaker)', () => {
     expect(b.fits, b.text).toBe(true);
     expect(revert({ detail: 'low' }).triangles).toBeLessThan(piece.triangles);
     // one skinned mesh per material class (and the card's texture): a moving piece's draw calls
-    expect(b.meshes).toBeLessThanOrEqual(9);
+    expect(b.meshes, b.text).toBeLessThanOrEqual(5);
     const walk = (n: PieceNode): void => {
       for (const q of n.parts) checkGeometry(q.geometry);
       for (const c of n.children ?? []) walk(c);
@@ -138,6 +138,7 @@ describe('revert (Revert, the caretaker)', () => {
     // the longest card, folded, fits the slot (1.12 long); its capitals pass 12 px at the whole-bench view (~56 px a unit)
     expect(CARD_ESTIMATE.w / 2).toBeLessThan(1.1);
     expect(CARD_CAP * 56).toBeGreaterThanOrEqual(12);
+    expect(CARD_CAP * 60).toBeGreaterThanOrEqual(13);
   });
 
   it('reaches the broom with its one arm, stowed and out', () => {

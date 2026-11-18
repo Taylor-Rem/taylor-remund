@@ -20,6 +20,7 @@ import { sweep, polylinePath } from '../../sweep.ts';
 import { domeRivet, hexBolt } from '../../details.ts';
 import { aim, chain, part, place, T, texturedPart } from '../../compose.ts';
 import { linear } from '../../../palette.ts';
+import { tint } from '../../surface.ts';
 import type { Token } from '../../../palette.ts';
 import { askew } from '../../rng.ts';
 import type { Rng } from '../../rng.ts';
@@ -108,6 +109,25 @@ function capSamples(r: number, a0: number, a1: number, n: number): PSample[] {
     out.push({ o: Math.sin(a) * r, y: Math.cos(a) * r, no: Math.sin(a), ny: Math.cos(a) });
   }
   return out;
+}
+
+/**
+ * Fold material classes together before the piece is built, so a moving piece
+ * draws as few skinned meshes as the eye allows (draw calls are the bench's
+ * scarcest thing after triangles). Bare metal reads as worn grey enamel at
+ * Revert's size, its wooden handles as painted ones, its lenses as gloss
+ * enamel; the colour each part was given stays. Drops the `large` variant.
+ */
+export function foldClasses(n: NodeBuilder, into: Partial<Record<KitPart['material'], KitPart['material']>>): void {
+  for (let i = 0; i < n.parts.length; i++) {
+    const q = n.parts[i]!;
+    const to = into[q.material];
+    if (to) {
+      const { variant: _v, ...rest } = q;
+      n.parts[i] = { ...rest, material: to };
+    }
+  }
+  for (const c of n.children) foldClasses(c, into);
 }
 
 // ---- the treads -------------------------------------------------------------------------
@@ -377,6 +397,22 @@ export interface CardSpec {
   h: number;
 }
 
+/**
+ * A leaf's plain back and cut edge. With a label it samples the card's own blank margin, so the
+ * whole card is one textured mesh (one draw call, not two).
+ */
+function back(card: CardSpec, g: BufferGeometry): KitPart {
+  if (!card.key) return part('paper', g, 'paper', { shade: 0.86 });
+  const n = g.getAttribute('position').count;
+  const uv = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    uv[i * 2] = 0.012;
+    uv[i * 2 + 1] = 0.5;
+  }
+  g.setAttribute('uv', new BufferAttribute(uv, 2));
+  return texturedPart('paper', tint(g, 'paper', { shade: 0.86 }), card.key);
+}
+
 /** A card leaf: x from x0 to x1 of a card w × h, its face carrying the matching slice of the card's texture. */
 function leaf(card: CardSpec, x0: number, x1: number, y0: number, back: boolean): BufferGeometry {
   const lw = x1 - x0;
@@ -405,9 +441,9 @@ export function buildCard(n: NodeBuilder, left: NodeBuilder, card: CardSpec, c: 
   const y0 = jy - 0.01;
   const face = (x0: number, x1: number): KitPart => (card.key ? texturedPart('paper', leaf(card, x0, x1, y0, false), card.key) : part('paper', leaf(card, x0, x1, y0, false), 'paper'));
   n.add(face(0, card.w / 2));
-  n.add(part('paper', leaf(card, 0, card.w / 2, y0, true), 'paper', { shade: 0.86 }));
+  n.add(back(card, leaf(card, 0, card.w / 2, y0, true)));
   left.add(face(-card.w / 2, 0));
-  left.add(part('paper', leaf(card, -card.w / 2, 0, y0, true), 'paper', { shade: 0.86 }));
+  left.add(back(card, leaf(card, -card.w / 2, 0, y0, true)));
 }
 
 // ---- the arm ----------------------------------------------------------------------------

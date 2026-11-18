@@ -26,7 +26,7 @@ import revertJson from '../../../../../content/revert.json';
 import { piece, pieceBounds } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import {
-  buildArm, buildBroom, buildBroomClips, buildBrow, buildCard, buildChassis, buildCrank, buildDrumStand, buildDustpan, buildEye, buildHull, buildShoulder,
+  foldClasses, buildArm, buildBroom, buildBroomClips, buildBrow, buildCard, buildChassis, buildCrank, buildDrumStand, buildDustpan, buildEye, buildHull, buildShoulder,
   buildWheel, shoeGeometry,
 } from './build.ts';
 import type { CardSpec, Ctx } from './build.ts';
@@ -106,6 +106,8 @@ export function revert(o: RevertOptions = {}): Piece {
 
   b.socket('card', new Matrix4().makeTranslation(0, 1.6, -0.03));
   b.socket('lift', new Matrix4().makeTranslation(0, 1.0, 0));
+  // five meshes: enamel, brass, rubber, the lamps, the card
+  foldClasses(b, { metal: 'steel', wood: 'steel', glass: 'steel' });
   const built = b.build();
   // parts that move away from where they were baked keep the open air's shading, not the bake's
   capCavity(built.root, (n) => n.startsWith('lid') || n.startsWith('lamp') || n === 'broom' || n === 'card' || n === 'cardL', 0.15);

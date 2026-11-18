@@ -31,6 +31,7 @@ import { deform, transform } from '../../deform.ts';
 import { domeRivet, hexBolt } from '../../details.ts';
 import { chain, large, part, piece, place, T } from '../../compose.ts';
 import { rng } from '../../rng.ts';
+import { foldClasses } from '../revert/build.ts';
 import type { Rng } from '../../rng.ts';
 import { grain, setFinish } from '../../space.ts';
 
@@ -111,6 +112,8 @@ export function revertHatch(o: RevertHatchOptions = {}): Piece {
   buildShaft(b, seed);
   for (const s of [-1, 1] as const) buildDoor(b.node(s < 0 ? 'doorL' : 'doorR', rest[s < 0 ? 'doorL' : 'doorR']), s, R, seed + (s < 0 ? 10 : 40));
   buildLift(b.node('lift', rest.lift), seed);
+  // three meshes: painted steel (frame, lift, shaft), brass, the plank doors
+  foldClasses(b, { metal: 'steel' });
   if (o.surround) buildSurround(b, R);
   b.socket('stand', new Matrix4());
   const built = b.build();
@@ -187,7 +190,7 @@ function buildFrame(b: NodeBuilder, R: Rng, seed: number): void {
 function buildShaft(b: NodeBuilder, seed: number): void {
   const { w: W, d: D } = OPENING;
   const well = innerBox([-W / 2, -LIFT.depth - 0.25, -D / 2], [W / 2, -0.004, D / 2]);
-  b.add(large(part('wood', grain(well, 'x'), 'teal-deep', { seed: seed + 20, shade: 0.55 })));
+  b.add(part('steel', well, 'teal-deep', { seed: seed + 20, shade: 0.55 }));
   // guide rails down the back corners, so the dark has something in it
   for (const s of [-1, 1]) {
     b.add(part('metal', bevelBox({ min: [s * (W / 2 - 0.06) - 0.025, -LIFT.depth - 0.2, -D / 2 + 0.005], max: [s * (W / 2 - 0.06) + 0.025, -0.02, -D / 2 + 0.05], c: 0.008, omit: ['nz'] }), 'steel', { seed: seed + 21, shade: 0.45 }));

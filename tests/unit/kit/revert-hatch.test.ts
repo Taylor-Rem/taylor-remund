@@ -23,6 +23,7 @@ describe('revert-hatch (the hatch and lift Revert comes up through)', () => {
     for (const n of ['doorL', 'doorR', 'lift']) expect(all.filter((x) => x === n)).toHaveLength(1);
     const b = budget(piece, 2500);
     expect(b.fits, b.text).toBe(true);
+    expect(b.meshes, b.text).toBeLessThanOrEqual(3);
     const walk = (n: PieceNode): void => {
       for (const q of n.parts) checkGeometry(q.geometry);
       for (const c of n.children ?? []) walk(c);
