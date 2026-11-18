@@ -68,6 +68,8 @@ export function defaultFlags(): PassFlags {
 
 /** Tuned by eye on the stage dev page; see the W1 report. */
 export const LOOK = {
+  /** MSAA samples of the scene target when `msaa` is on. */
+  msaa: 4,
   /** 1.1 (was 1.0): with the real, darker bench the frame read murky; the hot spot still stays below clipping on cream and wood. */
   exposure: 1.1,
   toneMap: 'neutral' as ToneMap,
@@ -547,7 +549,7 @@ export class PostChain {
     this.camera = camera;
     this.scene = scene;
     this.flags = flags;
-    this.samples = flags.msaa ? 4 : 0;
+    this.samples = flags.msaa ? LOOK.msaa : 0;
     this.sceneRT = this.makeSceneTarget(1, 1);
     this.gtao = new GTAOPass(scene, camera, 1, 1, { depthTexture: this.sceneRT.depthTexture ?? undefined });
     this.gtao.output = GTAOPass.OUTPUT.Off;
@@ -648,7 +650,7 @@ export class PostChain {
   }
 
   private syncSamples(): void {
-    const want = this.flags.msaa ? 4 : 0;
+    const want = this.flags.msaa ? LOOK.msaa : 0;
     if (want === this.samples) return;
     this.samples = want;
     this.sceneRT.depthTexture?.dispose();

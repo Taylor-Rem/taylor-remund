@@ -92,7 +92,7 @@ describe('the platen', () => {
 
   it('has the named nodes the brief asks for, and its lamp', () => {
     const n = nodes(p);
-    for (const name of ['tray', 'arm', 'nozzle', 'tapehead', 'gauge.needle', 'nozzle.paint', 'sight.paint', 'tapehead.tape', 'handwheel', 'lamp.lit', 'lamp.unlit']) expect(n.has(name), name).toBe(true);
+    for (const name of ['tray', 'arm', 'nozzle', 'tapehead', 'tapehead.ram', 'tapehead.reel', 'label.strip', 'gauge.needle', 'nozzle.paint', 'sight.paint', 'handwheel', 'lamp.lit', 'lamp.unlit']) expect(n.has(name), name).toBe(true);
     for (const name of ['idle', 'over', 'dipping', 'pressing']) expect(NAMED_POSES[name], name).toBeDefined();
   });
 
@@ -135,13 +135,17 @@ describe('the platen', () => {
     expect(dipped.y - (seatY + 0.8)).toBeLessThan(0.35);
     expect(pos(nozzleTip({ swing: 1, dip: 0.1 })).y - (seatY + ROBOT_H)).toBeLessThan(0.12);
     // parked, the column and the arm stand clear of a robot 1.25 wide turning on the tray
-    expect(Math.hypot(PLATEN.pillar.x - PLATEN.tray.x, PLATEN.pillar.z - PLATEN.tray.z) - 0.1).toBeGreaterThan(ROBOT_W / 2);
+    expect(Math.hypot(PLATEN.pillar.x - PLATEN.tray.x, PLATEN.pillar.z - PLATEN.tray.z) - 0.17).toBeGreaterThan(ROBOT_W / 2);
     expect(Math.hypot(PLATEN.tank.x - PLATEN.tray.x, PLATEN.tank.z - PLATEN.tray.z) - PLATEN.tank.r).toBeGreaterThan(ROBOT_W / 2);
-    expect(PLATEN.tray.x - pos(tapeFace({})).x).toBeGreaterThan(ROBOT_W / 2 + 0.1);
-    // the tape head pressed reaches an L crate's face but stops before the middle of the tray
-    const face = pos(tapeFace({ press: 1 }));
-    expect(PLATEN.tray.x - face.x).toBeLessThan(0.42);
-    expect(PLATEN.tray.x - face.x).toBeGreaterThan(0.3);
+    // the tape head rides the arm: swinging, its roller passes over the robot too
+    for (let s = 0; s <= 1; s += 0.1) expect(pos(tapeFace({ swing: s })).y - (seatY + ROBOT_H)).toBeGreaterThan(0.08);
+    // dipped and pressed, the roller sits on an L crate's top front edge, and runs from the label's left end to its right
+    const L = PLATEN.label;
+    const a = pos(tapeFace({ swing: 1, dip: 1, press: 1 })), b = pos(tapeFace({ swing: 1, dip: 1, press: 1, tape: 1 }));
+    expect(a.y).toBeCloseTo(seatY + 0.75, 2);
+    expect(a.z - PLATEN.tray.z).toBeCloseTo(0.33, 2);
+    expect(a.x - PLATEN.tray.x).toBeCloseTo(L.x0 + 0.05, 1);
+    expect(b.x - a.x).toBeCloseTo(L.x1 - L.x0, 5);
   });
 
   it('builds with a crate or a robot on the tray', () => {
@@ -161,8 +165,13 @@ describe('the platen', () => {
     const lit = o.getObjectByName('lamp.lit')!, unlit = o.getObjectByName('lamp.unlit')!;
     expect(lit.scale.x).toBeCloseTo(1, 6);
     expect(unlit.scale.x).toBeCloseTo(HIDDEN, 6);
-    const head = o.getObjectByName('tapehead')!;
+    const head = o.getObjectByName('tapehead')!, ram = o.getObjectByName('tapehead.ram')!;
     expect(head.position.x).toBeGreaterThan(before.get(head.uuid)![0]!);
+    expect(ram.position.y).toBeLessThan(before.get(ram.uuid)![1]!);
+    // the head is the arm's: it is a descendant of the arm node
+    let up: Object3D | null = head;
+    while (up && up.name !== 'arm') up = up.parent;
+    expect(up?.name).toBe('arm');
     // back to idle restores every node exactly
     posePlaten(o, {});
     let moved = 0;
