@@ -326,7 +326,8 @@ describe('§ E5 worked examples', () => {
     expect(b.world.writer('fetch', 'location')).toBe('crew');
     const u = undone(lever(b))[0]!;
     expect(u.kept).toEqual([{ target: 'fetch', field: 'location', writer: 'crew' }]);
-    expect(u.restores.map((r: Restore) => r.field)).toEqual(['marks']);
+    // (picking Fetch up made it drop its crate: that is the visitor's doing, so the crate is this action's too)
+    expect(u.restores.filter((r: Restore) => r.target === 'fetch').map((r: Restore) => r.field)).toEqual(['marks']);
     expect(loc(b.world, 'fetch')).toEqual({ at: 'rest', pose: at(-8, 3, 0, 0.5) });
   });
 

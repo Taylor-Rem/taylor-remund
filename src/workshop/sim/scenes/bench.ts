@@ -17,9 +17,13 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { SceneDesc, StaticSpec } from '../scene.ts';
-import { CRATE_EDGE } from '../parts.ts';
+import type { MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
+import { belt } from '../machines/belt.ts';
+import { striker } from '../machines/striker.ts';
+import { dock } from '../machines/dock.ts';
+import { chute } from '../machines/chute.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -93,6 +97,42 @@ const [fx, fz] = lanePoint(AT.fetchStart);
 /** Unpainted wood: a fresh crate's colour. */
 export const BARE = 'bare';
 
+// ───────────── the line (S2): derived from AT, never a number of its own except where noted ─────────────
+
+/** The crew's size against P1's (ART-P2 § 2: drawn 1.25×; may become 1.5). Fetch's body and tuning scale by it. */
+export const CREW_SCALE = 1.25;
+const FETCH_HALF = defaultHalfExtents('robot', 'M').map((h) => h * CREW_SCALE) as unknown as Vec3;
+
+const beltTop = AT.belt.c[1] + AT.belt.half[1];
+const dockYaw = (AT.dock.yaw ?? 0) * DEG;
+/** Out of the dock's door (its good side, +Z turned by its yaw). */
+const dockOut: Vec3 = [Math.sin(dockYaw), 0, Math.cos(dockYaw)];
+const doorAt: Vec3 = [AT.dock.c[0] + dockOut[0] * AT.dock.half[2], beltTop, AT.dock.c[2] + dockOut[2] * AT.dock.half[2]];
+
+/** Where the line's machines stand and what they reach, all read from `AT`. */
+export const LINE = {
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: AT.belt.c[0] + AT.belt.half[0], top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2] },
+  /** The striker's arm crosses the belt at its post's x. */
+  strikerX: AT.striker.c[0],
+  /** The middle of the dock door's threshold, and the way in. */
+  door: doorAt,
+  inward: [-dockOut[0], 0, -dockOut[2]] as Vec3,
+  /** The roller ramp from the belt's far end to the door, at the belt's height (a collider; the dock piece draws it). */
+  ramp: { c: [(AT.belt.c[0] + AT.belt.half[0] + doorAt[0]) / 2, beltTop / 2, AT.belt.c[2]] as Vec3, half: [(doorAt[0] - (AT.belt.c[0] + AT.belt.half[0])) / 2 + 0.05, beltTop / 2, AT.belt.half[2]] as Vec3 },
+} as const;
+
+const L = LINE.belt;
+/** The mouths (§ B1 law 2). A part rests in one when its centre is inside. */
+const MOUTHS: readonly MouthSpec[] = [
+  // the belt: its whole carrying surface, anything resting on it (centre above the surface)
+  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + 0.8, L.top, L.z] },
+  // the dock: the ramp from the belt's end up to the door (and a hand's breadth either side of it)
+  { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + doorAt[0]) / 2, 1.3, L.z], half: [(doorAt[0] - L.to) / 2, 1.3, L.halfWidth + 0.1], drop: [L.to + 0.6, L.top, L.z] },
+];
+
+/** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
+const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
+
 export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
@@ -112,17 +152,18 @@ export const bench: SceneDesc = {
     box('storefront', AT.storefront),
     box('striker', AT.striker),
     box('dock', AT.dock),
+    { id: 'dock-ramp', shape: { type: 'box', half: LINE.ramp.half }, pose: pose(LINE.ramp.c), friction: 0.9 },
   ],
   parts: [
     { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx, e.L / 2, sz], 0.04) },
     { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
     { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx - 0.03, e.L + e.M + e.S / 2, sz + 0.02], 0.13) },
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
-    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, 0.5, fz]), mass: 0.9 },
+    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
+    ...SPARES,
   ],
   fixtures: [
     { id: 'lamp', station: 'top', name: 'name.lamp', affordances: [] },
-    { id: 'belt', station: 'line', name: 'name.belt', affordances: [] },
   ],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
   button: {
@@ -154,4 +195,12 @@ export const bench: SceneDesc = {
     toss: { linvel: AT.fumble.linvel, angvel: AT.fumble.angvel },
     outward: [0, 1.6, 14],
   },
+  crewScale: CREW_SCALE,
+  mouths: MOUTHS,
+  units: [
+    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
+    striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', door: LINE.door, inward: LINE.inward, stack: AT.stack }),
+    chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+  ],
 };
