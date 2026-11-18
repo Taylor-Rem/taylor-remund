@@ -1,7 +1,23 @@
 /**
- * The whole bench (REWRITE.md § C, § G "P2"; ART-P2 § 2-3; brief L1): the
- * layout every P2 piece is built to, the camera's homes, and the list of
- * station views that make the playable bench at `/dev/bench/`.
+ * The whole bench (REWRITE.md § C, § G "P2"; ART-P2 § 2-3; briefs L1, A1):
+ * the layout every P2 piece is built to, the camera's homes, and the loader
+ * that stands the playable bench up at `/dev/bench/` from its station files.
+ *
+ * ─────────────────────────── How to add a station ───────────────────────────
+ *
+ *  1. Its place is a row of `LAYOUT.stations` below (and, if it has a body,
+ *     the same numbers in `sim/scenes/bench.ts` `AT`; the test holds them).
+ *  2. Add ONE file, `view/bench/stations/<name>.ts`, exporting
+ *       export const station: BenchStation = { name, order: ORDER.pool, make(k) { ... } };
+ *     It is found by import.meta.glob; nothing else is edited. To replace a
+ *     static stand-in with an animated view, replace that station's file.
+ *  3. `make(k: BenchKit)` reads its place (`origin(LAYOUT.stations.x)`), the
+ *     scene, the fit and the crew scale from `k`, and returns a
+ *     `StationViewFactory` (or several, or null): the view contract.
+ *  4. Static: `staticStation(k, (build) => [{ piece: build('name'), at }])`
+ *     merges it into the set. Moving: `splitStatic(piece, at, isMoving, k.pool)`
+ *     hands its fixed body to the set and returns what you realise and pose.
+ *  5. `order`: ORDER.pool before the set, ORDER.crew after the parts; see bench/station.ts.
  *
  * `LAYOUT` is the table the team builds to: for every station its origin
  * (the centre of its footprint on the bench, or on the wall for what hangs
@@ -10,39 +26,23 @@
  * has a body, the simulation's own table (`sim/scenes/bench.ts` `AT`) holds
  * the same numbers, and `tests/unit/view/bench.test.ts` holds the two
  * together; the world boots from the simulation's scene unchanged.
- *
- * The bench reuses the vignette's machinery (`fitPieces`, the set, the
- * station views): what is new here is the layout, the clay of the pieces
- * still being built, the crew drawn 1.25× (ART-P2 § 2) and a belt of the
- * bench's length.
  */
-import { Box3, Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Vector3 } from 'three';
 import type { SceneDesc, Vec3 } from '../sim/types.ts';
-import type { Frame, StationView, StationViewFactory, ViewContext } from './types.ts';
-import type { Piece } from './kit/types.ts';
+import type { Frame, StationViewFactory } from './types.ts';
+import type { Piece, KitPart } from './kit/types.ts';
 import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
-import { part, piece, pieceBounds } from './kit/compose.ts';
-import { bevelBox } from './kit/cheap.ts';
-import { laneTape, benchHole } from './kit/pieces/bench/index.ts';
-import { OPENING } from './kit/pieces/revert-hatch/index.ts';
-import { ROOM, roomWall } from './kit/pieces/room/index.ts';
+import { pieceBounds } from './kit/compose.ts';
+import { ROOM } from './kit/pieces/room/index.ts';
 import { WINDOW } from './kit/pieces/window/index.ts';
-import { dock } from './kit/pieces/dock/index.ts';
-import { signLabels } from './kit/pieces/sign/index.ts';
-import { createPartsView } from './stations/parts.ts';
-import { createSetView, flatten, placedMatrix, splitStatic, type StaticPool } from './stations/set.ts';
-import type { KitPart } from './kit/types.ts';
-import { createCordView } from './stations/cord.ts';
-import { createPatchView } from './stations/patch.ts';
-import { createButtonView } from './stations/button.ts';
-import { createFetchView } from './stations/fetch.ts';
-import { createLampView } from './stations/lamp.ts';
-import { createCardView } from './stations/card.ts';
-import { BELT_FEEL } from './stations/belt.ts';
-import { fitPieces, hashSeed, measured, STAND_IN, type Fit } from './vignette.ts';
-import type { Token } from './palette.ts';
-import { paints } from './palette.ts';
+import { flatten, placedMatrix } from './stations/set.ts';
+import { fitPieces, measured, type Fit } from './vignette.ts';
 import { site } from '../../content/site.ts';
+import type { BenchKit, BenchStation } from './bench/station.ts';
+
+export { clayBlock } from './bench/clay.ts';
+export type { BenchKit, BenchStation } from './bench/station.ts';
+export { ORDER, staticStation } from './bench/station.ts';
 
 // ───────────────────────── the layout table ─────────────────────────
 
@@ -68,6 +68,9 @@ export interface Spot {
 const spot = (x: number, z: number, w: number, d: number, h: number, o: { y?: number; yaw?: number; fill?: Spot['fill']; at?: readonly [number, number] } = {}): Spot => ({ x, z, y: o.y ?? 0, w, d, h, yaw: o.yaw ?? 0, fill: o.fill ?? 'clay', ...(o.at ? { at: o.at } : {}) });
 
 /** A real piece's spot from its origin and its bounds there (min/max x and z, height): the footprint is the bounds'. */
+/** Where a spot's piece stands: its own origin (`at`), or the footprint's centre. */
+export const origin = (sp: Spot): [number, number] => [sp.at?.[0] ?? sp.x, sp.at?.[1] ?? sp.z];
+
 const real = (ox: number, oz: number, b: { x: readonly [number, number]; z: readonly [number, number]; h: number }): Spot =>
   spot(ox + (b.x[0] + b.x[1]) / 2, oz + (b.z[0] + b.z[1]) / 2, b.x[1] - b.x[0], b.z[1] - b.z[0], b.h, { fill: 'piece', at: [ox, oz] });
 
@@ -295,188 +298,6 @@ export function spotBox(s: Spot): Box3 {
 const DEG = Math.PI / 180;
 const WALL_Z = -5;
 
-// ───────────────────────── clay ─────────────────────────
-
-/**
- * A stand-in of a piece being built: grey clay of its footprint and height,
- * resting on y = 0, good side +Z. Plain on purpose: it says "a thing this
- * big goes here", nothing about what it looks like.
- */
-export function clayBlock(name: string, w: number, h: number, d: number, shade = 0.45): Piece {
-  const b = piece(`stand-in-${name}`, { ao: false });
-  const c = Math.max(0.005, Math.min(w, h, d) * 0.1);
-  // 40 triangles: clay is counted in the budget (twice, with the shadow pass) like everything else
-  b.add(part('paper', bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, h, d / 2], c, omit: ['ny'] }), 'steel', { shade }));
-  return b.build();
-}
-
-/** A taped rectangle on the bench (the reserved bays, the hatch's border). */
-function tapedRect(s: Spot, seed: number): Piece {
-  const hw = s.w / 2, hd = s.d / 2;
-  return laneTape({ seed, points: [[s.x - hw, s.z - hd], [s.x + hw, s.z - hd + 0.012], [s.x + hw, s.z + hd], [s.x - hw, s.z + hd - 0.01], [s.x - hw, s.z - hd]] });
-}
-
-/** The Shipped zone in clay: pallets (lighter), crates (mid), the mailbox and the clipboard. */
-function shippedClay(): Array<{ piece: Piece; at: Matrix4 }> {
-  const out: Array<{ piece: Piece; at: Matrix4 }> = [];
-  const P = SHIPPED.pallet;
-  SHIPPED.pallets.forEach((p, i) => {
-    out.push({ piece: clayBlock(`pallet-${i}`, P.w, P.h, P.d, 0.6), at: placedMatrix({ x: p.x, z: p.z }) });
-    for (const [j, c] of p.crates.entries()) {
-      const e = CRATE_EDGE_VIEW[c.size];
-      out.push({ piece: clayBlock(`shipped-crate-${i}-${j}`, e - 0.02, e - 0.02, e - 0.02, 0.5), at: placedMatrix({ x: p.x + c.dx, y: P.h + c.y, z: p.z + P.d / 2 - e / 2 }) });
-    }
-  });
-  return out;
-}
-
-/** The mailbox on its post and the clipboard on the post's front, in clay. */
-function mailboxClay(): Array<{ piece: Piece; at: Matrix4 }> {
-  const m = MAILBOX, k = MAILBOX.clipboard;
-  return [
-    { piece: clayBlock('mailbox-post', m.post, m.postH, m.post), at: placedMatrix({ x: m.x, z: m.z }) },
-    { piece: clayBlock('mailbox', m.box.w, m.box.h, m.box.d, 0.55), at: placedMatrix({ x: m.x, y: m.postH, z: m.z }) },
-    { piece: clayBlock('clipboard', k.w, k.h, k.t, 0.7), at: placedMatrix({ x: m.x, y: k.y, z: m.z + m.post / 2 + k.t / 2 + 0.01 }) },
-  ];
-}
-
-/** The clay and tape of every station still being built, and Fetch's lane tape, as pool items for the set to merge. */
-export function standIns(seed: number, lane: { a: readonly [number, number]; b: readonly [number, number] }): Array<{ piece: Piece; at: Matrix4 }> {
-  const out: Array<{ piece: Piece; at: Matrix4 }> = [];
-  const I = new Matrix4();
-  for (const [name, s] of Object.entries(LAYOUT.stations) as Array<[StationKey, Spot]>) {
-    if (s.fill === 'zone') {
-      out.push(...shippedClay());
-      continue;
-    }
-    if (s.fill === 'tape') {
-      if (name !== 'lane') out.push({ piece: tapedRect(s, seed + hashSeed(name)), at: I });
-      continue;
-    }
-    if (s.fill !== 'clay') continue;
-    if (name === 'mailbox') {
-      out.push(...mailboxClay());
-      continue;
-    }
-    const onWall = s.z <= WALL_Z;
-    const at = placedMatrix({ x: s.x, y: s.y, z: onWall ? WALL_Z + s.d / 2 + 0.01 : s.z, yaw: s.yaw });
-    out.push({ piece: clayBlock(name, s.w, Math.max(s.h, 0.02), s.d), at });
-  }
-  // Fetch's lane: a closed rectangle of tape round the runner's lane, wide enough for the bigger Fetch
-  const hw = LANE_TAPE.half, px = LANE_TAPE.past;
-  const x0 = Math.min(lane.a[0], lane.b[0]) - px, x1 = Math.max(lane.a[0], lane.b[0]) + px;
-  const zc = (lane.a[1] + lane.b[1]) / 2;
-  out.push({ piece: laneTape({ seed: seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }), at: I });
-  return out;
-}
-
-// ───────────────────────── the belt, at the bench's length ─────────────────────────
-
-/**
- * The belt view of `stations/belt.ts`, at a length of our choosing (that
- * file fixes 6; the bench's belt is 10). Same feel and the same split: the
- * body goes to the set; the rollers, the seam and the lamp move here.
- * PROPOSED: a `length` option on `BeltViewOptions`, and this goes.
- */
-export function createBenchBeltView(o: { entry: Entry | undefined; module: Record<string, unknown> | null; fit: Fit; seed: number; pool: StaticPool; length: number }): StationViewFactory {
-  return (ctx: ViewContext): StationView => {
-    const length = o.length;
-    const root = new Group();
-    root.name = 'belt';
-    ctx.scene.add(root);
-    if (!o.entry) return { root, update() {}, dispose: () => root.removeFromParent() };
-    const whole = buildEntry(o.entry, null, { seed: o.seed, length }, ctx.labels);
-    const at = placedMatrix(o.fit.belt.at);
-    const p = splitStatic(whole, at, (n) => /^roller\d+$/.test(n) || n === 'seam' || n === 'lamp', o.pool);
-    const obj = ctx.realize(p);
-    root.applyMatrix4(at);
-    root.add(obj);
-    const picking = (ctx as unknown as { picking?: { add(id: string, o: Object3D, opts?: { box?: Box3 }): void } }).picking;
-    if (picking) picking.add('belt', obj, { box: pieceBounds(whole) });
-    else ctx.pickable('belt', obj);
-    type PoseBelt = (root: Object3D, length: number, rollers: readonly unknown[], pose: { travel: number }) => void;
-    const poseBelt = o.module?.['poseBelt'] as PoseBelt | undefined;
-    const beltRollers = o.module?.['beltRollers'] as ((length: number) => readonly unknown[]) | undefined;
-    const rollers = poseBelt && beltRollers ? beltRollers(length) : null;
-    const u = (ctx.materials as unknown as { uniforms?: (cls: 'belt') => { u_offset?: { value: unknown }; u_speed?: { value: unknown } } }).uniforms?.('belt') ?? null;
-    if (u?.u_speed && typeof u.u_speed.value === 'number') u.u_speed.value = 0;
-    let v = ctx.reducedMotion ? 0 : BELT_FEEL.speed;
-    let dv = 0;
-    let phase = 0;
-    return {
-      root,
-      update(frame: Frame) {
-        ctx.materials.update(frame.time);
-        const dt = Math.min(frame.dt, 0.1);
-        for (const e of frame.events) if (e.type === 'misfire' && e.id === 'belt' && !ctx.reducedMotion) v = BELT_FEEL.lurch;
-        const b = frame.world.button();
-        const goal = ctx.reducedMotion ? 0 : b.phase === 'rewinding' ? BELT_FEEL.speed * BELT_FEEL.rewind : BELT_FEEL.speed;
-        const w = BELT_FEEL.omega;
-        for (let left = dt; left > 1e-6; ) {
-          const h = Math.min(left, 1 / 240);
-          dv += (-w * w * (v - goal) - 2 * BELT_FEEL.damping * w * dv) * h;
-          v += dv * h;
-          left -= h;
-        }
-        phase += v * dt;
-        if (u?.u_offset) u.u_offset.value = phase;
-        if (poseBelt && rollers) poseBelt(obj, length, rollers, { travel: phase });
-      },
-      dispose() {
-        root.removeFromParent();
-      },
-    };
-  };
-}
-
-// ───────────────────────── the crew, drawn bigger ─────────────────────────
-
-/**
- * Fetch drawn `s`× about its own origin (under the tyre). The simulation's
- * body stays its P1 size (that is the crew engineer's to change); the crate
- * in its hands is moved out to where the bigger hands are.
- */
-export function scaledFetch(inner: StationViewFactory, s: number): StationViewFactory {
-  return (ctx) => {
-    const v = inner(ctx);
-    const body = v.root.getObjectByName('fetch:body');
-    const S = new Matrix4().makeScale(s, s, s);
-    const M = new Matrix4(), Bi = new Matrix4();
-    const p = new Vector3(), q = new Quaternion(), k = new Vector3();
-    return {
-      root: v.root,
-      update(frame: Frame) {
-        v.update(frame);
-        if (!body || !body.visible) return;
-        const B = body.matrix;
-        const w = frame.world;
-        const c = w.crew(w.scene.runner.id);
-        if (c?.carrying && w.mode(c.carrying) === 'crew') {
-          const o = ctx.scene.getObjectByName(`part:${c.carrying}`);
-          if (o) {
-            M.copy(B).multiply(S).multiply(Bi.copy(B).invert());
-            o.matrix.decompose(p, q, k);
-            o.matrix.compose(p.applyMatrix4(M), q, k);
-            o.matrixWorldNeedsUpdate = true;
-          }
-        }
-        B.multiply(S);
-        body.matrixWorldNeedsUpdate = true;
-      },
-      dispose: () => v.dispose(),
-    };
-  };
-}
-
-/** Patch drawn `s`× about its seat. */
-export function scaledPatch(inner: StationViewFactory, s: number): StationViewFactory {
-  return (ctx) => {
-    const v = inner(ctx);
-    v.root.scale.setScalar(s);
-    return v;
-  };
-}
-
 // ───────────────────────── loading the bench ─────────────────────────
 
 export interface BenchOptions {
@@ -497,6 +318,8 @@ export interface BenchOptions {
 export interface Bench {
   scene: SceneDesc;
   stations: StationViewFactory[];
+  /** The station files that made views, in order. */
+  names: string[];
   fit: Fit;
   measured: Record<string, unknown>;
   /** Fetch's piece bounds at rest (piece space, before the crew scale), for measuring its height on screen; and without its aerial and pennant. */
@@ -514,6 +337,7 @@ export interface Bench {
 
 type Module = Record<string, unknown>;
 const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts');
+const stationModules = import.meta.glob<{ station?: BenchStation }>('./bench/stations/*.ts');
 async function pieceModule(folder: string): Promise<Module | null> {
   const load = pieceModules[`./kit/pieces/${folder}/index.ts`];
   return load ? await load() : null;
@@ -524,55 +348,36 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const seed = o.seed ?? 1;
   const { entries } = await listPieces();
   const find = (name: string): Entry | undefined => entries.find((e) => e.name === name);
-  const E = {
-    bench: find('bench'),
-    wall: find('back-wall'),
-    crate: find('crate'),
-    fetch: find('fetch-porter'),
-    board: find('switchboard'),
-    stool: find('stool'),
-    plug: find('cord-plug'),
-    belt: find('belt'),
-    lamp: find('lamp'),
-    phone: find('phone'),
-    sign: find('sign'),
-    toolwall: find('toolwall'),
-    patch: find('patch-felt'),
-  };
-  const tools = entries.filter((e) => e.name.startsWith('tool-'));
-  const mods = { belt: await pieceModule('belt'), board: await pieceModule('switchboard'), patch: await pieceModule('patch-felt'), lamp: await pieceModule('lamp') };
-
   const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Piece | null => (e ? buildEntry(e, null, { seed, ...opts }) : null);
   const S = LAYOUT.stations;
-  const fit = fitPieces(scene, { board: blank(E.board), stool: blank(E.stool), phone: blank(E.phone), belt: blank(E.belt, { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+
+  // the pieces fitted to the scene's bodies: the board's jacks and cord root, the stool's seat, the phone, the belt
+  const fit = fitPieces(scene, { board: blank(find('switchboard')), stool: blank(find('stool')), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
   if (o.seat !== undefined) {
     const sink = fit.stool.seat[1] - o.seat;
     fit.stool.at = { ...fit.stool.at, y: -sink };
     fit.stool.seat = [fit.stool.seat[0], o.seat, fit.stool.seat[2]];
   }
   const meas = measured(scene, fit);
-  const fetchPiece = blank(E.fetch);
+
+  // the page's read-outs: Fetch's and Patch's bounds, the belt's control plates
+  const fetchPiece = blank(find('fetch-porter'));
   const fetchBounds = fetchPiece ? pieceBounds(fetchPiece) : null;
   const fetchBodyBounds = fetchPiece ? partsBounds(flatten([{ piece: fetchPiece, at: new Matrix4(), skip: new Set(['aerial']) }])) : null;
-  const patchPiece = blank(E.patch, { standIn: false });
+  const patchPiece = blank(find('patch-felt'), { standIn: false });
   const patchBounds = patchPiece ? pieceBounds(patchPiece) : null;
   const crewScale = o.crewScale ?? CREW_SCALE;
-  const beltPiece = blank(E.belt, { length: LAYOUT.beltLength });
+  const beltPiece = blank(find('belt'), { length: LAYOUT.beltLength });
   const beltAt = placedMatrix(fit.belt.at);
   const sock = (n: string): Matrix4 | null => (beltPiece?.sockets?.[n] ? beltAt.clone().multiply(beltPiece.sockets[n]!) : null);
   const handles = { dial: sock('dial'), lever: sock('lever') };
 
   // the key light, from the real lamp clamped at its spot
   type KeyLight = (p: Piece, place: Vec3) => { position: Vec3; aim: Vec3 };
-  const keyLight = mods.lamp?.['keyLight'] as KeyLight | undefined;
-  const lampPiece = blank(E.lamp);
-  const k = keyLight && lampPiece ? keyLight(lampPiece, [S.lamp.x, 0, S.lamp.z]) : null;
-  const bulb = k ? { at: k.position, aim: k.aim } : null;
-
-  // the sign carries the whole name on one line, at the bench's capital height
-  const sign: Entry | undefined = E.sign
-    ? { ...E.sign, build: (opts = {}) => E.sign!.build({ ...opts, words: SIGN_WORDS }), labels: (labels) => ({ panels: signLabels(labels, SIGN_WORDS, SIGN_CAP_BENCH) }) }
-    : undefined;
+  const keyLight = (await pieceModule('lamp'))?.['keyLight'] as KeyLight | undefined;
+  const lampPiece = blank(find('lamp'));
+  const k0 = keyLight && lampPiece ? keyLight(lampPiece, [S.lamp.x, 0, S.lamp.z]) : null;
+  const bulb = k0 ? { at: k0.position, aim: k0.aim } : null;
 
   let worldRef: Frame['world'] | null = null;
   const watcher: StationViewFactory = () => ({
@@ -583,84 +388,27 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
     dispose() {},
   });
 
-  const crate = E.crate;
-  const paintOf = (c: string): Token | null => ((paints as readonly string[]).includes(c) ? (c as Token) : null);
-  const partsView: StationViewFactory = (ctx: ViewContext): StationView =>
-    createPartsView({
-      half: (p) => worldRef?.halfExtents(p.id) ?? [0.3, 0.3, 0.3],
-      ...(crate ? { piece: (p) => buildEntry(crate, null, { size: p.size, paint: paintOf(p.colour), seed: hashSeed(p.id) }, ctx.labels) } : {}),
-    })(ctx);
+  const kit: BenchKit = { scene, seed, crewScale, room: o.room ?? true, fit, pool: { items: [] }, bulb, entries, entry: find, module: pieceModule, world: () => worldRef };
+  const made: StationViewFactory[] = [];
+  const names: string[] = [];
+  for (const s of await benchStations()) {
+    const v = await s.make(kit);
+    if (!v) continue;
+    made.push(...(typeof v === 'function' ? [v] : v));
+    names.push(s.name);
+  }
+  return { scene, stations: [watcher, ...made], names, fit, measured: meas, fetchBounds, fetchBodyBounds, patchBounds, handles, crewScale, bulb, world: () => worldRef };
+}
 
-  const pool: StaticPool = { items: [] };
-  const withRoom = o.room ?? true;
-  const clayAndTape: StationViewFactory = (ctx: ViewContext) => {
-    // runs before the set: hand the stand-ins and the room's pieces to its pool so they merge with it
-    pool.items.push(...standIns(seed, scene.runner.lane));
-    const at = (x = 0, y = 0, z = 0): Matrix4 => new Matrix4().makeTranslation(x, y, z);
-    const put = (name: string, opts: Record<string, unknown>, m: Matrix4): void => {
-      const e = find(name);
-      if (e) pool.items.push({ piece: buildEntry(e, null, { seed, ...opts }, ctx.labels), at: m });
-    };
-    const S2 = LAYOUT.stations;
-    // the real pieces at rest, static (no behaviour yet): placed at their own origins
-    const S3 = LAYOUT.stations;
-    const origin = (sp: Spot): [number, number] => [sp.at?.[0] ?? sp.x, sp.at?.[1] ?? sp.z];
-    const scaled = (sp: Spot, k: number): Matrix4 => {
-      const [x, z] = origin(sp);
-      return at(x, 0, z).multiply(new Matrix4().makeScale(k, k, k));
-    };
-    put('storefront', {}, at(origin(S3.storefront)[0], 0, origin(S3.storefront)[1]));
-    put('platen', {}, at(origin(S3.platen)[0], 0, origin(S3.platen)[1]));
-    pool.items.push({ piece: dock({ seed, reach: DOCK_REACH }), at: at(origin(S3.dock)[0], 0, origin(S3.dock)[1]) });
-    // Revert and its hatch were built at the crew's 1.25×: drawn at the page's crew scale / 1.25
-    const rk = crewScale / 1.25;
-    put('revert-hatch', { pose: 'open' }, scaled(S3.hatch, rk));
-    put('revert', { pose: 'idle' }, scaled(S3.revert, rk));
-    put('reserved-bay', { which: 'next', w: S2.bayNext.w, d: S2.bayNext.d, seed: 3 }, at(S2.bayNext.x, 0, S2.bayNext.z));
-    put('reserved-bay', { which: 'inspection', w: S2.bayInspection.w, d: S2.bayInspection.d, seed: 4 }, at(S2.bayInspection.x, 0, S2.bayInspection.z));
-    if (withRoom) {
-      const B = ROOM.bench;
-      put('bench-frame', { sections: B.sections, width: B.width, depth: B.depth, floor: ROOM.floorY }, at());
-      put('floor', { width: ROOM.floor.width, z0: ROOM.floor.z0, z1: ROOM.floor.z1 }, at(0, ROOM.floorY, 0));
-      put('window', {}, at(ROOM.window.x, ROOM.window.y, ROOM.window.z));
-      put('room-left', { floor: ROOM.floorY }, at(ROOM.ends.left.x, ROOM.ends.left.y, ROOM.ends.left.z));
-      put('room-right', { floor: ROOM.floorY }, at(ROOM.ends.right.x, ROOM.ends.right.y, ROOM.ends.right.z));
-    }
-    return { root: new Group(), update() {}, dispose() {} };
-  };
-  // the bench at 18 × 10 (the catalogue's default is 19.5 wide), and with the room the wall run on and cut for the window
-  const B = ROOM.bench;
-  const H = LAYOUT.stations.hatch, hk = crewScale / 1.25;
-  const hole = benchHole(H.at![0], H.at![1], OPENING.w * hk, OPENING.d * hk);
-  const benchEntry: Entry | undefined = E.bench ? { ...E.bench, build: (opts = {}) => E.bench!.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth, openings: [hole] }) } : undefined;
-  const wallEntry: Entry | undefined = E.wall && withRoom ? { ...E.wall, build: (opts = {}) => E.wall!.build({ ...opts, ...roomWall() }) } : E.wall;
-  const stations: StationViewFactory[] = [
-    watcher,
-    createBenchBeltView({ entry: E.belt, module: mods.belt, fit, seed, pool, length: LAYOUT.beltLength }),
-    createCordView({ board: E.board, plug: E.plug, boardModule: mods.board, fit, seed, pool }),
-    clayAndTape,
-    createSetView({
-      entries: { ...E, sign, bench: benchEntry, wall: wallEntry },
-      tools,
-      // the set draws P1's lane tape round the runner's lane; the bench draws its own, wider (standIns), so the
-      // set is handed the lane far off the bench. PROPOSED: a lane half-width option on SetOptions.
-      scene: { ...scene, runner: { ...scene.runner, lane: { a: [-60, -60], b: [-60, -60] } } },
-      seed,
-      pool,
-      lampBody: false,
-      ...(bulb ? { bulb } : {}),
-      standIn: STAND_IN,
-      at: { sign: { x: S.sign.x, y: S.sign.y }, toolwall: { x: S.toolwall.x, y: S.toolwall.y }, lamp: { x: S.lamp.x, z: S.lamp.z }, phone: fit.phone.at, stool: fit.stool.at },
-    }),
-    partsView,
-    scaledPatch(createPatchView({ entry: E.patch, module: mods.patch, fit, seed }), crewScale),
-    createButtonView(),
-    // after the parts: Fetch re-seats the carried crate in its claws
-    scaledFetch(createFetchView({ seed: 7 }), crewScale),
-    createLampView(),
-    createCardView(),
-  ];
-  return { scene, stations, fit, measured: meas, fetchBounds, fetchBodyBounds, patchBounds, handles, crewScale, bulb, world: () => worldRef };
+/** Every station file under `bench/stations/`, in the order their views are made (ORDER, then file name). */
+export async function benchStations(): Promise<BenchStation[]> {
+  const out: Array<{ s: BenchStation; file: string }> = [];
+  for (const file of Object.keys(stationModules).sort()) {
+    const m = await stationModules[file]!();
+    if (!m.station) throw new Error(`bench: ${file} exports no 'station'`);
+    out.push({ s: m.station, file });
+  }
+  return out.sort((a, b) => a.s.order - b.s.order || (a.file < b.file ? -1 : 1)).map((x) => x.s);
 }
 
 /** The bounds of flattened parts. */

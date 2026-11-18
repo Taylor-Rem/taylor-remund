@@ -8,7 +8,7 @@
 import { Box3, Ray, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
+import { benchStations, ORDER, BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
 import { Quaternion, type Matrix4 } from 'three';
 import { storefront } from '../../../src/workshop/view/kit/pieces/storefront/index.ts';
 import { platen } from '../../../src/workshop/view/kit/pieces/platen/index.ts';
@@ -392,6 +392,19 @@ describe('the real pieces', () => {
     inside('storefront', 'storefront');
     inside('dock', 'dock');
     inside('revert', 'revert');
+  });
+});
+
+describe('the station files', () => {
+  it('are found by name: each exports a station with a unique name, in an order the set and the crew rely on', async () => {
+    const all = await benchStations();
+    const names = all.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const want of ['set', 'parts', 'fetch', 'patch', 'board', 'belt', 'button']) expect(names, want).toContain(want);
+    const at = (n: string): number => names.indexOf(n);
+    // whatever feeds the set's pool comes before it; Fetch after the parts
+    for (const s of all) if (s.order < ORDER.set) expect(at(s.name), s.name).toBeLessThan(at('set'));
+    expect(at('fetch')).toBeGreaterThan(at('parts'));
   });
 });
 
