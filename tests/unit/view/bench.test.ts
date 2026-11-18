@@ -43,7 +43,7 @@ const body = (id: string): Box3 => {
 const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
 /** Where the fumbled crate comes to rest: about 0.5 left of the fumble, in front of the lane (the vignette's toss, unchanged). */
-const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.a[1] + 0.1];
+const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.points[0]![1] + 0.1];
 /** Patch, drawn at the crew's scale on its seat: its seated box. */
 const patchBox = (): Box3 => {
   const s = fit.stool.seat;
@@ -111,9 +111,9 @@ describe('the layout table and the simulation agree', () => {
     expect(at.x + pb.min.x).toBeGreaterThanOrEqual(b.min.x - 0.02);
     expect(at.x + pb.max.x).toBeLessThanOrEqual(b.max.x + 0.02);
     expect([S.stack.x, S.stack.z]).toEqual([...AT.stack]);
-    expect(S.lane.x).toBeCloseTo((AT.lane.a[0] + AT.lane.b[0]) / 2, 6);
-    expect(S.lane.z).toBeCloseTo(AT.lane.a[1], 6);
-    expect(S.lane.w).toBeCloseTo(AT.lane.b[0] - AT.lane.a[0] + 2 * LANE_TAPE.past, 6);
+    expect(S.lane.x).toBeCloseTo((AT.lane.points[0]![0] + AT.lane.points[AT.lane.points.length - 1]![0]) / 2, 6);
+    expect(S.lane.z).toBeCloseTo(AT.lane.points[0]![1], 6);
+    expect(S.lane.w).toBeCloseTo(AT.lane.points[AT.lane.points.length - 1]![0] - AT.lane.points[0]![0] + 2 * LANE_TAPE.past, 6);
     expect(S.lane.d).toBeCloseTo(2 * LANE_TAPE.half, 6);
   });
 
@@ -184,8 +184,8 @@ describe("Fetch's lane", () => {
   const overlap = (a: Box3, b: Box3): number => Math.min(a.max.x - b.min.x, b.max.x - a.min.x, a.max.y - b.min.y, b.max.y - a.min.y, a.max.z - b.min.z, b.max.z - a.min.z);
 
   it('lets Fetch and the crate in its hands run the whole lane, overshoot included, clear of every body', () => {
-    const [ax, az] = AT.lane.a;
-    const [bx] = AT.lane.b;
+    const [ax, az] = AT.lane.points[0]!;
+    const [bx] = AT.lane.points[AT.lane.points.length - 1]!;
     // Fetch drawn at the crew's scale: its body and its reach grow with it (the crate does not)
     const k = CREW_SCALE;
     const reach = (FETCH_TUNING.bodyHalfDepth + FETCH_TUNING.handGap) * k + S_HALF[2];
@@ -218,7 +218,7 @@ describe("Fetch's lane", () => {
   });
 
   it("keeps the lane's tape off every body's footprint", () => {
-    const tape = new Box3(new Vector3(AT.lane.a[0] - LANE_TAPE.past, 0, AT.lane.a[1] - LANE_TAPE.half), new Vector3(AT.lane.b[0] + LANE_TAPE.past, 0.001, AT.lane.a[1] + LANE_TAPE.half));
+    const tape = new Box3(new Vector3(AT.lane.points[0]![0] - LANE_TAPE.past, 0, AT.lane.points[0]![1] - LANE_TAPE.half), new Vector3(AT.lane.points[AT.lane.points.length - 1]![0] + LANE_TAPE.past, 0.001, AT.lane.points[0]![1] + LANE_TAPE.half));
     for (const [id, b] of statics) {
       const foot = new Box3(new Vector3(b.min.x, 0, b.min.z), new Vector3(b.max.x, 0.001, b.max.z));
       expect(tape.intersectsBox(foot) && !(tape.max.z <= foot.min.z || foot.max.z <= tape.min.z) ? `tape under ${id}` : null).toBe(null);
@@ -470,7 +470,7 @@ describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
   /** How far from a point of its lane between its stops Fetch can take hold of a part (the simulation's own sum, at the crew's scale). */
   const REACH = (FETCH_TUNING.reach + FETCH_TUNING.handForward) * CREW_SCALE;
   const inset = FETCH_TUNING.inset * CREW_SCALE;
-  const [ax, az] = AT.lane.a, [bx] = AT.lane.b;
+  const [ax, az] = AT.lane.points[0]!, [bx] = AT.lane.points[AT.lane.points.length - 1]!;
   const fromLane = (x: number, z: number, stops = true): { d: number; at: [number, number] } => {
     const lo = stops ? ax + inset : ax, hi = stops ? bx - inset : bx;
     const lx = Math.min(hi, Math.max(lo, x));

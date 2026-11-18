@@ -81,7 +81,7 @@
         },
         fetch: () => {
           const m = vig.world()?.motion('fetch');
-          const p = m ? m.pose.p : ([vig.scene.runner.lane.a[0], 0.5, vig.scene.runner.lane.a[1]] as Vec3);
+          const p = m ? m.pose.p : ([vig.scene.runner.lane.points[0]![0], 0.5, vig.scene.runner.lane.points[0]![1]] as Vec3);
           return new Box3(new Vector3(p[0] - 1.1, 0, p[2] - 0.6), new Vector3(p[0] + 1.1, 1.2, p[2] + 0.7));
         },
         patch: () => {
