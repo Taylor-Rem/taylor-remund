@@ -3,7 +3,8 @@
 // Fetch at the bench's crew scale (1.5×), an S or L crate, a reach driven from a point moved by script
 // (the simulation's `CrewMember.hands` is not on `rewrite` yet): what the station view will be fed.
 //
-// Query: ?manual=1 (captures: drive with __reach.step(n))  ?scale=1.5  ?hud=0
+// Query: ?manual=1 (captures: drive with __reach.step(n))  ?scale=1.5  ?hud=0  ?rm=1 (reduced motion)
+//        ?view=side|toward  ?ppu=170 (the demo's framing when not manual)
 // Hooks: window.__reach
 //   cell({ dist, size: 'S'|'L', facing: 'side'|'toward', ppu })  a still: Fetch holding the crate out at
 //        `dist` (world units, centre to crate centre, at the carrying height); returns { short, tele, clip }
@@ -169,7 +170,7 @@
       const FAR_OUT: V3 = [0, 0.66, 1.15 / K];
       const FAR_DOWN: V3 = [0, 0.5, 1.15 / K];
       const SHELF: V3 = [0, 0.52, 1.1 / K];
-      const PHONE: V3 = [0.32, 0.42, 0.62];
+      const PHONE: V3 = [0.3, 0.46, 0.72]; // at arm's length: the tubes run out to tap it
       const S_HALF = (): V3 => halfOf('S');
       const beats: Record<string, Beat> = {
         'set-down': {
@@ -197,7 +198,7 @@
           at(t) {
             if (t < 0.2 || t > 1.15) return { target: null, holding: false, crateAt: null, half: null };
             const jab = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.6) / 0.16)));
-            return { target: [PHONE[0], PHONE[1] - 0.02 * jab, PHONE[2] + 0.03 * jab], holding: false, crateAt: null, half: null };
+            return { target: [PHONE[0], PHONE[1] - 0.04 * jab, PHONE[2] + 0.05 * jab], holding: false, crateAt: null, half: null };
           },
         },
       };
@@ -247,6 +248,7 @@
       (window as unknown as { __reach: unknown }).__reach = { cell, rest, play, step, look, render, frameView, short: () => lastShort, setYaw: (d: number) => (yaw = (d * Math.PI) / 180) };
       s.start();
       if (q.get('manual') !== '1') {
+        frameView({ facing: q.get('view') === 'toward' ? 'toward' : 'side', ppu: Number(q.get('ppu') ?? '170') });
         play('demo');
         let last = performance.now();
         const tick = (): void => {

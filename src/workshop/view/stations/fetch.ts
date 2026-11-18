@@ -867,6 +867,9 @@ export class FetchPerformer {
         target = [ox / k, (i.hands[1] - (P.y - i.half[1])) / k, oz / k];
       }
       const half: V3 | null = i.handsHalf ? [i.handsHalf[0] / k, i.handsHalf[1] / k, i.handsHalf[2] / k] : null;
+      // knocked, picked up or fumbling, the hands are let go at once (the simulation's hands jump to null):
+      // the reach is dropped on the spot, under the beat that takes over
+      if (act === 'knocked' || act === 'fumble' || act === 'held' || !grounded) this.reach.reset();
       const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm });
       if (ro.weight > 1e-3) {
         const w = ro.weight;
