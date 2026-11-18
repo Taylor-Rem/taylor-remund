@@ -8,7 +8,8 @@ import { sign, catalogue, estimatePanel, SIGN, SIGN_CAP } from '../../../src/wor
 import { capPx } from '../../../src/workshop/view/labels/layout.ts';
 import { checkGeometry } from './helpers.ts';
 
-const BUDGET = 9000;
+const BUDGET = 6000;
+const BOTH_WORDS = 10000;
 
 const stub: Materials = { of: (): Material => new MeshBasicMaterial(), textured: (): Material => new MeshBasicMaterial(), update() {}, dispose() {} };
 
@@ -36,6 +37,10 @@ describe('the sign', () => {
     const b = K.budget(p, BUDGET);
     expect(b.fits, b.text).toBe(true);
     expect(sign({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
+    // the bench's sign, both words, inside the census cap, in five meshes or fewer
+    const two = K.budget(sign({ words: ['TAYLOR', 'REMUND'] }), BOTH_WORDS);
+    expect(two.fits, two.text).toBe(true);
+    expect(two.meshes).toBeLessThanOrEqual(5);
   });
 
   it('is a board about the brief size, hung from the wall plane', () => {
