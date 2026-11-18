@@ -12,8 +12,7 @@
  * is caught by the same fallback check as on the main thread) and that
  * label is painted on the main thread exactly as before.
  */
-import type { Painted } from './draw.ts';
-import type { PaintJob } from './paint.ts';
+import type { PaintJob, PaintedJob } from './paint.ts';
 
 interface Slot {
   worker: Worker;
@@ -24,7 +23,7 @@ interface Slot {
 export class Pool {
   private slots: Slot[] = [];
   private next = 1;
-  private waiting = new Map<number, { slot: Slot; texels: number; resolve: (p: Painted) => void; reject: (e: Error) => void }>();
+  private waiting = new Map<number, { slot: Slot; texels: number; register: string; resolve: (p: PaintedJob) => void; reject: (e: Error) => void }>();
 
   constructor(n: number, fontBase: string) {
     for (let i = 0; i < n; i++) {
@@ -46,15 +45,18 @@ export class Pool {
     return this.slots.filter((s) => !s.dead).length;
   }
 
-  paint(job: PaintJob): Promise<Painted> {
+  /** Painting time spent in the workers, per register (ms). */
+  readonly spent: Record<string, number> = {};
+
+  paint(job: PaintJob): Promise<PaintedJob> {
     const live = this.slots.filter((s) => !s.dead);
     if (!live.length) return Promise.reject(new Error('labels: no painter worker'));
     const slot = live.reduce((a, b) => (b.queued < a.queued ? b : a));
     const texels = job.plan.px.w * job.plan.px.h;
     slot.queued += texels;
     const id = this.next++;
-    return new Promise<Painted>((resolve, reject) => {
-      this.waiting.set(id, { slot, texels, resolve, reject });
+    return new Promise<PaintedJob>((resolve, reject) => {
+      this.waiting.set(id, { slot, texels, register: job.register, resolve, reject });
       slot.worker.postMessage({ type: 'job', id, job });
     });
   }
@@ -69,7 +71,10 @@ export class Pool {
     if (!w) return;
     this.waiting.delete(m.id);
     slot.queued -= w.texels;
-    if (m.type === 'done') w.resolve(m.painted);
+    if (m.type === 'done') {
+      this.spent[w.register] = (this.spent[w.register] ?? 0) + m.ms;
+      w.resolve(m.painted);
+    }
     else w.reject(new Error(m.error));
   }
 
@@ -90,4 +95,4 @@ export class Pool {
   }
 }
 
-type Answer = { type: 'ready' } | { type: 'failed'; error: string } | { type: 'done'; id: number; painted: Painted } | { type: 'error'; id: number; error: string };
+type Answer = { type: 'ready' } | { type: 'failed'; error: string } | { type: 'done'; id: number; painted: PaintedJob; ms: number } | { type: 'error'; id: number; error: string };

@@ -42,14 +42,14 @@ import { ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilte
 import type { Texture } from 'three';
 import type { LabelOptions, Labels } from '../types.ts';
 import type { Alpha, AtlasInfo, Page, PageKind, Rect } from './atlas.ts';
-import { Atlas, normalScaleFor } from './atlas.ts';
+import { Atlas } from './atlas.ts';
 import type { Painted } from './draw.ts';
 import { ARROW, ARROW_ADVANCE, advance, checkText, context, paintPhone } from './draw.ts';
 import { loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
 import type { Plan, PlanOptions, Register } from './layout.ts';
 import { TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
-import type { JobRegister, PaintJob } from './paint.ts';
+import type { JobRegister, PaintJob, PaintedJob } from './paint.ts';
 import { paintJob } from './paint.ts';
 import { Pool } from './pool.ts';
 import { halve, toTextureRows } from './raster.ts';
@@ -72,10 +72,16 @@ export const labelStats = {
   ms: 0,
   count: 0,
   inWorkers: 0,
+  /** Sum over worker jobs of the time from asking to landing (overlapping; not the main thread's). */
   workerMs: 0,
+  /** Painting time inside the workers, per register (their CPU, not the main thread's). */
+  workerPaint: {} as Record<string, number>,
   byRegister: {} as Record<string, { ms: number; count: number }>,
   /** performance.now() when the last start-up label landed (ready). */
   readyAt: 0,
+  /** Of `ms`: planning (text metrics, layout) and placing painted pixels on the atlas. */
+  planMs: 0,
+  landMs: 0,
 };
 (globalThis as { __labelStats?: typeof labelStats }).__labelStats = labelStats;
 
@@ -265,11 +271,11 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
     const t0 = clock();
     const rr = r(key);
     const plan = planOf(rr);
+    labelStats.planMs += clock() - t0;
     const where = PLACE[register];
     // an explicit density keeps a texture of its own: the storefront writes its own pixels into one
     const placed = useAtlas && where.page && o?.texelsPerUnit === undefined ? atlas.place(where.page, plan.px.w, plan.px.h) : null;
-    const ns = placed && where.page === 'relief' ? normalScaleFor(plan.px.w, plan.px.h, placed.page) : undefined;
-    const j: PaintJob = { register, plan, rng: rr.state(), ...job, ...(ns ? { ns } : {}) };
+    const j: PaintJob = { register, plan, rng: rr.state(), ...job };
     if (!placed) {
       made.set(key, standalone(key, register, text, plan, paintJob(j)));
     } else {
@@ -289,10 +295,12 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
         bytes: 0,
         atlas: v.atlas,
       });
-      const land = (p: Painted): void => {
+      const land = (p: PaintedJob): void => {
         const tl = clock();
-        page.write(rect, p.color, p.normal, p.rough);
-        charge(register, clock() - tl);
+        page.write(rect, p.color, p.normal, p.roughHalf);
+        const dl = clock() - tl;
+        labelStats.landMs += dl;
+        charge(register, dl);
       };
       if (pool) {
         labelStats.inWorkers++;
@@ -307,14 +315,14 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
             () => {
               // no worker, or it failed: paint it here, exactly as it would have been
               const tm = clock();
-              const p = paintJob(j);
+              const p = paintJob(j, true);
               charge(register, clock() - tm);
               land(p);
             },
           )
           .finally(() => pending.delete(done));
         pending.add(done);
-      } else land(paintJob(j));
+      } else land(paintJob(j, true));
     }
     labelStats.count++;
     const b = (labelStats.byRegister[register] ??= { ms: 0, count: 0 });
@@ -482,6 +490,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
   /** Start-up is over: from now on labels are painted here, and the workers go. */
   function closeWindow(): void {
     if (!pool) return;
+    Object.assign(labelStats.workerPaint, pool.spent);
     pool.dispose();
     pool = null;
     labelStats.readyAt = clock();

@@ -24,11 +24,13 @@
  * each quad's atlas uv into uv1 (`labelAtlasOf`, kit/realize.ts).
  *
  * The normal map and the tangent frame. three's tangent frame without
- * tangents (getTangentFrame) takes its axes' LENGTHS from the uv derivatives
- * and scales both by the longer: on a label's own texture a wide label's
- * x-slopes were drawn weaker than its y-slopes by h/w. On a square page both
- * axes have the same derivative, so the page stores that attenuation in the
- * normal map itself (`normalScaleFor`): the same normal comes out.
+ * tangents (getTangentFrame) takes its axes' LENGTHS from the derivatives of
+ * the uv the normal map is sampled with, and scales both by the longer: on a
+ * label's own texture a wide label's x-slopes come out weaker than its
+ * y-slopes by h/w. A region of a page has other derivatives, so the label
+ * materials build the frame from the quad's own 0..1 uv (materials/index.ts
+ * LABEL_LOCAL_FRAME): the same normal comes out, and the normal map is
+ * stored exactly as on the label's own texture.
  *
  * Updates. Before a page's first upload, writes go into its data and the
  * first upload takes the whole page; after it, a write re-uploads only the
@@ -38,7 +40,6 @@
 import { ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, NoColorSpace, RGBAFormat, SRGBColorSpace, UnsignedByteType } from 'three';
 import type { Material, Texture } from 'three';
 import { textureBytes } from './layout.ts';
-import { halve } from './raster.ts';
 
 export type PageKind = 'relief' | 'flat';
 export type Alpha = 'opaque' | 'cut' | 'spray';
@@ -59,16 +60,6 @@ export interface Rect {
   y: number;
   w: number;
   h: number;
-}
-
-/**
- * The x/y scale a label's normal map is written with on a (square) page:
- * what three's tangent frame did to it on the label's own w×h texture.
- */
-export function normalScaleFor(w: number, h: number, page: { w: number; h: number } = { w: 1, h: 1 }): [number, number] {
-  const m = Math.min(w, h);
-  const pm = Math.min(page.w, page.h);
-  return [m / w / (pm / page.w), m / h / (pm / page.h)];
 }
 
 /** Shelf packer over a w×h page, cells rounded up to CELL. */
@@ -282,8 +273,8 @@ export class Page {
   info(r: Rect, alpha: Alpha): AtlasInfo {
     return { page: this.key(alpha), rect: [r.x / this.w, r.y / this.h, (r.x + r.w) / this.w, (r.y + r.h) / this.h] };
   }
-  /** Write a painted label (rows top-down; rough at full size, halved here) into its region. */
-  write(r: Rect, color: Uint8Array, normal: Uint8Array | null, rough: Uint8Array | null): void {
+  /** Write a painted label (rows top-down; roughness already at half size) into its region. */
+  write(r: Rect, color: Uint8Array, normal: Uint8Array | null, rough: { data: Uint8Array; w: number; h: number } | null): void {
     const g = GUTTER;
     blit(this.color.data, this.w, color, r.w, r.h, r.x, r.y, g);
     this.color.touched(r.x - g, r.x + r.w + g, r.y - g, r.y + r.h + g);
@@ -292,11 +283,9 @@ export class Page {
       this.normal.touched(r.x - g, r.x + r.w + g, r.y - g, r.y + r.h + g);
     }
     if (this.rough && rough) {
-      // Roughness varies slowly and the eye forgives it: half resolution, a quarter of the memory.
-      const half = halve(rough, r.w, r.h);
       const hx = r.x / 2, hy = r.y / 2, hg = g / 2;
-      blit(this.rough.data, this.rough.w, half.data, half.w, half.h, hx, hy, hg);
-      this.rough.touched(hx - hg, hx + half.w + hg, hy - hg, hy + half.h + hg);
+      blit(this.rough.data, this.rough.w, rough.data, rough.w, rough.h, hx, hy, hg);
+      this.rough.touched(hx - hg, hx + rough.w + hg, hy - hg, hy + rough.h + hg);
     }
   }
   /** Write rows [top, top + n) of a region (rows counted top-down, as on a canvas) from `rows` (n×w RGBA, top-down). Colour only. */

@@ -5,9 +5,7 @@
  * bottom; index.ts places them on an atlas page. Runs on the main thread or
  * in a worker (worker.ts: OffscreenCanvas, the same faces): the same plan
  * and the same generator state paint the same bytes in either.
- *
- * `ns` (tape, plate, sign): the normal map's x/y scale for the atlas (see
- * atlas.ts `normalScaleFor`); [1, 1] is the label's own texture.
+
  */
 import type { Token } from '../palette.ts';
 import type { RGB } from './colour.ts';
@@ -131,7 +129,7 @@ function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyph
 
 const TAPE_TOKEN: Record<TapeColour, Token> = { black: 'ink', red: 'cable-red', blue: 'paint-blue' };
 
-export function paintTape(plan: Plan, colour: TapeColour, r: Rng, ns: readonly [number, number] = [1, 1]): Painted {
+export function paintTape(plan: Plan, colour: TapeColour, r: Rng): Painted {
   const { w, h } = plan.px;
   const cap = plan.capTexels;
   const base = rgb(TAPE_TOKEN[colour]);
@@ -182,12 +180,12 @@ export function paintTape(plan: Plan, colour: TapeColour, r: Rng, ns: readonly [
       put(rough, i, [255, ro * 255, 0], 1);
     }
   }
-  return { w, h, color, normal: heightToNormal(height, cap * 0.11, ns), rough, alpha: true };
+  return { w, h, color, normal: heightToNormal(height, cap * 0.11), rough, alpha: true };
 }
 
 // ---- brass plate -----------------------------------------------------------------
 
-export function paintPlate(plan: Plan, r: Rng, ns: readonly [number, number] = [1, 1]): Painted {
+export function paintPlate(plan: Plan, r: Rng): Painted {
   const { w, h } = plan.px;
   const cap = plan.capTexels;
   const inset = cap * 0.26;
@@ -232,7 +230,7 @@ export function paintPlate(plan: Plan, r: Rng, ns: readonly [number, number] = [
       put(rough, i, [255, (0.3 + st * 0.1 + (1 - tarnish) * 0.5) * (1 - filled) * 255 + filled * 0.78 * 255, (1 - filled) * 255], 1);
     }
   }
-  return { w, h, color, normal: heightToNormal(height, cap * 0.05, ns), rough, alpha: false };
+  return { w, h, color, normal: heightToNormal(height, cap * 0.05), rough, alpha: false };
 }
 
 // ---- crate stencil -------------------------------------------------------------------
@@ -421,7 +419,7 @@ export function paintPaper(plan: Plan, r: Rng): Painted {
 
 // ---- the painted sign --------------------------------------------------------------
 
-export function paintSign(plan: Plan, r: Rng, ns: readonly [number, number] = [1, 1]): Painted {
+export function paintSign(plan: Plan, r: Rng): Painted {
   const { w, h } = plan.px;
   const cap = plan.capTexels;
   const F0 = glyphMask(plan, 'sign');
@@ -518,7 +516,7 @@ export function paintSign(plan: Plan, r: Rng, ns: readonly [number, number] = [1
       put(rough, i, [255, ro * 255, 0], 1);
     }
   }
-  return { w, h, color, normal: heightToNormal(height, cap * 0.025, ns), rough, alpha: false };
+  return { w, h, color, normal: heightToNormal(height, cap * 0.025), rough, alpha: false };
 }
 
 // ---- the phone screen ---------------------------------------------------------------

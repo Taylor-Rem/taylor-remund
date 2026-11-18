@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BufferAttribute, BufferGeometry, Matrix4, MeshBasicMaterial, Texture } from 'three';
 import type { Material, Mesh, Object3D } from 'three';
-import { Atlas, blit, CELL, GUTTER, labelAtlasOf, normalScaleFor, Page, Shelves } from '../../../src/workshop/view/labels/atlas.ts';
+import { Atlas, blit, CELL, GUTTER, labelAtlasOf, Page, Shelves } from '../../../src/workshop/view/labels/atlas.ts';
 import type { AtlasInfo } from '../../../src/workshop/view/labels/atlas.ts';
-import { heightToNormal, gray } from '../../../src/workshop/view/labels/raster.ts';
 import { rng } from '../../../src/workshop/view/labels/rng.ts';
 import { realize, sourcesOf } from '../../../src/workshop/view/kit/realize.ts';
 import type { KitPart, Piece } from '../../../src/workshop/view/kit/types.ts';
@@ -72,19 +71,6 @@ describe('atlas layout', () => {
     p.writeRows(rect, 0, rows.subarray(0, 2 * 5 * 4), 2);
     p.writeRows(rect, 2, rows.subarray(2 * 5 * 4), 2);
     expect(Buffer.from(p.color.data).equals(Buffer.from(whole))).toBe(true);
-  });
-
-  it('writes the tangent frame three used on the label own texture into the normal map', () => {
-    expect(normalScaleFor(800, 200)).toEqual([0.25, 1]);
-    expect(normalScaleFor(200, 800)).toEqual([1, 0.25]);
-    expect(normalScaleFor(300, 300)).toEqual([1, 1]);
-    // a non-square page: what three does with the page's own derivatives is divided out
-    expect(normalScaleFor(800, 200, { w: 2048, h: 1024 })).toEqual([0.5, 1]);
-    // [1, 1] writes the normal exactly as before
-    const hgt = gray(9, 7);
-    const r = rng(1);
-    for (let i = 0; i < hgt.d.length; i++) hgt.d[i] = r();
-    expect(Buffer.from(heightToNormal(hgt, 3, [1, 1])).equals(Buffer.from(heightToNormal(hgt, 3)))).toBe(true);
   });
 
   it('views share the page (one GL texture) and cut their region out by offset/repeat', () => {

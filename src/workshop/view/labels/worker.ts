@@ -6,7 +6,7 @@
  *
  * Messages in:  { type: 'init', base }   { type: 'job', id, job }
  * Messages out: { type: 'ready' }  { type: 'failed', error }
- *               { type: 'done', id, painted }  { type: 'error', id, error }
+ *               { type: 'done', id, painted, ms }  { type: 'error', id, error }
  * Any failure is answered, and the main thread paints that job itself.
  */
 import { FACES } from './fonts.ts';
@@ -44,8 +44,9 @@ scope.onmessage = (e: MessageEvent): void => {
   const { id, job } = m;
   (ready ?? Promise.reject(new Error('labels worker: not initialised')))
     .then(() => {
-      const painted = paintJob(job);
-      scope.postMessage({ type: 'done', id, painted }, buffersOf(painted));
+      const t0 = performance.now();
+      const painted = paintJob(job, true);
+      scope.postMessage({ type: 'done', id, painted, ms: performance.now() - t0 }, buffersOf(painted));
     })
     .catch((err: unknown) => scope.postMessage({ type: 'error', id, error: String(err) }));
 };
