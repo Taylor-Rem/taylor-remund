@@ -22,6 +22,26 @@ export function scale(a: RGB, k: number): RGB {
   return [a[0] * k, a[1] * k, a[2] * k];
 }
 
+/** A colour the hot loops write into (mixTo, scaleTo): the same arithmetic as mix and scale, no allocation. */
+export type RGBw = [number, number, number];
+
+/** mix(a, b, t) written into `o` (which may be a or b). */
+export function mixTo(o: RGBw, a: RGB, b: RGB, t: number): RGBw {
+  const a0 = a[0], a1 = a[1], a2 = a[2], b0 = b[0], b1 = b[1], b2 = b[2];
+  o[0] = a0 + (b0 - a0) * t;
+  o[1] = a1 + (b1 - a1) * t;
+  o[2] = a2 + (b2 - a2) * t;
+  return o;
+}
+
+/** scale(a, k) written into `o` (which may be a). */
+export function scaleTo(o: RGBw, a: RGB, k: number): RGBw {
+  o[0] = a[0] * k;
+  o[1] = a[1] * k;
+  o[2] = a[2] * k;
+  return o;
+}
+
 /** Write a colour and alpha (0..1) into an RGBA byte array at pixel i. */
 export function put(out: Uint8Array, i: number, c: RGB, a = 1): void {
   const o = i * 4;

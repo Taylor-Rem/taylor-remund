@@ -64,11 +64,37 @@ export interface Labels {
   roughnessMap(key: string): Texture | null;
   /** True when the colour map's alpha cuts the shape (tape ends, torn slips, stencils): use alphaTest, or blending for stencils. */
   transparent(key: string): boolean;
+  /** A region redrawn at run time. The same name returns the same region. */
+  region(name: string, size: { w: number; h: number }, opts?: LabelRegionOptions): LabelRegion;
+  /** Resolves when every label asked for so far has its pixels. */
+  ready(): Promise<void>;
 }
 
 export interface LabelOptions {
   /** Height of a capital in world units. */
   capHeight?: number;
+  /** Texels per world unit; a label made with it keeps a texture of its own (off the atlas). */
+  texelsPerUnit?: number;
+}
+
+/** A region of label texture that is redrawn at run time (a sign's words, a counter, a screen). */
+export interface LabelRegion {
+  /** The texture key: use it as any label key. */
+  readonly key: string;
+  /** Its size in texels and in world units. */
+  readonly px: { w: number; h: number };
+  readonly size: { w: number; h: number };
+  /** Repaint on a cleared 2D canvas of the region's size; only the region's rows are uploaded. */
+  draw(paint: (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, w: number, h: number) => void): void;
+  /** Write rows [top, top + n) from RGBA bytes, rows top-down, `px.w` wide. */
+  put(rows: Uint8Array | Uint8ClampedArray, top?: number, n?: number): void;
+}
+
+export interface LabelRegionOptions {
+  /** Texels per world unit (default 320, the cards'). */
+  texelsPerUnit?: number;
+  /** How its alpha is used: 'opaque' (default), 'cut' (alphaTest), 'spray' (blended, as a stencil). */
+  alpha?: 'opaque' | 'cut' | 'spray';
 }
 
 /** One message on the phone screen: the owner's (right) or Patch's (left). */
