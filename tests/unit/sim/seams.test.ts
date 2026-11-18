@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
 import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { CrewView, LampView, PatchView } from '../../../src/workshop/sim/types.ts';
+import type { World } from '../../../src/workshop/sim/world.ts';
 
 const benchStub = () => stubWorld(1, { scene: bench });
 
@@ -97,6 +98,13 @@ describe('seam 2: one grab', () => {
     expect(world.playMode).toBe(false);
   });
 
+  test('a grab of Fetch or Revert (loose bodies) still holds a part', () => {
+    const { world } = benchStub();
+    world.dispatch({ type: 'grab', id: 'fetch', grip: world.motion('fetch')!.pose.p });
+    run(world, 1);
+    expect(world.holding()).toEqual({ kind: 'part', id: 'fetch' });
+  });
+
   test('Reset the workshop lets go of a held unit', () => {
     const { world } = benchStub();
     world.dispatch({ type: 'grab', id: 'patch', grip: [3, 2, -3] });
@@ -104,5 +112,65 @@ describe('seam 2: one grab', () => {
     world.dispatch({ type: 'reset' });
     run(world, 1);
     expect(world.holding()).toBeNull();
+  });
+});
+
+describe('seam 3: reduced motion at run time; the saved Button; the undo id', () => {
+  const press = (w: World): void => {
+    w.dispatch({ type: 'press', id: 'button' });
+    run(w, 1);
+    for (let i = 0; i < 2000 && w.bracketed; i++) run(w, 1);
+  };
+
+  test('the motion intent switches the next rung to the card and the lamp dip, and back', () => {
+    const { world } = benchStub();
+    expect(world.reducedMotion).toBe(false);
+    world.dispatch({ type: 'motion', reduced: true });
+    run(world, 1);
+    expect(world.reducedMotion).toBe(true);
+    expect(world.button().reducedMotion).toBe(true);
+    press(world);
+    expect(world.button().script?.reduced).toBe(true);
+    expect(world.button().script?.beats.map((b) => b.kind)).toEqual(['dip', 'rewind', 'card']);
+    world.dispatch({ type: 'motion', reduced: false });
+    run(world, 1);
+    press(world);
+    expect(world.button().script?.reduced).toBe(false);
+  });
+
+  test('a rung already playing finishes as it began', () => {
+    const { world } = benchStub();
+    world.dispatch({ type: 'press', id: 'button' });
+    run(world, 30);
+    world.dispatch({ type: 'motion', reduced: true });
+    run(world, 1);
+    expect(world.button().script?.reduced).toBe(false);
+    expect(world.bracketed).toBe(true);
+  });
+
+  test('switching it is not a first action and is not input to the crew', () => {
+    const fumbleStep = (switchAt: number | null): number => {
+      const { world } = benchStub();
+      for (let i = 0; i < 12 * 60; i++) {
+        if (i === switchAt) world.dispatch({ type: 'motion', reduced: true });
+        const ev = run(world, 1);
+        if (ev.some((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'fumble')) {
+          expect(world.playMode).toBe(false);
+          return world.step;
+        }
+      }
+      return -1;
+    };
+    // Fetch's patience was not reset by a settings switch: the fumble comes at the same step
+    expect(fumbleStep(null)).toBeGreaterThan(0);
+    expect(fumbleStep(150)).toBe(fumbleStep(null));
+  });
+
+  test('a world made from a saved Button (typed ButtonSaved) keeps its reduced motion; the undo id is the lever', () => {
+    const { world } = stubWorld(1, { scene: bench, button: { rung: 2, presses: 2, reached: 2, reducedMotion: true } });
+    expect(world.reducedMotion).toBe(true);
+    expect(world.button().reached).toBe(2);
+    expect(world.undoId).toBe('undo-lever');
+    expect(world.interactable(world.undoId!)).toBeDefined();
   });
 });

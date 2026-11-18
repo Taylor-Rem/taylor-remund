@@ -93,6 +93,8 @@ export interface ButtonSaved {
 
 export interface ButtonUnit extends Unit {
   view(): ButtonView;
+  /** S6: reduced motion at run time: from the next press a rung is the card and the lamp dip only. */
+  setReducedMotion(on: boolean): void;
 }
 
 /** The content id of a ladder rung's card. */
@@ -129,7 +131,7 @@ const asRung = (n: number): 1 | 2 | 3 | 4 => (n <= 1 ? 1 : n >= 4 ? 4 : (n as 2 
 export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
   const spec = ctx.scene.button;
   const ladder: LadderSpec | undefined = spec.ladder;
-  const reduced = saved?.reducedMotion === true;
+  let reduced = saved?.reducedMotion === true;
   const lampId: Id = ladder?.lamp ?? spec.flinch[0] ?? 'lamp';
   const coverId: Id = ladder?.cover ?? `${spec.id}-cover`;
   /** Where each station is; without a ladder, the flinch's (all at the Button: equally near). */
@@ -342,6 +344,9 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
 
   return {
     id: spec.id,
+    setReducedMotion(on) {
+      reduced = on;
+    },
     intent(intent: Intent): boolean {
       // the Button is the first unit: it sees every handle's intent (what the visitor has used)
       if (!ctx.bracketed) used.intent(intent);

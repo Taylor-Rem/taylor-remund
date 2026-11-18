@@ -253,7 +253,14 @@ export type Intent =
    * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
    * (S6) Kept while the input layer moves to `grab`/`carry`/`release`, which now reach the same units.
    */
-  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean };
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean }
+  // ── S6 ──
+  /**
+   * The settings' reduced-motion switch, at run time (§ B4, § B10): from the next press a Button rung is
+   * the card and the lamp dip only (a rung already playing finishes as it began). Not a visitor action
+   * in the world: it does not end attract mode, and it does not count as input for the crew's patience.
+   */
+  | { readonly type: 'motion'; readonly reduced: boolean };
 
 // ───────────────────────── events: what `view` and `audio` may hear ─────────────────────────
 
@@ -878,4 +885,8 @@ export interface WorldView {
   readonly playMode: boolean;
   /** True while a Button rung is playing: parts and handles do not respond (§ B4). */
   readonly bracketed: boolean;
+  /** S6: reduced motion as the world honours it now (the boot option, then the `motion` intent). */
+  readonly reducedMotion: boolean;
+  /** S6: the interactable the `U` key pulls (the UNDO lever, `SceneDesc.button.ladder.lever`), or null. */
+  readonly undoId: Id | null;
 }

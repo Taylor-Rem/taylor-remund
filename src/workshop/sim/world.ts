@@ -28,7 +28,7 @@ import type { BodyMode, CommitResult, CrewHandle, Holding, LostReason, MachineUn
 import { isMachine } from './context.ts';
 import type { Change, HistoryHooks, Recorded, TransactionView, UndoOutcome, UndoRequest } from './history.ts';
 import type { Writer, StoreSnapshot } from './store.ts';
-import type { ButtonView, ButtonUnit } from './machines/button.ts';
+import type { ButtonView, ButtonUnit, ButtonSaved } from './machines/button.ts';
 import type { CordView, CordUnit } from './machines/cord.ts';
 import type { FetchUnit } from './crew/fetch.ts';
 import { createClock, steps, HZ } from './clock.ts';
@@ -130,8 +130,8 @@ export interface WorldOptions {
   /** More units, run after the scene's own (`SceneDesc.units`) in this order (the history tests' stand-ins). */
   readonly units?: readonly ((ctx: SimContext) => Unit)[];
   readonly runner?: Partial<typeof FETCH_TUNING>;
-  /** The Button's rung and press count, remembered between visits (§ B4). */
-  readonly button?: { rung: number; presses: number };
+  /** What a visit remembers of the Button (§ B4): its rung, presses, cover, deck, what was used, reduced motion. */
+  readonly button?: ButtonSaved;
 }
 
 interface Loose {
@@ -1086,6 +1086,9 @@ export function createWorld(opts: WorldOptions): World {
         return true;
       case 'reset':
         return reset();
+      case 'motion':
+        button.setReducedMotion(intent.reduced);
+        return false; // a setting of the page, not an action in the world
       default:
         if (bracket && intent.type !== 'press') return false;
         for (const u of units) if (u.intent?.(intent)) return true;
@@ -1110,10 +1113,14 @@ export function createWorld(opts: WorldOptions): World {
     get hovered() {
       return hovered;
     },
+    get reducedMotion() {
+      return button.view().reducedMotion;
+    },
+    undoId: scene.button.ladder?.lever ?? null,
 
     dispatch(intent) {
       queue.push(intent);
-      lastInput = clock.step;
+      if (intent.type !== 'motion') lastInput = clock.step;
     },
 
     advance() {
