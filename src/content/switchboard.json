@@ -1,0 +1,6 @@
+{
+  "jacks": {
+    "belt": { "text": "BELT", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2, X1 (the switchboard's jacks: STOREFRONT, PLATEN, BELT, LAMP); world.json carries the other three" }
+  },
+  "reserved": { "text": "RESERVED", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2, X1: \"Two more jacks are capped with tape that reads RESERVED.\"" }
+}

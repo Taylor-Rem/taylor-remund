@@ -3,6 +3,7 @@ import { Group, Matrix4, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type { PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { catalogue, fetchPorter } from '../../../src/workshop/view/kit/pieces/fetch-porter/index.ts';
+import { budget } from '../../../src/workshop/view/kit/compose.ts';
 import {
   ARM_PRESETS, BEZEL_OPEN, EXPRESSIONS, EXPRESSION_NAMES, EYE, IRIS, LID, NEUTRAL, PRESETS, TORSO, poseFetch, poseMatrices,
 } from '../../../src/workshop/view/kit/pieces/fetch-porter/rig.ts';
@@ -52,8 +53,12 @@ describe('fetch-porter (Fetch, take B)', () => {
     for (const n of RIG_NODES) expect(all.filter((x) => x === n)).toHaveLength(1);
   });
 
-  it('stays inside its triangle budget (14,000) and holds the kit invariants', () => {
-    expect(piece.triangles).toBeLessThanOrEqual(14_000);
+  it('stays inside its triangle budget (9,000) and five meshes, and holds the kit invariants', () => {
+    expect(piece.triangles).toBeLessThanOrEqual(9_000);
+    const b = budget(fetchPorter({ seed: 3, nameTape: { key: 'fetch-tape', w: 0.16, h: 0.028 } }));
+    expect(b.total).toBeLessThanOrEqual(9_000);
+    expect(b.meshes).toBeLessThanOrEqual(5);
+    expect(Object.keys(b.byMaterial).sort()).toEqual(['brass', 'bulb', 'rubber', 'steel', 'tape']);
     expect(fetchPorter({ detail: 'low' }).triangles).toBeLessThan(piece.triangles);
     const walk = (n: PieceNode): void => {
       for (const q of n.parts) checkGeometry(q.geometry);

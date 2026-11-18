@@ -18,6 +18,7 @@
  * `sim/scenes/vignette.ts` `AT`. Never copy them into `view`.
  */
 import type { SceneDesc } from './scene.ts';
+import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
 
 export type { SceneDesc };
 
@@ -230,7 +231,20 @@ export type Intent =
   /** Pull the UNDO lever (or press `U`): take back the most recent transaction (§ E5 rule 8). */
   | { readonly type: 'undo' }
   /** "Reset the workshop" (settings): every durable field back to how the visit began, the history emptied. */
-  | { readonly type: 'reset' };
+  | { readonly type: 'reset' }
+  // ── the Patchlamp station (S3) ──
+  /**
+   * Send a text down the cord to whatever live jack it is in (the phone, § D 3): the visitor's own
+   * words, 1 to 240 characters, as typed. The line answers with `line.*` events and `LineView.log`.
+   * Not handled while a Button rung plays (the world drops it; the phone line holds it until the rung ends).
+   */
+  | { readonly type: 'text'; readonly text: string }
+  /**
+   * Drag something that is a handle or a crew member rather than a loose part (§ D 13, § D 14): the
+   * lamp by its shade (`id` the lamp), Patch off its stool (`id` Patch). Sent each frame the hand moves,
+   * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
+   */
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean };
 
 // ───────────────────────── events: what `view` and `audio` may hear ─────────────────────────
 
@@ -307,7 +321,52 @@ export type SimEvent =
   /** The return chute's flap kicks open: a part pops out (`part`), or a misfire (null). */
   | { readonly type: 'flap'; readonly id: Id; readonly part: Id | null }
   /** A plain crate shipped and a fresh one is set on the crate stack in its place (dropped on from above, as `system`). */
-  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id };
+  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id }
+  // ── S4: the Button's ladder, Revert, the UNDO lever ──
+  /**
+   * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
+   * concerns (the hiccup's one, the works' every used one, the crates the stack drops), `level` its
+   * strength, `duration` seconds. The view performs the ones the simulation does not (sparks, warning,
+   * shake), and may re-time anything from `ButtonView.script`.
+   */
+  | { readonly type: 'rung.beat'; readonly rung: number; readonly beat: RungBeatKind; readonly ids: readonly Id[]; readonly level: 1 | 2; readonly duration: number }
+  /** The Button's flip-up cover changed (`state`): fitted by Revert, lifted, or shut. `id` is the cover's handle. */
+  | { readonly type: 'cover'; readonly id: Id; readonly state: CoverState }
+  /**
+   * Revert (`id`, its body) puts `part` away (§ E5 rule 14): `from` is where the part was, `to` where
+   * it goes (onto the crate stack, or `shipped`: down the hatch, a spare). The world's `put-away`
+   * follows in the same step; the view draws the hop into the dustpan from `from`.
+   */
+  | { readonly type: 'revert.sweep'; readonly id: Id; readonly part: Id; readonly from: Pose; readonly to: Location }
+  // ── Fetch (S5: § B5 "hit by a thrown part"; sim/crew/fetch.ts) ──
+  /**
+   * A part (`by`) hit the crew member `id` hard enough to knock it (`FetchKnock` has the same numbers,
+   * for as long as the knock lasts). `strength` 1..3 from the part's momentum; `dir` the yaw (radians
+   * about +Y, 0 = +Z) it is shoved along; `distance` how far it slides (already cut short of anything
+   * in the way); `spin` the signed yaw it turns while sliding (positive = anticlockwise seen from
+   * above); `dropped` the crate it let go of, if any (charged to the throw).
+   */
+  | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
+  /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
+  | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id }
+  // ── the Patchlamp station (S3: § B2 X1, § D 3-4, § B5 Patch) ──
+  /**
+   * A text went down the line (`n` numbers the visit's texts from 1) into `jack` (a scene jack id;
+   * `line` its name: storefront, platen, belt or lamp). `text` is the visitor's own words, as typed.
+   */
+  | { readonly type: 'line.sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  /** Patch has picked text `n` up and is on it: the job's stages are `PatchView.state`. */
+  | { readonly type: 'line.working'; readonly n: number }
+  /** Patch texts back (reply ids, sim/instruct `Reply`): the change it made and checked, or help, who, thanks, "undo that". */
+  | { readonly type: 'line.reply'; readonly n: number; readonly reply: Reply; readonly mailbox: boolean }
+  /** Text `n` changed nothing; the slip it texts back says why (never a bare "no"). */
+  | { readonly type: 'line.refused'; readonly n: number; readonly reason: RefusalReason; readonly reply: Reply; readonly mailbox: boolean }
+  /** An unparsed text is Taylor's: the mailbox's flag goes up. Nothing is sent anywhere. */
+  | { readonly type: 'mailbox.flag'; readonly n: number }
+  /** The plug seated in a live jack: the station on that line (`station`, its unit id) answers with one beat (§ D 4). */
+  | { readonly type: 'jack.answered'; readonly jack: Id; readonly station: Id }
+  /** A part thrown at Patch got one of three answers (§ B5): it ducked, caught it (and set it on the keyshelf), or took it on the head. */
+  | { readonly type: 'patch.reacted'; readonly part: Id; readonly answer: PatchAnswer };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
@@ -380,20 +439,291 @@ export interface ChuteView extends MachineViewBase {
   readonly waiting: number;
 }
 
+// ── S4: the Button's ladder, Revert, the UNDO lever (§ B4, § B5, § B2 X3) ──
+
+/**
+ * One beat of a rung, timed from the press (`at`, seconds). The simulation does the beats that move
+ * things (`flinch`, `dip`, `shove`, `hiccup`, `works`, `stack`); the view performs the rest from the
+ * script and the `rung.beat` event. `ids` (on the event) names who it concerns.
+ * - `flinch`: the lamp dips and the belt lurches back (rung 1's misfires, `ButtonSpec.flinch`).
+ * - `dip`: the lamp dips only (every rung has one; with reduced motion it is all there is, with the card).
+ * - `shove`: the top crate of the stack slides off.
+ * - `revert`: Revert is called (comes up through its hatch if it is down; cranks during the rewind).
+ * - `hiccup`: one station the visitor has not used misfires once (rungs 2 and 3: `targets`).
+ * - `works`: every station the visitor has used misfires together, harder (rung 4: `targets`).
+ * - `sparks`: sparks fly at those stations (view only).
+ * - `warning`: a turning warning lamp for `duration` seconds (view only).
+ * - `shake`: the camera shakes a little, `level` 1 or 2 (view only; never with reduced motion).
+ * - `stack`: the crate stack comes down.
+ * - `rewind`: the recording starts to play backwards, for `duration` seconds.
+ * - `card`: the rung ends; Revert's card (`ButtonView.card`).
+ * - `cover`: Revert fits the flip-up cover over the Button, over `duration` seconds.
+ */
+export type RungBeatKind = 'flinch' | 'dip' | 'shove' | 'revert' | 'hiccup' | 'works' | 'sparks' | 'warning' | 'shake' | 'stack' | 'rewind' | 'card' | 'cover';
+export interface RungBeat {
+  readonly at: number;
+  readonly kind: RungBeatKind;
+  readonly level?: 1 | 2;
+  readonly duration?: number;
+}
+/** A rung as data (`sim/machines/button.ts` `scriptFor`): the view performs it. */
+export interface RungScript {
+  readonly rung: 1 | 2 | 3 | 4;
+  /** Seconds it plays before the rewind, and how long the rewind lasts. The card comes at `play + rewind`. */
+  readonly play: number;
+  readonly rewind: number;
+  readonly beats: readonly RungBeat[];
+  /** Reduced motion: the card and the lamp dip only. */
+  readonly reduced: boolean;
+}
+/** The flip-up cover over the Button: not there yet, being fitted by Revert, shut, or lifted ready for a press. */
+export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
+
+/**
+ * Revert, the caretaker (§ B5). `below`: in its hatch, unseen, the doors shut. `rising`: the lift
+ * brings it up (it may already be cranking). `idle`: up, awake, flat-lidded. `trundle`: driving on its
+ * treads (`speed`). `crank`: turning its crank while a change runs backwards. `fit`: screwing the
+ * cover on the Button. `sweep`: putting a part away (`sweeping`). `park`: asleep in the window's light,
+ * one eye open. `stuck`: its hatch is covered by something; the doors rattle, it stays down. `held`:
+ * in the visitor's hand, limp. `loose`: put down (or on the belt, or shipped): it waits to come to
+ * rest, rights itself and carries on.
+ */
+export type RevertState = 'below' | 'rising' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
+
+/**
+ * Revert's state, published as a machine view (`world.machine(<its unit id>)`, kind `revert`) because
+ * the world's `crew()` knows only Fetch. Its body is a loose part (`body`, kind robot): draw Revert from
+ * these fields while `drawn` is true (x, z, heading on the bench; `lift` 0 is down in the hatch, 1 is
+ * standing on the bench: y = (lift - 1) × its height); while `drawn` is false (held, falling, riding
+ * the belt) draw it from `motion(body)`.
+ */
+export interface RevertView extends MachineViewBase {
+  readonly kind: 'revert';
+  readonly body: Id;
+  readonly state: RevertState;
+  /** Seconds since `state` was entered. */
+  readonly stateTime: number;
+  readonly x: number;
+  readonly z: number;
+  /** Radians about +Y; 0 faces +Z (the visitor). */
+  readonly heading: number;
+  /** 0 down in its hatch .. 1 standing on the bench. */
+  readonly lift: number;
+  /** The hatch's two leaf doors, 0 shut .. 1 open. */
+  readonly hatch: number;
+  /** The crank's angle, radians (it turns while a change runs backwards). */
+  readonly crank: number;
+  readonly cranking: boolean;
+  /** Tread speed, units per second (signed: backwards is negative); turning on the spot shows as `turning`. */
+  readonly speed: number;
+  readonly turning: number;
+  /** The face: flat-lidded (deadpan), open (working), glare (at the visitor), one (asleep, one eye open), rolled (limp). */
+  readonly eyes: 'flat' | 'open' | 'glare' | 'one' | 'rolled';
+  /** The card it holds up in its clip, and for how long it has held it. */
+  readonly card: { readonly content: string; readonly since: number } | null;
+  /** The part it is putting away, while it sweeps. */
+  readonly sweeping: Id | null;
+  readonly drawn: boolean;
+}
+
+/**
+ * The UNDO lever (§ B2 X3, § D 8). A pull is answered in the same step (the undo is already done);
+ * `travel` is the scripted travel (0 home .. 1 pulled; the view adds the spring's overshoot), `latch`
+ * the catch squeezed, `phase` where in the pull it is. `armed`: something on the stack to take back
+ * (the piece's lamp). `result`: what the last pull did.
+ */
+export interface UndoLeverView extends MachineViewBase {
+  readonly kind: 'undo-lever';
+  readonly travel: number;
+  readonly latch: number;
+  readonly phase: 'rest' | 'pull' | 'hold' | 'return';
+  /** Seconds since the last pull (or misfire) began; Infinity before the first. */
+  readonly since: number;
+  readonly armed: boolean;
+  readonly result: 'undone' | 'kept' | 'nothing' | null;
+}
+
 /** Every machine's view state; narrow on `kind`. A new machine adds its interface here. */
-export type MachineView = BeltView | StrikerView | DockView | ChuteView;
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView;
+
+// ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
+
+/** Patch's answer to a part thrown at it (§ B5), chosen by where the part is going. */
+export type PatchAnswer = 'duck' | 'catch' | 'bonk';
+
+/**
+ * One change a Patchlamp station is showing (§ B2 X1: "each change a beat the view can perform and
+ * reverse"). The durable value is already `to` (the change committed in one step, § E5 rule 1); the
+ * beat is the showing of it. `how` is `change` (perform it), `undo` (perform it backwards: paint drains
+ * up the nozzle, a label peels off, the slats turn back) or `reset`.
+ */
+export interface StationBeat {
+  /** The durable field: the station's own setting, or `colour` / `label` of the part on the platen's tray. */
+  readonly field: string;
+  /** The part changed (the platen), or null for the station's own setting. */
+  readonly part: Id | null;
+  readonly from: Value;
+  readonly to: Value;
+  readonly how: 'change' | 'undo' | 'reset';
+  /** Seconds since it began. A beat is listed for `PATCHLAMP_BEAT_SECONDS` (sim/machines/storefront.ts) after it begins. */
+  readonly since: number;
+}
+
+/** What every station on a Patchlamp line shows besides its own settings. */
+export interface StationOnLineView extends MachineViewBase {
+  /** The scene jack whose line reaches this station. */
+  readonly jack: Id;
+  /** Seconds since the plug last seated in that jack: the station answers with one beat (§ D 4). Infinity before. */
+  readonly answered: number;
+  /** Changes being shown, oldest first: one per field. */
+  readonly beats: readonly StationBeat[];
+}
+
+/** The window's picture: one of the drawn set (sim/instruct `PICTURES`) or the empty frame. */
+export type WindowPicture = 'mountains' | 'sun' | 'boat' | 'tree' | 'house' | 'none';
+
+/** The storefront (§ B2 X1): durable settings a text changes. */
+export interface StorefrontView extends StationOnLineView {
+  readonly kind: 'storefront';
+  /** The fascia's paint (one of the 8 paints). Durable. */
+  readonly sign: PaintName;
+  /** The fascia's words, capitals, at most 16; '' means the fascia's own words (src/content/storefront.json). Durable. */
+  readonly words: string;
+  /** The awning's paint. Durable. */
+  readonly awning: PaintName;
+  /** OPEN (the window lit) or CLOSED. Durable. */
+  readonly open: boolean;
+  /** The picture in the window. Durable. */
+  readonly picture: WindowPicture;
+}
+
+/** The platen (§ B1: the tray under the nozzle; changes the colour and label of whatever is on it). */
+export interface PlatenView extends StationOnLineView {
+  readonly kind: 'platen';
+  /** The part on the tray (taken in and held there, Fetch included), or null. Its colour and label are on the part. */
+  readonly onTray: Id | null;
+  /** Where the tray seats a part: the bottom centre, world space. */
+  readonly seat: Vec3;
+}
+
+/** The workshop's one lamp (§ B2 X1 LAMP, § D 14): durable settings the stage tints and aims the key light by. */
+export interface LampView extends StationOnLineView {
+  readonly kind: 'lamp';
+  /** Off is night (§ B2 X1). Durable. */
+  readonly on: boolean;
+  /** Brightness step, 1 (dimmest) to `levels`; the visit starts at `home.level`. Durable. */
+  readonly level: number;
+  readonly levels: number;
+  /** One of the 8 paints, or `warm`: its own amber light. Durable. */
+  readonly colour: PaintName | 'warm';
+  /** Where the bulb is (world): the durable arm setting, or where the hand has it while it is dragged. */
+  readonly bulb: Vec3;
+  /** The point the shade points at (world, on the bench top). */
+  readonly aim: Vec3;
+  /** The visit's starting lamp: a new visit and "Reset the workshop" start here (the opening picture). */
+  readonly home: { readonly bulb: Vec3; readonly aim: Vec3; readonly level: number };
+  /** The visitor has the shade in hand. */
+  readonly dragging: boolean;
+}
+
+/**
+ * One entry of the phone conversation (the phone line, `ui/phone/world-line.ts`, reads these). They
+ * carry ids, never our sentences; `text` is the visitor's own words.
+ */
+export type LineEntry =
+  | { readonly kind: 'sent'; readonly n: number; readonly jack: Id; readonly line: Jack; readonly text: string }
+  | { readonly kind: 'working'; readonly n: number }
+  | { readonly kind: 'reply'; readonly n: number; readonly reply: Reply; readonly mailbox: boolean }
+  | { readonly kind: 'refused'; readonly n: number; readonly reason: RefusalReason; readonly reply: Reply; readonly mailbox: boolean };
+
+/** The phone line through the switchboard (§ B2 X1): texts in, one job at a time, replies out. */
+export interface LineView extends MachineViewBase {
+  readonly kind: 'line';
+  /** The live line the cord is in, or null while the plug is lifted (no text can be sent). */
+  readonly line: Jack | null;
+  /** The scene jack the cord is in (durable; while lifted, the one it came from). */
+  readonly jack: Id;
+  /** While the visitor holds the plug: the live jacks offering themselves (§ D 4). Empty otherwise. */
+  readonly offering: readonly Id[];
+  /** The jack whose text Patch has in hand or is waiting on (its lens lamp shows the call, § B5), or null. */
+  readonly ringing: Id | null;
+  /** Texts waiting behind the one in hand. */
+  readonly waiting: number;
+  /** The text in hand: its number and jack, and the unit on that line. Null when Patch is free. */
+  readonly job: { readonly n: number; readonly jack: Id; readonly station: Id } | null;
+  /** Seconds since the mailbox flag last went up (Infinity before). Nothing is ever sent. */
+  readonly mailbox: number;
+  /** The conversation so far this visit, oldest first. `logStart` is the index of `log[0]` (the oldest are dropped past a cap). */
+  readonly log: readonly LineEntry[];
+  readonly logStart: number;
+}
+
+/**
+ * Patch's states (§ B5). The job: `notice` (turns to the board), `drawer` (pulls open the drawer for
+ * that jack), `work` (does it; the change commits at the end of this stage), `check` (leans out toward
+ * the station to see the result is really there), `reply` (texts back). Then `seated`. With the
+ * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
+ * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
+ */
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb';
+
+/** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
+export interface PatchView extends MachineViewBase {
+  readonly kind: 'patch';
+  readonly state: PatchState;
+  /** Seconds since `state` began, and how long it lasts (Infinity for one that waits on something). */
+  readonly stateTime: number;
+  readonly stateLength: number;
+  /** Where Patch is: its seat on the stool, the visitor's hand (held), or its feet on the bench (walking). */
+  readonly at: Vec3;
+  /** Facing, radians about +Y (0 faces +Z, the camera). */
+  readonly heading: number;
+  /** The drawer pulled open (the jack whose folder it is), or null. */
+  readonly drawer: Id | null;
+  /** The unit the job in hand is for (the station on its line), or null. */
+  readonly serving: Id | null;
+  /** What it is looking at (the dead plug, the lever, the visitor, the station it checks, a part coming), or null. */
+  readonly lookAt: Vec3 | null;
+  /** The part in its hands (a catch), or null. */
+  readonly holding: Id | null;
+}
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
 
-/** The Big Red Button's own state (§ B4). Kept outside the history (§ E5 rule 13). */
+/**
+ * The Big Red Button's own state (§ B4). Kept outside the history (§ E5 rule 13). Everything a rung
+ * does is in `script` (its beats, as data, timed from the press); `phaseTime` during `playing` is the
+ * time into it, during `rewinding` the time into the rewind. Saving keeps `reached`, `presses`,
+ * `cover` (a cover once fitted stays), `used` and `deck`.
+ */
 export interface ButtonView {
   readonly id: Id;
-  /** Rung reached (0 before the first press). */
+  /** The rung playing now, or the one played last (0 before the first press). From the deck, 2 to 4. */
   readonly rung: number;
+  /** The highest rung of the ladder reached (0 to 4). At 4 the deck takes over. */
+  readonly reached: number;
   readonly presses: number;
   readonly phase: RungPhase;
   /** Seconds since `phase` began. */
   readonly phaseTime: number;
+  /** The rung playing (or last played): its beats in time order. Null before the first press. */
+  readonly script: RungScript | null;
+  /** The card that rung ends with (a content id, Revert's), or null. */
+  readonly card: string | null;
+  /** The stations the rung misfires (rung 2 and 3: the one; rung 4: every used one), nearest first. */
+  readonly targets: readonly Id[];
+  /** The flip-up cover over the Button (from rung 3 on). */
+  readonly cover: CoverState;
+  /** Seconds since `cover` last changed. */
+  readonly coverTime: number;
+  /** The cover's handle id (a `press` on it lifts or lowers it). */
+  readonly coverId: Id;
+  /** Stations the visitor has used (`sim/used.ts`), in the order first used. */
+  readonly used: readonly Id[];
+  /** The deck after the ladder: the cards still to draw (ids), top first, and the last one drawn. */
+  readonly deck: { readonly left: readonly Id[]; readonly last: Id | null };
+  /** Rungs are the card and the lamp dip only (§ B4, § B10). */
+  readonly reducedMotion: boolean;
 }
 
 /** The switchboard cord (§ B2 X1). */
@@ -415,8 +745,48 @@ export interface CordView {
  * slide back after overshooting a stop (speed negative along its heading);
  * `held` is in the visitor's hand (wheel spinning); `return` is hurrying
  * back to its lane after being put down; `frozen` is during a Button rung.
+ * In play mode (S5): `pickup` also takes a fresh crate off the stack (it
+ * reaches, then the crate comes into its hands); `place` sets the crate in
+ * its hands on the belt (turn, reach out, lower, let go, arms back); `reach`
+ * stretches for something past its tape and gives up (then the OUT OF MY LANE
+ * slip and a `shrug`); `knocked` is being shoved and spun by a thrown part,
+ * then wobbling back to balance (`CrewMember.knock`), before it `return`s.
  */
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen';
+export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked';
+
+/**
+ * A knock in progress (§ B5, Taylor 2026-11-18: "shoved and spun, not merely bumped into; it wobbles,
+ * finds its balance and goes back to its lane"). The simulation moves the body: `x`, `z` and `heading`
+ * already slide and spin during the first `shove` seconds of the `knocked` state (eased out: fast, then
+ * slowing). The view adds what the collider does not: the lean away from the hit and the wobble back
+ * to upright over the following `wobble` seconds, sized by `strength`.
+ */
+export interface FetchKnock {
+  /** The part that hit it. */
+  readonly by: Id;
+  readonly strength: 1 | 2 | 3;
+  /** Yaw of the shove (radians about +Y, 0 = +Z): the way it slides, the way it leans away from. */
+  readonly dir: number;
+  /** How far it slides (units), already cut short of the bench edge and of every machine. */
+  readonly distance: number;
+  /** Signed yaw it turns while sliding (radians; positive = anticlockwise seen from above). */
+  readonly spin: number;
+  /** Seconds of sliding, then seconds of wobbling, from the start of the `knocked` state. */
+  readonly shove: number;
+  readonly wobble: number;
+}
+
+/**
+ * Where a crew member's eye goes when nothing in its state says otherwise (§ B3 "Fetch's head follows the
+ * pointer", § B5 "watches the pointer"). `held`: the part in the visitor's hand (the pointer, when it
+ * carries something); `moving`: the nearest loose part on the move within range (thrown, falling).
+ * Null: nothing the simulation knows of; the view follows the pointer (only the view knows where it is).
+ */
+export interface Gaze {
+  readonly at: Vec3;
+  readonly what: 'held' | 'moving';
+  readonly id: Id;
+}
 
 /** A robot's transient state (§ E5 "Transient"): where it is and what it intends. Never recorded. */
 export interface CrewMember {
@@ -434,6 +804,12 @@ export interface CrewMember {
   readonly carrying: Id | null;
   /** What it is attending to in the world, if anything (the view may prefer the pointer). */
   readonly lookAt: Vec3 | null;
+  /** S5: where its eye goes otherwise (`lookAt` wins); null: the view follows the pointer. */
+  readonly gaze?: Gaze | null;
+  /** S5: something is carried near it (in the visitor's hand) and it holds its hands up (§ B5). */
+  readonly handsUp?: boolean;
+  /** S5: the knock, while `state` is `knocked`; null otherwise. */
+  readonly knock?: FetchKnock | null;
 }
 
 // ───────────────────────── the world, read-only ─────────────────────────

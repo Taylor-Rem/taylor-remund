@@ -1,0 +1,19 @@
+{
+  "deck": {
+    "1": { "text": "STILL NOT A DOORBELL.", "kind": "voice", "rung": 2, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" },
+    "2": { "text": "I SAW THAT.", "kind": "voice", "rung": 2, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" },
+    "3": { "text": "THE TAPE IS NOT DECORATIVE.", "kind": "voice", "rung": 3, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" },
+    "4": { "text": "THAT COVER WAS A HINT.", "kind": "voice", "rung": 3, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" },
+    "5": { "text": "SWEEPING UP. AGAIN.", "kind": "voice", "rung": 4, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" },
+    "6": { "text": "I WILL BE IN MY HATCH.", "kind": "voice", "rung": 4, "source": "New wording (S4, 2026-11-18), provisional until G4: Revert's card for the deck after the ladder, REWRITE.md § B4 \"after\" (a deck of six)" }
+  },
+  "revert": {
+    "kept": { "text": "SOMEONE HAS MOVED THAT SINCE.", "kind": "voice", "source": "REWRITE.md § E5 rule 8 and the worked example \"Ships Fetch\" (\"Revert's card says someone has moved that since\"); set as a card by S4, provisional until G4" },
+    "nothing": { "text": "NOTHING LEFT TO UNDO.", "kind": "voice", "source": "New wording (S4, 2026-11-18), provisional until G4: REWRITE.md § E5 worked example \"the lever ... reports there is nothing left\"; S4 brief (Revert says so)" }
+  },
+  "names": {
+    "revert": { "text": "Revert", "kind": "ui", "source": "REWRITE.md § B5, the crew; a working name (§ Decisions, G4)" },
+    "lever": { "text": "UNDO lever", "kind": "ui", "source": "REWRITE.md § B2 X3, § D 8 (the UNDO lever)" },
+    "cover": { "text": "Button cover", "kind": "ui", "source": "REWRITE.md § B4, rung 3 (a flip-up cover over the button)" }
+  }
+}

@@ -98,6 +98,30 @@ export interface FetchSpec {
   readonly toss: { readonly linvel: Vec3; readonly angvel: Vec3 };
   /** Where the visitor is, for "looks out at the visitor". */
   readonly outward: Vec3;
+  /** Its rounds in play mode (S5); without them it laps its lane as in P1. */
+  readonly rounds?: FetchRounds;
+}
+
+/**
+ * Fetch's rounds (§ B3 play mode: "Fetch goes on carrying fresh crates down the belt"; § E5 rule 5:
+ * fresh crates from the stack only). It takes the top fresh crate off the stack and sets it on the belt
+ * at the mouth's drop point, again and again, no faster than `every` and never with more than `cap`
+ * crates in play. What it cannot reach from its tape it stretches for, gives up on, and says so.
+ */
+export interface FetchRounds {
+  /** The crate stack's ground point (x, z), and how far from it (horizontally) a crate still counts as on it. */
+  readonly stack: readonly [number, number];
+  readonly stackRadius: number;
+  /** The mouth it feeds: a crate is set down at this mouth's `drop` point. */
+  readonly mouth: Id;
+  /** A crate counts as in play while its location is `in` one of these mouths (riding, being shipped), or while it is in Fetch's hands. */
+  readonly inPlay: readonly Id[];
+  /** At most this many crates in play: it waits, crate in hand, until one ships. */
+  readonly cap: number;
+  /** At least this many seconds between two crates set down. */
+  readonly every: number;
+  /** It sets a crate down only while every one of these settings has this value (the belt running forward). */
+  readonly feedWhen: readonly { readonly target: Id; readonly field: string; readonly is: string | number | boolean }[];
 }
 
 export interface ButtonSpec {
@@ -113,6 +137,26 @@ export interface ButtonSpec {
   readonly shove: Vec3;
   /** Who prints the card (Revert, when it arrives). */
   readonly cardBy: Id;
+  /** Rungs 2 to 4 (S4, `machines/button.ts`). Without it, the stations are `flinch` and the stack is `stack`. */
+  readonly ladder?: LadderSpec;
+}
+
+/** What the Button's ladder needs from the scene (§ B4): the stations it can misfire, where they are, the stack, the cover. */
+export interface LadderSpec {
+  /** Every station a rung may misfire, with a point on it (world): "nearest" is measured from the Button's cap. */
+  readonly stations: readonly { readonly id: Id; readonly at: Vec3 }[];
+  /** The interactable that is the lamp: every rung dips it. */
+  readonly lamp: Id;
+  /** The station that is the UNDO lever (an undo `by: 'lever'` uses it, the `U` key included), and the one that is the cord (unplugging uses it). */
+  readonly lever?: Id;
+  readonly cord?: Id;
+  /** The crate stack's ground point (x, z) and radius: rung 4 brings down every crate standing inside it. */
+  readonly stackAt: readonly [number, number];
+  readonly stackRadius: number;
+  /** The flip-up cover's handle id. */
+  readonly cover: Id;
+  /** Its content id (the controls list's name). */
+  readonly coverName: string;
 }
 
 export interface CordSpec {

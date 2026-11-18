@@ -8,11 +8,19 @@ import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Id, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 import { line } from './helpers.ts';
 
-export { bench as BENCH, LINE, AT };
+/**
+ * The line's own scenarios run on the bench without Fetch's rounds (S5): in play mode Fetch would set
+ * crates of its own on the belt, beside the ones a test puts there. Fetch's tests and the whole-bench
+ * soak pass the real `bench` as `scene`.
+ */
+const { rounds: _rounds, ...quietRunner } = bench.runner;
+const QUIET: SceneDesc = { ...bench, runner: quietRunner };
+
+export { QUIET as BENCH, bench as FULL_BENCH, LINE, AT };
 
 export async function benchWorld(seed: number | string = 1, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> {
   const physics = await createRapierPhysics();
-  return createWorld({ seed, physics, scene: bench, ...opts });
+  return createWorld({ seed, physics, scene: QUIET, ...opts });
 }
 
 /** A recorder: every event with the step it happened in. */
@@ -63,11 +71,18 @@ export function putOn(world: World, t: Tape, id: Id, to: Vec3, steps = 30): void
   const high = Math.max(m.pose.p[1], target[1]) + 1.8;
   const a: Vec3 = [m.pose.p[0], high, m.pose.p[2]];
   const b: Vec3 = [target[0], high, target[2]];
-  for (const p of [...line(m.pose.p, a, 12), ...line(a, b, steps), ...line(b, target, 12)]) {
+  // across no faster than about 6 units a second (the carry spring's pace), so the hand arrives
+  const across = Math.max(steps, Math.ceil((Math.hypot(b[0] - a[0], b[2] - a[2]) / 6) * 60));
+  for (const p of [...line(m.pose.p, a, 12), ...line(a, b, across), ...line(b, target, 12)]) {
     world.dispatch({ type: 'carry', target: p });
     t.run(1);
   }
   t.run(20); // let it settle in the hand
+  for (let i = 0; i < 90; i++) {
+    const p = world.motion(id)!.pose.p;
+    if (Math.hypot(p[0] - target[0], p[2] - target[2]) < 0.06) break;
+    t.run(1);
+  }
   world.dispatch({ type: 'release', velocity: [0, 0, 0] });
   t.run(1);
 }

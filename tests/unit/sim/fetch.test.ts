@@ -155,6 +155,44 @@ describe('Fetch (§ B3, § B5)', () => {
     expect(world.mode('fetch')).toBe('crew');
   });
 
+  test('near things: hands up while the visitor carries something near it, and its eye on what is carried', () => {
+    const { world } = stubWorld();
+    run(world, 10);
+    // take its crate (it salutes, empty-handed), and hold it close
+    world.dispatch({ type: 'grab', id: 'crate-4', grip: world.motion('crate-4')!.pose.p });
+    run(world, 1);
+    const f = world.crew('fetch')!;
+    const near: [number, number, number] = [f.x + 0.6, 1.2, f.z + 0.6];
+    for (let i = 0; i < 20; i++) {
+      world.dispatch({ type: 'carry', target: near });
+      run(world, 1);
+    }
+    let m = world.crew('fetch')!;
+    expect(m.handsUp).toBe(true);
+    expect(m.gaze).toMatchObject({ what: 'held', id: 'crate-4' });
+    // carried away, the hands come down; the eye still follows it
+    for (let i = 0; i < 40; i++) {
+      world.dispatch({ type: 'carry', target: [f.x + 6, 1.2, f.z - 3] });
+      run(world, 1);
+    }
+    m = world.crew('fetch')!;
+    expect(m.handsUp).toBe(false);
+    expect(m.gaze).toMatchObject({ what: 'held', id: 'crate-4' });
+    expect(Math.hypot(m.gaze!.at[0] - world.motion('crate-4')!.pose.p[0], m.gaze!.at[2] - world.motion('crate-4')!.pose.p[2])).toBeLessThan(1e-9);
+  });
+
+  test('near things: its eye follows the nearest part on the move, and lets go of it once it rests', () => {
+    const { world } = stubWorld();
+    run(world, 10);
+    world.dispatch({ type: 'grab', id: 'crate-4', grip: world.motion('crate-4')!.pose.p });
+    run(world, 1);
+    world.dispatch({ type: 'release', velocity: [2.5, 0, 0] });
+    run(world, 3);
+    expect(world.crew('fetch')!.gaze).toMatchObject({ what: 'moving', id: 'crate-4' });
+    run(world, steps(3));
+    expect(world.crew('fetch')!.gaze).toBeNull();
+  });
+
   test('frozen while a rung plays, then resumes where it was', () => {
     const { world } = stubWorld();
     let i = 0;
