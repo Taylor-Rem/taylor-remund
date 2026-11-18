@@ -387,6 +387,7 @@ const PATCHLAMP_UNITS = [
     jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
     stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.bulb },
     bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
+    runner: s6PatchRunner(), // S6
   }),
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
@@ -407,6 +408,17 @@ const S6_LADDER = {
   ],
   line: 'line',
 };
+
+/**
+ * Patch's stool on its runner (S6, seam 5). It rests at the runner's right end, where the stool stands in
+ * `AT`; to work a jack it stands `STOOL_DX` right of it (Patch sits facing -X, its right side to the
+ * board: the switchboard piece's `stoolDX`, view/kit/pieces/switchboard/board.ts). After `quiet` seconds
+ * of a quiet line it rolls back to rest. A function (hoisted) so Patch's spec above can call it.
+ */
+function s6PatchRunner(): { rest: number; jacks: Record<string, number>; quiet: number } {
+  const STOOL_DX = 0.15;
+  return { rest: AT.stool.c[0], jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at[0] + STOOL_DX])), quiet: 4 };
+}
 
 export const bench: SceneDesc = {
   id: 'bench',

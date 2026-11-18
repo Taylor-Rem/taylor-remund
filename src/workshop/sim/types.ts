@@ -682,7 +682,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -703,6 +703,15 @@ export interface PatchView extends MachineViewBase {
   readonly lookAt: Vec3 | null;
   /** The part in its hands (a catch), or null. */
   readonly holding: Id | null;
+  /**
+   * S6: the stool on its runner (world x of its middle): where it is now (`x`), its rest place at the
+   * runner's right end (`rest`), the runner's other end (`min`), and the roll in hand (state `roll`:
+   * eased in and out from `from` to `to` over `stateLength`; `home` when it is the way back after a
+   * quiet spell). Patch's `at` moves with it.
+   */
+  readonly stool: { readonly x: number; readonly rest: number; readonly min: number; readonly roll: { readonly from: number; readonly to: number; readonly home: boolean } | null };
+  /** S6: the job in hand, its stages in order with their lengths (seconds), as planned when it was picked up; null when free. */
+  readonly plan: readonly { readonly state: PatchState; readonly length: number }[] | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

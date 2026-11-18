@@ -1,7 +1,7 @@
 // S6: the seams between the five simulation packages, one describe per seam, on the bench with the stub physics.
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
-import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
+import { bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { CrewView, LampView, PatchView } from '../../../src/workshop/sim/types.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
 
@@ -167,7 +167,115 @@ describe('seam 4: the ladder knows every station', () => {
   });
 });
 
-describe('seam 3:reduced motion at run time; the saved Button; the undo id', () => {
+describe("seam 5: Patch's job has room to perform: the roll, and a little air", () => {
+  const patch = (w: World) => w.machine('patch') as PatchView;
+  /** Move the cord to `jack` (one step each way). */
+  const plug = (w: World, jack: string) => {
+    w.dispatch({ type: 'unplug', cord: 'cord' });
+    run(w, 1);
+    w.dispatch({ type: 'plug', cord: 'cord', jack });
+    run(w, 1);
+  };
+  /** Send a text; return the steps from sending to the change and to the reply, and Patch's states on the way. */
+  function timeJob(w: World, text: string): { change: number; reply: number; states: string[] } {
+    w.dispatch({ type: 'text', text });
+    const from = w.step + 1;
+    let change = -1;
+    let reply = -1;
+    const states: string[] = [];
+    for (let i = 0; i < 12 * 60 && reply < 0; i++) {
+      for (const e of run(w, 1)) {
+        if (e.type === 'effect' && change < 0) change = w.step - from;
+        if (e.type === 'line.reply' || e.type === 'line.refused') reply = w.step - from;
+        if (e.type === 'crew.state' && e.id === 'patch') states.push(e.state);
+      }
+    }
+    return { change, reply, states };
+  }
+
+  test('free and already at that jack: the change shows about 2.6 s after the text, the reply about 4.5 s; no roll', () => {
+    const { world } = benchStub();
+    plug(world, 'jack-lamp');
+    timeJob(world, 'dimmer'); // the stool rolls to LAMP
+    const r = timeJob(world, 'brighter'); // already there
+    expect(r.states).toEqual(['notice', 'drawer', 'work', 'check', 'reply', 'seated']);
+    expect(r.change / 60).toBeCloseTo(2.6, 1);
+    expect(r.reply / 60).toBeCloseTo(4.5, 1);
+  });
+
+  test('the roll is as long as the way along the runner (1.2 s for the whole of it), the plan says so, and the stool is published', () => {
+    const { world } = benchStub();
+    const s = patch(world).stool;
+    expect(s.x).toBe(s.rest);
+    expect(s.min).toBeLessThan(s.rest);
+    // the cord starts in STOREFRONT: the stool rolls from its rest to that jack
+    world.dispatch({ type: 'text', text: 'make the sign red' });
+    run(world, 1);
+    const plan = patch(world).plan!;
+    expect(plan.map((p) => p.state)).toEqual(['notice', 'roll', 'drawer', 'work', 'check', 'reply']);
+    const roll = plan[1]!.length;
+    const to = bench.cord.jacks.find((j) => j.id === 'jack-storefront')!.at[0] + 0.15;
+    expect(roll).toBeCloseTo((1.2 * (s.rest - to)) / (s.rest - s.min), 6);
+    expect(roll).toBeGreaterThan(0.3);
+    expect(roll).toBeLessThanOrEqual(1.2);
+    // during the roll the stool moves along the runner, Patch with it, and the stage's length is published
+    run(world, Math.round(0.5 * 60) + 20);
+    expect(patch(world).state).toBe('roll');
+    expect(patch(world).stateLength).toBeCloseTo(roll, 6);
+    const mid = patch(world).stool;
+    expect(mid.x).toBeLessThan(s.rest);
+    expect(mid.x).toBeGreaterThan(to);
+    expect(mid.roll).toEqual({ from: s.rest, to, home: false });
+    run(world, 60);
+    expect(patch(world).stool.x).toBeCloseTo(to, 9);
+    // the seat moved with the stool
+    expect(patch(world).at[0]).toBeCloseTo(PATCHLAMP.patch.seat[0] + (to - s.rest), 9);
+  });
+
+  test("after a quiet spell it rolls back to its rest at the runner's right end; a text on the way is picked up from where it is", () => {
+    const { world } = benchStub();
+    const r = timeJob(world, 'make the sign red');
+    expect(r.states.slice(0, 3)).toEqual(['notice', 'roll', 'drawer']);
+    const rest = patch(world).stool.rest;
+    expect(patch(world).stool.x).toBeLessThan(rest);
+    run(world, 3 * 60);
+    expect(patch(world).state).toBe('seated'); // not yet: the line has not been quiet long enough
+    run(world, 66);
+    expect(patch(world).state).toBe('roll');
+    expect(patch(world).stool.roll?.home).toBe(true);
+    run(world, 12);
+    const partway = patch(world).stool.x;
+    world.dispatch({ type: 'text', text: 'make the awning blue' });
+    run(world, 2);
+    expect(['notice', 'roll']).toContain(patch(world).state);
+    const x = patch(world).stool.x;
+    expect(x).toBeGreaterThanOrEqual(partway);
+    expect(x).toBeLessThan(partway + 0.15); // stopped where it was (one step's roll at most), not at rest
+    expect(x).toBeLessThan(rest - 1);
+    timeJob(world, 'thanks');
+    run(world, 12 * 60);
+    expect(patch(world).stool.x).toBe(rest);
+    expect(patch(world).state).toBe('seated');
+  });
+
+  test('lifted mid-roll, it carries on to the same jack from where the stool is once it is back on it', () => {
+    const { world } = benchStub();
+    world.dispatch({ type: 'text', text: 'make the sign red' });
+    run(world, Math.round(0.5 * 60) + 10);
+    expect(patch(world).state).toBe('roll');
+    const at = patch(world).at;
+    world.dispatch({ type: 'grab', id: 'patch', grip: [at[0], at[1] + 1, at[2]] });
+    run(world, 1);
+    world.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    run(world, 1);
+    const states: string[] = [];
+    for (let i = 0; i < 10 * 60; i++) for (const e of run(world, 1)) if (e.type === 'crew.state' && e.id === 'patch') states.push(e.state);
+    expect(states).toEqual(expect.arrayContaining(['climb', 'roll', 'drawer', 'work', 'check', 'reply']));
+    expect(world.setting('storefront', 'sign')).toBe('cable-red');
+  });
+});
+
+describe('seam 3: reduced motion at run time; the saved Button; the undo id', () => {
   const press = (w: World): void => {
     w.dispatch({ type: 'press', id: 'button' });
     run(w, 1);
