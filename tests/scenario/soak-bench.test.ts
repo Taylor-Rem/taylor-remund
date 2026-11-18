@@ -51,6 +51,9 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
       if (m.mode === 'gone' || m.mode === 'chute') continue;
       const pos = m.pose.p;
       // on the bench (a part on its way down is allowed below it only while it falls: the chute takes it)
+      // no part at rest below the bench top inside its footprint (the edge sends it back by the chute)
+      const inFoot = pos[0] >= b.minX && pos[0] <= b.maxX && pos[2] >= b.minZ && pos[2] <= b.maxZ;
+      if ((m.mode === 'free' && !m.awake) || m.mode === 'held') expect(!inFoot || pos[1] > b.top, `${p.id} below the bench top at step ${w.step}: ${pos.join(', ')}`).toBe(true);
       if (m.mode !== 'free' || !m.awake) expect(pos[0] >= b.minX - 0.01 && pos[0] <= b.maxX + 0.01 && pos[2] >= b.minZ - 0.01 && pos[2] <= b.maxZ + 0.01 && pos[1] > -0.05 && pos[1] < b.ceiling, `${p.id} outside the bench at step ${w.step}: ${pos.join(', ')}`).toBe(true);
     }
   };

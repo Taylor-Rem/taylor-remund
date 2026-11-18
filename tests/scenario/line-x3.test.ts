@@ -213,6 +213,44 @@ describe('the belt carries whatever is put on it', () => {
   }, 60_000);
 });
 
+describe('behind the curtain', () => {
+  test('a part at the dock\'s door cannot be grabbed; on the ramp before it, it can, and let go it never ends inside the dock or under the bench top', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    t.run(30);
+    putOn(w, t, 'crate-1', onBelt(0.93));
+    // on the ramp, rolling: it can be taken off (and the dock lets it go)
+    expect(t.until((e) => e.type === 'taken-in' && e.id === 'dock', 4 * HZ)).not.toBeNull();
+    const m = w.motion('crate-1')!;
+    w.dispatch({ type: 'grab', id: 'crate-1', grip: m.pose.p });
+    t.run(1);
+    expect(w.holding()).toEqual({ kind: 'part', id: 'crate-1' });
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    expect(t.until((e) => e.type === 'part.rested' && e.id === 'crate-1', 3 * HZ)).not.toBeNull();
+    // back on the ramp head it is taken in again, and rolls to the door; there it is behind the curtain
+    let refused = 0;
+    for (let i = 0; i < 6 * HZ && w.part('crate-1')!.location.at !== 'shipped'; i++) {
+      const dock = w.machine('dock') as { shipping: readonly string[] };
+      if (dock.shipping.includes('crate-1') && w.mode('crate-1') === 'machine') {
+        const p = w.motion('crate-1')!.pose.p;
+        const past = (p[0] - LINE.door.sill[0]) * LINE.door.inward[0] + (p[2] - LINE.door.sill[2]) * LINE.door.inward[2];
+        if (past > -1e-3) {
+          w.dispatch({ type: 'grab', id: 'crate-1', grip: p });
+          t.run(1);
+          expect(w.holding()).toBeNull();
+          refused++;
+          continue;
+        }
+      }
+      t.run(1);
+    }
+    expect(refused, `${w.mode('crate-1')} ${JSON.stringify(w.part('crate-1')!.location).slice(0, 60)} ${JSON.stringify(w.motion('crate-1')!.pose.p)}`).toBeGreaterThan(0);
+    expect(w.part('crate-1')!.location.at).toBe('shipped');
+    for (const p of w.parts()) if (w.mode(p.id) === 'free') expect(w.motion(p.id)!.pose.p[1], p.id).toBeGreaterThan(0);
+    w.dispose();
+  }, 60_000);
+});
+
 describe('picking Fetch up', () => {
   test('the crate it drops is the visitor\'s doing: the lever puts it back', async () => {
     const w = await benchWorld();

@@ -369,6 +369,8 @@ export function createWorld(opts: WorldOptions): World {
     if (bracket || held) return false;
     const l = loose.get(id);
     if (!l || l.mode === 'chute' || l.mode === 'gone') return false;
+    // a machine may keep what it holds out of reach (the dock: a part at its door is behind the curtain)
+    if (l.mode === 'machine' && l.holder !== null && unitById.get(l.holder)?.keeps?.(id)) return false;
     /** Parts a crew member was carrying that its being picked up sets loose (Fetch drops its crate). */
     let dropped: Id[] = [];
     if (l.mode === 'crew') {
@@ -513,9 +515,17 @@ export function createWorld(opts: WorldOptions): World {
     for (const l of loose.values()) l.contacts = now.get(l.id) ?? new Map();
   }
 
+  /** Below the bench top within its footprint: inside the bench, where nothing can be. */
+  function insideBench(p: Vec3): boolean {
+    const b = scene.bench;
+    return p[1] < b.top && p[0] >= b.minX && p[0] <= b.maxX && p[2] >= b.minZ && p[2] <= b.maxZ;
+  }
+
   function offBench(p: Vec3): boolean {
     const b = scene.bench;
-    return p[1] < scene.fallY || p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ || !Number.isFinite(p[0] + p[1] + p[2]);
+    // coming to rest inside the bench itself (its centre below the top within the footprint: forced down
+    // through it) counts as off it: back up the return chute, like anything that fell off the edge
+    return insideBench(p) || p[1] < scene.fallY || p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ || !Number.isFinite(p[0] + p[1] + p[2]);
   }
 
   function edgeAndChute(): void {
