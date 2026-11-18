@@ -46,6 +46,8 @@ export const OPERATOR_FEEL = {
   /** Blends between performances: from a pose the next one starts from, and from anywhere else. */
   blendNear: 0.18,
   blendFar: 0.35,
+  /** A thrown part: no time to ease into it. */
+  blendReact: 0.07,
   /** The look held after the cord comes out: the stages' share of it (s), then natural speed. */
   lookStages: 1.5,
   /** The job's follow-through after the reply: the folder put back, the drawer shut (natural speed). */
@@ -163,6 +165,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     /** The cord's move (state `plug`): the poses of the paw at the plug, yanking it, and at the new jack. */
     let plugKeys: { base: FullPose; at: FullPose; yank: FullPose; to: FullPose } | null = null;
     const pawW = new Vector3();
+    let heldId: string | null = null;
+    let heldObj: Object3D | null = null;
     let drawer = 0;
     let drawerShown = -1;
     const drawers: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
@@ -282,7 +286,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             case 'catch':
             case 'bonk':
               reactFrom = v.lookAt ? seatSpace(v.lookAt) : [0, 0.5, 2];
-              enter(st, t, false);
+              enter(st, t, true);
+              blendDur = F.blendReact;
               break;
             case 'seated':
               if (prev === 'reply' && jobJack) enter('shut', t, true);
@@ -299,6 +304,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
 
         // ── the stool: the simulation's place, or the roll's own curve ──
         let pose: PatchPose;
+        let caught: V3 | null = null;
         drawer = 0;
         const simB = v.stool.x - BOARD_X;
         if (mode !== 'roll') stoolB = simB;
@@ -390,9 +396,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           case 'duck':
             pose = duck(U * REACTION_LENGTH, { from: reactFrom });
             break;
-          case 'catch':
-            pose = catchCrate(U * REACTION_LENGTH, { from: reactFrom }).pose;
+          case 'catch': {
+            const L = BOARD_WHOLE;
+            // the keyshelf point the simulation sets a caught part on (AT.keyshelf; PatchView does not carry it yet)
+            const shelf = boardToRoot([L.jackX.lamp - 0.22, L.shelfY, L.shelfZ - 0.2], stoolB);
+            const c = catchCrate(U * REACTION_LENGTH, { from: reactFrom, shelf });
+            pose = c.pose;
+            caught = c.crate;
             break;
+          }
           case 'bonk':
             pose = bonked(U * REACTION_LENGTH, { from: reactFrom });
             break;
@@ -449,6 +461,21 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
         apply(pose);
+        // a caught part is drawn in the paw (the parts view drew it where the simulation has it; this runs after)
+        if (mode === 'catch' && v.holding) {
+          if (v.holding !== heldId) {
+            heldId = v.holding;
+            heldObj = ctx.scene.getObjectByName(`part:${v.holding}`) ?? null;
+          }
+          if (heldObj && caught && !reduced) {
+            pawW.set(caught[0], caught[1], caught[2]).applyMatrix4(root.matrixWorld);
+            const e = heldObj.matrix.elements;
+            e[12] = pawW.x;
+            e[13] = pawW.y;
+            e[14] = pawW.z;
+            heldObj.matrixWorldNeedsUpdate = true;
+          }
+        }
         if (mode === 'plug' && st === 'plug') {
           const p = pawPoint(pose, 'right');
           pawW.set(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld);
