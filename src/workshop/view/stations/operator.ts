@@ -24,7 +24,7 @@
  * breath, blinks or glances run.
  */
 import { Group, Matrix4, Vector3, type Object3D } from 'three';
-import type { Id, PatchState, PatchView, Vec3 } from '../../sim/types.ts';
+import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
@@ -142,7 +142,14 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
       return best;
     };
     const atRest = (xBoard: number): boolean => Math.abs(xBoard - REST_X) < 0.05;
-    const restPose = (xBoard: number): PatchPose => (atRest(xBoard) ? SEATED : atWork(targetsFor(nearestJack(xBoard))));
+    const workRest = new Map<JackName, PatchPose>();
+    const restPose = (xBoard: number): PatchPose => {
+      if (atRest(xBoard)) return SEATED;
+      const j = nearestJack(xBoard);
+      let p = workRest.get(j);
+      if (!p) workRest.set(j, (p = atWork(targetsFor(j))));
+      return p;
+    };
 
     // ── view state ──
     let mode: Mode = 'idle';
