@@ -80,7 +80,8 @@ export function cylinderRibbons(strokes: ReadonlyArray<ReadonlyArray<P2>>, o: { 
   for (const raw of strokes) {
     if (raw.length < 2) continue;
     // split long runs round the drum: a straight chord across many degrees would sink under the surface
-    const maxDa = R * 0.07;
+    // (a chord of 0.13 rad sinks half a millimetre, under the ribbon's lift)
+    const maxDa = R * 0.13;
     const st: P2[] = [raw[0]!];
     for (let k = 1; k < raw.length; k++) {
       const p = raw[k - 1]!, q = raw[k]!;

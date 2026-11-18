@@ -8,7 +8,7 @@
 import { Box3, Ray, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
+import { benchStations, ORDER, CHUTE_AIM, CHUTE_RUN, BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
 import { Quaternion, type Matrix4 } from 'three';
 import { storefront } from '../../../src/workshop/view/kit/pieces/storefront/index.ts';
 import { platen } from '../../../src/workshop/view/kit/pieces/platen/index.ts';
@@ -27,6 +27,11 @@ import { pieceFolders } from '../../../src/workshop/view/kit/pieces/registry.ts'
 import { switchboard, stool } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
 import { belt } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
 import { pieceBounds } from '../../../src/workshop/view/kit/compose.ts';
+import { undoLever } from '../../../src/workshop/view/kit/pieces/undo-lever/index.ts';
+import { striker } from '../../../src/workshop/view/kit/pieces/striker/index.ts';
+import { chute } from '../../../src/workshop/view/kit/pieces/chute/index.ts';
+import { JACKS, BOARD_WHOLE, STOOL_SEAT } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
+import { LINE } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { Vec3 } from '../../../src/workshop/sim/types.ts';
 
 const S = LAYOUT.stations as Record<StationKey, Spot>;
@@ -35,7 +40,7 @@ const body = (id: string): Box3 => {
   if (!b) throw new Error(`no static ${id}`);
   return b;
 };
-const fit = fitPieces(scene, { board: switchboard({ detail: 'low' }), stool: stool({ detail: 'low' }), belt: belt({ length: LAYOUT.beltLength, detail: 'low' }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
 /** Where the fumbled crate comes to rest: about 0.5 left of the fumble, in front of the lane (the vignette's toss, unchanged). */
 const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.a[1] + 0.1];
@@ -71,8 +76,7 @@ const inFrame = (rig: CameraRig, pts: Vector3[]): boolean =>
 describe('the layout table and the simulation agree', () => {
   /** Stations with a body: the spot's origin is the body's centre, its footprint and height the body's. */
   const bodies: Array<[StationKey, string]> = [
-    ['board', 'board'], ['stool', 'stool'], ['phone', 'phone'], ['button', 'console'],
-    ['undo', 'undo'], ['striker', 'striker'],
+    ['stool', 'stool'], ['phone', 'phone'], ['button', 'console'], ['undo', 'undo'],
   ];
   it.each(bodies)('%s stands where its body is', (key, id) => {
     const s = S[key];
@@ -102,7 +106,7 @@ describe('the layout table and the simulation agree', () => {
       expect(b.max.z, id).toBeGreaterThanOrEqual(k.max.z - 1e-6);
     }
     // the real piece at the bench's length fits its spot
-    const pb = pieceBounds(belt({ length: LAYOUT.beltLength, detail: 'low' }));
+    const pb = pieceBounds(belt({ length: LAYOUT.beltLength, detail: 'low', line: true }));
     const at = fit.belt.at;
     expect(at.x + pb.min.x).toBeGreaterThanOrEqual(b.min.x - 0.02);
     expect(at.x + pb.max.x).toBeLessThanOrEqual(b.max.x + 0.02);
@@ -122,8 +126,13 @@ describe('the layout table and the simulation agree', () => {
 
 describe('the footprints', () => {
   const onBench = (Object.entries(S) as Array<[StationKey, Spot]>).filter(([, s]) => s.z > -5);
-  /** Overlaps that are meant: the striker's post stands on the belt's far rail; the stool tucks against the board's frame post; Revert parks on its hatch; the dock's mouth meets the belt's end (its turned footprint's box overlaps). */
-  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock']);
+  /**
+   * Overlaps that are meant: the striker's arm reaches over the belt; the stool stands on the board's runner; Revert parks on its
+   * hatch; the dock's mouth meets the belt's end, and its turned footprint's box (the ramp's straight run included) reaches over the
+   * lane's right end, which stops clear of its portal (the oriented test below); the chute's footprint box takes in the corner by
+   * the belt's motor housing (its duct passes behind it).
+   */
+  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'lane|dock', 'chute|belt']);
   // the real pieces' footprints are their bounds (the platen's conduit, the storefront's jack box, the dock's ramp included)
   it('lie on the bench and do not overlap (except where one stands on another)', () => {
     for (const [k, s] of onBench) {
@@ -181,14 +190,14 @@ describe("Fetch's lane", () => {
     let along = Infinity;
     for (let i = 0; i <= 200; i++) {
       const x = ax + ((bx - ax) * i) / 200;
-      // running along the lane (±X): body and crate; facing the visitor (+Z): the crate reaches toward the belt
+      // running along the lane (±X): body and crate; facing the visitor (+Z), empty-handed (it turns to the visitor only to offer, its crate fumbled)
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1]] as const) {
         const hx = dx ? half[2] : half[0], hz = dx ? half[0] : half[2];
         const bodyB = new Box3(new Vector3(x - hx, 0, az - hz), new Vector3(x + hx, 2 * half[1], az + hz));
         const c = new Vector3(x + dx * reach, FETCH_TUNING.handHeight * k, az + dz * reach);
         const crate = new Box3(c.clone().sub(new Vector3(...S_HALF)), c.clone().add(new Vector3(...S_HALF)));
         for (const [id, b] of statics)
-          for (const it of [bodyB, crate]) {
+          for (const it of dz ? [bodyB] : [bodyB, crate]) {
             const d = overlap(it, b);
             expect(d, `at x ${x.toFixed(2)} facing (${dx}, ${dz}): ${id}`).toBeLessThan(0);
             closest = Math.min(closest, -d);
@@ -199,7 +208,7 @@ describe("Fetch's lane", () => {
           }
       }
     }
-    // running along the lane it keeps 0.3 from everything; facing the visitor, the crate comes nearest the belt's bed
+    // running along the lane it keeps 0.3 from everything; facing the visitor, its body comes nearest the striker's post
     expect(along).toBeGreaterThan(0.3);
     expect(closest).toBeGreaterThan(0.1);
   });
@@ -336,7 +345,7 @@ describe('Patch at the crew scale', () => {
     // the head (its pivot, the middle of the skull) stays under the crest; at 1.5× the ear tips and headset do not (reported)
     const o = seated('reach');
     const head = seated('rest').getObjectByName('head')!.getWorldPosition(new Vector3());
-    expect(head.y).toBeLessThan(body('board').max.y);
+    expect(head.y).toBeLessThan(body('board-panel').max.y);
     const paw = o.getObjectByName('pawL')!.getWorldPosition(new Vector3());
     expect(paw.y).toBeGreaterThan(AT.jacks.lamp[1]);
   });
@@ -368,6 +377,9 @@ describe('the real pieces', () => {
     ['dock', () => dock({ detail: 'low', reach: DOCK_REACH }), 1],
     ['revert', () => revert({ detail: 'low', pose: 'idle' } as never), REVERT_SCALE],
     ['hatch', () => revertHatch({ detail: 'low', pose: 'open' } as never), REVERT_SCALE],
+    ['board', () => switchboard({ detail: 'low', jacks: JACKS }), 1],
+    ['undo', () => undoLever({ detail: 'low' } as never), 1],
+    ['striker', () => striker({ detail: 'low' } as never), 1],
   ] as const)('%s stands in its spot (the layout carries its real bounds)', (key, make, k) => {
     const b = pieceBounds(make());
     const B = BOUNDS[key];
@@ -394,6 +406,155 @@ describe('the real pieces', () => {
     inside('storefront', 'storefront');
     inside('dock', 'dock');
     // Revert is a loose part since S4, not a static (its home on the hatch is checked above)
+    inside('board', 'board');
+    inside('undo', 'undo');
+  });
+
+  it('stands the chute at the front-left corner, what is on the bench inside its spot, its riser outside the edge', () => {
+    const b = pieceBounds(chute({ detail: 'low', run: CHUTE_RUN, aim: CHUTE_AIM }));
+    const B = BOUNDS.chute;
+    expect(b.min.x).toBeCloseTo(B.x[0], 2);
+    expect(b.max.x).toBeCloseTo(B.x[1], 2);
+    expect(b.min.z).toBeCloseTo(B.z[0], 2);
+    expect(b.max.y).toBeCloseTo(B.h, 2);
+    expect(S.chute.at![1]).toBe(LAYOUT.bench.maxZ);
+  });
+
+  it("puts the striker's hammer where the simulation strikes (LINE.strikerX) and over the belt's middle line", () => {
+    const p = striker({ detail: 'low' } as never);
+    const h = new Vector3().setFromMatrixPosition(p.sockets!['hammer']!);
+    const [ox, oz] = S.striker.at!;
+    expect(ox + h.x).toBeCloseTo(LINE.strikerX, 2);
+    expect(oz + h.z).toBeCloseTo(AT.belt.c[2], 2);
+    // the striker's body holds the post, and stands behind the belt (the arm and hammer over it are no body)
+    const post = body('striker');
+    expect(post.min.x).toBeLessThanOrEqual(ox - 0.15);
+    expect(post.max.x).toBeGreaterThanOrEqual(ox + 0.15);
+    expect(post.max.z).toBeLessThan(AT.belt.c[2] - AT.belt.half[2]);
+    // far enough from the belt's far end for a run of notes played backwards (§ B2 X2): three crates' room
+    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("stands the whole board against the wall, its jacks where the simulation has them, the stool on its runner's right end", () => {
+    const p = switchboard({ detail: 'low', jacks: JACKS });
+    const [bx, bz] = S.board.at!;
+    const w = (n: string): Vector3 => new Vector3().setFromMatrixPosition(p.sockets![n]!).add(new Vector3(bx, 0, bz));
+    for (const k of ['storefront', 'platen', 'belt', 'lamp'] as const) {
+      const j = w(`jack.${k}`);
+      expect(j.distanceTo(new Vector3(...AT.jacks[k])), k).toBeLessThan(0.01);
+      const st = w(`stool.${k}`);
+      expect(Math.hypot(st.x - AT.stoolAt[k][0], st.z - AT.stoolAt[k][1]), `stool.${k}`).toBeLessThan(0.01);
+    }
+    // the capped jacks on the live row's line, at the board's layout
+    BOARD_WHOLE.capped.forEach((x, i) => expect(new Vector3(...AT.jacks[i ? 'reserved2' : 'reserved1']).distanceTo(new Vector3(bx + x, AT.jacks.lamp[1], AT.jacks.lamp[2]))).toBeLessThan(0.01));
+    // the keyshelf point is on the desk's top, inside the shelf and left of the writing ledge
+    const desk = body('board');
+    expect(AT.keyshelf[1]).toBeCloseTo(desk.max.y, 2);
+    expect(AT.keyshelf[2]).toBeGreaterThan(desk.min.z);
+    expect(AT.keyshelf[2]).toBeLessThan(desk.max.z);
+    expect(AT.keyshelf[0]).toBeLessThan(bx + BOARD_WHOLE.w / 2 - 0.7);
+    const st = w('stool');
+    expect(st.x).toBeCloseTo(AT.stool.c[0], 2);
+    expect(st.z).toBeCloseTo(AT.stool.c[2], 2);
+    expect(S.stool.y).toBeCloseTo(BOARD_WHOLE.runner.top, 3);
+    expect(fit.stool.seat[1]).toBeCloseTo(STOOL_SEAT, 2); // over the runner: loadBench stands it at S.stool.y
+    expect(bz + pieceBounds(p).min.z).toBeCloseTo(-5 + 0.01, 2);
+  });
+});
+
+describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
+  /** How far from a point of its lane between its stops Fetch can take hold of a part (the simulation's own sum, at the crew's scale). */
+  const REACH = (FETCH_TUNING.reach + FETCH_TUNING.handForward) * CREW_SCALE;
+  const inset = FETCH_TUNING.inset * CREW_SCALE;
+  const [ax, az] = AT.lane.a, [bx] = AT.lane.b;
+  const fromLane = (x: number, z: number, stops = true): { d: number; at: [number, number] } => {
+    const lo = stops ? ax + inset : ax, hi = stops ? bx - inset : bx;
+    const lx = Math.min(hi, Math.max(lo, x));
+    return { d: Math.hypot(x - lx, z - az), at: [lx, az] };
+  };
+  const L = LINE.belt;
+
+  it('takes a crate off the stack: 1.7 to 2.3 from the lane, so the crate it lifts swings clear of the stack, and nothing taller than 1.8 between', () => {
+    const { d, at } = fromLane(AT.stack[0], AT.stack[1]);
+    expect(d).toBeGreaterThanOrEqual(1.7);
+    expect(d).toBeLessThanOrEqual(2.3);
+    expect(d).toBeLessThanOrEqual(REACH - 0.2);
+    const from = new Vector3(AT.stack[0], 0.9, AT.stack[1]), to = new Vector3(at[0], 0.9, at[1]);
+    const ray = new Ray(from, to.clone().sub(from).normalize());
+    for (const st of scene.statics) {
+      if (st.id === 'bench' || st.id === 'back-wall') continue;
+      const b = body(st.id);
+      if (b.max.y <= 1.8) continue;
+      const hit = ray.intersectBox(b, new Vector3());
+      expect(hit && hit.distanceTo(from) < from.distanceTo(to) ? `${st.id} stands between the stack and the lane` : null).toBe(null);
+    }
+  });
+
+  it("sets it on the belt's motor end (the belt mouth's drop), and reaches the platen's tray and the phone", () => {
+    const drop = scene.mouths!.find((m) => m.id === 'belt')!.drop;
+    expect(drop[0]).toBeGreaterThanOrEqual(L.from + 0.8); // past the deflector's reach
+    expect(fromLane(drop[0], drop[2]).d).toBeLessThanOrEqual(REACH - 0.2);
+    const seat = new Vector3().setFromMatrixPosition(platen({ detail: 'low' } as never).sockets!['seat']!);
+    const [px, pz] = S.platen.at!;
+    expect(fromLane(px + seat.x, pz + seat.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    // the platen's mouth (the Patchlamp station's) sits on the real tray
+    const pm = scene.mouths!.find((m) => m.id === 'platen')!;
+    expect(new Vector3(...pm.drop).distanceTo(new Vector3(px + seat.x, seat.y, pz + seat.z))).toBeLessThan(0.02);
+    expect(fromLane(AT.phone.c[0], AT.phone.c[2]).d).toBeLessThanOrEqual(REACH - 0.2);
+  });
+
+  it("lands what the chute returns on clear bench beside the stack, not on it, and off the lane's tape", () => {
+    const p = chute({ detail: 'low', run: CHUTE_RUN, aim: CHUTE_AIM });
+    const [cx, cz] = S.chute.at!;
+    const mouth = new Vector3().setFromMatrixPosition(p.sockets!['mouth']!).add(new Vector3(cx, 0, cz));
+    expect(mouth.distanceTo(new Vector3(...AT.chute.p))).toBeLessThan(0.01);
+    const land = new Vector3().setFromMatrixPosition(p.sockets!['land']!).add(new Vector3(cx, 0, cz));
+    const toStack = Math.hypot(land.x - AT.stack[0], land.z - AT.stack[1]);
+    expect(toStack).toBeGreaterThan(0.55 + 0.4);
+    expect(toStack).toBeLessThan(2);
+    expect(land.x).toBeLessThan(ax - LANE_TAPE.past - 0.25);
+    // clear of the belt's motor housing
+    const motor = body('belt-motor');
+    expect(land.z + 0.25).toBeLessThan(motor.min.z);
+    // the pop: forward along the mouth's heading, a little up
+    expect(AT.chute.linvel[0]).toBeGreaterThan(0);
+    expect(AT.chute.linvel[1]).toBeGreaterThan(0);
+  });
+
+  it("keeps clear the spot where the deflector runs a reversed part off the belt's back, beside the stack; the dock's ramp starts at the belt's open tail", () => {
+    const p = belt({ length: LAYOUT.beltLength, detail: 'low', line: true });
+    const [bx0, bz0] = S.belt.at!;
+    const off = new Vector3().setFromMatrixPosition(p.sockets!['off.back']!).add(new Vector3(bx0, 0, bz0));
+    // an L crate resting there touches no body
+    const crate = new Box3(new Vector3(off.x - 0.4, 0, off.z - 0.4), new Vector3(off.x + 0.4, 0.8, off.z + 0.4));
+    for (const st of scene.statics) {
+      if (st.id === 'bench' || st.id === 'back-wall') continue;
+      expect(crate.intersectsBox(body(st.id)) ? `off.back in ${st.id}` : null).toBe(null);
+    }
+    expect(Math.hypot(off.x - AT.stack[0], off.z - AT.stack[1])).toBeLessThan(2.5);
+    expect(fromLane(off.x, off.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    const ramp = new Vector3().setFromMatrixPosition(p.sockets!['ramp']!).add(new Vector3(bx0, 0, bz0));
+    expect(ramp.x).toBeCloseTo(L.to, 3);
+    expect(S.dock.at![0] + DOCK_REACH[0] - 0.12).toBeCloseTo(ramp.x, 3);
+  });
+
+  it('keeps 1.4 round the lane free of anything without a body Fetch could slide through when knocked (the chute stands off)', () => {
+    const c = spotBox(S.chute);
+    const dx = Math.max(0, ax - c.max.x, c.min.x - bx), dz = Math.max(0, c.min.z - az, az - c.max.z);
+    expect(Math.hypot(dx, dz)).toBeGreaterThanOrEqual(1.4);
+  });
+});
+
+describe('the station files', () => {
+  it('are found by name: each exports a station with a unique name, in an order the set and the crew rely on', async () => {
+    const all = await benchStations();
+    const names = all.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const want of ['set', 'parts', 'fetch', 'patch', 'board', 'belt', 'button']) expect(names, want).toContain(want);
+    const at = (n: string): number => names.indexOf(n);
+    // whatever feeds the set's pool comes before it; Fetch after the parts
+    for (const s of all) if (s.order < ORDER.set) expect(at(s.name), s.name).toBeLessThan(at('set'));
+    expect(at('fetch')).toBeGreaterThan(at('parts'));
   });
 });
 

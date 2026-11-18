@@ -57,7 +57,7 @@ const STATION: readonly UnitFactory[] = [
     bench: { minX: V.bench.minX + 0.4, maxX: V.bench.maxX - 0.4, minZ: V.bench.minZ + 0.4, maxZ: V.bench.maxZ - 0.4 },
   }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
-  lamp({ id: 'lamp-s3', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: { bulb: [-2.2, 5.2, -0.6], aim: [2, 0, -0.1] }, reach: { centre: [-3.1, -4.76], min: 1, max: 5, minX: -8, maxX: 3.5, minZ: -4, maxZ: 1.5 }, follow: 0.6 }),
+  lamp({ id: 'lamp-s3', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: { aim: [2, 0, -0.1] }, reach: { polygon: [[-8.9, -4.4], [-8.9, 5], [7.9, 5], [8.8, 3.6], [8.8, 1.2], [5.5, -4.4]] } }),
 ];
 const STATION_TEXTS = [
   'make it blue', 'make it red', 'make the sign say HELLO', 'paint the awning violet', "we're closed", 'we are open', 'put a boat in the window', 'change the picture',
@@ -237,7 +237,7 @@ describe('§ E5 the replay check and the invariants, with the real Patchlamp sta
     }
     if (only !== null) return;
     // the station took part: texts went down the line and were answered with a change (this visitor is frantic: most jobs are pulled or taken back)
-    expect(changed).toBeGreaterThan(20);
+    expect(changed).toBeGreaterThan(12); // (S6: a job is now 4.5 s and a roll, so fewer finish before they are pulled or taken back)
     expect(undone).toBeGreaterThan(300);
   }, 240_000);
 

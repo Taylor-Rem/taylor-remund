@@ -93,14 +93,20 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   // reset: every machine back to idle, every part back where the visit began
   while (w.bracketed) step();
   w.dispatch({ type: 'reset' });
-  for (let i = 0; i < steps(8); i++) step();
-  check();
+  // at once: nothing riding, nothing being shipped, nothing to undo (since layout round 4 the stack is in
+  // Fetch's reach, and in play mode it goes on with its rounds a moment later: those are the crew's)
+  step();
   expect((w.machine('belt') as BeltView).riding).toEqual([]);
   expect((w.machine('dock') as DockView).shipping).toEqual([]);
-  expect((w.machine('dock') as DockView).door).toBe(0);
-  expect((w.machine('chute') as ChuteView).waiting).toBe(0);
   expect(w.undoStack()).toEqual([]);
   for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && p.id.startsWith('crate-spare')), `${p.id}: ${p.location.at}`).toBe(true);
+  // within two seconds the door has shut again (what the reset brought back in through it) and nothing waits in the chute
+  for (let i = 0; i < steps(2); i++) step();
+  expect((w.machine('dock') as DockView).door).toBe(0);
+  expect((w.machine('chute') as ChuteView).waiting).toBe(0);
+  for (let i = 0; i < steps(6); i++) step();
+  check();
+  expect(w.undoStack()).toEqual([]);
   console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps; retakes ${retakes.join(' ')}`);
   expect(retakes).toEqual([]);
   expect(seen.shipped).toBeGreaterThan(5);

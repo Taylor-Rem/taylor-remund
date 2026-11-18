@@ -40,7 +40,7 @@ describe('the phone line over the world', () => {
     line.send('make the sign red');
     frames(t, line, 1);
     expect(heard[0]).toEqual({ type: 'sent', id: 2, jack: 'storefront', text: 'make the sign red' }); // (Patch is free: it is on it in the same step)
-    frames(t, line, 4 * HZ);
+    frames(t, line, 6 * HZ); // (S6: 4.5 s, and the stool's roll to STOREFRONT)
     expect(heard.map((e) => e.type)).toEqual(['sent', 'working', 'reply']);
     const reply = heard[2] as Extract<PhoneEvent, { type: 'reply' }>;
     expect(renderReply(reply.reply)).toBe("Sign's red. I checked. Patched.");

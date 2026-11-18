@@ -7,7 +7,7 @@ import type { PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { phone, posePhone, catalogue, PHONE } from '../../../src/workshop/view/kit/pieces/phone/index.ts';
 import { checkGeometry } from './helpers.ts';
 
-const BUDGET = 2500;
+const BUDGET = 1800; // the census cap
 const stub: Materials = { of: (): Material => new MeshBasicMaterial(), textured: (): Material => new MeshBasicMaterial(), update() {}, dispose() {} };
 
 function find(n: PieceNode, name: string): PieceNode | undefined {

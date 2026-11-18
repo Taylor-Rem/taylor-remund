@@ -672,6 +672,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       if (state === 'below' && restores.some((r) => r.target === body) && ctx.mode(body) !== 'gone') stow();
     },
 
+    crewView: () => ({ kind: 'revert', id: spec.id, body, view: unit.view() }),
+
     view(): RevertView {
       const now = ctx.clock.step;
       const cranking = now < crankUntil && state !== 'held' && state !== 'loose';

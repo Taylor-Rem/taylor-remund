@@ -168,7 +168,8 @@ describe('the ladder on the bench', () => {
     expect(world.button().cover).toBe('fitting');
     const ev = rung(world);
     expect(ev).toContainEqual({ type: 'button.pressed', rung: 4, presses: 4 });
-    // the fitting went on through the rung (the cover is the Button's own, not the bracket's)
+    // the fitting went on through the rung (the cover is the Button's own, not the bracket's), and finishes in its time
+    ev.push(...run(world, steps(BUTTON_TUNING.fit)));
     expect(ev).toContainEqual({ type: 'cover', id: 'button-cover', state: 'shut' });
     expect(world.button().cover).toBe('shut');
   });
@@ -190,13 +191,17 @@ describe('the ladder on the bench', () => {
     press(world); // lift the cover
     const durable = world.durable();
     const before = poses(world);
-    const stack = ['crate-1', 'crate-2', 'crate-3'].map((id) => world.motion(id)!.pose.p);
+    // what stands on the stack at the press (in play mode Fetch may have taken one off it: it is in reach since layout round 4)
+    const L = bench.button.ladder!;
+    const standing = [...world.parts()].filter((p) => p.kind === 'crate' && world.mode(p.id) === 'free' && Math.hypot(world.motion(p.id)!.pose.p[0] - L.stackAt[0], world.motion(p.id)!.pose.p[2] - L.stackAt[1]) <= L.stackRadius).map((p) => p.id);
+    expect(standing.length).toBeGreaterThanOrEqual(2);
+    const stack = standing.map((id) => world.motion(id)!.pose.p);
     world.dispatch({ type: 'press', id: 'button' });
     const ev: SimEvent[] = [];
     let moved = 0;
     for (let i = 0; i < 2000 && (i === 0 || world.bracketed); i++) {
       ev.push(...run(world, 1));
-      ['crate-1', 'crate-2', 'crate-3'].forEach((id, k) => {
+      standing.forEach((id, k) => {
         const p = world.motion(id)!.pose.p;
         moved = Math.max(moved, Math.hypot(p[0] - stack[k]![0], p[2] - stack[k]![2]));
       });
@@ -206,7 +211,7 @@ describe('the ladder on the bench', () => {
     expect(world.button().targets).toEqual(order); // nearest first
     expect(misfires(ev)).toEqual(['lamp:2', ...order.map((id) => `${id}:2`)]);
     const stackBeat = beats(ev).find((b) => b.beat === 'stack');
-    expect([...stackBeat!.ids].sort()).toEqual(['crate-1', 'crate-2', 'crate-3']);
+    expect([...stackBeat!.ids].sort()).toEqual([...standing].sort());
     expect(moved).toBeGreaterThan(0.1); // the stack really came down (the stub slides them only a little; Rapier: tests/scenario/rung4.test.ts)
     expect(beats(ev).map((b) => b.beat)).toEqual(['dip', 'shake', 'warning', 'revert', 'works', 'sparks', 'stack', 'rewind', 'card']);
     expect(ev).toContainEqual({ type: 'card', by: 'revert', content: cardFor(4) });

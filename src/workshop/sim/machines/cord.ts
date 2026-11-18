@@ -21,6 +21,7 @@ import type { CordView, Id, Intent, Vec3 } from '../types.ts';
 import type { SimContext, Unit } from '../context.ts';
 import { jackOf } from '../instruct/index.ts';
 import { boardOf } from './shared/patchlamp.ts';
+import { Beat } from '../machine.ts';
 
 export const JACK_FIELD = 'jack';
 /** The slip a capped jack prints when the plug is pushed at it. */
@@ -48,6 +49,8 @@ export function createCord(ctx: SimContext): CordUnit {
   const board = boardOf(ctx);
 
   let lifted = false;
+  /** S6: a Button misfire is one beat of its verb: the plug jumps in its jack and reseats. */
+  const beat = new Beat(ctx);
   let plugAt: Vec3 | null = null;
   const current = (): Id => ctx.setting(spec.id, JACK_FIELD) as Id;
 
@@ -57,7 +60,10 @@ export function createCord(ctx: SimContext): CordUnit {
     name: spec.name,
     affordances: ['plug'],
     tell: () => ctx.emit({ type: 'tell', id: spec.id }),
-    misfire: (level) => ctx.emit({ type: 'misfire', id: spec.id, level }),
+    misfire: (level) => {
+      beat.hit(level);
+      ctx.emit({ type: 'misfire', id: spec.id, level });
+    },
   });
   for (const j of spec.jacks) {
     ctx.register({
@@ -120,7 +126,10 @@ export function createCord(ctx: SimContext): CordUnit {
     drop() {
       if (lifted) seat(current());
     },
-    view: () => ({ id: spec.id, jack: current(), lifted, plugAt, jacks: jackIds }),
+    reset() {
+      beat.reset();
+    },
+    view: () => ({ id: spec.id, jack: current(), lifted, plugAt, jacks: jackIds, misfire: beat.view() }),
   };
   return unit;
 }

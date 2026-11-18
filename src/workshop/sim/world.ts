@@ -21,14 +21,14 @@
  * `undone` event. At the end of every step the history closes timed-out
  * release windows and lets empty transactions go.
  */
-import type { Cause, Effect, Id, Intent, Interactable, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
+import type { Cause, CrewView, Effect, Id, Intent, Interactable, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
 import type { PhysicsPort, PhysicsSnapshot } from './physics/port.ts';
 import type { MouthSpec, SceneDesc } from './scene.ts';
 import type { BodyMode, CommitResult, CrewHandle, Holding, LostReason, MachineUnit, SimContext, Unit } from './context.ts';
 import { isMachine } from './context.ts';
 import type { Change, HistoryHooks, Recorded, TransactionView, UndoOutcome, UndoRequest } from './history.ts';
 import type { Writer, StoreSnapshot } from './store.ts';
-import type { ButtonView, ButtonUnit } from './machines/button.ts';
+import type { ButtonView, ButtonUnit, ButtonSaved } from './machines/button.ts';
 import type { CordView, CordUnit } from './machines/cord.ts';
 import type { FetchUnit } from './crew/fetch.ts';
 import { createClock, steps, HZ } from './clock.ts';
@@ -130,8 +130,8 @@ export interface WorldOptions {
   /** More units, run after the scene's own (`SceneDesc.units`) in this order (the history tests' stand-ins). */
   readonly units?: readonly ((ctx: SimContext) => Unit)[];
   readonly runner?: Partial<typeof FETCH_TUNING>;
-  /** The Button's rung and press count, remembered between visits (§ B4). */
-  readonly button?: { rung: number; presses: number };
+  /** What a visit remembers of the Button (§ B4): its rung, presses, cover, deck, what was used, reduced motion. */
+  readonly button?: ButtonSaved;
 }
 
 interface Loose {
@@ -238,6 +238,8 @@ export function createWorld(opts: WorldOptions): World {
   let lastInput = 0;
   let lastChuteRelease = -Infinity;
   let hovered: Id | null = null;
+  /** S6: where the hand last was while it holds a unit (`Holding.kind === 'unit'`): letting go happens there. */
+  let unitHand: Vec3 = [0, 0, 0];
   const emit = (e: SimEvent): void => {
     events.push(e);
   };
@@ -365,10 +367,34 @@ export function createWorld(opts: WorldOptions): World {
     l.calm = 0;
   }
 
+  /** S6: the unit that says the hand can hold `id` (Patch, the lamp's shade), if `id` is not a loose part. */
+  const holderOf = (id: Id): Unit | undefined => (loose.has(id) ? undefined : units.find((u) => u.holds?.(id) === true));
+
+  /** S6: one grab for a unit that can be held: the world speaks to it in `drag` intents. */
+  function grabUnit(id: Id, grip: Vec3): boolean {
+    const u = holderOf(id);
+    if (!u?.intent?.({ type: 'drag', id, target: grip })) return false;
+    held = { kind: 'unit', id };
+    unitHand = grip;
+    return true;
+  }
+  function carryUnit(target: Vec3): void {
+    if (held?.kind !== 'unit') return;
+    unitHand = target;
+    holderOf(held.id)?.intent?.({ type: 'drag', id: held.id, target });
+  }
+  function letGoOfUnit(at: Vec3 = unitHand): void {
+    if (held?.kind !== 'unit') return;
+    const id = held.id;
+    held = null;
+    holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true });
+  }
+
   function grab(id: Id, grip: Vec3): boolean {
     if (bracket || held) return false;
     const l = loose.get(id);
-    if (!l || l.mode === 'chute' || l.mode === 'gone') return false;
+    if (!l) return grabUnit(id, grip);
+    if (l.mode === 'chute' || l.mode === 'gone') return false;
     // a machine may keep what it holds out of reach (the dock: a part at its door is behind the curtain)
     if (l.mode === 'machine' && l.holder !== null && unitById.get(l.holder)?.keeps?.(id)) return false;
     /** Parts a crew member was carrying that its being picked up sets loose (Fetch drops its crate). */
@@ -566,7 +592,17 @@ export function createWorld(opts: WorldOptions): World {
         l.calm = 0;
         continue;
       }
-      if (!l.unsettled) continue;
+      if (!l.unsettled) {
+        // S6: the safety net for a part that never counted as moving: one crept down slower than `wakeLinear`
+        // (squeezed between two statics) and fell asleep below the bench top is still off the bench
+        if (st.sleeping && offBench(st.pose.p)) {
+          physics.setEnabled(l.id, false);
+          setMode(l, 'chute');
+          l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
+          lastChuteRelease = l.chuteAt;
+        }
+        continue;
+      }
       if (lin < T.restLinear && ang < T.restAngular) l.calm += 1;
       else l.calm = 0;
       if (l.calm < restSteps && !st.sleeping) continue;
@@ -768,6 +804,7 @@ export function createWorld(opts: WorldOptions): World {
     interactable: (id) => registry.get(id),
     machine: (id) => machines.get(id),
     mouth: (id) => mouthById.get(id),
+    crewView: (id) => crewView(id),
     get playMode() {
       return playMode;
     },
@@ -792,8 +829,15 @@ export function createWorld(opts: WorldOptions): World {
     },
     attach(id, by) {
       const l = loose.get(id);
-      if (!l || (l.mode !== 'free' && !(l.mode === 'crew' && l.crewBy === by))) return false;
+      if (!l || (l.mode !== 'free' && l.mode !== 'machine' && !(l.mode === 'crew' && l.crewBy === by))) return false;
       if (by !== id && touchedSet.has(id)) return false; // § E5 rule 5
+      if (l.mode === 'machine') {
+        // S6: taken out of a machine's hands by the crew (Fetch collecting from the platen's tray)
+        if (bracket || (l.holder !== null && unitById.get(l.holder)?.keeps?.(id))) return false;
+        const holder = l.holder;
+        l.holder = null;
+        if (holder !== null) unitById.get(holder)?.lost?.(id, 'crew');
+      }
       physics.setKind(id, 'kinematic');
       physics.setGravityScale(id, 1);
       setMode(l, 'crew');
@@ -969,6 +1013,15 @@ export function createWorld(opts: WorldOptions): World {
       machines.set(u.id, u);
     }
   }
+  /** S6: the one roster of the crew, in step order: every unit that says it is crew (`Unit.crewView`). */
+  const crewUnits = units.filter((u) => typeof u.crewView === 'function');
+  function crewView(id: Id): CrewView | undefined {
+    for (const u of crewUnits) {
+      const v = u.crewView?.();
+      if (v && (v.id === id || v.body === id)) return v;
+    }
+    return undefined;
+  }
   for (const m of mouths) if (!machines.has(m.machine)) throw new Error(`scene: mouth "${m.id}" belongs to "${m.machine}", which is not a machine of this world`);
   /** How the visit began: what "Reset the workshop" goes back to. */
   const initial = store.snapshot();
@@ -977,6 +1030,7 @@ export function createWorld(opts: WorldOptions): World {
   function reset(): boolean {
     if (bracket) return false;
     if (held?.kind === 'plug') cord.drop();
+    else if (held?.kind === 'unit') letGoOfUnit();
     else if (held) {
       release(lp(held.id), [0, 0, 0], [0, 0, 0]);
       held = null;
@@ -1011,6 +1065,7 @@ export function createWorld(opts: WorldOptions): World {
       case 'carry':
         if (bracket || !held) return false;
         if (held.kind === 'part') lp(held.id).target = intent.target;
+        else if (held.kind === 'unit') carryUnit(intent.target);
         else cord.carry(intent.target);
         return false;
       case 'release':
@@ -1019,11 +1074,19 @@ export function createWorld(opts: WorldOptions): World {
           cord.drop();
           return true;
         }
+        if (held.kind === 'unit') {
+          letGoOfUnit();
+          return true;
+        }
         letGoOfPart(lp(held.id), intent.velocity, 'release');
         return true;
       case 'place': {
         if (!held) return false;
         if (held.kind === 'plug') return cord.intent?.({ type: 'plug', cord: held.id, jack: typeof intent.at === 'string' ? intent.at : null }) ?? false;
+        if (held.kind === 'unit') {
+          letGoOfUnit(typeof intent.at === 'string' ? (mouthById.get(intent.at)?.drop ?? unitHand) : intent.at);
+          return true;
+        }
         const at = typeof intent.at === 'string' ? mouthById.get(intent.at)?.drop : intent.at;
         if (!at) return false; // not a mouth of this scene
         const l = lp(held.id);
@@ -1040,6 +1103,9 @@ export function createWorld(opts: WorldOptions): World {
         return true;
       case 'reset':
         return reset();
+      case 'motion':
+        button.setReducedMotion(intent.reduced);
+        return false; // a setting of the page, not an action in the world
       default:
         if (bracket && intent.type !== 'press') return false;
         for (const u of units) if (u.intent?.(intent)) return true;
@@ -1064,10 +1130,14 @@ export function createWorld(opts: WorldOptions): World {
     get hovered() {
       return hovered;
     },
+    get reducedMotion() {
+      return button.view().reducedMotion;
+    },
+    undoId: scene.button.ladder?.lever ?? null,
 
     dispatch(intent) {
       queue.push(intent);
-      lastInput = clock.step;
+      if (intent.type !== 'motion') lastInput = clock.step;
     },
 
     advance() {
@@ -1145,6 +1215,9 @@ export function createWorld(opts: WorldOptions): World {
     crew(id): CrewMember | undefined {
       return id === scene.runner.id ? runner.member() : undefined;
     },
+    crewViews: () => crewUnits.map((u) => u.crewView?.() as CrewView),
+    attract: () => runner.attract(),
+    crewView: (id) => crewView(id),
     holding: () => held,
     mode: (id) => loose.get(id)?.mode,
     halfExtents: (id) => loose.get(id)?.half,

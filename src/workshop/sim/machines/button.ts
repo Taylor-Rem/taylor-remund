@@ -57,7 +57,7 @@ export const BUTTON_TUNING = {
   /** Rung 4: the used stations misfire, the stack comes down a beat later, the warning lamp turns until the rewind. */
   works: { misfire: 0.15, stack: 0.45, warning: 4.6 },
   /** How long the cover takes to be fitted after rung 3: Revert's trip from its hatch and the screwing. A press meanwhile is not refused: it plays, and the fitting carries on after. */
-  fit: 6.5,
+  fit: 10, // S6: the trip from the hatch on layout round 4 (along behind the lever and the console) takes about 8 s
   /** Reduced motion: the dip, then the card. */
   reduced: { play: 0.9, rewind: 0.3 },
   /** Rung 4's stack: each crate leaves the stack's middle at this speed (units/s), and this fast upward. */
@@ -93,6 +93,8 @@ export interface ButtonSaved {
 
 export interface ButtonUnit extends Unit {
   view(): ButtonView;
+  /** S6: reduced motion at run time: from the next press a rung is the card and the lamp dip only. */
+  setReducedMotion(on: boolean): void;
 }
 
 /** The content id of a ladder rung's card. */
@@ -129,12 +131,12 @@ const asRung = (n: number): 1 | 2 | 3 | 4 => (n <= 1 ? 1 : n >= 4 ? 4 : (n as 2 
 export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
   const spec = ctx.scene.button;
   const ladder: LadderSpec | undefined = spec.ladder;
-  const reduced = saved?.reducedMotion === true;
+  let reduced = saved?.reducedMotion === true;
   const lampId: Id = ladder?.lamp ?? spec.flinch[0] ?? 'lamp';
   const coverId: Id = ladder?.cover ?? `${spec.id}-cover`;
   /** Where each station is; without a ladder, the flinch's (all at the Button: equally near). */
   const stations: readonly { readonly id: Id; readonly at: Vec3 }[] = ladder?.stations ?? spec.flinch.map((id) => ({ id, at: spec.at }));
-  const used = createUsed(ctx, stations.map((s) => s.id), { lever: ladder?.lever ?? null, cord: ladder?.cord ?? null, saved: saved?.used });
+  const used = createUsed(ctx, stations.map((s) => s.id), { lever: ladder?.lever ?? null, cord: ladder?.cord ?? null, line: ladder?.line ?? null, saved: saved?.used });
 
   let presses = saved?.presses ?? 0;
   let rung = saved?.rung ?? 0;
@@ -342,6 +344,9 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
 
   return {
     id: spec.id,
+    setReducedMotion(on) {
+      reduced = on;
+    },
     intent(intent: Intent): boolean {
       // the Button is the first unit: it sees every handle's intent (what the visitor has used)
       if (!ctx.bracketed) used.intent(intent);

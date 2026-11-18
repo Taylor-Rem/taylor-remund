@@ -115,28 +115,27 @@ describe('the lamp: brighter, dimmer, a colour, warm again, off, on; and its arm
     expect(lampView(w)).toMatchObject({ on: true, colour: 'warm', level: 5 });
   });
 
-  test('a drag swings the bulb within what the joints allow, at once, in ONE transaction; the lever and a new visit put it back home', async () => {
+  test('a drag swings the aim within what the joints allow, at once, in ONE transaction; the lever and a new visit put it back home', async () => {
     const w = await benchWorld();
     const t = tape(w);
     const home = lampView(w).home;
-    expect(lampView(w).bulb).toEqual(home.bulb);
-    const path: Vec3[] = Array.from({ length: 40 }, (_, i) => [home.bulb[0] + 0.03 * i, home.bulb[1], home.bulb[2] - 0.02 * i]);
+    expect(lampView(w).aim).toEqual(home.aim);
+    const path: Vec3[] = Array.from({ length: 40 }, (_, i) => [home.aim[0] + 0.03 * i, home.aim[1], home.aim[2] - 0.02 * i]);
     for (const p of path) {
       w.dispatch({ type: 'drag', id: 'lamp', target: p });
       t.run(1);
       expect(lampView(w).dragging).toBe(true);
     }
     // the light follows the hand at once; nothing durable until the hand lets go
-    expect(lampView(w).bulb[0]).toBeCloseTo(path.at(-1)![0], 1);
+    expect(lampView(w).aim[0]).toBeCloseTo(path.at(-1)![0], 1);
     expect(w.undoStack()).toEqual([]);
     // dragged far beyond its reach: held at the edge of what the arm allows
     w.dispatch({ type: 'drag', id: 'lamp', target: [20, 3, 20], end: true });
     t.run(1);
-    const r = PATCHLAMP.lamp.reach;
-    const b = lampView(w).bulb;
-    expect(Math.hypot(b[0] - r.centre[0], b[2] - r.centre[1])).toBeLessThanOrEqual(r.max + 0.01); // to the grid the arm is set on
-    expect(b[0]).toBeLessThanOrEqual(r.maxX);
-    expect(b[2]).toBeLessThanOrEqual(r.maxZ);
+    const b = lampView(w).aim;
+    // held at the region's edge (to the grid the arm is set on): the corner nearest the far right front
+    const poly = PATCHLAMP.lamp.reach.polygon;
+    expect(Math.min(...poly.map(([x, z]) => Math.hypot(b[0] - x, b[2] - z)))).toBeLessThan(0.02);
     expect(lampView(w).dragging).toBe(false);
     const stack = w.undoStack();
     expect(stack.length).toBe(1);
@@ -144,11 +143,10 @@ describe('the lamp: brighter, dimmer, a colour, warm again, off, on; and its arm
     // the aim swings with it
     expect(lampView(w).aim).not.toEqual(home.aim);
     lever(w, t);
-    expect(lampView(w).bulb).toEqual(home.bulb);
     expect(lampView(w).aim).toEqual(home.aim);
     // and a new visit starts at home whatever was left
     const w2 = await benchWorld();
-    expect(lampView(w2).bulb).toEqual(home.bulb);
+    expect(lampView(w2).aim).toEqual(home.aim);
   });
 
   test('the Button flinch still dips the lamp (it is the lamp machine now, not a fixture)', async () => {

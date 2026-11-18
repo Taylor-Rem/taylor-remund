@@ -40,7 +40,7 @@ import type { Instruction, Jack, RefusalReason, Reply, ReplyId, ReplyLine } from
 import { REPLY_IDS } from '../instruct/types.ts';
 import { MAX_TEXT, UNDO_REPLIES, parse } from '../instruct/parse.ts';
 import { HZ } from '../clock.ts';
-import { CHANGED_SINCE, Lamp } from '../machine.ts';
+import { Beat, CHANGED_SINCE, Lamp } from '../machine.ts';
 import { BELT_FIELD_NAMES as BF, LAMP_FIELDS as LF, PART_PAINT, STOREFRONT_FIELDS as SF, boardOf } from './shared/patchlamp.ts';
 import type { LiveLine } from './shared/patchlamp.ts';
 
@@ -72,6 +72,13 @@ export interface Call {
   readonly job: Job | null;
   /** The cord's pull count when it was sent: a different count now means the line was pulled since. */
   readonly pulls: number;
+  /**
+   * S6: sent by the crew in attract mode (Fetch tapping the phone): it goes to `jack` whichever jack the cord
+   * is in (Patch moves the cord there first), commits as `crew`, and is on nobody's undo stack.
+   */
+  readonly crew?: boolean;
+  /** S6: the jack the cord was in before Patch moved it for this (crew) call; Patch puts it back after. */
+  home?: Id | null;
   state: 'waiting' | 'working' | 'answered' | 'cancelled';
   /** What the commit point did; null until then. */
   performed: Performed | null;
@@ -94,6 +101,14 @@ export interface Desk {
   finish(call: Call): void;
   /** Patch is told when a call it may hold is dropped: the cord pulled (`cord`), or taken back (`undo`). */
   onCancel: ((call: Call, why: 'cord' | 'undo') => void) | null;
+  /** S6: the cord's id (Patch moves it for a crew call in attract mode). */
+  readonly cordId: Id;
+  /**
+   * S6: the crew sends a text (attract mode: Fetch taps the phone). `say` is the content id of the words
+   * the phone shows; `words` what the parser reads (the same meaning: a test holds them together); `jack`
+   * the line it is for. Returns its number, or null if the parser would not take it there.
+   */
+  crewText(say: string, words: string, jack: Id): number | null;
 }
 
 const desks = new WeakMap<SimContext, Desk>();
@@ -120,11 +135,15 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
   const board = boardOf(ctx);
   board.lines = spec.lines;
   const lamp = new Lamp(ctx);
+  /** S6: a Button misfire is one beat of its verb: the line rings once (its lamp flashes, the phone buzzes), nothing is sent. */
+  const beat = new Beat(ctx);
   const calls: Call[] = [];
   let log: LineEntry[] = [];
   let logStart = 0;
   let sent = 0;
   let flagAt = -1;
+  /** S6: attract mode has ended and the line has tidied up after the crew. */
+  let played = false;
 
   const lineOf = (jack: Id): LiveLine | undefined => spec.lines.find((l) => l.jack === jack);
   const cordJack = (): Id => ctx.setting(spec.cord, 'jack') as Id;
@@ -165,6 +184,8 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
 
   /** The line this call went down has been pulled since (or the cord is elsewhere): it is dead. */
   const dead = (call: Call): boolean => board.pulls !== call.pulls || lifted() || cordJack() !== call.jack;
+  /** S6: a crew call waits for Patch to move the cord to its jack: only the visitor's lifting the plug kills it before then. */
+  const deadYet = (call: Call): boolean => (call.crew ? board.pulls !== call.pulls || lifted() : dead(call));
 
   /** The durable values a reply about this call's line can be checked against. */
   function snapshot(call: Call): Map<string, Value> {
@@ -235,6 +256,18 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
   const desk: Desk = {
     lineId: id,
     onCancel: null,
+    cordId: spec.cord,
+    crewText(say, words, jack) {
+      const ln = lineOf(jack);
+      if (!ln || ctx.playMode) return null;
+      const p = parse(words, ln.line);
+      if (p.kind === 'refusal' || p.verb === 'help' || p.verb === 'who' || p.verb === 'thanks' || p.verb === 'undo') return null;
+      const n = ++sent;
+      record({ kind: 'sent', n, jack, line: ln.line, text: '', by: 'crew', content: say });
+      ctx.emit({ type: 'line.sent', n, jack, line: ln.line, text: '', by: 'crew', content: say });
+      calls.push({ n, jack, line: ln.line, station: ln.station, cmd: p, pulls: board.pulls, state: 'waiting', performed: null, cause: null, job: null, crew: true, home: null });
+      return n;
+    },
     next: () => calls.find((c) => c.state === 'waiting') ?? null,
     start(call) {
       if (call.state !== 'waiting') return;
@@ -262,7 +295,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
       let outcome: Outcome = { ok: false, wanted: 'not-here' };
       // D4: a transaction forgotten while Patch worked can no longer be undone; its work is the system's
       const live = call.cause !== null && ctx.history.stack().some((t) => t.id === call.cause);
-      const cause: Cause = live ? (call.cause as TransactionId) : 'system';
+      const cause: Cause = call.crew ? 'crew' : live ? (call.cause as TransactionId) : 'system';
       if (m?.instruct) outcome = m.instruct(call.cmd as unknown as SimInstruction, cause);
       // the platen's: which part it painted or labelled (the one this text just wrote)
       let part: Id | null = null;
@@ -307,6 +340,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
       ctx.emit({ type: 'tell', id });
     },
     misfire(level) {
+      beat.hit(level);
       ctx.emit({ type: 'misfire', id, level });
     },
 
@@ -350,8 +384,28 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
     },
 
     pre() {
+      // S6: the visitor's first action ends attract mode: the crew's texts not yet carried out are dropped
+      // (quietly: the visitor comes first), and the cord goes back to the jack the visit began in if the crew
+      // moved it, unless the visitor is using the line where it is (their text, their plug in hand)
+      if (ctx.playMode && !played) {
+        played = true;
+        for (const c of [...calls])
+          if (c.crew && !c.performed) {
+            c.state = 'cancelled';
+            calls.splice(calls.indexOf(c), 1);
+            if (board.working === c.station) board.working = null;
+            desk.onCancel?.(c, 'undo');
+          }
+        const home = ctx.scene.cord.start;
+        const from = cordJack();
+        if (!lifted() && ctx.writer(spec.cord, 'jack') === 'crew' && from !== home && !calls.some((c) => !c.crew)) {
+          ctx.emit({ type: 'cord.unplugged', cord: spec.cord, jack: from, by: 'system' });
+          ctx.commit([{ target: spec.cord, field: 'jack', after: home }], 'system');
+          ctx.emit({ type: 'cord.plugged', cord: spec.cord, jack: home, by: 'system' });
+        }
+      }
       // the plug lifted out of its jack: every job on that line not yet done is dropped (nothing written)
-      for (const c of [...calls]) if (!c.performed && dead(c)) cancel(c, 'cord');
+      for (const c of [...calls]) if (!c.performed && deadYet(c)) cancel(c, 'cord');
     },
 
     reset() {
@@ -359,6 +413,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
       for (const c of [...calls]) cancel(c, 'undo');
       board.working = null;
       lamp.reset();
+      beat.reset();
     },
 
     view(): LineView {
@@ -370,7 +425,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
         id,
         station: spec.station,
         lamp: lamp.state(inHand !== null),
-        misfire: null,
+        misfire: beat.view(),
         line: up ? null : (lineOf(cordJack())?.line ?? null),
         jack: cordJack(),
         offering: up ? spec.lines.map((l) => l.jack) : [],

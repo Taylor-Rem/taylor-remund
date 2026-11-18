@@ -4,7 +4,7 @@
  * they meet through this context: parts, the commit funnel, the event bus
  * (REWRITE.md § E4 invariant 2).
  */
-import type { BodyMode, Cause, Effect, Holding, Id, Intent, Interactable, Location, Machine, MachineView, Part, Pose, Restore, SimEvent, Value, Vec3, Writer } from './types.ts';
+import type { BodyMode, Cause, CrewView, Effect, Holding, Id, Intent, Interactable, Location, Machine, MachineView, Part, Pose, Restore, SimEvent, Value, Vec3, Writer } from './types.ts';
 import type { Clock } from './clock.ts';
 import type { Rng } from './rng.ts';
 import type { Change, HistoryHooks, UndoOutcome, UndoRequest } from './history.ts';
@@ -50,6 +50,8 @@ export interface SimContext {
   machine(id: Id): Machine | undefined;
   /** A mouth of the scene. */
   mouth(id: Id): MouthSpec | undefined;
+  /** S6: a crew member's view (by unit id or body id), for whoever must watch the crew (attract mode). Read only. */
+  crewView(id: Id): CrewView | undefined;
 
   readonly playMode: boolean;
   readonly bracketed: boolean;
@@ -71,7 +73,10 @@ export interface SimContext {
   pose(id: Id): Pose | undefined;
   /** Has a free part come to rest (not moving since it was last disturbed)? */
   settled(id: Id): boolean;
-  /** Take a free part out of physics into crew control (kinematic). Refused for a part the visitor touched (rule 5), unless it is the crew member itself. */
+  /**
+   * Take a free part out of physics into crew control (kinematic). Refused for a part the visitor touched (rule 5), unless it is the crew
+   * member itself. (S6) A part a machine holds (mode `machine`: the platen's tray) is taken from it: the machine hears `lost(id, 'crew')`.
+   */
   attach(id: Id, by: Id): boolean;
   /** Drive an attached (crew) or taken (machine) part to this pose by the end of the step (`teleport`: put it there now). */
   drive(id: Id, pose: Pose, teleport?: boolean): void;
@@ -121,7 +126,7 @@ export interface SimContext {
 }
 
 /** Why the world took a part out of a unit's hands (`Unit.lost`). */
-export type LostReason = 'grab' | 'undo' | 'reset' | 'away';
+export type LostReason = 'grab' | 'undo' | 'reset' | 'away' | 'crew';
 
 /** A machine or crew member as the world runs it, in a fixed order every step. */
 export interface Unit {
@@ -139,6 +144,13 @@ export interface Unit {
   keeps?(part: Id): boolean;
   /** Every event of this step, at its end (the one bus, § E4 invariant 2). Listen; never commit from here. */
   heard?(events: readonly SimEvent[]): void;
+  /**
+   * S6: can the visitor's hand take hold of `id` (this unit, or a part of it that is not a loose part:
+   * Patch, the lamp's shade)? If so the world turns `grab`, `carry` and `release` of it into `drag`
+   * intents for this unit (`target` the hand, `end: true` on letting go) and `holding()` says
+   * `{ kind: 'unit', id }` meanwhile.
+   */
+  holds?(id: Id): boolean;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */
   intent?(intent: Intent): boolean;
   /** Before physics. */
@@ -158,6 +170,8 @@ export interface Unit {
    * here; its pending work for an undone transaction was already dropped through its job's `abort`.
    */
   restored?(restores: readonly Restore[]): void;
+  /** S6: a crew member says so here: its view under the one roster (`WorldView.crewViews()`). */
+  crewView?(): CrewView;
 }
 
 /**
