@@ -87,7 +87,7 @@ export function beacon(o: BeaconOptions = {}): Piece {
   const R = rng(seed);
   const B = BEACON;
   const b = piece('beacon', { detail, seed });
-  const segs = detail === 'low' ? 8 : 10;
+  const segs = detail === 'low' ? 8 : 12;
 
   // ---- the mount: a square plate, two bolts, a brass stalk with a nut, the enamel collar ----
   b.add(part('steel', bevelBox({ min: [-B.plate, 0, -B.plate], max: [B.plate, B.plateT, B.plate], c: 0.005 }), 'teal-deep', { seed: seed + 1, jitter: 0.05 }));
@@ -97,7 +97,7 @@ export function beacon(o: BeaconOptions = {}): Piece {
   const nut = turn(profile(0, B.plateT + 0.004).to(0.027, B.plateT + 0.004, { sharp: true }).to(0.027, B.plateT + 0.018, { sharp: true }).to(0, B.plateT + 0.018), { segs: 6, caps: 'end' });
   b.add(setFinish(part('brass', nut, 'brass', { seed: seed + 4, shade: 0.85 }), 0.4));
   const collarY = B.pivot - 0.034;
-  const collar = turn(profile(0, collarY).to(0.064, collarY, { sharp: true }).to(0.078, collarY + 0.012, { fillet: 0.004, segs: 1 }).to(0.08, B.pivot, { fillet: 0.003, segs: 1 }).to(0, B.pivot), { segs, caps: 'end' });
+  const collar = turn(profile(0, collarY).to(0.064, collarY, { sharp: true }).to(0.078, collarY + 0.012, { fillet: 0.004, segs: 1 }).to(0.08, B.pivot, { fillet: 0.003, segs: 1 }).to(0, B.pivot), { segs: 9, caps: 'end' });
   b.add(part('steel', collar, 'ink', { seed: seed + 5, shade: 1.6 }));
 
   // ---- the dome: dark as you meet it ----
