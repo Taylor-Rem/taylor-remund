@@ -191,14 +191,14 @@ const DEFLECTOR = { meet: 0.29, rest: [0.5, -1.32] as const, clear: 1.1 } as con
 const OFF_BACK: Vec3 = [AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.rest[0], 0, AT.belt.c[2] + DEFLECTOR.rest[1]];
 /**
  * S7: the slide's foot as a row (world x of its ends): from just clear of the return chute's mouth (a part
- * coming back up it must not be blocked) to where Fetch's footprint reaches when it overshoots the lane's
- * near stop (it overshoots every stop: a part set down closer would be knocked by its next lap). Parts
+ * coming back up it must not be blocked) to where Fetch's footprint reaches at the lane's left end (it
+ * overshoots every stop, as far as the lane's end: a part set down closer would be knocked by its next lap). Parts
  * guided off the back fill it from the far (chute) end, side by side. (A part coming back up the chute
  * lands about 0.7 in from its mouth: on the row's far end, if something stands there.)
  */
 const OFF_BACK_ROW = {
   minX: AT.chute.p[0] + 0.45,
-  maxX: AT.lane.a[0] + (FETCH_TUNING.inset - FETCH_TUNING.overshoot) * CREW_SCALE - Math.hypot(FETCH_HALF[0], FETCH_HALF[2]),
+  maxX: Math.min(...AT.lane.points.map((p) => p[0])) - Math.hypot(FETCH_HALF[0], FETCH_HALF[2]),
 } as const;
 
 /** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */
