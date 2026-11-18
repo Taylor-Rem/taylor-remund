@@ -81,6 +81,8 @@ export const REVERT_TUNING = {
   card: 3.5,
   /** Putting a part away takes this long (it turns to face it and sweeps). */
   sweep: 1.2,
+  /** A part its own body brushed while sweeping: it waits at most this much longer for it to settle. */
+  settle: 1.5,
   /** At the Button, screwing the cover on. */
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
@@ -180,7 +182,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let cardDown = -Infinity;
   let route: Route | null = null;
   let coverPending = false;
-  let sweeping: { part: Id; stir: number } | null = null;
+  /**
+   * The part it is putting away, when it was last stirred as the sweep began, and whether its own body has
+   * brushed it since (turning on the spot inside its kinematic collider). A stir it caused itself does not
+   * count; the visitor's does, and clears `brushed`.
+   */
+  let sweeping: { part: Id; stir: number; brushed: boolean } | null = null;
   /** Its body is out of the world because it is down in its hatch (not because the dock shipped it). */
   let stowed = false;
   let resetting = false;
@@ -457,7 +464,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (now >= nextAway) {
       const c = clutter();
       if (c !== null) {
-        sweeping = { part: c, stir: stirred(c) };
+        sweeping = { part: c, stir: stirred(c), brushed: false };
         enter('sweep');
         return;
       }
@@ -525,19 +532,30 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
-        // what stirs a part: anything happening to it
+        // what stirs a part: anything happening to it, except its own body brushing the part it sweeps
+        const sw = sweeping;
+        const own = (id: Id): boolean => sw !== null && sw.brushed && id === sw.part; // the wobble and rest after its own brush
         switch (e.type) {
           case 'effect':
-            lastStir.set(e.effect.target, ctx.clock.step);
+            if (!own(e.effect.target)) lastStir.set(e.effect.target, ctx.clock.step);
+            break;
+          case 'part.rested':
+            if (!own(e.id)) lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.grabbed':
           case 'part.released':
-          case 'part.rested':
           case 'part.returned':
           case 'put-away':
+            if (sw && e.id === sw.part) sw.brushed = false; // someone else's hand: that counts
             lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.hit':
+            if (sw && ((e.id === sw.part && e.other === body) || (e.id === body && e.other === sw.part))) {
+              sw.brushed = true;
+              lastStir.set(body, ctx.clock.step);
+              break;
+            }
+            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = false;
             lastStir.set(e.id, ctx.clock.step);
             if (e.other) lastStir.set(e.other, ctx.clock.step);
             break;
@@ -661,7 +679,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             heading += step;
             turning = step / dt;
           }
-          if (inState() >= steps(T.sweep)) {
+          // a part its own body brushed may still be wobbling: it waits for it to settle (a little while at most)
+          const wobbling = !!s && s.brushed && !ctx.settled(s.part) && inState() < steps(T.sweep + T.settle);
+          if (inState() >= steps(T.sweep) && !wobbling) {
             turning = 0;
             finishSweep();
           }

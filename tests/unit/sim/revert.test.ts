@@ -360,6 +360,48 @@ describe('Revert between jobs', () => {
     for (const id of ['crate-1', 'crate-2', 'crate-4']) expect(world.writer(id, 'location'), id).not.toBe('system');
   });
 
+  /** Four strays, then on to the moment Revert starts its sweep: the part it sweeps. */
+  function toSweep(world: World, physics: StubPhysics): Id {
+    run(world, 5);
+    setDown(world, physics, 'crate-3', -6, -3);
+    run(world, steps(5));
+    setDown(world, physics, 'crate-2', -6.5, 1);
+    setDown(world, physics, 'crate-1', -2, -3.5);
+    setDown(world, physics, 'crate-4', 1.5, -3.2);
+    for (let i = 0; i < steps(100) && R(world).state !== 'sweep'; i++) run(world, 1);
+    expect(R(world).state).toBe('sweep');
+    return R(world).sweeping!;
+  }
+  /** Its own body brushes `part` (a contact between them, and the part nudged into a wobble). */
+  function brush(world: World, physics: StubPhysics, part: Id): void {
+    physics.setVelocity(part, [0.4, 0, 0.2]);
+    physics.contact({ a: 'revert', b: part, impulse: 6 });
+    run(world, 1);
+  }
+
+  test('S7: its own body brushing the part it sweeps (turning inside its collider) does not spoil the sweep', () => {
+    const { world, physics } = quietStub();
+    const part = toSweep(world, physics);
+    run(world, 10);
+    const ev = [] as SimEvent[];
+    brush(world, physics, part);
+    for (let i = 0; i < steps(REVERT_TUNING.sweep + REVERT_TUNING.settle + 1); i++) ev.push(...run(world, 1));
+    expect(ev.filter((e) => e.type === 'revert.sweep').map((e) => e.type === 'revert.sweep' && e.part)).toEqual([part]);
+    expect(world.writer(part, 'location')).toBe('system');
+  });
+
+  test('S7: a stir by the visitor during the sweep still counts: it leaves the part be', () => {
+    const { world, physics } = quietStub();
+    const part = toSweep(world, physics);
+    run(world, 10);
+    brush(world, physics, part); // its own brush first, and then the visitor's hand
+    world.dispatch({ type: 'grab', id: part, grip: world.motion(part)!.pose.p });
+    run(world, 2);
+    world.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    const ev = run(world, steps(REVERT_TUNING.sweep + REVERT_TUNING.settle + 1));
+    expect(ev.some((e) => e.type === 'revert.sweep' && e.part === part)).toBe(false);
+  });
+
   test('it never puts away what the visitor touched within the while', () => {
     const { world, physics } = benchStub();
     run(world, 5);
