@@ -3,7 +3,10 @@ import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import { backWall, bench, benchFrame, catalogue as benchCatalogue, FLOOR_Y } from '../../../src/workshop/view/kit/pieces/bench/index.ts';
 import { bayStrips, catalogue as roomCatalogue, estimateBayLabels, floor, reservedBay, ROOM, roomEnd, roomWall } from '../../../src/workshop/view/kit/pieces/room/index.ts';
-import { catalogue as windowCatalogue, SCENE, WINDOW, windowHole, windowPiece } from '../../../src/workshop/view/kit/pieces/window/index.ts';
+import { catalogue as windowCatalogue, SCENE, STEADY, WINDOW, windowHole, windowPiece } from '../../../src/workshop/view/kit/pieces/window/index.ts';
+import { loadCatalogue } from '../../../src/workshop/view/kit/pieces/registry.ts';
+
+const everyEntry = (await loadCatalogue()).filter((e) => e.name !== 'window');
 import room from '../../../src/content/room.json' with { type: 'json' };
 import { validateContent } from '../../../src/content/schema.ts';
 import { checkGeometry } from './helpers.ts';
@@ -55,18 +58,52 @@ const built = {
   window: windowPiece(),
 };
 
-describe('the vignette is untouched', () => {
-  // measured on rewrite at f3075ca, before the room's options existed (G1's approved frames)
-  it('bench and back wall build exactly as they did at G1 with their old options', () => {
+describe('the vignette', () => {
+  // the wall: measured on rewrite at f3075ca, before the room's options existed (G1's approved frames)
+  it('back wall builds exactly as it did at G1 with its old options', () => {
     expect(hash(backWall({ width: 21, height: 9 }))).toBe('-273831865/16938');
-    expect(hash(bench({ sections: 3, width: 6.5 }))).toBe('-1036722999/72585');
+  });
+  // the bench top changed once, on purpose: the P2 diet (11,133 to 4,306 triangles at the vignette's 3 x 6.5).
+  // G1's was '-1036722999/72585'. The old/new frames are in the diet's hand-in; change this only with pictures.
+  it('bench top builds as the P2 diet left it', () => {
+    expect(hash(bench({ sections: 3, width: 6.5 }))).toBe('-955912666/39303');
+  });
+  it('the bench top at the bench page\'s 18 x 10 fits in 4,000 triangles', () => {
+    expect(bench({ sections: 3, width: 6, depth: 10 }).triangles).toBeLessThanOrEqual(4000);
   });
 });
 
 describe('the room', () => {
   it('every piece is sound geometry', () => {
-    for (const p of [built.wall, built.frame, built.floor, built.left, built.right, ...built.bays, built.window]) {
+    for (const p of [built.wall, built.frame, built.floor, built.left, built.right, ...built.bays]) {
       for (const q of parts(p)) checkGeometry(q.geometry);
+    }
+    // the window's scenery writes finish 2 (the bulb class's steady level): check it with that read as 1
+    for (const q of parts(built.window)) {
+      const g = q.geometry.clone();
+      const sf = g.getAttribute('surf');
+      for (let i = 0; i < sf.count; i++) if (sf.getZ(i) === STEADY) sf.setZ(i, 1);
+      checkGeometry(g);
+    }
+  });
+
+  it('only the window\'s scenery is steady (finish above 1.5 on bulbs), and all of it is', () => {
+    const bulbs = parts(built.window).filter((q) => q.material === 'bulb');
+    expect(bulbs.length).toBeGreaterThan(0);
+    for (const q of bulbs) {
+      const sf = q.geometry.getAttribute('surf');
+      for (let i = 0; i < sf.count; i++) expect(sf.getZ(i)).toBe(STEADY);
+    }
+    // every other piece in the catalogue keeps its bulbs at or under 1: the change to the bulb class cannot touch them
+    for (const e of everyEntry) {
+      for (const v of Object.values(e.variants ?? { d: {} })) {
+        const p = e.build(v);
+        for (const q of parts(p)) {
+          if (q.material !== 'bulb') continue;
+          const sf = q.geometry.getAttribute('surf');
+          for (let i = 0; i < sf.count; i++) expect(sf.getZ(i)).toBeLessThanOrEqual(1);
+        }
+      }
     }
   });
 
@@ -150,10 +187,27 @@ describe('the reserved bays', () => {
     expect(bayStrips('next')).toEqual(['RESERVED']);
   });
 
-  it('their labels fit inside the tape', () => {
+  it('their labels fit the bay, laid across the tape when longer than the bay is wide', () => {
     for (const b of ROOM.bays) {
-      for (const s of estimateBayLabels(b.which)) expect(s.w).toBeLessThan(b.w - 0.3);
+      for (const s of estimateBayLabels(b.which)) expect(s.w).toBeLessThan(b.w + 0.1);
     }
+  });
+
+  it('take their size as options', () => {
+    const a = K.pieceBounds(reservedBay({ which: 'next', w: 3.0, d: 1.8 })), c = K.pieceBounds(reservedBay({ which: 'next', w: 4.0, d: 2.6 }));
+    expect(c.max.x - c.min.x).toBeGreaterThan(a.max.x - a.min.x + 0.8);
+    expect(c.max.z - c.min.z).toBeGreaterThan(a.max.z - a.min.z + 0.6);
+  });
+
+  it('are older than the lane: a lifted corner, and a gap worn through the tape', () => {
+    const p = reservedBay({ which: 'next', w: 3.0, d: 1.8 });
+    const tape = parts(p).filter((q) => q.material === 'tape' && !q.texture);
+    let top = 0;
+    for (const q of tape) {
+      const pos = q.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) top = Math.max(top, pos.getY(i));
+    }
+    expect(top).toBeGreaterThan(0.03); // the corner standing off the bench
   });
 
   it('lie on the bench top and stay within their footprint', () => {

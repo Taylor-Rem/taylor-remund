@@ -9,7 +9,7 @@
  * cap height at the default view must be at least 12; `fitWords` reports it
  * and the unit tests hold every length up to MAX_CHARS to it.
  */
-import { WORDS } from './dims.ts';
+import { WORDS, wordsTopMargin } from './dims.ts';
 import { capPx, DEFAULT_VIEW } from '../../../labels/layout.ts';
 import { SUBSET } from '../../../labels/fonts.ts';
 
@@ -69,8 +69,9 @@ function candidates(text: string, inWords: boolean): string[][] {
 }
 
 /** The face's usable area (world units), after margins and the fascia's lean. */
-export function wordsArea(): { w: number; h: number } {
-  return { w: WORDS.w - 2 * WORDS.side, h: WORDS.h - 2 * WORDS.vert };
+export function wordsArea(): { w: number; h: number; top: number } {
+  const top = wordsTopMargin();
+  return { w: WORDS.w - 2 * WORDS.side, h: WORDS.h - top - WORDS.vert, top };
 }
 
 /**
@@ -111,7 +112,7 @@ function fit(text: string, adv: Advance, inWords: boolean): WordsLayout {
     }
     const block = cap * (1 + (n - 1) * LINE_PITCH + SHADE);
     const top = (area.h - block) / 2;
-    const baselines = lines.map((_, i) => WORDS.vert + top + cap * (1 + i * LINE_PITCH));
+    const baselines = lines.map((_, i) => area.top + top + cap * (1 + i * LINE_PITCH));
     const layout: WordsLayout = { lines, cap, condense, widths, baselines, px: capPx(cap, 'front', { pxPerUnit: DEFAULT_VIEW.pxPerUnit, pitchDeg: DEFAULT_VIEW.pitchDeg - WORDS.leanDeg }) };
     const balance = (l: WordsLayout): number => Math.min(...l.widths) / Math.max(...l.widths);
     const better =

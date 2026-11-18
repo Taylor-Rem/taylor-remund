@@ -15,7 +15,7 @@
 //   ?ctx=0           only the room and the bench, no P1 pieces
 //   ?below=N         home framing that also takes in N units below the bench top (the apron; legs)
 //   ?w=…             nothing; use capture's --w/--h
-//   ?hud=0  ?tier=high|low  ?manual=1  ?view=beauty|clay|...  ?gtao=0 (diagnosis)
+//   ?hud=0  ?tier=high|low  ?manual=1  ?view=beauty|clay|...  ?gtao=0 (diagnosis)  ?bulbs=N (every bulb dimmed, as in the lamp dip)
 // Hooks: window.__room = { triangles, meshes, measure() } (label capitals in px, per piece triangles)
 //
 // Capture (from the repo root):
@@ -81,9 +81,9 @@
         belt: { x: -0.5, z: 3.3, length: 10 },
         fetch: { x: 1.4, z: 2.0, yaw: -20 },
         crates: [
-          { size: 'L', x: -7.4, y: 0, z: 2.2, yaw: 4 },
-          { size: 'M', x: -7.35, y: 0.8, z: 2.15, yaw: -7 },
-          { size: 'S', x: -6.55, y: 0, z: 2.45, yaw: 12 },
+          { size: 'L', x: -7.65, y: 0, z: 1.35, yaw: 4 },
+          { size: 'M', x: -7.6, y: 0.8, z: 1.3, yaw: -7 },
+          { size: 'S', x: -6.8, y: 0, z: 1.6, yaw: 12 },
           { size: 'M', x: -2.0, y: 0, z: 1.0, yaw: 18 },
         ],
         lane: { x0: -5.0, x1: 4.2, z: 2.0, hw: 0.52 },
@@ -206,6 +206,8 @@
             window: { focus: [ROOM.window.x, ROOM.window.y + 0.9, -4.6], zoom: 0.86 },
             apron: { focus: [-4.2, -1.5, 4.7], zoom: 0.62 },
             bay: { focus: [7.1, 0, -0.1], zoom: 0.8 },
+            edge: { focus: [-1.2, -0.1, 4.6], zoom: 0.88 },
+            bays: { focus: [-6.6, 0, -1.4], zoom: 0.72 },
             endleft: { focus: [-10.5, 0.0, -1.5], zoom: 0.45 },
             endright: { focus: [10.5, 0.0, -1.5], zoom: 0.45 },
           };
@@ -269,6 +271,8 @@
           const room = Object.entries(tri).filter(([k]) => !k.startsWith('ctx')).map(([k, v]) => `${k} ${v}`).join('  ');
           hud.textContent = `room ${withRoom ? 'on' : 'off'} · fog ${fogName} · ${shot}\n${room}`;
         }
+        // ?bulbs=N: every bulb dimmed as the lamp's dip does it (the window's sky must not follow)
+        if (q.get('bulbs') !== null) s.materials.set('bulb', 'intensity', Number(q.get('bulbs')));
         s.start();
         // ?measure=1: the tape labels' capitals in px at this view, on the read-out (after the first frames)
         if (q.get('measure') === '1') {

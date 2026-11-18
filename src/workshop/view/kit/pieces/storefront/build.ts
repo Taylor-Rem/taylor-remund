@@ -17,10 +17,10 @@ import { rng, type Rng } from '../../rng.ts';
 import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { bevelBox, hexHead, innerBox, ridgedBand, sheet, stud } from '../../cheap.ts';
-import { AWNING, DEFAULTS, DOOR, F, FASCIA, JACKBOX, NODES, OPEN_SIGN, PICTURE, SHOP, SLAT_H, WINDOW, WORDS, slatY, slatZ } from './dims.ts';
+import { AWNING, DEFAULTS, DOOR, F, FASCIA, JACKBOX, NODES, OPEN_SIGN, PICTURE, SHOP, SLAT_H, WINDOW, WORDS, CORNICE, corniceUnderside, slatY, slatZ } from './dims.ts';
 import { canvasStrip, grid, valancePanel } from './geo.ts';
 import { triangleCount } from '../../mesh.ts';
-import { ATLAS, slatUv } from './atlas.ts';
+import { ATLAS, FACES, slatUv } from './atlas.ts';
 import { awningGeometry, nodeMatrices } from './pose.ts';
 
 const BIND = nodeMatrices({}, true);
@@ -38,10 +38,8 @@ export interface StorefrontBuild {
   detail: 'high' | 'low';
   fascia: Token;
   awning: Token;
-  /** Texture keys (empty: built blank, for clay and tests). */
-  words: string;
-  pictures: string;
-  plate: { key: string; w: number; h: number } | null;
+  /** The atlas's texture key (empty: built blank, for clay and tests). */
+  atlas: string;
 }
 
 /** The woodwork's colours. */
@@ -55,7 +53,57 @@ const box = (min: V3, max: V3, c = 0.012, omit?: Array<'px' | 'nx' | 'py' | 'ny'
 
 /** Painted wood (cream woodwork, panels, the fascia): wood class, paint coverage 1. */
 function painted(g: BufferGeometry, token: Token, seed: number, along: 'x' | 'y' | 'z' = 'x', shade = 1): KitPart {
-  return setFinish(part('wood', grain(g, along), token, { seed, jitter: 0.035, warm: 0.02, shade }), 1);
+  return age(setFinish(part('wood', grain(g, along), token, { seed, jitter: 0.035, warm: 0.02, shade }), 1), seed);
+}
+
+/** A seeded 0..1 per point (same point, same value: shared corners chip together). */
+function hash3(x: number, y: number, z: number, seed: number): number {
+  let h = Math.imul(Math.round(x * 997) ^ 0x9e3779b1, 0x85ebca6b) ^ Math.imul(Math.round(y * 991) + seed * 7919, 0xc2b2ae35) ^ Math.imul(Math.round(z * 983), 0x27d4eb2f);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * Years of a shop front on its paint, written into the channels the wood class already reads,
+ * on the vertices the part already has (no triangles): paint coverage (surf.z) thinned to the
+ * wood on worn edges where a seeded hash says a chip is, and on everything at the foot (kicked
+ * bare); the vertex colour darkened on faces that look down (grime under the cornice, the
+ * sill, the capitals) and in the splash zone by the ground. Cavity (the AO bake) darkens the
+ * recesses on its own.
+ */
+function age(p: KitPart, seed: number): KitPart {
+  const g = p.geometry;
+  const pos = g.getAttribute('position'), nrm = g.getAttribute('normal'), col = g.getAttribute('color'), surf = g.getAttribute('surf');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const wear = surf.getX(i);
+    const h = hash3(x, y, z, seed);
+    let cover = surf.getZ(i);
+    if (wear > 0.5 && h < 0.45) cover = Math.min(cover, 0.3 + h);
+    if (y < 0.26 && wear > 0.3) cover = Math.min(cover, 0.2 + 0.5 * h);
+    surf.setZ(i, cover);
+    let k = 1;
+    if (nrm.getY(i) < -0.4) k *= 0.62;
+    if (y < 0.16) k *= 0.78 + 0.1 * h;
+    if (k < 1) col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  surf.needsUpdate = true;
+  col.needsUpdate = true;
+  return p;
+}
+
+/** Darken a part's vertex colour toward its top (soot) between y0 and y1 by up to `amount`. */
+function soot(p: KitPart, y0: number, y1: number, amount: number): KitPart {
+  const g = p.geometry;
+  const pos = g.getAttribute('position'), col = g.getAttribute('color');
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.max(0, Math.min(1, (pos.getY(i) - y0) / (y1 - y0)));
+    const k = 1 - amount * t * t;
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+  }
+  return p;
 }
 /** Bare wood. */
 function bare(g: BufferGeometry, token: Token, seed: number, along: 'x' | 'y' | 'z' = 'x', shade = 1): KitPart {
@@ -177,6 +225,8 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
         // lie it on the pitch, its foot a little proud of the course below
         // each slate's foot kicks out over the course below (the step's shadow is what reads as slates)
         transform(g, chain(onPitch(y, z), T(0, 0, 0.018), new Matrix4().makeRotationZ(tilt), new Matrix4().makeRotationX(-0.12 + R.spread(0.03))));
+        // one slate has slipped its nail: it hangs a little down the pitch, askew
+        if (c === 3 && k === 4) transform(g, chain(onPitch(y, z), T(0.01, -0.05, 0.022), new Matrix4().makeRotationZ(0.22), onPitch(y, z).invert()));
         (R() < 0.12 ? dark : slates).push(g);
       }
     }
@@ -222,17 +272,17 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       const g = box([cx - w / 2 + ins, y0, cz - d / 2 + ins], [cx + w / 2 - ins, y0 + ch - 0.006, cz + d / 2 - ins], 0.008, ['ny']);
       bricks.push(g);
     }
-    b.add(part('paper', mergeGeometries(bricks), 'cable-red', { seed: seed + 6, shade: 0.8, jitter: 0.05, warm: 0.05 }));
+    b.add(soot(part('paper', mergeGeometries(bricks), 'cable-red', { seed: seed + 6, shade: 0.8, jitter: 0.05, warm: 0.05 }), base, base + h, 0.6));
     // mortar behind, so the course lines read dark
     b.add(part('paper', box([cx - w / 2 + 0.008, base, cz - d / 2 + 0.008], [cx + w / 2 - 0.008, base + h, cz + d / 2 - 0.008], 0.004, ['ny']), 'steel', { seed: seed + 7, shade: 0.45 }));
     // lead flashing where it meets the slates
-    b.add(part('metal', box([cx - w / 2 - 0.02, base - 0.06, cz - d / 2 - 0.02], [cx + w / 2 + 0.02, base + 0.03, cz + d / 2 + 0.02], 0.01, ['ny']), 'steel', { seed: seed + 17, shade: 0.55 }));
+    b.add(part('steel', box([cx - w / 2 - 0.02, base - 0.06, cz - d / 2 - 0.02], [cx + w / 2 + 0.02, base + 0.03, cz + d / 2 + 0.02], 0.01, ['ny']), 'steel', { seed: seed + 17, shade: 0.55 }));
     const capG = box([cx - w / 2 - 0.03, base + h, cz - d / 2 - 0.03], [cx + w / 2 + 0.03, base + h + 0.045, cz + d / 2 + 0.03], 0.012);
-    b.add(stone(capG, seed + 8, 0.7));
+    b.add(soot(stone(capG, seed + 8, 0.7), base + h, base + h + 0.045, 0.55));
     const pot = lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.055, 0.02, { fillet: 0.006, segs: 1 }).to(0.042, 0.03, { sharp: true }).to(0.038, 0.13, { smooth: true }).to(0.048, 0.15, { sharp: true }).to(0.044, 0.165, { sharp: true }).to(0.03, 0.16), { segs: 7, band: 0, caps: 'start' });
     [-0.075, 0.08].forEach((dx, i) => {
       const hh = i ? 1.12 : 1;
-      b.add(part('paper', transform(pot.clone(), chain(T(cx + dx, base + h + 0.045, cz + R.spread(0.02)), new Matrix4().makeScale(1, hh, 1), new Matrix4().makeRotationZ(R.spread(0.04)))), 'paint-orange', { seed: seed + 9 + i, shade: 0.8, jitter: 0.08 }));
+      b.add(soot(part('paper', transform(pot.clone(), chain(T(cx + dx, base + h + 0.045, cz + R.spread(0.02)), new Matrix4().makeScale(1, hh, 1), new Matrix4().makeRotationZ(R.spread(0.04)))), 'paint-orange', { seed: seed + 9 + i, shade: 0.8, jitter: 0.08 }), base + h + 0.08, base + h + 0.24, 0.7));
     });
   }
   // a vent pipe with a cowl, through the slates toward the right
@@ -240,7 +290,7 @@ function building(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     const vx = 0.62, t = 0.55;
     const vy = eaveY + (ridgeY - eaveY) * t, vz = eaveZ + (ridgeZ - eaveZ) * t;
     const pipe = lathe(profile(0, -0.1).to(0.05, -0.1, { sharp: true }).to(0.05, -0.02, { fillet: 0.005, segs: 1 }).to(0.026, -0.01).to(0.026, 0.22).to(0.05, 0.23, { sharp: true }).cubic(0, 0.32, 0.06, 0.26, 0.03, 0.32, 3), { segs: 7, band: 0, caps: false });
-    b.add(part('metal', transform(pipe, T(vx, vy, vz)), 'steel', { seed: seed + 11, shade: 0.8 }));
+    b.add(part('steel', transform(pipe, T(vx, vy, vz)), 'steel', { seed: seed + 11, shade: 0.8 }));
   }
   void roofY;
 }
@@ -268,11 +318,11 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
   }
   // consoles: a scrolled corbel above each pilaster, carrying the slats' pins and the cornice
   {
-    const yb = pilTop, yt = FASCIA.y1 + 0.005;
+    const yb = pilTop, yt = CORNICE.y0;
     const h = yt - yb;
     const outline: Array<[number, number]> = [];
     // side profile in (-z, y): the back runs up the wall; the front swells out toward the top
-    const zBack = F - 0.02, zTop = F + 0.17, zFoot = F + pilProud + 0.01;
+    const zBack = F - 0.02, zTop = F + CORNICE.soffit + 0.03, zFoot = F + pilProud + 0.01;
     outline.push([-zBack, yb]);
     const n = hi ? 4 : 3;
     for (let i = 0; i <= n; i++) {
@@ -290,7 +340,7 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       // a carved leaf panel on its face: a sunk teal oval
       const cx = sx * (pilIn + pilOut) / 2;
       const leaf = lathe(profile(0, 0).to(0.045, 0, { sharp: true }).to(0.045, 0.012, { fillet: 0.006, segs: 1 }).to(0, 0.016), { segs: hi ? 10 : 6, band: 0, caps: 'end' });
-      b.add(painted(transform(leaf, chain(T(cx, yb + h * 0.55, F + 0.14), new Matrix4().makeRotationX(Math.PI / 2 - 0.5), new Matrix4().makeScale(0.9, 1, 1.6))), PANEL, seed + 33 + sx, 'x'));
+      b.add(painted(transform(leaf, chain(T(cx, yb + h * 0.55, F + 0.098), new Matrix4().makeRotationX(Math.PI / 2 - 0.5), new Matrix4().makeScale(0.9, 1, 1.6))), PANEL, seed + 33 + sx, 'x'));
       // the slats' pins: a brass boss on the console's inner face for each slat
       for (let i = 0; i < FASCIA.slats; i++) {
         const boss = stud(0.022, 0.013, 6);
@@ -306,25 +356,22 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     b.add(painted(transform(ledge, chain(T(-pilIn, 0, 0), new Matrix4().makeRotationY(Math.PI / 2))), CREAM, seed + 46, 'x', 0.96));
   }
   {
-    const y0 = FASCIA.y1 + 0.005;
+    const y0 = CORNICE.y0;
     const cw = pilOut + 0.05;
-    // the cornice's section in (-z, y): a fillet, a cove, a projecting drip, a top that slopes back
-    const pts: Array<[number, number]> = [[-(F - 0.03), y0], [-(F + 0.17), y0], [-(F + 0.175), y0 + 0.02]];
-    const n = 3;
-    for (let i = 1; i <= n; i++) {
-      const a = (i / n) * Math.PI * 0.5;
-      pts.push([-(F + 0.175 + 0.045 * Math.sin(a)), y0 + 0.02 + 0.045 * (1 - Math.cos(a))]);
-    }
-    pts.push([-(F + 0.225), y0 + 0.07], [-(F + 0.227), y0 + 0.1], [-(F + 0.205), y0 + 0.112], [-(F - 0.03), y0 + 0.125]);
+    // the cornice's section in (-z, y): its underside as dims.ts gives it (tight over the slats), a drip, a top that slopes back
+    const under = corniceUnderside();
+    // (the underside list carries the dentils' corner too, for the camera's sake; the moulding itself skips it)
+    const pts: Array<[number, number]> = under.filter((_, i) => i !== 2).map(([z, y]) => [-z, y]);
+    pts.push([-(F + CORNICE.drip + 0.002), y0 + 0.09], [-(F + CORNICE.drip - 0.02), y0 + CORNICE.height - 0.005], [-(F - 0.03), y0 + CORNICE.height]);
     const g = extrude(pts, cw * 2, { radius: 0, bevel: 0.01, segs: 1, band: 0, support: false });
     transform(g, chain(T(-cw, 0, 0), new Matrix4().makeRotationY(Math.PI / 2)));
-    knock(g, [0.4 + R.spread(0.3), y0 + 0.1, F + 0.225], [0, 0.3, 1], 0.07, 0.008);
+    knock(g, [0.4 + R.spread(0.3), y0 + 0.09, F + CORNICE.drip], [0, 0.3, 1], 0.07, 0.008);
     b.add(painted(g, CREAM, seed + 47, 'x', 0.98));
     // lead flashing dressed over the cornice's top, turned down at its lip (it breaks up the long cream top)
-    b.add(part('metal', box([-cw - 0.005, y0 + 0.108, F - 0.03], [cw + 0.005, y0 + 0.13, F + 0.15], 0.006, ['ny']), 'steel', { seed: seed + 51, shade: 0.5, jitter: 0.05 }));
+    b.add(part('steel', box([-cw - 0.005, y0 + CORNICE.height - 0.012, F - 0.03], [cw + 0.005, y0 + CORNICE.height + 0.008, F + CORNICE.drip - 0.06], 0.006, ['ny']), 'steel', { seed: seed + 51, shade: 0.5, jitter: 0.05 }));
     // returns: the cornice turns back along the sides
     for (const sx of [-1, 1]) {
-      const rg = box([sx < 0 ? -cw : cw - 0.06, y0, -0.44], [sx < 0 ? -cw + 0.06 : cw, y0 + 0.11, F - 0.03], 0.012, ['ny']);
+      const rg = box([sx < 0 ? -cw : cw - 0.06, y0, -0.44], [sx < 0 ? -cw + 0.06 : cw, y0 + CORNICE.height - 0.01, F - 0.03], 0.012, ['ny']);
       b.add(painted(rg, CREAM, seed + 48 + sx, 'z', 0.94));
     }
     // dentils under the drip: a row of small blocks (they make the cornice read as a cornice at a distance)
@@ -333,7 +380,8 @@ function shopFront(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       const count = 20;
       for (let i = 0; i < count; i++) {
         const x = -cw + 0.07 + ((cw * 2 - 0.14) * i) / (count - 1);
-        dn.push(box([x - 0.024, y0 + 0.025, F + 0.13], [x + 0.024, y0 + 0.06, F + 0.2], 0, ['nz', 'pz']));
+        // set into the cove, behind the drip's line (they must not hang into the camera's view of the sign)
+        dn.push(box([x - 0.024, y0 + 0.012, F + CORNICE.soffit - 0.01], [x + 0.024, y0 + 0.045, F + CORNICE.soffit + 0.025], 0, ['nz']));
       }
       b.add(painted(mergeGeometries(dn), CREAM, seed + 50, 'x', 0.9));
     }
@@ -408,7 +456,7 @@ function door(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
   // the glazed half: dark glass behind glazing bars (the shop behind the door is dark)
   {
     const gx0 = x0 + st, gx1 = x1 - st, gy0 = midY + 0.035, gy1 = y1 - 0.07;
-    b.add(part('glass', grid(gx0, gx1, gy0, gy1, zl + 0.012, 1, 1), 'teal-deep', { shade: 1.4 }));
+    b.add(part('steel', grid(gx0, gx1, gy0, gy1, zl + 0.012, 1, 1), 'teal-deep', { shade: 1.4 }));
     const bars = [box([(gx0 + gx1) / 2 - 0.01, gy0, zl + 0.012], [(gx0 + gx1) / 2 + 0.01, gy1, zl + 0.028], 0.004, ['nz']), box([gx0, (gy0 + gy1) / 2 + 0.04, zl + 0.012], [gx1, (gy0 + gy1) / 2 + 0.06, zl + 0.028], 0.004, ['nz'])];
     b.add(painted(mergeGeometries(bars), PANEL, seed + 64, 'y', 1.05));
   }
@@ -417,7 +465,7 @@ function door(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     b.add(brass(box([x0 + 0.015, y0 + 0.012, zl + t], [x1 - 0.015, y0 + 0.105, zl + t + 0.006], 0.004, ['nz']), seed + 65));
     const lb = box([-0.075, -0.018, 0], [0.075, 0.018, 0.012], 0.005, ['nz']);
     b.add(brass(transform(lb, T((x0 + x1) / 2, midY - 0.008, zl + t)), seed + 66, 0.4));
-    b.add(part('glass', box([(x0 + x1) / 2 - 0.06, midY - 0.014, zl + t + 0.0115], [(x0 + x1) / 2 + 0.06, midY - 0.002, zl + t + 0.0125], 0.0), 'ink'));
+    b.add(part('steel', box([(x0 + x1) / 2 - 0.06, midY - 0.014, zl + t + 0.0115], [(x0 + x1) / 2 + 0.06, midY - 0.002, zl + t + 0.0125], 0.0), 'ink'));
     const knob = lathe(profile(0, 0).to(0.022, 0, { sharp: true }).to(0.022, 0.008, { fillet: 0.004, segs: 1 }).to(0.008, 0.016).to(0.008, 0.04).cubic(0, 0.085, 0.032, 0.045, 0.034, 0.085, 3), { segs: 7, band: 0, caps: false });
     b.add(brass(transform(knob, aim([x1 - st / 2, 0.58, zl + t], [0, 0, 1])), seed + 67, 0.5));
     for (const ky of [y0 + 0.2, y1 - 0.2]) {
@@ -434,7 +482,16 @@ function door(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
       const q = dx * dx + dz * dz;
       return q < 1 && y > 0.07 ? [x, y - 0.007 * (1 - q), z] : [x, y, z];
     }, { keepSurf: true });
-    b.add(stone(g, seed + 70, 0.75));
+    // its front edge worn pale by feet, a dark scuff where they land
+    const st0 = stone(g, seed + 70, 0.75);
+    const sp = g.getAttribute('position'), sc = g.getAttribute('color'), ss = g.getAttribute('surf');
+    for (let i = 0; i < sp.count; i++) {
+      const front = sp.getZ(i) > zd + recess + 0.12, top = sp.getY(i) > 0.06;
+      const k = front && top ? 1.32 : top ? 0.86 : 1;
+      if (k !== 1) sc.setXYZ(i, sc.getX(i) * k, sc.getY(i) * k, sc.getZ(i) * k);
+      if (front && top) ss.setX(i, 1);
+    }
+    b.add(st0);
   }
   // a threshold strip of brass under the leaf
   b.add(brass(box([x0, y0 - 0.005, zd - 0.02], [x1, y0 + 0.004, zd + 0.06], 0.003), seed + 71, 0.2));
@@ -457,14 +514,14 @@ function fascia(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number): void 
     // painted wood (the crate's way); the fascia leans back to catch the lamp, so its paint reads true
     n.add(painted(mergeGeometries([body, faceF, faceB]), o.fascia, seed + 80 + i, 'x'));
     // the words: one strip of the atlas on each face
-    if (o.words) {
+    if (o.atlas) {
       const uvA = slatUv('A', i);
       const uvB = slatUv('B', i);
       const wf = grid(-hw, hw, -h / 2, h / 2, t / 2 + 0.0015, 12, 1, { uv: uvA });
       // the back face, read after a half turn: its local -y is up then, so v runs the other way
       const wb = grid(-hw, hw, -h / 2, h / 2, -t / 2 - 0.0015, 12, 1, { back: true, uv: uvB, flipV: true });
       // a back face seen from +z after a half turn about x: mirror x as well? No: a turn about x keeps x.
-      n.add(setFinish(texturedPart('wood', mergeGeometries([wf, wb]), o.words), 1));
+      n.add(texturedPart('paper', mergeGeometries([wf, wb]), o.atlas));
     }
   }
 }
@@ -534,15 +591,17 @@ function awning(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: bo
     const armG = extrude([[-0.012, -0.012], [0.012, -0.012], [0.012, 0.075], [-0.012, 0.075]], 0.01, { radius: 0.011, bevel: 0.003, segs: 2, band: 0 });
     cr.add(brass(armG, seed + 101, 0.35));
     const grip = lathe(profile(0, 0).to(0.012, 0, { sharp: true }).to(0.014, 0.02, { smooth: true }).to(0.011, 0.045, { fillet: 0.005, segs: 1 }).to(0, 0.046), { segs: 8, band: 0, caps: 'end' });
-    cr.add(part('rubber', transform(grip, aim([0, 0.066, 0.01], [0, 0, 1])), 'ink', { shade: 1.4 }));
+    cr.add(part('paper', transform(grip, aim([0, 0.066, 0.01], [0, 0, 1])), 'ink', { shade: 1.4 }));
   }
 }
 
 /**
- * The lit window's glow: bulb class at its indicator level, whose light goes as the cube of
- * the vertex colour away from the facing centre, so these are bigger than they look.
+ * The lit window's glow: the bulb class at its LAMP level (finish 0), restrained by a dim
+ * vertex colour so the brightest of it stays under the bloom threshold (no halo over the
+ * card). The back wall faces the camera (cos 33° of the light reaches it), the floor only
+ * grazes it, so the floor's colour runs higher. Vertex colour is the light.
  */
-const GLOW = { peak: 0.78, edge: 0.3, rgb: linear('amber-glow') } as const;
+const GLOW = { wall: [0.06, 0.3], floor: [0.1, 0.55], rgb: ((a, b) => [a[0] * 0.55 + b[0] * 0.45, a[1] * 0.55 + b[1] * 0.45, a[2] * 0.55 + b[2] * 0.45] as const)(linear('amber-glow'), linear('amber')) } as const;
 
 // ---- the window's inside: display floor, back partition (lit and unlit), the hanging lamp, the OPEN sign, the picture
 
@@ -583,10 +642,10 @@ function windowInside(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, 
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i);
       const d = Math.hypot((x + 0.1) / 0.75, (y - 0.25) / 0.6);
-      const k = GLOW.edge + (GLOW.peak - GLOW.edge) * Math.exp(-d * d * 1.6);
-      // amber at the hot spot, deeper toward the edges (bulb class: vertex colour is the light)
+      const k = GLOW.wall[0] + (GLOW.wall[1] - GLOW.wall[0]) * Math.exp(-d * d * 1.6);
+      // amber at the hot spot, deeper toward the edges
       colA.setXYZ(i, k * GLOW.rgb[0], k * GLOW.rgb[1], k * GLOW.rgb[2]);
-      surf.setXYZ(i, 0, 0, 1);
+      surf.setXYZ(i, 0, 0, 0);
     }
     lit.add({ material: 'bulb', geometry: g });
     // and the pool of light the lamp throws on the display floor (the floor itself stays dark wood; lit, this lies on it)
@@ -594,24 +653,25 @@ function windowInside(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, 
     const fl = grid(x0 + 0.01, x1 - 0.01, -(F - 0.035), -(zb + 0.01), 0, 10, 5);
     transform(fl, chain(T(-cx, yf + 0.0025 - cy, -cz), new Matrix4().makeRotationX(-Math.PI / 2)));
     const fp = fl.getAttribute('position'), fc = fl.getAttribute('color'), fs = fl.getAttribute('surf');
-    const lx = x0 + 0.42 - cx, lz = zb + 0.22 - cz;
+    // the pool under the lamp, toward the glass where the street sees it
+    const lx = x0 + 0.5 - cx, lz = F - 0.26 - cz;
     for (let i = 0; i < fp.count; i++) {
-      const d = Math.hypot((fp.getX(i) - lx) / 0.55, (fp.getZ(i) - lz) / 0.45);
-      const k = GLOW.edge * 0.6 + (GLOW.peak - GLOW.edge * 0.6) * 0.85 * Math.exp(-d * d * 1.4);
+      const d = Math.hypot((fp.getX(i) - lx) / 0.6, (fp.getZ(i) - lz) / 0.4);
+      const k = GLOW.floor[0] + (GLOW.floor[1] - GLOW.floor[0]) * Math.exp(-d * d * 1.3);
       fc.setXYZ(i, k * GLOW.rgb[0], k * GLOW.rgb[1], k * GLOW.rgb[2]);
-      fs.setXYZ(i, 0, 0, 1);
+      fs.setXYZ(i, 0, 0, 0);
     }
-    lit.add({ material: 'bulb', geometry: fl, castShadow: false });
+    lit.add({ material: 'bulb', geometry: fl });
   }
   // the hanging lamp: a cream shade on a flex, its bulb lit (in the lit node) or dark glass
   {
     const lx = x0 + 0.42, ly = 1.04, lz = zb + 0.16;
-    b.add(part('rubber', sweep(polylinePath([[lx, WINDOW.y1, lz], [lx, ly + 0.07, lz]], 0.02, 1), { radius: 0.005, segs: 4, ends: 'flat' }), 'ink'));
+    b.add(part('paper', sweep(polylinePath([[lx, WINDOW.y1, lz], [lx, ly + 0.07, lz]], 0.02, 1), { radius: 0.005, segs: 4, ends: 'flat' }), 'ink'));
     const shade = lathe(profile(0.012, 0.07).to(0.02, 0.07, { sharp: true }).cubic(0.085, 0, 0.03, 0.05, 0.08, 0.02, 3).to(0.08, -0.006, { sharp: true }), { segs: 8, band: 0, caps: false });
     b.add(setFinish(part('steel', transform(shade, T(lx, ly, lz)), 'paper', { seed: seed + 113 }), 0));
     const bulbG = lathe(profile(0, -0.04).cubic(0.028, 0.0, 0.03, -0.04, 0.03, 0.0, 4).to(0.012, 0.012).to(0, 0.012), { segs: 8, band: 0, caps: false });
     lit.add(part('bulb', transform(bulbG.clone(), T(lx - (x0 + x1) / 2, ly - 0.75, lz - zb - 0.004)), 'amber-glow'));
-    unlit.add(part('glass', transform(bulbG.clone(), T(lx, ly, lz)), 'paper', { shade: 0.6 }));
+    unlit.add(part('steel', transform(bulbG.clone(), T(lx, ly, lz)), 'paper', { shade: 0.6 }));
   }
   openSign(b, o, seed);
   picture(b, o, R, seed, hi, yf);
@@ -622,18 +682,18 @@ function openSign(b: NodeBuilder, o: StorefrontBuild, seed: number): void {
   // the hook in the window head and the cord, static; the card on its swivel is the node
   b.add(brass(transform(lathe(profile(0, 0).to(0.012, 0, { sharp: true }).to(0.012, 0.03, { sharp: true }).to(0, 0.03), { segs: 6, band: 0 }), T(S.x, S.y, S.z)), seed + 120));
   const yTop = S.y - S.drop;
-  b.add(part('rubber', sweep(polylinePath([[S.x, S.y, S.z], [S.x, yTop + 0.012, S.z]], 0.02, 1), { radius: 0.0035, segs: 4, ends: 'flat' }), 'paper', { shade: 0.7 }));
+  b.add(part('paper', sweep(polylinePath([[S.x, S.y, S.z], [S.x, yTop + 0.012, S.z]], 0.02, 1), { radius: 0.0035, segs: 4, ends: 'flat' }), 'paper', { shade: 0.7 }));
   const n = b.node(NODES.openSign, bind(NODES.openSign));
   // the card: a thin board with an edge, both faces printed from the atlas
   const w = S.w, h = S.h, t = 0.014;
   n.add(painted(box([-w / 2, -h, -t / 2], [w / 2, 0, t / 2], 0.005), 'ink', seed + 121, 'x', 1.6));
   n.add(brass(transform(lathe(profile(0, 0).to(0.01, 0, { sharp: true }).to(0.01, 0.02, { sharp: true }).to(0, 0.02), { segs: 6, band: 0 }), T(0, -0.008, 0)), seed + 122));
   const ins = 0.012;
-  if (o.pictures) {
+  if (o.atlas) {
     const f = grid(-w / 2 + ins, w / 2 - ins, -h + ins, -ins, t / 2 + 0.001, 1, 1, { uv: ATLAS.open });
     // the back, read after the card turns half round about its string (y): mirror u
     const bk = grid(-w / 2 + ins, w / 2 - ins, -h + ins, -ins, -t / 2 - 0.001, 1, 1, { back: true, uv: [ATLAS.closed[2], ATLAS.closed[1], ATLAS.closed[0], ATLAS.closed[3]] });
-    n.add(texturedPart('paper', mergeGeometries([f, bk]), o.pictures));
+    n.add(texturedPart('paper', mergeGeometries([f, bk]), o.atlas));
   } else {
     n.add(part('paper', grid(-w / 2 + ins, w / 2 - ins, -h + ins, -ins, t / 2 + 0.001, 1, 1), 'cable-red'));
     n.add(part('paper', grid(-w / 2 + ins, w / 2 - ins, -h + ins, -ins, -t / 2 - 0.001, 1, 1, { back: true }), 'ink', { shade: 1.6 }));
@@ -685,12 +745,12 @@ function picture(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: b
     d.add(painted(core, 'ink', seed + 134, 'x', 1.4));
     const faces: BufferGeometry[] = [];
     for (let k = 0; k < P.faces; k++) {
-      const g = grid(-P.w / 2, P.w / 2, -P.h / 2 + 0.004, P.h / 2 - 0.004, ap + 0.001, 1, 1, o.pictures ? { uv: ATLAS.pictures[k]! } : {});
+      const g = grid(-P.w / 2, P.w / 2, -P.h / 2 + 0.004, P.h / 2 - 0.004, ap + 0.001, 1, 1, o.atlas ? { uv: ATLAS.pictures[k]! } : {});
       // face k looks +Z when the drum has turned k sixths forward (its top tipping toward the visitor)
       transform(g, new Matrix4().makeRotationX((-k * Math.PI) / 3));
       faces.push(g);
     }
-    if (o.pictures) d.add(texturedPart('paper', mergeGeometries(faces), o.pictures));
+    if (o.atlas) d.add(texturedPart('paper', mergeGeometries(faces), o.atlas));
     else d.add(part('paper', mergeGeometries(faces), 'paper'));
     // the axle, out through the case's right side, with a knurled brass knob on the end
     const L = P.w / 2 + fw + 0.08;
@@ -708,9 +768,9 @@ function lantern(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
   b.add(brass(transform(box([-0.035, -0.06, 0], [0.035, 0.06, 0.012], 0.006, ['nz']), T(px, py, pz)), seed + 140));
   const reach = 0.17;
   const arm = sweep(polylinePath([[px, py + 0.02, pz + 0.01], [px, py + 0.05, pz + reach * 0.6], [px, py + 0.02, pz + reach]], 0.05, 3), { radius: 0.009, segs: 5, ends: 'dome' });
-  b.add(part('metal', arm, 'ink', { seed: seed + 141, shade: 1.8 }));
+  b.add(part('steel', arm, 'ink', { seed: seed + 141, shade: 1.8 }));
   const brace = sweep(polylinePath([[px, py - 0.05, pz + 0.01], [px, py - 0.02, pz + reach * 0.45], [px, py + 0.035, pz + reach * 0.62]], 0.03, 2), { radius: 0.006, segs: 4, ends: 'flat' });
-  b.add(part('metal', brace, 'ink', { seed: seed + 142, shade: 1.8 }));
+  b.add(part('steel', brace, 'ink', { seed: seed + 142, shade: 1.8 }));
   // the lantern hangs under the arm's end: a brass cap, four glazed sides, a brass foot
   const lx = px, ly = py - 0.035, lz = pz + reach;
   const capG = lathe(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.052, 0.012, { sharp: true }).cubic(0.0, 0.07, 0.04, 0.03, 0.012, 0.06, 3).to(0, 0.075), { segs: 4, band: 0, caps: 'start' });
@@ -723,14 +783,14 @@ function lantern(b: NodeBuilder, R: Rng, seed: number, hi: boolean): void {
     const a = (k / 4) * Math.PI * 2;
     posts.push(transform(box([-0.005, -0.09, -0.005], [0.005, 0, 0.005], 0, ['py', 'ny']), T(lx + Math.cos(a) * 0.036, ly, lz + Math.sin(a) * 0.036)));
   }
-  b.add(part('metal', mergeGeometries(posts), 'ink', { shade: 1.8 }));
+  b.add(part('steel', mergeGeometries(posts), 'ink', { shade: 1.8 }));
   // the glass: lit (a warm glow) or dark
   const glassG = lathe(profile(0, -0.09).to(0.034, -0.09, { sharp: true }).to(0.034, 0, { sharp: true }).to(0, 0), { segs: 4, band: 0, caps: false });
   transform(glassG, new Matrix4().makeRotationY(Math.PI / 4));
   const litN = b.node(`${NODES.windowLit}.lantern`, bind(`${NODES.windowLit}.lantern`));
   litN.add(part('bulb', glassG.clone(), 'amber-glow', { shade: 0.35 }));
   const unN = b.node(`${NODES.windowUnlit}.lantern`, bind(`${NODES.windowUnlit}.lantern`));
-  unN.add(part('glass', glassG.clone(), 'teal-deep', { shade: 1.5 }));
+  unN.add(part('steel', glassG.clone(), 'teal-deep', { shade: 1.5 }));
   void R;
   void hi;
 }
@@ -757,16 +817,16 @@ function jackBox(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: b
     b.small(() => brass(transform(stud(0.011, 0.006, 6), aim([sx, sy, zf + 0.01], [0, 0, 1])), seed + 154));
   }
   // the engraved name, on a strip along the plate's foot
-  const pw = o.plate?.w ?? 0.28, ph = o.plate?.h ?? 0.07;
-  const plateG = transform(sheet({ w: Math.min(pw, fp.x1 - fp.x0 - 0.02), h: ph, t: 0.002, nx: 1, ny: 1 }), T(J.x, fp.y0 + ph / 2 + 0.012, zf + 0.0105));
-  if (o.plate && o.plate.key) b.add(texturedPart('brass', plateG, o.plate.key));
+  const pw = FACES.plate.w, ph = FACES.plate.h;
+  const plateG = grid(J.x - pw / 2, J.x + pw / 2, fp.y0 + 0.012, fp.y0 + 0.012 + ph, zf + 0.0115, 1, 1, o.atlas ? { uv: ATLAS.plate } : {});
+  if (o.atlas) b.add(texturedPart('paper', plateG, o.atlas));
   else b.add(brass(plateG, seed + 155));
   // the jack: a fat knurled brass ring round a dark socket
   {
     const jx = J.x + 0.07, jy = J.h * 0.48;
     b.add(brass(transform(ridgedBand(0.038, 0.03, hi ? 12 : 8, 0.004), aim([jx, jy, zf + 0.01], [0, 0, 1])), seed + 156, 0.3));
     b.add(brass(transform(lathe(profile(0.016, 0.03).to(0.04, 0.03, { sharp: true }).to(0.036, 0.038, { fillet: 0.004, segs: 1 }).to(0.016, 0.036), { segs: 10, band: 0, caps: false }), aim([jx, jy, zf + 0.01], [0, 0, 1])), seed + 157, 0.5));
-    b.add(part('rubber', transform(lathe(profile(0, 0).to(0.017, 0, { sharp: true }).to(0.017, 0.032).to(0, 0.032), { segs: 8, band: 0 }), aim([jx, jy, zf + 0.008], [0, 0, 1])), 'ink', { shade: 0.6 }));
+    b.add(part('paper', transform(lathe(profile(0, 0).to(0.017, 0, { sharp: true }).to(0.017, 0.032).to(0, 0.032), { segs: 8, band: 0 }), aim([jx, jy, zf + 0.008], [0, 0, 1])), 'ink', { shade: 0.6 }));
   }
   // the station lamp: a lens in a brass bezel, lit or unlit
   {
@@ -777,7 +837,7 @@ function jackBox(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: b
     const lit = b.node(NODES.lampLit, bind(NODES.lampLit));
     lit.add(setFinish(part('bulb', transform(lens.clone(), aim([0, 0, 0], [0, 0, 1])), 'amber-glow'), 1));
     const un = b.node(NODES.lampUnlit, bind(NODES.lampUnlit));
-    un.add(part('glass', transform(lens.clone(), aim([0, 0, 0], [0, 0, 1])), 'amber', { shade: 0.35 }));
+    un.add(part('steel', transform(lens.clone(), aim([0, 0, 0], [0, 0, 1])), 'amber', { shade: 0.35 }));
   }
   // the conduit: cloth-covered, out of a gland in the box's side, down to the bench, off toward the switchboard
   {
@@ -785,9 +845,9 @@ function jackBox(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: b
     const gland = lathe(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.02, { fillet: 0.004, segs: 1 }).to(0.022, 0.03).to(0.022, 0.045).to(0, 0.045), { segs: 8, band: 0, caps: 'end' });
     b.add(brass(transform(gland, aim([gx, gy, gz], [-1, 0, 0])), seed + 159, 0.2));
     const pts: V3[] = [[gx - 0.04, gy, gz], [gx - 0.14, gy - 0.02, gz + 0.01], [gx - 0.2, 0.03, gz + 0.04], [gx - 0.34, 0.025, gz + 0.02], [gx - 0.55, 0.025, gz - 0.05], [gx - 0.72, 0.025, gz - 0.16]];
-    b.add(part('felt', sweep(polylinePath(pts, 0.08, hi ? 3 : 2), { radius: 0.022, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 160, shade: 2.2 }));
+    b.add(part('paper', sweep(polylinePath(pts, 0.08, hi ? 3 : 2), { radius: 0.022, segs: 6, ends: 'flat' }), 'ink', { seed: seed + 160, shade: 2.2 }));
     // a saddle strap holding it to the bench, two screws
-    b.small(() => part('metal', transform(box([-0.05, 0, -0.016], [0.05, 0.052, 0.016], 0.008, ['ny']), chain(T(gx - 0.42, 0, gz + 0.012), new Matrix4().makeRotationY(-0.2))), 'steel', { seed: seed + 161, shade: 0.8 }));
+    b.small(() => part('steel', transform(box([-0.05, 0, -0.016], [0.05, 0.052, 0.016], 0.008, ['ny']), chain(T(gx - 0.42, 0, gz + 0.012), new Matrix4().makeRotationY(-0.2))), 'steel', { seed: seed + 161, shade: 0.8 }));
   }
   void R;
 }
@@ -796,9 +856,7 @@ function jackBox(b: NodeBuilder, o: StorefrontBuild, R: Rng, seed: number, hi: b
 export const BUILD_DEFAULTS: Readonly<Omit<StorefrontBuild, 'seed' | 'detail'>> = {
   fascia: DEFAULTS.fascia,
   awning: DEFAULTS.awning,
-  words: '',
-  pictures: '',
-  plate: null,
+  atlas: '',
 };
 
 export { place, hexHead };
