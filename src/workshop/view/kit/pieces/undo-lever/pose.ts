@@ -14,8 +14,10 @@
  *             lever when the latch is squeezed (lifting the pin out of the
  *             quadrant's notch).
  *  - `spring` the return spring, from its anchor on the deck to the lug on
- *             the lever: aimed and stretched (scale along its local +X) to
- *             follow the lever. It loads visibly as the lever is pulled.
+ *             the lever, aimed at the lug (never scaled). Under it,
+ *             `spring.ring0`.. are its coils and `spring.end` its far hook,
+ *             moved apart along its local +X: the coils spread visibly as the
+ *             lever is pulled, and close up again at home.
  *  - `lamp.lit` / `lamp.unlit` (under `lamp`): the little amber lamp, lit
  *             while there is something to undo; posing swaps their scales.
  */
@@ -42,16 +44,19 @@ export const LEVER = {
   homeDeg: -24,
   /** Its travel to fully pulled, degrees (the top swings left). */
   travelDeg: 58,
-  /** Pivot to the top of the grip's cap, along the lever. */
-  length: 1.06,
-  /** The spring's lug: its distance along the lever from the pivot, and its z (behind the bar). */
+  /** Pivot to the top of the grip's ball finial, along the lever. */
+  length: 1.32,
+  /** The spring's lug: its distance along the lever from the pivot, and its z (behind the bars). */
   lugR: 0.3,
-  lugZ: -0.11,
+  lugZ: -0.145,
   /** The spring's anchor on the deck (root space). */
-  anchor: [0.5, 0.56, -0.11] as const,
+  anchor: [0.5, 0.56, -0.145] as const,
   /** The catch handle's squeeze, degrees, and the catch block's travel up the lever. */
-  latchDeg: 11,
+  latchDeg: 9,
   catchTravel: 0.035,
+  /** The spring's coils: how many rings, and how far the hooks reach in from each end. */
+  rings: 7,
+  hook: 0.06,
 } as const;
 
 /** Scale of a hidden twin (a lamp's unlit or lit body). */
@@ -76,13 +81,28 @@ export function springRestLength(): number {
   return lugAt(leverAngle(0)).distanceTo(a);
 }
 
-/** The spring node's transform (in root space) with the lever at `angle`: aimed at the lug, stretched along its local +X. */
+/** The spring's length (anchor to lug) with the lever at `angle`. */
+export function springLength(angle: number): number {
+  const a = new Vector3(...LEVER.anchor);
+  return lugAt(angle).distanceTo(a);
+}
+
+/**
+ * The spring node's transform (in root space) with the lever at `angle`: at the anchor, its local +X aimed
+ * at the lug. It is never stretched: its coils (`spring.ring<k>`) and far hook (`spring.end`) are moved
+ * apart along +X instead, so the turns SPREAD as the lever is pulled (`ringX`).
+ */
 export function springMatrix(angle: number): Matrix4 {
   const a = new Vector3(...LEVER.anchor);
   const d = lugAt(angle).sub(a);
-  const len = Math.hypot(d.x, d.y);
   const rot = Math.atan2(d.y, d.x);
-  return new Matrix4().makeTranslation(a.x, a.y, a.z).multiply(new Matrix4().makeRotationZ(rot)).multiply(new Matrix4().makeScale(len / springRestLength(), 1, 1));
+  return new Matrix4().makeTranslation(a.x, a.y, a.z).multiply(new Matrix4().makeRotationZ(rot));
+}
+
+/** Where coil `k` sits along the spring (its local +X) for a spring `len` long: evenly between the hooks. */
+export function ringX(k: number, len: number): number {
+  const n = LEVER.rings;
+  return LEVER.hook + ((len - 2 * LEVER.hook) * (k + 0.5)) / n;
 }
 
 /** Named poses for the catalogue (`?pose=`): what the view will show. */
@@ -111,13 +131,19 @@ function targets(pose: UndoPose, rest: (name: string) => Matrix4 | null): Map<st
   const ct = r('catch');
   if (ct) out.set('catch', ct.clone().multiply(new Matrix4().makeTranslation(LEVER.catchTravel * latch, 0, 0)));
   if (r('spring')) out.set('spring', springMatrix(leverAngle(pull)));
+  const len = springLength(leverAngle(pull));
+  for (let k = 0; k < LEVER.rings; k++) {
+    const rk = r(`spring.ring${k}`);
+    if (rk) out.set(`spring.ring${k}`, new Matrix4().makeTranslation(ringX(k, len), 0, 0).multiply(new Matrix4().extractRotation(rk)));
+  }
+  if (r('spring.end')) out.set('spring.end', new Matrix4().makeTranslation(len, 0, 0));
   const on = pose.lamp ?? false;
   if (r('lamp.lit')) out.set('lamp.lit', new Matrix4().makeScale(...(on ? [1, 1, 1] : [HIDDEN, HIDDEN, HIDDEN]) as [number, number, number]));
   if (r('lamp.unlit')) out.set('lamp.unlit', new Matrix4().makeScale(...(on ? [HIDDEN, HIDDEN, HIDDEN] : [1, 1, 1]) as [number, number, number]));
   return out;
 }
 
-const MOVING = ['lever', 'latch', 'catch', 'spring', 'lamp.lit', 'lamp.unlit'] as const;
+const MOVING: readonly string[] = ['lever', 'latch', 'catch', 'spring', 'spring.end', ...Array.from({ length: LEVER.rings }, (_, k) => `spring.ring${k}`), 'lamp.lit', 'lamp.unlit'];
 
 /**
  * Pose a realized UNDO lever (the Object3D `realize` made, or any ancestor of

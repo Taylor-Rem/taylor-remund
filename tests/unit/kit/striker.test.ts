@@ -68,7 +68,13 @@ describe('the striker', () => {
   it('has its moving nodes and its sockets', () => {
     const n = nodes(p);
     for (const name of ['arm', 'cam', 'follower', 'spring', 'lamp', 'lamp.lit', 'lamp.unlit']) expect(n.has(name), name).toBe(true);
-    for (const s of ['base', 'rail', 'hammer', 'grip', 'card', 'lamp']) expect(p.sockets?.[s], s).toBeDefined();
+    for (const s of ['base', 'rail', 'hammer', 'grip', 'lamp']) expect(p.sockets?.[s], s).toBeDefined();
+    // the card holder is an option, off by default
+    expect(p.sockets?.['card']).toBeUndefined();
+    const withCard = striker({ cardHolder: true });
+    expect(withCard.sockets?.['card']).toBeDefined();
+    expect(withCard.triangles).toBeGreaterThan(p.triangles);
+    expect(withCard.triangles).toBeLessThanOrEqual(CAP);
     // the lamp's lit body is the only bulb, built hidden
     expect(n.get('lamp.lit')!.parts.every((q) => q.material === 'bulb')).toBe(true);
     expect(n.get('lamp.unlit')!.parts.every((q) => q.material !== 'bulb')).toBe(true);
