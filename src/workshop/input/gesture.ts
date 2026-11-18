@@ -192,6 +192,8 @@ interface Turning {
   a: number;
   /** Px per detent (along mode). */
   px: number;
+  /** Where the hand has it now, 0..1 over its travel, between detents. */
+  v: number;
 }
 
 type Active =
@@ -277,13 +279,19 @@ export class Gestures {
     return this.holding?.key ? { at: this.holding.key.at, dest: this.holding.key.dest } : null;
   }
 
+  /** Is this pointer down, as far as the recogniser knows? */
+  hasPointer(id: number): boolean {
+    return this.ptrs.has(id);
+  }
+
   get state(): 'idle' | Active['k'] {
     return this.active?.k ?? 'idle';
   }
 
-  /** The handle being worked by a pointer right now, if any (for overlays and tests). */
-  get working(): Id | null {
-    return this.active?.k === 'press' ? this.active.id : null;
+  /** A dial or lever being dragged: its id and where the hand has it (0..1 over its travel, between detents); else null. */
+  get working(): { id: Id; value: number } | null {
+    const a = this.active;
+    return a?.k === 'press' && a.turn ? { id: a.id, value: a.turn.v } : null;
   }
 
   // ───────────────────────── pointer events ─────────────────────────
@@ -666,7 +674,7 @@ export class Gestures {
       }
     }
     const px = role === 'lever' ? Math.max(T.leverPx, (sc?.r ?? 0) * T.leverShare) : T.dialPx;
-    return { k0, n, k: k0, mode, cx: sc?.x ?? p.x0, cy: sc?.y ?? p.y0, steps: 0, a, px };
+    return { k0, n, k: k0, mode, cx: sc?.x ?? p.x0, cy: sc?.y ?? p.y0, steps: 0, a, px, v: k0 / (n - 1) };
   }
 
   private dragTurn(id: Id, tr: Turning, x: number, y: number, t: number): void {
@@ -684,6 +692,7 @@ export class Gestures {
       tr.steps = (x - p.x0) / tr.px;
     }
     const want = tr.k0 + tr.steps;
+    tr.v = Math.max(0, Math.min(1, want / (tr.n - 1)));
     // hysteresis: leave the current detent only once the drag is clearly past the halfway point
     let k = tr.k;
     if (want > k + 0.5 + this.tuning.hysteresis || want < k - 0.5 - this.tuning.hysteresis) k = Math.round(want);
@@ -800,11 +809,17 @@ export class Gestures {
     if (role === 'part' || role === 'unit' || role === 'plug') {
       const p = this.world.where?.(id);
       if (!p) return true;
+      // an arm that aims (the lamp) is taken where it points, as the pointer's grab takes it: no jump
+      const grip = this.world.gripFor?.(id, role, p) ?? p;
+      const aims = grip !== p;
       this.take(id, role, p, { id: -1, kind: 'mouse', x: NaN, y: NaN, t }, true);
       const held = this.holding as Holding | null;
       if (held) {
         held.tap = true;
-        held.key = { at: role === 'plug' ? [p[0], p[1], p[2] + 0.22] : [p[0], p[1] + this.tuning.keyLift, p[2]], dest: null };
+        held.key = {
+          at: aims ? [grip[0], grip[1] + this.tuning.keyLift, grip[2]] : role === 'plug' ? [p[0], p[1], p[2] + 0.22] : [p[0], p[1] + this.tuning.keyLift, p[2]],
+          dest: null,
+        };
         this.intent({ type: 'carry', target: held.key.at }, t);
       }
       return true;

@@ -31,6 +31,8 @@ export interface Materials {
 export interface EffectMaterials {
   /** The shared soft contact-shadow decal (tinted toward teal-deep; per-instance strength in the instance colour's red). */
   decal(): import('three').Material;
+  /** The keyboard focus mark: unlit paper, drawn over everything, never lit or shadowed (view/stations/focus.ts). */
+  focusMark(): import('three').Material;
 }
 
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
@@ -129,6 +131,8 @@ export interface ViewContext {
    * bone has no meshes; a shade is smaller than its lamp), `pad` grows it (world units).
    */
   pickable(id: Id, object: Object3D, opts?: import('./picking.ts').PickableOptions): void;
+  /** A pick target's box in world space (padded as it picks), into `out`; null if `id` has none. For marks drawn round targets. */
+  targetBox?(id: Id, out: import('three').Box3): import('three').Box3 | null;
 }
 
 /** One frame's worth of what a view may read. */
@@ -147,6 +151,18 @@ export interface Frame {
   /** What the pointer is over, and what is being carried. */
   readonly hovered: Id | null;
   readonly held: Id | null;
+  /**
+   * Keyboard focus on the stage (an interactable, or the phone's pick target), or null. The focus view
+   * marks it (view/stations/focus.ts); a station need draw nothing for it.
+   */
+  readonly focused: Id | null;
+  /** While the keys hold something: the destination they have chosen (a mouth or a jack), or null. */
+  readonly keyDest: Id | null;
+  /**
+   * A dial or lever being dragged: its id and where the hand has it, 0..1 over its travel, between
+   * detents (the world holds only the detent; the handle may follow the hand and fall into it). Else null.
+   */
+  readonly working: { readonly id: Id; readonly value: number } | null;
 }
 
 /** One view per station (and one per character). */

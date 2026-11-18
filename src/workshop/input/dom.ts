@@ -178,6 +178,30 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
     gestures.blur(e.timeStamp);
     flush();
   };
+  /**
+   * A release must never be lost. The pointer is captured on press, so its `pointerup` comes to the canvas;
+   * but capture can be taken away mid-drag (a system gesture, a screenshot, a devtools pause), and then the
+   * up goes to whatever is under the pointer, or nowhere. So: an up or cancel anywhere in the window for a
+   * pointer the recogniser still holds is handled as the canvas's; and capture lost while the pointer is
+   * still down (no up came first) lets go where the pointer last was.
+   */
+  const onWindowUp = (e: PointerEvent): void => {
+    if (e.target === canvas || !gestures.hasPointer(e.pointerId)) return;
+    if (e.type === 'pointercancel') onCancel(e);
+    else onUp(e);
+  };
+  const onWindowMove = (e: PointerEvent): void => {
+    if (e.target !== canvas && gestures.hasPointer(e.pointerId)) onMove(e);
+  };
+  const onLostCapture = (e: PointerEvent): void => {
+    if (!gestures.hasPointer(e.pointerId)) return; // the usual order: the up came first
+    const r = canvas.getBoundingClientRect();
+    const last = pointer ?? { x: e.clientX - r.left, y: e.clientY - r.top };
+    // still pressed (the capture was taken, not the button let go): the gesture goes on outside the canvas
+    if ((e.buttons & 1) === 1 && e.pointerType === 'mouse') return;
+    gestures.up({ id: e.pointerId, kind: kindOf(e), x: last.x, y: last.y, t: e.timeStamp });
+    flush();
+  };
   const onContext = (e: Event): void => e.preventDefault();
   const onWindowBlur = (): void => {
     // the window lost focus mid-gesture: every pointer is cancelled
@@ -192,6 +216,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', onContext);
+  canvas.addEventListener('lostpointercapture', onLostCapture);
+  window.addEventListener('pointerup', onWindowUp, true);
+  window.addEventListener('pointermove', onWindowMove, true);
+  window.addEventListener('pointercancel', onWindowUp, true);
   canvas.addEventListener('focus', onFocus);
   canvas.addEventListener('blur', onBlur);
   window.addEventListener('keydown', onKey);
@@ -213,6 +241,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', onContext);
+      canvas.removeEventListener('lostpointercapture', onLostCapture);
+      window.removeEventListener('pointerup', onWindowUp, true);
+      window.removeEventListener('pointermove', onWindowMove, true);
+      window.removeEventListener('pointercancel', onWindowUp, true);
       canvas.removeEventListener('focus', onFocus);
       canvas.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);

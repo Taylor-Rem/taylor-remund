@@ -85,6 +85,11 @@ export interface WorkshopMaterials extends Materials {
    * instance colour's red channel. Shared; one per materials instance.
    */
   decal(): MeshBasicMaterial;
+  /**
+   * The keyboard focus mark (view/stations/focus.ts): unlit `paper`, drawn after and over everything
+   * (no depth test), not fogged, not tone-mapped away, vertex colour carrying each mark's weight. Shared.
+   */
+  focusMark(): MeshBasicMaterial;
 }
 
 type Pbr = MeshStandardMaterial | MeshPhysicalMaterial;
@@ -239,6 +244,20 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   return mat;
 }
 
+/** The focus mark: see WorkshopMaterials.focusMark. */
+function buildFocusMark(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial();
+  m.name = 'workshop/focus-mark';
+  m.color.copy(tok('paper'));
+  m.vertexColors = true;
+  m.transparent = true;
+  m.depthTest = false;
+  m.depthWrite = false;
+  m.fog = false;
+  m.toneMapped = false;
+  return m;
+}
+
 /** The blob-shadow decal: see WorkshopMaterials.decal. */
 function buildDecal(): MeshBasicMaterial {
   const m = new MeshBasicMaterial();
@@ -286,6 +305,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const sh: Shared = { tier, noise: { value: createNoiseTexture() }, debug: opts.debug, debugUniforms: debugUniforms() };
   const noise = sh.noise;
   let decal: MeshBasicMaterial | undefined;
+  let focusMark: MeshBasicMaterial | undefined;
   let labels: Labels | undefined = opts.labels;
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
@@ -322,6 +342,10 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     decal() {
       decal ??= buildDecal();
       return decal;
+    },
+    focusMark() {
+      focusMark ??= buildFocusMark();
+      return focusMark;
     },
     of,
     textured(cls, key) {
@@ -368,6 +392,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       noise.value.dispose();
       decal?.dispose();
       decal = undefined;
+      focusMark?.dispose();
+      focusMark = undefined;
     },
   };
   return api;
