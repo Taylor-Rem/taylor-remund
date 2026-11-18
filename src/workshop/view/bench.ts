@@ -37,7 +37,8 @@ import { ROOM } from './kit/pieces/room/index.ts';
 import { WINDOW } from './kit/pieces/window/index.ts';
 import { JACKS, STOOL_SEAT } from './kit/pieces/switchboard/index.ts';
 import { flatten, placedMatrix } from './stations/set.ts';
-import { fitPieces, measured, type Fit } from './vignette.ts';
+import { fitPieces, measured, measureEntry, socketsPiece, type Fit, type Measure } from './vignette.ts';
+import { loadBakeTable, measured as tableMeasured, measureOnly } from './kit/bake.ts';
 import { site } from '../../content/site.ts';
 import type { BenchKit, BenchStation } from './bench/station.ts';
 
@@ -368,13 +369,18 @@ async function pieceModule(folder: string): Promise<Module | null> {
 export async function loadBench(o: BenchOptions): Promise<Bench> {
   const scene = o.scene;
   const seed = o.seed ?? 1;
+  // the bake table downloads while the piece modules load (K1: kit/bake.ts)
+  const table = loadBakeTable();
   const { entries } = await listPieces();
   const find = (name: string): Entry | undefined => entries.find((e) => e.name === name);
-  const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Piece | null => (e ? buildEntry(e, null, { seed, ...opts }) : null);
+  // sizes and sockets of the blank pieces: recorded in the bake table, else measuring builds (no bake)
+  await table;
+  const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Measure | null => (e ? measureEntry(e, { seed, ...opts }) : null);
   const S = LAYOUT.stations;
 
   // the pieces fitted to the scene's bodies: the board's jacks and cord root, the stool's seat, the phone, the belt
-  const fit = fitPieces(scene, { board: blank(find('switchboard'), { jacks: JACKS }), stool: blank(find('stool'), { seatY: STOOL_SEAT }), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength, line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+  const beltMeasure = blank(find('belt'), { length: LAYOUT.beltLength, line: true });
+  const fit = fitPieces(scene, { board: blank(find('switchboard'), { jacks: JACKS }), stool: blank(find('stool'), { seatY: STOOL_SEAT }), phone: blank(find('phone')), belt: beltMeasure }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
   // the stool stands on the board's runner
   fit.stool.at = { ...fit.stool.at, y: S.stool.y };
   fit.stool.seat = [fit.stool.seat[0], fit.stool.seat[1] + S.stool.y, fit.stool.seat[2]];
@@ -386,22 +392,29 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const meas = measured(scene, fit);
 
   // the page's read-outs: Fetch's and Patch's bounds, the belt's control plates
-  const fetchPiece = blank(find('fetch-porter'));
-  const fetchBounds = fetchPiece ? pieceBounds(fetchPiece) : null;
-  const fetchBodyBounds = fetchPiece ? partsBounds(flatten([{ piece: fetchPiece, at: new Matrix4(), skip: new Set(['aerial']) }])) : null;
-  const patchPiece = blank(find('patch-felt'), { standIn: false });
-  const patchBounds = patchPiece ? pieceBounds(patchPiece) : null;
+  const fetchEntry = find('fetch-porter');
+  const fetchBoxes = fetchEntry
+    ? tableMeasured(`bench|fetch-bounds|${seed}`, () => {
+        const p = measureOnly(() => buildEntry(fetchEntry, null, { seed }));
+        const b = pieceBounds(p), body = partsBounds(flatten([{ piece: p, at: new Matrix4(), skip: new Set(['aerial']) }]));
+        return [...b.min.toArray(), ...b.max.toArray(), ...body.min.toArray(), ...body.max.toArray()];
+      })
+    : null;
+  const boxAt = (a: readonly number[], i: number): Box3 => new Box3(new Vector3().fromArray(a, i), new Vector3().fromArray(a, i + 3));
+  const fetchBounds = fetchBoxes ? boxAt(fetchBoxes, 0) : null;
+  const fetchBodyBounds = fetchBoxes ? boxAt(fetchBoxes, 6) : null;
+  const patchMeasure = blank(find('patch-felt'), { standIn: false });
+  const patchBounds = patchMeasure ? patchMeasure.bounds.clone() : null;
   const crewScale = o.crewScale ?? CREW_SCALE;
-  const beltPiece = blank(find('belt'), { length: LAYOUT.beltLength, line: true });
   const beltAt = placedMatrix(fit.belt.at);
-  const sock = (n: string): Matrix4 | null => (beltPiece?.sockets?.[n] ? beltAt.clone().multiply(beltPiece.sockets[n]!) : null);
+  const sock = (n: string): Matrix4 | null => (beltMeasure?.sockets[n] ? beltAt.clone().multiply(beltMeasure.sockets[n]) : null);
   const handles = { dial: sock('dial'), lever: sock('lever') };
 
   // the key light, from the real lamp clamped at its spot
   type KeyLight = (p: Piece, place: Vec3) => { position: Vec3; aim: Vec3 };
   const keyLight = (await pieceModule('lamp'))?.['keyLight'] as KeyLight | undefined;
-  const lampPiece = blank(find('lamp'));
-  const k0 = keyLight && lampPiece ? keyLight(lampPiece, [S.lamp.x, 0, S.lamp.z]) : null;
+  const lampMeasure = blank(find('lamp'));
+  const k0 = keyLight && lampMeasure ? keyLight(socketsPiece('lamp', lampMeasure), [S.lamp.x, 0, S.lamp.z]) : null;
   const bulb = k0 ? { at: k0.position, aim: k0.aim } : null;
 
   let worldRef: Frame['world'] | null = null;
