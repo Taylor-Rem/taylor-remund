@@ -5,7 +5,7 @@ import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { Piece, PieceNode } from '../../../src/workshop/view/kit/types.ts';
 import {
-  BOARD, catalogue, cordGeometry, cordPlug, JACKS, NAMED_POSES, PLUG, POSE, poseSwitchboard, SEAT_Y, stool, switchboard, updateCord,
+  BOARD, catalogue, cordGeometry, cordPlug, estimateLabels, JACKS, NAMED_POSES, PLUG, POSE, poseSwitchboard, SEAT_Y, stool, switchboard, updateCord,
 } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
 import { vignette } from '../../../src/workshop/sim/scenes/vignette.ts';
 
@@ -83,12 +83,17 @@ describe('the switchboard', () => {
     expect(p.size.y).toBeLessThan(3.2);
   });
 
-  it('puts the jacks where a seated raccoon reaches them, above their tape, the cord root on the keyshelf', () => {
+  it('puts the jacks low, just above the keyshelf, each under its own tape with a clear margin', () => {
+    const est = estimateLabels();
     for (const j of JACKS) {
       const jp = pos(p.sockets![`jack.${j}`]!), lp = pos(p.sockets![`label.${j}`]!);
-      // Patch's reach paw comes up to about SEAT_Y + 0.41 (patch-toy rig); the jack's escutcheon spans ±0.175
-      expect(Math.abs(jp.y - (SEAT_Y + 0.41))).toBeLessThan(0.12);
-      expect(lp.y).toBeLessThan(jp.y - 0.25);
+      // the jack's escutcheon (r 0.175) clears the keyshelf's sill
+      expect(jp.y - 0.175).toBeGreaterThan(BOARD.shelfY + 0.08);
+      expect(jp.y).toBeLessThan(BOARD.tapeY);
+      // the tape is over the jack, its bottom edge clear of the escutcheon and of the lamp's bezel
+      expect(lp.y - est.tape[j].h / 2 - (jp.y + 0.175)).toBeGreaterThan(0.05);
+      // and at the same x as its jack pair
+      expect(Math.abs(lp.x - (BOARD.jackX[j] + BOARD.lampDX / 2))).toBeLessThan(0.1);
       expect(jp.z).toBeGreaterThan(0);
     }
     const r = pos(p.sockets!['cord.root']!);
@@ -234,7 +239,7 @@ describe('the plug and the cord', () => {
 });
 
 describe('Patch on the stool, at the board', () => {
-  it("Patch's reach paw comes up to the live jacks' height from the seat socket", async () => {
+  it("Patch's reach paw from the seat socket gets at least as high as the live jacks", async () => {
     const { patchToy, posePatch, SIT_YAW } = await import('../../../src/workshop/view/kit/pieces/patch-toy/index.ts');
     const s = stool();
     const o: Object3D = K.realize(patchToy({}), stub);
@@ -243,6 +248,7 @@ describe('Patch on the stool, at the board', () => {
     posePatch(o, { arms: 'reach' });
     o.updateMatrixWorld(true);
     const paw = o.getObjectByName('pawL')!.getWorldPosition(new Vector3());
-    expect(Math.abs(paw.y - BOARD.jackY)).toBeLessThan(0.1);
+    // the jacks are low now (under their tapes); the staging lowers the paw to them with a lean
+    expect(paw.y).toBeGreaterThan(BOARD.jackY);
   });
 });
