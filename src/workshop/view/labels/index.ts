@@ -79,6 +79,10 @@ export const labelStats = {
   byRegister: {} as Record<string, { ms: number; count: number }>,
   /** performance.now() when the last start-up label landed (ready). */
   readyAt: 0,
+  /** Per worker job: when it was asked for, its painting time in the worker, when it landed (performance.now() ms). */
+  trace: [] as Array<{ label: string; texels: number; asked: number; paintMs: number; landed: number }>,
+  /** When each worker had its faces. */
+  workersReady: [] as number[],
   /** Of `ms`: planning (text metrics, layout) and placing painted pixels on the atlas. */
   planMs: 0,
   landMs: 0,
@@ -200,16 +204,23 @@ const query = (): URLSearchParams => new URLSearchParams((globalThis as { locati
 
 /** Load the fonts (rejects loudly if any is missing), then return the label factory. */
 export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLabels> {
-  await loadFonts(opts.fontBase);
-  const anisotropy = opts.anisotropy ?? 8;
-  const seed = opts.seed ?? 'labels';
   const q = query();
-  const useAtlas = q.get('labelAtlas') === '0' ? false : (opts.atlas ?? true);
   const wq = q.get('labelWorkers');
   const want = wq !== null ? Number(wq) : opts.workers === true ? 4 : opts.workers || 0;
   const cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 2;
   const nWorkers = typeof Worker !== 'undefined' && want > 0 ? Math.max(1, Math.min(want, cores - 1)) : 0;
-  let pool: Pool | null = nWorkers > 0 ? new Pool(nWorkers, opts.fontBase ?? '/fonts/', fontBytes()) : null;
+  // the workers start now (their script loads while the faces do), and are waited for before the
+  // views are built: once the main thread is busy building, a worker that is still starting waits
+  // for it (measured: workers that started during the views came up only when the views were done)
+  let pool: Pool | null = nWorkers > 0 ? new Pool(nWorkers) : null;
+  await loadFonts(opts.fontBase);
+  if (pool) {
+    pool.init(opts.fontBase ?? '/fonts/', fontBytes());
+    await Promise.race([pool.ready(), new Promise<void>((r) => setTimeout(r, 1500))]);
+  }
+  const anisotropy = opts.anisotropy ?? 8;
+  const seed = opts.seed ?? 'labels';
+  const useAtlas = q.get('labelAtlas') === '0' ? false : (opts.atlas ?? true);
   const pending = new Set<Promise<void>>();
   let sealed = false;
 
@@ -312,6 +323,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
             (p) => {
               labelStats.workerMs += clock() - tw;
               land(p);
+              labelStats.trace.push({ label: `${register}|${text}`, texels: plan.px.w * plan.px.h, asked: Math.round(tw), paintMs: Math.round((p as { paintMs?: number }).paintMs ?? 0), landed: Math.round(clock()) });
             },
             () => {
               // no worker, or it failed: paint it here, exactly as it would have been
@@ -499,6 +511,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
     }
     if (!pool) return;
     Object.assign(labelStats.workerPaint, pool.spent);
+    labelStats.workersReady.push(...pool.readyAt.map(Math.round));
     pool.dispose();
     pool = null;
     labelStats.readyAt = clock();

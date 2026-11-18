@@ -25,7 +25,11 @@ export class Pool {
   private next = 1;
   private waiting = new Map<number, { slot: Slot; texels: number; register: string; resolve: (p: PaintedJob) => void; reject: (e: Error) => void }>();
 
-  constructor(n: number, fontBase: string, fonts: ReadonlyMap<string, ArrayBuffer> = new Map()) {
+  private answered = 0;
+  private onAnswered: Array<() => void> = [];
+
+  /** Start `n` workers (their scripts load meanwhile); `init` hands them the faces. */
+  constructor(n: number) {
     for (let i = 0; i < n; i++) {
       let worker: Worker;
       try {
@@ -36,16 +40,35 @@ export class Pool {
       const slot: Slot = { worker, queued: 0, dead: false };
       worker.onmessage = (e: MessageEvent) => this.answer(slot, e.data as Answer);
       worker.onerror = () => this.kill(slot, 'worker error');
-      const files = Object.fromEntries([...fonts].map(([family, b]) => [family, b.slice(0)]));
-      worker.postMessage({ type: 'init', base: new URL(fontBase, globalThis.location?.href).href, files }, Object.values(files));
       this.slots.push(slot);
     }
+  }
+
+  /** Give every worker the faces (bytes from the main thread, else their URLs). */
+  init(fontBase: string, fonts: ReadonlyMap<string, ArrayBuffer>): void {
+    for (const slot of this.slots) {
+      const files = Object.fromEntries([...fonts].map(([family, b]) => [family, b.slice(0)]));
+      slot.worker.postMessage({ type: 'init', base: new URL(fontBase, globalThis.location?.href).href, files }, Object.values(files));
+    }
+  }
+
+  /** Resolves when every worker has said it is ready (or failed). */
+  ready(): Promise<void> {
+    if (this.answered >= this.slots.length) return Promise.resolve();
+    return new Promise((r) => this.onAnswered.push(r));
+  }
+
+  private settle(): void {
+    this.answered++;
+    if (this.answered >= this.slots.length) for (const r of this.onAnswered.splice(0)) r();
   }
 
   get size(): number {
     return this.slots.filter((s) => !s.dead).length;
   }
 
+  /** When each worker had its faces (performance.now()). */
+  readonly readyAt: number[] = [];
   /** Painting time spent in the workers, per register (ms). */
   readonly spent: Record<string, number> = {};
 
@@ -63,9 +86,14 @@ export class Pool {
   }
 
   private answer(slot: Slot, m: Answer): void {
-    if (m.type === 'ready') return;
+    if (m.type === 'ready') {
+      this.readyAt.push(performance.now());
+      this.settle();
+      return;
+    }
     if (m.type === 'failed') {
       this.kill(slot, m.error);
+      this.settle();
       return;
     }
     const w = this.waiting.get(m.id);
@@ -74,7 +102,7 @@ export class Pool {
     slot.queued -= w.texels;
     if (m.type === 'done') {
       this.spent[w.register] = (this.spent[w.register] ?? 0) + m.ms;
-      w.resolve(m.painted);
+      w.resolve(Object.assign(m.painted, { paintMs: m.ms }));
     }
     else w.reject(new Error(m.error));
   }
