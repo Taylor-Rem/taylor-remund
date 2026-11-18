@@ -637,6 +637,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       let bw = goal.brow ?? 0;
       const browRoll = goal.browRoll ?? 0;
       let gx = goal.gaze?.[0] ?? 0, gy = goal.gaze?.[1] ?? 0;
+      if (rv.state === 'sinking') {
+        // going down: the lids sag shut as it goes, the eyes on the visitor to the last
+        const k = Math.min(1, rv.stateTime / 0.6);
+        l0 = l1 = 0.62 + 0.3 * k;
+        bw = 0.4;
+      }
       b.updateWorldMatrix(true, false);
       tmpV2.set(0, 0.6, 0).applyMatrix4(b.matrixWorld);
       if (eyes === 'glare' || eyes === 'flat' || eyes === 'open') {
