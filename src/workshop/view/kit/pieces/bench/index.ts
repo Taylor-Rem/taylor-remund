@@ -53,6 +53,8 @@ export interface BenchSectionOptions extends KitOptions {
   apron?: number;
   /** Mending plates at the section's ends (default none): where it meets its neighbours. */
   joints?: { left?: boolean; right?: boolean };
+  /** Holes through the top, in the piece's own space (default none: Revert's hatch stands in one). */
+  openings?: readonly BenchHole[];
 }
 
 const NOSE_R = 0.15; // the worn, rounded front edge
@@ -160,6 +162,64 @@ interface TopOptions {
   joints: number[];
   /** Plates also at the outer ends (a lone section showing where its neighbours bolt on). */
   endPlates?: { left?: boolean; right?: boolean };
+  /** Holes through the top (see `BenchHole`). */
+  holes?: readonly BenchHole[];
+}
+
+/**
+ * A rectangular hole through the bench top, in bench space (x across, z toward the visitor):
+ * Revert's hatch rises through one. Boards are cut at its edges; the cut faces inside it are
+ * dark; whatever stands in it (the hatch's frame) overlaps the cut, so it needs no trim.
+ * Not through the nose plank or the apron (the front row of boards).
+ */
+export interface BenchHole {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+/** The hole for something w x d standing centred at (x, z) on the bench (Revert's hatch: its OPENING times its scale). */
+export function benchHole(x: number, z: number, w: number, d: number): BenchHole {
+  return { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 };
+}
+
+/** Cut the box [xa, xb] x [za, zb] round the holes: the pieces that are left (plan rectangles). */
+function cutRound(xa: number, xb: number, za: number, zb: number, holes: readonly BenchHole[]): Array<[number, number, number, number]> {
+  let cells: Array<[number, number, number, number]> = [[xa, xb, za, zb]];
+  for (const h of holes) {
+    const next: Array<[number, number, number, number]> = [];
+    for (const [a, b2, c, d] of cells) {
+      if (h.x1 <= a || h.x0 >= b2 || h.z1 <= c || h.z0 >= d) {
+        next.push([a, b2, c, d]);
+        continue;
+      }
+      // full depth either side of the hole; behind and in front of it across the hole's width
+      if (h.x0 > a) next.push([a, h.x0, c, d]);
+      if (h.x1 < b2) next.push([h.x1, b2, c, d]);
+      const ma = Math.max(a, h.x0), mb = Math.min(b2, h.x1);
+      if (h.z0 > c) next.push([ma, mb, c, h.z0]);
+      if (h.z1 < d) next.push([ma, mb, h.z1, d]);
+    }
+    cells = next;
+  }
+  return cells.filter(([a, b2, c, d]) => b2 - a > 0.005 && d - c > 0.005);
+}
+
+/** Darken the faces of a cut board that stand at a hole's edge, below the top (the hole's inside). */
+function darkInside(g: BufferGeometry, holes: readonly BenchHole[]): void {
+  const pos = g.getAttribute('position'), sf = g.getAttribute(ATTR.surf);
+  const e = 1e-4;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (y > -0.004) continue;
+    for (const h of holes) {
+      const onX = (Math.abs(x - h.x0) < e || Math.abs(x - h.x1) < e) && z >= h.z0 - e && z <= h.z1 + e;
+      const onZ = (Math.abs(z - h.z0) < e || Math.abs(z - h.z1) < e) && x >= h.x0 - e && x <= h.x1 + e;
+      if (onX || onZ) sf.setY(i, 1);
+    }
+  }
+  sf.needsUpdate = true;
 }
 
 /**
@@ -228,8 +288,19 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
         const xa = xs[k]! + (k > 0 ? seam : 0), xb = xs[k + 1]! - (k < xs.length - 2 ? seam : 0);
         // the odd board has shrunk or settled a hair below its neighbours (never above the plane y = 0)
         const y = R() < 0.3 ? -R.range(0.0015, 0.004) : 0;
-        const g = bevelBox({ min: [xa, -T + y, za], max: [xb, y, zb], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
-        boards.push({ g, tone: tone(), xa, xb, za, zb, y });
+        const holes = o.holes ?? [];
+        if (!holes.length) {
+          const g = bevelBox({ min: [xa, -T + y, za], max: [xb, y, zb], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
+          boards.push({ g, tone: tone(), xa, xb, za, zb, y });
+        } else {
+          // one board, cut round the holes: its pieces keep its tone
+          const tn = tone();
+          for (const [ca, cb, cc, cd] of cutRound(xa, xb, za, zb, holes)) {
+            const g = bevelBox({ min: [ca, -T + y, cc], max: [cb, y, cd], c: low ? 0.008 : 0.012, omit: ['ny'], wear: 0.7 });
+            darkInside(g, holes);
+            boards.push({ g, tone: tn, xa: ca, xb: cb, za: cc, zb: cd, y });
+          }
+        }
       }
     }
     z = zb + gap;
@@ -262,15 +333,19 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
     b.add(large({ material: 'wood', geometry: g }));
   }
   const topAt = (x: number, zz: number): number => boards.find((q) => x >= q.xa && x <= q.xb && zz >= q.za && zz <= q.zb)?.y ?? 0;
+  const overHole = (x: number, zz: number, r = 0): boolean => (o.holes ?? []).some((h) => x > h.x0 - r && x < h.x1 + r && zz > h.z0 - r && zz < h.z1 + r);
   for (const d of marks.drips) {
+    if (overHole(d.x, d.z, d.r * d.long)) continue;
     const g = setFinish(blob(d.x, d.z, d.r * d.long, d.r, d.rot, low ? 6 : 9, topAt(d.x, d.z) + 0.0016, R), 1);
     b.add(large(part('wood', g, d.token, { seed: R.int(0, 1e6), jitter: 0.04 }))); // the large path dries paint duller, like the boards it sits on
   }
   for (const l of marks.lines) {
+    if (overHole(l.x, l.z, l.len / 2)) continue;
     const g = blob(l.x, l.z, l.len / 2, 0.0032, l.rot, 6, topAt(l.x, l.z) + 0.0014, R, 0.04);
     b.add(part('metal', g, 'ink', { seed: R.int(0, 1e6), shade: 1.6, jitter: 0.1 })); // graphite: a dull sheen
   }
   for (const t of marks.residue) {
+    if (overHole(t.x, t.z, t.len / 2)) continue;
     const g = blob(t.x, t.z, t.len / 2, t.w / 2, t.rot, 14, topAt(t.x, t.z) + 0.0013, R, 0.12);
     b.add(part('paper', g, 'paper', { seed: R.int(0, 1e6), shade: 0.16, warm: 0.15 })); // old, yellowed, dirty
   }
@@ -285,6 +360,7 @@ function addTop(b: NodeBuilder, R: Rng, o: TopOptions): void {
         for (const f of [0.24, 0.76]) {
           if (R() < 0.12) continue; // pulled, or never driven
           const at: [number, number, number] = [bx + R.spread(0.03), bd.y, bd.za + w * f + R.spread(0.04)];
+          if (overHole(at[0], at[2], 0.06)) continue; // in the hole, or under whatever stands in it
           const s = nailHead(0.016, 0.0045);
           b.add(part('metal', transform(s, aim(at, [0, 1, 0], R.range(0, 72))), 'steel', { seed: R.int(0, 1e6), shade: 0.45, jitter: 0.15 }));
         }
@@ -321,7 +397,7 @@ export function benchSection(o: BenchSectionOptions = {}): Piece {
   const detail = o.detail ?? 'high';
   const width = o.width ?? 5, depth = o.depth ?? 10;
   const b = piece('bench-section', { detail, seed, ao: { distance: 0.25 } });
-  addTop(b, rng(seed), { x0: -width / 2, x1: width / 2, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: [], endPlates: o.joints ?? {} });
+  addTop(b, rng(seed), { x0: -width / 2, x1: width / 2, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: [], endPlates: o.joints ?? {}, ...(o.openings?.length ? { holes: o.openings } : {}) });
   return b.build();
 }
 
@@ -338,7 +414,7 @@ export function bench(o: BenchOptions = {}): Piece {
   const width = o.width ?? 5, depth = o.depth ?? 10;
   const b = piece('bench', { detail, seed, ao: { distance: 0.25 } });
   const x0 = -(n * width) / 2;
-  addTop(b, rng(seed), { x0, x1: -x0, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: Array.from({ length: n - 1 }, (_, i) => x0 + (i + 1) * width) });
+  addTop(b, rng(seed), { x0, x1: -x0, depth, thickness: o.thickness ?? 0.36, apron: o.apron ?? 0.75, detail, joints: Array.from({ length: n - 1 }, (_, i) => x0 + (i + 1) * width), ...(o.openings?.length ? { holes: o.openings } : {}) });
   return b.build();
 }
 
@@ -642,7 +718,14 @@ export const SAMPLE_TAPE: ReadonlyArray<readonly [number, number]> = [[-2, -1.2]
 export const catalogue: CatalogueEntry[] = [
   {
     name: 'bench',
-    build: (opts = {}) => bench({ ...kit(opts), sections: num(opts['sections'], 3), width: num(opts['width'], 6.5), depth: num(opts['depth'], 10) }),
+    build: (opts = {}) =>
+      bench({
+        ...kit(opts),
+        sections: num(opts['sections'], 3),
+        width: num(opts['width'], 6.5),
+        depth: num(opts['depth'], 10),
+        ...(Array.isArray(opts['openings']) ? { openings: opts['openings'] as BenchHole[] } : {}),
+      }),
     variants: { 'three sections': {}, 'one section': { sections: 1, width: 5 }, low: { detail: 'low' } },
     camera: { distance: 16 },
     note: 'Three bolted bench sections (x ±9.75, joints off-centre): wide planks, worn rounded nose, apron falling into the dark. Top at y = 0.',

@@ -15,7 +15,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type { PieceNode } from '../../types.ts';
-import { YAW_IDLE, YAW_OVER } from './dims.ts';
+import { PLATEN, YAW_IDLE, YAW_OVER } from './dims.ts';
 
 export interface PlatenPose {
   /** 0 parked over the drip pot .. 1 over the middle of the tray. */
@@ -24,9 +24,9 @@ export interface PlatenPose {
   dip?: number;
   /** The tray's turn, radians (positive turns anticlockwise seen from above). */
   tray?: number;
-  /** The tape head's ram: 0 back .. 1 run out against the part. */
+  /** The tape head's ram: 0 up .. 1 roller down on the part's top front edge. */
   press?: number;
-  /** The strip of tape out of the head's roller: 0 none .. 1 a whole label's length. */
+  /** The label: 0 none .. 1 laid. The carriage runs left to right and the strip on the part grows behind the roller; undo runs it back and the strip peels off. */
   tape?: number;
   /** The paint stream out of the nozzle tip: 0 none .. 1 down to the part. Shortens toward the tip. */
   flow?: number;
@@ -48,8 +48,8 @@ export const POSE = {
   dipDeg: 0,
   /** How far the arm rides down its column at dip 1, world units. */
   dipDrop: 0.7,
-  /** How far the tape head's ram runs out at press 1, world units (toward the tray, along +X). */
-  pressTravel: 0.4,
+  /** How far the tape head's ram drops the roller at press 1, world units. */
+  pressTravel: 0.28,
   /** The gauge needle's sweep, degrees either side of straight up. */
   gaugeSweepDeg: 120,
 };
@@ -71,7 +71,7 @@ export const NAMED_POSES: Readonly<Record<string, PlatenPose>> = {
   /** Dipped and painting: the stream runs, the tube's level is falling, the tray part way round. */
   dipping: { swing: 1, dip: 1, flow: 1, level: 0.55, tray: 0.9, lamp: 1, pressure: 0.7, wheel: 1.4 },
   /** The arm has lifted back; the tape head is in, laying the label. */
-  pressing: { swing: 1, dip: 0.15, press: 1, tape: 1, level: 0.55, tray: Math.PI / 2, lamp: 1, pressure: 0.55, wheel: 1.4 },
+  pressing: { swing: 1, dip: 1, press: 1, tape: 0.6, level: 0.55, tray: 0, lamp: 1, pressure: 0.55, wheel: 1.4 },
   /** Undo, half way: the stream is drawn up toward the tip and the tube is refilling. */
   draining: { swing: 1, dip: 0.85, flow: 0.4, level: 0.7, tray: 0.5, lamp: 1, pressure: 0.4, wheel: 0.7 },
 };
@@ -109,11 +109,19 @@ export function localFor(name: string, rest: Matrix4, pose: Required<PlatenPose>
       q.multiply(q1.setFromAxisAngle(Y, pose.tray));
       break;
     case 'tapehead':
-      p.x += POSE.pressTravel * clamp01(pose.press);
+      // the carriage runs along the beam as the tape goes on
+      p.x += (PLATEN.labelHead.end - PLATEN.labelHead.start) * clamp01(pose.tape);
       break;
-    case 'tapehead.tape': {
+    case 'tapehead.ram':
+      p.y -= POSE.pressTravel * clamp01(pose.press);
+      break;
+    case 'tapehead.reel':
+      // the reel turns as tape pays out (its axis is the node's +Y)
+      q.multiply(q1.setFromAxisAngle(Y, -clamp01(pose.tape) * ((PLATEN.labelHead.end - PLATEN.labelHead.start) / 0.075)));
+      break;
+    case 'label.strip': {
       const t = clamp01(pose.tape);
-      s.set(t > 0.001 ? 1 : HIDDEN, t > 0.001 ? 1 : HIDDEN, Math.max(HIDDEN, t));
+      s.set(Math.max(HIDDEN, t), t > 0.001 ? 1 : HIDDEN, t > 0.001 ? 1 : HIDDEN);
       break;
     }
     case 'nozzle.paint': {
