@@ -38,9 +38,61 @@ export function desaturate(a: RGB, t: number): RGB {
 
 const tok = (t: Token): RGB => linear(t);
 
-/** A light colour for the lamp when the simulation recolours it (setLamp colour), lightened like the key. */
+/** Push a colour's chroma away from its own luminance by k (1: as it is), never below `floor` per channel. */
+export function saturate(a: RGB, k: number, floor = 0.02): RGB {
+  const l = luminance(a);
+  return [Math.max(floor, l + (a[0] - l) * k), Math.max(floor, l + (a[1] - l) * k), Math.max(floor, l + (a[2] - l) * k)];
+}
+
+/**
+ * THE LAMP IN A PAINT (REWRITE.md § B2 X1: "make it blue" turns the whole workshop's light
+ * blue). Tuned by eye on the bench home, warm/blue/red/green (H1 round 3).
+ *  - `key`: the paint's own hue, its chroma pushed `keySat` further (the neutral tone map and
+ *    the grade wash a tinted key toward white: the old 18%-whitened tint read as cool white),
+ *    at unit luminance, so a coloured lamp is as bright as the warm one: a coloured bulb, not
+ *    a coloured spotlight;
+ *  - the fill, the sky and the bounce follow `follow` of the way (shadows lean toward the
+ *    lamp's colour instead of going grey against it), the ground bounce more;
+ *  - `glow`: the hue the lamp's own lit parts take (bulb, liner, vents).
+ */
+export const LAMP_TINT = { keySat: 1.35, follow: 0.18, ground: 0.4, env: 0.6 };
+
+export interface LampLighting {
+  key: RGB;
+  fill: RGB;
+  hemiSky: RGB;
+  hemiGround: RGB;
+  bounce: RGB;
+  rim: RGB;
+  /** The environment's lamp panel. */
+  envWarm: RGB;
+  /** The lamp's own glow: its hue, and how far it replaces the bulb's amber (0 warm, 1 a paint). */
+  glow: RGB;
+  glowMix: number;
+}
+
+/** Every colour the light rig takes for a lamp colour: null is the lamp's own warm. */
+export function lampLighting(token: Token | null): LampLighting {
+  const c = stageColours();
+  if (!token) return { key: c.key, fill: c.fill, hemiSky: c.hemiSky, hemiGround: c.hemiGround, bounce: c.bounce, rim: c.rim, envWarm: c.envWarm, glow: WHITE, glowMix: 0 };
+  const key = unitLuminance(saturate(tok(token), LAMP_TINT.keySat));
+  const towards = (a: RGB, t: number): RGB => unitLuminance(mix(a, key, t));
+  return {
+    key,
+    fill: towards(c.fill, LAMP_TINT.follow),
+    hemiSky: towards(c.hemiSky, LAMP_TINT.follow),
+    hemiGround: towards(c.hemiGround, LAMP_TINT.ground),
+    bounce: unitLuminance(mix(key, tok('wood-light'), 0.5)),
+    rim: c.rim,
+    envWarm: towards(c.envWarm, LAMP_TINT.env),
+    glow: unitLuminance(saturate(tok(token), 1)),
+    glowMix: 1,
+  };
+}
+
+/** The key's colour for a lamp in a paint (lampLighting's `key`). */
 export function lampColourFrom(token: Token): RGB {
-  return unitLuminance(mix(tok(token), WHITE, 0.18));
+  return lampLighting(token).key;
 }
 
 export interface StageColours {

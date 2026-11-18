@@ -26,7 +26,8 @@ import {
 } from 'three';
 import type { Token } from '../palette.ts';
 import { SHADOW_LAYER } from '../kit/realize.ts';
-import { lampColourFrom, stageColours, type RGB } from './colours.ts';
+import { lampLighting, stageColours, type LampLighting, type RGB } from './colours.ts';
+import { LAMP_GLOW } from '../materials/lamp-glow.ts';
 import type { Tier } from '../types.ts';
 
 export interface LightRigOptions {
@@ -37,6 +38,8 @@ export interface LightRigOptions {
   aim?: readonly [number, number, number];
   /** The box the key's shadow must cover (the bench and what stands on it). */
   shadowBox?: Box3;
+  /** Reduced motion: a new lamp colour cuts instead of crossing over. */
+  reducedMotion?: boolean;
 }
 
 /** Tuned by eye on the stage dev page; see the W1 report for what each does. */
@@ -71,11 +74,21 @@ export const RIG = {
   wash: { intensity: 14, position: [0.4, 5.2, -2.4] as [number, number, number], distance: 11, decay: 2, night: 0.6 },
   /** What each part keeps at night (level 0), as a fraction of its day value. */
   night: { fill: 0.1, rim: 0.3, env: 0.12 },
+  /**
+   * The lamp's levels: 0 (night) .. 1 (the approved light) .. `maxLevel`. Above 1 only the key
+   * brightens; the fill, the rim, the bounce and the environment stay at their day values.
+   */
+  maxLevel: 2,
+  /** A new lamp colour crosses over at this rate (1/s): about a third of a second. */
+  colourRate: 9,
+  /** setBulb refits the shadow camera when the bulb has moved this far since the last fit. */
+  refit: 0.5,
 };
 
 const toColor = (c: RGB, out = new Color()): Color => out.fromArray(c);
 
 export interface LampState {
+  /** 0 (night) .. 1 (the approved light) .. RIG.maxLevel (only the key brighter). */
   level: number;
   colour: Token | null;
 }
@@ -99,9 +112,21 @@ export class LightRig {
   private scene: Scene | null = null;
   /** Multiplier for scene.environmentIntensity set by the stage (so lamp level scales it). */
   envScale = 1;
+  /** Called when the lamp's colour is set, with the colour the environment's lamp panel should take (the stage rebuilds it). */
+  onEnvironment: ((envWarm: RGB) => void) | null = null;
+  private readonly reducedMotion: boolean;
+  /** The lamp's colours now and where they are crossing to (LampLighting as flat numbers). */
+  private colourNow: number[];
+  private colourTo: number[];
+  /** The box the shadow camera was fitted to, and where the bulb was. */
+  private shadowBox = new Box3();
+  private readonly fitAt = new Vector3();
 
   constructor(opts: LightRigOptions) {
     this.root.name = 'light-rig';
+    this.reducedMotion = !!opts.reducedMotion;
+    this.colourNow = flatLighting(lampLighting(null));
+    this.colourTo = this.colourNow.slice();
     const c = stageColours();
     toColor(c.key, this.defaultKey);
     this.keyColour.copy(this.defaultKey);
@@ -165,6 +190,8 @@ export class LightRig {
    * on the bench and nowhere else.
    */
   fitShadow(box: Box3): void {
+    this.shadowBox.copy(box);
+    this.fitAt.copy(this.key.position);
     const p = this.key.position;
     let near = Infinity;
     let far = 0;
@@ -197,16 +224,24 @@ export class LightRig {
       this.bounce.position.set(aim[0], aim[1] + RIG.bounce.height, aim[2]);
     }
     this.key.target.updateMatrixWorld();
+    // the shadow camera's near and far follow the bulb (a dragged lamp swings a long way)
+    if (this.key.position.distanceTo(this.fitAt) > RIG.refit) this.fitShadow(this.shadowBox);
   }
 
+  /** The lamp: its level (0..RIG.maxLevel) and its colour (a paint token, or null for its own warm). */
   setLamp(state: Partial<LampState>): void {
+    const before = this.lamp.colour;
     this.lamp = {
-      level: MathUtils.clamp(state.level ?? this.lamp.level, 0, 1),
+      level: MathUtils.clamp(state.level ?? this.lamp.level, 0, RIG.maxLevel),
       colour: state.colour === undefined ? this.lamp.colour : state.colour,
     };
-    if (this.lamp.colour) toColor(lampColourFrom(this.lamp.colour), this.keyColour);
-    else this.keyColour.copy(this.defaultKey);
-    this.key.color.copy(this.keyColour);
+    if (this.lamp.colour !== before) {
+      const to = lampLighting(this.lamp.colour);
+      this.colourTo = flatLighting(to);
+      if (this.reducedMotion) this.colourNow = this.colourTo.slice();
+      this.onEnvironment?.(to.envWarm);
+    }
+    this.applyColour();
     this.apply();
   }
 
@@ -225,6 +260,12 @@ export class LightRig {
   }
 
   update(dt: number): void {
+    if (this.colourNow.some((v, i) => Math.abs(v - this.colourTo[i]!) > 1e-5)) {
+      const k = 1 - Math.exp(-RIG.colourRate * Math.min(dt, 0.1));
+      this.colourNow = this.colourNow.map((v, i) => v + (this.colourTo[i]! - v) * k);
+      if (this.colourNow.every((v, i) => Math.abs(v - this.colourTo[i]!) < 1e-4)) this.colourNow = this.colourTo.slice();
+      this.applyColour();
+    }
     if (this.dipT >= 0) {
       this.dipT += Math.min(dt, 0.1);
       const t = this.dipT;
@@ -262,17 +303,33 @@ export class LightRig {
     this.apply();
   }
 
+  /** The lamp's colours now (crossing over), into the lights and the lamp's own glow. */
+  private applyColour(): void {
+    const c = this.colourNow;
+    this.keyColour.fromArray(c, 0);
+    this.key.color.copy(this.keyColour);
+    this.front.color.fromArray(c, 3);
+    this.hemi.color.fromArray(c, 6);
+    this.hemi.groundColor.fromArray(c, 9);
+    this.bounce.color.fromArray(c, 12);
+    this.rim.color.fromArray(c, 15);
+    LAMP_GLOW.c_lampGlow.value.fromArray(c, 18);
+    LAMP_GLOW.u_lampGlowMix.value = c[21]!;
+  }
+
   private apply(): void {
     const l = this.effectiveLevel;
+    // above the approved light only the key brightens
     this.key.intensity = RIG.key.intensity * l;
+    const day = Math.min(1, l);
     // The key stays visible at level 0 so the light count (and every shader) never changes.
-    const nf = MathUtils.lerp(RIG.night.fill, 1, l);
+    const nf = MathUtils.lerp(RIG.night.fill, 1, day);
     this.hemi.intensity = RIG.fill.hemi * nf;
     this.front.intensity = RIG.fill.front * nf;
-    this.rim.intensity = RIG.rim.intensity * MathUtils.lerp(RIG.night.rim, 1, l);
-    this.bounce.intensity = RIG.bounce.intensity * l;
-    if (this.wash) this.wash.intensity = RIG.wash.intensity * MathUtils.lerp(RIG.wash.night, 1, l);
-    this.envIntensity = RIG.env.intensity * MathUtils.lerp(RIG.night.env, 1, l);
+    this.rim.intensity = RIG.rim.intensity * MathUtils.lerp(RIG.night.rim, 1, day);
+    this.bounce.intensity = RIG.bounce.intensity * day;
+    if (this.wash) this.wash.intensity = RIG.wash.intensity * MathUtils.lerp(RIG.wash.night, 1, day);
+    this.envIntensity = RIG.env.intensity * MathUtils.lerp(RIG.night.env, 1, day);
     if (this.scene) this.scene.environmentIntensity = this.envIntensity * this.envScale;
   }
 
@@ -285,4 +342,9 @@ export class LightRig {
     this.key.shadow.dispose();
     this.root.removeFromParent();
   }
+}
+
+/** A LampLighting as flat numbers (key, fill, sky, ground, bounce, rim, glow, glow mix), for the crossover. */
+function flatLighting(l: LampLighting): number[] {
+  return [...l.key, ...l.fill, ...l.hemiSky, ...l.hemiGround, ...l.bounce, ...l.rim, ...l.glow, l.glowMix];
 }

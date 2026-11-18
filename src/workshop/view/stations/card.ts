@@ -94,10 +94,15 @@ const smooth = (k: number): number => {
   return x * x * (3 - 2 * x);
 };
 
-export function createCardView(): (ctx: ViewContext) => CardView {
+export interface CardViewOptions {
+  /** Which cards this stand-in puts up (default: every one). The bench leaves Revert's to Revert while it is up. */
+  accept?(e: { readonly by: string; readonly content: string }, world: WorldView): boolean;
+}
+
+export function createCardView(opts: CardViewOptions = {}): (ctx: ViewContext) => CardView {
   return (ctx) => {
     const F = CARD_FEEL;
-    const reduced = ctx.reducedMotion;
+    let reduced = ctx.reducedMotion;
     const root = new Group();
     root.name = 'card-arm';
     ctx.scene.add(root);
@@ -187,10 +192,12 @@ export function createCardView(): (ctx: ViewContext) => CardView {
       update(frame: Frame) {
         const w = frame.world;
         if (!placed) place(w);
+        reduced = ctx.reducedMotion || w.reducedMotion;
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
         for (const e of frame.events) {
           if (e.type === 'card') {
+            if (opts.accept && !opts.accept(e, w)) continue;
             if (phase === 'stowed') show(e.content, now);
             else if (state.content === e.content && (phase === 'pop' || phase === 'hold')) {
               enter('hold', now); // the same card again: hold it longer, with a jolt

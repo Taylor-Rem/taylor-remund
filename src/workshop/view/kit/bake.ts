@@ -6,10 +6,11 @@
  * `bakePiece`. That keys it by everything the ray-traced bake (`surface.ts`
  * `bakeCavity`) reads (`bake-format.ts` `bakeKey`) and looks in the bake
  * table, a binary file `scripts/bake.ts` records from the real pages in a
- * real browser. A hit writes the recorded cavity values (16-bit: at most
- * 1/131068 from the live value, far under what an 8-bit frame shows; a vertex
- * the bake left alone keeps its own value bit for bit); a miss runs the live
- * bake, exactly as before. Keyed by content, a table recorded from older
+ * real browser, stored compressed and inflated here with the platform's
+ * DecompressionStream (where there is none, there is no table). A hit writes
+ * the recorded cavity values (8-bit: at most 1/508 from the live value, never
+ * below the vertex's own curvature cavity; a vertex the bake left alone keeps
+ * its own value bit for bit); a miss runs the live bake, exactly as before. Keyed by content, a table recorded from older
  * pieces can only miss, never be wrong, as long as the bake's code is the
  * same; that is pinned three ways: the build hands the code's hash to the
  * page (integrations/bake-table.ts) and a table recorded under other code is
@@ -29,7 +30,7 @@
 import type { BufferAttribute, BufferGeometry } from 'three';
 import { ATTR } from './types.ts';
 import { bakeCavity, type AoOptions } from './surface.ts';
-import { bakeKey, keyText, parseBakeTable, SCALE, UNCHANGED, type BakeItem, type BakeTable } from './bake-format.ts';
+import { bakeKey, inflateBakeTable, keyText, LEVELS, UNCHANGED, type BakeItem, type BakeTable } from './bake-format.ts';
 import tableUrl from './bake-table.bin?url';
 
 export type { BakeItem, BakeTable } from './bake-format.ts';
@@ -39,7 +40,7 @@ declare const __WORKSHOP_BAKE__: { code: string; inputs: string } | undefined;
 const built = typeof __WORKSHOP_BAKE__ !== 'undefined' ? __WORKSHOP_BAKE__ : null;
 
 /** How it went this session (loadtime, the dev pages, the bake script). */
-export const bakeTableStats = { hits: 0, misses: 0, skipped: 0, measuredHits: 0, measuredMisses: 0, keyMs: 0, liveMs: 0, entries: 0, loaded: false, measurements: false, error: '' };
+export const bakeTableStats = { hits: 0, misses: 0, skipped: 0, measuredHits: 0, measuredMisses: 0, keyMs: 0, liveMs: 0, inflateMs: 0, fileBytes: 0, entries: 0, loaded: false, measurements: false, error: '' };
 (globalThis as { __bakeStats?: typeof bakeTableStats }).__bakeStats = bakeTableStats;
 
 let table: BakeTable | null = null;
@@ -82,7 +83,13 @@ export function loadBakeTable(): Promise<void> {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.arrayBuffer();
     })
-    .then((b) => useBakeTable(parseBakeTable(b)))
+    .then(async (b) => {
+      bakeTableStats.fileBytes = b.byteLength;
+      const t0 = now();
+      const t = await inflateBakeTable(b);
+      bakeTableStats.inflateMs = now() - t0;
+      useBakeTable(t);
+    })
     .catch((e: unknown) => {
       bakeTableStats.error = String(e);
     });
@@ -153,7 +160,11 @@ export function bakePiece(items: readonly BakeItem[], opts: AoOptions = {}): voi
       const st = surf.itemSize;
       for (let i = 0; i < surf.count; i++, o++) {
         const q = v[o]!;
-        if (q !== UNCHANGED) a[i * st + 1] = q / SCALE;
+        // the live bake only ever raises cavity (max with the curvature's): so does the lookup
+        if (q !== UNCHANGED) {
+          const c = q / LEVELS;
+          if (c > a[i * st + 1]!) a[i * st + 1] = c;
+        }
       }
       surf.needsUpdate = true;
     }
@@ -171,7 +182,7 @@ export function bakePiece(items: readonly BakeItem[], opts: AoOptions = {}): voi
   items.forEach(({ geometry }, gi) => {
     const after = surfY(geometry);
     const b = before[gi]!;
-    for (let i = 0; i < after.length; i++) out.push(after[i] === b[i] ? UNCHANGED : Math.round(Math.min(1, Math.max(0, after[i]!)) * SCALE));
+    for (let i = 0; i < after.length; i++) out.push(after[i] === b[i] ? UNCHANGED : Math.round(Math.min(1, Math.max(0, after[i]!)) * LEVELS));
   });
   ((globalThis as Recorder).__bakeRecorded ??= []).push({ key: text, values: out });
 }

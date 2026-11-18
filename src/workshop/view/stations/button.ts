@@ -20,9 +20,10 @@
  * rattles, shakes or runs backwards. Everything runs on `frame.time`/`dt`.
  */
 import { Group, Quaternion, Vector3 } from 'three';
-import type { Id, WorldView } from '../../sim/types.ts';
+import type { CoverState, Id, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
-import { button as buttonPiece, buttonLabels, poseButton } from '../kit/pieces/button/index.ts';
+import { nodeBounds, proxyOn, proxyOnOff } from './proxy.ts';
+import { button as buttonPiece, buttonLabels, poseButton, POSE } from '../kit/pieces/button/index.ts';
 
 /** Tune here. Rates in rad/s, times in seconds, travel as fractions of the cap's travel. */
 export const BUTTON_FEEL = {
@@ -50,9 +51,39 @@ export const BUTTON_FEEL = {
   shudder: 0.011,
   shudderDecay: 9,
   shudderHz: [21, 15] as const,
-  /** Camera shake on the flinch (stage units; 0 for none). */
+  /** Camera shake on the flinch (stage units; 0 for none), and on rung 4's works (§ B4: small). */
   shake: 0.07,
+  shakeWorks: 0.1,
+  /** The cover (the guard): the nudge over the top as it is let go, gravity on its hinge (guard fraction / s²), and the bounce off the cap's rim. */
+  coverNudge: 2.7,
+  coverFall: 30,
+  coverBounce: 0.3,
+  /** Lifted (a press on the shut cover): it swings back over onto its parked stop with a lid's weight. */
+  coverLiftOmega: 11,
+  coverLiftDamping: 0.75,
+  /** While Revert fits the cover it comes down this long into Revert's `fit`. */
+  coverFitAt: 0.55,
+  /** Hovered, the cover stirs on its hinge this much (guard fraction), eased at this rate (1/s). */
+  coverHover: 0.035,
+  coverHoverRate: 22,
 } as const;
+
+/** The guard's swing from parked to shut, radians (the piece's POSE). */
+const GUARD_SWING = ((POSE.guardClosedDeg - POSE.guardOpenDeg) * Math.PI) / 180;
+
+/**
+ * Where the cover should be: 1 shut over the cap, 0 parked open. While Revert is fitting it (`fitting`),
+ * it comes down when Revert, at the Button, turns it with its arm; the simulation shuts it on its own clock
+ * if Revert never gets there.
+ */
+export function coverGoal(w: WorldView, cover: CoverState): 0 | 1 {
+  if (cover === 'shut') return 1;
+  if (cover !== 'fitting') return 0;
+  for (const c of w.crewViews()) {
+    if (c.kind === 'revert' && c.view.state === 'fit' && c.view.stateTime >= BUTTON_FEEL.coverFitAt) return 1;
+  }
+  return 0;
+}
 
 /** A damped spring step: x toward `to`, in sub-steps. */
 function springStep(s: { x: number; v: number }, to: number, omega: number, zeta: number, dt: number): void {
@@ -106,15 +137,20 @@ function pedestalOf(w: WorldView): { p: Vector3; q: Quaternion } {
 export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContext) => ButtonView {
   return (ctx) => {
     const F = BUTTON_FEEL;
-    const reduced = ctx.reducedMotion;
+    let reduced = ctx.reducedMotion;
     const root = new Group();
     root.name = 'button-station';
     ctx.scene.add(root);
     const body = new Group(); // the console, which shudders
     root.add(body);
     const refs = opts.labels === false ? undefined : buttonLabels(ctx.labels);
-    const obj = ctx.realize(buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high') }));
+    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high') });
+    const obj = ctx.realize(built);
     body.add(obj);
+    // the cover's pick target rides on the guard's hinge (W3 hover: what can be touched must look it)
+    const guardBone = obj.getObjectByName('guard');
+    const coverProxy = guardBone ? proxyOn(guardBone, nodeBounds(built, 'guard'), 'cover:proxy', 0.05) : null;
+    let coverHover = 0;
 
     let id: Id | null = null;
     const cap = { x: 0, v: 0 };
@@ -127,6 +163,8 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const shud: [number, number, number] = [0, 0, 0];
     const tape: Sample[] = [];
     let replaying = false;
+    let wasShut = false;
+    let fitted = false;
     let flinchDur = 3;
     let rewDur = 1.2;
     const state: ButtonViewState = { press: 0, guard: 0, count: 0, shudder: shud };
@@ -138,6 +176,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
       id = w.scene.button.id;
       ctx.pickable(id, obj);
       const b = w.button();
+      if (coverProxy) ctx.pickable(b.coverId, coverProxy);
       count.x = countTo = b.presses;
     };
 
@@ -150,6 +189,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         const now = frame.time;
         const dt = Math.min(frame.dt, 0.1);
         const b = w.button();
+        reduced = ctx.reducedMotion || w.reducedMotion;
 
         for (const e of frame.events) {
           if (e.type === 'button.pressed') {
@@ -165,6 +205,9 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
               guard.v += F.guardFlinch;
               if (F.shake > 0) ctx.stage.camera.shake(F.shake);
             }
+          } else if (e.type === 'rung.beat' && e.beat === 'shake' && !reduced && F.shakeWorks > 0) {
+            ctx.stage.camera.shake(F.shakeWorks);
+            guard.v += F.guardFlinch;
           } else if (e.type === 'misfire' && e.id === id && !reduced) {
             shudderAt = now;
             guard.v += F.guardFlinch;
@@ -218,19 +261,53 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
             springStep(cap, goal, F.capOmega, reduced ? 1 : F.capDamping, dt);
             state.press = cap.x;
           }
-          // the guard: a spring with a stop at its parked position
-          let left = dt;
-          while (left > 1e-6) {
-            const h = Math.min(left, 1 / 240);
-            springStep(guard, 0, F.guardOmega, F.guardDamping, h);
-            if (guard.x < 0) {
-              guard.x = -guard.x * F.guardStop;
-              guard.v = -guard.v * F.guardStop;
+          // the guard, which is the flip-up cover (§ B4 rung 3): parked open, or shut over the cap. It
+          // drops shut under its own weight and bounces on the cap's rim; lifted, it swings back onto its
+          // parked stop. While Revert fits it, it comes down when Revert's arm turns it (`coverGoal`).
+          // once Revert has turned it down it stays down (the simulation calls it shut a little later, on its own clock)
+          if (b.cover !== 'fitting') fitted = false;
+          else if (!fitted && coverGoal(w, b.cover) === 1) fitted = true;
+          const shut = b.cover === 'shut' || fitted;
+          if (shut && !wasShut && !reduced) guard.v = Math.max(guard.v, F.coverNudge);
+          wasShut = shut;
+          if (reduced) {
+            guard.x = shut ? 1 : 0;
+            guard.v = 0;
+          } else {
+            let left = dt;
+            while (left > 1e-6) {
+              const h = Math.min(left, 1 / 240);
+              if (shut) {
+                // falling shut: gravity on the hinge (it has to be nudged over the top first), a bounce off the rim
+                const theta = (1 - guard.x) * GUARD_SWING;
+                guard.v += F.coverFall * Math.cos(theta) * h;
+                guard.x += guard.v * h;
+                if (guard.x > 1) {
+                  guard.x = 1 - (guard.x - 1) * F.coverBounce;
+                  guard.v = -guard.v * F.coverBounce;
+                  if (Math.abs(guard.v) < 0.05) guard.v = 0;
+                }
+              } else {
+                // lifted off the cap it swings back with the weight of a lid; a rattle on its stop is quick
+                const lifting = guard.x > 0.2;
+                springStep(guard, 0, lifting ? F.coverLiftOmega : F.guardOmega, lifting ? F.coverLiftDamping : F.guardDamping, h);
+                if (guard.x < 0) {
+                  guard.x = -guard.x * F.guardStop;
+                  guard.v = -guard.v * F.guardStop;
+                }
+              }
+              left -= h;
             }
-            left -= h;
+            if (!shut && Math.abs(guard.x) < 1e-5 && Math.abs(guard.v) < 1e-4) guard.x = guard.v = 0;
+            if (shut && guard.x > 0.999 && Math.abs(guard.v) < 1e-3) {
+              guard.x = 1;
+              guard.v = 0;
+            }
           }
-          if (Math.abs(guard.x) < 1e-5 && Math.abs(guard.v) < 1e-4) guard.x = guard.v = 0;
-          state.guard = guard.x;
+          // hovered, the cover twitches on its hinge: a hair up off the cap when shut, a hair toward it when lifted
+          const coverLive = (b.cover === 'shut' || b.cover === 'open') && b.phase === 'idle' && !w.bracketed && w.holding() === null;
+          coverHover = reduced ? 0 : coverHover + ((frame.hovered === b.coverId && coverLive ? 1 : 0) - coverHover) * (1 - Math.exp(-F.coverHoverRate * dt));
+          state.guard = guard.x + (b.cover === 'shut' ? -1 : 1) * F.coverHover * coverHover;
           // the console's shudder on its bolts
           const ts = now - shudderAt;
           if (ts >= 0 && ts < 0.8) {
@@ -250,6 +327,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         }
         state.count = Math.max(0, count.x);
 
+        if (coverProxy) proxyOnOff(coverProxy, b.cover !== 'none');
         body.position.set(shud[0], shud[1], shud[2]);
         poseButton(obj, { press: state.press, guard: state.guard, count: state.count });
       },

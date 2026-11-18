@@ -57,7 +57,7 @@ import type { NodeBuilder } from '../../compose.ts';
 import { extrude, lathe } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { sweep, linePath, polylinePath, curvePath } from '../../sweep.ts';
-import { aim, chain, part, piece, place, T } from '../../compose.ts';
+import { aim, chain, part, piece, place, T, withVariant } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
@@ -431,11 +431,12 @@ export function lamp(o: LampOptions = {}): Piece {
       // the bulb's own glow on its reflector: brightest deep in the bell, falling toward the lip
       const liner = tint(linerG.clone(), 'paper');
       shadeBy(liner, (y) => k * (LINER_GLOW.deep - (LINER_GLOW.deep - LINER_GLOW.lip) * Math.min(1, Math.max(0, (y - 0.1) / 0.72)) ** 0.8));
-      lv.add(part('bulb', transform(liner, along(0))));
-      lv.add(part('bulb', transform(glassG.clone(), along(0)), 'amber-glow', { shade: 0.25 + 0.75 * k }));
+      // the 'lamp' variant: the lit parts take the lamp's colour (materials/lamp-glow.ts)
+      lv.add(...withVariant(part('bulb', transform(liner, along(0))), 'lamp'));
+      lv.add(...withVariant(part('bulb', transform(glassG.clone(), along(0)), 'amber-glow', { shade: 0.25 + 0.75 * k }), 'lamp'));
       // vent slots round the crown, the light leaking out of them: what tells the visitor, who
       // mostly sees the back of the shade, that this lamp is the one that is on
-      for (let v = 0; v < VENTS; v++) lv.add(setFinish(part('bulb', transform(sheet({ w: 0.12, h: 0.03, t: 0.002, nx: 1, ny: 1 }), ventAt(v)), 'amber-glow', { shade: VENT_GLOW * k }), 1));
+      for (let v = 0; v < VENTS; v++) lv.add(...withVariant(setFinish(part('bulb', transform(sheet({ w: 0.12, h: 0.03, t: 0.002, nx: 1, ny: 1 }), ventAt(v)), 'amber-glow', { shade: VENT_GLOW * k }), 1), 'lamp'));
     });
     // the slots' dark surrounds (holes in the steel; the glow sits in them)
     for (let v = 0; v < VENTS; v++) head.add(part('rubber', transform(sheet({ w: 0.145, h: 0.05, t: 0.001, nx: 1, ny: 1 }), ventAt(v)), 'ink', { shade: 0.5 }));
