@@ -320,7 +320,7 @@ export type SimEvent =
    * The striker (`id`) struck a part passing under its arm (§ B2 X2), in the very step the part's centre
    * crossed under it, whichever way the belt runs. `note` is semitones above the line's root by size
    * (L 0, M 4, S 7: three sizes, three notes, large is low); `octave` by material (wood 0, metal +1: an
-   * octave above wood; paper +1; rubber -1); timbre is the audio's, by `material`. `part`, `size` and
+   * octave above wood; paper 0, as wood; rubber -1); timbre is the audio's, by `material`. `part`, `size` and
    * `material` are null for a misfire: the arm strikes the air (a dry tick).
    */
   | { readonly type: 'struck'; readonly id: Id; readonly part: Id | null; readonly size: PartSize | null; readonly material: PartMaterial | null; readonly note: number; readonly octave: number }
