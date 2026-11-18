@@ -39,7 +39,7 @@ import type { CatalogueEntry } from '../../catalogue.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab, torus } from '../../solids.ts';
 import { profile } from '../../profile.ts';
 import { curvePath, polylinePath, sweep } from '../../sweep.ts';
-import { aim, chain, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
+import { aim, chain, mat, noShadow, part, piece, place, texturedPart, T } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
@@ -152,7 +152,7 @@ export function platen(o: PlatenOptions = {}): Piece {
   {
     const dr = TR.dishR;
     const g = turned(profile(dr - 0.01, 0).to(dr, 0.066, { sharp: true }).to(dr - 0.024, 0.066, { sharp: true }).to(dr - 0.03, 0.016, { sharp: true }).to(0, 0.016), hi ? 28 : 20, 'end');
-    b.add(part('metal', transform(g, T(TR.x, yTop, TR.z)), 'steel', { seed: seed + 3, shade: 0.55 }));
+    b.add(part('steel', transform(g, T(TR.x, yTop, TR.z)), 'steel', { seed: seed + 3, shade: 0.55 }));
     // years of overspray in the dish's floor, between the platter's rim and the dish wall
     for (let i = 0; i < 3; i++) {
       const a = R.range(0, Math.PI * 2), rr = R.range(TR.r + 0.01, dr - 0.04);
@@ -167,7 +167,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     const yT = TR.seatY;
     // the steel platter (its spindle is hidden under it)
     const plat = turned(profile(rp, yT - 0.02).to(rp, yT, { sharp: true }).to(0, yT), hi ? 28 : 20, 'end');
-    tray.add(setFinish(part('metal', plat, 'steel', { seed: seed + 7, shade: 1.0 }), 0.35));
+    tray.add(setFinish(part('steel', noWear(plat), 'steel', { seed: seed + 7, shade: 0.72 }), 0.5));
     // the brass rim, its knurled edge where a hand turns it
     const rim = turned(profile(rp - 0.004, 0.05).to(TR.r, 0.05, { sharp: true }).to(TR.r, 0.064, { sharp: true }).to(rp - 0.004, yT + 0.006), hi ? 28 : 20, false);
     tray.add(setFinish(part('brass', rim, 'brass', { seed: seed + 8, warm: 0.03 }), 0.4));
@@ -211,14 +211,14 @@ export function platen(o: PlatenOptions = {}): Piece {
     const lower = turned(profile(0.09, 0.14).to(0.075, stopY - yTop - 0.3, { smooth: true }).to(0.075, stopY - yTop, { sharp: true }).to(0, stopY - yTop), 12, false);
     b.add(part('steel', transform(lower, T(PX, yTop, PZ)), 'teal-panel', { seed: seed + 21, shade: 1.15 }));
     const slide = turned(profile(0.062, 0).to(0.062, colTop - stopY - 0.03, { smooth: true }).to(0.075, colTop - stopY - 0.02, { fillet: 0.01, segs: 1 }).to(0.075, colTop - stopY + 0.02, { fillet: 0.012, segs: 1 }).to(0, colTop - stopY + 0.035), 12, false);
-    b.add(setFinish(part('metal', transform(slide, T(PX, stopY, PZ)), 'steel', { seed: seed + 25, shade: 1.1 }), 0.7));
+    b.add(setFinish(part('steel', noWear(transform(slide, T(PX, stopY, PZ))), 'steel', { seed: seed + 25, shade: 1.1 }), 0.7));
     for (const [y, rr] of [[stopY - yTop - 0.045, 0.078]] as const) {
       const c = turned(profile(rr, 0).to(rr + 0.016, 0.004, { sharp: true }).to(rr + 0.016, 0.044, { sharp: true }).to(rr, 0.048), 12, false);
       b.add(setFinish(part('brass', transform(c, T(PX, yTop + y, PZ)), 'brass', { seed: seed + 22 }), 0.5));
     }
     for (let k = 0; k < 3; k++) {
       const a = (k + 0.25) * ((Math.PI * 2) / 3);
-      b.small(() => part('metal', transform(hexHead(0.07, 0.035, R.range(0, 1)), T(PX + Math.cos(a) * 0.18, yTop + 0.02, PZ + Math.sin(a) * 0.18)), 'steel', { seed: seed + 24 + k }));
+      b.small(() => part('steel', transform(hexHead(0.07, 0.035, R.range(0, 1)), T(PX + Math.cos(a) * 0.18, yTop + 0.02, PZ + Math.sin(a) * 0.18)), 'steel', { seed: seed + 24 + k }));
     }
   }
 
@@ -232,12 +232,12 @@ export function platen(o: PlatenOptions = {}): Piece {
     // a brass locking handle on the sleeve's front: the hand that sets the height goes here
     arm.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.014, 0, { sharp: true }).to(0.014, 0.1).to(0.03, 0.115, { fillet: 0.012, segs: 1 }).to(0, 0.15), 8), aim([0, -0.08, 0.11], [0.2, 0.1, 1])), 'brass', { seed: seed + 29 }), 0.7));
     // the beam: two flat bars straddling the column, tied by blocks at the nose and the tail
-    const bz0 = 0.09, bz1 = 0.145, bh = 0.055;
+    const bz0 = 0.09, bz1 = 0.15, bh = 0.07;
     for (const s of [-1, 1]) {
       arm.add(part('steel', grain(bevelBox({ min: [-tail, -bh, s > 0 ? bz0 : -bz1], max: [BEAM - 0.02, bh, s > 0 ? bz1 : -bz0], c: 0.016, wear: 0.8 }), 'x'), 'teal-panel', { seed: seed + 33 + s, shade: 1.2 }));
     }
     arm.add(part('steel', grain(bevelBox({ min: [BEAM - 0.12, -bh - 0.01, -bz1 - 0.005], max: [BEAM, bh + 0.01, bz1 + 0.005], c: 0.02, wear: 0.9 }), 'x'), 'teal-panel', { seed: seed + 32, shade: 1.1 }));
-    for (const x of [0.22]) for (const s of [1]) arm.small(() => place([part('metal', stud(0.018, 0.01, 6), 'steel', { seed: seed + 31 })], chain(T(x, 0, s * (bz1 + 0.001)), Rx((s * Math.PI) / 2))));
+    for (const x of [0.22]) for (const s of [1]) arm.small(() => place([part('steel', stud(0.018, 0.01, 6), 'steel', { seed: seed + 31 })], chain(T(x, 0, s * (bz1 + 0.001)), Rx((s * Math.PI) / 2))));
     // the counterweight on the tail: a heavy cast block with a brass nut
     {
       const g = bevelBox({ min: [-tail - 0.02, -0.12, -0.1], max: [-tail + 0.22, 0.1, 0.1], c: 0.035, wear: 0.9 });
@@ -271,9 +271,9 @@ export function platen(o: PlatenOptions = {}): Piece {
     nozzle.add(setFinish(part('brass', transform(body, tipM), 'brass', { seed: seed + 42 }), 0.85));
     nozzle.add(part('brass', transform(ridgedBand(0.046, 0.04, hi ? 14 : 10, 0.006), chain(tipM, T(0, 0.11, 0))), 'brass', { seed: seed + 43, shade: 0.85 }));
     // the stream, built hanging from the tip; the pose scales it
-    const stream = turned(profile(0, -0.29).to(0.024, -0.285, { fillet: 0.012, segs: 2 }).to(0.026, -0.262, { fillet: 0.01, segs: 1 }).to(0.011, -0.2, { smooth: true }).to(0.0135, -0.02, { smooth: true }).to(0.016, 0.004).to(0, 0.004), 8);
+    const stream = turned(profile(0, -0.3).to(0.034, -0.292, { fillet: 0.016, segs: 2 }).to(0.036, -0.266, { fillet: 0.012, segs: 1 }).to(0.018, -0.2, { smooth: true }).to(0.02, -0.02, { smooth: true }).to(0.022, 0.004).to(0, 0.004), 8);
     const pn = nozzle.node('nozzle.paint', chain(tipM, new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)));
-    pn.add(setFinish(part('steel', noWear(stream), PAINT_BASE), 1));
+    pn.add(setFinish(part('steel', noWear(stream), PAINT_BASE), 0.55));
   }
 
   // ======================================================================
@@ -324,7 +324,7 @@ export function platen(o: PlatenOptions = {}): Piece {
       ];
     };
     // the dark glass between them
-    b.add(setFinish(part('glass', noWear(transform(turned(profile(0.038, 0).to(0.038, st1 - st0, { smooth: true }), 10, false), T(sx, st0, sz))), 'teal-deep', { seed: seed + 55, shade: 0.8 }), 0.8));
+    b.add(setFinish(part('steel', noWear(transform(turned(profile(0.038, 0).to(0.038, st1 - st0, { smooth: true }), 10, false), T(sx, st0, sz))), 'teal-deep', { seed: seed + 55, shade: 0.7 }), 1));
     b.add(fitting(st0, false), fitting(st1, true));
     // two guard rods in front of the glass
     for (const s of [-1, 1]) {
@@ -336,7 +336,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     // the paint column inside: its own node, scaled along Y for the level
     const col = turned(profile(0, 0).to(0.042, 0, { sharp: true }).to(0.042, 0.97, { fillet: 0.012, segs: 1 }).to(0.028, 1).to(0, 0.99), 10, 'end');
     transform(col, new Matrix4().makeScale(1, (st1 - st0 - 0.01) * REST.level, 1));
-    b.node('sight.paint', T(sx, st0 + 0.005, sz)).add(setFinish(part('steel', noWear(col), PAINT_BASE), 1));
+    b.node('sight.paint', T(sx, st0 + 0.005, sz)).add(setFinish(part('steel', noWear(col), PAINT_BASE), 0.55));
   }
 
   // the pressure gauge on the tank's front-right shoulder, its face turned up toward the visitor
@@ -352,9 +352,9 @@ export function platen(o: PlatenOptions = {}): Piece {
     const gr = 0.11;
     const bez = turned(profile(gr - 0.01, -0.03).to(gr, 0.004, { fillet: 0.012, segs: 1 }).to(gr - 0.016, 0.024, { sharp: true }).to(gr - 0.02, 0.006), hi ? 18 : 12, false);
     b.add(setFinish(part('brass', transform(bez, gm), 'brass', { seed: seed + 61, warm: 0.03 }), 0.6));
-    // the dial: paper, ticks and a red sector
+    // the dial: cream enamel, ticks and a red sector
     const dial = turned(profile(0, 0.006).to(gr - 0.02, 0.006, { sharp: true }).to(0, 0.007), hi ? 18 : 12, false);
-    b.add(part('paper', transform(dial, gm), 'paper', { seed: seed + 62, shade: 0.95 }));
+    b.add(setFinish(part('steel', noWear(transform(dial, gm)), 'paper', { seed: seed + 62, shade: 0.95 }), 0.3));
     const ticks: KitPart[] = [];
     for (let k = 0; k <= 8; k++) {
       const a = (-120 + k * 30) * DEG;
@@ -362,7 +362,7 @@ export function platen(o: PlatenOptions = {}): Piece {
       const r0 = gr - 0.036 - (long ? 0.014 : 0), r1 = gr - 0.03;
       const tw = long ? 0.004 : 0.0028;
       const g = bevelBox({ min: [-tw, 0.0068, r0], max: [tw, 0.0078, r1], c: 0, omit: ['ny'] });
-      ticks.push(part('paper', transform(g, chain(gm, Ry(Math.PI - a))), k >= 7 ? 'cable-red' : 'ink', { shade: 1.2 }));
+      ticks.push(part('steel', noWear(transform(g, chain(gm, Ry(Math.PI - a)))), k >= 7 ? 'cable-red' : 'ink', { shade: 1.2 }));
     }
     b.add(ticks);
     // the needle and its hub (node: turns about its local +Y, the dial's normal)
@@ -423,14 +423,14 @@ export function platen(o: PlatenOptions = {}): Piece {
     b.add(part('steel', bevelBox({ min: [x0, y0, PZ - hd], max: [x1, y1, PZ + hd], c: 0.03, wear: 0.9 }), 'teal-light', { seed: seed + 84, shade: 0.95, jitter: 0.03 }));
     // the clamp round the column, two bolts pulling it tight
     b.add(setFinish(part('brass', transform(turned(profile(0.074, 0).to(0.092, 0, { sharp: true }).to(0.092, 0.07, { sharp: true }).to(0.074, 0.07), 12, false), T(PX, TH.y - 0.06, PZ)), 'brass', { seed: seed + 80 }), 0.4));
-    for (const dy of [-0.045, 0.045]) b.small(() => part('metal', transform(hexHead(0.04, 0.02, 0.2), aim([PX - 0.09, TH.y - 0.025 + dy * 0.4, PZ], [-1, 0, 0])), 'steel', { seed: seed + 81 }));
+    for (const dy of [-0.045, 0.045]) b.small(() => part('steel', transform(hexHead(0.04, 0.02, 0.2), aim([PX - 0.09, TH.y - 0.025 + dy * 0.4, PZ], [-1, 0, 0])), 'steel', { seed: seed + 81 }));
     // the reel: a spool of black tape on a brass flange and hub, on the front face
     const reelM = chain(T((x0 + x1) / 2, TH.y - 0.02, PZ + hd), Rx(Math.PI / 2));
-    b.add(part('tape', transform(turned(profile(0.035, 0).to(0.09, 0, { sharp: true }).to(0.09, 0.045, { sharp: true }).to(0.035, 0.045), 14, false), reelM), 'ink', { seed: seed + 85 }));
+    b.add(part('rubber', transform(turned(profile(0.035, 0).to(0.09, 0, { sharp: true }).to(0.09, 0.045, { sharp: true }).to(0.035, 0.045), 14, false), reelM), 'ink', { seed: seed + 85 }));
     b.add(setFinish(part('brass', transform(turned(profile(0, -0.004).to(0.105, -0.004, { sharp: true }).to(0.105, 0.004, { sharp: true }).to(0, 0.004), 14, 'end'), chain(reelM, T(0, 0.045, 0))), 'brass', { seed: seed + 86 }), 0.5));
     b.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.032, 0, { sharp: true }).to(0.032, 0.06, { fillet: 0.01, segs: 1 }).to(0, 0.066), 8), reelM), 'brass', { seed: seed + 87 }), 0.8));
     // the cutter lever on top, its knob tape-yellow (a thumb goes there)
-    b.add(part('metal', sweep(polylinePath([[x1 - 0.03, y1, PZ + 0.04], [x1 - 0.02, y1 + 0.08, PZ + 0.04], [x0 + 0.02, y1 + 0.12, PZ + 0.04]], 0.04, 2), { radius: 0.01, segs: 5, ends: 'flat', detail }), 'steel', { seed: seed + 90 }));
+    b.add(part('steel', sweep(polylinePath([[x1 - 0.03, y1, PZ + 0.04], [x1 - 0.02, y1 + 0.08, PZ + 0.04], [x0 + 0.02, y1 + 0.12, PZ + 0.04]], 0.04, 2), { radius: 0.01, segs: 5, ends: 'flat', detail }), 'steel', { seed: seed + 90 }));
     b.add(part('steel', transform(turned(profile(0, 0).to(0.026, 0, { fillet: 0.01, segs: 1 }).to(0.026, 0.05, { fillet: 0.012, segs: 1 }).to(0, 0.055), 8), aim([x0 + 0.02, y1 + 0.12, PZ + 0.04], [-1, 0.2, 0])), 'tape-yellow', { seed: seed + 91 }));
     // two brass guides the ram slides in
     for (const dz of [-0.06, 0.06]) b.add(setFinish(part('brass', transform(turned(profile(0.02, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.03, { sharp: true }).to(0.02, 0.03), 8, false), aim([x1, TH.y - 0.1, PZ + dz], [1, 0, 0])), 'brass', { seed: seed + 92 }), 0.6));
@@ -445,7 +445,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     head.add(part('rubber', transform(turned(profile(0, 0).to(0.04, 0, { fillet: 0.01, segs: 1 }).to(0.04, 0.17, { fillet: 0.01, segs: 1 }).to(0, 0.17), 10), T(-0.04, -0.09, 0)), 'ink', { seed: seed + 88 }));
     // the strip of tape off the roller, laid along the part (its own node: the pose pays it out along +Z)
     const strip = head.node('tapehead.tape', chain(T(0.002, 0, 0.0), new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)));
-    strip.add(part('tape', transform(sheet({ w: 0.36, h: 0.07, t: 0.003, nx: 1, ny: 1 }), chain(Ry(Math.PI / 2), T(0.18, 0, 0))), 'ink', { shade: 1.2 }));
+    strip.add(part('rubber', transform(sheet({ w: 0.36, h: 0.07, t: 0.003, nx: 1, ny: 1 }), chain(Ry(Math.PI / 2), T(0.18, 0, 0))), 'ink', { shade: 1.2 }));
   }
 
   // ======================================================================
@@ -458,7 +458,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     b.add(setFinish(part('brass', transform(turned(profile(0.04, -0.05).to(0.07, 0.02, { fillet: 0.012, segs: 1 }).to(0.05, 0.03, { sharp: true }).to(0.05, 0.012), 12, false), lm), 'brass', { seed: seed + 100 }), 0.6));
     const lens = (cls: 'bulb' | 'glass'): KitPart => {
       const g = turned(profile(0, 0).to(0.05, 0, { sharp: true }).to(0.047, 0.016, { sharp: true }).to(0.028, 0.036, { sharp: true }).to(0, 0.04), 8, false);
-      return cls === 'bulb' ? setFinish(part('bulb', g, 'amber-glow', { seed: seed + 101 }), 0.55) : setFinish(part('glass', g, 'amber', { seed: seed + 102, shade: 0.35 }), 0.6);
+      return cls === 'bulb' ? setFinish(part('bulb', g, 'amber-glow', { seed: seed + 101 }), 0.55) : setFinish(part('steel', noWear(g), 'amber', { seed: seed + 102, shade: 0.3 }), 1);
     };
     const lamp = b.node('lamp', chain(lm, T(0, 0.015, 0)));
     lamp.node('lamp.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(lens('bulb'));
@@ -477,7 +477,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     // a brass backing plate, and the engraved face on it
     b.add(setFinish(part('brass', transform(slab({ w: pl.w + 0.06, d: pl.h + 0.04, t: 0.012, r: 0.03, bevel: 0.004, detail: 'low', open: true, band: 0 }), chain(plateM, Rx(Math.PI / 2))), 'brass', { seed: seed + 110, shade: 0.7 }), 0.2));
     const face = transform(sheet({ w: pl.w, h: pl.h, t: 0.003, nx: 1, ny: 1 }), chain(plateM, T(0, 0, 0.0125)));
-    if (o.labels && pl.key) b.add(texturedPart('brass', face, pl.key));
+    if (o.labels && pl.key) b.add(noShadow([texturedPart('brass', face, pl.key)]));
     else b.add(part('brass', face, 'brass', { shade: 0.9 }));
     for (const x of [-pl.w / 2 - 0.0, pl.w / 2 + 0.0]) b.small(() => place([part('brass', stud(0.018, 0.01, 6), 'brass', { seed: seed + 111 })], chain(plateM, T(x, 0, 0.012), Rx(Math.PI / 2))));
     b.socket('plate', chain(plateM, T(0, 0, 0.016)));
@@ -488,25 +488,31 @@ export function platen(o: PlatenOptions = {}): Piece {
     b.add(part('brass', transform(ridgedBand(0.042, 0.045, 12, 0.006), chain(jm, Rx(Math.PI / 2), T(0, 0.05, 0))), 'brass', { seed: seed + 113, shade: 0.85 }));
     const jackOut = new Vector3(0, 0.095, 0).applyMatrix4(chain(jm, Rx(Math.PI / 2)));
     b.socket('jack', chain(jm, T(0, 0, 0.1)));
-    // the conduit: brown cloth, out of the plug, down to the bench, away to the left and back
+    // the conduit: brown cloth, out of the plug, down to the bench, round the base's left end and away toward the switchboard
     const n = new Vector3(0, 0, 1).applyMatrix4(new Matrix4().extractRotation(jm));
-    const pts = [jackOut, jackOut.clone().addScaledVector(n, 0.12), new Vector3(jackOut.x - 0.08, 0.05, zFB + 0.22), new Vector3(jackOut.x - 0.4, 0.048, zFB + 0.2), new Vector3(-W / 2 - 0.35, 0.048, zFB - 0.25), new Vector3(-W / 2 - 0.5, 0.048, 0.1)];
+    const cy = 0.048, end = new Vector3(-W / 2 - 0.42, 0, -0.7);
+    const pts = [jackOut, jackOut.clone().addScaledVector(n, 0.12), new Vector3(jackOut.x - 0.1, cy + 0.01, zFB + 0.2), new Vector3(-W / 2 - 0.12, cy, zFB + 0.12), new Vector3(-W / 2 - 0.36, cy, zFB - 0.3), new Vector3(end.x, cy, end.z + 0.32), new Vector3(end.x, cy, end.z + 0.04)];
     b.add(part('rubber', sweep(curvePath(new CatmullRomCurve3(pts, false, 'centripetal'), hi ? 11 : 8), { radius: 0.034, segs: 5, ends: 'flat', detail }), 'wood', { seed: seed + 114, shade: 0.5 }));
     const bush = turned(profile(0.075, 0).to(0.075, 0.014, { sharp: true }).to(0.05, 0.024, { sharp: true }).to(0.048, 0.065, { fillet: 0.012, segs: 1 }).to(0, 0.066), 10, 'end');
-    b.add(part('brass', transform(bush, T(-W / 2 - 0.5, 0, 0.06)), 'brass', { seed: seed + 115 }));
-    b.socket('conduit', T(-W / 2 - 0.5, 0, 0.06));
+    b.add(part('brass', transform(bush, T(end.x, 0, end.z)), 'brass', { seed: seed + 115 }));
+    b.socket('conduit', T(end.x, 0, end.z));
   }
 
   // ======================================================================
-  // SMALL: flange bolts (one replaced in brass), louvres on the right side
+  // SMALL: flange bolts (one replaced in brass), an inspection hatch on the deck
   // ======================================================================
+  {
+    const x0 = 0.8, x1 = 1.07, z0 = 0.18, z1 = 0.5;
+    b.add(part('steel', bevelBox({ min: [x0, yTop - 0.004, z0], max: [x1, yTop + 0.014, z1], c: 0.008, omit: ['ny'] }), 'teal-panel', { seed: seed + 125, shade: 1.25 }));
+    for (const [x, z] of [[x0 + 0.04, z0 + 0.04], [x1 - 0.04, z1 - 0.04]] as const) b.small(() => part('steel', transform(stud(0.018, 0.01, 6), T(x, yTop + 0.014, z)), 'steel', { seed: seed + 126 }));
+  }
   {
     const hxF = W / 2 + 0.06, zf = zFB + 0.06, zb = zBack - 0.06;
     const pos: Array<[number, number]> = [[-hxF + 0.03, zf - 0.03], [hxF - 0.03, zf - 0.03], [-0.42, zf], [0.66, zf]];
     const replaced = R.int(0, 3);
     pos.forEach(([x, z], i) => {
       const g = transform(hexHead(0.09, 0.045, R.range(0, Math.PI / 3)), T(x, 0.046, z));
-      b.add(i === replaced ? part('brass', g, 'brass', { seed: seed + 120 + i }) : part('metal', g, 'steel', { seed: seed + 120 + i, jitter: 0.06 }));
+      b.add(i === replaced ? part('brass', g, 'brass', { seed: seed + 120 + i }) : part('steel', g, 'steel', { seed: seed + 120 + i, jitter: 0.06 }));
     });
   }
 
@@ -517,6 +523,16 @@ export function platen(o: PlatenOptions = {}): Piece {
 
   const built = b.build();
   registerPaint(built);
+  // the platter is one flat fan: its baked cavity, sampled at the centre and the rim only, shows as wedges; it is open to the light anyway
+  for (const n of built.root.children ?? []) {
+    if (n.name !== 'tray') continue;
+    for (const q of n.parts) {
+      if (q.material !== 'steel') continue;
+      const sf = q.geometry.getAttribute('surf');
+      for (let i = 0; i < sf.count; i++) sf.setY(i, 0);
+      sf.needsUpdate = true;
+    }
+  }
   paintPiece(built, o.paint ?? 'paint-blue');
   const pose = typeof o.pose === 'string' ? NAMED_POSES[o.pose] : o.pose;
   if (typeof o.pose === 'string' && !pose) throw new Error(`platen: no pose '${o.pose}' (has: ${Object.keys(NAMED_POSES).join(', ')})`);

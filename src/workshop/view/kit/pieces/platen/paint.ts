@@ -25,6 +25,10 @@ export function registerPaint(p: Piece): void {
   const walk = (n: PieceNode): void => {
     if (PAINT_NODES.has(n.name)) {
       for (const q of n.parts) {
+        // wet paint is never grimy: no baked cavity (the tube's guard and the tank would darken it to mud)
+        const sf = q.geometry.getAttribute('surf');
+        for (let i = 0; i < sf.count; i++) sf.setY(i, 0);
+        sf.needsUpdate = true;
         const col = q.geometry.getAttribute('color').array as Float32Array;
         const tone = new Float32Array(col.length / 3);
         for (let i = 0; i < tone.length; i++) tone[i] = (col[i * 3]! / base[0] + col[i * 3 + 1]! / base[1] + col[i * 3 + 2]! / base[2]) / 3;

@@ -73,9 +73,12 @@ describe('the platen', () => {
   });
 
   it('stays inside its triangle cap', () => {
-    if (process.env['PLATEN_TRIS']) console.log(K.budget(p, CAP).text, '\nlow', platen({ detail: 'low' }).triangles, 'size', JSON.stringify(p.size));
+    if (process.env['PLATEN_TRIS']) process.stderr.write(`${K.budget(p, CAP).text}\nlow ${platen({ detail: 'low' }).triangles} size ${JSON.stringify(p.size)}\n`);
     expect(p.triangles).toBeLessThanOrEqual(CAP);
     expect(p.triangles).toBe(K.countTriangles(p));
+    // five meshes at most, with the plate's label texture (one skinned mesh per class; the lead's draw-call rule)
+    const labelled = platen({ labels: { plate: { key: 'plate:test', w: 1.4, h: 0.45 } } });
+    expect(K.budget(labelled).meshes).toBeLessThanOrEqual(5);
     expect(platen({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
   });
 
