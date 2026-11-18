@@ -77,6 +77,27 @@ describe('budget', () => {
     expect(fails(checkBudget({ dist: s.dist }))).toMatch(/stage transfer \(\d+ script\/wasm files.*of 2\.20 MB — over budget/);
   });
 
+  it('a stage page in the build: everything it fetches, the wasm, a worker and the bake table named in strings, the fonts by name, each once', () => {
+    const s = makeSite();
+    // no stage page: no row (a normal build's verify is unchanged)
+    expect(checkBudget({ dist: s.dist }).render()).not.toMatch(/stage page/);
+    write(join(s.dist, 'dev/bench/index.html'), '<!doctype html><title>b</title><script type="module" src="/_astro/page.js"></script>');
+    write(join(s.dist, '_astro/page.js'), 'import "./boot.js"; const go = () => import("./lazy.js");');
+    write(join(s.dist, '_astro/boot.js'), 'const w = new Worker(new URL(`/_astro/worker.js`, import.meta.url)); const t = `/_astro/table.bin`;');
+    write(join(s.dist, '_astro/lazy.js'), 'export const wasm = "/_astro/phys.wasm"; export const f = { file: `face.woff2` };');
+    write(join(s.dist, '_astro/worker.js'), 'import "./boot.js";');
+    write(join(s.dist, '_astro/phys.wasm'), randomBytes(1_000));
+    write(join(s.dist, '_astro/table.bin'), randomBytes(2_000));
+    write(join(s.dist, 'fonts/face.woff2'), randomBytes(3_000));
+    write(join(s.dist, '_astro/unused.js'), 'export const nobody = 1;');
+    const out = checkBudget({ dist: s.dist, stagePages: ['/dev/bench/'] }).render();
+    expect(out).toMatch(/ok {5}stage page \/dev\/bench\/: everything it fetches \(8 files/);
+    const r2 = checkBudget({ dist: s.dist, stagePages: ['/dev/bench/'] });
+    expect(r2.failures).toEqual([]);
+    write(join(s.dist, '_astro/table.bin'), randomBytes(2_300_000));
+    expect(fails(checkBudget({ dist: s.dist, stagePages: ['/dev/bench/'] }))).toMatch(/stage page \/dev\/bench\/.*of 2\.20 MB — over budget/);
+  });
+
   it('fails when sound exceeds 400 KB', () => {
     const s = makeSite();
     write(join(s.dist, 'sounds/a.ogg'), randomBytes(250_000));

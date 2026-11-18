@@ -34,6 +34,8 @@ export interface BudgetOptions {
   dist: string;
   /** Pages exempt from the third-party and JS rows (default: LEGACY_PASSTHROUGH). */
   exempt?: readonly string[];
+  /** Stage pages whose whole transfer is measured if the build has them (default: $BUDGET_STAGE_PAGES or STAGE_PAGES). */
+  stagePages?: readonly string[];
 }
 
 export function transferSize(abs: string, cache: Map<string, number> = new Map()): number {
@@ -155,6 +157,94 @@ export function scanPage(dist: string, abs: string): PageScan {
   return { html, refs, thirdParty, jsBytes, jsFiles: closure.files.map((f) => rel(dist, f)) };
 }
 
+/**
+ * The stage pages whose static closure the "stage page" row measures when the
+ * build contains them (a normal build has none of them, so its verify is
+ * unchanged). `BUDGET_STAGE_PAGES=/dev/bench/,/` replaces the list; P3 adds `/`.
+ */
+export const STAGE_PAGES: readonly string[] = ['/dev/bench/', '/dev/handoff/'];
+
+/** Quoted strings in a script that name a file the stage fetches at run time (wasm, the bake table, fonts, worker scripts). */
+const ASSET_STRING = /["'`]([^"'`\s]{1,200}\.(?:wasm|bin|woff2|m?js))["'`]/g;
+
+/**
+ * What a stage page fetches, read from the build: the page, its stylesheets
+ * and their fonts, its scripts and every script they import (statically or by
+ * a literal dynamic import), and every file a script names in a string (the
+ * physics wasm, the bake table, worker scripts and what they import, the
+ * label fonts, which the labels load by file name under /fonts/). Each counted
+ * once, at what the wire carries (`transferSize`: gzip -9 for text and wasm,
+ * raw for the bake table, which is compressed in itself, and for fonts).
+ */
+export function stageClosure(dist: string, page: string, cache: Map<string, number> = new Map()): { total: number; items: [string, number][]; unresolved: string[] } {
+  const abs = resolveToFile(dist, page);
+  if (!abs) return { total: 0, items: [], unresolved: [`${page}: not in the build`] };
+  const files = new Set<string>([abs]);
+  const unresolved: string[] = [];
+  const html = readFileSync(abs, 'utf8');
+  const entries: string[] = [];
+  for (const ref of htmlRefs(html)) {
+    if (!ref.resource) continue;
+    const c = classify(ref.url, page);
+    if (c.kind !== 'internal') continue;
+    const t = resolveToFile(dist, c.path);
+    if (!t) continue;
+    if (ref.as === 'stylesheet' && t.endsWith('.css')) {
+      const cl = cssClosure(dist, t);
+      for (const f of cl.files) files.add(f);
+      for (const cr of cl.refs) {
+        if (cr.fontFallback) continue;
+        const cc = classify(cr.url, cr.base);
+        const u = cc.kind === 'internal' ? resolveToFile(dist, cc.path) : null;
+        if (u) files.add(u);
+      }
+    } else if ((ref.as === 'script' || ref.as === 'modulepreload') && JS_EXT.test(t)) entries.push(t);
+  }
+  // scripts inline in the page import modules too
+  for (const s of scripts(html)) for (const imp of findImports(tokenize(s.body))) if (imp.specifier && /^\//.test(imp.specifier)) {
+    const t = resolveToFile(dist, imp.specifier);
+    if (t) entries.push(t);
+  }
+  const byName = new Map<string, string[]>();
+  for (const f of walk(dist)) {
+    const b = f.replace(/^.*\//, '');
+    byName.set(b, [...(byName.get(b) ?? []), join(dist, f)]);
+  }
+  const queue = [...entries];
+  const seenJs = new Set<string>();
+  while (queue.length) {
+    const closure = jsClosure(dist, queue.splice(0));
+    for (const f of closure.files) {
+      files.add(f);
+      if (seenJs.has(f) || !/\.m?js$/.test(f)) continue;
+      seenJs.add(f);
+      const base = fileUrl(dist, f);
+      for (const m of readFileSync(f, 'utf8').matchAll(ASSET_STRING)) {
+        const s = m[1]!;
+        if (/^(https?:)?\/\//.test(s)) continue;
+        let t: string | null = null;
+        if (s.startsWith('/') || s.startsWith('.')) {
+          const c = classify(s, base);
+          t = c.kind === 'internal' ? resolveToFile(dist, c.path) : null;
+        } else {
+          // a bare file name (the labels' fonts): the one file of that name in the build
+          const hits = byName.get(s) ?? [];
+          if (hits.length === 1) t = hits[0]!;
+        }
+        if (!t) {
+          if (!/\.m?js$/.test(s)) unresolved.push(`${rel(dist, f)} names ${s}`);
+          continue;
+        }
+        if (!files.has(t) && /\.m?js$/.test(t)) queue.push(t);
+        files.add(t);
+      }
+    }
+  }
+  const items: [string, number][] = [...files].map((f) => [rel(dist, f), transferSize(f, cache)]);
+  items.sort((a, b) => b[1] - a[1]);
+  return { total: items.reduce((s, [, n]) => s + n, 0), items, unresolved: [...new Set(unresolved)] };
+}
+
 function row(r: Report, label: string, measured: number, budget: number, note = ''): void {
   const text = `${label}: ${formatBytes(measured)} of ${formatBytes(budget)}${note ? ` (${note})` : ''}`;
   if (measured <= budget) r.ok(text);
@@ -246,6 +336,19 @@ export function checkBudget(opts: BudgetOptions): Report {
     let total = 0;
     for (const f of files) total += transferSize(f, cache);
     row(r, `stage transfer (${files.size} script/wasm file${files.size === 1 ? '' : 's'}: dist/_astro/ plus what / references, gzip -9)`, total, BUDGETS.stage);
+  }
+
+  // A stage page's whole transfer, when the build has one (dev pages built with WORKSHOP_DEV_PAGES=1; `/` from P3)
+  {
+    const list = (opts.stagePages ?? (process.env['BUDGET_STAGE_PAGES'] ? process.env['BUDGET_STAGE_PAGES'].split(',').map((s) => s.trim()).filter(Boolean) : STAGE_PAGES));
+    for (const page of list) {
+      if (!resolveToFile(dist, page)) continue;
+      const sc = stageClosure(dist, page, cache);
+      for (const [f, n] of sc.items.slice(0, 8)) r.info(`         ${formatBytes(n).padStart(9)}  ${f}`);
+      r.info(`         ${formatBytes(sc.items.slice(8).reduce((s, [, n]) => s + n, 0)).padStart(9)}  ${sc.items.length - 8} more files`);
+      for (const u of sc.unresolved) r.note(`${page}: ${u} (not found in the build: not counted)`);
+      row(r, `stage page ${page}: everything it fetches (${sc.items.length} files: page, CSS, fonts, scripts, wasm, workers, bake table; at what the wire carries)`, sc.total, BUDGETS.stage);
+    }
   }
 
   // Sound
