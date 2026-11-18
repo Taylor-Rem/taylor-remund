@@ -344,12 +344,20 @@ export const PATCHLAMP = (() => {
    */
   const seat: Vec3 = [AT.platen.c[0] + 0.05, AT.platen.c[1] + AT.platen.half[1], AT.platen.c[2] + 0.145 - 0.1];
   const stoolTop: Vec3 = [AT.stool.c[0], AT.stool.c[1] + AT.stool.half[1], AT.stool.c[2]];
-  /** The lamp's clamp on the wall rail (view/bench.ts LAYOUT `lamp`), and its arm as the lamp piece's rig solves it there (view/kit/pieces/lamp/rig.ts: STAGE_BULB, STAGE_AIM, LAMP_PLACE, DIM.shoulder; arms 3.45 + 3.3). */
+  /**
+   * The lamp (S6, seam 7): clamped on the wall rail at `clamp` (view/bench.ts LAYOUT `lamp`; PROVISIONAL here until
+   * the layout table carries it), its durable setting the AIM on the bench top. `REACH` is the lamp piece's
+   * reachable region in its own (x, z) (view/kit/pieces/lamp/aim.ts `REACH`; tests/unit/sim/lamp-reach.test.ts
+   * holds the two together), `homeAim` its opening aim in the same space.
+   */
   const clamp: Vec3 = [-3.1, 0, -5];
+  const REACH: readonly (readonly [number, number])[] = [[-5.8, 0.6], [-5.8, 10], [11.0, 10], [11.9, 8.6], [11.9, 6.2], [8.6, 0.6]];
+  const homeAim = [5.1, 4.9] as const;
   const lamp = {
-    home: { bulb: [clamp[0] + 0.9, 5.2, clamp[2] + 4.4] as Vec3, aim: [clamp[0] + 5.1, 0, clamp[2] + 4.9] as Vec3 },
-    /** What its joints allow: the bulb within 1.0 to 5.0 (horizontally) of the shoulder at its fixed height, in front of the wall, over the bench. */
-    reach: { centre: [clamp[0], clamp[2] + 0.24] as const, min: 1.0, max: 5.0, minX: AT.bench.minX + 0.5, maxX: 3.5, minZ: AT.backWall.c[2] + 1.0, maxZ: 1.5 },
+    clamp,
+    region: REACH,
+    home: { aim: [clamp[0] + homeAim[0], 0, clamp[2] + homeAim[1]] as Vec3 },
+    reach: { polygon: REACH.map(([x, z]) => [x + clamp[0], z + clamp[2]] as const) },
   };
   return {
     jacks,
@@ -393,13 +401,13 @@ const PATCHLAMP_UNITS = [
     line: 'line',
     ...PATCHLAMP.patch,
     jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
-    stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.bulb },
+    stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.aim },
     bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
     runner: s6PatchRunner(), // S6
   }),
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
-  lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach, follow: 0.6 }),
+  lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach }),
 ];
 
 // ───────────── S6: the simulation joined up (every number read from AT or from the blocks above) ─────────────

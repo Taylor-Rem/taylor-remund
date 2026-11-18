@@ -633,12 +633,16 @@ export interface LampView extends StationOnLineView {
   readonly levels: number;
   /** One of the 8 paints, or `warm`: its own amber light. Durable. */
   readonly colour: PaintName | 'warm';
-  /** Where the bulb is (world): the durable arm setting, or where the hand has it while it is dragged. */
-  readonly bulb: Vec3;
-  /** The point the shade points at (world, on the bench top). */
+  /**
+   * The point the shade points at (world, on the bench top): the durable arm setting, or where the hand has
+   * it while it is dragged. (S6) The simulation decides the aim only: the view derives the bulb and the
+   * shade's axis from it with the lamp piece's `aimLamp`.
+   */
   readonly aim: Vec3;
   /** The visit's starting lamp: a new visit and "Reset the workshop" start here (the opening picture). */
-  readonly home: { readonly bulb: Vec3; readonly aim: Vec3; readonly level: number };
+  readonly home: { readonly aim: Vec3; readonly level: number };
+  /** S6: where the aim can go: the piece's reachable region placed on the bench (world x, z, a convex polygon). */
+  readonly reach: readonly (readonly [number, number])[];
   /** The visitor has the shade in hand. */
   readonly dragging: boolean;
 }

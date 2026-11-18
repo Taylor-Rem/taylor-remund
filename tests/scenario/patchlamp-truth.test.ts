@@ -151,7 +151,7 @@ async function sequence(seed: number, steps: number): Promise<Run> {
     else if (k < 80) w.dispatch({ type: 'turn', id: 'belt-lever', value: r.next() });
     else if (k < 90) w.dispatch({ type: 'undo' });
     else if (k < 95) {
-      const b = PATCHLAMP.lamp.home.bulb;
+      const b = PATCHLAMP.lamp.home.aim;
       w.dispatch({ type: 'drag', id: 'lamp', target: [b[0] + r.range(-3, 3), b[1], b[2] + r.range(-3, 3)], end: true });
     } else if (k < 97) w.dispatch({ type: 'press', id: 'button' });
     else w.dispatch({ type: 'reset' });
