@@ -1,0 +1,18 @@
+{
+  "fascia": {
+    "default": { "text": "YOUR NAME HERE", "kind": "voice", "source": "REWRITE.md § B2 X1 (a text changes the sign's words); ART-P2 § 2: nobody's shop, no business name. Provisional until G4." }
+  },
+  "door": {
+    "open": { "text": "OPEN", "kind": "ui", "source": "REWRITE.md § B2 X1 (open or closed)" },
+    "closed": { "text": "CLOSED", "kind": "ui", "source": "REWRITE.md § B2 X1 (open or closed)" }
+  },
+  "jack": {
+    "plate": { "text": "STOREFRONT", "kind": "ui", "source": "REWRITE.md § B2 X1 (the jack STOREFRONT); ART-P2 § 5 (a brass jack plate labelled STOREFRONT)" }
+  },
+  "pictures": [
+    { "id": "teapot", "text": "Teapot", "kind": "ui", "source": "ART-P2 § 5 (a few simple drawn pictures for the window)" },
+    { "id": "boat", "text": "Sailing boat", "kind": "ui", "source": "ART-P2 § 5 (a few simple drawn pictures for the window)" },
+    { "id": "bicycle", "text": "Bicycle", "kind": "ui", "source": "ART-P2 § 5 (a few simple drawn pictures for the window)" },
+    { "id": "flower", "text": "Flower in a pot", "kind": "ui", "source": "ART-P2 § 5 (a few simple drawn pictures for the window)" }
+  ]
+}
