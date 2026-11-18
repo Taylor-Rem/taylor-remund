@@ -159,7 +159,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   measure('stage', t0);
   progress('stage', 1, 1);
   const tl = now();
-  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), ...opts.labels });
+  // start-up labels are painted in workers while the views are built (T1); awaited below
+  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), workers: true, ...opts.labels });
   const materials = createMaterials({ tier: opts.tier, labels });
   measure('labels+materials', tl);
   progress('labels', 1, 1);
@@ -190,6 +191,9 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   }
 
   // 4. the world
+  const tlw = now();
+  await labels.ready();
+  measure('labels wait', tlw);
   const tp = now();
   const physics = await physicsReady;
   measure('physics wait', tp);
