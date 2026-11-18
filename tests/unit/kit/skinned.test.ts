@@ -226,11 +226,11 @@ describe('skinned realisation', () => {
     void (null as unknown as Material);
   });
 
-  it('budget() reports draw calls for both backends', () => {
+  it('budget() reports draw calls for both backends, one shadow draw per piece (or per node), as realize makes them', () => {
     const p = pieces[0]!.build();
     const bd = K.budget(p);
-    const real = K.drawStats(K.realize(p, stub, { shadowProxy: false }));
-    const nodes = K.drawStats(K.realize(p, stub, { backend: 'nodes', shadowProxy: false }));
+    const real = K.drawStats(K.realize(p, stub));
+    const nodes = K.drawStats(K.realize(p, stub, { backend: 'nodes' }));
     expect(bd.meshes).toBe(real.meshes);
     expect(bd.casting).toBe(real.casting);
     expect(bd.calls).toBe(real.calls);
