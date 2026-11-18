@@ -183,7 +183,7 @@ export function clayBlock(name: string, w: number, h: number, d: number): Piece 
   const b = piece(`stand-in-${name}`, { ao: false });
   const c = Math.max(0.005, Math.min(w, h, d) * 0.1);
   // 44 triangles: clay is counted in the budget (twice, with the shadow pass) like everything else
-  b.add(part('paper', bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, h, d / 2], c, omit: ['-y'] }), 'steel', { shade: 0.45 }));
+  b.add(part('paper', bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, h, d / 2], c, omit: ['ny'] }), 'steel', { shade: 0.45 }));
   return b.build();
 }
 
