@@ -286,7 +286,7 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
 /** Full-screen draws the post chain makes per frame, for the stats. */
 function postDrawCalls(p: PassFlags): number {
   let n = 1; // composite
-  if (p.gtao) n += 2; // AO + denoise
+  if (p.gtao && LOOK.ao === 'gtao') n += 2; // AO + denoise
   if (p.bloom) n += 1 + 4 + 4; // prefilter, down ×4, up ×4
   if (p.focus) n += 1;
   return n;
