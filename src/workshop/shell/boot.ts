@@ -324,16 +324,6 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     },
     render: (info) => driver.render(info),
   });
-  if (opts.manual) {
-    // the first frame (the loop draws its own once started)
-    const tf = now();
-    loop.advance(0);
-    measure('first frame', tf);
-  }
-  progress('frame', 1, 1);
-  mark('booted');
-  if (!opts.manual) loop.start();
-
   const workshop: Workshop = {
     world,
     stage,
@@ -360,6 +350,16 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       stage.dispose();
     },
   };
+  // The first frame is drawn only now that `workshop` exists: `onFrame` hands it to the page.
+  if (opts.manual) {
+    // the first frame (the loop draws its own once started)
+    const tf = now();
+    loop.advance(0);
+    measure('first frame', tf);
+  }
+  progress('frame', 1, 1);
+  mark('booted');
+  if (!opts.manual) loop.start();
   return workshop;
 }
 
