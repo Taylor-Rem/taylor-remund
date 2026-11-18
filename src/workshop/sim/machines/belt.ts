@@ -93,6 +93,11 @@ export interface BeltSpec {
   readonly offBack: Vec3;
   /** The x at which a part riding backward meets the deflector (its near face). */
   readonly deflectAt: number;
+  /**
+   * S6: bench a part guided off the back must not be set down on (x, z bounds): Fetch's lane, where its
+   * wheel goes (a part set down there would be shoved by the next pass). The foot's places inside one are taken.
+   */
+  readonly keepClear?: readonly { readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number }[];
 }
 
 export interface BeltUnit extends MachineUnit {
@@ -242,6 +247,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
   /**
    * Where a part guided off the back is set down: the scene's spot (the slide's foot), or, if something
    * lies there, the next free place a part's width along the foot (+X, up to three); failing those, on top.
+   * (S6) A place whose footprint reaches into a `keepClear` area (Fetch's lane) is taken.
    */
   function offBackFor(r: Ride): Vec3 {
     const [x0, y0, z0] = spec.offBack;
@@ -258,6 +264,9 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         taken = true;
         top = Math.max(top, p.p[1] + (ctx.halfExtents(other)?.[1] ?? 0.3));
       }
+      const ex = r.ex + T.gap;
+      const ez = r.ez + T.gap;
+      if (spec.keepClear?.some((k) => x + ex > k.minX && x - ex < k.maxX && z + ez > k.minZ && z - ez < k.maxZ)) taken = true;
       return { top, taken };
     };
     const step = 2 * Math.max(r.ex, r.ez) + 0.1;

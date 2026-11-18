@@ -34,6 +34,7 @@ import { platen } from '../machines/platen.ts';
 import { storefront } from '../machines/storefront.ts';
 import { lamp } from '../machines/lamp.ts';
 import { patch } from '../crew/patch.ts';
+import { FETCH_TUNING } from '../crew/fetch.ts';
 
 interface Box {
   readonly c: Vec3;
@@ -232,21 +233,23 @@ const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-$
 /**
  * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
  * its hatch (`AT.revert`); `button` is behind the console, facing it, the cap within its arm's reach;
- * `park` is right of centre, in front of the phone and the platen, where the window's light falls
- * across the bench. The track threads behind the console (clear of the lever, the console and the
- * phone by a few hundredths at Revert's 1.74 x 1.32 footprint).
+ * `park` is right of centre, behind the phone and the platen, where the window's light falls across the
+ * bench. The track runs from the hatch back to z -1.05, along behind the lever and the console, to the
+ * Button spot and on to the park (layout round 4's numbers, which clear the real pieces at Revert's
+ * 2.05 x 1.54 footprint).
  */
 const REVERT_BEHIND_CONSOLE = AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05;
-const REVERT = {
+const REVERT_PARK = { x: 1.8, z: -1.9 } as const;
+export const REVERT = {
   home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
   button: { x: AT.buttonCap[0], z: REVERT_BEHIND_CONSOLE, heading: 0 },
-  park: { x: 3.3, z: 0.45, heading: -0.35 },
+  park: { x: REVERT_PARK.x, z: REVERT_PARK.z, heading: -0.35 },
   path: [
     [AT.revert.c[0], AT.revert.c[2]],
-    [-2.5, -0.8],
+    [AT.revert.c[0], -1.05],
+    [-2.5, -1.05],
     [AT.buttonCap[0], REVERT_BEHIND_CONSOLE],
-    [1.1, -0.85],
-    [3.3, 0.45],
+    [REVERT_PARK.x, REVERT_PARK.z],
   ] as readonly (readonly [number, number])[],
 } as const;
 
@@ -360,8 +363,8 @@ export const PATCHLAMP = (() => {
       foot: [AT.stool.c[0], 0, AT.stool.c[2] + AT.stool.half[2] + 0.45] as Vec3,
       /** Its seated body at the crew's 1.5× (about 1.6 tall on the stool). */
       body: { up: 0.75, radius: 0.6, head: 1.05, hands: 0.35 },
-      /** The keyshelf is inside the board's one-box collider, so a caught part is set on the bench beside the stool (PROVISIONAL). */
-      shelf: [AT.stool.c[0] - AT.stool.half[0] - 0.35, 0, AT.stool.c[2]] as Vec3,
+      /** A caught part is set on the keyshelf (a point on it measured from the piece, `AT.keyshelf`). */
+      shelf: AT.keyshelf,
       lever: [AT.undo.c[0], AT.undo.c[1] + AT.undo.half[1], AT.undo.c[2]] as Vec3,
       visitor: [0.6, 2.4, 14] as Vec3,
       phone: AT.phone.c,
@@ -416,13 +419,48 @@ const S6_LADDER = {
 
 /**
  * Patch's stool on its runner (S6, seam 5). It rests at the runner's right end, where the stool stands in
- * `AT`; to work a jack it stands `STOOL_DX` right of it (Patch sits facing -X, its right side to the
- * board: the switchboard piece's `stoolDX`, view/kit/pieces/switchboard/board.ts). After `quiet` seconds
- * of a quiet line it rolls back to rest. A function (hoisted) so Patch's spec above can call it.
+ * `AT`; to work a live jack it stands at that jack's stop (`AT.stoolAt`, measured from the switchboard
+ * piece). After `quiet` seconds of a quiet line it rolls back to rest. A function (hoisted) so Patch's
+ * spec above can call it.
  */
 function s6PatchRunner(): { rest: number; jacks: Record<string, number>; quiet: number } {
-  const STOOL_DX = 0.15;
-  return { rest: AT.stool.c[0], jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at[0] + STOOL_DX])), quiet: 4 };
+  const S = AT.stoolAt;
+  return { rest: AT.stool.c[0], jacks: { 'jack-storefront': S.storefront[0], 'jack-platen': S.platen[0], 'jack-belt': S.belt[0], 'jack-lamp': S.lamp[0] }, quiet: 4 };
+}
+
+/**
+ * Fetch's lane as the bench its wheel and body cover (S6): the tape between its stops, widened by its
+ * footprint. Nothing is set down there by a machine (the belt's deflector skips a place inside it).
+ */
+function s6LaneBand(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const inset = FETCH_TUNING.inset * CREW_SCALE;
+  const r = Math.hypot(FETCH_HALF[0], FETCH_HALF[2]);
+  const [ax, az] = AT.lane.a;
+  const [bx, bz] = AT.lane.b;
+  const len = Math.hypot(bx - ax, bz - az);
+  const s0: [number, number] = [ax + ((bx - ax) * inset) / len, az + ((bz - az) * inset) / len];
+  const s1: [number, number] = [bx - ((bx - ax) * inset) / len, bz - ((bz - az) * inset) / len];
+  return { minX: Math.min(s0[0], s1[0]) - r, maxX: Math.max(s0[0], s1[0]) + r, minZ: Math.min(s0[1], s1[1]) - r, maxZ: Math.max(s0[1], s1[1]) + r };
+}
+
+/**
+ * The dock's collider (S6, seam 8): the bay BEHIND its door only. `AT.dock` is the piece's portal and bay
+ * as one box, whose front reached 0.15 out in front of the door's plane, over the sill: a part waiting
+ * there could be wedged against it, and could not be picked up. This is the same box cut at the door's
+ * plane (`LINE.door.origin`, the way in `LINE.door.inward`): from there back to the box's back face.
+ */
+function s6DockBay(): StaticSpec {
+  const yaw = (AT.dock.yaw ?? 0) * DEG;
+  const n: [number, number] = [DOOR.inward[0], DOOR.inward[2]];
+  const c = AT.dock.c;
+  const tc = (c[0] - DOOR.origin[0]) * n[0] + (c[2] - DOOR.origin[2]) * n[1];
+  // the box's depth along the way in (its own z, turned with it)
+  const hz = AT.dock.half[2];
+  const back = tc + hz;
+  const front = Math.max(0, tc - hz);
+  const mid = (front + back) / 2;
+  const centre: Vec3 = [c[0] + n[0] * (mid - tc), c[1], c[2] + n[1] * (mid - tc)];
+  return { id: 'dock', shape: { type: 'box', half: [AT.dock.half[0], AT.dock.half[1], (back - front) / 2] }, pose: pose(centre, yaw) };
 }
 
 export const bench: SceneDesc = {
@@ -447,7 +485,7 @@ export const bench: SceneDesc = {
     box('platen-tank', AT.platenTank),
     box('storefront', AT.storefront),
     box('striker', AT.striker),
-    box('dock', AT.dock),
+    s6DockBay(), // S6: the bay behind the door only (was box('dock', AT.dock), which reached out over the sill)
     ...AT.pallets.flatMap((p, i) => [box(`pallet-${'abcd'[i]}`, p), box(`pallet-${'abcd'[i]}-stack`, AT.stacks[i]!)]),
     box('mailbox', AT.mailbox),
     ...RAMP_STATICS,
@@ -494,7 +532,7 @@ export const bench: SceneDesc = {
   crewScale: CREW_SCALE,
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
-    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
+    belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: [s6LaneBand()] }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),

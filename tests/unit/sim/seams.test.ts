@@ -1,7 +1,7 @@
 // S6: the seams between the five simulation packages, one describe per seam, on the bench with the stub physics.
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
-import { bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
+import { AT, bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { CrewView, LampView, PatchView, RevertView, SimEvent } from '../../../src/workshop/sim/types.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
 import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
@@ -216,7 +216,7 @@ describe("seam 5: Patch's job has room to perform: the roll, and a little air", 
     const plan = patch(world).plan!;
     expect(plan.map((p) => p.state)).toEqual(['notice', 'roll', 'drawer', 'work', 'check', 'reply']);
     const roll = plan[1]!.length;
-    const to = bench.cord.jacks.find((j) => j.id === 'jack-storefront')!.at[0] + 0.15;
+    const to = AT.stoolAt.storefront[0];
     expect(roll).toBeCloseTo((1.2 * (s.rest - to)) / (s.rest - s.min), 6);
     expect(roll).toBeGreaterThan(0.3);
     expect(roll).toBeLessThanOrEqual(1.2);
@@ -294,14 +294,16 @@ describe('seam 6: Fetch sees Revert', () => {
     out.push(...run(world, 2));
     return out;
   }
-  /** Play mode (a lever pull with nothing to take: Revert comes up), and wait until Fetch is idle with empty hands. */
+  /** Play mode (a lever pull with nothing to take: Revert comes up), the belt stopped (Fetch waits on its lane with a crate), both idle. */
   function settle(world: World): void {
     world.dispatch({ type: 'undo' });
+    run(world, 1);
+    world.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     for (let i = 0; i < 40 * 60; i++) {
       run(world, 1);
       const f = world.crew('fetch')!;
       const r = world.machine('revert-crew') as RevertView;
-      if (i > 600 && f.state === 'idle' && f.carrying === null && r.state === 'idle') return;
+      if (i > 600 && f.state === 'idle' && f.stateTime > 1 && r.state === 'idle') return;
     }
     throw new Error('the bench did not settle');
   }
@@ -317,7 +319,8 @@ describe('seam 6: Fetch sees Revert', () => {
     const dx = r.x - f.x;
     const dz = r.z - f.z;
     const d = Math.hypot(dx, dz);
-    const ev = hitFetch(world, physics, 'crate-3', [-dx / d, -dz / d], 7, 3);
+    const thrown = ['crate-1', 'crate-2', 'crate-3', 'crate-4'].find((id) => id !== f.carrying && world.mode(id) === 'free')!;
+    const ev = hitFetch(world, physics, thrown, [-dx / d, -dz / d], 7, 3);
     const k = ev.find((e) => e.type === 'crew.knocked') as Extract<SimEvent, { type: 'crew.knocked' }> | undefined;
     expect(k).toBeDefined();
     const fh = world.halfExtents('fetch')!;

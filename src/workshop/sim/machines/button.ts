@@ -57,7 +57,7 @@ export const BUTTON_TUNING = {
   /** Rung 4: the used stations misfire, the stack comes down a beat later, the warning lamp turns until the rewind. */
   works: { misfire: 0.15, stack: 0.45, warning: 4.6 },
   /** How long the cover takes to be fitted after rung 3: Revert's trip from its hatch and the screwing. A press meanwhile is not refused: it plays, and the fitting carries on after. */
-  fit: 6.5,
+  fit: 10, // S6: the trip from the hatch on layout round 4 (along behind the lever and the console) takes about 8 s
   /** Reduced motion: the dip, then the card. */
   reduced: { play: 0.9, rewind: 0.3 },
   /** Rung 4's stack: each crate leaves the stack's middle at this speed (units/s), and this fast upward. */

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
 import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
-import { bench, AT } from '../../../src/workshop/sim/scenes/bench.ts';
+import { bench, AT, REVERT } from '../../../src/workshop/sim/scenes/bench.ts';
 import { REVERT_TUNING, CARD_KEPT, CARD_NOTHING } from '../../../src/workshop/sim/crew/revert.ts';
 import { BUTTON_TUNING } from '../../../src/workshop/sim/machines/button.ts';
 import { steps } from '../../../src/workshop/sim/clock.ts';
@@ -11,6 +11,13 @@ import { qyaw } from '../../../src/workshop/sim/math.ts';
 import type { Id, Pose, RevertView, SimEvent } from '../../../src/workshop/sim/types.ts';
 
 const benchStub = () => stubWorld(1, { scene: bench });
+/**
+ * The bench without Fetch's rounds: since layout round 4 the stack is in Fetch's reach, and in play mode
+ * Fetch takes fresh crates off it and sends them down the belt (S5). The tests of Revert between jobs
+ * count what is on the bench and what moved; Fetch's own traffic is held in fetch-rounds.test.ts.
+ */
+const { rounds: _rounds, ...quietRunner } = bench.runner;
+const quietStub = () => stubWorld(1, { scene: { ...bench, runner: quietRunner } });
 /** The bench's "a while" (scenes/bench.ts, Revert's spec), seconds. */
 const A_WHILE = 90;
 const R = (w: World): RevertView => w.machine('revert-crew') as RevertView;
@@ -203,20 +210,20 @@ describe('Revert in the hand', () => {
 
 describe('Revert between jobs', () => {
   test('a tidy bench for two minutes: it trundles to the window\'s light and powers down, one eye open, moving nothing', () => {
-    const { world } = benchStub();
+    const { world } = quietStub();
     run(world, 5);
     rung(world);
     const before = others(world);
     const ev = run(world, steps(130));
     expect(states(ev)).toContain('trundle');
     expect(R(world)).toMatchObject({ state: 'park', eyes: 'one' });
-    expect(R(world).x).toBeCloseTo(3.3, 5);
-    expect(R(world).z).toBeCloseTo(0.45, 5);
+    expect(R(world).x).toBeCloseTo(REVERT.park.x, 5);
+    expect(R(world).z).toBeCloseTo(REVERT.park.z, 5);
     for (const [id, p] of others(world)) if (id !== 'fetch' && id !== 'crate-4') expect(p, id).toEqual(before.get(id));
   });
 
   test('a crowded bench: after a while it comes up and puts away the oldest crate nobody has stirred, onto the stack', () => {
-    const { world, physics } = benchStub();
+    const { world, physics } = quietStub();
     run(world, 5);
     // the visitor scatters the stack and takes the loose crate out of Fetch's hands: four strays
     setDown(world, physics, 'crate-3', -6, -3);
