@@ -1,28 +1,33 @@
 /**
- * Where things sit in the storefront's two textures (pure; runs in Node).
+ * The storefront's one texture: where everything sits in it (pure; runs in
+ * Node). One texture, so every printed or painted thing on the shop draws
+ * in one mesh. uv rects are [u0, v0, u1, v1], v up (row 0 of the painted
+ * canvas is v = 1); the painter works in fractions of whatever size the
+ * slot turned out to be.
  *
- * WORDS: the fascia's two faces, one above the other. Face A fills the top
- * half (v 0.5..1), face B the bottom half (v 0..0.5); each half spans the
- * whole fascia (slats and the gaps between them), so a slat's strip is cut
- * from its half by height. The slats show face A at rest and face B after
- * one turn; a change of words paints the face that is turned away, then
- * turns the slats.
+ *  v 1.00 ┌──────────────── WORDS face A ────────────────┐
+ *  v 0.75 ├──────────────── WORDS face B ────────────────┤
+ *  v 0.50 ├ mountains ┬ sun ┬ boat ──┬ OPEN ─────────────┤
+ *         ├ tree ─────┼ house ┼ none ┼ CLOSED ───────────┤
+ *         │           │       │      ├ STOREFRONT plate ─┤
+ *  v 0.00 └───────────┴───────┴──────┴───────────────────┘
  *
- * PICTURES: the drum's six faces (five pictures and the blank) in a 3 × 2 block, the
- * OPEN and CLOSED faces of the hanging card side by side below them.
- * uv rects are [u0, v0, u1, v1], v up (row 0 of the painted canvas is v = 1).
+ * WORDS: each face's band spans the whole fascia (slats and the gaps between
+ * them), so a slat's strip is cut from it by height. The slats show face A
+ * at rest and face B after one turn; a change of words paints the face that
+ * is turned away, then turns the slats.
  */
 import { FASCIA, OPEN_SIGN, PICTURE, SLAT_H, WORDS } from './dims.ts';
 
 export type Face = 'A' | 'B';
 export type Rect = readonly [number, number, number, number];
 
-/** The words texture's size in texels (the slot it is painted into may differ a little; painters scale). */
-export const WORDS_TEX = { w: 768, h: 508 } as const;
+/** The texture slot's intended size in texels (the slot may differ a little; the painter scales). */
+export const TEX = { w: 1024, h: 1024 } as const;
 
-/** v range of a face's half. */
+/** v range of a face's band. */
 export function faceV(face: Face): [number, number] {
-  return face === 'A' ? [0.5, 1] : [0, 0.5];
+  return face === 'A' ? [0.75, 1] : [0.5, 0.75];
 }
 
 /** uv rect of slat i's strip of `face`. */
@@ -33,26 +38,26 @@ export function slatUv(face: Face, i: number): Rect {
   return [0, v0 + ((v1 - v0) * y0) / WORDS.h, 1, v0 + ((v1 - v0) * y1) / WORDS.h];
 }
 
-/** The pictures texture: 3 × 2 drum faces over a strip of the card's two faces. */
-const PW = 256, PH = Math.round((256 * PICTURE.h) / PICTURE.w);
-const CW = 384, CH = Math.round((384 * OPEN_SIGN.h) / OPEN_SIGN.w);
-export const PICTURES_TEX = { w: PW * 3, h: PH * 2 + CH } as const;
-
-const rect = (x: number, y: number, w: number, h: number): Rect => {
-  const W = PICTURES_TEX.w, H = PICTURES_TEX.h;
-  // canvas rows run down from the top; v runs up
-  return [x / W, 1 - (y + h) / H, (x + w) / W, 1 - y / H];
-};
-
-/** Pixel rects (canvas space, y down) of every cell: drum face k at (k % 3, k / 3). */
-export const CELLS = {
-  pictures: Array.from({ length: PICTURE.faces }, (_, k) => ({ x: (k % 3) * PW, y: Math.floor(k / 3) * PH, w: PW, h: PH })),
-  open: { x: 0, y: PH * 2, w: CW, h: CH },
-  closed: { x: CW, y: PH * 2, w: CW, h: CH },
-} as const;
+const PIC_V = 0.23;
+/** A region and the world size of the face it is printed on (so the painter keeps drawings in proportion). */
+export interface Region {
+  uv: Rect;
+  face: { w: number; h: number };
+}
 
 export const ATLAS = {
-  pictures: CELLS.pictures.map((c) => rect(c.x, c.y, c.w, c.h)),
-  open: rect(CELLS.open.x, CELLS.open.y, CELLS.open.w, CELLS.open.h),
-  closed: rect(CELLS.closed.x, CELLS.closed.y, CELLS.closed.w, CELLS.closed.h),
+  pictures: Array.from({ length: PICTURE.faces }, (_, k): Rect => {
+    const c = k % 3, r = Math.floor(k / 3);
+    return [c * 0.25, 0.5 - (r + 1) * PIC_V, (c + 1) * 0.25, 0.5 - r * PIC_V];
+  }),
+  open: [0.75, 0.38, 1, 0.5] as Rect,
+  closed: [0.75, 0.26, 1, 0.38] as Rect,
+  plate: [0.75, 0.17, 1, 0.24] as Rect,
+} as const;
+
+/** The world sizes the regions are printed at. */
+export const FACES = {
+  picture: { w: PICTURE.w, h: PICTURE.h },
+  card: { w: OPEN_SIGN.w - 0.024, h: OPEN_SIGN.h - 0.024 },
+  plate: { w: 0.27, h: 0.07 },
 } as const;
