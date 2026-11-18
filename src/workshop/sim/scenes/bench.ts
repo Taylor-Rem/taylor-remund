@@ -18,14 +18,17 @@
  */
 import type { Pose, Vec3 } from '../types.ts';
 import type { FetchRounds, MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
-import { belt, BELT_FIELDS } from '../machines/belt.ts';
+import { belt, BELT_FIELDS, BELT_TUNING } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
+import { undoLever } from '../machines/undo-lever.ts';
+import { revert } from '../crew/revert.ts';
 import { line } from '../machines/line.ts';
 import { platen } from '../machines/platen.ts';
 import { storefront } from '../machines/storefront.ts';
@@ -104,10 +107,10 @@ export const AT = {
   buttonCap: [0.27, 1.25, 0.3] as Vec3,
 
   // ── the front: the lane, the belt and its ends ──
-  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. 2.15 from the lane's left stop (Fetch's rounds: 1.7 to 2.3), the chute's landing beside it. */
-  stack: [-6.7, 1.15] as const,
+  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. 2.02 from the lane's left stop (Fetch's rounds: 1.7 to 2.3); with the chute's landing and the deflector's set-down spot (LINE.belt.offBack) a cluster beside the lane's end, none under its wheel. */
+  stack: [-6.0, 1.75] as const,
   /** Fetch's lane of yellow tape (x, z): in front of the console, behind the striker's post and the belt. Its stops (0.45 in) reach the stack, the belt's drop, the phone and the platen's tray. */
-  lane: { a: [-5.2, 2.05] as const, b: [4.3, 2.05] as const },
+  lane: { a: [-4.45, 2.05] as const, b: [4.3, 2.05] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
   fetchStart: 0.48,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
@@ -118,8 +121,8 @@ export const AT = {
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
-  /** The striker (real piece, origin (2.675, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.6 high, under the arm, which parts on the belt pass clear beneath. */
-  striker: { c: [2.3, 0.8, 3.072], half: [0.55, 0.8, 0.13] } as Box,
+  /** The striker (real piece, origin (2.475, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.6 high, under the arm, which parts on the belt pass clear beneath. */
+  striker: { c: [2.1, 0.8, 3.072], half: [0.55, 0.8, 0.13] } as Box,
   /**
    * The dock (real piece, origin the door's middle at (5.92, 3.55), its ramp's straight run 0.5 longer than L1's so the platen's plate stands clear of its portal; its bay turned 40° toward the camera,
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
@@ -170,8 +173,22 @@ const RAMP: RampSpec = (() => {
 const DOOR = rampDoor(RAMP);
 
 /** Where the line's machines stand and what they reach, all read from `AT`. */
+/**
+ * The motor end's deflector, as the simulation owns it (the belt piece draws it: `DEFLECT` in
+ * view/kit/pieces/belt/dims.ts; tests/unit/sim/deflector.test.ts holds the two together). In belt space
+ * (x from the belt's left end, z from its centre line): the deflector crosses the belt from the near rail
+ * at x 0.95 to the far edge at x 0.07; a reversed part meets it about `meet` from the end, goes off the
+ * BACK through the 1.0 gap in the far rail and down the slide, and comes to rest at `rest`. Nothing may be
+ * dropped onto the belt within `clear` of the end (that is the deflector's).
+ */
+const DEFLECTOR = { meet: 0.29, rest: [0.5, -1.32] as const, clear: 1.1 } as const;
+const OFF_BACK: Vec3 = [AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.rest[0], 0, AT.belt.c[2] + DEFLECTOR.rest[1]];
+
+/** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */
+const beltFeed = (ctx: SimContext): number => (ctx.setting('belt', BELT_FIELDS.running) === true ? (BELT_TUNING.speeds[(ctx.setting('belt', BELT_FIELDS.speed) as number) - 1] ?? 0) : 0);
+
 export const LINE = {
-  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2] },
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK, deflectAt: AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.meet },
   /** The striker's arm crosses the belt at its post's x. */
   strikerX: AT.striker.c[0],
   /** The roller ramp from the belt's far end to the dock's sill. */
@@ -202,13 +219,81 @@ const rampBox = (() => {
 /** The mouths (§ B1 law 2). A part rests in one when its centre is inside. */
 const MOUTHS: readonly MouthSpec[] = [
   // the belt: its whole carrying surface, anything resting on it (centre above the surface)
-  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + 0.8, L.top, L.z] },
+  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [L.from + DEFLECTOR.clear, L.top, L.z] },
   // the dock: its ramp from the belt's end to the sill (and the bench either side of it)
   { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + rampBox.maxX) / 2, 1.3, (rampBox.minZ + rampBox.maxZ) / 2], half: [(rampBox.maxX - L.to) / 2, 1.3, (rampBox.maxZ - rampBox.minZ) / 2], drop: rampAt(RAMP, 0.2).p },
 ];
 
 /** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
 const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
+
+// ───────────── S4: the Button's ladder, Revert, the UNDO lever (numbers from AT, plus Revert's own places) ─────────────
+
+/**
+ * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
+ * its hatch (`AT.revert`); `button` is behind the console, facing it, the cap within its arm's reach;
+ * `park` is right of centre, in front of the phone and the platen, where the window's light falls
+ * across the bench. The track threads behind the console (clear of the lever, the console and the
+ * phone by a few hundredths at Revert's 1.74 x 1.32 footprint).
+ */
+const REVERT_BEHIND_CONSOLE = AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05;
+const REVERT = {
+  home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
+  button: { x: AT.buttonCap[0], z: REVERT_BEHIND_CONSOLE, heading: 0 },
+  park: { x: 3.3, z: 0.45, heading: -0.35 },
+  path: [
+    [AT.revert.c[0], AT.revert.c[2]],
+    [-2.5, -0.8],
+    [AT.buttonCap[0], REVERT_BEHIND_CONSOLE],
+    [1.1, -0.85],
+    [3.3, 0.45],
+  ] as readonly (readonly [number, number])[],
+} as const;
+
+/** Revert's body: a loose part (kind robot), heavy; it starts down its hatch (its durable place is on the hatch). */
+const S4_PARTS = [
+  { id: 'revert', kind: 'robot' as const, size: 'L' as const, material: 'metal' as const, colour: 'steel', label: '', station: 'button' as const, name: 'name.revert', pose: pose(AT.revert.c), half: AT.revert.half, mass: 3 },
+];
+
+/** Rungs 2 to 4: every station a rung may misfire, at a point on it; "nearest" is from the Button's cap. */
+const S4_LADDER = {
+  stations: [
+    { id: 'undo-lever', at: AT.undo.c },
+    { id: 'striker', at: AT.striker.c },
+    { id: 'cord', at: AT.jacks.storefront },
+    { id: 'belt', at: AT.belt.c },
+    { id: 'dock', at: AT.dock.c },
+    { id: 'chute', at: AT.chute.p },
+    { id: 'lamp', at: AT.jacks.lamp },
+  ],
+  lamp: 'lamp',
+  lever: 'undo-lever',
+  cord: 'cord',
+  stackAt: AT.stack,
+  stackRadius: 0.6,
+  cover: 'button-cover',
+  coverName: 'name.button.cover',
+};
+
+const S4_UNITS = [
+  undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }),
+  revert({
+    id: 'revert-crew',
+    body: 'revert',
+    station: 'button',
+    name: 'name.revert',
+    home: REVERT.home,
+    button: REVERT.button,
+    park: REVERT.park,
+    path: REVERT.path,
+    stack: { at: AT.stack, radius: 0.6, max: 3 },
+    start: 'below',
+    crowded: 4,
+    aWhile: 90,
+    parkAfter: 120,
+    awayGap: 4,
+  }),
+];
 
 // ───────────── Fetch's rounds (S5): positions from AT and the belt's mouth; the pace and the cap are its own ─────────────
 
@@ -338,7 +423,6 @@ export const bench: SceneDesc = {
     box('dock', AT.dock),
     ...AT.pallets.flatMap((p, i) => [box(`pallet-${'abcd'[i]}`, p), box(`pallet-${'abcd'[i]}-stack`, AT.stacks[i]!)]),
     box('mailbox', AT.mailbox),
-    box('revert', AT.revert),
     ...RAMP_STATICS,
   ],
   parts: [
@@ -348,6 +432,7 @@ export const bench: SceneDesc = {
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([fx, FETCH_HALF[1], fz]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
+    ...S4_PARTS,
   ],
   fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
@@ -359,6 +444,7 @@ export const bench: SceneDesc = {
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
+    ladder: S4_LADDER,
   },
   cord: {
     id: 'cord',
@@ -383,8 +469,9 @@ export const bench: SceneDesc = {
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' } }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+    ...S4_UNITS,
     ...PATCHLAMP_UNITS,
   ],
 };

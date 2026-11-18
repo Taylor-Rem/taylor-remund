@@ -4,6 +4,8 @@
  */
 import worldJson from '../../../content/world.json';
 import lineJson from '../../../content/line.json';
+import buttonJson from '../../../content/button.json';
+import revertJson from '../../../content/revert.json';
 import patchlampJson from '../../../content/patchlamp.json';
 import { assertContent } from '../../../content/schema.ts';
 import type { Entry } from '../../../content/schema.ts';
@@ -11,6 +13,8 @@ import type { PhoneMessage } from './layout.ts';
 
 const raw = assertContent(worldJson, 'src/content/world.json');
 const line = assertContent(lineJson, 'src/content/line.json');
+const button = assertContent(buttonJson, 'src/content/button.json');
+const revert = assertContent(revertJson, 'src/content/revert.json');
 const patchlamp = assertContent(patchlampJson, 'src/content/patchlamp.json');
 
 const isFrom = (v: unknown): v is PhoneMessage['from'] => v === 'owner' || v === 'patch';
@@ -76,6 +80,21 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.chute': line.names.chute as Entry,
   'mark.shipped': line.marks.shipped as Entry,
   'mark.return': line.marks.return as Entry,
+  // the Button's ladder, Revert, the UNDO lever (S4: src/content/button.json; the rung cards in revert.json)
+  'card.rung2': revert.cards.rung2 as Entry,
+  'card.rung3': revert.cards.rung3 as Entry,
+  'card.rung4': revert.cards.rung4 as Entry,
+  'card.deck.1': button.deck['1'] as Entry,
+  'card.deck.2': button.deck['2'] as Entry,
+  'card.deck.3': button.deck['3'] as Entry,
+  'card.deck.4': button.deck['4'] as Entry,
+  'card.deck.5': button.deck['5'] as Entry,
+  'card.deck.6': button.deck['6'] as Entry,
+  'card.revert.kept': button.revert.kept as Entry,
+  'card.revert.nothing': button.revert.nothing as Entry,
+  'name.revert': button.names.revert as Entry,
+  'name.undo-lever': button.names.lever as Entry,
+  'name.button.cover': button.names.cover as Entry,
   // the Patchlamp station (S3: src/content/patchlamp.json)
   'name.line': patchlamp.names.line as Entry,
   'name.patch': patchlamp.names.patch as Entry,

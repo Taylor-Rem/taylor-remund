@@ -174,13 +174,13 @@ export const LAYOUT = {
     /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
     phone: spot(2.4, 0.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
-    /** The crate stack (the ground point of its bottom crate): left of and behind the lane's left stop, 2.15 from it (the crate it lifts swings clear of the stack). */
-    stack: spot(-6.7, 1.15, 0.8, 0.8, 1.85, { fill: 'piece' }),
-    lane: spot(-0.45, 2.05, 9.5 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
+    /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
+    stack: spot(-6.0, 1.75, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    lane: spot(-0.075, 2.05, 8.75 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
     belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
-    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt's middle-right at x 2.3. */
-    striker: real(2.675, 3.072, BOUNDS.striker),
+    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.1, 2.0 from its far end: room for a run of notes played backwards. */
+    striker: real(2.475, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */

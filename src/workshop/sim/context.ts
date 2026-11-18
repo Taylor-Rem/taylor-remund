@@ -132,6 +132,11 @@ export interface Unit {
    * it (the world already has). Pending work for it under a transaction is cancelled separately (rule 10).
    */
   lost?(part: Id, why: LostReason): void;
+  /**
+   * Does this unit keep `part` out of the visitor's reach right now? A grab of it is refused (the dock: a
+   * part at its door is behind the curtain, inside the bay's collider, and must not be let go there).
+   */
+  keeps?(part: Id): boolean;
   /** Every event of this step, at its end (the one bus, § E4 invariant 2). Listen; never commit from here. */
   heard?(events: readonly SimEvent[]): void;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */

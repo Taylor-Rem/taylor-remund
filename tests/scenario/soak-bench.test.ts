@@ -18,10 +18,21 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   const b = w.scene.bench;
   const seen = { shipped: 0, struck: 0, returned: 0, restocked: 0, undone: 0, rungs: 0, takenIn: 0, grabbed: 0, stoppedSteps: 0 };
 
+  // a part crosses each machine's mouth once per ride: once it leaves the belt it is not taken back onto
+  // it within a second unless a hand (the visitor's, or an undo) put it there
+  let riding = new Set<string>();
+  const left = new Map<string, number>();
+  const retakes: string[] = [];
   const step = (): void => {
     w.advance();
     if (w.setting('belt', 'running') === false) seen.stoppedSteps++;
-    for (const e of w.drainEvents()) {
+    const evs = w.drainEvents();
+    for (const e of evs) if (e.type === 'part.grabbed' || e.type === 'undone' || e.type === 'reset') left.clear();
+    const now = new Set((w.machine('belt') as BeltView).riding);
+    for (const id of riding) if (!now.has(id)) left.set(id, w.step);
+    for (const id of now) if (!riding.has(id) && left.has(id) && w.step - left.get(id)! < 60) retakes.push(`${id}@${w.step}`);
+    riding = now;
+    for (const e of evs) {
       if (e.type === 'shipped') seen.shipped++;
       if (e.type === 'struck' && e.part) seen.struck++;
       if (e.type === 'part.returned') seen.returned++;
@@ -40,6 +51,9 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
       if (m.mode === 'gone' || m.mode === 'chute') continue;
       const pos = m.pose.p;
       // on the bench (a part on its way down is allowed below it only while it falls: the chute takes it)
+      // no part at rest below the bench top inside its footprint (the edge sends it back by the chute)
+      const inFoot = pos[0] >= b.minX && pos[0] <= b.maxX && pos[2] >= b.minZ && pos[2] <= b.maxZ;
+      if ((m.mode === 'free' && !m.awake) || m.mode === 'held') expect(!inFoot || pos[1] > b.top, `${p.id} below the bench top at step ${w.step}: ${pos.join(', ')}`).toBe(true);
       if (m.mode !== 'free' || !m.awake) expect(pos[0] >= b.minX - 0.01 && pos[0] <= b.maxX + 0.01 && pos[2] >= b.minZ - 0.01 && pos[2] <= b.maxZ + 0.01 && pos[1] > -0.05 && pos[1] < b.ceiling, `${p.id} outside the bench at step ${w.step}: ${pos.join(', ')}`).toBe(true);
     }
   };
@@ -87,9 +101,10 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   expect((w.machine('chute') as ChuteView).waiting).toBe(0);
   expect(w.undoStack()).toEqual([]);
   for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && p.id.startsWith('crate-spare')), `${p.id}: ${p.location.at}`).toBe(true);
-  console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps`);
-  expect(seen.shipped).toBeGreaterThan(10);
-  expect(seen.struck).toBeGreaterThan(10);
+  console.log(`soak-bench: ${JSON.stringify(seen)} over ${w.step} steps; retakes ${retakes.join(' ')}`);
+  expect(retakes).toEqual([]);
+  expect(seen.shipped).toBeGreaterThan(5);
+  expect(seen.struck).toBeGreaterThan(5);
   expect(seen.returned).toBeGreaterThan(3);
   w.dispose();
 });

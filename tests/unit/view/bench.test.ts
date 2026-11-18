@@ -80,7 +80,9 @@ describe('the layout table and the simulation agree', () => {
   ];
   it.each(bodies)('%s stands where its body is', (key, id) => {
     const s = S[key];
-    const st = scene.statics.find((q) => q.id === id)!;
+    // Revert is a loose part since S4 (it can be picked up): its body starts on its hatch
+    const part = scene.parts.find((q) => q.id === id && q.half);
+    const st = scene.statics.find((q) => q.id === id) ?? (part ? { id, shape: { type: 'box' as const, half: part.half! }, pose: part.pose } : undefined)!;
     expect(st, id).toBeTruthy();
     expect(st.pose.p[0]).toBeCloseTo(s.x, 6);
     expect(st.pose.p[2]).toBeCloseTo(s.z, 6);
@@ -403,7 +405,7 @@ describe('the real pieces', () => {
     inside('platen-tank', 'platen');
     inside('storefront', 'storefront');
     inside('dock', 'dock');
-    inside('revert', 'revert');
+    // Revert is a loose part since S4, not a static (its home on the hatch is checked above)
     inside('board', 'board');
     inside('undo', 'undo');
   });
@@ -490,7 +492,7 @@ describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
 
   it("sets it on the belt's motor end (the belt mouth's drop), and reaches the platen's tray and the phone", () => {
     const drop = scene.mouths!.find((m) => m.id === 'belt')!.drop;
-    expect(drop[0]).toBeCloseTo(L.from + 0.8, 6);
+    expect(drop[0]).toBeGreaterThanOrEqual(L.from + 0.8); // past the deflector's reach
     expect(fromLane(drop[0], drop[2]).d).toBeLessThanOrEqual(REACH - 0.2);
     const seat = new Vector3().setFromMatrixPosition(platen({ detail: 'low' } as never).sockets!['seat']!);
     const [px, pz] = S.platen.at!;

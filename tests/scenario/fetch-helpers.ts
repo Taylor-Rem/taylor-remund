@@ -22,7 +22,7 @@ export function laneDistance(scene: SceneDesc, x: number, z: number): { at: [num
   return { at, d: Math.hypot(x - at[0], z - at[1]) };
 }
 
-/** The bench Fetch's rounds run on: the real bench (A1 put its stack within reach of the lane, 2.15 from its left stop). */
+/** The bench Fetch's rounds run on: the real bench (A1 put its stack within reach of the lane, 2.02 from its left stop). */
 export function roundsBench(): SceneDesc {
   const d = laneDistance(bench, AT.stack[0], AT.stack[1]).d;
   if (d > REACH - 0.2) throw new Error(`the bench's stack is ${d.toFixed(2)} from Fetch's lane: out of its reach (${REACH.toFixed(2)})`);

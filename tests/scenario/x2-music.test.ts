@@ -1,9 +1,8 @@
 // REWRITE.md § B2 X2, "the belt is a music box": three crates small to large play a falling run; the
 // dial changes the interval; the lever plays it backwards. Whole bench, real Rapier.
 import { describe, expect, test } from 'vitest';
-import { BENCH, benchWorld, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
+import { benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
-import { striker } from '../../src/workshop/sim/machines/striker.ts';
 import { BELT_TUNING } from '../../src/workshop/sim/machines/belt.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -60,18 +59,39 @@ describe('X2: the belt is a music box', () => {
     fast.w.dispose();
   }, 60_000);
 
-  test('the lever plays it backwards (striker mid-belt, so the whole run fits past it)', async () => {
-    // On the bench as laid out the arm stands 0.45 from the belt's far end: one crate's room, so a reversed
-    // run cannot be heard there. With the arm mid-belt the mechanism is the same; see the hand-in.
-    const scene: SceneDesc = { ...BENCH, units: BENCH.units!.map((u, i) => (i === 1 ? striker({ id: 'striker', station: 'line', name: 'name.striker', x: -0.4, mouth: 'belt' }) : u)) };
-    const { w, t, strikes } = await play({ scene, at: 0.2 });
-    const done = t.until(() => strikes().length === 3, 12 * HZ);
-    expect(done).not.toBeNull();
-    t.run(HZ / 2);
+  // On the bench as laid out. The run is set down just left of the arm, S ahead, close; reversed the moment
+  // the last of them is struck, the leading S must still be short of the far end: that needs the arm at
+  // least `ROOM` from it. With the arm near the end (x 3.7 in round 2) a reversed run cannot be heard and
+  // this test is skipped, saying so; the layout moves it toward the middle (about 2.3).
+  const sx = LINE.strikerX;
+  const at = (x: number): number => (x - LINE.belt.from) / (LINE.belt.to - LINE.belt.from);
+  const xs = { S: sx - 0.45, M: sx - 0.45 - (0.225 + 0.3 + 0.12), L: sx - 0.45 - (0.225 + 0.3 + 0.12) - (0.3 + 0.4 + 0.12) };
+  const ROOM = xs.S - xs.L + 0.225 + 0.25;
+  const room = LINE.belt.to + BELT_TUNING.exit - sx;
+  test.skipIf(room < ROOM)(`the lever plays it backwards, on the bench as laid out (needs the arm ${ROOM.toFixed(2)} from the far end; it is ${room.toFixed(2)})`, async () => {
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(30);
+    lever(w, t, 0.5);
+    // the stack's top two aside first, so the L (at its bottom) can be set down first, then M and S beside it
+    putOn(w, t, 'crate-3', [-2, 0, 0.9]);
+    putOn(w, t, 'crate-2', [-3, 0, 1.0]);
+    t.run(60);
+    putOn(w, t, 'crate-1', onBelt(at(xs.L)));
+    waitFor(w, t, 'crate-1', 'in');
+    putOn(w, t, 'crate-2', onBelt(at(xs.M)));
+    waitFor(w, t, 'crate-2', 'in');
+    putOn(w, t, 'crate-3', onBelt(at(xs.S)));
+    waitFor(w, t, 'crate-3', 'in');
+    for (const id of ['crate-1', 'crate-2', 'crate-3']) expect(w.part(id)!.location.at, id).toBe('in');
+    const from = w.step;
+    const strikes = () => t.of('struck').filter((x) => x.step > from).map((x) => x.e.note);
+    lever(w, t, 1);
+    expect(t.until(() => strikes().length === 3, 12 * HZ)).not.toBeNull();
     lever(w, t, 0);
     t.run(10 * HZ);
-    const s = strikes();
-    expect(s.map((x) => x.note)).toEqual([7, 4, 0, 0, 4, 7]); // forward falling, then back rising
+    expect(strikes()).toEqual([7, 4, 0, 0, 4, 7]); // forward falling, then back rising
+    expect(t.of('shipped')).toEqual([]);
     w.dispose();
   }, 60_000);
 });

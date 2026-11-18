@@ -45,7 +45,7 @@ describe('the knock is bounded: never off the bench, never into a machine', () =
   test('the machines are every static standing on the bench and every mouth, not the bench itself', () => {
     const ids = new Set(obs.map((o) => o.id));
     expect(ids.has('bench')).toBe(false);
-    for (const id of ['console', 'belt-bed', 'belt-motor', 'striker', 'dock', 'revert', 'mouth:belt', 'mouth:dock']) expect(ids.has(id), id).toBe(true);
+    for (const id of ['console', 'belt-bed', 'belt-motor', 'striker', 'dock', 'mouth:belt', 'mouth:dock']) expect(ids.has(id), id).toBe(true);
   });
 
   test('a turned box: distance is measured in its own frame', () => {

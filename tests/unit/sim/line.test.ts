@@ -335,6 +335,24 @@ describe('the dock', () => {
   });
 });
 
+describe('the bench edge, the safety net', () => {
+  test('a part forced inside the bench (below its top, inside its footprint) goes back up the chute, as if it had fallen off', () => {
+    const { world, physics } = benchStub();
+    run(world, 2);
+    const m = world.motion('crate-3')!;
+    world.dispatch({ type: 'grab', id: 'crate-3', grip: m.pose.p });
+    run(world, 1);
+    physics.land('crate-3', { p: [0, -0.18, 2.5], q: qyaw(0) }, 6);
+    world.dispatch({ type: 'release', velocity: [3, 1, 0] });
+    const ev = run(world, 3 * HZ);
+    expect(ev.find((e) => e.type === 'part.returned')).toEqual({ type: 'part.returned', id: 'crate-3' });
+    const p = world.motion('crate-3')!.pose.p;
+    expect(p[1]).toBeGreaterThan(0);
+    // and it never came to rest down there: no location below the top was ever written
+    for (const e of ev) if (e.type === 'effect' && e.effect.target === 'crate-3' && e.effect.field === 'location') expect((e.effect.after as { at: string; pose?: { p: number[] } }).pose?.p[1] ?? 1).toBeGreaterThan(0);
+  });
+});
+
 describe('the chute', () => {
   test('kicks its flap when a part pops out, and counts what waits inside', () => {
     const { world, physics } = benchStub();
