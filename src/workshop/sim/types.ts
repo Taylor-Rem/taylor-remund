@@ -109,6 +109,54 @@ export interface Effect {
   readonly cause: Cause;
 }
 
+/**
+ * Who last wrote a durable field (§ E5 rule 6). `settled` is a value that is
+ * simply how the world is and cannot be undone: the starting state, and
+ * whatever a forgotten transaction wrote (§ E5 rule 14).
+ */
+export type Writer = Cause | 'settled';
+
+/** What kind of visitor action opened a transaction (§ E5 rule 3). */
+export type ActionKind = 'release' | 'place' | 'plug' | 'turn' | 'press' | 'text';
+
+/**
+ * One field put back by an undo or a reset: an effect run backwards
+ * (§ E5 rules 8, 9, 11). Every restore of one undo was applied to the
+ * durable world in a single step; this is the record of it, so each station
+ * view can show its own part running backwards afterwards (paint drains up
+ * the nozzle, a label peels off, a toppled crate hops back, a shipped crate
+ * comes back in through the dock door).
+ *
+ * - `from` is the value the field had just before the undo (what is on
+ *   screen now), `to` the value it has again, `writer` the writer it has
+ *   again (the entry's previous writer).
+ * - For `location` of a loose part, `pose` is where its body was at the
+ *   moment of the undo: the hop starts there and ends at `to` (the body is
+ *   already at `to`; the hop is drawn, not simulated).
+ * - A part caught in mid-flight by the undo of the action that set it
+ *   moving (its window was still open) is *recalled*: its durable location
+ *   never changed, so `from` equals `to`, and `pose` is where it was flying.
+ */
+export interface Restore {
+  readonly target: Id;
+  readonly field: string;
+  readonly from: Value;
+  readonly to: Value;
+  readonly writer: Writer;
+  readonly pose?: Pose;
+}
+
+/** A field an undo left alone because the crew or the system wrote it since (§ E5 rule 8: Revert says so on a card). */
+export interface Kept {
+  readonly target: Id;
+  readonly field: string;
+  /** Who wrote it since (`crew` or `system`). */
+  readonly writer: Writer;
+}
+
+/** How an undo was asked for: the UNDO lever, or "undo that" texted through a jack (§ E5 rules 8, 12). */
+export type UndoBy = 'lever' | 'text';
+
 // ───────────────────────── interactables (§ E4) ─────────────────────────
 
 export type Affordance = 'press' | 'grab' | 'turn' | 'slide' | 'plug' | 'open';
@@ -166,7 +214,11 @@ export type Intent =
   /** Take hold of the cord's plug (it leaves its jack and follows `carry`). */
   | { readonly type: 'unplug'; readonly cord: Id }
   /** Push the held plug into a jack, or drop it (null): it returns to the jack it came from. */
-  | { readonly type: 'plug'; readonly cord: Id; readonly jack: Id | null };
+  | { readonly type: 'plug'; readonly cord: Id; readonly jack: Id | null }
+  /** Pull the UNDO lever (or press `U`): take back the most recent transaction (§ E5 rule 8). */
+  | { readonly type: 'undo' }
+  /** "Reset the workshop" (settings): every durable field back to how the visit began, the history emptied. */
+  | { readonly type: 'reset' };
 
 // ───────────────────────── events: what `view` and `audio` may hear ─────────────────────────
 
@@ -192,7 +244,28 @@ export type SimEvent =
   | { readonly type: 'cord.unplugged'; readonly cord: Id; readonly jack: Id }
   | { readonly type: 'cord.plugged'; readonly cord: Id; readonly jack: Id }
   | { readonly type: 'crew.state'; readonly id: Id; readonly state: string; readonly from: string }
-  | { readonly type: 'effect'; readonly effect: Effect };
+  | { readonly type: 'effect'; readonly effect: Effect }
+  /**
+   * A transaction was taken back (§ E5 rules 8-12), all in this step.
+   * `restores` are in the order to be seen running backwards: the most
+   * recent change first (a toppled stack: last moved, first back).
+   * `kept` are fields left as they are because the crew or the system wrote
+   * them since (Revert's card). `cancelled` are the units whose pending work
+   * under this transaction was dropped (rule 10), so Patch can look at the
+   * lever. `action` is the kind of action that opened it.
+   */
+  | { readonly type: 'undone'; readonly txn: TransactionId; readonly action: ActionKind; readonly by: UndoBy; readonly restores: readonly Restore[]; readonly kept: readonly Kept[]; readonly cancelled: readonly Id[] }
+  /**
+   * An undo that changed nothing: `nothing` (the stack is empty, or no
+   * instruction went through that jack), or `changed-since` ("undo that"
+   * found a field of `txn` written since, rule 12: nothing changed and the
+   * transaction stays; Patch says the lever takes things back in order).
+   */
+  | { readonly type: 'undo.refused'; readonly by: UndoBy; readonly reason: 'nothing' | 'changed-since'; readonly txn: TransactionId | null }
+  /** Revert put a part away (§ E5 rule 14): every history entry about it was forgotten first. */
+  | { readonly type: 'put-away'; readonly id: Id }
+  /** "Reset the workshop": every field that differed from the start, put back in this step (same shape as an undo's restores). */
+  | { readonly type: 'reset'; readonly restores: readonly Restore[] };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
