@@ -8,7 +8,7 @@
 import { Box3, Ray, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
-import { benchStations, ORDER, BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
+import { benchStations, ORDER, CHUTE_AIM, CHUTE_RUN, BOUNDS, CREW_SCALE, DOCK_REACH, FRAMING, FRAME_PX, LANE_TAPE, LAYOUT, MAILBOX, MUST_SEE, REVERT_SCALE, SIGN_WORDS, homeBox, homeEdge, mailboxBox, shippedBoxes, shippedCrateFronts, SHIPPED, spotBox, type Spot, type StationKey } from '../../../src/workshop/view/bench.ts';
 import { Quaternion, type Matrix4 } from 'three';
 import { storefront } from '../../../src/workshop/view/kit/pieces/storefront/index.ts';
 import { platen } from '../../../src/workshop/view/kit/pieces/platen/index.ts';
@@ -27,6 +27,11 @@ import { pieceFolders } from '../../../src/workshop/view/kit/pieces/registry.ts'
 import { switchboard, stool } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
 import { belt } from '../../../src/workshop/view/kit/pieces/belt/index.ts';
 import { pieceBounds } from '../../../src/workshop/view/kit/compose.ts';
+import { undoLever } from '../../../src/workshop/view/kit/pieces/undo-lever/index.ts';
+import { striker } from '../../../src/workshop/view/kit/pieces/striker/index.ts';
+import { chute } from '../../../src/workshop/view/kit/pieces/chute/index.ts';
+import { JACKS, BOARD_WHOLE, STOOL_SEAT } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
+import { LINE } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { Vec3 } from '../../../src/workshop/sim/types.ts';
 
 const S = LAYOUT.stations as Record<StationKey, Spot>;
@@ -35,7 +40,7 @@ const body = (id: string): Box3 => {
   if (!b) throw new Error(`no static ${id}`);
   return b;
 };
-const fit = fitPieces(scene, { board: switchboard({ detail: 'low' }), stool: stool({ detail: 'low' }), belt: belt({ length: LAYOUT.beltLength, detail: 'low' }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low' }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
 /** Where the fumbled crate comes to rest: about 0.5 left of the fumble, in front of the lane (the vignette's toss, unchanged). */
 const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.a[1] + 0.1];
@@ -370,6 +375,9 @@ describe('the real pieces', () => {
     ['dock', () => dock({ detail: 'low', reach: DOCK_REACH }), 1],
     ['revert', () => revert({ detail: 'low', pose: 'idle' } as never), REVERT_SCALE],
     ['hatch', () => revertHatch({ detail: 'low', pose: 'open' } as never), REVERT_SCALE],
+    ['board', () => switchboard({ detail: 'low', jacks: JACKS }), 1],
+    ['undo', () => undoLever({ detail: 'low' } as never), 1],
+    ['striker', () => striker({ detail: 'low' } as never), 1],
   ] as const)('%s stands in its spot (the layout carries its real bounds)', (key, make, k) => {
     const b = pieceBounds(make());
     const B = BOUNDS[key];
@@ -396,6 +404,112 @@ describe('the real pieces', () => {
     inside('storefront', 'storefront');
     inside('dock', 'dock');
     inside('revert', 'revert');
+    inside('board', 'board');
+    inside('undo', 'undo');
+  });
+
+  it('stands the chute at the front-left corner, what is on the bench inside its spot, its riser outside the edge', () => {
+    const b = pieceBounds(chute({ detail: 'low', run: CHUTE_RUN, aim: CHUTE_AIM }));
+    const B = BOUNDS.chute;
+    expect(b.min.x).toBeCloseTo(B.x[0], 2);
+    expect(b.max.x).toBeCloseTo(B.x[1], 2);
+    expect(b.min.z).toBeCloseTo(B.z[0], 2);
+    expect(b.max.y).toBeCloseTo(B.h, 2);
+    expect(S.chute.at![1]).toBe(LAYOUT.bench.maxZ);
+  });
+
+  it("puts the striker's hammer where the simulation strikes (LINE.strikerX) and over the belt's middle line", () => {
+    const p = striker({ detail: 'low' } as never);
+    const h = new Vector3().setFromMatrixPosition(p.sockets!['hammer']!);
+    const [ox, oz] = S.striker.at!;
+    expect(ox + h.x).toBeCloseTo(LINE.strikerX, 2);
+    expect(oz + h.z).toBeCloseTo(AT.belt.c[2], 2);
+    // the striker's body holds the post, and stands behind the belt (the arm and hammer over it are no body)
+    const post = body('striker');
+    expect(post.min.x).toBeLessThanOrEqual(ox - 0.15);
+    expect(post.max.x).toBeGreaterThanOrEqual(ox + 0.15);
+    expect(post.max.z).toBeLessThan(AT.belt.c[2] - AT.belt.half[2]);
+    // far enough from the belt's far end for a run of notes played backwards (§ B2 X2): three crates' room
+    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("stands the whole board against the wall, its jacks where the simulation has them, the stool on its runner's right end", () => {
+    const p = switchboard({ detail: 'low', jacks: JACKS });
+    const [bx, bz] = S.board.at!;
+    const w = (n: string): Vector3 => new Vector3().setFromMatrixPosition(p.sockets![n]!).add(new Vector3(bx, 0, bz));
+    for (const k of ['storefront', 'lamp'] as const) {
+      const j = w(`jack.${k}`);
+      expect(j.distanceTo(new Vector3(...AT.jacks[k])), k).toBeLessThan(0.01);
+    }
+    const st = w('stool');
+    expect(st.x).toBeCloseTo(AT.stool.c[0], 2);
+    expect(st.z).toBeCloseTo(AT.stool.c[2], 2);
+    expect(S.stool.y).toBeCloseTo(BOARD_WHOLE.runner.top, 3);
+    expect(fit.stool.seat[1]).toBeCloseTo(STOOL_SEAT, 2); // over the runner: loadBench stands it at S.stool.y
+    expect(bz + pieceBounds(p).min.z).toBeCloseTo(-5 + 0.01, 2);
+  });
+});
+
+describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
+  /** How far from a point of its lane between its stops Fetch can take hold of a part (the simulation's own sum, at the crew's scale). */
+  const REACH = (FETCH_TUNING.reach + FETCH_TUNING.handForward) * CREW_SCALE;
+  const inset = FETCH_TUNING.inset * CREW_SCALE;
+  const [ax, az] = AT.lane.a, [bx] = AT.lane.b;
+  const fromLane = (x: number, z: number, stops = true): { d: number; at: [number, number] } => {
+    const lo = stops ? ax + inset : ax, hi = stops ? bx - inset : bx;
+    const lx = Math.min(hi, Math.max(lo, x));
+    return { d: Math.hypot(x - lx, z - az), at: [lx, az] };
+  };
+  const L = LINE.belt;
+
+  it('takes a crate off the stack: 1.7 to 2.3 from the lane, so the crate it lifts swings clear of the stack, and nothing taller than 1.8 between', () => {
+    const { d, at } = fromLane(AT.stack[0], AT.stack[1]);
+    expect(d).toBeGreaterThanOrEqual(1.7);
+    expect(d).toBeLessThanOrEqual(2.3);
+    expect(d).toBeLessThanOrEqual(REACH - 0.2);
+    const from = new Vector3(AT.stack[0], 0.9, AT.stack[1]), to = new Vector3(at[0], 0.9, at[1]);
+    const ray = new Ray(from, to.clone().sub(from).normalize());
+    for (const st of scene.statics) {
+      if (st.id === 'bench' || st.id === 'back-wall') continue;
+      const b = body(st.id);
+      if (b.max.y <= 1.8) continue;
+      const hit = ray.intersectBox(b, new Vector3());
+      expect(hit && hit.distanceTo(from) < from.distanceTo(to) ? `${st.id} stands between the stack and the lane` : null).toBe(null);
+    }
+  });
+
+  it("sets it on the belt's motor end (the belt mouth's drop), and reaches the platen's tray and the phone", () => {
+    const drop = scene.mouths!.find((m) => m.id === 'belt')!.drop;
+    expect(drop[0]).toBeCloseTo(L.from + 0.8, 6);
+    expect(fromLane(drop[0], drop[2]).d).toBeLessThanOrEqual(REACH - 0.2);
+    const seat = new Vector3().setFromMatrixPosition(platen({ detail: 'low' } as never).sockets!['seat']!);
+    const [px, pz] = S.platen.at!;
+    expect(fromLane(px + seat.x, pz + seat.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    expect(fromLane(AT.phone.c[0], AT.phone.c[2]).d).toBeLessThanOrEqual(REACH - 0.2);
+  });
+
+  it("lands what the chute returns on clear bench beside the stack, not on it, and off the lane's tape", () => {
+    const p = chute({ detail: 'low', run: CHUTE_RUN, aim: CHUTE_AIM });
+    const [cx, cz] = S.chute.at!;
+    const mouth = new Vector3().setFromMatrixPosition(p.sockets!['mouth']!).add(new Vector3(cx, 0, cz));
+    expect(mouth.distanceTo(new Vector3(...AT.chute.p))).toBeLessThan(0.01);
+    const land = new Vector3().setFromMatrixPosition(p.sockets!['land']!).add(new Vector3(cx, 0, cz));
+    const toStack = Math.hypot(land.x - AT.stack[0], land.z - AT.stack[1]);
+    expect(toStack).toBeGreaterThan(0.55 + 0.4);
+    expect(toStack).toBeLessThan(2);
+    expect(land.x).toBeLessThan(ax - LANE_TAPE.past - 0.25);
+    // clear of the belt's motor housing
+    const motor = body('belt-motor');
+    expect(land.z + 0.25).toBeLessThan(motor.min.z);
+    // the pop: forward along the mouth's heading, a little up
+    expect(AT.chute.linvel[0]).toBeGreaterThan(0);
+    expect(AT.chute.linvel[1]).toBeGreaterThan(0);
+  });
+
+  it('keeps 1.4 round the lane free of anything without a body Fetch could slide through when knocked (the chute stands off)', () => {
+    const c = spotBox(S.chute);
+    const dx = Math.max(0, ax - c.max.x, c.min.x - bx), dz = Math.max(0, c.min.z - az, az - c.max.z);
+    expect(Math.hypot(dx, dz)).toBeGreaterThanOrEqual(1.4);
   });
 });
 
