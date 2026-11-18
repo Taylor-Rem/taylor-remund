@@ -121,7 +121,7 @@ const BED_END: readonly [number, number] = [-0.9 + 5, 4.0];
 const DOOR: readonly [number, number] = [BED_END[0] + 0.12 - DOCK_REACH[0], BED_END[1] - DOCK_REACH[1]];
 
 /** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
-export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.1 } as const;
+export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.01, past: 0.08 } as const;
 /** The lane's footprint: the box round every run of the scene's path, the tape's half width either side and its overrun past the ends (for a lane of two points along X, the old rectangle exactly). */
 function laneSpot(): Spot {
   const pts = BENCH_LAYOUT.lane.points as readonly (readonly [number, number])[];
@@ -166,38 +166,38 @@ export const LAYOUT = {
     /** The storefront (real; its jack box and conduit run off its left side). */
     storefront: real(7.6, -3.6, BOUNDS.storefront),
     /** The reserved bays (the room's pieces, their labels flat on the bench), at the back left under the tool wall: INSPECTION at the corner, the plain one right of it. Nothing tall stands in front of either label. */
-    bayInspection: spot(-7.15, -3.6, 3.4, 1.9, 0, { fill: 'piece' }),
-    bayNext: spot(-4.05, -3.55, 2.4, 1.6, 0, { fill: 'piece' }),
+    bayInspection: spot(-7.25, -3.6, 3.3, 1.9, 0, { fill: 'piece' }),
+    bayNext: spot(-4.18, -3.55, 2.72, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
     /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Right of Patch and forward, its column clear of Patch's tail; its tray 1.9 from the lane. */
-    platen: real(4.6, 0.2, BOUNDS.platen),
+    platen: real(4.9, 0.85, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
     shipped: spot(7.88, -1.0, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
     /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`). Left of the lever, in the lamp's spill. */
-    hatch: real(-4.6, 0.3, BOUNDS.hatch),
+    hatch: real(-4.95, 0.3, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
-    revert: real(-4.6, 0.3, BOUNDS.revert),
+    revert: real(-4.95, 0.3, BOUNDS.revert),
     /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
-    undo: real(-2.2, 0.3, BOUNDS.undo),
-    button: spot(-0.05, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
+    undo: real(-2.5, 0.3, BOUNDS.undo),
+    button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
     /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
-    phone: spot(2.4, 0.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
+    phone: spot(2.9, 1.6, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
     /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
-    stack: spot(-6.0, 1.75, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    stack: spot(2.13, 1.85, 0.8, 0.8, 1.85, { fill: 'piece' }),
     /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
     lane: laneSpot(),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
     belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
     /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.1, 2.0 from its far end: room for a run of notes played backwards. */
-    striker: real(2.475, 3.072, BOUNDS.striker),
+    striker: real(2.575, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
     mailbox: spot(7.7, 3.75, 0.42, 0.36, 1.3),
     /** The return chute (real): up out of the dark at the front-left corner, its mouth looking along the bench at the stack's front. */
-    chute: real(-8.4, 5, BOUNDS.chute),
+    chute: real(-7.8, 5, BOUNDS.chute),
   },
 } as const;
 

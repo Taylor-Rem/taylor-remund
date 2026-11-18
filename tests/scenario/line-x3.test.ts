@@ -2,6 +2,7 @@
 // (a tool or a robot comes back up the chute with RETURN TO SENDER), § B1's bench edge, and § E5 rules
 // 4, 9 and 10 on the real belt and dock. Whole bench, real Rapier.
 import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
+import { lanePath } from '../../src/workshop/sim/path.ts';
 import { describe, expect, test } from 'vitest';
 import { AT, BENCH, benchWorld, LINE, onBelt, putOn, tape, waitFor } from './line-helpers.ts';
 import { throwPart, line } from './helpers.ts';
@@ -95,7 +96,11 @@ describe('the dock and the chute', () => {
     // and it hurries back to its lane
     t.run(8 * HZ);
     expect(w.mode('fetch')).toBe('crew');
-    expect(Math.abs(w.crew('fetch')!.z - BENCH.runner.lane.points[0]![1])).toBeLessThan(0.01);
+    // (on its path: A1 round 6 laid it as runs of tape)
+    const onPath = lanePath(BENCH.runner.lane.points, FETCH_TUNING.cornerRadius * (BENCH.crewScale ?? 1));
+    const f = w.crew('fetch')!;
+    const q = onPath.at(onPath.nearest(f.x, f.z));
+    expect(Math.hypot(f.x - q[0], f.z - q[1])).toBeLessThan(0.01);
     // the lever: Fetch's location is no longer the shipping's to restore (Revert's card)
     let u: Extract<SimEvent, { type: 'undone' }> | undefined;
     for (let i = 0; i < 4 && !u?.restores.some((r) => r.target === 'fetch') && !u?.kept.some((k) => k.target === 'fetch'); i++) {

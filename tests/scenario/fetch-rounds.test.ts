@@ -128,7 +128,8 @@ describe('its rounds (play mode)', () => {
     }
     console.log(`rounds soak: ${ships} shipped in ten minutes, longest gap ${(longestGap / 60).toFixed(1)} s, at most ${maxInPlay} in play, at most ${maxStack} on the stack, longest with none to take ${(longestDry / 60).toFixed(1)} s`);
     // the belt never stalls: a crate ships at least every quarter minute, the whole ten minutes
-    expect(ships).toBeGreaterThan(80);
+    // A1 round 6: Fetch rolls between the stack and the feed at arm's length (one corner each way): about one every 7.5 s
+    expect(ships).toBeGreaterThanOrEqual(75);
     expect(longestGap).toBeLessThan(steps(15));
     expect(w.step - lastShip).toBeLessThan(steps(15));
     // never dry for long (a restock follows each shipment) and never piled up
