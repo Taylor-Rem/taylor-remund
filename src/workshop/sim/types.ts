@@ -857,6 +857,16 @@ export interface CrewMember {
   readonly handsUp?: boolean;
   /** S5: the knock, while `state` is `knocked`; null otherwise. */
   readonly knock?: FetchKnock | null;
+  /**
+   * S5 round 2: the centre of its grip, world space, whenever its hands are away from the carry pose: going
+   * out for a part, bringing it in, setting one down, tapping the phone, stretching for something past its
+   * tape. Null with the arms at rest or carrying (a carried part then sits at the carry pose in front of it).
+   * A promise the arms are drawn to: a part in its care has its centre AT the grip at every step from the
+   * moment the claws close to the moment they open; the grip moves continuously (eased out, closed, eased
+   * back: `FETCH_TUNING.hands`); it is never further than `FetchSpec.reach` from Fetch's centre on the
+   * bench; a part is taken from where it rests and set down where it will rest.
+   */
+  readonly hands?: Vec3 | null;
 }
 
 // ── S6: one crew (every member listed in one place, each as the view object it already had) ──

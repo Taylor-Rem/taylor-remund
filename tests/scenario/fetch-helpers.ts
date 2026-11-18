@@ -1,31 +1,29 @@
 // Fetch's scenarios (S5) on the bench: `roundsBench()` is the real bench, whose stack (A1's layout) is in
 // Fetch's reach of its lane.
-import { bench, AT, CREW_SCALE } from '../../src/workshop/sim/scenes/bench.ts';
-import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
+import { bench, AT } from '../../src/workshop/sim/scenes/bench.ts';
+import { FETCH_TUNING, fetchReach } from '../../src/workshop/sim/crew/fetch.ts';
+import { lanePath } from '../../src/workshop/sim/path.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id } from '../../src/workshop/sim/types.ts';
 
-/** How far from a point of its lane (between its stops) Fetch can take hold of a part. */
-export const REACH = (FETCH_TUNING.reach + FETCH_TUNING.handForward) * CREW_SCALE;
+/** How far Fetch's grip goes from its centre on the real bench (the scene's `reach`, or P2's number). */
+export const REACH = fetchReach(bench);
 
-/** The point of the lane (between its stops) nearest (x, z), and how far that is. */
+/** The point of the lane's path (between its stops) nearest (x, z), and how far that is. */
 export function laneDistance(scene: SceneDesc, x: number, z: number): { at: [number, number]; d: number } {
-  const [ax, az] = scene.runner.lane.a;
-  const [bx, bz] = scene.runner.lane.b;
-  const len = Math.hypot(bx - ax, bz - az);
-  const dx = (bx - ax) / len;
-  const dz = (bz - az) / len;
-  const inset = FETCH_TUNING.inset * (scene.crewScale ?? 1);
-  const s = Math.min(len - inset, Math.max(inset, (x - ax) * dx + (z - az) * dz));
-  const at: [number, number] = [ax + dx * s, az + dz * s];
+  const k = scene.crewScale ?? 1;
+  const path = lanePath(scene.runner.lane.points, FETCH_TUNING.cornerRadius * k);
+  const inset = FETCH_TUNING.inset * k;
+  const s = Math.min(path.length - inset, Math.max(inset, path.nearest(x, z)));
+  const at = path.at(s);
   return { at, d: Math.hypot(x - at[0], z - at[1]) };
 }
 
 /** The bench Fetch's rounds run on: the real bench (A1 put its stack within reach of the lane, 2.02 from its left stop). */
 export function roundsBench(): SceneDesc {
   const d = laneDistance(bench, AT.stack[0], AT.stack[1]).d;
-  if (d > REACH - 0.2) throw new Error(`the bench's stack is ${d.toFixed(2)} from Fetch's lane: out of its reach (${REACH.toFixed(2)})`);
+  if (d > fetchReach(bench) - 0.2) throw new Error(`the bench's stack is ${d.toFixed(2)} from Fetch's lane: out of its reach (${REACH.toFixed(2)})`);
   return bench;
 }
 
