@@ -1,0 +1,114 @@
+---
+// Dev page: the phone panel over a still of the bench, driven by the scripted
+// fake line (src/workshop/ui/phone/fake.ts) until the Patchlamp station
+// implements PhoneLine.
+//
+// /dev/phone/                     closed: the still, and the phone on it to tap
+// ?open=1                         open at load
+// ?jack=lamp|platen|belt|storefront|none   where the cord is (default storefront)
+// ?attract=0                      no attract exchange
+// ?work=MS&pickup=MS              the fake's delays (a big work holds "working")
+// ?motion=reduce                  behave as under prefers-reduced-motion
+// The still is reference/g1 (1440x900 wide, 390x844 upright).
+// window.__phone = { panel, line, send(text), plug(jack), exchange(text, jack?) }; window.__ready.
+import wide from '../../reference/g1/1-whole-1440x900.png';
+import upright from '../../reference/g1/2-phone-390x844.png';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Phone</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body { background: var(--room); }
+      #stage { position: fixed; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }
+      #phone-hit { position: fixed; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 10px; }
+      #phone-hit:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+      #controls { position: fixed; left: 8px; top: 8px; z-index: 30; margin: 0; padding: 0; list-style: none; }
+      #controls button { position: absolute; left: -9999px; min-height: 44px; padding: 0 14px; font: 16px system-ui; }
+      #controls button:focus { left: 0; }
+    </style>
+  </head>
+  <body data-wide={wide.src} data-upright={upright.src} data-wide-w={wide.width} data-wide-h={wide.height} data-upright-w={upright.width} data-upright-h={upright.height}>
+    <ul id="controls" aria-label="Controls"><li><button id="controls-phone" type="button">Phone</button></li></ul>
+    <div id="stage" role="img" aria-label="The workbench (a still picture)"></div>
+    <button id="phone-hit" type="button" aria-label="Phone"></button>
+    <script>
+      import { createPhonePanel } from '../workshop/ui/phone/index.ts';
+      import { fakeLine } from '../workshop/ui/phone/fake.ts';
+      import { colour } from '../workshop/ui/phone/colours.ts';
+      import type { Jack } from '../workshop/ui/phone/types.ts';
+
+      const q = new URLSearchParams(location.search);
+      const ds = document.body.dataset;
+      document.documentElement.style.setProperty('--room', colour('rubber-deep'));
+      document.documentElement.style.setProperty('--focus', colour('focus'));
+
+      const jackQ = q.get('jack');
+      const jack: Jack | null = jackQ === 'none' ? null : ((jackQ as Jack | null) ?? 'storefront');
+      const line = fakeLine({
+        jack,
+        attract: q.get('attract') !== '0',
+        work: q.has('work') ? Number(q.get('work')) : undefined,
+        pickUp: q.has('pickup') ? Number(q.get('pickup')) : undefined,
+      });
+
+      // The still, laid out like the stage: cover, centred. Its pixels → the screen's.
+      const stage = document.getElementById('stage')!;
+      const hit = document.getElementById('phone-hit') as HTMLButtonElement;
+      type Box = [number, number, number, number]; // x, y, w, h in the still's pixels
+      const isUpright = (): boolean => innerHeight > innerWidth;
+      const still = () =>
+        isUpright()
+          ? { src: ds.upright!, w: Number(ds.uprightW), h: Number(ds.uprightH), phone: [536, 1060, 62, 92] as Box }
+          : { src: ds.wide!, w: Number(ds.wideW), h: Number(ds.wideH), phone: [884, 482, 48, 60] as Box };
+      // Where each line's station is in the wide still (the storefront and platen are not in it
+      // yet: these follow the bench plan, ART-P2 § 3).
+      const stations: Record<Jack, Box> = {
+        storefront: [1150, 200, 270, 330],
+        platen: [1000, 420, 150, 150],
+        belt: [640, 740, 650, 120],
+        lamp: [430, 120, 210, 250],
+      };
+      const toScreen = (b: Box): DOMRect => {
+        const s = still();
+        const k = Math.max(innerWidth / s.w, innerHeight / s.h);
+        const ox = (innerWidth - s.w * k) / 2;
+        const oy = (innerHeight - s.h * k) / 2;
+        return new DOMRect(ox + b[0] * k, oy + b[1] * k, b[2] * k, b[3] * k);
+      };
+      const layout = (): void => {
+        const s = still();
+        stage.style.backgroundImage = `url(${s.src})`;
+        const r = toScreen(s.phone);
+        Object.assign(hit.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${Math.max(44, r.width)}px`, height: `${Math.max(44, r.height)}px` });
+      };
+      layout();
+      addEventListener('resize', layout);
+
+      const reduce = q.get('motion') === 'reduce';
+      const panel = createPhonePanel({
+        line,
+        anchor: () => hit.getBoundingClientRect(),
+        avoid: (j) => (j && !isUpright() ? toScreen(stations[j]) : null),
+        reducedMotion: reduce ? () => true : undefined,
+      });
+      const toggle = (from: HTMLElement): void => (panel.isOpen ? panel.close() : panel.open(from));
+      hit.addEventListener('click', () => toggle(hit));
+      document.getElementById('controls-phone')!.addEventListener('click', (e) => toggle(e.currentTarget as HTMLElement));
+
+      (window as any).__phone = {
+        panel,
+        line,
+        send: (t: string) => line.send(t),
+        plug: (j: Jack | null) => line.plug(j),
+        exchange: (t: string, j?: Jack) => line.exchange(t, j),
+      };
+      if (q.get('open') === '1') panel.open(hit);
+      document.fonts.ready.then(() => ((window as any).__ready = true));
+    </script>
+  </body>
+</html>
