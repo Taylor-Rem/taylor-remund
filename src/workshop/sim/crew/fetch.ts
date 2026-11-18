@@ -723,8 +723,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         }
       }
 
-      // the crate in its hands became the visitor's (changed by them): it sets it down where it is (rule 5)
-      if (carrying && ctx.touched(carrying) && ctx.playMode) letGo([0, 0, 0], [0, 0, 0], null);
+      // on its rounds, the crate in its hands became the visitor's (changed by them, by text): it is theirs now
+      // (rule 5), so it sets it down where it is, the rest charged to the change (rule 4: its consequence)
+      if (rounds && carrying && ctx.touched(carrying) && ctx.playMode) {
+        const c = carrying;
+        let by: Cause = 'system';
+        for (const f of ['colour', 'label', 'marks', 'contents', 'location']) {
+          const wr = ctx.writer(c, f);
+          if (wr && wr !== 'crew' && wr !== 'system' && wr !== 'settled' && (by === 'system' || Number(wr.slice(1)) > Number(by.slice(1)))) by = wr;
+        }
+        letGo([0, 0, 0], [0, 0, 0], by);
+        if (isTxn(by)) ctx.history.claim(c, by, now);
+      }
 
       if (saluteDue) {
         saluteDue = false;
