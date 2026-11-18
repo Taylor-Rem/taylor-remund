@@ -24,6 +24,7 @@ import type { StationView, StationViewFactory, ViewContext, Frame } from './type
 import type { Piece } from './kit/types.ts';
 import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
 import { pieceBounds } from './kit/compose.ts';
+import { loadBakeTable, measured as tableMeasured, measureOnly } from './kit/bake.ts';
 import { createPartsView } from './stations/parts.ts';
 import { createSetView, type Placed, type StaticPool } from './stations/set.ts';
 import { createBeltView } from './stations/belt.ts';
@@ -166,8 +167,49 @@ export function placeMatrix(at: Placed): Matrix4 {
   return new Matrix4().makeRotationY((at.yaw ?? 0) * DEG).setPosition(at.x, at.y ?? 0, at.z);
 }
 
+/** What fitting reads of a piece: its bounds at rest (piece space, as `pieceBounds`) and its sockets. */
+export interface Measure {
+  bounds: Box3;
+  sockets: Record<string, Matrix4>;
+}
+
+/** A built piece's measure. */
+export function measureOf(p: Piece | Measure): Measure {
+  return 'root' in p ? { bounds: pieceBounds(p), sockets: { ...(p.sockets ?? {}) } } : p;
+}
+
+/** Options as a stable string (keys sorted), for a measurement's key. */
+function stable(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined';
+  if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o).sort().map((k) => `${k}:${stable(o[k])}`).join(',')}}`;
+}
+
+/**
+ * Measure a registered piece built blank (no labels) with these options:
+ * from the bake table when it was recorded under exactly the sources this
+ * page was built from, else by a measuring build (no bake). Either way the
+ * numbers are those of `buildEntry(e, null, opts)` (kit/bake.ts `measured`).
+ */
+export function measureEntry(e: Entry, opts: Record<string, unknown>): Measure {
+  type Plain = { bounds: number[]; sockets: Record<string, number[]> };
+  const m = tableMeasured<Plain>(`measure|${e.name}|${stable(opts)}`, () => {
+    const p = measureOf(measureOnly(() => buildEntry(e, null, opts)));
+    return { bounds: p.bounds.isEmpty() ? [] : [...p.bounds.min.toArray(), ...p.bounds.max.toArray()], sockets: Object.fromEntries(Object.entries(p.sockets).map(([k, s]) => [k, [...s.elements]])) };
+  });
+  const bounds = m.bounds.length === 6 ? new Box3(new Vector3().fromArray(m.bounds, 0), new Vector3().fromArray(m.bounds, 3)) : new Box3();
+  return { bounds, sockets: Object.fromEntries(Object.entries(m.sockets).map(([k, s]) => [k, new Matrix4().fromArray(s)])) };
+}
+
+/** A measure as a piece with no geometry, for helpers that read only a piece's sockets (the lamp's `keyLight`). */
+export function socketsPiece(name: string, m: Measure): Piece {
+  const s = m.bounds.isEmpty() ? new Vector3() : m.bounds.getSize(new Vector3());
+  return { name, root: { name: 'root', parts: [] }, size: { x: s.x, y: s.y, z: s.z }, sockets: m.sockets, triangles: 0 };
+}
+
 /** A socket of a piece placed in the world (its position), or null. */
-export function socketAt(p: Piece | null, name: string, at: Placed): Vec3 | null {
+export function socketAt(p: Piece | Measure | null, name: string, at: Placed): Vec3 | null {
   const s = p?.sockets?.[name];
   if (!s) return null;
   const v = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(placeMatrix(at), s));
@@ -203,23 +245,25 @@ const centreXZ = (scene: SceneDesc, id: Id, fallback: [number, number]): [number
  */
 export function fitPieces(
   scene: SceneDesc,
-  pieces: { board?: Piece | null; stool?: Piece | null; phone?: Piece | null; belt?: Piece | null },
+  given: { board?: Piece | Measure | null; stool?: Piece | Measure | null; phone?: Piece | Measure | null; belt?: Piece | Measure | null },
   /** What has no body here (another scene's stool and phone turn; default: the vignette's). */
   place: { stool: { x: number; z: number }; phoneYaw: number } = LAYOUT,
 ): Fit {
-  const boardB = pieces.board ? pieceBounds(pieces.board) : box(STAND_IN.board.w, STAND_IN.board.h, STAND_IN.board.d);
+  const m = (p: Piece | Measure | null | undefined): Measure | null => (p ? measureOf(p) : null);
+  const pieces = { board: m(given.board), stool: m(given.stool), phone: m(given.phone), belt: m(given.belt) };
+  const boardB = pieces.board ? pieces.board.bounds.clone() : box(STAND_IN.board.w, STAND_IN.board.h, STAND_IN.board.d);
   const [bx] = centreXZ(scene, 'board', [1.05, -4.35]);
   const boardAt: Placed = { x: bx, z: againstWall(boardB), yaw: 0 };
   const sj = (name: 'storefront' | 'lamp'): Vec3 => socketAt(pieces.board ?? null, `jack.${name}`, boardAt) ?? scene.cord.jacks.find((j) => j.id === `jack-${name}`)?.at ?? [bx, 1.6, -3.9];
   const jacks = { storefront: sj('storefront'), lamp: sj('lamp') };
   const cordRoot = socketAt(pieces.board ?? null, 'cord.root', boardAt) ?? ([bx, 0.9, boardAt.z + boardB.max.z] as Vec3);
-  const stoolB = pieces.stool ? pieceBounds(pieces.stool) : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
+  const stoolB = pieces.stool ? pieces.stool.bounds.clone() : box(STAND_IN.stool.w, STAND_IN.stool.h, STAND_IN.stool.d);
   const [sx, sz] = [place.stool.x, place.stool.z];
   const stoolAt: Placed = { x: sx, z: sz, yaw: 0 };
   const seat = socketAt(pieces.stool ?? null, 'seat', stoolAt) ?? ([sx, stoolB.max.y, sz] as Vec3);
-  const phoneB = pieces.phone ? pieceBounds(pieces.phone) : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);
+  const phoneB = pieces.phone ? pieces.phone.bounds.clone() : box(STAND_IN.phone.w, STAND_IN.phone.h, STAND_IN.phone.d);
   const [px, pz] = centreXZ(scene, 'phone', [2.75, -1.55]);
-  const beltB = pieces.belt ? pieceBounds(pieces.belt) : box(STAND_IN.belt.w, STAND_IN.belt.h, STAND_IN.belt.d);
+  const beltB = pieces.belt ? pieces.belt.bounds.clone() : box(STAND_IN.belt.w, STAND_IN.belt.h, STAND_IN.belt.d);
   const [ex, ez] = centreXZ(scene, 'belt-bed', [3.5, 4.05]);
   return {
     board: { at: boardAt, bounds: boardB, jacks, cordRoot },
@@ -294,6 +338,8 @@ export interface Vignette {
  */
 export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
   const scene = SIM_VIGNETTE;
+  // the bake table downloads while the piece modules load; the station views build after it is in
+  const table = loadBakeTable();
   const { entries } = await listPieces();
   const find = (name: string): Entry | undefined => entries.find((e) => e.name === name);
   const seed = o.seed ?? 1;
@@ -334,8 +380,9 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
     lamp: await pieceModule('lamp'),
   };
 
-  // ── measure (blank builds: sizes and sockets) ──
-  const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Piece | null => (e ? buildEntry(e, null, { seed, ...opts }) : null);
+  // ── measure (sizes and sockets of the blank pieces: recorded in the bake table, else a measuring build) ──
+  await table;
+  const blank = (e: Entry | undefined, opts: Record<string, unknown> = {}): Measure | null => (e ? measureEntry(e, { seed, ...opts }) : null);
   const fit = fitPieces(scene, { board: blank(E.board), stool: blank(E.stool), phone: blank(E.phone), belt: blank(E.belt, { length: LAYOUT.beltLength }) });
   const meas = measured(scene, fit, {
     console: mods.button?.['CONSOLE'] as { w: number; frontBottomZ: number; backZ: number } | undefined,
@@ -345,8 +392,8 @@ export async function loadVignette(o: VignetteOptions = {}): Promise<Vignette> {
   // the key light: from the real lamp clamped at LAYOUT.lampPlace (its bulb socket and its shade's axis)
   type KeyLight = (p: Piece, place: Vec3) => { position: Vec3; aim: Vec3 };
   const keyLight = mods.lamp?.['keyLight'] as KeyLight | undefined;
-  const lampPiece = blank(E.lamp);
-  const k = keyLight && lampPiece ? keyLight(lampPiece, LAYOUT.lampPlace) : null;
+  const lampMeasure = blank(E.lamp);
+  const k = keyLight && lampMeasure ? keyLight(socketsPiece('lamp', lampMeasure), LAYOUT.lampPlace) : null;
   const bulb = k ? { at: k.position, aim: k.aim } : LAYOUT.bulb;
 
   // ── the other engineers' station views, by file ──
