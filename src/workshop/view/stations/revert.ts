@@ -81,6 +81,8 @@ export const REVERT_FEEL = {
   /** Before it rises: the card's top peeks out of the slot this far (fraction of its rise) and waits this long. */
   peek: 0.09,
   peekHold: 0.3,
+  /** Held up: a little over the stick's rest height (the rig allows 1.15), so the deadpan face shows under it. */
+  hold: 1.13,
   cardDamping: 0.58,
   openAt: 0.8,
   openOmega: 15,
@@ -604,7 +606,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
             break;
           }
           // anticipation: the card's top peeks out of the slot and stops, then up it goes
-          cardLift.step(R || s >= F.peekHold ? 1 : F.peek, dt);
+          cardLift.step(R || s >= F.peekHold ? F.hold : F.peek, dt);
           if (R ? s > 0.2 : cardLift.x > F.openAt && s > F.peekHold + 0.2) {
             const before = cardOpen.x;
             cardOpen.step(1, dt);

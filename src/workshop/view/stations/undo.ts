@@ -13,8 +13,9 @@
  *  - its lamp: lit while there is something to undo; a slow blink as a tell;
  *  - the undo itself, for loose parts: each part restored to a place hops
  *    back to it from where it was at the moment of the undo, last moved
- *    first, on short arcs (`hops.ts`). A shipment coming back in through the
- *    dock's door is the dock's to draw; Revert is drawn by its own view.
+ *    first, on short arcs (`hops.ts`). Whatever was on the line (shipped, or
+ *    riding the belt's or the dock's mouth: `lineOwnsRestore`) is the line's
+ *    view's to rewind; Revert is drawn by its own view.
  *
  * Reduced motion: the lever cuts between its travel and home (no overshoot,
  * no rattle) and parts are put back without a hop.
@@ -27,6 +28,7 @@ import type { UndoPose } from '../kit/pieces/undo-lever/index.ts';
 import { Spring } from '../anim/index.ts';
 import { createHops, type PartHops } from './hops.ts';
 import { nodeBounds, proxyOn } from './proxy.ts';
+import { lineOwnsRestore } from './line.ts';
 
 /** Tune here. Fractions of the lever's travel, seconds. */
 export const UNDO_FEEL = {
@@ -110,7 +112,8 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
       const items: { id: Id; from: Pose }[] = [];
       const seen = new Set<Id>();
       for (const r of e.restores) {
-        if (r.field !== 'location' || !r.pose || seen.has(r.target) || byDoor.has(r.target)) continue;
+        // what was on the line (shipped, or riding the belt's or the dock's mouth) the line's view rewinds itself
+        if (r.field !== 'location' || !r.pose || seen.has(r.target) || byDoor.has(r.target) || lineOwnsRestore(r)) continue;
         const p = w.part(r.target);
         if (!p || p.kind === 'robot') continue;
         const now0 = w.motion(r.target)?.pose;
