@@ -501,14 +501,17 @@ export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
 
 /**
  * Revert, the caretaker (§ B5). `below`: in its hatch, unseen, the doors shut. `rising`: the lift
- * brings it up (it may already be cranking). `idle`: up, awake, flat-lidded. `trundle`: driving on its
+ * brings it up (it may already be cranking). `sinking` (S7): its work done and back on its hatch, after a
+ * deadpan pause the lift takes it down (`lift` 1 → 0 over the rise time; the doors stay open until it
+ * is down, then shut after it), then `below`; called meanwhile, it rises again from where the lift is.
+ * `idle`: up, awake, flat-lidded. `trundle`: driving on its
  * treads (`speed`). `crank`: turning its crank while a change runs backwards. `fit`: screwing the
  * cover on the Button. `sweep`: putting a part away (`sweeping`). `park`: asleep in the window's light,
  * one eye open. `stuck`: its hatch is covered by something; the doors rattle, it stays down. `held`:
  * in the visitor's hand, limp. `loose`: put down (or on the belt, or shipped): it waits to come to
  * rest, rights itself and carries on.
  */
-export type RevertState = 'below' | 'rising' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
+export type RevertState = 'below' | 'rising' | 'sinking' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
 
 /**
  * Revert's state, published as a machine view (`world.machine(<its unit id>)`, kind `revert`) because

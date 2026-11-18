@@ -14,6 +14,10 @@
  *   lever found nothing left (`card.revert.nothing`).
  * - **After rung 3** it trundles to the Button and fits the cover, then goes
  *   back to its hatch.
+ * - **Home again** (S7): standing on its hatch with nothing left to do (its
+ *   card down), it waits a deadpan `homePause` and sinks (`sinking`: the
+ *   lift takes it down over the rise time), then it is `below`. Called while
+ *   it sinks, it rises again from where the lift is.
  * - **Between jobs**: when the bench is crowded (`crowded` stray crates or
  *   more, resting off the stack) it puts away the oldest one nobody has
  *   stirred for `aWhile` seconds (`ctx.putAway`, rule 14: onto the stack if
@@ -33,7 +37,10 @@
  *   world). Where it is and what it intends are transient.
  * - While a rung plays its body stays where it was (the world is recorded
  *   and rewound); what it does then is drawn from its view and the body
- *   catches up when the rung ends.
+ *   catches up when the rung ends. A rung's `revert` beat calls it like any
+ *   other call: down (stowed) it rises; sinking, it rises again from where
+ *   its lift is. A rung without that beat (reduced motion) leaves the lift
+ *   alone: a sinking Revert finishes sinking during it.
  *
  * Its view is a `MachineView` of kind `revert` (see `RevertView`); its body
  * is the loose part `spec.body` (kind robot).
@@ -51,6 +58,8 @@ export const REVERT_TUNING = {
   rise: 0.9,
   /** The hatch's doors open (or shut) in this long. */
   doors: 0.3,
+  /** Back on its hatch with nothing to do (its card down): it stands this long, deadpan, then sinks. */
+  homePause: 1.2,
   /** Its hatch covered: it rattles the doors this long, then stays down. */
   stuck: 1.2,
   /** ...and does not try to come up to tidy again for this long. */
@@ -165,6 +174,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let speed = 0;
   let turning = 0;
   let card: { content: string; at: number } | null = null;
+  /** The step its last card came down (it sinks only a pause after that). */
+  let cardDown = -Infinity;
   let route: Route | null = null;
   let coverPending = false;
   let sweeping: { part: Id; stir: number } | null = null;
@@ -185,7 +196,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     ctx.emit({ type: 'crew.state', id: body, state: next, from });
   };
   const inState = (): number => ctx.clock.step - entered;
-  const up = (): boolean => state !== 'below' && state !== 'rising' && state !== 'stuck';
+  /** Up on the bench and able to act (rising and sinking are neither up nor down). */
+  const up = (): boolean => state !== 'below' && state !== 'rising' && state !== 'sinking' && state !== 'stuck';
   const loose = (): boolean => state === 'held' || state === 'loose';
 
   /** Where its body should be: on the bench at (x, z), lowered by the lift. */
@@ -289,6 +301,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   }
 
   const near = (s: RevertSpot, d = 0.08): boolean => Math.hypot(x - s.x, z - s.z) < d;
+  /** Standing on its hatch (on the bench top, over the doors). */
+  const onHatch = (): boolean => Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
 
   /** One step along the route. True when it has arrived (facing the spot's heading). */
   function drive(r: Route): boolean {
@@ -345,6 +359,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
   // ── jobs ──
   function rise(): void {
+    if (state === 'sinking') {
+      // still in the hatch's mouth: back up from where the lift is (nothing can have covered the open hatch)
+      enter('rising');
+      return;
+    }
     if (blocker(spec.home.x, spec.home.z, spec.home.heading) !== null) {
       enter('stuck'); // its hatch is covered: it will not push the visitor's things off it
       return;
@@ -361,7 +380,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     tidySince = ctx.clock.step;
     sweeping = null;
     if (seconds > 0) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(seconds));
-    if (state === 'below') rise();
+    if (state === 'below' || state === 'sinking') rise();
     else if (state === 'park') enter('idle');
     else if (state === 'sweep') enter('idle');
   }
@@ -441,6 +460,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         return;
       }
     }
+    // home on its hatch with nothing to do: a deadpan pause, then down it goes
+    const pause = steps(T.homePause);
+    if (state === 'idle' && onHatch() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
+      enter('sinking');
+      return;
+    }
     if (state === 'idle' && ground < 0.05 && now - tidySince >= steps(spec.parkAfter) && now - entered >= steps(T.righting)) {
       if (near(spec.park)) enter('park');
       else goTo(spec.park, 'park');
@@ -460,6 +485,13 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     ctx.drive(body, drawnPose(), true);
     glareUntil = ctx.clock.step + steps(T.righting);
     enter('idle');
+  }
+
+  /** The crank stops: back to the trip it was on, the cover it was fitting, or standing by. */
+  function doneCranking(): void {
+    if (route) enter('trundle');
+    else if (coverPending && near(spec.button)) enter('fit');
+    else enter('idle');
   }
 
   function arrive(r: Route): void {
@@ -522,7 +554,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         // its jobs
         if (e.type === 'rung.beat' && e.beat === 'revert') call(0);
         else if (e.type === 'rung.beat' && e.beat === 'rewind') {
-          if (state !== 'below' && state !== 'stuck' && !loose()) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(e.duration));
+          if (state !== 'below' && state !== 'stuck' && state !== 'sinking' && !loose()) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(e.duration));
         } else if (e.type === 'card' && e.by === body) showCard(e.content);
         else if (e.type === 'cover' && e.state === 'fitting') coverPending = true;
         else if (e.type === 'cover' && (e.state === 'none' || e.state === 'shut')) {
@@ -546,7 +578,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     pre() {
       const now = ctx.clock.step;
-      if (card && now - card.at >= steps(T.card)) card = null;
+      if (card && now - card.at >= steps(T.card)) {
+        card = null;
+        cardDown = now;
+      }
       const cranking = now < crankUntil && state !== 'held' && state !== 'loose';
       if (cranking) crank += T.crankRate * dt;
       const mode = ctx.mode(body);
@@ -570,16 +605,19 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.min(1, lift + dt / T.rise);
         if (lift >= 1) enter(cranking ? 'crank' : 'idle');
       }
+      if (state === 'sinking') {
+        lift = Math.max(0, lift - dt / T.rise);
+        if (lift <= 0) enter('below');
+      }
       if (state === 'stuck' && inState() >= steps(T.stuck)) {
         nextAway = Math.max(nextAway, now + steps(T.stuckRetry));
         enter('below');
       }
-      const onHatch = Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
-      const doorsWant = state === 'rising' || (up() && onHatch) ? 1 : 0;
+      const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
       if (ctx.bracketed) {
-        // a rung plays: its body stays put (the world is recorded and rewound); it only cranks and rises
+        // a rung plays: its body stays put (the world is recorded and rewound); it only cranks, rises and sinks
         speed = 0;
         turning = 0;
         if (cranking && (state === 'idle' || state === 'park' || state === 'trundle' || state === 'fit')) enter('crank');
@@ -593,11 +631,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         turning = 0;
         enter('crank');
       }
-      if (state === 'crank' && !cranking) {
-        if (route) enter('trundle');
-        else if (coverPending && near(spec.button)) enter('fit');
-        else enter('idle');
-      }
+      if (state === 'crank' && !cranking) doneCranking();
 
       switch (state) {
         case 'trundle': {
@@ -644,6 +678,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       sweeping = null;
       coverPending = false;
       card = null;
+      cardDown = -Infinity;
       crankUntil = -1;
       speed = 0;
       turning = 0;

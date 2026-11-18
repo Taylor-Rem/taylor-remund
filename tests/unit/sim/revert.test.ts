@@ -79,7 +79,7 @@ describe('Revert and the Button', () => {
     expect(states(ev)).toContain('rising');
   });
 
-  test('rung 3: it trundles to the Button, fits the cover, and goes home', () => {
+  test('rung 3: it trundles to the Button, fits the cover, goes home and sinks back down its hatch', () => {
     const { world } = benchStub();
     run(world, 5);
     rung(world);
@@ -94,10 +94,12 @@ describe('Revert and the Button', () => {
     }
     expect(atButton).toBe(true);
     const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
-    expect(seq).toEqual(expect.arrayContaining(['trundle', 'fit', 'idle']));
+    expect(seq).toEqual(expect.arrayContaining(['trundle', 'fit', 'idle', 'sinking', 'below']));
     expect(seq.indexOf('fit')).toBeLessThan(seq.lastIndexOf('idle'));
+    expect(seq.slice(-3)).toEqual(['idle', 'sinking', 'below']);
     expect(world.button().cover).toBe('shut');
-    expect(R(world)).toMatchObject({ state: 'idle' });
+    expect(R(world)).toMatchObject({ state: 'below', lift: 0, hatch: 0 });
+    expect(world.mode('revert')).toBe('gone');
     expect(R(world).x).toBeCloseTo(AT.revert.c[0], 5);
     expect(R(world).z).toBeCloseTo(AT.revert.c[2], 5);
   });
@@ -128,8 +130,10 @@ describe('Revert and the UNDO lever: the undo never waits for it', () => {
     expect(R(world).cranking).toBe(true);
     run(world, 1);
     expect(R(world).state).toBe('crank');
-    run(world, steps(REVERT_TUNING.undoCrank.max) + 1);
-    expect(R(world).state).toBe('idle');
+    run(world, steps(REVERT_TUNING.undoCrank.base + REVERT_TUNING.undoCrank.per) + 1);
+    expect(R(world).state).toBe('idle'); // on its hatch: it stands by, then sinks
+    run(world, steps(REVERT_TUNING.homePause) + 1);
+    expect(R(world).state).toBe('sinking');
   });
 
   test('nothing left: the lever still travels, and Revert says so on a card', () => {
@@ -172,6 +176,65 @@ describe('Revert and the UNDO lever: the undo never waits for it', () => {
   });
 });
 
+describe('Revert goes home (S7)', () => {
+  test('a visit: it rises, works, goes home, sinks, and called again mid-descent comes back up from where it is', () => {
+    const { world } = benchStub();
+    run(world, 5);
+    const ev = rung(world); // rises, cranks, holds up its card
+    ev.push(...run(world, 1));
+    expect(R(world)).toMatchObject({ state: 'idle', lift: 1 });
+    // a deadpan pause after the card comes down, then the lift takes it down; the doors stay open meanwhile
+    for (let i = 0; i < steps(REVERT_TUNING.card + REVERT_TUNING.homePause + 1) && R(world).state !== 'sinking'; i++) ev.push(...run(world, 1));
+    expect(R(world).state).toBe('sinking');
+    expect(R(world).card).toBeNull();
+    ev.push(...run(world, Math.round(steps(REVERT_TUNING.rise) * 0.3)));
+    const part = R(world);
+    expect(part.state).toBe('sinking');
+    expect(part.lift).toBeGreaterThan(0.5);
+    expect(part.lift).toBeLessThan(0.9);
+    expect(part.hatch).toBe(1);
+    // called mid-descent (an undo): it rises again from where the lift is, cranking
+    world.dispatch({ type: 'turn', id: 'belt-dial', value: 0 });
+    run(world, 2);
+    const lift = R(world).lift;
+    ev.push(...press(world, 'undo-lever'));
+    expect(R(world).state).toBe('rising');
+    expect(R(world).lift).toBeGreaterThanOrEqual(lift - 0.05);
+    expect(R(world).cranking).toBe(true);
+    ev.push(...run(world, Math.ceil(steps(REVERT_TUNING.rise) * (1 - lift)) + 2));
+    expect(R(world)).toMatchObject({ lift: 1 });
+    expect(['crank', 'idle']).toContain(R(world).state);
+    expect(world.mode('revert')).toBe('crew');
+    // and when that is done it goes down again, to stay
+    ev.push(...run(world, steps(REVERT_TUNING.undoCrank.max + REVERT_TUNING.card + REVERT_TUNING.homePause + REVERT_TUNING.rise + REVERT_TUNING.doors) + 4));
+    expect(R(world)).toMatchObject({ state: 'below', lift: 0, hatch: 0 });
+    expect(world.mode('revert')).toBe('gone');
+    const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
+    expect(seq).toEqual(['rising', 'idle', 'crank', 'idle', 'sinking', 'rising', ...seq.slice(6, -2), 'sinking', 'below']);
+  });
+
+  test('a rung pressed while it sinks calls it back up; a reduced-motion rung (no call) lets it finish going down', () => {
+    const toSinking = (w: World): void => {
+      run(w, 5);
+      rung(w);
+      for (let i = 0; i < steps(REVERT_TUNING.card + REVERT_TUNING.homePause + 1) && R(w).state !== 'sinking'; i++) run(w, 1);
+      run(w, 10);
+    };
+    const a = benchStub().world;
+    toSinking(a);
+    press(a, 'button');
+    expect(R(a).state).toBe('rising');
+    const b = benchStub().world;
+    toSinking(b);
+    expect(R(b).state).toBe('sinking');
+    b.dispatch({ type: 'motion', reduced: true });
+    press(b, 'button');
+    expect(b.bracketed).toBe(true);
+    run(b, steps(REVERT_TUNING.rise));
+    expect(R(b)).toMatchObject({ state: 'below', lift: 0 });
+  });
+});
+
 describe('Revert in the hand', () => {
   test('picked up it goes limp; put down it rights itself where it lies and carries on', () => {
     const { world, physics } = benchStub();
@@ -209,10 +272,12 @@ describe('Revert in the hand', () => {
 });
 
 describe('Revert between jobs', () => {
-  test('a tidy bench for two minutes: it trundles to the window\'s light and powers down, one eye open, moving nothing', () => {
-    const { world } = quietStub();
+  test('left off its hatch, a tidy bench for two minutes: it trundles to the window\'s light and powers down, one eye open, moving nothing', () => {
+    const { world, physics } = quietStub();
     run(world, 5);
     rung(world);
+    run(world, 10);
+    setDown(world, physics, 'revert', -5.5, -0.5); // off its hatch: it does not go down, it waits where it is
     const before = others(world);
     const ev = run(world, steps(130));
     expect(states(ev)).toContain('trundle');
