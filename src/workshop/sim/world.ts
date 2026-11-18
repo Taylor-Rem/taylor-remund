@@ -976,13 +976,18 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
-  /** One step of the rung's rewind: put every body at its recorded pose. Returns the frame shown. */
+  /**
+   * One step of the rung's rewind: put every body at its recorded pose. Returns the frame shown. The
+   * recording plays back eased in and out (smoothstep), so parts gather speed and settle rather than
+   * stopping dead; the last step shows the first recorded frame exactly.
+   */
   function playback(): ReadonlyMap<Id, Pose> | undefined {
     const b = bracket;
     if (!b) return undefined;
     b.rewound += 1;
     const f = Math.min(1, b.rewound / b.rewindSteps);
-    const idx = Math.round((1 - f) * (b.frames.length - 1));
+    const e = f * f * (3 - 2 * f);
+    const idx = Math.round((1 - e) * (b.frames.length - 1));
     const frame = b.frames[idx];
     if (!frame) return undefined;
     for (const [id, p] of frame) {
