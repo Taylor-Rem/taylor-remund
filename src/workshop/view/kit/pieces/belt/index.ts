@@ -275,7 +275,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const blk = bevelBox({ min: [-0.11, -0.065, 0], max: [0.11, 0.065, 0.06], c: 0.012, omit: ['nz'] });
     b.add(part('brass', transform(blk, T(drumR.x - 0.02, drumR.y, dz)), 'brass', { seed: seed + 47, shade: 0.85, warm: 0.03 }));
     // the slot it slides in: a dark strip on the web, longer than the block
-    b.add(part('steel', transform(slab({ w: 0.36, d: 0.05, t: 0.004, r: 0.02, bevel: 0.0015, detail: 'low', band: 0, open: true }), chain(T(drumR.x - 0.06, drumR.y, dz + 0.001), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 0.6 }));
+    b.add(part('steel', transform(slab({ w: 0.36, d: 0.05, t: 0.004, r: 0.02, bevel: 0.0015, detail: 'low', band: 0, open: true }), chain(T(drumR.x - 0.06, drumR.y, dz + 0.001), mat({ rot: [90, 0, 0] }))), 'ink', { shade: 2.6 }));
     const d1 = n0.node(drumR.name, capAt(drumR.x, drumR.y, dz + 0.06));
     d1.add(part('brass', transform(brassCap(0.034, 0.034), new Matrix4().makeRotationX(Math.PI / 2)), 'brass', { seed: seed + 48, warm: 0.04 }));
     d1.add(part('brass', transform(stud(0.008, 0.012, 6), T(0, 0.032, 0.02)), 'brass', { seed: seed + 49 }));
@@ -356,7 +356,7 @@ export function belt(o: BeltOptions = {}): Piece {
   {
     const seam = b.node('seam');
     const t2 = BELT.thickness / 2;
-    const n = hi ? (L > 7 ? 7 : 8) : 6;
+    const n = hi ? (L > 7 ? 7 : 10) : 6;
     const span = BELT.width - 0.1;
     for (let i = 0; i < n; i++) {
       const z = -span / 2 + (span * i) / (n - 1);
