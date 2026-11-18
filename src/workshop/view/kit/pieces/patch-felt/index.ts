@@ -26,8 +26,9 @@ import type { NodeBuilder } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import type { Rng } from '../../rng.ts';
 import { setFinish } from '../../space.ts';
+import { bevelBox } from '../../cheap.ts';
 import {
-  CUP, EXPRESSIONS, EXPRESSION_NAMES, EYE, FOREARM, HC, LID, MUZZLE, NEUTRAL, R0, SEAT_H, SIDE_ON, TAIL, UPPER_ARM,
+  CUP, EXPRESSIONS, EXPRESSION_NAMES, EYE, FOLDER, FOREARM, HC, KNEE_MID, LEG, LID, MUZZLE, NEUTRAL, R0, SEAT_H, SIDE_ON, TAIL, UPPER_ARM,
   chartDir, earBase, eyeFrame, headRadius, poseMatrices,
 } from './rig.ts';
 import type { ExpressionName, PatchPose } from './rig.ts';
@@ -61,6 +62,7 @@ const RING: RGB = mixTone('teal-deep', 'ink', 0.3, 0.9);
 const KNIT: RGB = mixTone('cable-red', 'ink', 0.08, 0.6);
 const THREAD_DARK: RGB = mixTone('ink', 'teal-deep', 0.3, 1.0);
 const THREAD_LIGHT: RGB = mixTone('paper', 'paper', 0, 0.85);
+const WHISKER: RGB = mixTone('paper', 'steel', 0.45, 0.8);
 
 const felt = (g: BufferGeometry, c: RGB, R?: Rng, jitter = 0.03): KitPart => ({ material: 'felt', geometry: colour(g, c, jitter, R) });
 
@@ -127,13 +129,14 @@ export function patchFelt(o: PatchFeltOptions = {}): Piece {
   if (standIn) b.transform = chain(T(0, SEAT_H, 0), new Matrix4().makeRotationY(o.turn ?? 0));
 
   if (standIn) buildStandIn(b, seed);
-  buildSeat(b, R.fork(1), detail);
-  const spine = b.node('spine', rest.spine);
+  const body = b.node('body', rest.body);
+  buildSeat(body, rest, R.fork(1), detail);
+  const spine = body.node('spine', rest.spine);
   buildTorso(spine, R.fork(2), detail);
   const head = spine.node('head', rest.head);
   buildHead(head, rest, R.fork(3), detail);
   for (const s of [1, -1] as const) buildArm(spine, s, rest, R.fork(10 + s), detail);
-  buildTail(b, rest, R.fork(4), detail);
+  buildTail(body, rest, R.fork(4), detail);
 
   b.socket('seat', new Matrix4());
   const built = b.build();
@@ -187,25 +190,48 @@ function buildStandIn(b: NodeBuilder, seed: number): void {
 
 // ---- the seat: rump, legs, feet ----------------------------------------------------------
 
-function buildSeat(n: NodeBuilder, R: Rng, detail: 'high' | 'low'): void {
+function buildSeat(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail: 'high' | 'low'): void {
   const lo = detail === 'low';
   // the rump: a stuffed cushion of felt the cardigan's hem sits on
-  const rump = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / 0.225) ** 2 + (dy / 0.1) ** 2 + (dz / 0.2) ** 2), [0, 0.095, -0.035], lo ? 12 : 14);
+  const rump = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / 0.225) ** 2 + (dy / 0.1) ** 2 + (dz / 0.2) ** 2), [0, 0.095, -0.035], lo ? 10 : 12);
   n.add(felt(rump, FUR, R));
+  // the legs: the seated leg is one sewn tube (hip, knee bend, ankle), cut in two at the middle of the knee's bend
+  const full = polylinePath([[...LEG.hip], [...LEG.knee], [...LEG.ankle]], LEG.bend, 4).points;
+  const mid = new Vector3(...KNEE_MID);
+  const kneeAt = full.reduce((bi, p, i) => (p.distanceToSquared(mid) < full[bi]!.distanceToSquared(mid) ? i : bi), 0);
+  const total = full.reduce((acc, p, i) => acc + (i ? p.distanceTo(full[i - 1]!) : 0), 0);
+  const upTo = full.slice(0, kneeAt + 1).reduce((acc, p, i, arr) => acc + (i ? p.distanceTo(arr[i - 1]!) : 0), 0);
+  const taper = (t: number): number => 1 - 0.2 * t;
   for (const s of [1, -1] as const) {
-    const sx = s * 0.09;
-    // thigh forward over the seat, shin hanging over its edge; a soft sewn tube
-    const path = polylinePath([[sx, 0.09, -0.02], [s * 0.1, 0.085, 0.235], [s * 0.105, -0.09, 0.285]], 0.075, 4);
-    const leg = sweep(path, { radius: 0.084, segs: lo ? 7 : 9, ends: 'dome', taper: (t) => 1 - 0.2 * t, step: 0.05 });
-    n.add(felt(leg, FUR, R));
-    // a dark felt foot, toes forward, a little turned out
+    const nm = s > 0 ? 'L' : 'R';
+    // one tone for the whole leg (it was one piece of felt)
+    const tone = mix3(FUR, FUR, 0).map((v) => v * (1 + R.spread(0.03))) as RGB;
+    const flip = (p: Vector3): Vector3 => new Vector3(p.x * s, p.y, p.z);
+    const hip = flip(new Vector3(...LEG.hip)), knee = flip(mid);
+    // the thigh: forward over the seat to the knee
+    const thigh = n.node(`thigh${nm}`, rest[`thigh${nm}`]);
+    // each half runs on past the cut by its own radius, so its dome is a ball centred on the joint
+    const er = LEG.radius * taper(upTo / total);
+    const tp = full.slice(0, kneeAt + 1).map((p) => flip(p).sub(hip));
+    const td = tp[tp.length - 1]!.clone().sub(tp[tp.length - 2]!).normalize();
+    tp.push(tp[tp.length - 1]!.clone().addScaledVector(td, er));
+    const Lt = upTo + er;
+    thigh.add(felt(sweep({ points: tp }, { radius: LEG.radius, segs: 8, ends: 'dome', endRadius: er, taper: (t) => taper(Math.min(t * Lt, upTo) / total), step: 0.07 }), tone));
+    // the shin hanging from the knee, and a dark felt foot, toes forward, a little turned out
+    const shin = thigh.node(`shin${nm}`, rest[`shin${nm}`]);
+    const sp = full.slice(kneeAt).map((p) => flip(p).sub(knee));
+    const sd = sp[1]!.clone().sub(sp[0]!).normalize();
+    sp.unshift(sp[0]!.clone().addScaledVector(sd, -er));
+    const Ls = er + total - upTo;
+    shin.add(felt(sweep({ points: sp }, { radius: LEG.radius, segs: 8, ends: 'dome', endRadius: er, taper: (t) => taper((upTo + Math.max(0, t * Ls - er)) / total), step: 0.07 }), tone));
     const foot = radialSolid((dx, dy, dz) => {
       const r = 1 / Math.sqrt((dx / 0.05) ** 2 + (dy / 0.036) ** 2 + (dz / 0.072) ** 2);
       // toe bumps along the front edge
       const toes = dz > 0.4 && dy < 0.3 ? 1 + 0.06 * Math.max(0, Math.cos(dx * 14)) * dz : 1;
       return r * toes * (dy < -0.5 ? 0.9 : 1);
-    }, [0, 0, 0], lo ? 10 : 12);
-    n.add(felt(transform(foot, chain(T(s * 0.11, -0.135, 0.325), new Matrix4().makeRotationY(s * 0.25), new Matrix4().makeRotationX(0.25))), PAW, R));
+    }, [0, 0, 0], lo ? 9 : 10);
+    const fp = flip(new Vector3(...LEG.foot)).sub(knee);
+    shin.add(felt(transform(foot, chain(T(fp.x, fp.y, fp.z), new Matrix4().makeRotationY(s * 0.25), new Matrix4().makeRotationX(0.25))), PAW, R));
   }
 }
 
@@ -223,7 +249,7 @@ const torsoFront = (y: number): number => TORSO_R(y) * TORSO_DEPTH + belly(y);
 function buildTorso(n: NodeBuilder, R: Rng, detail: 'high' | 'low'): void {
   const lo = detail === 'low';
   const y0 = -0.065, y1 = 0.43;
-  let g = latheFn(TORSO_R, y0, y1, lo ? 9 : 11, lo ? 36 : 48);
+  let g = latheFn(TORSO_R, y0, y1, 8, 32);
   // rib: chunky columns over the body, tighter and deeper in the hem band
   g = rib(g, 16, (y) => (y < 0.025 ? 0.006 : y > 0.36 ? 0.002 : 0.0075));
   g = deform(g, (x, y, z) => [x, y, z * TORSO_DEPTH + belly(y) * Math.max(0, z) / Math.max(0.05, TORSO_R(y))]);
@@ -231,27 +257,27 @@ function buildTorso(n: NodeBuilder, R: Rng, detail: 'high' | 'low'): void {
 
   // the button band down the front: a plain knit strip, a little proud
   const pts: Vector3[] = [];
-  for (let y = -0.058; y <= 0.36; y += 0.035) pts.push(new Vector3(0.004, y, torsoFront(y) + 0.003));
+  for (let y = -0.058; y <= 0.36; y += 0.07) pts.push(new Vector3(0.004, y, torsoFront(y) + 0.003));
   const placket = sweep({ points: pts }, { section: sections.roundRect(0.019, 0.002, 1), radius: 0.0035, segs: 6, ends: 'round', up: [1, 0, 0] });
   n.add(felt(placket, KNIT, R, 0.02));
   // brass buttons: domed, with a rim
   for (const [i, y] of [0.03, 0.135, 0.24].entries()) {
     const z = torsoFront(y) + 0.011;
-    const btn = lathe(profile(0, 0).to(0.019, 0, { sharp: true }).to(0.02, 0.005, { fillet: 0.003, segs: 1 }).curve(0, 0.011, 0.014, 0.011, 2), { segs: 9, band: 0, caps: 'end', filletSegs: 1 });
+    const btn = lathe(profile(0, 0).to(0.019, 0, { sharp: true }).to(0.02, 0.005, { fillet: 0.003, segs: 1 }).curve(0, 0.011, 0.014, 0.011, 2), { segs: 6, band: 0, caps: 'end', filletSegs: 1 });
     const tilt = Math.atan2(torsoFront(y + 0.01) - torsoFront(y - 0.01), 0.02);
     n.add(setFinish(part('brass', transform(btn, chain(T(0.004 + R.spread(0.002), y, z), new Matrix4().makeRotationX(Math.PI / 2 - tilt), new Matrix4().makeRotationY(R.range(0, 3)))), 'brass', { seed: i + 7, warm: 0.03 }), 0.5));
   }
 
   // the neckline: a ribbed band of the knit round the neck
-  const roll = lathe(profile(0.122, 0.345).arc(0.112, 0.392, 0.45, lo ? 3 : 4).to(0.095, 0.392).to(0.1, 0.345).close(), { segs: lo ? 27 : 36, band: 0 });
-  const roll2 = rib(transform(roll, new Matrix4().makeScale(1, 1, 0.9)), 18, () => 0.006);
+  const roll = lathe(profile(0.122, 0.345).arc(0.112, 0.392, 0.45, 3).to(0.095, 0.392).to(0.1, 0.345).close(), { segs: 20, band: 0 });
+  const roll2 = rib(transform(roll, new Matrix4().makeScale(1, 1, 0.9)), 10, () => 0.006);
   n.add(felt(transform(roll2, T(0, 0, 0.014)), KNIT, R, 0.02));
   // the cream shirt collar: a band standing up out of the knit, and two big pointed flaps turned down over it
-  const band = lathe(profile(0.104, 0.37).arc(0.1, 0.445, 0.25, 3).to(0.07, 0.445).to(0.07, 0.37).close(), { segs: lo ? 16 : 20, band: 0 });
+  const band = lathe(profile(0.104, 0.37).arc(0.1, 0.445, 0.25, 3).to(0.07, 0.445).to(0.07, 0.37).close(), { segs: lo ? 14 : 16, band: 0 });
   n.add(felt(transform(band, chain(T(0, 0, 0.022), new Matrix4().makeScale(1, 1, 0.9))), CREAM, R, 0.02));
   for (const s of [1, -1] as const) {
     const outline: P2[] = [[-0.008, 0.012], [0.07, 0.006], [0.1, -0.006], [0.035, -0.088], [-0.004, -0.04]];
-    const flap = extrude(s > 0 ? outline : mirrorLoop(outline), 0.008, { bevel: 0.003, radius: 0.006, segs: 2, caps: 'end', detail });
+    const flap = extrude(s > 0 ? outline : mirrorLoop(outline), 0.008, { bevel: 0.003, radius: 0.006, segs: 1, caps: 'end', detail });
     const fy = 0.43;
     const fz = torsoFront(0.38) + 0.004;
     const m = chain(T(s * 0.012, fy, fz), new Matrix4().makeRotationY(s * 0.62), new Matrix4().makeRotationX(-0.55), new Matrix4().makeRotationZ(s * 0.06));
@@ -264,7 +290,7 @@ function buildTorso(n: NodeBuilder, R: Rng, detail: 'high' | 'low'): void {
   const pz = TORSO_R(py) * TORSO_DEPTH * Math.cos(0.5) + belly(py) * 0.9;
   const pm = chain(T(Math.sin(0.5) * TORSO_R(py) - 0.004, py, pz - 0.006), new Matrix4().makeRotationY(0.5), new Matrix4().makeRotationZ(0.03));
   n.add(felt(transform(pk, pm), KNIT, R, 0.04));
-  const slip = extrude([[-0.024, 0], [0.026, 0], [0.024, 0.052], [-0.022, 0.05]], 0.003, { bevel: 0.001, radius: 0.002, segs: 1, detail: 'low' });
+  const slip = bevelBox({ min: [-0.024, 0, 0], max: [0.025, 0.051, 0.003], omit: ['nz', 'ny'] });
   n.add(part('paper', transform(slip, chain(pm, T(0.006, 0.0, 0.003), new Matrix4().makeRotationZ(-0.12))), 'paper', { seed: 5, shade: 0.95 }));
 }
 
@@ -284,7 +310,7 @@ function muzzleRadius(dx: number, dy: number, dz: number): number {
 
 function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail: 'high' | 'low'): void {
   const lo = detail === 'low';
-  const head = radialSolid(headRadius, HC, lo ? 24 : 28);
+  const head = radialSolid(headRadius, HC, lo ? 20 : 24);
   n.add(felt(head, FUR, R));
   const chart = radialChart(headRadius, HC, R0);
   const mchart = radialChart(muzzleRadius, MC, 0.09);
@@ -292,34 +318,34 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
   // the seam over the crown: the two halves of the head were sewn together
   const crown: P2[] = [];
   for (let v = 0.5; v <= 2.3; v += 0.08) crown.push([0, v * R0]);
-  addParts(n, stitches(chart, crown, { open: true, kind: 'running', pitch: 0.016, len: 0.01, inset: 0, h: 0.0, w: 0.0016, R }), THREAD_DARK);
+  addParts(n, stitches(chart, crown, { open: true, kind: 'running', pitch: 0.024, len: 0.011, inset: 0, h: 0.0, w: 0.0016, R }), THREAD_DARK);
 
   // ---- the mask: two dark felt pieces round the eyes, sweeping back to points ----
   const maskL = smoothLoop([
     [0.022, 0.002], [0.04, -0.02], [0.075, -0.038], [0.12, -0.052], [0.165, -0.075], [0.205, -0.092], [0.218, -0.058], [0.192, -0.004], [0.155, 0.04], [0.115, 0.064], [0.075, 0.07], [0.045, 0.055], [0.028, 0.03],
-  ], lo ? 18 : 22);
+  ], lo ? 14 : 18);
   for (const s of [1, -1] as const) {
     const ol = s > 0 ? maskL : mirrorLoop(maskL);
-    n.add(felt(applique(chart, ol, { t: 0.0065, edge: 0.004, puff: 0.002, centre: [s * 0.1, 0.005], rings: 2 }), MASK, R));
-    addParts(n, stitches(chart, ol, { kind: 'blanket', pitch: 0.013, len: 0.005, inset: 0.002, h: 0.005, w: 0.0012, R }), THREAD_LIGHT);
+    n.add(felt(applique(chart, ol, { t: 0.0065, edge: 0.004, puff: 0.002, centre: [s * 0.1, 0.005], rings: 1, edgeSegs: 2 }), MASK, R));
+    addParts(n, stitches(chart, ol, { kind: 'blanket', pitch: 0.024, len: 0.005, inset: 0.002, h: 0.005, w: 0.0012, R }), THREAD_LIGHT);
   }
   // ---- the cream cheeks under the mask, out to the jowls ----
   const cheekL = smoothLoop([
     [0.02, -0.05], [0.06, -0.052], [0.1, -0.058], [0.14, -0.072], [0.172, -0.092], [0.17, -0.13], [0.13, -0.16], [0.08, -0.165], [0.035, -0.14], [0.012, -0.095],
-  ], lo ? 16 : 22);
+  ], lo ? 12 : 14);
   for (const s of [1, -1] as const) {
     const ol = s > 0 ? cheekL : mirrorLoop(cheekL);
-    n.add(felt(applique(chart, ol, { t: 0.005, edge: 0.004, puff: 0.003, centre: [s * 0.09, -0.11], rings: 2 }), CREAM, R));
-    addParts(n, stitches(chart, ol, { kind: 'running', pitch: 0.012, len: 0.007, inset: 0.004, h: 0.006, w: 0.0012, R, where: (u, v) => v < -0.06 || Math.abs(u) > 0.14 }), THREAD_DARK);
+    n.add(felt(applique(chart, ol, { t: 0.005, edge: 0.004, puff: 0.003, centre: [s * 0.09, -0.11], rings: 1, edgeSegs: 2 }), CREAM, R));
+    addParts(n, stitches(chart, ol, { kind: 'running', pitch: 0.02, len: 0.009, inset: 0.004, h: 0.006, w: 0.0012, R, where: (u, v) => v < -0.06 || Math.abs(u) > 0.14 }), THREAD_DARK);
   }
 
   // ---- the muzzle: a stuffed cream pod sewn on, a seam down its middle ----
-  const muz = radialSolid(muzzleRadius, MC, lo ? 16 : 18);
+  const muz = radialSolid(muzzleRadius, MC, 14);
   n.add(felt(muz, CREAM, R));
   // the centre seam from the nose down under the chin
   const seam: P2[] = [];
   for (let v = -0.02; v >= -0.16; v -= 0.02) seam.push([0, v]);
-  addParts(n, stitches(mchart, seam, { open: true, kind: 'running', pitch: 0.014, len: 0.008, inset: 0, h: 0.0, w: 0.0013, R }), THREAD_DARK);
+  addParts(n, stitches(mchart, seam, { open: true, kind: 'running', pitch: 0.018, len: 0.009, inset: 0, h: 0.0, w: 0.0013, R }), THREAD_DARK);
 
   // the nose: a glossy black safety nose, a rounded triangle on the tip
   const nd = new Vector3(0, 0.36, 0.93).normalize();
@@ -327,7 +353,7 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
   const nose = radialSolid((dx, dy, dz) => {
     const w = 1 - 0.38 * Math.max(0, -dy); // narrower at the bottom: a triangle with round corners
     return 1 / Math.sqrt((dx / (0.037 * w)) ** 2 + (dy / 0.024) ** 2 + (dz / 0.024) ** 2);
-  }, [0, 0, 0], lo ? 12 : 14);
+  }, [0, 0, 0], 10);
   n.add(setFinish(part('glass', transform(nose, chain(T(np.x, np.y, np.z), new Matrix4().makeRotationX(-0.35))), 'ink'), 1));
 
   // the philtrum: one stitch line from under the nose down to the mouth
@@ -354,7 +380,7 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
       const q = mchart(u, v);
       pts.push(q.p.addScaledVector(q.n, 0.0012).sub(new Vector3(MC[0], MC[1], MC[2])));
     }
-    const mth = sweep({ points: pts }, { radius: 0.0028, segs: 4, ends: 'round', taper: (t) => 1 - 0.3 * t, step: 0.01 });
+    const mth = sweep({ points: pts }, { radius: 0.0028, segs: 4, ends: 'flat', taper: (t) => 1 - 0.3 * t, step: 0.018 });
     node.add(felt(mth, THREAD_DARK));
   }
 
@@ -367,20 +393,20 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
       const L = 0.12 + R.spread(0.02);
       const mid = a.clone().addScaledVector(dir, L * 0.5).add(new Vector3(0, -0.006, 0));
       const e = a.clone().addScaledVector(dir, L).add(new Vector3(0, -0.02, 0));
-      const w = sweep({ points: [a, mid, e] }, { radius: 0.0016, segs: 4, ends: 'flat', taper: (t) => 1 - 0.55 * t, step: 0.03 });
-      n.add(part('metal', w, 'steel', { seed: k, shade: 0.75 }));
+      const w = sweep({ points: [a, mid, e] }, { radius: 0.0016, segs: 3, ends: 'flat', taper: (t) => 1 - 0.55 * t, step: 0.04 });
+      n.add(felt(w, WHISKER));
     }
   }
 
   // ---- brows: cream felt crescents above the mask; they slide over the felt ----
-  const browL = smoothLoop([[0.03, 0.072], [0.07, 0.08], [0.11, 0.078], [0.145, 0.066], [0.155, 0.082], [0.122, 0.1], [0.078, 0.106], [0.04, 0.097]], lo ? 12 : 18);
+  const browL = smoothLoop([[0.03, 0.072], [0.07, 0.08], [0.11, 0.078], [0.145, 0.066], [0.155, 0.082], [0.122, 0.1], [0.078, 0.106], [0.04, 0.097]], 12);
   const back = new Matrix4().makeTranslation(-HC[0], -HC[1], -HC[2]);
   for (const s of [1, -1] as const) {
     const nm = s > 0 ? 'browL' : 'browR';
     const node = n.node(nm, rest[nm]);
     const ol = s > 0 ? browL : mirrorLoop(browL);
-    node.add(felt(transform(applique(chart, ol, { t: 0.006, edge: 0.005, puff: 0.003, sink: 0.01, centre: [s * 0.09, 0.088], rings: 2 }), back), CREAM, R));
-    const st = stitches(chart, ol, { kind: 'running', pitch: 0.011, len: 0.006, inset: 0.0045, h: 0.007, w: 0.0011, R });
+    node.add(felt(transform(applique(chart, ol, { t: 0.006, edge: 0.005, puff: 0.003, sink: 0.01, centre: [s * 0.09, 0.088], rings: 1, edgeSegs: 2 }), back), CREAM, R));
+    const st = stitches(chart, ol, { kind: 'running', pitch: 0.015, len: 0.007, inset: 0.0045, h: 0.007, w: 0.0011, R });
     if (st) node.add(felt(transform(st, back), THREAD_DARK));
   }
 
@@ -388,12 +414,12 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
   for (const s of [1, -1] as const) {
     const F = eyeFrame(s);
     const er = EYE.r;
-    const ball = lathe(capSamples(er, 0, 1.75, lo ? 5 : 6), { segs: lo ? 12 : 16, caps: false, band: 0 });
+    const ball = lathe(capSamples(er, 0, 1.75, 4), { segs: lo ? 10 : 12, caps: false, band: 0 });
     n.add(felt(transform(ball, chain(F, Y_TO_Z)), CREAM, R, 0.01));
     const nmP = s > 0 ? 'pupilL' : 'pupilR';
     const pupil = n.node(nmP, rest[nmP]);
     // the bead: a flattened glossy dome sitting on the eyeball
-    const bead = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / EYE.bead) ** 2 + (dy / EYE.bead) ** 2 + (dz / 0.012) ** 2), [0, 0, er - 0.0058], lo ? 10 : 12);
+    const bead = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / EYE.bead) ** 2 + (dy / EYE.bead) ** 2 + (dz / 0.012) ** 2), [0, 0, er - 0.0058], 10);
     pupil.add(setFinish(part('glass', bead, 'ink'), 1));
     // upper and lower lids: thick felt shells over the eyeball, a dark stitched lash line on the upper
     for (const which of ['up', 'low'] as const) {
@@ -406,13 +432,13 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
       const oo = Math.sqrt(Ro * Ro - hw * hw), oi = Math.sqrt(Math.max(1e-6, Ri * Ri - hw * hw));
       const sec = profile(oi, -hw)
         .to(oo, -hw, { fillet: t * 0.45 })
-        .arc(oo, hw, (Ro - oo) / (2 * hw), lo ? 5 : 7, { fillet: t * 0.45 })
+        .arc(oo, hw, (Ro - oo) / (2 * hw), 4, { fillet: t * 0.45 })
         .to(oi, hw)
-        .arc(oi, -hw, -(Ri - oi) / (2 * hw), 4)
+        .arc(oi, -hw, -(Ri - oi) / (2 * hw), 2)
         .close();
       const span = which === 'up' ? 1.6 : 1.0;
       const from = which === 'up' ? Math.PI / 2 : Math.PI / 2 - span;
-      const g = transform(lathe(sec, { from, to: from + span, segs: which === 'up' ? (lo ? 5 : 6) : 4, filletSegs: 1, band: 0 }), Y_TO_X);
+      const g = transform(lathe(sec, { from, to: from + span, segs: which === 'up' ? 5 : 3, filletSegs: 1, band: 0 }), Y_TO_X);
       node.add(felt(g, FUR_LID, R, 0.02));
       if (which === 'up') {
         const pts: Vector3[] = [];
@@ -421,7 +447,7 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
           const rr = Ro - 0.0015;
           pts.push(new Vector3(Math.sin(be) * rr, -0.001, Math.cos(be) * rr));
         }
-        node.add(felt(sweep({ points: pts.filter((_, k) => k % 2 === 0) }, { radius: 0.0034, segs: 4, ends: 'round' }), THREAD_DARK));
+        node.add(felt(sweep({ points: pts.filter((_, k) => k % 2 === 0) }, { radius: 0.0034, segs: 3, ends: 'flat' }), THREAD_DARK));
       }
     }
   }
@@ -436,16 +462,16 @@ function buildHead(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
       : [[-0.07, 0], [0, -0.004], [0.072, 0], [0.072, 0.05], [0.058, 0.1], [0.034, 0.144], [0.014, 0.162], [-0.01, 0.152], [-0.042, 0.11], [-0.066, 0.052]];
     const outline = s > 0 ? ctrl : mirrorLoop(ctrl);
     const cup = (x: number, y: number, z: number): [number, number, number] => [x, y, z + 0.9 * x * x * (1 - y * 2) - 0.12 * y * y];
-    const shape = smoothLoop(outline, lo ? 18 : 22);
-    for (const g of pillow(shape, { t: 0.014, edge: 0.011, puff: 0.004, back: 0.012, centre: [0, 0.06], rings: 2 })) node.add(felt(deform(g, cup), FUR, R));
-    const inner = smoothLoop(outline.map(([x, y]) => [x * 0.64, y * 0.7 + 0.016] as const), lo ? 14 : 16);
-    node.add(felt(deform(applique(planeChart(1, 0.0125), inner, { t: 0.004, edge: 0.003, puff: 0.003, sink: 0.004, centre: [0, 0.065], rings: 2 }), cup), CREAM, R));
+    const shape = smoothLoop(outline, 14);
+    for (const g of pillow(shape, { t: 0.014, edge: 0.011, puff: 0.004, back: 0.012, centre: [0, 0.06], rings: 1, edgeSegs: 2 })) node.add(felt(deform(g, cup), FUR, R));
+    const inner = smoothLoop(outline.map(([x, y]) => [x * 0.64, y * 0.7 + 0.016] as const), 10);
+    node.add(felt(deform(applique(planeChart(1, 0.0125), inner, { t: 0.004, edge: 0.003, puff: 0.003, sink: 0.004, centre: [0, 0.065], rings: 1, edgeSegs: 1 }), cup), CREAM, R));
   }
 
   // ---- cheek ruffs: pinked felt fringes standing off the jowls ----
   for (const s of [1, -1] as const) {
     const ol: P2[] = [[0, -0.05], [0.07, -0.038], [0.045, -0.012], [0.082, 0.004], [0.045, 0.02], [0.058, 0.042], [0, 0.045]];
-    const frs = pillow(ol, { t: 0.006, edge: 0.005, puff: 0.002, centre: [0.02, 0.0], rings: 1 }).map((g) => transform(g, T(-0.012, 0, 0)));
+    const frs = pillow(ol, { t: 0.006, edge: 0.005, puff: 0.002, centre: [0.02, 0.0], rings: 1, edgeSegs: 2 }).map((g) => transform(g, T(-0.012, 0, 0)));
     const fr = mergeGeometries(frs);
     const d = chartDir(s * 1.32, -0.42);
     const pnt = new Vector3(HC[0], HC[1], HC[2]).addScaledVector(d, headRadius(d.x, d.y, d.z) - 0.012);
@@ -478,50 +504,57 @@ function addParts(n: NodeBuilder, g: BufferGeometry | null, c: RGB): void {
 
 function buildHeadset(n: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail: 'high' | 'low'): void {
   const lo = detail === 'low';
+  // everything but the boom is built in head space and carried by the headset node (at the head's centre)
+  const hs = n.node('headset', rest.headset);
+  const toHs = T(-HC[0], -HC[1], -HC[2]);
+  const put = (q: KitPart): void => {
+    transform(q.geometry, toHs);
+    hs.add(q);
+  };
   const zb = HC[2] - 0.01;
   // the band: a flat strip of black rubber over the crown, cup to cup
   const pts: Vector3[] = [];
-  for (let k = 0; k <= 14; k++) {
-    const a = -Math.PI / 2 + (k / 14) * Math.PI;
+  for (let k = 0; k <= 10; k++) {
+    const a = -Math.PI / 2 + (k / 10) * Math.PI;
     const d = new Vector3(Math.sin(a), Math.cos(a), 0);
     const r = headRadius(d.x, d.y, d.z) + 0.016;
     pts.push(new Vector3(HC[0] + d.x * r, HC[1] + d.y * r + 0.012, zb));
   }
   pts[0]!.y -= 0.004;
-  const band = sweep({ points: pts }, { section: sections.roundRect(0.013, 0.0035, 1), radius: 0.0025, segs: 8, ends: 'round', up: [0, 0, 1] });
-  n.add(part('rubber', band, 'ink', { seed: 1, shade: 1.3 }));
+  const band = sweep({ points: pts }, { section: sections.roundRect(0.013, 0.0035, 1), radius: 0.0025, segs: 6, ends: 'flat', up: [0, 0, 1] });
+  put(part('rubber', band, 'ink', { seed: 1, shade: 1.3 }));
   for (const s of [1, -1] as const) {
     const cx = s * CUP.x, cy = HC[1] + CUP.y, cz = HC[2] + CUP.z;
     const at = chain(T(cx, cy, cz), new Matrix4().makeRotationZ(-s * Math.PI / 2));
     // cushion and cup body (rubber), brass rim, brass centre boss
     const body = lathe(
       profile(0, -0.012)
-        .to(0.052, -0.012, { fillet: 0.008 })
+        .to(0.056, -0.012, { sharp: true })
         .to(0.06, 0.004, { fillet: 0.006 })
         .to(0.056, 0.012, { sharp: true })
         .to(0.058, 0.03, { fillet: 0.01 })
-        .curve(0, 0.042, 0.04, 0.042, 3),
-      { segs: lo ? 12 : 14, band: 0, filletSegs: 1 },
+        .curve(0, 0.042, 0.04, 0.042, 2),
+      { segs: 10, band: 0, filletSegs: 1 },
     );
-    n.add(part('rubber', transform(body, at), 'ink', { seed: 2 + s, shade: 1.2 }));
-    const rim = lathe(profile(0.055, 0.008).to(CUP.r, 0.008, { fillet: 0.003, segs: 1 }).to(CUP.r + 0.002, 0.016, { fillet: 0.004, segs: 1 }).to(0.055, 0.02, { sharp: true }).close(), { segs: lo ? 12 : 14, band: 0, filletSegs: 1 });
-    n.add(setFinish(part('brass', transform(rim, at), 'brass', { seed: 4 + s, warm: 0.03 }), 0.4));
-    const boss = lathe(profile(0, 0.038).to(0.02, 0.038, { sharp: true }).to(0.02, 0.044, { fillet: 0.003 }).curve(0, 0.05, 0.016, 0.05, 2), { segs: 12, band: 0, caps: 'end' });
-    n.add(setFinish(part('brass', transform(boss, at), 'brass', { seed: 6 + s }), 0.6));
+    put(part('rubber', transform(body, at), 'ink', { seed: 2 + s, shade: 1.2 }));
+    const rim = lathe(profile(0.055, 0.008).to(CUP.r, 0.008, { fillet: 0.003, segs: 1 }).to(CUP.r + 0.002, 0.016, { fillet: 0.004, segs: 1 }).to(0.055, 0.02, { sharp: true }).close(), { segs: 10, band: 0, filletSegs: 1 });
+    put(setFinish(part('brass', transform(rim, at), 'brass', { seed: 4 + s, warm: 0.03 }), 0.4));
+    const boss = lathe(profile(0, 0.038).to(0.02, 0.038, { sharp: true }).to(0.02, 0.044, { fillet: 0.003 }).curve(0, 0.05, 0.016, 0.05, 1), { segs: 10, band: 0, caps: 'end' });
+    put(setFinish(part('brass', transform(boss, at), 'brass', { seed: 6 + s }), 0.6));
     // the band's brass slider where it meets the cup
-    const yoke = lathe(profile(0, -0.012).to(0.011, -0.012, { fillet: 0.003 }).to(0.011, 0.012, { fillet: 0.003 }).to(0, 0.012), { segs: 8, band: 0 });
-    n.add(part('brass', transform(yoke, T(s * (CUP.x - 0.004), cy + 0.075, zb)), 'brass', { seed: 8 + s }));
+    const yoke = lathe(profile(0, -0.012).to(0.011, -0.012, { sharp: true }).to(0.011, 0.012, { sharp: true }).to(0, 0.012), { segs: 6, band: 0 });
+    put(part('brass', transform(yoke, T(s * (CUP.x - 0.004), cy + 0.075, zb)), 'brass', { seed: 8 + s }));
   }
   // the boom: a brass tube from the right cup, round the cheek to the corner of the mouth, a ball mic
-  const boom = n.node('boom', rest.boom);
+  const boom = hs.node('boom', rest.boom);
   const bp = polylinePath([[0, 0, 0], [0.004, -0.012, 0.06], [0.03, -0.055, 0.14], [0.1, -0.1, 0.205], [0.15, -0.108, 0.222]], 0.04, 3);
-  boom.add(setFinish(part('brass', sweep(bp, { radius: 0.0062, segs: 6, ends: 'flat' }), 'brass', { seed: 11 }), 0.35));
-  const piv = lathe(profile(0, 0).to(0.018, 0, { sharp: true }).to(0.018, 0.012, { fillet: 0.004 }).curve(0, 0.018, 0.014, 0.018, 2), { segs: 12, band: 0, caps: 'end' });
+  boom.add(setFinish(part('brass', sweep(bp, { radius: 0.0062, segs: 5, ends: 'flat' }), 'brass', { seed: 11 }), 0.35));
+  const piv = lathe(profile(0, 0).to(0.018, 0, { sharp: true }).to(0.018, 0.012, { fillet: 0.004 }).curve(0, 0.018, 0.014, 0.018, 1), { segs: 8, band: 0, caps: 'end' });
   boom.add(setFinish(part('brass', transform(piv, new Matrix4().makeRotationZ(Math.PI / 2)), 'brass', { seed: 12 }), 0.5));
-  const mic = lathe(profile(0, -0.022).curve(0.022, 0, 0.022, -0.022, 4).curve(0, 0.022, 0.022, 0.022, 4), { segs: lo ? 10 : 12, band: 0 });
+  const mic = lathe(profile(0, -0.022).curve(0.022, 0, 0.022, -0.022, 3).curve(0, 0.022, 0.022, 0.022, 3), { segs: 9, band: 0 });
   const micM = chain(T(0.158, -0.108, 0.224), new Matrix4().makeRotationY(-0.9), Y_TO_Z);
   boom.add(setFinish(part('brass', transform(mic, micM), 'brass', { seed: 13, warm: 0.03 }), 0.55));
-  const grille = lathe(profile(0.0225, -0.006).to(0.0235, -0.006, { fillet: 0.002 }).to(0.0235, 0.006, { fillet: 0.002 }).to(0.0225, 0.006).close(), { segs: lo ? 10 : 12, band: 0 });
+  const grille = lathe(profile(0.0225, -0.006).to(0.0235, -0.006, { sharp: true }).to(0.0235, 0.006, { sharp: true }).to(0.0225, 0.006, { sharp: true }).close(), { segs: 9, band: 0 });
   boom.add(part('rubber', transform(grille, micM), 'ink', { seed: 14, shade: 1.2 }));
 }
 
@@ -531,15 +564,15 @@ function buildArm(spine: NodeBuilder, s: 1 | -1, rest: Record<string, Matrix4>, 
   const lo = detail === 'low';
   const nm = s > 0 ? 'L' : 'R';
   const arm = spine.node(`arm${nm}`, rest[`arm${nm}`]);
-  const segs = lo ? 12 : 14;
+  const segs = lo ? 10 : 12;
   // the sleeve's upper half: a knit tube from a rounded shoulder cap (inside the body) to the elbow
   const ua = knots([[-UPPER_ARM - 0.03, 0.0], [-UPPER_ARM - 0.02, 0.04], [-UPPER_ARM, 0.056], [-0.08, 0.062], [-0.02, 0.066], [0.02, 0.06], [0.05, 0.03], [0.06, 0]]);
-  const upper = rib(latheFn(ua, -UPPER_ARM - 0.03, 0.06, lo ? 7 : 8, segs), 7, () => 0.006);
+  const upper = rib(latheFn(ua, -UPPER_ARM - 0.03, 0.06, 6, segs), 6, () => 0.006);
   arm.add(felt(upper, KNIT, R, 0.02));
   const fore = arm.node(`forearm${nm}`, rest[`forearm${nm}`]);
   // the forearm, swelling into a chunky ribbed cuff
   const fa = knots([[-FOREARM - 0.012, 0], [-FOREARM - 0.006, 0.05], [-FOREARM + 0.002, 0.065], [-FOREARM + 0.04, 0.066], [-FOREARM + 0.05, 0.058], [-0.05, 0.056], [0.0, 0.058], [0.035, 0.045], [0.05, 0]]);
-  const forearm = rib(latheFn(fa, -FOREARM - 0.012, 0.05, lo ? 7 : 9, segs), 7, (y) => (y < -FOREARM + 0.045 ? 0.009 : 0.005));
+  const forearm = rib(latheFn(fa, -FOREARM - 0.012, 0.05, 6, segs), 6, (y) => (y < -FOREARM + 0.045 ? 0.009 : 0.005));
   fore.add(felt(forearm, KNIT, R, 0.02));
   // the paw: a dark felt mitten with three stitched finger lines and a thumb
   const paw = fore.node(`paw${nm}`, rest[`paw${nm}`]);
@@ -547,9 +580,9 @@ function buildArm(spine: NodeBuilder, s: 1 | -1, rest: Record<string, Matrix4>, 
     const r = 1 / Math.sqrt((dx / 0.046) ** 2 + (dy / 0.058) ** 2 + (dz / 0.032) ** 2);
     const fingers = dy < -0.3 ? 1 + 0.07 * Math.max(0, Math.cos(dx * 16)) * -dy : 1;
     return r * fingers;
-  }, [0, -0.044, 0.006], lo ? 12 : 14);
+  }, [0, -0.044, 0.006], lo ? 10 : 12);
   paw.add(felt(mitt, PAW, R));
-  const thumb = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / 0.017) ** 2 + (dy / 0.028) ** 2 + (dz / 0.016) ** 2), [0, 0, 0], 10);
+  const thumb = radialSolid((dx, dy, dz) => 1 / Math.sqrt((dx / 0.017) ** 2 + (dy / 0.028) ** 2 + (dz / 0.016) ** 2), [0, 0, 0], 8);
   paw.add(felt(transform(thumb, chain(T(-s * 0.036, -0.035, 0.016), new Matrix4().makeRotationZ(s * 0.6))), PAW, R));
   // the finger seams on the back of the paw
   for (const fx of [-0.015, 0.015]) {
@@ -557,6 +590,21 @@ function buildArm(spine: NodeBuilder, s: 1 | -1, rest: Record<string, Matrix4>, 
     const sl = stitchLine(pts, pts.map(() => new Vector3(0, -0.3, 1).normalize()), { pitch: 0.012, len: 0.009, w: 0.0013 });
     if (sl) paw.add(felt(sl, THREAD_LIGHT));
   }
+  if (s < 0) buildFolder(paw, rest);
+}
+
+/** The job's folder, carried in the right paw (collapsed inside it until Patch takes it from a drawer). */
+function buildFolder(paw: NodeBuilder, rest: Record<string, Matrix4>): void {
+  const { w, h, t } = FOLDER;
+  const folder = paw.node('folder', rest.folder);
+  const manila = (g: BufferGeometry, k = 1): KitPart => ({ material: 'paper', geometry: colour(g, mixTone('paper', 'tape-yellow', 0.32, 0.9 * k)) });
+  folder.add(manila(bevelBox({ min: [0, 0, 0], max: [w, h, 0.004] })));
+  // the papers inside, a little proud of the back cover and not quite square to it
+  folder.add({ material: 'paper', geometry: colour(transform(bevelBox({ min: [0.008, 0.006, 0.004], max: [w - 0.012, h - 0.016, t - 0.002], omit: ['nz'] }), new Matrix4().makeRotationZ(0.02)), mixTone('paper', 'paper', 0, 0.95)) });
+  const lid = folder.node('folderLid', rest.folderLid);
+  lid.add(manila(bevelBox({ min: [0, 0, 0], max: [w, h * 0.94, 0.004] }), 1.04));
+  // the tab on its top edge
+  lid.add(manila(bevelBox({ min: [w * 0.55, h * 0.94 - 0.001, 0], max: [w * 0.9, h * 0.94 + 0.022, 0.004], omit: ['ny'] }), 1.04));
 }
 
 // ---- the tail ---------------------------------------------------------------------------
@@ -589,7 +637,7 @@ function buildTail(b: NodeBuilder, rest: Record<string, Matrix4>, R: Rng, detail
       return base * pinch;
     };
     const y0 = -0.7 * r0, y1 = L + (last ? 0.95 * r1 : 0.7 * r1);
-    const g = latheFn(rOf, y0, y1, lo ? 9 : 10, lo ? 11 : 12);
+    const g = latheFn(rOf, y0, y1, 8, 9);
     // ring colours: segment i's two bands; the last segment ends in a dark tip
     colourBy(g, (_x, y) => {
       const band = Math.floor(Math.max(0, Math.min(1.999, (y / L) * 2)));

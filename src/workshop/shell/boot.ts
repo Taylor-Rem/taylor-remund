@@ -171,7 +171,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     labels,
     tier: opts.tier,
     reducedMotion: opts.reducedMotion,
-    realize: (piece) => realize(piece, materials),
+    realize: (piece, o) => realize(piece, materials, o),
     pickable: (id, object) => picking.add(id, object),
     stage,
     picking,

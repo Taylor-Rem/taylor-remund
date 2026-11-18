@@ -5,19 +5,24 @@
  *
  * Node tree (pivots at node origins; every name unique in the piece):
  *
- *   root                    on the stool's seat (y = 0 is the seat top), facing +Z
- *    ├ spine                at the hips: leans (fore / side) and twists the whole upper body
- *    │  ├ head              at the top of the neck: yaw, pitch, tilt
- *    │  │  ├ earL / earR    at each ear's base: flick back (+) / prick forward (-), splay
- *    │  │  ├ browL / browR  at the head's centre: raise (slides the cream brow up the felt), tilt
- *    │  │  ├ lidL / lidR    upper lids, at each eyeball's centre: 0 open .. 1 closed
- *    │  │  ├ lidLowL / lidLowR   lower lids: 0 down .. 1 up (the smug squint)
- *    │  │  ├ pupilL / pupilR     the bead eyes: gaze turns them over the eyeball
- *    │  │  ├ mouthL / mouthR     the two halves of the stitched mouth, at the muzzle's centre: + curls the corner up
- *    │  │  └ boom         the headset's mic boom, at its cup: + swings the mic up
- *    │  ├ armL → forearmL → pawL      (L is Patch's own left, +X, screen right when it faces you)
- *    │  └ armR → forearmR → pawR
- *    └ tail → tail2 → tail3 → tail4   off the back of the seat
+ *   root                    on the stool's seat (y = 0 is the seat top), facing +Z; the layout places it
+ *    └ body                 the whole raccoon: moved and turned about the seat or the scruff (lifted,
+ *       │                   climbing, swivelling on the stool); identity at rest
+ *       ├ thighL → shinL    the legs (the foot is in the shin): lift, splay, knee
+ *       ├ thighR → shinR
+ *       ├ spine             at the hips: leans (fore / side) and twists the whole upper body
+ *       │  ├ head              at the top of the neck: yaw, pitch, tilt
+ *       │  │  ├ earL / earR    at each ear's base: flick back (+) / prick forward (-), splay
+ *       │  │  ├ browL / browR  at the head's centre: raise (slides the cream brow up the felt), tilt
+ *       │  │  ├ lidL / lidR    upper lids, at each eyeball's centre: 0 open .. 1 closed
+ *       │  │  ├ lidLowL / lidLowR   lower lids: 0 down .. 1 up (the smug squint)
+ *       │  │  ├ pupilL / pupilR     the bead eyes: gaze turns them over the eyeball
+ *       │  │  ├ mouthL / mouthR     the two halves of the stitched mouth, at the muzzle's centre: + curls the corner up
+ *       │  │  └ headset      band, cups and boom, at the head's centre: knocked askew and put straight
+ *       │  │     └ boom      the mic boom, at its cup: + swings the mic up
+ *       │  ├ armL → forearmL → pawL      (L is Patch's own left, +X, screen right when it faces you)
+ *       │  └ armR → forearmR → pawR → folder → folderLid   (the board is on Patch's right)
+ *       └ tail → tail2 → tail3 → tail4   off the back of the seat
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
 
@@ -56,6 +61,37 @@ export const SHOULDER = { x: 0.185, y: 0.325, z: 0.0 } as const;
 export const UPPER_ARM = 0.155;
 export const FOREARM = 0.14;
 
+/**
+ * The seated leg as sewn (the left one, root space; the right is mirrored): a felt tube from the hip
+ * forward to the knee and down to the ankle, its knee a rounded bend of `LEG.bend`, the foot below.
+ * The knee joint is the middle of that bend, so the jointed legs are the sewn tube exactly at rest.
+ */
+export const LEG = {
+  hip: [0.09, 0.09, -0.02] as const,
+  knee: [0.1, 0.085, 0.235] as const,
+  ankle: [0.105, -0.09, 0.285] as const,
+  foot: [0.11, -0.135, 0.325] as const,
+  bend: 0.075,
+  radius: 0.084,
+} as const;
+export const HIP = { x: LEG.hip[0], y: LEG.hip[1], z: LEG.hip[2] } as const;
+/** The middle of the knee's bend (left leg, root space). */
+export const KNEE_MID: readonly [number, number, number] = (() => {
+  const A = new Vector3(...LEG.hip), B = new Vector3(...LEG.knee), C = new Vector3(...LEG.ankle);
+  const d0 = B.clone().sub(A).normalize(), d1 = C.clone().sub(B).normalize();
+  const theta = Math.acos(Math.max(-1, Math.min(1, d0.dot(d1))));
+  const t = LEG.bend * Math.tan(theta / 2);
+  const rho = t / Math.tan(theta / 2);
+  const bis = d1.clone().sub(d0).normalize();
+  const Cc = B.clone().addScaledVector(bis, Math.sqrt(rho * rho + t * t));
+  const S = B.clone().addScaledVector(d0, -t), E = B.clone().addScaledVector(d1, t);
+  const mid = S.sub(Cc).add(E.sub(Cc)).normalize().multiplyScalar(rho).add(Cc);
+  return [mid.x, mid.y, mid.z] as const;
+})();
+/** The knee pivot relative to the hip (left leg). */
+export const KNEE = { dx: KNEE_MID[0] - LEG.hip[0], y: KNEE_MID[1] - LEG.hip[1], z: KNEE_MID[2] - LEG.hip[2] } as const;
+/** The scruff: where a visitor's fingers take hold (root space at rest: the back of the neck). */
+export const SCRUFF: readonly [number, number, number] = [0, 0.52, -0.14];
 /** The tail's root (in root space) and its four segment lengths. */
 export const TAIL = { y: 0.085, z: -0.215, segs: [0.15, 0.16, 0.14, 0.13] as const } as const;
 /** The head is drawn at one size and carried a little bigger: a toy's head. */
@@ -89,7 +125,35 @@ export interface Arms {
   right: ArmJoints;
 }
 
+export interface LegJoints {
+  /** Raise the knee (+) / drop the thigh to hang (-), about the hip's X. */
+  lift: number;
+  /** Swing the knee outward (+). */
+  splay: number;
+  /** + folds the shin back under the seat, - straightens it forward. */
+  knee: number;
+}
+
+/** Where the whole body is: turned about a pivot (the seat or the scruff) and that pivot put at `at` (root space). */
+export interface BodyPlace {
+  /** Where the pivot goes (root space). Default: where it is at rest. */
+  at?: [number, number, number];
+  /** [pitch (+ tips the head forward, toward +Z), yaw (+ turns toward +X), roll (+ drops the head toward +X)], radians, applied yaw, pitch, roll. */
+  rot?: [number, number, number];
+  pivot?: 'seat' | 'scruff';
+}
+
 export interface PatchPose {
+  /** The whole body (default: sat on the seat). */
+  body?: BodyPlace;
+  /** Legs [left, right] (default: the seated rest, thighs forward, shins hanging). */
+  legs?: [LegJoints, LegJoints];
+  /** The headset knocked askew: [tilt toward Patch's left (+, about the face axis), tip forward (+)], radians. */
+  headset?: [number, number];
+  /** The folder in the right paw: 0 not there (in its drawer), 1 held. A switch at 0.5. */
+  folder?: number;
+  /** Its cover: 0 shut .. 1 open flat. */
+  folderOpen?: number;
   /** The upper body at the hips: [fore (+ toward +Z), side (+ toward +X)] radians, and twist (+ turns the chest toward +X). */
   lean?: [number, number];
   twist?: number;
@@ -117,6 +181,8 @@ export interface PatchPose {
   arms?: ArmPreset | Partial<Record<ArmPreset, number>> | Arms;
   /** Tail: [curl (+ curls the end up and forward), sway (+ swings it toward +X)], radians spread over the segments. */
   tail?: [number, number];
+  /** The tail's root: + lifts it, - lets it hang (-1.2 is straight down, as when Patch is held up). */
+  tailLift?: number;
 }
 
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, roll: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, roll });
@@ -138,7 +204,14 @@ export const PRESETS: Record<ArmPreset, Arms> = {
 };
 
 /** The neutral pose: the rest the cavity is baked in (eyes open so the lids bake in open air). */
-export const NEUTRAL: Required<Omit<PatchPose, 'arms'>> & { arms: ArmPreset } = {
+export const LEG_REST: LegJoints = { lift: 0, splay: 0, knee: 0 };
+
+export const NEUTRAL: Required<Omit<PatchPose, 'arms' | 'body'>> & { arms: ArmPreset; body: BodyPlace } = {
+  body: {},
+  legs: [LEG_REST, LEG_REST],
+  headset: [0, 0],
+  folder: 0,
+  folderOpen: 0,
   lean: [0, 0],
   twist: 0,
   headYaw: 0,
@@ -154,6 +227,7 @@ export const NEUTRAL: Required<Omit<PatchPose, 'arms'>> & { arms: ArmPreset } = 
   boom: 0,
   arms: 'rest',
   tail: [0, 0],
+  tailLift: 0,
 };
 
 /**
@@ -365,6 +439,12 @@ export function earBase(side: 1 | -1): Matrix4 {
 export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
   const p = { ...NEUTRAL, ...pose };
   const m: Record<string, Matrix4> = {};
+  m.body = bodyMatrix(p.body);
+  for (const [s, nm, i] of [[1, 'L', 0], [-1, 'R', 1]] as const) {
+    const l = p.legs[i]!;
+    m[`thigh${nm}`] = chain(T(s * HIP.x, HIP.y, HIP.z), RY(s * clamp(l.splay, -0.3, 0.9)), RX(-clamp(l.lift, -1.7, 1.2)));
+    m[`shin${nm}`] = chain(T(s * KNEE.dx, KNEE.y, KNEE.z), RX(clamp(l.knee, -1.5, 1.4)));
+  }
   const fore = clamp(p.lean[0], -0.25, 0.45), side = clamp(p.lean[1], -0.35, 0.35);
   m.spine = chain(T(0, HIPS.y, HIPS.z), RZ(-side), RX(fore), RY(clamp(p.twist, -0.6, 0.6)));
 
@@ -399,8 +479,14 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
     const mv = clamp(p.mouth[i], -1, 1);
     m[`mouth${nm}`] = chain(T(MUZZLE.c[0], MUZZLE.c[1], MUZZLE.c[2]), RAxis(MOUTH_DIR, s * mv * 0.28));
   }
-  // the boom swings about the cup's axis (head X)
-  m.boom = chain(T(-CUP.x - 0.032, HC[1] + CUP.y, HC[2] + CUP.z), RX(-clamp(p.boom, -0.3, 0.6)));
+  // the headset turns about the head's centre; the boom swings about the cup's axis (head X), in the headset's frame
+  const [hz, hx] = [clamp(p.headset[0], -0.6, 0.6), clamp(p.headset[1], -0.5, 0.5)];
+  m.headset = chain(T(HC[0], HC[1], HC[2]), RZ(-hz), RX(hx));
+  m.boom = chain(T(-CUP.x - 0.032 - HC[0], CUP.y, CUP.z), RX(-clamp(p.boom, -0.3, 0.6)));
+  // the folder: held in the right paw's grip, or collapsed inside it
+  const fs = p.folder >= 0.5 ? 1 : 1e-4;
+  m.folder = chain(FOLDER_GRIP, new Matrix4().makeScale(fs, fs, fs));
+  m.folderLid = chain(T(0, 0, FOLDER.t), RY(-clamp(p.folderOpen, 0, 1) * 2.9));
 
   const arms = resolveArms(p.arms);
   const arm = (s: 1 | -1, a: ArmJoints, nm: 'L' | 'R'): void => {
@@ -416,11 +502,23 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
   const segs = TAIL.segs;
   // the segments are built along their local +Y; the base points back and a little down
   // (+Y of a segment turned by a about X points along (0, cos a, sin a): -1.9 is back and down, -3 straight down)
-  m.tail = chain(T(0, TAIL.y, TAIL.z), RZ(-sway * 0.5), RX(-1.75));
+  m.tail = chain(T(0, TAIL.y, TAIL.z), RZ(-sway * 0.5), RX(-1.75 + clamp(p.tailLift, -1.4, 0.8)));
   m.tail2 = chain(T(0, segs[0], 0), RZ(-sway * 0.4), RX(-0.95 + curl * 0.2));
   m.tail3 = chain(T(0, segs[1], 0), RZ(-sway * 0.3), RX(0.85 + curl * 0.4));
   m.tail4 = chain(T(0, segs[2], 0), RZ(-sway * 0.3), RX(0.95 + curl * 0.5));
   return m;
+}
+
+/** The folder (right paw space): its size, and where the paw holds it. */
+export const FOLDER = { w: 0.2, h: 0.25, t: 0.012 } as const;
+export const FOLDER_GRIP = chain(T(0.006, -0.06, -0.034), RZ(0.25), RY(Math.PI), RX(0.15), T(-0.01, -FOLDER.h * 0.85, 0));
+
+/** The body's matrix (root space) for a placement. */
+export function bodyMatrix(b: BodyPlace = {}): Matrix4 {
+  const piv = b.pivot === 'scruff' ? SCRUFF : ([0, 0, 0] as const);
+  const at = b.at ?? [piv[0], piv[1], piv[2]];
+  const r = b.rot ?? [0, 0, 0];
+  return chain(T(at[0], at[1], at[2]), RY(r[1]), RX(r[0]), RZ(-r[2]), T(-piv[0], -piv[1], -piv[2]));
 }
 
 /** Anything with named children that have a position/quaternion/scale (a realized Object3D). */

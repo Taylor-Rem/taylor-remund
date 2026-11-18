@@ -4,10 +4,18 @@ import { describe, expect, it } from 'vitest';
 import { MeshBasicMaterial, Quaternion, Vector3 } from 'three';
 import type { Mesh, Object3D, SkinnedMesh } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
-import { cluster, cullAway, detailMask, shadowTriangles, SHADOW_LAYER, SHADOW_WELD } from '../../../src/workshop/view/kit/realize.ts';
+import { cluster, cullAway, detailMask, FIXED_SHADOW, principalFrame, shadowTriangles, SHADOW_LAYER, SHADOW_WELD } from '../../../src/workshop/view/kit/realize.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import { catalogue as crateCat, repaint } from '../../../src/workshop/view/kit/pieces/crate/index.ts';
 import { catalogue as porterCat } from '../../../src/workshop/view/kit/pieces/fetch-porter/index.ts';
+
+describe('withShadow', () => {
+  it('a piece made to cast nothing casts nothing; its original still casts', () => {
+    const p = porterCat[0]!.build();
+    expect(shadowTriangles(K.realize(K.withShadow(p, 'none'), stub))).toBe(0);
+    expect(shadowTriangles(K.realize(p, stub))).toBeGreaterThan(0);
+  });
+});
 
 const stub: Materials = {
   of: () => new MeshBasicMaterial(),
@@ -177,14 +185,52 @@ describe('fixedView', () => {
     expect(kept.some((n) => n.y < -0.99)).toBe(false); // bottom
   });
 
-  it('applies to single-node pieces only, and keeps the full shape in the shadow proxy', () => {
+  it('applies to single-node pieces only; its proxy drops what the light faces from everywhere, ground-level undersides and what is below the bench', () => {
     const b = K.piece('f', { ao: false });
-    b.add(K.part('steel', K.roundedBox({ w: 1, h: 1, d: 1 })), K.part('wood', K.roundedBox({ w: 2, h: 0.2, d: 2 })));
+    b.add(K.part('steel', K.roundedBox({ w: 1, h: 1, d: 1 })), K.place([K.part('wood', K.roundedBox({ w: 2, h: 0.2, d: 2 }))], { at: [0, -1, 0] }));
     const p = b.build();
     const full = shadowTriangles(K.realize(p, stub, { shadowWeld: 0, shadowDetail: 0 }));
     const o = K.realize(p, stub, { fixedView: true, shadowWeld: 0, shadowDetail: 0 });
-    expect(shadowTriangles(o)).toBe(full);
+    const fixed = shadowTriangles(o);
+    expect(fixed).toBeLessThan(full);
+    expect(fixed).toBeGreaterThan(0);
+    const pos = proxies(o)[0]!.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThan(FIXED_SHADOW.below - 0.5);
     const visible = meshes(o).filter((m) => !m.userData['shadowProxy']).reduce((n, m) => n + m.geometry.index!.count / 3, 0);
     expect(visible).toBeLessThan(p.triangles);
+  });
+});
+
+describe("a part's shadow mode", () => {
+  const base = (): K.KitPart => K.part('steel', K.roundedBox({ w: 1, h: 0.5, d: 0.5 }));
+  const knob = (): K.KitPart => K.part('brass', K.ellipsoid({ rx: 0.3, ry: 0.3, rz: 0.3 }));
+  const tris = (g: { index: { count: number } | null; getAttribute(n: string): { count: number } }): number => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+  it("'none' casts nothing and 'hull' casts a hull of fewer triangles", () => {
+    const plain = K.realize(K.piece('a', { ao: false }).add(base(), knob()).build(), stub, { shadowWeld: 0 });
+    const none = K.realize(K.piece('b', { ao: false }).add(base(), { ...knob(), shadow: 'none' }).build(), stub, { shadowWeld: 0 });
+    const hull = K.realize(K.piece('c', { ao: false }).add(base(), { ...knob(), shadow: 'hull' }).build(), stub, { shadowWeld: 0 });
+    // one casting part left: it casts for itself
+    expect(shadowTriangles(none)).toBe(tris(base().geometry));
+    expect(shadowTriangles(hull)).toBeLessThanOrEqual(shadowTriangles(plain));
+    expect(shadowTriangles(hull)).toBeGreaterThan(tris(base().geometry));
+  });
+  it('a merged part keeps where its hull and none spans went', () => {
+    const merged = K.merge([base(), { ...knob(), shadow: 'hull' }, { ...K.part('steel', K.roundedBox({ w: 0.3, h: 0.3, d: 0.3 })), shadow: 'none' }]);
+    const steel = merged.find((q) => q.material === 'steel')!;
+    expect((steel.geometry.userData['shadowSpans'] as Array<{ mode: string }>).map((sp) => sp.mode)).toEqual(['none']);
+    const brass = merged.find((q) => q.material === 'brass')!;
+    expect((brass.geometry.userData['shadowSpans'] as Array<{ mode: string }>).map((sp) => sp.mode)).toEqual(['hull']);
+  });
+  it('principalFrame finds a diagonal rod thin', () => {
+    const pts: number[] = [];
+    const u = new Vector3(1, -1, 0).normalize(), w = new Vector3(1, 1, -2).normalize();
+    for (let i = 0; i <= 40; i++) for (let k = 0; k < 8; k++) {
+      const t = i / 40, a = (k / 8) * Math.PI * 2;
+      const p = new Vector3(t, t, t).addScaledVector(u, 0.01 * Math.cos(a)).addScaledVector(w, 0.01 * Math.sin(a));
+      pts.push(p.x, p.y, p.z);
+    }
+    const f = principalFrame(pts, Array.from({ length: pts.length / 3 }, (_, i) => i));
+    expect(Math.min(...f.extent)).toBeLessThan(0.025);
+    expect(Math.max(...f.extent)).toBeGreaterThan(1.7);
   });
 });

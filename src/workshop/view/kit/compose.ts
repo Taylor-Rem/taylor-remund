@@ -7,7 +7,8 @@ import { Box3, BufferAttribute, BufferGeometry, Euler, Matrix4, Quaternion, Vect
 import type { Token } from '../palette.ts';
 import type { KitPart, MaterialClass, MaterialVariant, Piece, PieceNode } from './types.ts';
 import { ATTR } from './types.ts';
-import { bakeCavity, tint } from './surface.ts';
+import { tint } from './surface.ts';
+import { bakePiece } from './bake.ts';
 import type { AoOptions, TintOptions } from './surface.ts';
 import { transform } from './deform.ts';
 import { offsetLpos } from './space.ts';
@@ -55,6 +56,16 @@ export function noShadow(p: PartsLike): KitPart[] {
   const list = flat(p);
   for (const q of list) q.castShadow = false;
   return list;
+}
+
+/**
+ * A whole built piece casting in one way through its shadow proxy (kit/realize.ts): 'none'
+ * (the bench's frame and the floor, whose shadows fall where nobody sees) or 'hull'. A new
+ * Piece over new part records; the geometry is shared.
+ */
+export function withShadow(p: Piece, mode: 'hull' | 'none'): Piece {
+  const node = (n: PieceNode): PieceNode => ({ ...n, parts: n.parts.map((q) => ({ ...q, shadow: mode })), ...(n.children ? { children: n.children.map(node) } : {}) });
+  return { ...p, root: node(p.root) };
 }
 
 /** Shorthand: the 'large' variant (the bench top, the back wall). */
@@ -245,18 +256,30 @@ export function mergeGeometries(geoms: readonly BufferGeometry[]): BufferGeometr
 
 /** Merge parts into one part per (material, variant, texture). Order of first appearance is kept. */
 export function merge(p: PartsLike): KitPart[] {
-  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; noCast: boolean; geoms: BufferGeometry[] }>();
+  const groups = new Map<string, { material: MaterialClass; variant?: MaterialVariant | undefined; texture?: string | undefined; noCast: boolean; geoms: BufferGeometry[]; modes: Array<'hull' | 'none' | undefined> }>();
   for (const q of flat(p)) {
     const key = `${q.material}|${q.variant ?? ''}|${q.texture ?? ''}${q.castShadow === false ? '|nocast' : ''}`;
     let g = groups.get(key);
     if (!g) {
-      g = { material: q.material, variant: q.variant, texture: q.texture, noCast: q.castShadow === false, geoms: [] };
+      g = { material: q.material, variant: q.variant, texture: q.texture, noCast: q.castShadow === false, geoms: [], modes: [] };
       groups.set(key, g);
     }
     g.geoms.push(q.geometry);
+    g.modes.push(q.shadow);
   }
   return [...groups.values()].map((g) => {
     const geometry = g.geoms.length === 1 ? g.geoms[0]! : mergeGeometries(g.geoms);
+    // where parts that cast in their own way went (kit/realize.ts reads it for the shadow proxy)
+    const spans: Array<{ start: number; count: number; mode: 'hull' | 'none' }> = [];
+    let tri = 0;
+    g.geoms.forEach((gg, k) => {
+      const n = Math.floor((gg.index ? gg.index.count : gg.getAttribute('position').count) / 3);
+      const mode = g.modes[k];
+      if (mode) spans.push({ start: tri, count: n, mode });
+      for (const s of (gg.userData['shadowSpans'] as typeof spans | undefined) ?? []) if (!mode) spans.push({ ...s, start: s.start + tri });
+      tri += n;
+    });
+    if (spans.length) geometry.userData = { ...geometry.userData, shadowSpans: spans };
     const out: KitPart = { material: g.material, geometry };
     if (g.variant) out.variant = g.variant;
     if (g.noCast) out.castShadow = false;
@@ -377,7 +400,8 @@ export class PieceBuilder extends NodeBuilder {
       return node;
     };
     const root = walk(this, new Matrix4());
-    if (this.opts.ao !== false) bakeCavity(all, this.opts.ao ?? {});
+    // the cavity bake: looked up in the bake table when it holds this exact input, else ray-traced (kit/bake.ts)
+    if (this.opts.ao !== false) bakePiece(all, this.opts.ao ?? {});
     const size = box.isEmpty() ? { x: 0, y: 0, z: 0 } : { x: box.max.x - box.min.x, y: box.max.y - box.min.y, z: box.max.z - box.min.z };
     const piece: Piece = { name: this.pieceName, root, size, triangles };
     if (Object.keys(this.sockets).length) piece.sockets = { ...this.sockets };
@@ -454,8 +478,8 @@ export function budget(p: Piece, cap?: number): Budget {
   walk(p.root, p.root.name);
   // draw calls: the skinned backend draws one mesh per (material, variant, texture, castShadow)
   // for a multi-node piece; a single-node piece and the 'nodes' backend one per node × material
-  const casts = (q: { material: MaterialClass; texture?: string | undefined; castShadow?: false | undefined }): boolean =>
-    q.material !== 'bulb' && q.castShadow !== false && !(q.texture ?? '').startsWith('stencil');
+  const casts = (q: { material: MaterialClass; texture?: string | undefined; castShadow?: false | undefined; shadow?: 'hull' | 'none' | undefined }): boolean =>
+    q.material !== 'bulb' && q.castShadow !== false && q.shadow !== 'none' && !(q.texture ?? '').startsWith('stencil');
   const allParts: KitPart[] = [];
   const gather = (n: PieceNode): void => {
     allParts.push(...n.parts);
@@ -468,8 +492,16 @@ export function budget(p: Piece, cap?: number): Budget {
   for (const q of allParts) if (!merged.has(keyOf(q))) merged.set(keyOf(q), q);
   const drawn = multi ? [...merged.values()] : allParts;
   const meshes = drawn.length;
-  const casting = drawn.filter(casts).length;
-  const nodesCalls = allParts.length + allParts.filter(casts).length;
+  // the shadow pass draws ONE shadow proxy per realised piece (kit/realize.ts), or the lone
+  // casting mesh itself; the per-node backend one per node that has a casting part
+  const casting = drawn.some(casts) ? 1 : 0;
+  let castingNodes = 0;
+  const countNodes = (n: PieceNode): void => {
+    if (n.parts.some(casts)) castingNodes++;
+    for (const c of n.children ?? []) countNodes(c);
+  };
+  countNodes(p.root);
+  const nodesCalls = allParts.length + castingNodes;
   rows.sort((a, b) => b.triangles - a.triangles);
   const total = rows.reduce((s, r) => s + r.triangles, 0);
   const fits = cap === undefined || total <= cap;

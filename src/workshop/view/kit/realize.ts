@@ -43,6 +43,7 @@ import { Bone, Box3, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Skel
 import type { Material, Object3D } from 'three';
 import type { Materials } from '../types.ts';
 import type { KitPart, MaterialClass, Piece, PieceNode } from './types.ts';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import { mergeGeometries, pieceBounds } from './compose.ts';
 import { transform } from './deform.ts';
 
@@ -112,7 +113,7 @@ function casts(part: KitPart, material: Material, o: RealizeOptions): boolean {
   // blended decals (sprayed stencils: transparent without an alpha cut) never cast a shadow;
   // they may receive one. Cut labels (alphaTest) and opaque parts cast as usual.
   const blended = material.transparent && !(material.alphaTest > 0);
-  return (o.castShadow ?? true) && !NO_CAST.has(part.material) && !blended && part.castShadow !== false;
+  return (o.castShadow ?? true) && !NO_CAST.has(part.material) && !blended && part.castShadow !== false && part.shadow !== 'none';
 }
 
 /** `proxied`: a shadow proxy casts for this mesh, so it casts nothing itself. */
@@ -209,6 +210,140 @@ export function lumpsOf(pos: ArrayLike<number>, index: ArrayLike<number> | null)
 /** Whether a lump is small detail: smaller than `detail` on every axis. */
 const isSmall = (b: number[], detail: number): boolean => b[3]! - b[0]! < detail && b[4]! - b[1]! < detail && b[5]! - b[2]! < detail;
 
+/**
+ * ADAPTIVE WELDING (H1 round 2). Each lump is welded on a grid in its OWN principal frame
+ * (axes from the covariance of its vertices), one cell size per axis: `frac` of the lump's
+ * extent along that axis, never finer than `weld` nor coarser than `cap`; an axis along which
+ * the lump is thinner than `thin` stays on `weld`. A board keeps its thickness and loses its
+ * in-plane tessellation; a rod keeps its round and loses rings along its length; a bulky
+ * body loses its fillets. No cell exceeds half the lump's mean wall thickness (3·volume /
+ * area): a cage of bars is one lump with a big frame and thin members. Units, in the piece's
+ * root space. Chosen by old/new/difference pictures (H1 round 2): {0.1, 0.25, 0.12} cuts a
+ * further sixth but moves the Button guard bars' self-shadow; this does not, to the eye.
+ */
+export const SHADOW_ADAPT = { thin: 0.15, frac: 0.12, cap: 0.06 };
+
+function adaptOf(): { thin: number; frac: number; cap: number } {
+  // debugging and A/B only: `?shadowAdapt=thin,frac,cap` (frac 0 turns adaptation off)
+  const m = /[?&]shadowAdapt=([0-9.,]+)/.exec(search());
+  if (!m) return SHADOW_ADAPT;
+  const [thin, frac, cap] = m[1]!.split(',').map(Number);
+  return { thin: thin ?? SHADOW_ADAPT.thin, frac: frac ?? 0, cap: cap ?? SHADOW_ADAPT.cap };
+}
+
+export interface Frame3 {
+  origin: [number, number, number];
+  /** Three unit axes. */
+  axes: [number, number, number][];
+  /** Extent of the points along each axis. */
+  extent: [number, number, number];
+}
+
+/** The principal frame of points (Jacobi on their covariance) and their extent along each axis. */
+export function principalFrame(xyz: ArrayLike<number>, ids: readonly number[]): Frame3 {
+  const n = Math.max(1, ids.length);
+  let mx = 0, my = 0, mz = 0;
+  for (const i of ids) {
+    mx += xyz[i * 3]!;
+    my += xyz[i * 3 + 1]!;
+    mz += xyz[i * 3 + 2]!;
+  }
+  mx /= n;
+  my /= n;
+  mz /= n;
+  const a = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (const i of ids) {
+    const d = [xyz[i * 3]! - mx, xyz[i * 3 + 1]! - my, xyz[i * 3 + 2]! - mz];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) a[r * 3 + c]! += d[r]! * d[c]!;
+  }
+  // Jacobi rotations: v's columns become the eigenvectors
+  const v = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  for (let sweep = 0; sweep < 12; sweep++) {
+    for (const [p, q] of [[0, 1], [0, 2], [1, 2]] as const) {
+      const apq = a[p * 3 + q]!;
+      if (Math.abs(apq) < 1e-14) continue;
+      const theta = (a[q * 3 + q]! - a[p * 3 + p]!) / (2 * apq);
+      const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < 3; k++) {
+        const akp = a[k * 3 + p]!, akq = a[k * 3 + q]!;
+        a[k * 3 + p] = c * akp - s * akq;
+        a[k * 3 + q] = s * akp + c * akq;
+      }
+      for (let k = 0; k < 3; k++) {
+        const apk = a[p * 3 + k]!, aqk = a[q * 3 + k]!;
+        a[p * 3 + k] = c * apk - s * aqk;
+        a[q * 3 + k] = s * apk + c * aqk;
+      }
+      for (let k = 0; k < 3; k++) {
+        const vkp = v[k * 3 + p]!, vkq = v[k * 3 + q]!;
+        v[k * 3 + p] = c * vkp - s * vkq;
+        v[k * 3 + q] = s * vkp + c * vkq;
+      }
+    }
+  }
+  const axes = [0, 1, 2].map((e) => [v[e]!, v[3 + e]!, v[6 + e]!] as [number, number, number]);
+  const extent: [number, number, number] = [0, 0, 0];
+  axes.forEach((ax, e) => {
+    let lo = Infinity, hi = -Infinity;
+    for (const i of ids) {
+      const d = (xyz[i * 3]! - mx) * ax[0] + (xyz[i * 3 + 1]! - my) * ax[1] + (xyz[i * 3 + 2]! - mz) * ax[2];
+      if (d < lo) lo = d;
+      if (d > hi) hi = d;
+    }
+    extent[e] = ids.length ? hi - lo : 0;
+  });
+  return { origin: [mx, my, mz], axes, extent };
+}
+
+/** The smallest extent of points along their principal axes. */
+export function principalThickness(xyz: ArrayLike<number>, ids: readonly number[]): number {
+  return Math.min(...principalFrame(xyz, ids).extent);
+}
+
+interface LumpGrid {
+  frame: Frame3;
+  cell: [number, number, number];
+}
+
+/** Per lump, its own welding grid (see SHADOW_ADAPT), or null where the plain `weld` grid serves. */
+function lumpGrids(xyz: ArrayLike<number>, index: ArrayLike<number> | null, l: Lumps, weld: number): Array<LumpGrid | null> {
+  const A = adaptOf();
+  if (A.frac <= 0) return l.box.map(() => null);
+  const verts: number[][] = l.box.map(() => []);
+  for (let t = 0; t < l.of.length; t++) for (let c = 0; c < 3; c++) verts[l.of[t]!]!.push(index ? index[t * 3 + c]! : t * 3 + c);
+  return verts.map((ids) => {
+    const frame = principalFrame(xyz, ids);
+    // a lump's members can be thinner than its frame says (a cage of bars is one lump): no cell
+    // exceeds half its mean wall thickness, 3·volume/area (a rod's 1.5 radii; an open shell's
+    // volume is unreliable and small, so it keeps the fine grid)
+    let area = 0, vol = 0;
+    for (let k = 0; k + 2 < ids.length; k += 3) {
+      const a = ids[k]! * 3, b = ids[k + 1]! * 3, c = ids[k + 2]! * 3;
+      const ux = xyz[b]! - xyz[a]!, uy = xyz[b + 1]! - xyz[a + 1]!, uz = xyz[b + 2]! - xyz[a + 2]!;
+      const wx = xyz[c]! - xyz[a]!, wy = xyz[c + 1]! - xyz[a + 1]!, wz = xyz[c + 2]! - xyz[a + 2]!;
+      area += Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
+      vol += (xyz[a]! * (xyz[b + 1]! * xyz[c + 2]! - xyz[b + 2]! * xyz[c + 1]!) - xyz[a + 1]! * (xyz[b]! * xyz[c + 2]! - xyz[b + 2]! * xyz[c]!) + xyz[a + 2]! * (xyz[b]! * xyz[c + 1]! - xyz[b + 1]! * xyz[c]!)) / 6;
+    }
+    const wall = area > 0 ? (3 * Math.abs(vol)) / area : 0;
+    const most = Math.min(A.cap, Math.max(weld, wall * 0.5));
+    const cell = frame.extent.map((e) => (e < A.thin ? weld : Math.min(most, Math.max(weld, e * A.frac)))) as [number, number, number];
+    return cell.every((c) => c === weld) ? null : { frame, cell };
+  });
+}
+
+/** A vertex's cell key: on the world grid of `weld`, or on its lump's own grid. */
+function gridKey(xyz: ArrayLike<number>, i: number, bone: number, weld: number, g: LumpGrid | null, lump: number): string {
+  const x = xyz[i * 3]!, y = xyz[i * 3 + 1]!, z = xyz[i * 3 + 2]!;
+  if (!g) return `${bone}:${Math.floor(x / weld)},${Math.floor(y / weld)},${Math.floor(z / weld)}`;
+  const o = g.frame.origin;
+  const k = g.frame.axes.map((ax, e) => Math.floor(((x - o[0]) * ax[0] + (y - o[1]) * ax[1] + (z - o[2]) * ax[2]) / g.cell[e]!));
+  return `${bone}#${lump}:${k.join(',')}`;
+}
+
+let lumpSerial = 0;
+
+
 /** Per triangle, whether it is kept: lumps smaller than `detail` on every axis are dropped. */
 export function detailMask(g: BufferGeometry, detail: number): Uint8Array {
   const pos = g.getAttribute('position');
@@ -220,14 +355,83 @@ export function detailMask(g: BufferGeometry, detail: number): Uint8Array {
 }
 
 /**
+ * Where a key light can be (the lamp is dragged about in P2): a box above the bench. Used
+ * only for `fixedView` pieces (world space, never moved): a triangle that faces every point
+ * of this box is drawn from its front by the light, so the shadow pass (which draws back
+ * faces) never rasterises it, and the proxy leaves it out.
+ */
+export const KEY_REGION = { min: [-10, 2.6, -5] as const, max: [10, 8, 6] as const };
+
+/**
+ * World-space rules for `fixedView` pieces (H1 round 2), in units: a triangle wholly below
+ * `below` (legs, braces, floor: their shadows fall into the room's fog) and a downward face
+ * at bench level (`ground`: the underside of tape, bays, feet; its shadow is the bench under
+ * itself) cast nothing.
+ */
+export const FIXED_SHADOW = { below: -0.3, ground: 0.03 };
+
+interface ProxyPart {
+  geometry: BufferGeometry;
+  world: Matrix4 | null;
+  bone: number;
+  /** The part's own `shadow` mode. */
+  mode?: 'hull' | 'none' | undefined;
+}
+
+function lightFacing(a: Vector3, b: Vector3, c: Vector3, n: Vector3): boolean {
+  const R = KEY_REGION;
+  for (let k = 0; k < 8; k++) {
+    const L = [k & 1 ? R.max[0] : R.min[0], k & 2 ? R.max[1] : R.min[1], k & 4 ? R.max[2] : R.min[2]];
+    for (const p of [a, b, c]) if (n.x * (L[0]! - p.x) + n.y * (L[1]! - p.y) + n.z * (L[2]! - p.z) <= 0) return false;
+  }
+  return true;
+}
+
+/** The convex hull of points, pulled `inset` toward their centre (never more than 2% of their size). */
+function hullOf(pts: number[], bone: number, out: number[], bones: number[], inset = 0.004): void {
+  if (pts.length < 12) return;
+  const vs: Vector3[] = [];
+  for (let i = 0; i < pts.length; i += 3) vs.push(new Vector3(pts[i], pts[i + 1], pts[i + 2]));
+  const hull = new ConvexHull().setFromPoints(vs);
+  const box = new Box3().setFromPoints(vs);
+  const centre = box.getCenter(new Vector3());
+  const pull = Math.min(inset, box.getSize(new Vector3()).length() * 0.02);
+  const w = new Vector3();
+  for (const face of hull.faces) {
+    let e = face.edge;
+    const ring: Vector3[] = [];
+    do {
+      ring.push(e.head().point);
+      e = e.next;
+    } while (e !== face.edge);
+    for (let k = 1; k + 1 < ring.length; k++) {
+      for (const q of [ring[0]!, ring[k]!, ring[k + 1]!]) {
+        w.copy(q).sub(centre);
+        const d = w.length();
+        if (d > 1e-9) w.multiplyScalar((d - pull) / d);
+        out.push(centre.x + w.x, centre.y + w.y, centre.z + w.z);
+        bones.push(bone);
+      }
+    }
+  }
+}
+
+/**
  * One position-only, non-indexed geometry of `parts`, each placed by its matrix (into the
  * piece's root space, where the cut and the welding are measured) and, when `skinned`,
- * bound to its bone. Small lumps are cut; the rest are welded on a `weld` grid.
+ * bound to its bone. Small lumps are cut; parts (or merged spans) marked `shadow: 'none'`
+ * are left out and those marked 'hull' cast as their hull; the rest are welded (SHADOW_ADAPT).
+ * `fixed`: world space, never moved (the FIXED_SHADOW and KEY_REGION rules apply).
  */
-function proxyGeometry(parts: ReadonlyArray<{ geometry: BufferGeometry; world: Matrix4 | null; bone: number }>, detail: number, weld: number, skinned: boolean, big: boolean): Omit<ProxyBuild, 'rep'> {
+function proxyGeometry(parts: ReadonlyArray<ProxyPart>, detail: number, weld: number, skinned: boolean, big: boolean, fixed = false): Omit<ProxyBuild, 'rep'> {
   const v = new Vector3();
   const out: number[] = [];
   const bones: number[] = [];
+  const keys: string[] = [];
+  const hulls: Array<{ pts: number[]; bone: number }> = [];
+  const A = new Vector3(), B = new Vector3(), C = new Vector3(), N = new Vector3();
+  // debugging and A/B only: `?shadowFixed=abc` picks the fixedView rules (a light-facing, b below, c ground)
+  const rules = /[?&]shadowFixed=([a-z]*)/.exec(search())?.[1] ?? 'abc';
   let before = 0;
   for (const p of parts) {
     const g = p.geometry;
@@ -235,6 +439,7 @@ function proxyGeometry(parts: ReadonlyArray<{ geometry: BufferGeometry; world: M
     const idx = g.index;
     const tris = Math.floor((idx ? idx.count : pos.count) / 3);
     before += tris;
+    if (p.mode === 'none') continue;
     const placed = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i);
@@ -243,18 +448,63 @@ function proxyGeometry(parts: ReadonlyArray<{ geometry: BufferGeometry; world: M
       placed[i * 3 + 1] = v.y;
       placed[i * 3 + 2] = v.z;
     }
+    // per triangle, its mode: the part's own, or its merged span's
+    const modeOf = new Array<'hull' | 'none' | undefined>(tris).fill(p.mode);
+    const spanOf = new Int32Array(tris).fill(-1);
+    const spans = (g.userData['shadowSpans'] as Array<{ start: number; count: number; mode: 'hull' | 'none' }> | undefined) ?? [];
+    if (!p.mode) {
+      spans.forEach((sp, k) => {
+        for (let t = sp.start; t < Math.min(tris, sp.start + sp.count); t++) {
+          modeOf[t] = sp.mode;
+          spanOf[t] = k;
+        }
+      });
+    }
+    const hullAt = new Map<number, { pts: number[]; bone: number }>();
     const l = lumpsOf(placed, idx ? idx.array : null);
+    const grids = weld > 0 ? lumpGrids(placed, idx ? idx.array : null, l, weld) : null;
+    const serial = l.box.map(() => lumpSerial++);
     const order = p.world && p.world.determinant() < 0 ? [0, 2, 1] : [0, 1, 2];
+    const at = (t: number, c: number): number => (idx ? idx.getX(t * 3 + order[c]!) : t * 3 + order[c]!);
     for (let t = 0; t < tris; t++) {
-      if (detail > 0 && isSmall(l.box[l.of[t]!]!, detail)) continue;
-      for (const c of order) {
-        const i = idx ? idx.getX(t * 3 + c) : t * 3 + c;
+      const lump = l.of[t]!;
+      const mode = modeOf[t];
+      if (mode === 'none') continue;
+      if (mode === 'hull') {
+        let h = hullAt.get(spanOf[t]!);
+        if (!h) hullAt.set(spanOf[t]!, (h = { pts: [], bone: p.bone }));
+        for (let c = 0; c < 3; c++) {
+          const i = at(t, c);
+          h.pts.push(placed[i * 3]!, placed[i * 3 + 1]!, placed[i * 3 + 2]!);
+        }
+        continue;
+      }
+      if (detail > 0 && isSmall(l.box[lump]!, detail)) continue;
+      if (fixed) {
+        A.fromArray(placed, at(t, 0) * 3);
+        B.fromArray(placed, at(t, 1) * 3);
+        C.fromArray(placed, at(t, 2) * 3);
+        const top = Math.max(A.y, B.y, C.y);
+        if (rules.includes('b') && top < FIXED_SHADOW.below) continue;
+        N.subVectors(B, A).cross(v.subVectors(C, A));
+        const len = N.length();
+        if (len > 1e-12) {
+          N.multiplyScalar(1 / len);
+          if (rules.includes('c') && N.y < -0.5 && top < FIXED_SHADOW.ground) continue;
+          if (rules.includes('a') && lightFacing(A, B, C, N)) continue;
+        }
+      }
+      for (let c = 0; c < 3; c++) {
+        const i = at(t, c);
         out.push(placed[i * 3]!, placed[i * 3 + 1]!, placed[i * 3 + 2]!);
         bones.push(p.bone);
+        if (grids) keys.push(gridKey(placed, i, p.bone, weld, grids[lump] ?? null, serial[lump]!));
       }
     }
+    hulls.push(...hullAt.values());
   }
-  const welded = weld > 0 ? cluster(out, bones, weld) : { pos: out, bones };
+  const welded = weld > 0 ? clusterKeys(out, bones, keys) : { pos: out, bones };
+  for (const h of hulls) hullOf(h.pts, h.bone, welded.pos, welded.bones);
   const after = welded.pos.length / 9;
   if (after === 0) return { geometry: null, before, after };
   return finish(welded.pos, welded.bones, skinned, big, before, after);
@@ -268,13 +518,18 @@ function proxyGeometry(parts: ReadonlyArray<{ geometry: BufferGeometry; world: M
  * 0.03 the Button guard's bars lost their self-shadow; see SHADOW_WELD.)
  */
 export function cluster(pos: readonly number[], bones: readonly number[], cell: number): { pos: number[]; bones: number[] } {
+  const keys: string[] = [];
+  for (let i = 0; i < pos.length / 3; i++) keys.push(gridKey(pos, i, bones[i]!, cell, null, 0));
+  return clusterKeys(pos, bones, keys);
+}
+
+/** Vertex clustering by precomputed cell keys (see `cluster`). */
+function clusterKeys(pos: readonly number[], bones: readonly number[], keyOf: readonly string[]): { pos: number[]; bones: number[] } {
   const n = pos.length / 3;
-  const keyOf: string[] = new Array<string>(n);
   const sum = new Map<string, [number, number, number, number]>();
   for (let i = 0; i < n; i++) {
     const x = pos[i * 3]!, y = pos[i * 3 + 1]!, z = pos[i * 3 + 2]!;
-    const k = `${bones[i]}:${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-    keyOf[i] = k;
+    const k = keyOf[i]!;
     const s = sum.get(k);
     if (s) {
       s[0] += x;
@@ -417,7 +672,8 @@ export function cullAway(g: BufferGeometry): BufferGeometry {
 
 function meshOf(node: PieceNode, part: KitPart, materials: Materials, o: RealizeOptions, proxied: boolean): Mesh {
   const material = materialOf(part, materials);
-  const mesh = new Mesh(o.fixedView ? cullAway(part.geometry) : part.geometry, material);
+  // culled only where a proxy casts for it: a mesh that casts for itself needs its back faces
+  const mesh = new Mesh(o.fixedView && proxied ? cullAway(part.geometry) : part.geometry, material);
   mesh.name = `${node.name}.${partName(part)}`;
   shadows(mesh, part, material, o, proxied);
   return mesh;
@@ -430,10 +686,11 @@ function nodeProxy(node: PieceNode, materials: Materials, o: RealizeOptions): Pr
   const detail = detailOf(o);
   let byDetail = nodeProxyCache.get(node.parts);
   if (!byDetail) nodeProxyCache.set(node.parts, (byDetail = new Map()));
-  let built = byDetail.get(detail.key);
+  const cacheKey = `${detail.key}|${o.fixedView ? 1 : 0}`;
+  let built = byDetail.get(cacheKey);
   if (!built) {
-    built = { ...proxyGeometry(casting.map((q) => ({ geometry: q.geometry, world: null, bone: 0 })), detail.cut, detail.weld, false, false), rep: casting[0]! };
-    byDetail.set(detail.key, built);
+    built = { ...proxyGeometry(casting.map((q) => ({ geometry: q.geometry, world: null, bone: 0, mode: q.shadow })), detail.cut, detail.weld, false, false, !!o.fixedView), rep: casting[0]! };
+    byDetail.set(cacheKey, built);
   }
   // a single mesh casts for itself: its geometry may be rewritten at run time (the cord's tube)
   return casting.length > 1 ? built : null;
@@ -574,13 +831,13 @@ function skinProxy(piece: Piece, built: SkinBuild, castsPart: (q: KitPart) => bo
   const key = detail.key;
   if (built.proxies.has(key)) return built.proxies.get(key)!;
   const nodes = nodesOf(piece);
-  const parts: Array<{ geometry: BufferGeometry; world: Matrix4; bone: number }> = [];
+  const parts: ProxyPart[] = [];
   let rep: KitPart | null = null;
   nodes.forEach(({ node, world }, bone) => {
     for (const q of node.parts) {
       if (!castsPart(q)) continue;
       rep ??= q;
-      parts.push({ geometry: q.geometry, world, bone });
+      parts.push({ geometry: q.geometry, world, bone, mode: q.shadow });
     }
   });
   const out = rep ? { ...proxyGeometry(parts, detail.cut, detail.weld, true, nodes.length > 255), rep } : null;

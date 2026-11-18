@@ -261,7 +261,8 @@ export function bench(seed: number | string = 1, opts: Partial<WorldOptions> = {
     seed,
     physics,
     ...opts,
-    units: [(c) => (made.patch = patchStandin(c)), (c) => (made.belt = beltStandin(c)), (c) => (made.crew = crewStandin(c)), (c) => (made.revert = revertStandin(c))],
+    // the stand-ins, then any real units a test adds (S3: the Patchlamp station on the stand-ins' bench)
+    units: [(c) => (made.patch = patchStandin(c)), (c) => (made.belt = beltStandin(c)), (c) => (made.crew = crewStandin(c)), (c) => (made.revert = revertStandin(c)), ...(opts.units ?? [])],
   });
   const log: SimEvent[] = [];
   const run = (n: number): SimEvent[] => {
