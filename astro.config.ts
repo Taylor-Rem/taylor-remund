@@ -29,5 +29,22 @@ export default defineConfig({
     // Rapier's wasm glue must not be pre-bundled: Vite's dependency optimiser
     // loads it twice and the dev server fails with "reading '__wbindgen_export'".
     optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
+    // The stage's code in a few chunks instead of a hundred (K1): three, the pieces, the station views.
+    // Each small chunk paid its own gzip dictionary and request; grouped, the bench fetches ~50 KB and
+    // ~55 requests fewer, with no measurable change in time to usable (shots/k2 in the K1 worktree).
+    // Only these trees are grouped: the conventional pages' scripts are untouched.
+    build: {
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              { name: 'three', test: /\/node_modules\/three\//, priority: 3 },
+              { name: 'pieces', test: /\/src\/workshop\/view\/kit\/pieces\//, priority: 2 },
+              { name: 'stations', test: /\/src\/workshop\/view\/stations\//, priority: 1 },
+            ],
+          },
+        },
+      },
+    },
   },
 });
