@@ -21,7 +21,8 @@
  *
  * The page's markup (see src/dev-pages/handoff.astro):
  *
- *   <div class="stage-root warming">                 ← root; --warm set here
+ *   <html class="warming">      ← (or any ancestor of root) added by an inline script
+ *   <div class="stage-root">     ← root; --warm set here
  *     <picture>…<img class="poster" elementtiming="poster"></picture>
  *     <canvas></canvas>                              ← hidden until the swap
  *   </div>
@@ -217,6 +218,8 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
   (window as unknown as { __handoff: HandoffState }).__handoff = state;
 
   const warm = (p: number): void => {
+    // never dims again (a late report, say a module the scene did not need, must not undo the last step)
+    if (p < state.progress) return;
     state.progress = p;
     root.style.setProperty('--warm', warmth(p).toFixed(3));
   };
@@ -292,7 +295,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     // the last step of the warm-up is quick (`warm-done`), and the picture must be fully warm before it is replaced
     root.classList.add('warm-done');
     warm(1);
-    if (!reduced && root.classList.contains('warming')) await wait(warmTransitionMs(root));
+    if (!reduced && root.closest('.warming')) await fullyWarm(root, warmTransitionMs(root) + 400);
     await holdHere('held-picture');
 
     // the swap
@@ -300,7 +303,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     mark('swap');
     root.classList.add('live');
     if (fadeMs > 0) await wait(fadeMs + 20);
-    root.classList.remove('warming');
+    root.closest('.warming')?.classList.remove('warming');
     await holdHere('held-stage');
     ws.loop.setManual(false);
     ws.loop.start();
@@ -313,7 +316,8 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
   } catch (e) {
     state.phase = 'failed';
     state.failed = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-    root.classList.remove('warming', 'live');
+    root.closest('.warming')?.classList.remove('warming');
+    root.classList.remove('live');
     root.classList.add('stage-failed');
     try {
       ws?.dispose();
@@ -324,6 +328,23 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     return null;
   } finally {
     await yieldToBrowser();
+  }
+}
+
+/**
+ * Until the picture's filter, as drawn, is the identity (the transition to
+ * full warmth has really finished, whatever the load on the machine), or
+ * `limit` ms.
+ */
+async function fullyWarm(root: HTMLElement, limit: number): Promise<void> {
+  const img = root.querySelector('.poster');
+  if (!img) return;
+  const until = now() + limit;
+  while (now() < until) {
+    const f = getComputedStyle(img).filter;
+    const nums = [...f.matchAll(/\(([\d.]+)\)/g)].map((m) => parseFloat(m[1]!));
+    if (f === 'none' || nums.every((v) => Math.abs(v - 1) < 1e-3)) return;
+    await frame();
   }
 }
 
