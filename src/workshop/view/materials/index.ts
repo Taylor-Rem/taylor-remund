@@ -13,7 +13,7 @@
  * Labels can be passed now or later with `setLabels` (the label textures are
  * made by view/labels, which may be built after the materials).
  */
-import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
@@ -185,6 +185,11 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   };
   if (tier === 'low') defines.TIER_LOW = '';
   if (variant.map) defines.LABEL_MAP = '';
+  // A label's normal map is read in the tangent frame of the label's OWN 0..1 uv (the `uv`
+  // attribute), whatever uv the texture is sampled with: on the labels' atlas a region's uv
+  // derivatives differ from the label's own texture's, and three's frame takes its lengths
+  // from them (T1). On a texture of its own the two are the same uv.
+  if (variant.map && variant.normalMap) defines.LABEL_LOCAL_FRAME = '';
   if (variant.alpha === 'spray') defines.LABEL_SPRAY = '';
   if (variant.large) defines.LARGE = '';
   if (debug) {
@@ -204,6 +209,10 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
+    if (variant.map && variant.normalMap) {
+      vs = inject(vs, 'common', 'varying vec2 vLabelUv;', 'after');
+      vs = inject(vs, 'begin_vertex', 'vLabelUv = uv;', 'after');
+    }
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
@@ -211,6 +220,11 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
+    if (variant.map && variant.normalMap) {
+      fs = inject(fs, 'common', 'varying vec2 vLabelUv;', 'after');
+      if (!ShaderChunk.normal_fragment_begin.includes('vNormalMapUv')) throw new Error('materials: normal_fragment_begin has no vNormalMapUv (three changed?)');
+      fs = inject(fs, 'normal_fragment_begin', ShaderChunk.normal_fragment_begin.replace('vNormalMapUv', 'vLabelUv'), 'replace');
+    }
     fs = inject(fs, 'normal_fragment_maps', FRAGMENT_NORMAL, 'after');
     fs = inject(fs, 'emissivemap_fragment', FRAGMENT_EMISSIVE, 'after');
     fs = inject(fs, 'lights_physical_fragment', FRAGMENT_SHEEN, 'after');

@@ -1,0 +1,377 @@
+---
+// Dev page: the sound audition (AU1 brief § 5). Every sound the workshop makes, a button each, with
+// the numbers measured from its own rendered samples beside it; the part notes as a grid; a run of
+// crates at each belt speed, forwards and reversed; a busy ten seconds of everything; a master level.
+//
+// /dev/sound/            the audition (press anything: the first press starts the sound)
+// /dev/sound/?sheet=1    the contact sheet: every sound's waveform and spectrogram, for the eye
+//                        (sets window.__ready when drawn: node scripts/capture.ts /dev/sound/?sheet=1 --h 3600 --out ...)
+//
+// Everything played here is rendered by the same functions the workshop uses (src/workshop/audio).
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Sound</title>
+    <style is:global>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; background: #14191b; color: #d9d2c3; font: 13px/1.4 ui-monospace, 'IBM Plex Mono', monospace; }
+      main { padding: 16px 20px 60px; max-width: 1400px; }
+      h1 { font-size: 18px; margin: 0 0 4px; color: #f0e6cf; }
+      h2 { font-size: 14px; margin: 26px 0 8px; color: #e8b04a; border-bottom: 1px solid #333; padding-bottom: 3px; }
+      p.note { color: #8f9a96; margin: 4px 0 10px; max-width: 90ch; }
+      .bar { position: sticky; top: 0; z-index: 2; background: #14191bee; padding: 10px 0; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #2a3134; }
+      button { font: inherit; background: #253034; color: #f0e6cf; border: 1px solid #3c4a4f; border-radius: 4px; padding: 4px 9px; cursor: pointer; }
+      button:hover { background: #2f3d42; }
+      button.big { padding: 7px 14px; background: #4a2a22; border-color: #8a4a3a; }
+      button.on { background: #6b3a1e; }
+      table { border-collapse: collapse; }
+      td, th { padding: 3px 8px 3px 0; vertical-align: middle; text-align: left; }
+      th { color: #8f9a96; font-weight: normal; }
+      td.num { color: #b9c7c1; white-space: nowrap; }
+      td.why { color: #8f9a96; max-width: 46ch; }
+      td.bad { color: #ff7a6a; }
+      canvas.wave, canvas.spec { display: block; background: #0d1112; border: 1px solid #263034; }
+      .grid { display: grid; grid-template-columns: repeat(4, 340px); gap: 14px 16px; }
+      .cell .id { color: #f0e6cf; }
+      .cell .nums { color: #8f9a96; font-size: 11px; }
+      #stats { color: #8f9a96; }
+      .notes td { padding: 2px 6px 2px 0; }
+      .notes button { min-width: 64px; }
+      .sheet main { max-width: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sound audition</h1>
+      <p class="note" id="intro">
+        Every sound the workshop makes, synthesised in the browser (no recordings), each with the numbers measured from its own samples at 48 kHz:
+        length heard (to -60 dB of its peak), fundamental and its error in cents, peak (dBFS), loudness (K-weighted, loudest 100 ms, dB; the reference is -30).
+        The first press anywhere starts the sound. M mutes (remembered).
+      </p>
+      <div class="bar" id="bar">
+        <button class="big" id="busy">a busy ten seconds</button>
+        <label>master <input type="range" id="level" min="0" max="1" step="0.01" value="1" /> <span id="levelv">1.00</span></label>
+        <button id="mute">mute (M)</button>
+        <button id="stop">stop all</button>
+        <span id="stats">not started</span>
+      </div>
+      <div id="content">measuring…</div>
+    </main>
+    <script>
+      import { SOUNDS, type SoundDef } from '../workshop/audio/voices.ts';
+      import { renderDef } from '../workshop/audio/render.ts';
+      import { measure, spectrogram, peakOf, type Measured } from '../workshop/audio/measure.ts';
+      import { partHz, noteName, MATERIALS, SIZES } from '../workshop/audio/notes.ts';
+      import { busy, run, type Script } from '../workshop/audio/audition.ts';
+      import { hitGain, SCORE_TUNING } from '../workshop/audio/score.ts';
+      import { createSound, isMuted, toggleMuted, onMuted, type Sound } from '../workshop/audio/index.ts';
+      import { gainToDb } from '../workshop/audio/dsp.ts';
+      import { BELT_TUNING } from '../workshop/sim/index.ts';
+      import type { LoopVoice } from '../workshop/audio/mixer.ts';
+
+      const SR = 48000;
+      const q = new URLSearchParams(location.search);
+      const sheet = q.has('sheet');
+      const content = document.getElementById('content')!;
+      const stats = document.getElementById('stats')!;
+      if (sheet) document.body.classList.add('sheet');
+
+      // ── the sound, made on the first press ──
+      let sound: Sound | null = null;
+      const ensure = (): Sound => {
+        if (!sound) {
+          sound = createSound(new AudioContext({ latencyHint: 'interactive' }));
+          sound.setLevel(Number((document.getElementById('level') as HTMLInputElement).value));
+        }
+        return sound;
+      };
+      const play = (id: string, o: { gain?: number; pan?: number; rate?: number; param?: number; lowpass?: number } = {}, delay = 0): void => {
+        ensure().cue({ id, gain: o.gain ?? 1, pan: o.pan ?? 0, ...(o.rate !== undefined ? { rate: o.rate } : {}), ...(o.param !== undefined ? { param: o.param } : {}), ...(o.lowpass !== undefined ? { lowpass: o.lowpass } : {}) }, delay);
+      };
+      const timers: number[] = [];
+      const loopsOn: LoopVoice[] = [];
+      const stopAll = (): void => {
+        for (const t of timers) clearTimeout(t);
+        timers.length = 0;
+        for (const l of loopsOn) l.set(0, 1, 0);
+        sound?.mixer.hush();
+      };
+      const playScript = (s: Script): void => {
+        stopAll();
+        const snd = ensure();
+        // cues started by timers, as the workshop starts them (one frame's cues at a time), so the voice cap sees what the workshop's would
+        for (const { at, cue } of s.cues) timers.push(window.setTimeout(() => snd.cue(cue), at * 1000));
+        for (const span of s.loops) {
+          const v = snd.mixer.loop(snd.bank.get(span.loop.id));
+          loopsOn.push(v);
+          timers.push(window.setTimeout(() => v.set(span.loop.gain, span.loop.rate, span.loop.pan), span.from * 1000));
+          timers.push(window.setTimeout(() => v.set(0, span.loop.rate, span.loop.pan), span.to * 1000));
+        }
+      };
+      setInterval(() => {
+        if (!sound) return;
+        const b = sound.bank.size;
+        stats.textContent = `${sound.context.state}, ${sound.context.sampleRate} Hz · voices ${sound.mixer.active}/12 · dropped by the cap ${sound.mixer.stolen} · ${b.buffers} buffers, ${b.seconds.toFixed(1)} s held${isMuted() ? ' · MUTED' : ''}`;
+      }, 250);
+      const level = document.getElementById('level') as HTMLInputElement;
+      level.addEventListener('input', () => {
+        document.getElementById('levelv')!.textContent = Number(level.value).toFixed(2);
+        sound?.setLevel(Number(level.value));
+      });
+      const muteBtn = document.getElementById('mute')!;
+      const showMute = (): void => void muteBtn.classList.toggle('on', isMuted());
+      onMuted(showMute);
+      showMute();
+      muteBtn.addEventListener('click', () => {
+        ensure();
+        toggleMuted();
+      });
+      addEventListener('keydown', (e) => {
+        if (e.key === 'm' || e.key === 'M') {
+          ensure();
+          toggleMuted();
+        }
+      });
+      document.getElementById('stop')!.addEventListener('click', stopAll);
+      document.getElementById('busy')!.addEventListener('click', () => playScript(busy()));
+
+      // ── measuring, a few sounds per frame ──
+      const fmt = (d: SoundDef, m: Measured): string => {
+        const f0 = m.f0 !== null ? `${m.f0.toFixed(2)} Hz (${noteName(m.f0)}) ${m.cents! >= 0 ? '+' : ''}${m.cents!.toFixed(1)}¢` : `~${Math.round(m.dominant)} Hz`;
+        return `${m.seconds.toFixed(3)} s [${d.length[0]}–${d.length[1]}] · ${f0} · peak ${m.peakDb.toFixed(1)} · loud ${m.loudness.toFixed(1)}`;
+      };
+      const measured = new Map<string, { buf: Float32Array; m: Measured }>();
+      async function measureAll(): Promise<void> {
+        let n = 0;
+        for (const d of SOUNDS) {
+          const buf = renderDef(d, SR);
+          measured.set(d.id, { buf, m: measure(buf, SR, d.pitch) });
+          if (++n % 4 === 0) {
+            content.textContent = `measuring… ${n}/${SOUNDS.length}`;
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        }
+      }
+
+      // ── drawing ──
+      function drawWave(c: HTMLCanvasElement, b: Float32Array, full: number): void {
+        const g = c.getContext('2d')!;
+        const w = c.width, h = c.height;
+        g.fillStyle = '#0d1112';
+        g.fillRect(0, 0, w, h);
+        // the voice budget (-14 dBFS) as a line
+        const budget = Math.pow(10, -14 / 20) / full;
+        g.strokeStyle = '#4a2a22';
+        g.beginPath();
+        g.moveTo(0, h / 2 - (budget * h) / 2);
+        g.lineTo(w, h / 2 - (budget * h) / 2);
+        g.moveTo(0, h / 2 + (budget * h) / 2);
+        g.lineTo(w, h / 2 + (budget * h) / 2);
+        g.stroke();
+        g.fillStyle = '#e8b04a';
+        const per = Math.max(1, Math.floor(b.length / w));
+        for (let x = 0; x < w; x++) {
+          let lo = 0, hi = 0;
+          for (let i = x * per; i < Math.min(b.length, (x + 1) * per); i++) {
+            lo = Math.min(lo, b[i]!);
+            hi = Math.max(hi, b[i]!);
+          }
+          const y0 = h / 2 - (hi / full) * (h / 2);
+          const y1 = h / 2 - (lo / full) * (h / 2);
+          g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+        }
+      }
+      function drawSpec(c: HTMLCanvasElement, b: Float32Array): void {
+        const g = c.getContext('2d')!;
+        const w = c.width, h = c.height;
+        const s = spectrogram(b, SR, w, h);
+        const img = g.createImageData(w, h);
+        for (let x = 0; x < w; x++) {
+          for (let y = 0; y < h; y++) {
+            const db = s[x * h + y]!; // 0 .. -inf
+            const k = Math.max(0, Math.min(1, (db + 70) / 70));
+            const o = ((h - 1 - y) * w + x) * 4;
+            // dark teal to amber to cream
+            img.data[o] = Math.round(13 + k * k * 230);
+            img.data[o + 1] = Math.round(17 + k * 190 - k * k * 20);
+            img.data[o + 2] = Math.round(18 + 60 * k * (1 - k) + k * k * 100);
+            img.data[o + 3] = 255;
+          }
+        }
+        g.putImageData(img, 0, 0);
+      }
+      const canvas = (cls: string, w: number, h: number): HTMLCanvasElement => {
+        const c = document.createElement('canvas');
+        c.className = cls;
+        c.width = w;
+        c.height = h;
+        return c;
+      };
+      const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] => {
+        const e = document.createElement(tag);
+        if (text !== undefined) e.textContent = text;
+        if (cls) e.className = cls;
+        return e;
+      };
+      const btn = (text: string, f: () => void): HTMLButtonElement => {
+        const b = el('button', text);
+        b.addEventListener('click', f);
+        return b;
+      };
+
+      // ── the sheet ──
+      function buildSheet(): void {
+        content.textContent = '';
+        document.getElementById('bar')!.style.display = 'none';
+        document.getElementById('intro')!.textContent =
+          'Contact sheet: every sound at 48 kHz. Waveform at a fixed scale (full height ±0.25, -12 dBFS; red lines: the -14 dBFS voice budget), so levels compare across cells. Spectrogram 40 Hz–16 kHz log, 70 dB range, over the sound\'s own length.';
+        const grid = el('div', undefined, 'grid');
+        for (const d of SOUNDS) {
+          const { buf, m } = measured.get(d.id)!;
+          const cell = el('div', undefined, 'cell');
+          cell.append(el('div', `${d.id}${d.pitch ? `  ${noteName(d.pitch)}` : ''}  (${d.answers.split(' (')[0]})`, 'id'));
+          const wv = canvas('wave', 340, 40);
+          drawWave(wv, buf, 0.25);
+          const sp = canvas('spec', 340, 56);
+          drawSpec(sp, buf);
+          cell.append(wv, sp, el('div', fmt(d, m), 'nums'));
+          grid.append(cell);
+        }
+        content.append(grid);
+        (window as unknown as { __ready: boolean }).__ready = true;
+      }
+
+      // ── the audition ──
+      function buildAudition(): void {
+        content.textContent = '';
+        // the notes
+        content.append(el('h2', 'Every part\'s note (§ B1): size gives the note (L C, M E, S G), material the octave and timbre'));
+        content.append(el('p', 'Struck by the striker (with the felt hammer under it), picked up (quieter and shorter), and landed on, at three impact speeds. Large is the root.', 'note'));
+        const t = el('table', undefined, 'notes');
+        const head = el('tr');
+        head.append(el('th', ''));
+        for (const s of SIZES) head.append(el('th', `${s} (${noteName(partHz(s, 'wood'))} in wood)`));
+        t.append(head);
+        for (const m of MATERIALS) {
+          const tr = el('tr');
+          tr.append(el('th', m));
+          for (const s of SIZES) {
+            const td = el('td');
+            td.append(
+              btn(`struck ${noteName(partHz(s, m))}`, () => {
+                play(`note.${m}.${s}`);
+                play('striker.felt');
+              }),
+              btn('pick', () => play(`pick.${m}.${s}`)),
+            );
+            for (const [label, v] of [['soft', 1.2], ['med', 3.5], ['hard', 9]] as const) {
+              const g = hitGain(v);
+              const k = Math.max(0, Math.min(1, Math.log10(g * 10)));
+              td.append(btn(label, () => play(`hit.${m}.${s}`, { gain: g, lowpass: 1800 + 10000 * k })));
+            }
+            tr.append(td);
+          }
+          t.append(tr);
+        }
+        content.append(t);
+
+        // the runs
+        content.append(el('h2', 'The belt is a music box (§ B2 X2): S M L at each belt speed'));
+        content.append(el('p', `Spacing as the X2 scenario sets them on the belt; the dial's speeds ${BELT_TUNING.speeds.join(', ')} units/s; the hum under it at the belt's rate. Forward: small first (falling). Reversed: large first (rising).`, 'note'));
+        const runs = el('table');
+        for (const mat of ['wood', 'metal'] as const) {
+          for (const rev of [false, true]) {
+            const tr = el('tr');
+            tr.append(el('th', `${mat} ${rev ? 'reversed' : 'forward'}`));
+            const td = el('td');
+            for (let d = 1; d <= BELT_TUNING.speeds.length; d++) td.append(btn(`detent ${d}`, () => playScript(run(d, rev, mat))));
+            tr.append(td);
+            runs.append(tr);
+          }
+        }
+        content.append(runs);
+
+        // the loops
+        content.append(el('h2', 'Loops: level and rate follow the simulation every frame'));
+        const lt = el('table');
+        for (const id of ['loop.hum', 'loop.wheel', 'loop.treads']) {
+          const tr = el('tr');
+          tr.append(el('th', id));
+          const td = el('td');
+          let v: LoopVoice | null = null;
+          for (const [label, rate] of [['stop', 0], ['slow', 0.5], ['middle', 1], ['fast', 2]] as const) {
+            td.append(
+              btn(label, () => {
+                const snd = ensure();
+                if (!v) {
+                  v = snd.mixer.loop(snd.bank.get(id));
+                  loopsOn.push(v);
+                }
+                v.set(rate === 0 ? 0 : 1, rate || 1, 0);
+              }),
+            );
+          }
+          tr.append(td);
+          const mm = measured.get(id)!;
+          tr.append(el('td', fmt(SOUNDS.find((s) => s.id === id)!, mm.m), 'num'));
+          lt.append(tr);
+        }
+        content.append(lt);
+
+        // the tape at its lengths
+        content.append(el('h2', 'Undo: the tape-rewind, its length following how much was undone'));
+        const tp = el('p');
+        const R = SCORE_TUNING.rewind;
+        for (const n of [1, 3, 6, 9]) tp.append(btn(`${n} field${n > 1 ? 's' : ''} (${Math.min(R.max, R.base + R.per * n).toFixed(2)} s)`, () => play('tape.rewind', { param: Math.min(R.max, R.base + R.per * n) })));
+        tp.append(btn('a rung\'s rewind (1.2 s)', () => play('tape.rewind', { param: 1.2 })), btn('rung 4 (2 s)', () => play('tape.rewind', { param: 2 })), btn('the whole UNDO pull', () => {
+          play('undo.latch');
+          play('tape.rewind', { param: 0.6 });
+          play('undo.thunk', {}, 0.1);
+          play('undo.home', {}, 0.53);
+        }));
+        content.append(tp);
+
+        // everything else, by group
+        const groups = new Map<string, SoundDef[]>();
+        for (const d of SOUNDS) if (!['note', 'pick', 'hit', 'loop'].includes(d.group)) groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+        for (const [g, list] of groups) {
+          content.append(el('h2', g));
+          const tb = el('table');
+          for (const d of list) {
+            const tr = el('tr');
+            const tdb = el('td');
+            tdb.append(btn(d.id, () => play(d.id)));
+            if (d.variants > 1) for (let v = 1; v < d.variants; v++) tdb.append(btn(`v${v + 1}`, () => ensure().mixer.play(ensure().bank.get(d.id, undefined, v))));
+            const mm = measured.get(d.id)!;
+            const tdw = el('td');
+            const wv = canvas('wave', 160, 28);
+            drawWave(wv, mm.buf, 0.25);
+            tdw.append(wv);
+            tr.append(tdb, tdw, el('td', fmt(d, mm.m), 'num'), el('td', d.answers, 'why'));
+            tb.append(tr);
+          }
+          content.append(tb);
+        }
+
+        // the notes' numbers
+        content.append(el('h2', 'The notes\' numbers'));
+        const nt = el('table');
+        for (const d of SOUNDS.filter((s) => ['note', 'pick', 'hit'].includes(s.group))) {
+          const mm = measured.get(d.id)!;
+          const tr = el('tr');
+          tr.append(el('td', d.id), el('td', fmt(d, mm.m), Math.abs(mm.m.cents ?? 0) < 10 ? 'num' : 'bad'));
+          nt.append(tr);
+        }
+        content.append(nt);
+        (window as unknown as { __ready: boolean }).__ready = true;
+      }
+
+      void measureAll().then(() => (sheet ? buildSheet() : buildAudition()));
+      (window as unknown as { __audio: unknown }).__audio = { measured, peakOf, gainToDb };
+    </script>
+  </body>
+</html>
