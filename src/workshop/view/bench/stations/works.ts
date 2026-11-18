@@ -5,6 +5,7 @@
  */
 import { LAYOUT, origin } from '../../bench.ts';
 import { createWorksView } from '../../stations/works.ts';
+import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 import type { Vec3 } from '../../../sim/types.ts';
 
@@ -24,6 +25,6 @@ export const station: BenchStation = {
       dock: [dx, 2.15, dz],
     };
     if (k.bulb) anchors['lamp'] = [k.bulb.at[0], k.bulb.at[1] - 0.15, k.bulb.at[2]];
-    return createWorksView({ anchors, seed: k.seed });
+    return timed('works', createWorksView({ anchors, seed: k.seed }));
   },
 };

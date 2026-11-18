@@ -106,7 +106,32 @@ export const REVERT_FEEL = {
   swingOmega: 7,
   swingDamping: 0.18,
   swingGain: 0.06,
+  /** Held: how far the treads hang away from the body (the rig's bob), and how hard the hand's moves swing them. */
+  heldDrop: 0.07,
+  heldSwing: 0.035,
+  /** Put down any way but upright: it rights itself over this long (on its back or side; tipped a little). */
+  rightBig: 1.5,
+  rightSmall: 0.35,
 } as const;
+
+/**
+ * Righting itself: progress 0..1 from how it lay to upright. Tipped a little it just settles;
+ * on its back it rocks, falls back, rocks harder, falls back less, and goes over with a lurch.
+ */
+function rightCurve(u: number, big: boolean): number {
+  const x = Math.min(1, Math.max(0, u));
+  if (!big) return x * x * (3 - 2 * x);
+  const keys = [[0, 0], [0.16, 0.2], [0.3, 0.04], [0.5, 0.36], [0.62, 0.16], [0.86, 1.06], [1, 1]] as const;
+  for (let i = 1; i < keys.length; i++) {
+    const [t1, v1] = keys[i]!;
+    if (x <= t1) {
+      const [t0, v0] = keys[i - 1]!;
+      const k = (x - t0) / (t1 - t0);
+      return v0 + (v1 - v0) * k * k * (3 - 2 * k);
+    }
+  }
+  return 1;
+}
 
 export interface RevertViewOptions {
   /** The hatch's origin on the bench (x, z) and the scale both are drawn at. */
@@ -244,6 +269,13 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     const jointsTmp = [0, 0, 0, 0, 0];
     const goal2 = [0, 0];
     const hatchPosed = [NaN, NaN];
+    const heldVel = [0, 0];
+    const rightQ = new Quaternion();
+    const rightP = new Vector3();
+    const rightV = new Vector3();
+    let rightAt = -Infinity;
+    let rightFor = 0;
+    let rightBig = false;
     const pose: RevertPose = { travel: [0, 0], lids: [0.6, 0.6], slant: [0, 0], gaze: [0, 0], brow: 0, browRoll: 0, lamps: [true, true], card: { lift: 0, open: 0, wobble: 0 }, arm: { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 }, broom: 0, stroke: 0, crank: 0, bob: 0, pitch: 0, roll: 0, sag: 0 };
     const state: RevertViewState = { lift: 0, doors: 0, crank: 0, card: { content: null, lift: 0, open: 0 }, eyes: null };
 
@@ -313,9 +345,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           lastStep = w.step;
         }
         const a = clamp01(frame.alpha);
-        const px = lerp(prev.x, cur.x, a);
-        const pz = lerp(prev.z, cur.z, a);
-        const ph = prev.h + Math.atan2(Math.sin(cur.h - prev.h), Math.cos(cur.h - prev.h)) * a;
+        let px = lerp(prev.x, cur.x, a);
+        let pz = lerp(prev.z, cur.z, a);
+        let ph = prev.h + Math.atan2(Math.sin(cur.h - prev.h), Math.cos(cur.h - prev.h)) * a;
 
         // ── events ──
         for (const e of frame.events) onEvent(e, rv, now);
@@ -374,6 +406,23 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           return;
         }
 
+        if (drawn && !wasDrawn) {
+          // put down: it lands on its treads (righting itself first if it lay any other way up)
+          bob.kick(F.landKick * 1.4);
+          lastVel.set(0, 0, 0);
+          heldVel[0] = heldVel[1] = 0;
+          const up = tmpV3.set(0, 1, 0).applyQuaternion(rightQ).y;
+          rightBig = up < 0.5;
+          rightFor = up > 0.97 ? 0 : rightBig ? F.rightBig : F.rightSmall;
+          rightAt = now;
+          // it is where it was set down, not where it last drove from
+          prev.x = cur.x;
+          prev.z = cur.z;
+          prev.h = cur.h;
+          px = lastX = cur.x;
+          pz = lastZ = cur.z;
+          ph = lastH = cur.h;
+        }
         // where it is
         let heading = ph;
         if (drawn) {
@@ -385,7 +434,16 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           const oz = -opts.centre[0] * s + opts.centre[1] * c;
           tmpV.set(px - ox, y, pz - oz);
           tmpQ.setFromAxisAngle(Y, heading);
-          body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
+          // set down on its back or its side: it rights itself, with effort (two goes that fall back, then over)
+          const rt = now - rightAt;
+          if (rightFor > 0 && rt < rightFor && !R) {
+            const e = rightCurve(rt / rightFor, rightBig);
+            tmpQ2.copy(rightQ).slerp(tmpQ, e);
+            const lift = Math.sin(Math.PI * Math.min(1, e)) * 0.25 * (rightBig ? 1 : 0.3);
+            rightV.lerpVectors(rightP, tmpV, Math.min(1, e));
+            rightV.y += lift;
+            body.matrix.compose(rightV, tmpQ2, tmpV2.set(1, 1, 1));
+          } else body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
         } else if (m) {
           // in someone's hand, or falling: drawn from its body
           const P = frame.alpha >= 1 || m.prev === m.pose ? m.pose : m.prev;
@@ -407,17 +465,24 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
             }
           }
           lastPose.copy(tmpV);
+          // held: the treads hang from the body and swing as a pendulum (the body node against the chassis)
+          if (!R && dt > 0 && rv.state === 'held') {
+            const c = Math.cos(heading), s2 = Math.sin(heading);
+            const ax = (tmpV2.x * c - tmpV2.z * s2) - heldVel[0]!;
+            const az = (tmpV2.x * s2 + tmpV2.z * c) - heldVel[1]!;
+            heldVel[0]! += ax;
+            heldVel[1]! += az;
+            pitch.kick(clamp(az / dt, -40, 40) * F.heldSwing);
+            roll.kick(clamp(-ax / dt, -40, 40) * F.heldSwing);
+          }
           tmpV2.set(opts.centre[0], hy, opts.centre[1]).applyQuaternion(tmpQ);
           tmpV.sub(tmpV2);
           body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
+          rightQ.copy(tmpQ);
+          rightP.copy(tmpV);
           heading = 2 * Math.atan2(tmpQ.y, tmpQ.w);
         }
         body.matrixWorldNeedsUpdate = true;
-        if (drawn && !wasDrawn) {
-          // put down: it lands on its treads
-          bob.kick(F.landKick * 1.4);
-          lastVel.set(0, 0, 0);
-        }
         wasDrawn = drawn;
 
         // the treads: by the distance covered, each side its own
@@ -442,9 +507,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           const chatter = moving && !R ? F.chatter * noise1(now * 14, seed) : 0;
           pose.bob = bob.x + chatter;
         } else {
+          // held or falling: the treads hang a little away from the body and swing
           pitch.step(0, dt);
           roll.step(0, dt);
-          bob.step(0, dt);
+          bob.step(R ? 0 : F.heldDrop, dt);
           pose.bob = bob.x;
         }
         lastX = px; lastZ = pz; lastH = ph;
