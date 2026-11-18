@@ -22,7 +22,7 @@
  *
  * The shell knows no station: it takes the list (`check-layers`).
  */
-import { Box3, Ray, Vector3 } from 'three';
+import { Box3, Ray, Vector3, type Object3D } from 'three';
 import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
@@ -31,7 +31,7 @@ import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOp
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
 import { createLabels, type LabelsOptions, type WorkshopLabels } from '../view/labels/index.ts';
 import { realize } from '../view/kit/realize.ts';
-import { Picking } from '../view/picking.ts';
+import { Picking, type PickableOptions } from '../view/picking.ts';
 import { Gestures, type GestureTuning, type HeldKind, type PointerKind } from '../input/gesture.ts';
 import { createSurface, type Surface } from '../input/surface.ts';
 import { attachInput, type DomInput } from '../input/dom.ts';
@@ -48,6 +48,8 @@ import type { LatencyMeter } from './latency.ts';
 export interface BootViewContext extends ViewContext {
   readonly stage: Stage;
   readonly picking: Picking;
+  /** A pick target, with its proxy box and padding when the view gives them (as `Picking.add`; proposed for `ViewContext`). */
+  pickable(id: Id, object: Object3D, opts?: PickableOptions): void;
 }
 
 export type BootStation = (ctx: BootViewContext) => StationView;
@@ -185,7 +187,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     tier: opts.tier,
     reducedMotion: opts.reducedMotion,
     realize: (piece, o) => realize(piece, materials, o),
-    pickable: (id, object) => picking.add(id, object),
+    pickable: (id, object, o) => picking.add(id, object, o),
     stage,
     picking,
   };
@@ -240,7 +242,13 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
   const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
   /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
-  const usable = (id: Id): boolean => panelIds.has(id) || (!jackIds.has(id) && (world.interactable(id)?.affordances.length ?? 0) > 0);
+  const usable = (id: Id): boolean => {
+    if (panelIds.has(id)) return true;
+    if (jackIds.has(id) || (world.interactable(id)?.affordances.length ?? 0) === 0) return false;
+    // a part down a chute or gone (Revert in its hatch, a shipped crate) is not there to take
+    const mode = world.mode(id);
+    return mode !== 'gone' && mode !== 'chute';
+  };
   /** While something is held, where it may go is pickable too: mouths for a part or a unit, every jack for the plug (a capped one refuses). */
   const pickFilter = (holding: HeldKind | null): ((id: Id) => boolean) => {
     if (holding === 'plug') return (id) => usable(id) || jackIds.has(id);

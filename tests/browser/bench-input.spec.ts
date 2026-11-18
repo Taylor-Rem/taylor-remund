@@ -176,12 +176,21 @@ async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' |
     const spot = await page.evaluate(
       ([kind, W, H]) => {
         const ws = (window as any).__bench.ws;
-        for (const [fx, fy] of [[0.5, 0.82], [0.5, 0.7], [0.3, 0.75], [0.7, 0.75], [0.5, 0.55], [0.2, 0.6], [0.8, 0.6], [0.5, 0.92]]) {
-          const x = fx! * (W as number), y = fy! * (H as number);
-          const t = ws.surface.at(x, y, kind, null);
-          if (t.id === null && t.point) return { x, y };
-        }
-        return null;
+        // the bench nearest the middle of the screen's lower half that nothing usable covers
+        let best: { x: number; y: number } | null = null;
+        let bd = Infinity;
+        for (let fy = 0.3; fy <= 0.95; fy += 0.05)
+          for (let fx = 0.1; fx <= 0.9; fx += 0.08) {
+            const x = fx * (W as number), y = fy * (H as number);
+            const t = ws.surface.at(x, y, kind, null);
+            if (t.id !== null || !t.point) continue;
+            const d = Math.hypot(fx - 0.5, fy - 0.7);
+            if (d < bd) {
+              bd = d;
+              best = { x, y };
+            }
+          }
+        return best;
       },
       [kind, vp.width, vp.height] as const,
     );
@@ -305,7 +314,14 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   // (the lamp and Patch last: the lamp view's pick box rides the shade, and aimed forward it floats in front of the
   // switchboard and takes presses meant for the plug; reported in the I1 hand-in)
   // 6. the lamp: the arm dragged by its shade toward the front right
-  const lamp = await bringIntoView(page, hand, 'lamp', kind);
+  await bringIntoView(page, hand, 'lamp', kind);
+  // taken by its shade (the bulb), which is where a hand goes: the middle of its pick box may lie over something else
+  const lamp = await page.evaluate((kind) => {
+    const B = (window as any).__bench;
+    const b = B.project(B.ws.world.machine('lamp') && B.bench.bulb.at) as XY;
+    const on = B.ws.surface.at(b.x, b.y, kind, null).id === 'lamp';
+    return on ? b : (B.ws.surface.screen('lamp') as XY);
+  }, kind);
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
   const z0 = (await setting(page, 'lamp', 'z')) as number;
