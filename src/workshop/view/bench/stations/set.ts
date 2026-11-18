@@ -12,6 +12,7 @@ import { benchHole } from '../../kit/pieces/bench/index.ts';
 import { OPENING } from '../../kit/pieces/revert-hatch/index.ts';
 import { ROOM, roomWall } from '../../kit/pieces/room/index.ts';
 import { signLabels } from '../../kit/pieces/sign/index.ts';
+import { STOOL_SEAT } from '../../kit/pieces/switchboard/index.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
@@ -29,8 +30,11 @@ export const station: BenchStation = {
     const hole = benchHole(H.at![0], H.at![1], OPENING.w * hk, OPENING.d * hk);
     const bench: Entry | undefined = benchE ? { ...benchE, build: (opts = {}) => benchE.build({ ...opts, sections: B.sections, width: B.width, depth: B.depth, openings: [hole] }) } : undefined;
     const wall: Entry | undefined = wallE && k.room ? { ...wallE, build: (opts = {}) => wallE.build({ ...opts, ...roomWall() }) } : wallE;
+    // the stool lowered for the whole board (Patch at 1.5× on it works the jack row)
+    const stoolE = E('stool');
+    const stool: Entry | undefined = stoolE ? { ...stoolE, build: (opts = {}) => stoolE.build({ ...opts, seatY: STOOL_SEAT }) } : undefined;
     return createSetView({
-      entries: { bench, wall, sign, toolwall: E('toolwall'), lamp: E('lamp'), phone: E('phone'), stool: E('stool') },
+      entries: { bench, wall, sign, toolwall: E('toolwall'), lamp: E('lamp'), phone: E('phone'), stool },
       tools: k.entries.filter((e) => e.name.startsWith('tool-')),
       // the bench tapes its own lanes (lane.ts)
       scene: k.scene,

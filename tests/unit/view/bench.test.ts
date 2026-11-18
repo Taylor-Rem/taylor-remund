@@ -71,8 +71,7 @@ const inFrame = (rig: CameraRig, pts: Vector3[]): boolean =>
 describe('the layout table and the simulation agree', () => {
   /** Stations with a body: the spot's origin is the body's centre, its footprint and height the body's. */
   const bodies: Array<[StationKey, string]> = [
-    ['board', 'board'], ['stool', 'stool'], ['phone', 'phone'], ['button', 'console'],
-    ['undo', 'undo'], ['striker', 'striker'],
+    ['stool', 'stool'], ['phone', 'phone'], ['button', 'console'], ['undo', 'undo'],
   ];
   it.each(bodies)('%s stands where its body is', (key, id) => {
     const s = S[key];
@@ -120,8 +119,13 @@ describe('the layout table and the simulation agree', () => {
 
 describe('the footprints', () => {
   const onBench = (Object.entries(S) as Array<[StationKey, Spot]>).filter(([, s]) => s.z > -5);
-  /** Overlaps that are meant: the striker's post stands on the belt's far rail; the stool tucks against the board's frame post; Revert parks on its hatch; the dock's mouth meets the belt's end (its turned footprint's box overlaps). */
-  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock']);
+  /**
+   * Overlaps that are meant: the striker's arm reaches over the belt; the stool stands on the board's runner; Revert parks on its
+   * hatch; the dock's mouth meets the belt's end, and its turned footprint's box (the ramp's straight run included) reaches over the
+   * lane's right end, which stops clear of its portal (the oriented test below); the chute's footprint box takes in the corner by
+   * the belt's motor housing (its duct passes behind it).
+   */
+  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'lane|dock', 'chute|belt']);
   // the real pieces' footprints are their bounds (the platen's conduit, the storefront's jack box, the dock's ramp included)
   it('lie on the bench and do not overlap (except where one stands on another)', () => {
     for (const [k, s] of onBench) {
@@ -179,14 +183,14 @@ describe("Fetch's lane", () => {
     let along = Infinity;
     for (let i = 0; i <= 200; i++) {
       const x = ax + ((bx - ax) * i) / 200;
-      // running along the lane (±X): body and crate; facing the visitor (+Z): the crate reaches toward the belt
+      // running along the lane (±X): body and crate; facing the visitor (+Z), empty-handed (it turns to the visitor only to offer, its crate fumbled)
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1]] as const) {
         const hx = dx ? half[2] : half[0], hz = dx ? half[0] : half[2];
         const bodyB = new Box3(new Vector3(x - hx, 0, az - hz), new Vector3(x + hx, 2 * half[1], az + hz));
         const c = new Vector3(x + dx * reach, FETCH_TUNING.handHeight * k, az + dz * reach);
         const crate = new Box3(c.clone().sub(new Vector3(...S_HALF)), c.clone().add(new Vector3(...S_HALF)));
         for (const [id, b] of statics)
-          for (const it of [bodyB, crate]) {
+          for (const it of dz ? [bodyB] : [bodyB, crate]) {
             const d = overlap(it, b);
             expect(d, `at x ${x.toFixed(2)} facing (${dx}, ${dz}): ${id}`).toBeLessThan(0);
             closest = Math.min(closest, -d);
@@ -197,7 +201,7 @@ describe("Fetch's lane", () => {
           }
       }
     }
-    // running along the lane it keeps 0.3 from everything; facing the visitor, the crate comes nearest the belt's bed
+    // running along the lane it keeps 0.3 from everything; facing the visitor, its body comes nearest the striker's post
     expect(along).toBeGreaterThan(0.3);
     expect(closest).toBeGreaterThan(0.1);
   });

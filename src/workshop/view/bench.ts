@@ -35,6 +35,7 @@ import { listPieces, buildEntry, type Entry } from './catalogue/registry.ts';
 import { pieceBounds } from './kit/compose.ts';
 import { ROOM } from './kit/pieces/room/index.ts';
 import { WINDOW } from './kit/pieces/window/index.ts';
+import { JACKS, STOOL_SEAT } from './kit/pieces/switchboard/index.ts';
 import { flatten, placedMatrix } from './stations/set.ts';
 import { fitPieces, measured, type Fit } from './vignette.ts';
 import { site } from '../../content/site.ts';
@@ -92,19 +93,33 @@ export const REVERT_SCALE = CREW_SCALE / 1.25;
 export const BOUNDS = {
   storefront: { x: [-2.27, 1.21], z: [-0.47, 0.6], h: 2.83 },
   platen: { x: [-1.7, 1.31], z: [-1.26, 1.09], h: 2.99 },
-  dock: { x: [-1.21, 1.38], z: [-1.35, 1.2], h: 2.29 },
+  dock: { x: [-1.7, 1.38], z: [-1.35, 1.2], h: 2.29 },
   revert: { x: [-0.84 * REVERT_SCALE, 0.87 * REVERT_SCALE], z: [-0.58 * REVERT_SCALE, 0.7 * REVERT_SCALE], h: 1.12 * REVERT_SCALE },
   hatch: { x: [-1.3 * REVERT_SCALE, 1.3 * REVERT_SCALE], z: [-0.81 * REVERT_SCALE, 0.81 * REVERT_SCALE], h: 0.87 * REVERT_SCALE },
+  /** The whole switchboard (`jacks: JACKS`), its stool's runner included (it runs on past the frame's right end). */
+  board: { x: [-2.7, 3.55], z: [-0.61, 1.25], h: 3.21 },
+  /** The UNDO lever at home. */
+  undo: { x: [-0.79, 0.79], z: [-0.41, 0.514], h: 1.965 },
+  /** The striker (its arm reaches forward and left over the belt: the hammer is at (-0.375, 0.928)). */
+  striker: { x: [-0.517, 0.712], z: [-0.307, 1.182], h: 2.095 },
+  /** The return chute at CHUTE_RUN, CHUTE_AIM: what stands on the bench (its riser climbs the apron outside the front edge, z > 0). */
+  chute: { x: [-0.57, 1.163], z: [-2.691, 0], h: 1.767 },
 } as const;
 
-/** The dock's ramp start from the door's origin [dx, dz] (dims.ts `fitRamp`): short, so the door stands at (5.42, 3.45), left of the Shipped zone's front row. */
-export const DOCK_REACH: readonly [number, number] = [-1.2, 0.45];
+/** The return chute's run back from the front edge and its mouth's aim (the chute's builder: run 2, aim 10-15; its throat stays in view to about 15). */
+export const CHUTE_RUN = 2.0;
+export const CHUTE_AIM = 12;
+/** The whole board's origin (x, z): its back against the wall; the stool rests on its runner at BOARD_WHOLE.stoolRestX, runner.z. */
+export const BOARD_AT: readonly [number, number] = [-0.1, -4.38];
+
+/** The dock's ramp start from the door's origin [dx, dz] (dims.ts `fitRamp`): short, so the door stands at (5.92, 3.55), left of the Shipped zone's front row. */
+export const DOCK_REACH: readonly [number, number] = [-1.7, 0.45];
 /** The belt's bed end and the dock's door (its origin): the ramp's first roller sits DOCK.beltGap (0.12) past the bed. */
-const BED_END: readonly [number, number] = [-0.9 + 5, 3.9];
+const BED_END: readonly [number, number] = [-0.9 + 5, 4.0];
 const DOOR: readonly [number, number] = [BED_END[0] + 0.12 - DOCK_REACH[0], BED_END[1] - DOCK_REACH[1]];
 
 /** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
-export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.25 } as const;
+export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.1 } as const;
 
 /** The sign's capitals (units): TAYLOR REMUND on one line. The 12 px rule at the 1440×900 home is met with room to spare (see check-bench). */
 export const SIGN_CAP_BENCH = 0.5;
@@ -131,42 +146,47 @@ export const LAYOUT = {
     lamp: spot(-3.1, -5, 0.5, 0.5, 4.7, { fill: 'piece' }),
     /** The sign, TAYLOR REMUND on one line, hung over the board (bottom edge at y). */
     sign: spot(1.1, -5, 8.6, 0.57, 2.9, { y: 3.3, fill: 'piece' }),
-    /** The window with its cut-out mountains: the cool light's source (clay frame on the wall). */
     /** The window (the room's piece): origin at the bottom middle of its opening, (7.0, 2.0) on the wall; linings, sill and head round it. */
     window: spot(ROOM.window.x, -5, WINDOW.w + 0.5, WINDOW.reveal + WINDOW.sillOut, WINDOW.h + 0.65, { y: ROOM.window.y - 0.3, fill: 'piece' }),
     // ── the back row ──
-    board: spot(0.55, -4.335, 4.6, 1.31, 3.11, { fill: 'piece' }),
-    stool: spot(3.05, -3.35, 0.65, 0.65, 1.15, { fill: 'piece' }),
+    /** The whole switchboard (real; four live jacks), with the brass-railed runner its stool rolls along in front. */
+    board: real(BOARD_AT[0], BOARD_AT[1], BOUNDS.board),
+    /** Patch's stool, lowered (STOOL_SEAT), at rest on the runner's right end: Patch's face to the visitor, inside the centre 40%. */
+    stool: spot(3.02, -3.46, 0.632, 0.64, 0.625, { y: 0.052, fill: 'piece' }),
     /** The storefront (real; its jack box and conduit run off its left side). */
     storefront: real(7.6, -3.6, BOUNDS.storefront),
+    /** The reserved bays (the room's pieces, their labels flat on the bench), at the back left under the tool wall: INSPECTION at the corner, the plain one right of it. Nothing tall stands in front of either label. */
+    bayInspection: spot(-7.15, -3.6, 3.4, 1.9, 0, { fill: 'piece' }),
+    bayNext: spot(-4.05, -3.55, 2.4, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
-    /** The reserved bays (the room's pieces, their labels flat on the bench): the plain one at the back, INSPECTION in front of it, nearer the belt. */
-    bayNext: spot(-6.6, -2.6, 3.0, 1.8, 0, { fill: 'piece' }),
-    bayInspection: spot(-6.85, 0.25, 3.6, 2.0, 0, { fill: 'piece' }),
-    /** The UNDO lever: near the middle now, in the lamp's pool, clear of Revert's line of sight. */
-    undo: spot(-1.75, -1.9, 0.7, 0.7, 1.5),
-    phone: spot(2.2, -1.35, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
-    /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Its column stands right of Patch's line of sight. */
-    platen: real(4.4, -0.9, BOUNDS.platen),
+    /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Right of Patch and forward, its column clear of Patch's tail; its tray 1.9 from the lane. */
+    platen: real(4.6, 0.2, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
-    shipped: spot(7.88, -0.4, 2.24, 2.8, 1.2, { fill: 'zone' }),
+    shipped: spot(7.88, -1.0, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
-    /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`); its frame stands 0.29 clear of the INSPECTION bay's tape. */
-    hatch: real(-3.2, 0.35, BOUNDS.hatch),
+    /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`). Left of the lever, in the lamp's spill. */
+    hatch: real(-4.6, 0.3, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
-    revert: real(-3.2, 0.35, BOUNDS.revert),
-    button: spot(-0.05, 0.55, 2.1, 1.52, 1.98, { fill: 'piece' }),
+    revert: real(-4.6, 0.3, BOUNDS.revert),
+    /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
+    undo: real(-2.2, 0.3, BOUNDS.undo),
+    button: spot(-0.05, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
+    /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
+    phone: spot(2.4, 0.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
-    stack: spot(-8.5, -1.2, 0.8, 0.8, 1.85, { fill: 'piece' }),
-    lane: spot(-1.1, 2.2, 8.2 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
+    /** The crate stack (the ground point of its bottom crate): left of and behind the lane's left stop, 2.15 from it (the crate it lifts swings clear of the stack). */
+    stack: spot(-6.7, 1.15, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    lane: spot(-0.45, 2.05, 9.5 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
     /** The belt piece at length 10 (the bed x -5.9..4.1) with its motor housing (dial plate and lever plate on its panel) at the left end: the whole piece's footprint. */
-    belt: spot(-1.33, 3.995, 11.4, 1.6, 1.25, { fill: 'piece' }),
-    striker: spot(3.7, 3.22, 0.6, 0.44, 1.7),
+    belt: spot(-1.33, 4.095, 11.4, 1.6, 1.25, { fill: 'piece' }),
+    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt's middle-right at x 2.3. */
+    striker: real(2.675, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
     mailbox: spot(7.7, 3.75, 0.42, 0.36, 1.3),
-    chute: spot(-8.1, 3.3, 0.9, 1.1, 0.9),
+    /** The return chute (real): up out of the dark at the front-left corner, its mouth looking along the bench at the stack's front. */
+    chute: real(-8.4, 5, BOUNDS.chute),
   },
 } as const;
 
@@ -191,10 +211,10 @@ const PALLET = { w: 1.0, d: 1.0, h: 0.15 } as const;
 export const SHIPPED = {
   pallet: PALLET,
   pallets: [
-    { x: 7.4, z: -1.25, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
-    { x: 8.45, z: -1.25, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
-    { x: 7.48, z: 0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
-    { x: 8.5, z: 0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 7.4, z: -1.85, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 8.45, z: -1.85, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
+    { x: 7.48, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 8.5, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
   ] as ReadonlyArray<{ x: number; z: number; crates: readonly ShippedCrate[] }>,
 } as const;
 
@@ -352,7 +372,10 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
   const S = LAYOUT.stations;
 
   // the pieces fitted to the scene's bodies: the board's jacks and cord root, the stool's seat, the phone, the belt
-  const fit = fitPieces(scene, { board: blank(find('switchboard')), stool: blank(find('stool')), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+  const fit = fitPieces(scene, { board: blank(find('switchboard'), { jacks: JACKS }), stool: blank(find('stool'), { seatY: STOOL_SEAT }), phone: blank(find('phone')), belt: blank(find('belt'), { length: LAYOUT.beltLength }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
+  // the stool stands on the board's runner
+  fit.stool.at = { ...fit.stool.at, y: S.stool.y };
+  fit.stool.seat = [fit.stool.seat[0], fit.stool.seat[1] + S.stool.y, fit.stool.seat[2]];
   if (o.seat !== undefined) {
     const sink = fit.stool.seat[1] - o.seat;
     fit.stool.at = { ...fit.stool.at, y: -sink };

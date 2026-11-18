@@ -43,75 +43,74 @@ export const AT = {
   backWall: { c: [0, 3, -5.15], half: [10.5, 3, 0.15] } as Box,
 
   // ── the back row: board, stool (the tool wall, lamp, sign and window hang on the wall: no bodies) ──
-  /** The switchboard against the wall (its keyshelf, frame and crest), and its two live jacks (measured from the piece). */
-  board: { c: [0.55, 1.554, -4.335], half: [2.3, 1.554, 0.655] } as Box,
-  jacks: { storefront: [-0.45, 1.18, -4.264] as Vec3, lamp: [1.59, 1.18, -4.264] as Vec3 },
-  /** Patch's stool at the board's right end. */
-  stool: { c: [3.05, 0.577, -3.35], half: [0.324, 0.578, 0.322] } as Box,
+  /** The whole switchboard (four live jacks; origin (-0.1, -4.38)) against the wall: its cabinet, keyshelf, frame and crest (the stool's runner in front is low, no body); the cord's two jacks (measured from the piece). */
+  board: { c: [-0.1, 1.605, -4.445], half: [2.6, 1.605, 0.545] } as Box,
+  jacks: { storefront: [-1.3, 1.46, -4.264] as Vec3, lamp: [1.62, 1.46, -4.264] as Vec3 },
+  /** Patch's stool, lowered (seat 0.62 over the runner's top 0.052), at rest at the runner's right end. */
+  stool: { c: [3.02, 0.369, -3.46], half: [0.316, 0.317, 0.32] } as Box,
 
   // ── the middle row ──
-  /** The UNDO lever's base (stand-in). */
-  undo: { c: [-1.75, 0.75, -1.9], half: [0.35, 0.75, 0.35] } as Box,
+  /** The UNDO lever (real piece, origin (-2.2, 0.3)): its console, quadrant and lever at home, as one box. */
+  undo: { c: [-2.2, 0.983, 0.352], half: [0.79, 0.983, 0.462] } as Box,
   /** The phone on its easel. */
-  phone: { c: [2.2, 0.36, -1.35], half: [0.21, 0.36, 0.15] } as Box,
-  /** The platen (real piece, origin (4.4, -0.9)): its base and deck, its arm's column, its tank. */
-  platen: { c: [4.4, 0.31, -1.045], half: [1.2, 0.31, 1.005] } as Box,
-  platenColumn: { c: [3.42, 1.5, -1.0], half: [0.15, 1.5, 0.15] } as Box,
-  platenTank: { c: [5.22, 0.75, -1.75], half: [0.26, 0.75, 0.26] } as Box,
+  phone: { c: [2.4, 0.36, 0.9], half: [0.21, 0.36, 0.15] } as Box,
+  /** The platen (real piece, origin (4.6, 0.2)): its base and deck, its arm's column, its tank. */
+  platen: { c: [4.6, 0.31, 0.055], half: [1.2, 0.31, 1.005] } as Box,
+  platenColumn: { c: [3.62, 1.5, 0.1], half: [0.15, 1.5, 0.15] } as Box,
+  platenTank: { c: [5.42, 0.75, -0.65], half: [0.26, 0.75, 0.26] } as Box,
   /** The storefront (real piece, origin (7.6, -3.6)): its bounds, jack box and conduit included. */
   storefront: { c: [7.07, 1.415, -3.535], half: [1.74, 1.415, 0.535] } as Box,
   /** Shipped (P4, clay): four 1.0 × 1.0 pallets, 0.15 high. */
   pallets: [
-    { c: [7.4, 0.075, -1.25], half: [0.5, 0.075, 0.5] },
-    { c: [8.45, 0.075, -1.25], half: [0.5, 0.075, 0.5] },
-    { c: [7.48, 0.075, 0.3], half: [0.5, 0.075, 0.5] },
-    { c: [8.5, 0.075, 0.3], half: [0.5, 0.075, 0.5] },
+    { c: [7.4, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
+    { c: [8.45, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
+    { c: [7.48, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
+    { c: [8.5, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
   ] as readonly Box[],
   /** Their stacks of crates (fronts flush with the pallets' fronts): the back row 1.2 high, the front row 0.6. */
   stacks: [
-    { c: [7.3975, 0.675, -1.05], half: [0.4975, 0.525, 0.3] },
-    { c: [8.4525, 0.675, -1.05], half: [0.4975, 0.525, 0.3] },
-    { c: [7.48, 0.375, 0.575], half: [0.475, 0.225, 0.225] },
-    { c: [8.5, 0.375, 0.575], half: [0.475, 0.225, 0.225] },
+    { c: [7.3975, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
+    { c: [8.4525, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
+    { c: [7.48, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
+    { c: [8.5, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
   ] as readonly Box[],
   /** The mailbox on its post, the résumé clipboard on it (P4, clay): front right. */
   mailbox: { c: [7.7, 0.65, 3.75], half: [0.21, 0.65, 0.16] } as Box,
-  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-3.2, 0.35)). Its hatch's doors stand open either side, low. */
-  revert: { c: [-3.182, 0.672, 0.422], half: [1.026, 0.672, 0.768] } as Box,
+  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.6, 0.3)). Its hatch's doors stand open either side, low. */
+  revert: { c: [-4.582, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
 
   // ── the Button's row ──
   /** The Button's console (the body only). Deck top at y 1.04. */
-  console: { c: [-0.05, 0.52, 0.55], half: [1.05, 0.52, 0.76] } as Box,
+  console: { c: [-0.05, 0.52, 0.5], half: [1.05, 0.52, 0.76] } as Box,
   /** The Button's cap on the console deck. */
-  buttonCap: [0.27, 1.25, 0.35] as Vec3,
+  buttonCap: [0.27, 1.25, 0.3] as Vec3,
 
   // ── the front: the lane, the belt and its ends ──
-  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. */
-  stack: [-8.5, -1.2] as const,
-  /** Fetch's lane of yellow tape (x, z): in front of the console, behind the belt. */
-  lane: { a: [-5.2, 2.2] as const, b: [3.0, 2.2] as const },
+  /** The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. 2.15 from the lane's left stop (Fetch's rounds: 1.7 to 2.3), the chute's landing beside it. */
+  stack: [-6.7, 1.15] as const,
+  /** Fetch's lane of yellow tape (x, z): in front of the console, behind the striker's post and the belt. Its stops (0.45 in) reach the stack, the belt's drop, the phone and the platen's tray. */
+  lane: { a: [-5.2, 2.05] as const, b: [4.3, 2.05] as const },
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
   fetchStart: 0.48,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
-  looseCrate: [-1.26, 0.225, 2.85] as Vec3,
+  looseCrate: [-1.26, 0.225, 2.7] as Vec3,
   /** Where on the lane Fetch fumbles (x): right of the console. */
-  fumbleX: 2.25,
+  fumbleX: 1.6,
   fumble: { heading: -Math.PI / 2, linvel: [-1.0, 2.0, 0] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its motor housing at the left end. Belt length 10. */
-  belt: { c: [-0.9, 0.25, 3.9], half: [5.0, 0.25, 0.52] } as Box,
-  beltMotor: { c: [-6.46, 0.63, 4.0], half: [0.56, 0.63, 0.79] } as Box,
-  /** The striker (stand-in): its post on the belt's far rail; the arm passes clear over the belt. */
-  striker: { c: [3.7, 0.85, 3.22], half: [0.3, 0.85, 0.22] } as Box,
-  /** The dock (stand-in): its portal turned toward the camera. */
+  belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
+  beltMotor: { c: [-6.46, 0.63, 4.1], half: [0.56, 0.63, 0.79] } as Box,
+  /** The striker (real piece, origin (2.675, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.6 high, under the arm, which parts on the belt pass clear beneath. */
+  striker: { c: [2.3, 0.8, 3.072], half: [0.55, 0.8, 0.13] } as Box,
   /**
-   * The dock (real piece, origin the door's middle at (5.42, 3.45); its bay turned 40° toward the camera,
+   * The dock (real piece, origin the door's middle at (5.92, 3.55), its ramp's straight run 0.5 longer than L1's so the platen's plate stands clear of its portal; its bay turned 40° toward the camera,
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
    */
-  dock: { c: [5.707, 1.04, 3.209], half: [0.94, 1.04, 0.525], yaw: -50 } as Box,
+  dock: { c: [6.207, 1.04, 3.309], half: [0.94, 1.04, 0.525], yaw: -50 } as Box,
   /** Where the dock's door (the piece's origin) stands: the ramp below is fitted to bring it here (view/bench.ts DOCK_REACH gives the same). */
-  dockDoor: [5.42, 3.45] as const,
-  /** The return chute's mouth, front left, and how parts come out of it. */
-  chute: { p: [-8.05, 0.45, 3.2] as Vec3, linvel: [2.4, 0.6, -0.9] as Vec3 },
+  dockDoor: [5.92, 3.55] as const,
+  /** The return chute's mouth (real piece at (-8.4, 0, 5), run 2, aim 12: its `mouth` socket), and how parts come out of it: onto the bench at about its `land` (-6.95, 2.79), beside the stack. */
+  chute: { p: [-7.631, 1.23, 2.932] as Vec3, linvel: [1.7, 0.6, -0.36] as Vec3 },
 } as const;
 
 const e = CRATE_EDGE;
