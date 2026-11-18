@@ -9,6 +9,7 @@
  * lever's phase, a crank's angle) and of what it played a moment ago (so a pile-up of contacts does
  * not become a roar).
  */
+import { HZ } from '../sim/index.ts';
 import type { Id, SimEvent, Vec3, WorldView } from '../sim/index.ts';
 import { soundDef } from './voices.ts';
 
@@ -43,9 +44,14 @@ export interface Heard {
 export const SCORE_TUNING = {
   /** How wide the stereo picture is: a part at the bench's end is panned this far. */
   panWidth: 0.4,
-  /** A contact's strength (the world's impulse) that is barely heard, and one that is a full knock. */
+  /**
+   * A landing's speed (units/s, the part's own speed in the frame before the contact) that is barely
+   * heard, and one that is a full knock (a fall from 2.5 units lands at about 9). The world's impulse
+   * (`strength`) hardly grows with the height of a fall, so it only gates: below `hitSoft` nothing.
+   */
+  speedSoft: 0.4,
+  speedHard: 9,
   hitSoft: 0.04,
-  hitHard: 1.2,
   /** A contact is at most this much quieter than a full knock (dB). */
   hitRange: 22,
   /** The same part does not knock twice within this long (s): resting jitter is not a drum roll. */
@@ -67,17 +73,18 @@ export const SCORE_TUNING = {
 
 const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
 
-/** The gain of a contact of `strength` (an impulse): log-scaled from barely there to a full knock. */
-export function hitGain(strength: number): number {
+/** The gain of a landing at `speed` (units/s): log-scaled from barely there to a full knock. */
+export function hitGain(speed: number): number {
   const T = SCORE_TUNING;
-  if (strength < T.hitSoft) return 0;
-  const k = clamp(Math.log(strength / T.hitSoft) / Math.log(T.hitHard / T.hitSoft), 0, 1);
+  if (speed <= 0) return 0;
+  const k = clamp(Math.log(speed / T.speedSoft) / Math.log(T.speedHard / T.speedSoft), 0, 1);
   return Math.pow(10, (-T.hitRange * (1 - k)) / 20);
 }
 
 export class Score {
   private lastPlayed = new Map<string, number>();
   private lastHit = new Map<Id, number>();
+  private speeds = new Map<Id, number>();
   private leverPhase: string | null = null;
   private crank: number | null = null;
   private crankAcc = 0;
@@ -94,6 +101,7 @@ export class Score {
     const now = world.time;
     for (const e of events) this.event(world, e, now);
     this.states(world, now);
+    this.track(world);
     return { cues: this.cues, loops: this.loops(world) };
   }
 
@@ -118,8 +126,10 @@ export class Score {
       }
       case 'part.hit': {
         const p = w.part(e.id);
-        const g = hitGain(e.strength);
-        if (!p || g <= 0) return;
+        if (!p || e.strength < T.hitSoft) return;
+        // the faster of the two, as it was coming in (a crate dropped on a resting one: the dropped one's speed)
+        const g = hitGain(Math.max(this.speeds.get(e.id) ?? 0, e.other ? (this.speeds.get(e.other) ?? 0) : 0));
+        if (g <= 0) return;
         const last = this.lastHit.get(e.id);
         if (last !== undefined && now - last < T.hitGap && now >= last) return;
         this.lastHit.set(e.id, now);
@@ -262,6 +272,19 @@ export class Score {
         } else this.crankAcc = 0;
         this.crank = v.crank;
       }
+    }
+  }
+
+  /** Each moving part's speed now, for the contacts of the next frame (units/s, from its last step). */
+  private track(w: WorldView): void {
+    this.speeds.clear();
+    for (const p of w.parts()) {
+      const m = w.motion(p.id);
+      if (!m || !m.awake) continue;
+      const a = m.prev.p;
+      const b = m.pose.p;
+      const v = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) * HZ;
+      if (v > 0.05) this.speeds.set(p.id, v);
     }
   }
 
