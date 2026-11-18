@@ -255,6 +255,20 @@ export function planPhone(opts?: PlanOptions & { screen?: { w: number; h: number
   return finish('phone', s.w / cap, s.h / cap, opts, []);
 }
 
+// ---- typed ink -----------------------------------------------------------
+
+/** The lightest a typed letter may print, as a fraction of full ink. */
+export const INK_FLOOR = 0.82;
+
+/**
+ * Per-letter strike density for typed paper, per line: a fresh ribbon, every
+ * strike near full; about one key in seven lands a little light, never below
+ * INK_FLOOR. Each letter is drawn independently, so no whole word fades.
+ */
+export function strikeWeights(lineLengths: readonly number[], r: Rng): number[][] {
+  return lineLengths.map((n) => Array.from({ length: n }, () => (r() < 0.15 ? INK_FLOOR + r() * 0.06 : 0.93 + r() * 0.07)));
+}
+
 // ---- keys and memory -------------------------------------------------------
 
 export function labelKey(register: Register, text: string, variant = '', opts?: PlanOptions): string {

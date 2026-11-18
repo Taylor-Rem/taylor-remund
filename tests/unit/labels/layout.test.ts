@@ -15,6 +15,8 @@ import {
   planTape,
   textureBytes,
   wrap,
+  INK_FLOOR,
+  strikeWeights,
 } from '../../../src/workshop/view/labels/layout.ts';
 import type { Advance } from '../../../src/workshop/view/labels/layout.ts';
 import { rng } from '../../../src/workshop/view/labels/rng.ts';
@@ -165,6 +167,19 @@ describe('plans', () => {
     const p = planPhone({ screen: { w: 0.3, h: 0.55 } });
     expect(p.world.w).toBeCloseTo(0.3, 2);
     expect(p.world.h).toBeCloseTo(0.55, 2);
+  });
+});
+
+describe('typed ink', () => {
+  it('every strike is at least INK_FLOOR, most near full, and no word averages light', () => {
+    const w = strikeWeights([9, 3, 12, 40, 40], rng('ink'));
+    const all = w.flat();
+    expect(Math.min(...all)).toBeGreaterThanOrEqual(INK_FLOOR);
+    expect(INK_FLOOR).toBeGreaterThanOrEqual(0.8);
+    expect(all.filter((x) => x >= 0.93).length / all.length).toBeGreaterThan(0.7);
+    // any run of 3 letters (a short word) averages above 0.86
+    for (const line of w) for (let i = 0; i + 3 <= line.length; i++) expect((line[i]! + line[i + 1]! + line[i + 2]!) / 3).toBeGreaterThan(0.86);
+    expect(strikeWeights([5], rng('ink'))).toEqual(strikeWeights([5], rng('ink')));
   });
 });
 
