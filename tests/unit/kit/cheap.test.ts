@@ -116,7 +116,7 @@ describe('realize: sprayed decals cast no shadow', () => {
       K.texturedPart('paper', K.sheet({ w: 0.2, h: 0.1 }), 'stencil|M'),
       K.texturedPart('tape', K.sheet({ w: 0.2, h: 0.05 }), 'tape|DO NOT TOUCH'),
     );
-    const o = K.realize(b.build(), mats);
+    const o = K.realize(b.build(), mats, { shadowProxy: false });
     const meshes: Mesh[] = [];
     o.traverse((x: Object3D) => { if ((x as Mesh).isMesh) meshes.push(x as Mesh); });
     const byMat = (m: string): Mesh => meshes.find((x) => x.userData['kitMaterial'] === m)!;

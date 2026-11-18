@@ -149,8 +149,8 @@ describe('crate', () => {
 
   it('repaint, default (skinned) backend: only the paint range of this crate changes, its twin does not, and back to bare', () => {
     const p = crate({ size: 'M', seed: 9 });
-    const a = K.realize(p, stub);
-    const b = K.realize(p, stub); // shares the skinned geometry with a
+    const a = K.realize(p, stub, { shadowProxy: false });
+    const b = K.realize(p, stub, { shadowProxy: false }); // shares the skinned geometry with a
     expect(a.userData['kitBackend']).toBe('skinned');
     const lay = layout(p, a);
     const totalPaint = [...lay.values()].reduce((s, l) => s + l.paint.size, 0);
@@ -216,8 +216,8 @@ describe('crate', () => {
 
   it('the nodes and skinned backends agree after the same repaint', () => {
     const p = crate({ size: 'L', seed: 5 });
-    const sk = K.realize(p, stub, { backend: 'skinned' });
-    const nd = K.realize(p, stub, { backend: 'nodes' });
+    const sk = K.realize(p, stub, { backend: 'skinned', shadowProxy: false });
+    const nd = K.realize(p, stub, { backend: 'nodes', shadowProxy: false });
     expect(repaint(sk, 'paint-blue')).toBe(repaint(nd, 'paint-blue'));
     // compare every source part's colours and positions (in its node's space for nodes; merged for skinned)
     const per = (o: Object3D): Map<unknown, { col: number[]; z: number[] }> => {
