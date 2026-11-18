@@ -117,14 +117,6 @@ async function run(target: string): Promise<Result> {
           data[`${name}-split`] = split;
           lines.push(`     ${name}: main pass ${split['main']!.calls} calls ${split['main']!.triangles} tris · shadow pass ${split['shadow']!.calls} calls ${split['shadow']!.triangles} tris · post ${split['post']!.calls} full-screen draws`);
         }
-        const split = (await s.page.evaluate(() => {
-          const w = (window as unknown as { __workshop?: { census?(): { totals: Record<string, { calls: number; triangles: number }> } } }).__workshop;
-          return w?.census ? w.census().totals : null;
-        })) as Record<string, { calls: number; triangles: number }> | null;
-        if (split) {
-          data[`${name}-split`] = split;
-          lines.push(`     ${name}: main pass ${split['main']!.calls} calls ${split['main']!.triangles} tris · shadow pass ${split['shadow']!.calls} calls ${split['shadow']!.triangles} tris · post ${split['post']!.calls} full-screen draws`);
-        }
         if (name === 'wide') {
           const seen = m.labels.filter((l) => l.onScreen);
           const byText = new Map<string, LabelCap>();
