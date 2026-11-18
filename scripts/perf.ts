@@ -4,6 +4,13 @@
 //   npm run perf -- [--path /dev/stage/ | --url http://…] [--seconds 30]
 //                   [--script actions.js] [--w 1440 --h 900] [--json]
 //                   [--passes]   also cost each post pass (one run with each switched off)
+//                   [--census]   instead: where the frame goes (H1), on a page with
+//                                window.__vignette (the vignette, the bench): per piece,
+//                                triangles in its geometry, in the main pass and in the
+//                                shadow pass, draw calls by material; GPU ms per pass
+//                                (timer queries) and CPU ms per system, at the home
+//                                framing and every close view. --shots home,button,…
+//                                --counts: the triangle and draw-call table only
 //
 // Two runs, both at 1440×900:
 //   1. uncapped: Chrome with vsync and the frame-rate limit off, and the page
@@ -125,6 +132,145 @@ function line(r: RunResult): string {
   return `${r.label.padEnd(24)} median ${r.median.toFixed(2).padStart(6)} ms  p95 ${r.p95.toFixed(2).padStart(6)} ms  mean ${r.mean.toFixed(2)}  frames ${r.frames}  | calls ${r.calls ?? '?'} tris ${r.triangles ?? '?'} tier ${r.tier ?? '?'} | gpu ms: ${gpu}`;
 }
 
+// ───────────────────────── the census (H1) ─────────────────────────
+
+interface CensusPiece {
+  piece: string;
+  main: { calls: number; triangles: number };
+  shadow: { calls: number; triangles: number };
+  byMaterial: Record<string, number>;
+}
+interface CensusShot {
+  shot: string;
+  totals: Record<'main' | 'shadow' | 'post', { calls: number; triangles: number }>;
+  pieces: CensusPiece[];
+}
+export interface CensusReport {
+  renderer: string;
+  geometry: Record<string, number>;
+  shots: CensusShot[];
+  gpu: Record<string, Record<string, number>>;
+  cpu: Record<string, { frames: number; perFrame: Record<string, number> }>;
+}
+
+type Win = Record<string, unknown> & {
+  __vignette: { goto(step: number, shot?: string): unknown; shot(name: string): void; ws: Record<string, unknown> };
+  __workshop: { census(): { totals: CensusShot['totals']; pieces: CensusPiece[] }; geometry(): Record<string, number>; resetStats(): void; stats(): { gpuMedian: Record<string, number> | null } };
+};
+
+export async function census(url: string, o: { w: number; h: number; shots: string[]; seconds: number; timing?: boolean }): Promise<CensusReport> {
+  const report: CensusReport = { renderer: '', geometry: {}, shots: [], gpu: {}, cpu: {} };
+  // 1. counts: manual mode, a deterministic frame at each framing
+  {
+    const s = await openPage(withQuery(url, { hud: '0', manual: '1' }), { w: o.w, h: o.h, log: () => {} });
+    try {
+      if (isSoftware(s.renderer)) throw new Error(`refusing to measure on a software renderer (${s.renderer})`);
+      report.renderer = s.renderer;
+      for (const shot of o.shots) {
+        const c = await s.page.evaluate((sh) => {
+          const w = window as unknown as Win;
+          w.__vignette.goto(500, sh);
+          const r = w.__workshop.census();
+          return { totals: r.totals, pieces: r.pieces };
+        }, shot);
+        report.shots.push({ shot, ...c });
+      }
+      report.geometry = await s.page.evaluate(() => (window as unknown as Win).__workshop.geometry());
+    } finally {
+      await s.close();
+    }
+  }
+  // 2. time: live, vsync on, GPU timer queries per pass and CPU wrappers per system
+  if (o.timing !== false) {
+    const s = await openPage(withQuery(url, { hud: '0', timer: '1' }), { w: o.w, h: o.h, log: () => {} });
+    try {
+      await s.page.evaluate(() => {
+        const w = window as unknown as Win & { __cpu: { acc: Record<string, number>; frames: number } };
+        const ws = w.__vignette.ws as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const cpu = { acc: {} as Record<string, number>, frames: 0 };
+        w.__cpu = cpu;
+        const wrap = (obj: Record<string, any>, key: string, label: string): void => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const f = obj[key] as (...a: unknown[]) => unknown;
+          if (typeof f !== 'function') return;
+          obj[key] = function (this: unknown, ...a: unknown[]) {
+            const t = performance.now();
+            try {
+              return f.apply(this, a);
+            } finally {
+              cpu.acc[label] = (cpu.acc[label] ?? 0) + performance.now() - t;
+            }
+          };
+        };
+        wrap(ws.world, 'advance', 'simulation step');
+        (ws.views as Array<Record<string, any>>).forEach((v, i) => wrap(v, 'update', `view ${String(v.root?.name || i)}`)); // eslint-disable-line @typescript-eslint/no-explicit-any
+        for (const k of Object.keys(ws.labels)) if (typeof ws.labels[k] === 'function') wrap(ws.labels, k, 'labels');
+        wrap(ws.stage, 'render', 'stage.render (all CPU of the draw)');
+        wrap(ws.stage.renderer.shadowMap, 'render', '  of which: shadow pass submit');
+        let skel: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+        ws.stage.scene.traverse((x: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (!skel && x.isSkinnedMesh) skel = Object.getPrototypeOf(x.skeleton);
+        });
+        if (skel) wrap(skel, 'update', '  of which: skinning (bone matrices)');
+        const drv = ws.driver as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const render = drv.render as (...a: unknown[]) => unknown;
+        drv.render = function (this: unknown, ...a: unknown[]) {
+          cpu.frames++;
+          const t = performance.now();
+          try {
+            return render.apply(this, a);
+          } finally {
+            cpu.acc['frame: views + render'] = (cpu.acc['frame: views + render'] ?? 0) + performance.now() - t;
+          }
+        };
+      });
+      for (const shot of o.shots) {
+        await s.page.evaluate((sh) => (window as unknown as Win).__vignette.shot(sh), shot);
+        await s.page.waitForTimeout(1500);
+        await s.page.evaluate(() => {
+          const w = window as unknown as Win & { __cpu: { acc: Record<string, number>; frames: number } };
+          w.__workshop.resetStats();
+          w.__cpu.acc = {};
+          w.__cpu.frames = 0;
+        });
+        await s.page.waitForTimeout(o.seconds * 1000);
+        const r = await s.page.evaluate(() => {
+          const w = window as unknown as Win & { __cpu: { acc: Record<string, number>; frames: number } };
+          const st = w.__workshop.stats();
+          const per: Record<string, number> = {};
+          for (const [k, v] of Object.entries(w.__cpu.acc)) per[k] = v / Math.max(1, w.__cpu.frames);
+          return { gpu: st.gpuMedian ?? {}, frames: w.__cpu.frames, per };
+        });
+        report.gpu[shot] = r.gpu;
+        report.cpu[shot] = { frames: r.frames, perFrame: r.per };
+      }
+    } finally {
+      await s.close();
+    }
+  }
+  return report;
+}
+
+export function printCensus(r: CensusReport, log: (s: string) => void = console.log): void {
+  log(`census on ${r.renderer}`);
+  log('counting: renderer.info per draw (renderBufferDirect), one deterministic frame; main = scene target after frustum culling; shadow = key shadow map; post = full-screen passes');
+  for (const s of r.shots) {
+    const t = s.totals;
+    log(`\n── ${s.shot}: main ${t.main.calls} calls ${t.main.triangles} tris · shadow ${t.shadow.calls} calls ${t.shadow.triangles} tris · scene (gated) ${t.main.calls + t.shadow.calls} calls ${t.main.triangles + t.shadow.triangles} tris · post ${t.post.calls} calls`);
+    log(`   ${'piece'.padEnd(22)} ${'geometry'.padStart(9)} ${'main'.padStart(8)} ${'shadow'.padStart(8)} ${'calls m+s'.padStart(10)}  main calls by material`);
+    for (const p of s.pieces) {
+      const mats = Object.entries(p.byMaterial).map(([k, v]) => `${k}${v > 1 ? `×${v}` : ''}`).join(' ');
+      log(`   ${p.piece.padEnd(22)} ${String(r.geometry[p.piece] ?? '').padStart(9)} ${String(p.main.triangles).padStart(8)} ${String(p.shadow.triangles).padStart(8)} ${`${p.main.calls}+${p.shadow.calls}`.padStart(10)}  ${mats}`);
+    }
+  }
+  log('\n── GPU ms per pass (median of the window, timer queries; vsync on)');
+  for (const [shot, g] of Object.entries(r.gpu)) log(`   ${shot.padEnd(8)} ${Object.entries(g).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(' · ')}  | sum ${Object.values(g).reduce((a, b) => a + b, 0).toFixed(2)}`);
+  log('\n── CPU ms per frame by system (mean; wrappers round each system\'s entry point)');
+  for (const [shot, c] of Object.entries(r.cpu)) {
+    log(`   ${shot} (${c.frames} frames)`);
+    for (const [k, v] of Object.entries(c.perFrame).sort((a, b) => b[1] - a[1])) log(`      ${k.padEnd(40)} ${v.toFixed(3)}`);
+  }
+}
+
 const PASSES = ['msaa', 'gtao', 'bloom', 'focus', 'grade', 'vignette', 'fog'] as const;
 
 async function main(): Promise<number> {
@@ -141,6 +287,9 @@ async function main(): Promise<number> {
         h: { type: 'string' },
         json: { type: 'boolean' },
         passes: { type: 'boolean' },
+        census: { type: 'boolean' },
+        counts: { type: 'boolean' },
+        shots: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     }).values;
@@ -156,6 +305,18 @@ async function main(): Promise<number> {
   const w = Number(v.w ?? 1440);
   const h = Number(v.h ?? 900);
   const script = v.script ? await loadScript(v.script) : undefined;
+  if (v.census) {
+    const { url: curl, server: cserver } = await resolveTarget(v.url ?? v.path ?? '/dev/vignette/');
+    try {
+      const shots = (v.shots ?? 'home,button,fetch,patch,cord').split(',');
+      const r = await census(curl, { w, h, shots, seconds: Number(v.seconds ?? 6), timing: !v.counts });
+      if (v.json) console.log(JSON.stringify(r, null, 2));
+      else printCensus(r);
+      return 0;
+    } finally {
+      cserver?.stop();
+    }
+  }
   const { url, server } = await resolveTarget(v.url ?? v.path ?? '/dev/stage/');
   const results: RunResult[] = [];
   const log = (r: RunResult): void => {

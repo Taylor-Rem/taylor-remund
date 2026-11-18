@@ -11,6 +11,7 @@
 //   ?shot=home|button|fetch|patch|cord   the camera (default home: wide, or the cluster on a portrait phone)
 //   ?view=wide|phone               force a framing
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
+//   ?timer=1  ?gpusync=1   measurement (scripts/perf.ts): GPU ms per pass; wait for the GPU each frame
 // Hooks: window.__workshop (stage debug hooks), window.__vignette (the
 //   workshop, slots, measure(): label cap heights in px, draw calls, triangles).
 //
@@ -108,7 +109,9 @@
         manual,
         scene: vig.scene,
         stations: vig.stations,
-        stage: { preserveDrawingBuffer: q.get('preserve') === '1' },
+        // measurement switches: ?timer=1 GPU ms per pass; ?gpusync=1 waits for the GPU each frame (serial CPU+GPU cost).
+        // Not `sync`: perf's uncapped run adds sync=1, and on this page it has always measured pipelined frames (the G1 numbers).
+        stage: { preserveDrawingBuffer: q.get('preserve') === '1', syncGpu: q.get('gpusync') === '1', gpuTimer: q.get('timer') === '1' },
         ...(q.get('physics') === 'stub' ? { physics: async () => createStubPhysics() } : {}),
         frameCamera(stage, scene) {
           const edge = { y: scene.bench.top, z: scene.bench.maxZ };
