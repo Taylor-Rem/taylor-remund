@@ -234,25 +234,37 @@ const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-$
 
 /**
  * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
- * its hatch (`AT.revert`); `button` is behind the console, facing it, the cap within its arm's reach;
- * `park` is right of centre, behind the phone and the platen, where the window's light falls across the
- * bench. The track runs from the hatch back to z -1.05, along behind the lever and the console, to the
- * Button spot and on to the park (layout round 4's numbers, which clear the real pieces at Revert's
- * 2.05 x 1.54 footprint).
+ * its hatch (`AT.revert`); `button` (S7) is beside the console on its right, facing it, in profile to the
+ * visitor (`REVERT_BESIDE_CONSOLE`); `park` is right of centre, behind the phone and the platen, where the
+ * window's light falls across the bench. The track runs from the hatch back to `REVERT_BEHIND`, along
+ * behind the lever and the console (far enough back that its 2.05-wide body, driving sideways to the
+ * visitor, clears both), to a corner behind the Button spot (the spot is a short spur straight up from
+ * it: a trip goes to the nearest waypoint, then straight to the place), and on to the park.
  */
-const REVERT_BEHIND_CONSOLE = AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05;
+const REVERT_BEHIND = AT.console.c[2] - AT.console.half[2] - AT.revert.half[0] - 0.05;
+/**
+ * Beside the console's right end, facing it (heading -pi/2): as far forward as it can come and still turn
+ * on the spot between the console and the platen (its 2.05 x 1.54 body sweeps a circle of radius 1.28 as
+ * it turns, and the gap is 2.4 wide), so it stands level with the console's back corner, in full view.
+ */
+const REVERT_BESIDE_CONSOLE = {
+  x: AT.console.c[0] + AT.console.half[0] + AT.revert.half[0] + 0.05,
+  z: AT.console.c[2] - AT.console.half[2] - 0.74,
+} as const;
 const REVERT_PARK = { x: 1.8, z: -1.9 } as const;
 export const REVERT = {
   home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
-  button: { x: AT.buttonCap[0], z: REVERT_BEHIND_CONSOLE, heading: 0 },
+  button: { x: REVERT_BESIDE_CONSOLE.x, z: REVERT_BESIDE_CONSOLE.z, heading: -Math.PI / 2 },
   park: { x: REVERT_PARK.x, z: REVERT_PARK.z, heading: -0.35 },
   path: [
     [AT.revert.c[0], AT.revert.c[2]],
-    [AT.revert.c[0], -1.05],
-    [-2.5, -1.05],
-    [AT.buttonCap[0], REVERT_BEHIND_CONSOLE],
+    [AT.revert.c[0], REVERT_BEHIND],
+    [-2.5, REVERT_BEHIND],
+    [REVERT_BESIDE_CONSOLE.x, REVERT_BEHIND], // the corner: `button` is a short spur straight up from here
     [REVERT_PARK.x, REVERT_PARK.z],
   ] as readonly (readonly [number, number])[],
+  /** S7: where the visitor is (Fetch's `outward`): it sweeps a part from its far side, facing them. */
+  outward: [0, 1.6, 14] as Vec3,
 } as const;
 
 /** Revert's body: a loose part (kind robot), heavy; it starts down its hatch (its durable place is on the hatch). */
@@ -291,6 +303,7 @@ const S4_UNITS = [
     button: REVERT.button,
     park: REVERT.park,
     path: REVERT.path,
+    outward: REVERT.outward,
     stack: { at: AT.stack, radius: 0.6, max: 3 },
     start: 'below',
     crowded: 4,

@@ -87,10 +87,11 @@ describe('Revert and the Button', () => {
     const ev = rung(world);
     expect(world.button().cover).toBe('fitting');
     let atButton = false;
-    for (let i = 0; i < steps(20); i++) {
+    for (let i = 0; i < steps(30); i++) {
       ev.push(...run(world, 1));
       const r = R(world);
-      if (r.state === 'fit') atButton = Math.hypot(r.x - AT.buttonCap[0], r.z - (AT.console.c[2] - AT.console.half[2] - AT.revert.half[2] - 0.05)) < 0.01;
+      // S7: beside the console, in profile to the visitor (facing along x), clear of the console's side
+      if (r.state === 'fit') atButton = Math.hypot(r.x - REVERT.button.x, r.z - REVERT.button.z) < 0.01 && Math.abs(Math.abs(Math.atan2(Math.sin(r.heading), Math.cos(r.heading))) - Math.PI / 2) < 0.02 && r.x - AT.revert.half[2] > AT.console.c[0] + AT.console.half[0];
     }
     expect(atButton).toBe(true);
     const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
