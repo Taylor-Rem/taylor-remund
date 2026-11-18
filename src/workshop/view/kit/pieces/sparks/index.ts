@@ -25,10 +25,10 @@ export const SPARKS = {
   /** How many streaks. */
   n: 8,
   /** A streak's length at rest, and how much its speed stretches it (units per unit/s). */
-  len: 0.07,
-  stretch: 0.03,
+  len: 0.13,
+  stretch: 0.05,
   /** Launch speed range (units/s), how far off vertical (radians), gravity (units/s²). */
-  speed: [1.4, 3.0] as readonly [number, number],
+  speed: [1.8, 3.6] as readonly [number, number],
   spread: 1.2,
   gravity: 9,
   /** Each streak lives this long (s): it is at full size for the first part, then cools away. */
@@ -59,7 +59,7 @@ export function sparks(o: SparksOptions = {}): Piece {
   for (let i = 0; i < SPARKS.n; i++) {
     const n = b.node(`spark${i}`, new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN));
     // a thin sliver, fat at the head (+Y) and drawn out to a point at the tail; each a little different
-    const w = SPARKS.len * R.range(0.08, 0.12);
+    const w = SPARKS.len * R.range(0.11, 0.16);
     const g = deform(stud(1, 1, 3), (x, y, z) => [x * w * (0.25 + 0.75 * y), (y - 1) * SPARKS.len, z * w * (0.25 + 0.75 * y)]);
     // lamp level (it blooms); one token for all, so the burst is one draw
     n.add(noShadow(setFinish(part('bulb', g, 'amber-glow', { seed: seed + i, jitter: 0.12 }), 0)));
