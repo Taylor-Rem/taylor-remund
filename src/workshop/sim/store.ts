@@ -2,20 +2,17 @@
  * The durable store (REWRITE.md § E5 "Three kinds of state": durable).
  * Every durable field of every part and every setting lives here, as a
  * value plus its **writer**: the cause that last wrote it (§ E5 rule 6).
- * Nothing outside `commit` (world.ts) writes a value; `restore` exists only
- * for the Button's bracket, which puts back a snapshot taken by `snapshot`.
+ * Nothing outside `commit` (world.ts) and the history's restores
+ * (history.ts: undo, reset) writes a value; `restore` exists only for the
+ * Button's bracket, which puts back a snapshot taken by `snapshot`.
  *
  * A field is addressed by (target, field). Parts are targets whose fields
  * are the `Part` properties; settings are any other target (`cord`/`jack`).
  */
-import type { Cause, Id, Location, Value } from './types.ts';
+import type { Id, Location, Value, Writer } from './types.ts';
 
-/**
- * Who last wrote a field. `settled` is a value that is simply how the world
- * is and cannot be undone: the starting state, and (in P2) whatever a
- * forgotten transaction wrote (§ E5 rule 14).
- */
-export type Writer = Cause | 'settled';
+/** Who last wrote a field (defined with the public types, `types.ts`). */
+export type { Writer } from './types.ts';
 
 export interface Slot {
   readonly value: Value;
@@ -95,7 +92,7 @@ export class Store {
     this.#fields.set(k, { value: freezeValue(value), writer });
   }
 
-  /** Change only the writer of a field (P2: the lever hands a field back to its previous writer; forgetting settles it). */
+  /** Change only the writer of a field (forgetting and putting away settle it, § E5 rule 14). */
   setWriter(target: Id, field: string, writer: Writer): void {
     const s = this.slot(target, field);
     if (!s) throw new Error(`store: ${target}.${field} is not defined`);

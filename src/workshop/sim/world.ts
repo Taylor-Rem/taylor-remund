@@ -16,13 +16,16 @@
  *
  * Durable state changes only through `commit` (§ E5), which applies a
  * batch at once, keeps a writer per field and emits one `effect` event per
- * change. `history.ts` documents the hooks P2's undo stack attaches to.
+ * change. The undo stack (`history.ts`) decides who is charged and what an
+ * undo puts back; the world applies it to the bodies and says so as one
+ * `undone` event. At the end of every step the history closes timed-out
+ * release windows and lets empty transactions go.
  */
-import type { Cause, Effect, Id, Intent, Interactable, Location, Part, PartMaterial, PartMotion, Pose, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
+import type { Cause, Effect, Id, Intent, Interactable, Location, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
 import type { PhysicsPort, PhysicsSnapshot } from './physics/port.ts';
 import type { SceneDesc } from './scene.ts';
 import type { BodyMode, CommitResult, CrewHandle, Holding, SimContext, Unit } from './context.ts';
-import type { Change, HistoryHooks, Recorded } from './history.ts';
+import type { Change, HistoryHooks, Recorded, TransactionView, UndoOutcome, UndoRequest } from './history.ts';
 import type { Writer, StoreSnapshot } from './store.ts';
 import type { ButtonView, ButtonUnit } from './machines/button.ts';
 import type { CordView, CordUnit } from './machines/cord.ts';
@@ -31,7 +34,7 @@ import { createClock, steps, HZ } from './clock.ts';
 import { rng as makeRng } from './rng.ts';
 import { Store, sameValue } from './store.ts';
 import { Registry } from './registry.ts';
-import { p1History } from './history.ts';
+import { createHistory } from './history.ts';
 import { MATERIAL, defaultHalfExtents, massOf } from './parts.ts';
 import { add, clampLength, cross, dist, finitePose, length, qangle, qaxis, qconj, qmul, qnormalize, qyaw, rotate, rotationVector, scale, sub, yawOf } from './math.ts';
 import { createButton } from './machines/button.ts';
@@ -107,6 +110,8 @@ export interface World extends WorldView {
   writer(target: Id, field: string): Writer | undefined;
   /** Every durable field: target, field, value, writer (saving, the replay check, the bracket tests). */
   durable(): { target: Id; field: string; value: Value; writer: Writer }[];
+  /** The undo stack, oldest first (§ E5): tests, and anything that shows whether the lever has something to take. */
+  undoStack(): readonly TransactionView[];
   dispose(): void;
 }
 
@@ -114,8 +119,10 @@ export interface WorldOptions {
   readonly seed: number | string;
   readonly physics: PhysicsPort;
   readonly scene?: SceneDesc;
-  /** P2 replaces this with the undo stack. */
+  /** The history (§ E5). Default: the undo stack, `createHistory()`. `p1History()` keeps none (funnel tests). */
   readonly history?: HistoryHooks;
+  /** More machines, run after the vignette's own in this order (P2's stations; the history tests' stand-ins). */
+  readonly units?: readonly ((ctx: SimContext) => Unit)[];
   readonly runner?: Partial<typeof FETCH_TUNING>;
   /** The Button's rung and press count, remembered between visits (§ B4). */
   readonly button?: { rung: number; presses: number };
@@ -191,7 +198,7 @@ const PART_VALIDATORS: Readonly<Record<(typeof PART_FIELDS)[number], (v: Value) 
 export function createWorld(opts: WorldOptions): World {
   const scene = opts.scene ?? vignette;
   const physics = opts.physics;
-  const history = opts.history ?? p1History();
+  const history = opts.history ?? createHistory();
   const clock = createClock();
   const root = makeRng(opts.seed);
   const store = new Store();
@@ -352,6 +359,7 @@ export function createWorld(opts: WorldOptions): World {
     l.grabYaw = yawOf(pose.q);
     l.grabStep = clock.step;
     touchedSet.add(id);
+    history.take(id); // § E5 rule 4: a moving part picked up leaves its window at once
     held = { kind: 'part', id };
     emit({ type: 'part.grabbed', id });
     return true;
@@ -495,6 +503,7 @@ export function createWorld(opts: WorldOptions): World {
       const lin = length(st.linvel);
       const ang = length(st.angvel);
       if (lin > T.wakeLinear || ang > T.wakeAngular) {
+        if (!l.unsettled) history.disturbed(l.id); // § E5 rule 4: set moving by something else; an open window takes it
         l.unsettled = true;
         l.calm = 0;
         continue;
@@ -514,7 +523,7 @@ export function createWorld(opts: WorldOptions): World {
         lastChuteRelease = l.chuteAt;
         continue;
       }
-      const cause = l.chargeTo ?? history.chargeRest(l.id, clock.step);
+      const cause = history.chargeRest(l.id, clock.step, l.chargeTo);
       l.chargeTo = null;
       const loc = store.get(l.id, 'location') as Location;
       const same = loc.at === 'rest' && dist(loc.pose.p, st.pose.p) < T.restSame && qangle(loc.pose.q, st.pose.q) < T.restSameAngle;
@@ -530,6 +539,67 @@ export function createWorld(opts: WorldOptions): World {
     return m;
   }
   const looseState = (l: Loose): LooseState => ({ mode: l.mode, pose: l.pose, prev: l.prev, awake: l.awake, unsettled: l.unsettled, calm: l.calm, chargeTo: l.chargeTo, crewBy: l.crewBy, chuteAt: l.chuteAt, grip: l.grip, grabYaw: l.grabYaw, grabStep: l.grabStep, target: l.target, contacts: new Map(l.contacts) });
+
+  // ── the history (§ E5) ──
+  history.bind({
+    store,
+    commit: (c, cause) => commit(c, cause),
+    kindOf: (id) => (loose.has(id) ? (store.get(id, 'kind') as PartKind) : undefined),
+    touched: (id) => touchedSet.has(id),
+    playMode: () => playMode,
+  });
+
+  /** § E5 rule 9: a part whose location is restored to `rest` is put there at once, without physics (the hop is drawn). */
+  function putBack(l: Loose, loc: Location): void {
+    if (loc.at !== 'rest' || (l.mode !== 'free' && l.mode !== 'chute')) return;
+    // TODO(P2 belt/dock): "if the place is taken, to the nearest free spot" is not done here: the restored
+    // value is exactly the recorded one (the replay check holds), and a body put into an occupied place is
+    // left for physics to part. In and shipped are for the machine that owns the mouth (`Unit.restored`).
+    if (l.mode === 'chute') physics.setEnabled(l.id, true);
+    physics.setPose(l.id, loc.pose);
+    release(l, [0, 0, 0], [0, 0, 0]);
+    physics.sleep(l.id);
+    l.unsettled = false;
+    l.chargeTo = null;
+    l.pose = loc.pose;
+    l.prev = loc.pose; // a jump, never interpolated; the view draws the hop from `Restore.pose`
+    l.contacts = new Map();
+  }
+
+  /** The lever, or "undo that": the history restores the durable fields; the world moves the bodies and says what happened. */
+  function performUndo(req: UndoRequest): UndoOutcome {
+    if (bracket) return { ok: false, reason: 'frozen', txn: null };
+    const out = history.undo(req, clock.step);
+    if (!out.ok) {
+      if (out.reason !== 'frozen') emit({ type: 'undo.refused', by: req.by, reason: out.reason, txn: out.txn });
+      return out;
+    }
+    const u = out.undone;
+    partCache.clear();
+    const restores: Restore[] = [];
+    // parts still flying under the undone action: their location never changed (or had, and is restored
+    // below with its entry); they come back first (the latest motion)
+    for (const id of u.recalled) {
+      if (u.restores.some((r) => r.target === id && r.field === 'location')) continue;
+      const l = loose.get(id);
+      const slot = store.slot(id, 'location');
+      if (!l || !slot) continue;
+      restores.push({ target: id, field: 'location', from: slot.value, to: slot.value, writer: slot.writer, pose: l.pose });
+      putBack(l, slot.value as Location);
+    }
+    for (const r of u.restores) {
+      const l = r.field === 'location' ? loose.get(r.target) : undefined;
+      if (!l) {
+        restores.push(r);
+        continue;
+      }
+      restores.push({ ...r, pose: l.pose });
+      putBack(l, r.to as Location);
+    }
+    emit({ type: 'undone', txn: u.txn, action: u.action, by: u.by, restores, kept: u.kept, cancelled: u.cancelled });
+    for (const un of units) un.restored?.(restores);
+    return { ok: true, undone: { ...u, restores } };
+  }
 
   // ── machines and crew ──
   let units: Unit[] = [];
@@ -609,6 +679,18 @@ export function createWorld(opts: WorldOptions): World {
       l.unsettled = true;
     },
     crewFor: (part, handle) => crewHandles.set(part, handle),
+    undo: (req) => performUndo(req),
+    putAway(part, at) {
+      if (bracket) throw new Error('world: nothing is put away while a Button rung is bracketed (§ E5)');
+      const l = lp(part);
+      history.putAway(part); // rule 14: every entry about it is forgotten first
+      touchedSet.delete(part); // restocked: a fresh part again, the crew may use it (rule 5)
+      partCache.delete(part);
+      emit({ type: 'put-away', id: part });
+      const r = commit([{ target: part, field: 'location', after: at }], 'system');
+      if (l.mode === 'free' || l.mode === 'chute') putBack(l, at);
+      return r;
+    },
 
     beginBracket() {
       if (bracket) throw new Error('world: a bracket is already open');
@@ -675,7 +757,35 @@ export function createWorld(opts: WorldOptions): World {
   const button: ButtonUnit = createButton(ctx, opts.button);
   const cord: CordUnit = createCord(ctx);
   const runner: FetchUnit = createFetch(ctx, opts.runner);
-  units = [button, cord, runner];
+  units = [button, cord, runner, ...(opts.units ?? []).map((make) => make(ctx))];
+  /** How the visit began: what "Reset the workshop" goes back to. */
+  const initial = store.snapshot();
+
+  /** "Reset the workshop": cancel every pending job, empty the stack, every durable field back to its start (writer settled). */
+  function reset(): boolean {
+    if (bracket) return false;
+    if (held?.kind === 'plug') cord.drop();
+    else if (held) {
+      release(lp(held.id), [0, 0, 0], [0, 0, 0]);
+      held = null;
+    }
+    history.reset();
+    const restores: Restore[] = [];
+    const now = [...store.entries()];
+    store.restore(initial);
+    for (const { target, field, slot } of now) {
+      const start = store.slot(target, field) as NonNullable<ReturnType<Store['slot']>>;
+      if (sameValue(slot.value, start.value) && slot.writer === start.writer) continue;
+      const l = field === 'location' ? loose.get(target) : undefined;
+      restores.push({ target, field, from: slot.value, to: start.value, writer: start.writer, ...(l ? { pose: l.pose } : {}) });
+    }
+    partCache.clear();
+    touchedSet.clear();
+    for (const l of loose.values()) putBack(l, store.get(l.id, 'location') as Location);
+    emit({ type: 'reset', restores });
+    for (const u of units) u.restored?.(restores);
+    return true;
+  }
 
   // ── intents ──
   function handle(intent: Intent): boolean {
@@ -710,6 +820,12 @@ export function createWorld(opts: WorldOptions): World {
         physics.setVelocity(l.id, [0, 0, 0], [0, 0, 0]);
         return true;
       }
+      case 'undo':
+        if (bracket) return false; // § B4: handles do not respond while a rung plays
+        performUndo({ by: 'lever' });
+        return true;
+      case 'reset':
+        return reset();
       default:
         if (bracket && intent.type !== 'press') return false;
         for (const u of units) if (u.intent?.(intent)) return true;
@@ -761,6 +877,7 @@ export function createWorld(opts: WorldOptions): World {
         } else bracket.frames.push(framePoses());
       }
       for (const u of units) u.post?.();
+      history.endStep(clock.step);
     },
 
     drainEvents() {
@@ -772,6 +889,7 @@ export function createWorld(opts: WorldOptions): World {
     commit,
     writer: (t, f) => store.writer(t, f),
     durable: () => [...store.entries()].map(({ target, field, slot }) => ({ target, field, value: slot.value, writer: slot.writer })),
+    undoStack: () => history.stack(),
 
     *parts() {
       for (const id of loose.keys()) {
