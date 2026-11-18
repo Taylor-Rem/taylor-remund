@@ -147,7 +147,8 @@ export function viewOf(stage: Stage): PosterView {
  */
 export function adoptView(stage: Stage, v: PosterView): number {
   const rig = stage.camera;
-  rig.cutTo({ focus: v.focus, zoom: rig.zoomForDistance(v.distance) });
+  // held: the camera takes the poster's view exactly, beyond its pan limits if need be, until the visitor moves it
+  rig.cutTo({ focus: v.focus, zoom: rig.zoomForDistance(v.distance) }, { hold: true });
   const got = viewOf(stage);
   return Math.hypot(got.focus[0] - v.focus[0], got.focus[1] - v.focus[1], got.focus[2] - v.focus[2]) + Math.abs(got.distance - v.distance);
 }

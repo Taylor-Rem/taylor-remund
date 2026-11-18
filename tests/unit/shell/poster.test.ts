@@ -119,9 +119,8 @@ describe('the live camera sees the picture', () => {
     const lo = Math.max(b.minAspect, set.narrowest);
     for (const t of [0, 0.37, 0.81, 1]) {
       const a = lo + (b.aspect - lo) * t;
-      // KNOWN until loader.ts adoptView holds the view (camera.ts cutTo { hold: true }; tested below): at 1.84-1.96:1 the
+      // loader.ts adoptView holds the view (camera.ts cutTo { hold: true }; tested below), so the band holds even at 1.84-1.96:1, where the
       // live pan range excludes the band's view (bandView clamps at the narrowest aspect; the x range is not monotone in aspect)
-      if (i === set.posters.length - 1 && a > 1.84 && a < 1.96) continue;
       // whole pixels that stay inside the band
       const w = t === 0 ? Math.ceil(a * 900) : Math.floor(a * 900);
       cases.push([i, w, 900]);
