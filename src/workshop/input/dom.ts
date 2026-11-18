@@ -7,6 +7,13 @@
  * the pointer is captured on press (a drag that leaves the canvas still
  * carries), the wheel and the context menu are taken, and the page itself
  * never scrolls or zooms under a gesture.
+ *
+ * Keys: the canvas is one stop in the page's Tab order. While it has focus,
+ * Tab and Shift+Tab move through the controls list on the stage, and leave
+ * it past either end. The stage's other keys (Enter, Space, arrows, + and −,
+ * U, Esc) answer when the canvas or the page itself has focus, never while
+ * the visitor is in a form, a button of the page, or a dialog (the phone
+ * panel keeps its keys).
  */
 import type { Id, Intent } from '../sim/types.ts';
 import type { Command, Cursor, Gestures, PointerKind, Sample } from './gesture.ts';
@@ -20,6 +27,8 @@ export interface InputSink {
   zoom(factor: number, at: readonly [number, number] | null): void;
   /** Hook: frame the station under this point. */
   frame(x: number, y: number, id: Id | null): void;
+  /** Keyboard focus on the stage moved (null: none). */
+  focus?(id: Id | null): void;
   back(): void;
   undo(): void;
 }
@@ -36,11 +45,23 @@ const kindOf = (e: PointerEvent): PointerKind => (e.pointerType === 'touch' ? 't
 
 const CSS_CURSOR: Record<Cursor, string> = { default: 'default', grab: 'grab', grabbing: 'grabbing', pointer: 'pointer' };
 
+/** Is this key event's target somewhere the stage may answer (the canvas, or the page itself)? */
+function stageKeyTarget(target: EventTarget | null, canvas: HTMLElement): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || el === canvas) return true;
+  if (typeof document !== 'undefined' && (el === document.body || el === document.documentElement)) return true;
+  return false;
+}
+
 export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: InputSink): DomInput {
   let pointer: { x: number; y: number; kind: PointerKind } | null = null;
   canvas.style.touchAction = 'none';
   canvas.style.userSelect = 'none';
   (canvas.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = 'none';
+  // one stop in the Tab order; focus is drawn on the stage, not as an outline round the canvas
+  if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
+  canvas.style.outline = 'none';
+  let shiftTab = false;
 
   const local = (e: PointerEvent | WheelEvent | MouseEvent): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
@@ -68,6 +89,9 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       case 'frame':
         sink.frame(c.x, c.y, c.id);
         return;
+      case 'focus':
+        sink.focus?.(c.id);
+        return;
       case 'back':
         sink.back();
         return;
@@ -90,6 +114,8 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       /* a synthetic event has no capturable pointer */
     }
     e.preventDefault();
+    // the stage takes keyboard focus from a press on it (preventDefault stops the browser doing so)
+    if (typeof document !== 'undefined' && document.activeElement !== canvas) canvas.focus({ preventScroll: true });
     gestures.down(sample(e, p.x, p.y));
     flush();
   };
@@ -128,20 +154,32 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
     e.preventDefault();
     const p = local(e);
     const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-    gestures.wheel(p.x, p.y, e.deltaY * scale);
+    gestures.wheel(p.x, p.y, e.deltaY * scale, e.timeStamp);
     flush();
   };
   const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Tab') shiftTab = e.shiftKey;
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-    const el = e.target as HTMLElement | null;
-    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-    if (gestures.key(e.key, e.timeStamp)) {
+    if (!stageKeyTarget(e.target, canvas)) return;
+    // Tab moves through the stage's controls only while the stage has focus; elsewhere it is the page's
+    if (e.key === 'Tab' && e.target !== canvas) return;
+    if (gestures.key(e.key, e.timeStamp, { shift: e.shiftKey })) {
       e.preventDefault();
-      flush();
     }
+    flush();
+  };
+  const onFocus = (e: FocusEvent): void => {
+    // arriving by Tab (not a press): the first control (the last, coming back with Shift+Tab) takes focus
+    if (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible')) return;
+    if (gestures.focused === null) gestures.key('Tab', e.timeStamp, { shift: shiftTab });
+    flush();
+  };
+  const onBlur = (e: FocusEvent): void => {
+    gestures.blur(e.timeStamp);
+    flush();
   };
   const onContext = (e: Event): void => e.preventDefault();
-  const onBlur = (): void => {
+  const onWindowBlur = (): void => {
     // the window lost focus mid-gesture: every pointer is cancelled
     gestures.cancelAll(performance.now());
     flush();
@@ -154,8 +192,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', onContext);
+  canvas.addEventListener('focus', onFocus);
+  canvas.addEventListener('blur', onBlur);
   window.addEventListener('keydown', onKey);
-  window.addEventListener('blur', onBlur);
+  window.addEventListener('blur', onWindowBlur);
 
   return {
     get pointer() {
@@ -173,8 +213,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', onContext);
+      canvas.removeEventListener('focus', onFocus);
+      canvas.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('blur', onWindowBlur);
     },
   };
 }
