@@ -23,8 +23,7 @@
  * The shell knows no station: it takes the list (`check-layers`).
  */
 import { Box3, Ray, Vector3 } from 'three';
-import { createPhonePanel, type PhonePanel } from '../ui/phone/index.ts';
-import { worldLine, type WorldLine } from '../ui/phone/world-line.ts';
+import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
@@ -86,11 +85,11 @@ export interface BootOptions {
   yieldBetweenViews?: boolean;
   /**
    * The phone (§ D 3): a press on the in-world phone, or Enter on it, opens the texting panel over the
-   * stage. `line` is the world's phone line (default `line`); `target` the pick target the phone's view
-   * registers (default: the line's id); `parent` where the panel lives (default `document.body`). Made
-   * when the world has that line and there is a document; `false`: no phone.
+   * stage (ui/phone/stage.ts, on the world's line). `target` is the pick target the phone's view
+   * registers (default `phone`); `parent` where the panel lives (default `document.body`). Made when the
+   * world has a phone line (`line`) and there is a document; `false`: no phone.
    */
-  phone?: false | { line?: Id; target?: Id; parent?: HTMLElement };
+  phone?: false | { target?: Id; parent?: HTMLElement };
 }
 
 export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
@@ -138,8 +137,8 @@ export interface Workshop {
   readonly materials: WorkshopMaterials;
   readonly labels: WorkshopLabels;
   readonly views: readonly StationView[];
-  /** The texting panel (null: no phone line, or no document). */
-  readonly phone: PhonePanel | null;
+  /** The texting panel over the stage (null: no phone line, or no document). */
+  readonly phone: StagePhone | null;
   /** Keyboard focus on the stage (an interactable, or the phone's target), or null. The view should mark it. */
   readonly focused: Id | null;
   /** Deterministic: run n steps and render one frame (manual mode for captures). */
@@ -233,11 +232,10 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     return { origin: [r.origin.x, r.origin.y, r.origin.z], dir: [r.direction.x, r.direction.y, r.direction.z] };
   };
   const pickRay = new Ray();
-  // the phone: the line's pick target opens the panel (made below, once the dispatch exists)
+  // the phone: its pick target opens the panel (made below, once the dispatch exists)
   const phoneOpt = opts.phone === false ? null : (opts.phone ?? {});
-  const lineId = phoneOpt?.line ?? 'line';
-  const hasPhone = phoneOpt !== null && typeof document !== 'undefined' && world.machine(lineId)?.kind === 'line';
-  const phoneTarget = phoneOpt?.target ?? lineId;
+  const hasPhone = phoneOpt !== null && typeof document !== 'undefined' && world.machine('line')?.kind === 'line';
+  const phoneTarget = phoneOpt?.target ?? 'phone';
   const panelIds: ReadonlySet<Id> = new Set(hasPhone ? [phoneTarget] : []);
   const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
   const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
@@ -252,6 +250,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const upp = new Vector3();
   const filters = { none: pickFilter(null), part: pickFilter('part'), unit: pickFilter('unit'), plug: pickFilter('plug') };
   const box3 = new Box3();
+  const box3b = new Box3();
   const corner = new Vector3();
   /** A pick target's proxy on screen (CSS px): centre and half of its larger side. */
   const screenOf = (id: Id): { x: number; y: number; r: number } | null => {
@@ -275,8 +274,24 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     pick(r, kind: PointerKind, exclude, holding = null) {
       pickRay.origin.set(r.origin[0], r.origin[1], r.origin[2]);
       pickRay.direction.set(r.dir[0], r.dir[1], r.dir[2]);
-      const hit = picking.pick(pickRay, { exclude, minPx: kind === 'mouse' ? hitPx.mouse : hitPx.touch, filter: filters[holding ?? 'none'] });
-      return hit ? { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] } : null;
+      const minPx = kind === 'mouse' ? hitPx.mouse : hitPx.touch;
+      const filter = filters[holding ?? 'none'];
+      const hit = picking.pick(pickRay, { exclude, minPx, filter });
+      if (!hit) return null;
+      const first = { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] as Vec3 };
+      if (hit.grown) return first;
+      // a small thing inside a big thing's proxy wins (the plug under the lamp's arm, the phone by the Button's console):
+      // the next true hit along the ray, if it lies within the first's box and is much smaller
+      const big = picking.worldBox(first.id, box3);
+      if (!big) return first;
+      const bigSize = big.getSize(corner).length();
+      const inner = picking.pick(pickRay, { exclude, minPx, filter: (id) => id !== first.id && filter(id) });
+      if (!inner) return first;
+      const innerId = inner.id;
+      const innerPoint: Vec3 = [inner.point.x, inner.point.y, inner.point.z];
+      const small = picking.worldBox(innerId, box3b);
+      if (!small || !big.containsPoint(small.getCenter(corner)) || small.getSize(corner).length() > bigSize * 0.4) return first;
+      return { id: innerId, point: innerPoint };
     },
     half(id) {
       const b = picking.localBox(id);
@@ -326,25 +341,9 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const controls = createControls({ world: () => world, dispatch, camera, undoId: opts.undoId ?? world.undoId ?? null });
 
   // the phone's panel: HTML over the stage, on the world's line
-  let line: WorldLine | null = null;
-  let phone: PhonePanel | null = null;
-  const rectOf = (id: Id): DOMRect | null => {
-    const s = screenOf(id);
-    if (!s || typeof DOMRect === 'undefined') return null;
-    const c = canvas.getBoundingClientRect();
-    return new DOMRect(c.left + s.x - s.r, c.top + s.y - s.r, 2 * s.r, 2 * s.r);
-  };
-  if (hasPhone) {
-    line = worldLine({ world, dispatch: (i) => dispatch(i), line: lineId });
-    phone = createPhonePanel({
-      line,
-      ...(phoneOpt?.parent ? { parent: phoneOpt.parent } : {}),
-      anchor: () => rectOf(phoneTarget),
-      // the station on that line, by its unit's pick target when its view registered one
-      avoid: (jack) => (jack ? rectOf(jack) : null),
-      reducedMotion: () => world.reducedMotion,
-    });
-  }
+  const phone: StagePhone | null = hasPhone
+    ? createStagePhone({ world, dispatch: (i) => dispatch(i), canvas, ...(phoneOpt?.parent ? { parent: phoneOpt.parent } : {}), reducedMotion: () => world.reducedMotion })
+    : null;
   /** Input's intents, with the page's own handles taken out: a press on the phone opens its panel. */
   const fromInput = (intent: Intent, t: number): void => {
     if (intent.type === 'press' && panelIds.has(intent.id)) {
@@ -389,7 +388,6 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   });
 
   // 6. the loop
-  let placeEvery = 0;
   let pointerWorld: Vec3 | null = null;
   const driver = new Driver({
     world,
@@ -410,9 +408,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       },
     },
     onFrame: (frame) => {
-      line?.sync();
-      // the open panel stands clear of the station on its line as the camera moves (a few times a second)
-      if (phone?.isOpen && ++placeEvery % 12 === 0) phone.place();
+      // the phone hears its line; the open panel stands clear of the station as the camera moves
+      phone?.sync();
       opts.onFrame?.(frame, workshop);
     },
   });

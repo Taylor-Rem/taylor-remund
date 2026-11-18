@@ -61,7 +61,7 @@ async function standIns(page: Page): Promise<string[]> {
     const Object3D = Object.getPrototypeOf(Object.getPrototypeOf(ws.stage.scene)).constructor;
     const made: string[] = [];
     const add = (id: string, p: number[] | { x: number; y: number; z: number }, half: number[]): void => {
-      if (have.has(id) || !ws.world.interactable(id) && id !== 'line') return;
+      if (have.has(id) || (!ws.world.interactable(id) && id !== 'phone')) return;
       const o = new Object3D();
       const v: number[] = Array.isArray(p) ? p : [p.x, p.y, p.z];
       o.position.set(v[0]!, v[1]!, v[2]!);
@@ -79,7 +79,7 @@ async function standIns(page: Page): Promise<string[]> {
     const undo = stat('undo');
     if (undo) add('undo-lever', [undo.pose.p[0], undo.pose.p[1] + 0.4, undo.pose.p[2]], [0.2, 0.45, 0.2]);
     const phone = stat('phone');
-    if (phone) add('line', phone.pose.p, phone.shape.half ?? [0.2, 0.35, 0.15]);
+    if (phone) add('phone', phone.pose.p, phone.shape.half ?? [0.2, 0.35, 0.15]);
     const patch = ws.world.crewView('patch')?.view?.at;
     if (patch) add('patch', [patch[0], patch[1] + 0.6, patch[2]], [0.45, 0.6, 0.4]);
     if (B.bench.bulb) add('lamp', B.bench.bulb.at, [0.3, 0.25, 0.3]);
@@ -162,12 +162,12 @@ const camPos = (page: Page) => page.evaluate(() => (window as any).__bench.ws.st
  * On a small screen not everything is in the frame: pan it into view the way a visitor does, one finger
  * on empty bench (which also proves that pans), or the mouse's drag on empty bench. Returns its disc on screen.
  */
-async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' | 'touch'): Promise<Disc> {
+async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' | 'touch', margin = 1): Promise<Disc> {
   const vp = page.viewportSize()!;
   for (let k = 0; k < 6; k++) {
     const d = (await screenOf(page, id))!;
-    const mx = Math.min(80, vp.width * 0.18);
-    const my = Math.min(140, vp.height * 0.16);
+    const mx = Math.min(80, vp.width * 0.18) * margin;
+    const my = Math.min(140, vp.height * 0.16) * margin;
     if (d.x > mx && d.x < vp.width - mx && d.y > my && d.y < vp.height - my) {
       await settled(page);
       return (await screenOf(page, id))!;
@@ -219,6 +219,23 @@ async function use(page: Page, hand: Hand, pts: XY[], dwell = 14): Promise<void>
 
 /** The whole bench worked by one hand; `kind` decides the gestures (a mouse turns the dial round, a finger along it). */
 async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Promise<void> {
+  try {
+    await workTheBenchSteps(page, hand, kind);
+  } catch (e) {
+    const d = await page
+      .evaluate(() => ({
+        ints: (window as any).__ints?.slice(-14),
+        events: (window as any).__bench.log
+          .filter((l: any) => /undone|undo.refused|handle.worked|effect/.test(l.e.type))
+          .slice(-12)
+          .map((l: any) => `${l.step}:${l.e.type}:${JSON.stringify(l.e.effect ?? l.e.restores?.map((r: any) => [r.target, r.field, r.to]) ?? l.e.id)}`),
+      }))
+      .catch(() => null);
+    throw new Error(`${e}\n${JSON.stringify(d, null, 1)}`);
+  }
+}
+
+async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Promise<void> {
   const tag = kind;
   // 1. the dial: two detents up
   const dial = await bringIntoView(page, hand, 'belt-dial', kind);
@@ -229,8 +246,12 @@ async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Pr
     await frames(page, 2);
     expect(await hovered(page)).toBe('belt-dial');
     expect(await cursor(page)).toBe('pointer');
-    const r = Math.max(10, dial.r * 0.8);
-    await use(page, hand, arc(dial, r, -95, -95 + 2 * 32 + 14, 14), 20);
+    // taken on the knob's crown, a hand drags round it in a widening sweep (a real hand does not keep to the knob)
+    const pts = arc(dial, 1, -95, -95 + 2 * 32 + 14, 14).map((p, i) => {
+      const k = Math.max(8, dial.r * 0.4) + i * 2.5;
+      return { x: dial.x + (p.x - dial.x) * k, y: dial.y + (p.y - dial.y) * k };
+    });
+    await use(page, hand, pts, 20);
   } else {
     const y = dial.y + dial.r * 0.5; // taken low on the knob: it drags along
     await use(page, hand, line({ x: dial.x, y }, { x: dial.x + 26 * 2 + 10, y }, 10), 20);
@@ -257,7 +278,7 @@ async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Pr
   const x0 = (await setting(page, 'lamp', 'x')) as number;
   const z0 = (await setting(page, 'lamp', 'z')) as number;
   const vp = page.viewportSize()!;
-  const to = { x: Math.min(vp.width - 20, lamp.x + vp.width * 0.18), y: Math.min(vp.height - 20, lamp.y + vp.height * 0.2) };
+  const to = { x: Math.min(vp.width - 20, lamp.x + vp.width * 0.18), y: Math.min(vp.height - 20, lamp.y + vp.height * (kind === 'touch' ? 0.32 : 0.2)) };
   await hand.down(lamp);
   await page.waitForTimeout(40);
   for (const [i, p] of line(lamp, to, 16).slice(1).entries()) {
@@ -270,7 +291,8 @@ async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Pr
   }
   await page.waitForTimeout(250);
   await hand.up(to);
-  await expect.poll(() => holding(page), { timeout: 2000 }).toBeNull();
+  const diagL = async () => JSON.stringify(await page.evaluate(() => { const ws = (window as any).__bench.ws; return { held: ws.gestures.held, state: ws.gestures.state, w: ws.world.holding(), ints: (window as any).__ints?.slice(-6) }; }));
+  await expect.poll(() => holding(page), { timeout: 2000, message: 'lamp let go' }).toBeNull().catch(async (e) => { throw new Error(`${e}\n${await diagL()}`); });
   await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.machine('lamp').dragging), { timeout: 2000 }).toBe(false);
   await shoot(page, `${tag}-lamp-after`);
   expect(Math.max(...(await camPos(page)).map((v: number, i: number) => Math.abs(v - camL[i])))).toBeLessThan(0.01);
@@ -324,15 +346,21 @@ async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Pr
 
   // 6. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
   expect(await setting(page, 'cord', 'jack')).toBe('jack-storefront');
-  await bringIntoView(page, hand, 'cord', kind);
+  await bringIntoView(page, hand, 'cord', kind, 0.25); // (not to the middle: the LAMP jack must stay in the frame too)
   const from = await jackAt(page, 'jack-storefront');
   const lampJack = await jackAt(page, 'jack-lamp');
   const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
+  const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
   await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
-  await expect.poll(() => setting(page, 'cord', 'jack'), { timeout: 2000 }).toBe('jack-lamp');
+  await expect
+    .poll(() => setting(page, 'cord', 'jack'), { timeout: 2000 })
+    .toBe('jack-lamp')
+    .catch(async (e) => {
+      throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
+    });
 
   // 7. the phone: opened from the bench, a ready-made text sent down the line
-  const phone = await bringIntoView(page, hand, 'line', kind);
+  const phone = await bringIntoView(page, hand, 'phone', kind);
   await use(page, hand, [phone, phone]);
   const panel = page.getByRole('dialog');
   await expect(panel).toBeVisible();
@@ -342,8 +370,9 @@ async function workTheBench(page: Page, hand: Hand, kind: 'mouse' | 'touch'): Pr
   if (kind === 'mouse') await key.click();
   else await key.tap();
   await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 3000 }).toBe(sent + 1);
+  const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
   await page.keyboard.press('Escape');
-  await expect(panel).toBeHidden();
+  await expect(panel, JSON.stringify(diag2)).toBeHidden();
 }
 
 test('a mouse works the whole bench: dial, lever, UNDO, lamp, Patch, the plug near LAMP, the phone', async ({ page }) => {
@@ -351,7 +380,16 @@ test('a mouse works the whole bench: dial, lever, UNDO, lamp, Patch, the plug ne
   await open(page, 1440, 900);
   const stood = await standIns(page);
   console.log(`[I1] mouse 1440×900: stand-in pick targets (no view registered one): ${stood.join(', ') || 'none'}`);
-  await page.evaluate(() => (window as any).__bench.ws.latency.reset());
+  await page.evaluate(() => {
+    (window as any).__bench.ws.latency.reset();
+    const w = (window as any).__bench.ws.world;
+    const d0 = w.dispatch.bind(w);
+    (window as any).__ints = [];
+    w.dispatch = (i: any) => {
+      if (i.type !== 'hover' && i.type !== 'carry') (window as any).__ints.push(`${w.step}:${JSON.stringify(i).slice(0, 80)}`);
+      d0(i);
+    };
+  });
   expect(await page.evaluate(() => (window as any).__bench.ws.world.playMode)).toBe(false);
   // a hover alone does not end attract mode
   const dial = (await screenOf(page, 'belt-dial'))!;
@@ -372,6 +410,15 @@ test('a finger works the whole bench at the phone framing (390×844), and nothin
   await open(page, 390, 844);
   const stood = await standIns(page);
   console.log(`[I1] touch 390×844: stand-in pick targets: ${stood.join(', ') || 'none'}`);
+  await page.evaluate(() => {
+    const w = (window as any).__bench.ws.world;
+    const d0 = w.dispatch.bind(w);
+    (window as any).__ints = [];
+    w.dispatch = (i: any) => {
+      if (i.type !== 'hover' && i.type !== 'carry') (window as any).__ints.push(`${w.step}:${JSON.stringify(i).slice(0, 80)}`);
+      d0(i);
+    };
+  });
   const cdp = await ctx.newCDPSession(page);
   await workTheBench(page, fingerHand(cdp), 'touch');
   // two fingers anywhere pan and pinch, even with one of them on a usable thing (the Button)
@@ -404,7 +451,7 @@ test('every pick target is at least 44 px on a touch screen at the phone framing
   // A 44 px square round each target's centre: every point of its edge (and the centre) picks it on touch,
   // unless a neighbour's centre is nearer that point (two small things side by side split the space between them).
   // Things the home framing leaves off screen are panned to the middle first, at the home zoom.
-  const ids = ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'line', 'button-cover', 'button', 'lamp', 'cord'];
+  const ids = ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'phone', 'button-cover', 'button', 'lamp', 'cord'];
   const out: Record<string, string> = {};
   for (const id of ids) {
     const centred = await page.evaluate((id) => {
@@ -474,15 +521,12 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   await tabTo('belt-dial');
   expect(await hovered(page), 'focus lifts like a hover').toBe('belt-dial');
   await page.keyboard.press('ArrowRight');
-  await frames(page);
-  expect((await belt(page)).speed).toBe(4);
+  await expect.poll(async () => (await belt(page)).speed).toBe(4);
   await page.keyboard.press('Enter');
-  await frames(page);
-  expect((await belt(page)).speed).toBe(5);
+  await expect.poll(async () => (await belt(page)).speed).toBe(5);
   await tabTo('belt-lever');
   await page.keyboard.press('ArrowLeft');
-  await frames(page);
-  expect(await belt(page)).toMatchObject({ running: false });
+  await expect.poll(async () => belt(page)).toMatchObject({ running: false });
   const undos = await logCount(page, 'undone');
   await page.keyboard.press('u');
   await expect.poll(() => logCount(page, 'undone')).toBe(undos + 1);
@@ -493,14 +537,14 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   await page.keyboard.press('Enter');
   await expect.poll(() => setting(page, 'cord', 'jack')).toBe('jack-lamp');
   // the phone: Enter opens it, and its keys stay its own
-  await tabTo('line');
+  await tabTo('phone');
   await page.keyboard.press('Enter');
   const panel = page.getByRole('dialog');
   await expect(panel).toBeVisible();
   const before = await logCount(page, 'undone');
   await panel.locator('input, textarea').first().focus();
   await page.keyboard.type('u');
-  await frames(page);
+  await frames(page, 30);
   expect(await logCount(page, 'undone'), 'U typed in the phone is a letter, not an undo').toBe(before);
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
