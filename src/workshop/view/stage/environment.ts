@@ -37,8 +37,10 @@ export interface EnvOptions {
   width?: number;
   /** The lamp panel direction from the bench centre (toward the bulb). */
   lampDir?: readonly [number, number, number];
-  /** The window panel direction. */
+  /** The window panel direction (default: the room's window, from the bench centre). */
   windowDir?: readonly [number, number, number];
+  /** The lamp panel's colour (default the warm lamp's; a lamp in a paint passes its own). */
+  warm?: RGB;
   lampIntensity?: number;
   windowIntensity?: number;
   roomIntensity?: number;
@@ -83,6 +85,9 @@ export function envRadiance(dir: readonly [number, number, number], panels: read
   return [r, g, b];
 }
 
+/** Where the window is, from the bench centre (the room's window piece). */
+export const WINDOW_DIR: readonly [number, number, number] = [7, 2.85, -5];
+
 export function defaultPanels(opts: EnvOptions = {}): EnvPanel[] {
   const c = stageColours();
   return [
@@ -91,11 +96,12 @@ export function defaultPanels(opts: EnvOptions = {}): EnvPanel[] {
       halfW: 0.3,
       halfH: 0.18,
       soft: 0.1,
-      colour: c.envWarm,
+      colour: opts.warm ?? c.envWarm,
       intensity: opts.lampIntensity ?? 5,
     },
     {
-      dir: opts.windowDir ?? [0.9, 0.38, -0.32],
+      // the room's window (the room engineer's [7, 2.85, -5] from the bench centre); was [0.9, 0.38, -0.32]
+      dir: opts.windowDir ?? WINDOW_DIR,
       halfW: 0.16,
       halfH: 0.5,
       soft: 0.06,
