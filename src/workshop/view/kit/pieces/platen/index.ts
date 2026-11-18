@@ -166,8 +166,20 @@ export function platen(o: PlatenOptions = {}): Piece {
     const rp = TR.r - 0.03; // the steel platter inside the brass rim
     const yT = TR.seatY;
     // the steel platter (its spindle is hidden under it)
-    const plat = turned(profile(rp, yT - 0.02).to(rp, yT, { sharp: true }).to(0, yT), hi ? 28 : 20, 'end');
-    tray.add(setFinish(part('steel', noWear(plat), 'steel', { seed: seed + 7, shade: 0.72 }), 0.5));
+    const plat = turned(profile(rp, yT - 0.02).to(rp, yT, { sharp: true }).to(0.34, yT).to(0, yT), hi ? 28 : 20, 'end');
+    part('steel', noWear(plat), 'steel', { seed: seed + 7, shade: 0.72 });
+    // a darker worn centre where parts are set down and turned: a radial fall of the vertex colour
+    {
+      const pos = plat.getAttribute('position'), col = plat.getAttribute('color');
+      for (let i = 0; i < pos.count; i++) {
+        const r = Math.hypot(pos.getX(i), pos.getZ(i));
+        const k = r < 0.34 ? 0.5 + 0.5 * Math.pow(r / 0.34, 1.5) : 1;
+        col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k * 0.95);
+      }
+    }
+    tray.add(setFinish({ material: 'steel', geometry: plat }, 0.5));
+    // three scribed rings
+    for (const rr of [0.2, 0.42, 0.585]) tray.add(part('steel', noWear(turned(profile(rr + 0.005, yT + 0.0012).to(rr - 0.005, yT + 0.0012), hi ? 28 : 20, false)), 'steel', { shade: 0.4 }));
     // the brass rim, its knurled edge where a hand turns it
     const rim = turned(profile(rp - 0.004, 0.05).to(TR.r, 0.05, { sharp: true }).to(TR.r, 0.064, { sharp: true }).to(rp - 0.004, yT + 0.006), hi ? 28 : 20, false);
     tray.add(setFinish(part('brass', rim, 'brass', { seed: seed + 8, warm: 0.03 }), 0.4));
@@ -194,86 +206,119 @@ export function platen(o: PlatenOptions = {}): Piece {
       const g2 = transform(stud(s, 0.003, 7), chain(T(Math.cos(a) * rr, yT - 0.0005, Math.sin(a) * rr), Ry(R.range(0, 3)), new Matrix4().makeScale(R.range(1, 1.8), 1, 1)));
       tray.add(setFinish(part('steel', noWear(g2), R.pick(paints), { seed: seed + 70 + i, shade: 0.85 }), 0.5));
     }
+    // the strip of label tape the head lays on an L crate's top front batten, left to right (the pose pays it out)
+    {
+      const L = PLATEN.label;
+      const strip = tray.node('label.strip', chain(T(L.x0, yT + L.y, L.z), new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)));
+      strip.add(part('rubber', transform(sheet({ w: L.x1 - L.x0, h: L.h, t: 0.003, nx: 1, ny: 1 }), T((L.x1 - L.x0) / 2, 0, 0)), 'ink', { shade: 1.3 }));
+    }
     if (o.load) tray.node('load', T(0, yT, 0)).add(loadParts(o.load, { seed, ...(o.crateStencil ? { stencil: true } : {}), paint: o.cratePaint ?? null }));
   }
 
   // ======================================================================
-  // THE COLUMN and THE ARM
+  // THE COLUMN and THE ARM: a cast pedestal that tapers to a bright slide;
+  // the arm's sleeve rides it (dip) and turns on it (swing)
   // ======================================================================
   const PX = PLATEN.pillar.x, PZ = PLATEN.pillar.z, PY = PLATEN.pivotY;
-  const colTop = PY + 0.16;
-  const sleeveLo = -0.16; // the sleeve's foot, in the arm's frame
+  const colTop = PY + 0.17;
+  const sleeveLo = -0.2; // the sleeve's foot, in the arm's frame
   const stopY = PY + sleeveLo - POSE.dipDrop; // where the sleeve sits at full dip
+  const colR = (y: number): number => 0.16 - ((y - yTop) / (stopY - yTop)) * 0.05; // the pedestal's radius at height y
   {
-    // a bolted foot; a plain turned column the arm's sleeve rides up and down (bright where it slides); a stop collar; a cap
-    const foot = turned(profile(0, 0).to(0.22, 0, { sharp: true }).to(0.22, 0.03, { fillet: 0.01, segs: 1 }).to(0.12, 0.07, { fillet: 0.04, segs: 2 }).to(0.095, 0.16, { sharp: true }).to(0, 0.16), 14, 'end');
+    // a bolted cast foot flaring into the pedestal
+    const foot = turned(profile(0, 0).to(0.27, 0, { sharp: true }).to(0.27, 0.035, { fillet: 0.012, segs: 1 }).to(0.19, 0.08, { fillet: 0.05, segs: 2 }).to(colR(yTop + 0.2) + 0.005, 0.2, { sharp: true }).to(0, 0.2), 16, 'end');
     b.add(part('steel', transform(foot, T(PX, yTop, PZ)), 'teal-panel', { seed: seed + 20, shade: 1.0 }));
-    const lower = turned(profile(0.09, 0.14).to(0.075, stopY - yTop - 0.3, { smooth: true }).to(0.075, stopY - yTop, { sharp: true }).to(0, stopY - yTop), 12, false);
+    // the pedestal: tapering, a cast rib-band two thirds up, a chamfered head where the slide comes out
+    const lower = turned(profile(colR(yTop + 0.18), 0.18).to(colR(stopY - 0.4), stopY - yTop - 0.4, { smooth: true }).to(colR(stopY - 0.4) + 0.02, stopY - yTop - 0.36, { sharp: true }).to(colR(stopY - 0.4) + 0.02, stopY - yTop - 0.3, { sharp: true }).to(colR(stopY), stopY - yTop - 0.26, { sharp: true }).to(colR(stopY), stopY - yTop - 0.05, { smooth: true }).to(0.085, stopY - yTop, { fillet: 0.02, segs: 1 }).to(0, stopY - yTop), 14, false);
     b.add(part('steel', transform(lower, T(PX, yTop, PZ)), 'teal-panel', { seed: seed + 21, shade: 1.15 }));
-    const slide = turned(profile(0.062, 0).to(0.062, colTop - stopY - 0.03, { smooth: true }).to(0.075, colTop - stopY - 0.02, { fillet: 0.01, segs: 1 }).to(0.075, colTop - stopY + 0.02, { fillet: 0.012, segs: 1 }).to(0, colTop - stopY + 0.035), 12, false);
+    const slide = turned(profile(0.085, 0).to(0.085, colTop - stopY - 0.03, { smooth: true }).to(0.1, colTop - stopY - 0.02, { fillet: 0.01, segs: 1 }).to(0.1, colTop - stopY + 0.02, { fillet: 0.014, segs: 1 }).to(0, colTop - stopY + 0.035), 12, false);
     b.add(setFinish(part('steel', noWear(transform(slide, T(PX, stopY, PZ))), 'steel', { seed: seed + 25, shade: 1.1 }), 0.7));
-    for (const [y, rr] of [[stopY - yTop - 0.045, 0.078]] as const) {
-      const c = turned(profile(rr, 0).to(rr + 0.016, 0.004, { sharp: true }).to(rr + 0.016, 0.044, { sharp: true }).to(rr, 0.048), 12, false);
-      b.add(setFinish(part('brass', transform(c, T(PX, yTop + y, PZ)), 'brass', { seed: seed + 22 }), 0.5));
-    }
+    // the brass stop collar the sleeve lands on
+    const c = turned(profile(0.1, 0).to(0.125, 0.004, { sharp: true }).to(0.125, 0.05, { sharp: true }).to(0.085, 0.055), 12, false);
+    b.add(setFinish(part('brass', transform(c, T(PX, stopY - 0.055, PZ)), 'brass', { seed: seed + 22 }), 0.5));
     for (let k = 0; k < 3; k++) {
       const a = (k + 0.25) * ((Math.PI * 2) / 3);
-      b.small(() => part('steel', transform(hexHead(0.07, 0.035, R.range(0, 1)), T(PX + Math.cos(a) * 0.18, yTop + 0.02, PZ + Math.sin(a) * 0.18)), 'steel', { seed: seed + 24 + k }));
+      b.small(() => part('steel', transform(hexHead(0.08, 0.04, R.range(0, 1)), T(PX + Math.cos(a) * 0.225, yTop + 0.025, PZ + Math.sin(a) * 0.225)), 'steel', { seed: seed + 24 + k }));
     }
   }
 
   // the arm: built along its local +X (the beam), pivot at the origin
   const arm = b.node('arm', chain(T(PX, PY, PZ), Ry(YAW_IDLE)));
-  const tail = 0.42;
+  const tail = 0.5;
+  const bz0 = 0.1, bz1 = 0.18, bh = 0.095;
   {
-    // the sleeve: a turned collar round the column; it turns and slides with the arm
-    const sl = turned(profile(0.07, sleeveLo).to(0.12, sleeveLo, { sharp: true }).to(0.125, sleeveLo + 0.02, { fillet: 0.01, segs: 1 }).to(0.115, 0.04, { smooth: true }).to(0.12, 0.06, { fillet: 0.01, segs: 1 }).to(0.07, 0.065), 14, false);
+    // the sleeve: a stout turned collar round the slide; it turns and slides with the arm
+    const sl = turned(profile(0.09, sleeveLo).to(0.17, sleeveLo, { sharp: true }).to(0.175, sleeveLo + 0.03, { fillet: 0.012, segs: 1 }).to(0.16, 0.05, { smooth: true }).to(0.165, 0.08, { fillet: 0.012, segs: 1 }).to(0.09, 0.085), 14, false);
     arm.add(part('steel', sl, 'teal-panel', { seed: seed + 30, shade: 1.05 }));
     // a brass locking handle on the sleeve's front: the hand that sets the height goes here
-    arm.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.014, 0, { sharp: true }).to(0.014, 0.1).to(0.03, 0.115, { fillet: 0.012, segs: 1 }).to(0, 0.15), 8), aim([0, -0.08, 0.11], [0.2, 0.1, 1])), 'brass', { seed: seed + 29 }), 0.7));
-    // the beam: two flat bars straddling the column, tied by blocks at the nose and the tail
-    const bz0 = 0.09, bz1 = 0.15, bh = 0.07;
+    arm.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.016, 0, { sharp: true }).to(0.016, 0.1).to(0.034, 0.118, { fillet: 0.014, segs: 1 }).to(0, 0.155), 8), aim([0, -0.12, 0.16], [0.2, 0.1, 1])), 'brass', { seed: seed + 29 }), 0.7));
+    // the beam: two deep flat bars straddling the column, tied by a nose block
     for (const s of [-1, 1]) {
-      arm.add(part('steel', grain(bevelBox({ min: [-tail, -bh, s > 0 ? bz0 : -bz1], max: [BEAM - 0.02, bh, s > 0 ? bz1 : -bz0], c: 0.016, wear: 0.8 }), 'x'), 'teal-panel', { seed: seed + 33 + s, shade: 1.2 }));
+      arm.add(part('steel', grain(bevelBox({ min: [-tail, -bh, s > 0 ? bz0 : -bz1], max: [BEAM - 0.02, bh, s > 0 ? bz1 : -bz0], c: 0.02, wear: 0.8 }), 'x'), 'teal-panel', { seed: seed + 33 + s, shade: 1.2 }));
     }
-    arm.add(part('steel', grain(bevelBox({ min: [BEAM - 0.12, -bh - 0.01, -bz1 - 0.005], max: [BEAM, bh + 0.01, bz1 + 0.005], c: 0.02, wear: 0.9 }), 'x'), 'teal-panel', { seed: seed + 32, shade: 1.1 }));
-    for (const x of [0.22]) for (const s of [1]) arm.small(() => place([part('steel', stud(0.018, 0.01, 6), 'steel', { seed: seed + 31 })], chain(T(x, 0, s * (bz1 + 0.001)), Rx((s * Math.PI) / 2))));
-    // the counterweight on the tail: a heavy cast block with a brass nut
+    arm.add(part('steel', grain(bevelBox({ min: [BEAM - 0.1, -bh - 0.01, -bz0], max: [BEAM + 0.02, bh + 0.01, bz0], c: 0.025, wear: 0.9 }), 'x'), 'teal-panel', { seed: seed + 32, shade: 1.1 }));
+    arm.small(() => place([part('steel', stud(0.022, 0.012, 6), 'steel', { seed: seed + 31 })], chain(T(0.26, 0, bz1 + 0.001), Rx(Math.PI / 2))));
+    // the counterweight on the tail: a big cast block, bevelled, a brass nut on its end
     {
-      const g = bevelBox({ min: [-tail - 0.02, -0.12, -0.1], max: [-tail + 0.22, 0.1, 0.1], c: 0.035, wear: 0.9 });
-      arm.add(part('steel', g, 'ink', { seed: seed + 34, shade: 2.2 }));
-      arm.add(setFinish(part('brass', transform(hexHead(0.08, 0.035, 0.3), chain(T(-tail - 0.02, 0.02, 0), Rz(Math.PI / 2))), 'brass', { seed: seed + 35 }), 0.6));
+      const g = bevelBox({ min: [-tail - 0.06, -0.19, -0.2], max: [-tail + 0.26, 0.14, 0.2], c: 0.05, wear: 0.95 });
+      arm.add(part('steel', g, 'ink', { seed: seed + 34, shade: 2.3 }));
+      arm.add(setFinish(part('brass', transform(hexHead(0.11, 0.045, 0.3), chain(T(-tail - 0.06, -0.02, 0), Rz(Math.PI / 2))), 'brass', { seed: seed + 35 }), 0.6));
     }
-    // the hose along the beam's top, out of the head, held by two clips
+    // the hose along the beam's top, out of the sleeve to the gooseneck
     {
       const hz = (bz0 + bz1) / 2, hy = bh + 0.028;
-      const pts = [new Vector3(0.1, hy - 0.04, hz + 0.02), new Vector3(0.2, hy, hz), new Vector3(BEAM - 0.25, hy, hz), new Vector3(BEAM - 0.1, hy + 0.01, 0.03), new Vector3(BEAM - 0.03, 0.06, 0)];
-      arm.add(part('rubber', sweep(curvePath(new CatmullRomCurve3(pts, false, 'centripetal'), 9), { radius: 0.028, segs: 5, ends: 'flat', detail }), 'wood-light', { seed: seed + 36, shade: 0.75 }));
-      // the union on the sleeve where it leaves, a clip on the bar
-      arm.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.04, 0, { fillet: 0.006, segs: 1 }).to(0.04, 0.05, { fillet: 0.006, segs: 1 }).to(0, 0.05), 8), aim([0.06, hy - 0.06, hz + 0.02], [1, 0.4, 0])), 'brass', { seed: seed + 38 }), 0.5));
-
+      const pts = [new Vector3(0.1, hy - 0.05, -hz), new Vector3(0.22, hy, -hz), new Vector3(BEAM - 0.25, hy, -hz), new Vector3(BEAM - 0.1, hy + 0.01, -0.03), new Vector3(BEAM - 0.02, 0.07, 0)];
+      arm.add(part('rubber', sweep(curvePath(new CatmullRomCurve3(pts, false, 'centripetal'), 9), { radius: 0.03, segs: 5, ends: 'flat', detail }), 'wood-light', { seed: seed + 36, shade: 0.75 }));
+      arm.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.042, 0, { fillet: 0.006, segs: 1 }).to(0.042, 0.05, { fillet: 0.006, segs: 1 }).to(0, 0.05), 8), aim([0.09, hy - 0.08, -hz], [1, 0.4, 0])), 'brass', { seed: seed + 38 }), 0.5));
     }
   }
 
-  // the nozzle: a brass gooseneck off the beam's end, plumb
+  // the nozzle: a brass gooseneck off the beam's end, plumb, ending in a spray bell
   const nozzle = arm.node('nozzle', T(BEAM, 0, 0));
   const G = PLATEN.goose;
   const tipY = -G.drop;
   {
-    // a coupling on the beam's end
-    const cpl = turned(profile(0, 0).to(0.05, 0, { fillet: 0.008, segs: 1 }).to(0.05, 0.06, { fillet: 0.008, segs: 1 }).to(0.036, 0.07).to(0, 0.07), 10);
-    nozzle.add(setFinish(part('brass', transform(cpl, chain(T(-0.03, 0.06, 0), Rz(-Math.PI / 2))), 'brass', { seed: seed + 40 }), 0.5));
-    const neck = sweep(polylinePath([[0.03, 0.06, 0], [G.out, 0.06, 0], [G.out, tipY + 0.16, 0]], 0.09, hi ? 5 : 3), { radius: 0.027, segs: hi ? 7 : 6, ends: 'flat', detail });
+    const neck = sweep(polylinePath([[0.0, 0.07, 0], [G.out, 0.07, 0], [G.out, tipY + 0.17, 0]], 0.08, hi ? 4 : 3), { radius: 0.03, segs: hi ? 7 : 6, ends: 'flat', detail });
     nozzle.add(setFinish(part('brass', neck, 'brass', { seed: seed + 41, warm: 0.03 }), 0.75));
-    // the nozzle body: a knurled collar and a turned tip
+    // the bell: a knurled collar, then a flared funnel open at the bottom, its rim rolled
     const tipM = T(G.out, tipY, 0);
-    const body = turned(profile(0, 0).to(0.014, 0, { sharp: true }).to(0.02, 0.05, { smooth: true }).to(0.042, 0.1, { fillet: 0.01, segs: 1 }).to(0.042, 0.16, { fillet: 0.008, segs: 1 }).to(0.026, 0.165).to(0, 0.165), 12);
-    nozzle.add(setFinish(part('brass', transform(body, tipM), 'brass', { seed: seed + 42 }), 0.85));
-    nozzle.add(part('brass', transform(ridgedBand(0.046, 0.04, hi ? 14 : 10, 0.006), chain(tipM, T(0, 0.11, 0))), 'brass', { seed: seed + 43, shade: 0.85 }));
-    // the stream, built hanging from the tip; the pose scales it
-    const stream = turned(profile(0, -0.3).to(0.034, -0.292, { fillet: 0.016, segs: 2 }).to(0.036, -0.266, { fillet: 0.012, segs: 1 }).to(0.018, -0.2, { smooth: true }).to(0.02, -0.02, { smooth: true }).to(0.022, 0.004).to(0, 0.004), 8);
+    const bell = turned(profile(0.05, 0.004).to(0.095, 0, { fillet: 0.01, segs: 1 }).to(0.088, 0.01, { sharp: true }).curve(0.045, 0.1, 0.05, 0.03, 3).to(0.04, 0.17, { smooth: true }).to(0, 0.17), 14);
+    nozzle.add(setFinish(part('brass', transform(bell, tipM), 'brass', { seed: seed + 42 }), 0.85));
+    nozzle.add(part('brass', transform(ridgedBand(0.046, 0.045, hi ? 12 : 9, 0.007), chain(tipM, T(0, 0.115, 0))), 'brass', { seed: seed + 43, shade: 0.85 }));
+    // the spray: a cone of paint out of the bell's mouth; the pose scales it down from the mouth
+    const stream = turned(profile(0, -0.28).to(0.07, -0.276, { fillet: 0.02, segs: 1 }).to(0.062, -0.2, { smooth: true }).to(0.05, 0.004, { smooth: true }).to(0, 0.004), 10);
     const pn = nozzle.node('nozzle.paint', chain(tipM, new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)));
     pn.add(setFinish(part('steel', noWear(stream), PAINT_BASE), 0.55));
+  }
+
+  // ======================================================================
+  // THE TAPE HEAD: a carriage on the beam's front bar beside the nozzle,
+  // its reel of black tape facing the visitor; a sprung ram drops a rubber
+  // roller onto the part's top front edge and the carriage runs it left to
+  // right, laying the tape behind it
+  // ======================================================================
+  const LH = PLATEN.labelHead;
+  const head = arm.node('tapehead', T(LH.start, 0, 0));
+  {
+    const cz = bz1 + 0.005;
+    // the carriage: a block hooked over the front bar, a lip on top
+    head.add(part('steel', bevelBox({ min: [-0.085, -bh - 0.03, cz], max: [0.085, bh + 0.02, cz + 0.11], c: 0.025, wear: 0.9 }), 'tape-yellow', { seed: seed + 84, shade: 0.9, jitter: 0.03 }));
+    head.add(part('steel', bevelBox({ min: [-0.085, bh, bz0 + 0.01], max: [0.085, bh + 0.03, cz + 0.02], c: 0.01 }), 'tape-yellow', { seed: seed + 85, shade: 0.8 }));
+    // the arm out to the ram's guide, and the guide
+    head.add(part('steel', bevelBox({ min: [0.04, -0.06, cz + 0.08], max: [LH.out + 0.03, 0.0, LH.z + 0.03], c: 0.015 }), 'tape-yellow', { seed: seed + 86, shade: 0.85 }));
+    head.add(setFinish(part('brass', transform(turned(profile(0.024, 0).to(0.034, 0, { sharp: true }).to(0.034, 0.14, { fillet: 0.008, segs: 1 }).to(0.024, 0.15), 10, false), T(LH.out, -0.2, LH.z)), 'brass', { seed: seed + 87 }), 0.6));
+    // the reel: a spool of black tape on a brass hub, turning as it pays out
+    const reel = head.node('tapehead.reel', chain(T(-0.01, -0.01, cz + 0.11), Rx(Math.PI / 2)));
+    reel.add(part('rubber', turned(profile(0.04, 0).to(0.11, 0, { sharp: true }).to(0.11, 0.05, { sharp: true }).to(0.04, 0.05), 16, false), 'ink', { seed: seed + 88 }));
+    reel.add(setFinish(part('brass', transform(turned(profile(0, -0.004).to(0.125, -0.004, { sharp: true }).to(0.125, 0.004, { sharp: true }).to(0, 0.004), 16, 'end'), T(0, 0.054, 0)), 'brass', { seed: seed + 89 }), 0.5));
+    reel.add(setFinish(part('brass', bevelBox({ min: [-0.012, 0.055, -0.1], max: [0.012, 0.064, 0.1], c: 0 }), 'brass', { seed: seed + 90 }), 0.7));
+    reel.add(setFinish(part('brass', turned(profile(0, 0).to(0.038, 0, { sharp: true }).to(0.038, 0.07, { fillet: 0.012, segs: 1 }).to(0, 0.078), 8), 'brass', { seed: seed + 91 }), 0.8));
+    // the ram: a brass rod out of the guide, a fork and the rubber roller (axis across the part, +Z)
+    const ram = head.node('tapehead.ram', T(LH.out, 0, LH.z));
+    ram.add(setFinish(part('brass', sweep(polylinePath([[0, -0.06, 0], [0, -LH.hang + 0.08, 0]], 0, 1), { radius: 0.017, segs: 6, ends: 'flat', detail }), 'brass', { seed: seed + 92 }), 0.85));
+    ram.add(part('brass', bevelBox({ min: [-0.03, -LH.hang + 0.05, -0.075], max: [0.03, -LH.hang + 0.085, 0.075], c: 0.008 }), 'brass', { seed: seed + 93 }));
+    for (const s of [-1, 1]) ram.add(part('brass', bevelBox({ min: [-0.02, -LH.hang + 0.02, s * 0.066 - 0.008], max: [0.02, -LH.hang + 0.06, s * 0.066 + 0.008], c: 0 }), 'brass', { seed: seed + 94 }));
+    ram.add(part('rubber', transform(turned(profile(0, -0.055).to(0.05, -0.055, { fillet: 0.012, segs: 1 }).to(0.05, 0.055, { fillet: 0.012, segs: 1 }).to(0, 0.055), 10), chain(T(0, -LH.hang + 0.05, 0), Rx(Math.PI / 2))), 'ink', { seed: seed + 95 }));
   }
 
   // ======================================================================
@@ -326,6 +371,9 @@ export function platen(o: PlatenOptions = {}): Piece {
     // the dark glass between them
     b.add(setFinish(part('steel', noWear(transform(turned(profile(0.038, 0).to(0.038, st1 - st0, { smooth: true }), 10, false), T(sx, st0, sz))), 'teal-deep', { seed: seed + 55, shade: 0.7 }), 1));
     b.add(fitting(st0, false), fitting(st1, true));
+    // a dark enamel strip on the tank behind the tube, so any paint (cream too) reads against it
+    b.add(part('steel', bevelBox({ min: [-0.075, st0 - 0.07, -0.02], max: [0.075, st1 + 0.07, 0.012], c: 0.012, omit: ['nz'] }), 'teal-deep', { seed: seed + 54, shade: 1.3 }));
+    transform(b.parts[b.parts.length - 1]!.geometry, chain(T(TK.x + sightDir.x * (TK.r + 0.005), 0, TK.z + sightDir.z * (TK.r + 0.005)), Ry(face)));
     // two guard rods in front of the glass
     for (const s of [-1, 1]) {
       const off = new Vector3(Math.cos(face), 0, -Math.sin(face)).multiplyScalar(s * 0.05);
@@ -389,7 +437,7 @@ export function platen(o: PlatenOptions = {}): Piece {
     wheel.add(part('steel', transform(turned(profile(0, 0).to(0.016, 0, { sharp: true }).to(0.018, 0.04, { fillet: 0.008, segs: 1 }).to(0, 0.05), 6), T(wr * Math.cos(0.3 + Math.PI / 4), 0.01, -wr * Math.sin(0.3 + Math.PI / 4))), 'tape-yellow', { seed: seed + 70 }));
     // the hose: out of the valve, down onto the deck behind the tray, between the pot and the dish, up into the column's gland
     const gdir = new Vector3(0.55, 0, -0.83).normalize();
-    const gland = new Vector3(PX, yTop + 0.42, PZ).addScaledVector(gdir, 0.085);
+    const gland = new Vector3(PX, yTop + 0.42, PZ).addScaledVector(gdir, colR(yTop + 0.42) + 0.005);
     const hr = 0.035, lie = yTop + hr;
     const pts = [
       valve.clone().add(new Vector3(-0.1, 0, 0)),
@@ -409,50 +457,14 @@ export function platen(o: PlatenOptions = {}): Piece {
       return setFinish(part('brass', transform(f, aim(v3(at), v3(dir))), 'brass', { seed: seed + 72 }), 0.5);
     };
     b.add(ferrule(valve.clone().add(new Vector3(-0.1, 0, 0)), new Vector3(1, 0, 0)), ferrule(gland.clone().addScaledVector(gdir, 0.04), gdir.clone().negate()));
-    b.add(part('steel', transform(turned(profile(0, 0).to(0.06, 0, { fillet: 0.01, segs: 1 }).to(0.055, 0.05, { fillet: 0.01, segs: 1 }).to(0, 0.05), 10), aim(v3(new Vector3(PX, yTop + 0.42, PZ).addScaledVector(gdir, 0.05)), v3(gdir))), 'teal-panel', { seed: seed + 73 }));
-  }
-
-  // ======================================================================
-  // THE TAPE HEAD: a housing clamped to the column at crate height, its
-  // reel of black tape on the front; a brass ram runs a rubber roller out
-  // toward the tray and presses the tape on (node `tapehead`, along +X)
-  // ======================================================================
-  const TH = PLATEN.tapehead;
-  {
-    const x0 = PX + 0.035, x1 = PX + TH.reach - 0.11, y0 = TH.y - 0.14, y1 = TH.y + 0.1, hd = 0.12;
-    b.add(part('steel', bevelBox({ min: [x0, y0, PZ - hd], max: [x1, y1, PZ + hd], c: 0.03, wear: 0.9 }), 'teal-light', { seed: seed + 84, shade: 0.95, jitter: 0.03 }));
-    // the clamp round the column, two bolts pulling it tight
-    b.add(setFinish(part('brass', transform(turned(profile(0.074, 0).to(0.092, 0, { sharp: true }).to(0.092, 0.07, { sharp: true }).to(0.074, 0.07), 12, false), T(PX, TH.y - 0.06, PZ)), 'brass', { seed: seed + 80 }), 0.4));
-    for (const dy of [-0.045, 0.045]) b.small(() => part('steel', transform(hexHead(0.04, 0.02, 0.2), aim([PX - 0.09, TH.y - 0.025 + dy * 0.4, PZ], [-1, 0, 0])), 'steel', { seed: seed + 81 }));
-    // the reel: a spool of black tape on a brass flange and hub, on the front face
-    const reelM = chain(T((x0 + x1) / 2, TH.y - 0.02, PZ + hd), Rx(Math.PI / 2));
-    b.add(part('rubber', transform(turned(profile(0.035, 0).to(0.09, 0, { sharp: true }).to(0.09, 0.045, { sharp: true }).to(0.035, 0.045), 14, false), reelM), 'ink', { seed: seed + 85 }));
-    b.add(setFinish(part('brass', transform(turned(profile(0, -0.004).to(0.105, -0.004, { sharp: true }).to(0.105, 0.004, { sharp: true }).to(0, 0.004), 14, 'end'), chain(reelM, T(0, 0.045, 0))), 'brass', { seed: seed + 86 }), 0.5));
-    b.add(setFinish(part('brass', transform(turned(profile(0, 0).to(0.032, 0, { sharp: true }).to(0.032, 0.06, { fillet: 0.01, segs: 1 }).to(0, 0.066), 8), reelM), 'brass', { seed: seed + 87 }), 0.8));
-    // the cutter lever on top, its knob tape-yellow (a thumb goes there)
-    b.add(part('steel', sweep(polylinePath([[x1 - 0.03, y1, PZ + 0.04], [x1 - 0.02, y1 + 0.08, PZ + 0.04], [x0 + 0.02, y1 + 0.12, PZ + 0.04]], 0.04, 2), { radius: 0.01, segs: 5, ends: 'flat', detail }), 'steel', { seed: seed + 90 }));
-    b.add(part('steel', transform(turned(profile(0, 0).to(0.026, 0, { fillet: 0.01, segs: 1 }).to(0.026, 0.05, { fillet: 0.012, segs: 1 }).to(0, 0.055), 8), aim([x0 + 0.02, y1 + 0.12, PZ + 0.04], [-1, 0.2, 0])), 'tape-yellow', { seed: seed + 91 }));
-    // two brass guides the ram slides in
-    for (const dz of [-0.06, 0.06]) b.add(setFinish(part('brass', transform(turned(profile(0.02, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.03, { sharp: true }).to(0.02, 0.03), 8, false), aim([x1, TH.y - 0.1, PZ + dz], [1, 0, 0])), 'brass', { seed: seed + 92 }), 0.6));
-  }
-  const head = b.node('tapehead', T(PX + TH.reach, TH.y - 0.1, PZ));
-  {
-    // the ram: two brass rods out of the guides, a cross-head, the fork and the rubber roller
-    const back = -TH.reach + 0.12, cx = -0.07;
-    for (const dz of [-0.06, 0.06]) head.add(setFinish(part('brass', sweep(polylinePath([[back, 0, dz], [cx, 0, dz]], 0, 1), { radius: 0.014, segs: 6, ends: 'flat', detail }), 'brass', { seed: seed + 83 }), 0.85));
-    head.add(part('steel', bevelBox({ min: [cx, -0.05, -0.09], max: [cx + 0.04, 0.05, 0.09], c: 0.012 }), 'teal-light', { seed: seed + 93, shade: 0.9 }));
-    for (const y of [-0.105, 0.075]) head.add(part('brass', bevelBox({ min: [cx + 0.03, y, -0.03], max: [-0.03, y + 0.014, 0.03], c: 0.004 }), 'brass', { seed: seed + 89 }));
-    head.add(part('rubber', transform(turned(profile(0, 0).to(0.04, 0, { fillet: 0.01, segs: 1 }).to(0.04, 0.17, { fillet: 0.01, segs: 1 }).to(0, 0.17), 10), T(-0.04, -0.09, 0)), 'ink', { seed: seed + 88 }));
-    // the strip of tape off the roller, laid along the part (its own node: the pose pays it out along +Z)
-    const strip = head.node('tapehead.tape', chain(T(0.002, 0, 0.0), new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)));
-    strip.add(part('rubber', transform(sheet({ w: 0.36, h: 0.07, t: 0.003, nx: 1, ny: 1 }), chain(Ry(Math.PI / 2), T(0.18, 0, 0))), 'ink', { shade: 1.2 }));
+    b.add(part('steel', transform(turned(profile(0, 0).to(0.06, 0, { fillet: 0.01, segs: 1 }).to(0.055, 0.05, { fillet: 0.01, segs: 1 }).to(0, 0.05), 10), aim(v3(new Vector3(PX, yTop + 0.42, PZ).addScaledVector(gdir, colR(yTop + 0.42) - 0.03)), v3(gdir))), 'teal-panel', { seed: seed + 73 }));
   }
 
   // ======================================================================
   // THE STATION LAMP on the column, facing the visitor
   // ======================================================================
   const lampDir = new Vector3(0.3, 0.3, 1).normalize();
-  const lampAt = new Vector3(PX, yTop + 1.2, PZ).addScaledVector(new Vector3(lampDir.x, 0, lampDir.z).normalize(), 0.09);
+  const lampAt = new Vector3(PX, yTop + 1.2, PZ).addScaledVector(new Vector3(lampDir.x, 0, lampDir.z).normalize(), colR(yTop + 1.2) + 0.01);
   {
     const lm = aim(lampAt.toArray() as [number, number, number], lampDir.toArray() as [number, number, number]);
     b.add(setFinish(part('brass', transform(turned(profile(0.04, -0.05).to(0.07, 0.02, { fillet: 0.012, segs: 1 }).to(0.05, 0.03, { sharp: true }).to(0.05, 0.012), 12, false), lm), 'brass', { seed: seed + 100 }), 0.6));
@@ -519,7 +531,7 @@ export function platen(o: PlatenOptions = {}): Piece {
   // ---- sockets ----
   b.socket('seat', T(TR.x, yTop + TR.seatY, TR.z));
   b.socket('nozzle.tip', nozzleTip({}));
-  b.socket('tapehead.face', T(PX + TH.reach, TH.y - 0.1, PZ));
+  b.socket('tapehead.face', tapeFace({}));
 
   const built = b.build();
   registerPaint(built);
@@ -549,10 +561,18 @@ export function nozzleTip(pose: PlatenPose): Matrix4 {
   return chain(T(PLATEN.pillar.x, PLATEN.pivotY - drop, PLATEN.pillar.z), Ry(yaw), Rz(-dip), T(BEAM, 0, 0), Rz(dip), T(PLATEN.goose.out, -PLATEN.goose.drop, 0));
 }
 
-/** Where the tape head's roller meets the part, in root space, for a pose. */
+/** Where the tape head's roller meets the part (the bottom of the roller), in root space, for a pose. */
 export function tapeFace(pose: PlatenPose): Matrix4 {
-  const press = Math.max(0, Math.min(1, pose.press ?? 0));
-  return T(PLATEN.pillar.x + PLATEN.tapehead.reach + POSE.pressTravel * press, PLATEN.tapehead.y - 0.1, PLATEN.pillar.z);
+  const LH = PLATEN.labelHead;
+  const c = (v: number | undefined): number => Math.max(0, Math.min(1, v ?? 0));
+  const yaw = POSE.yawIdle + (POSE.yawOver - POSE.yawIdle) * c(pose.swing);
+  const x = LH.start + (LH.end - LH.start) * c(pose.tape);
+  return chain(T(PLATEN.pillar.x, PLATEN.pivotY - c(pose.dip) * POSE.dipDrop, PLATEN.pillar.z), Ry(yaw), T(x + LH.out, -LH.hang - c(pose.press) * POSE.pressTravel, LH.z));
+}
+
+/** The head's two tool points for a pose: the nozzle's mouth and the roller's contact line (root space). */
+export function toolPoints(pose: PlatenPose): { nozzle: Matrix4; roller: Matrix4 } {
+  return { nozzle: nozzleTip(pose), roller: tapeFace(pose) };
 }
 
 // ---- catalogue ------------------------------------------------------------------
