@@ -31,6 +31,6 @@ describe('the dock ramp', () => {
   });
 
   test('the door stands near the dock spot of the layout', () => {
-    expect(Math.hypot(door[0] - AT.dock.c[0], door[2] - AT.dock.c[2])).toBeLessThan(0.3);
+    expect(Math.hypot(door[0] - AT.dockDoor[0], door[2] - AT.dockDoor[1])).toBeLessThan(0.3); // AT.dock is now the portal's body (L1 round 3); the door is AT.dockDoor
   });
 });

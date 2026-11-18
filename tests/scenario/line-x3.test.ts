@@ -14,7 +14,7 @@ const TOOL_HALF = defaultHalfExtents('tool', 'M');
 /** The bench with one tool lying loose (tools stay P4 on the wall; a tool is a part like any other). */
 const WITH_TOOL: SceneDesc = {
   ...BENCH,
-  parts: [...BENCH.parts, { id: 'tool-rust', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'tools', name: 'name.crate', pose: { p: [-2.4, TOOL_HALF[1], 0.2], q: qyaw(0.3) } }],
+  parts: [...BENCH.parts, { id: 'tool-rust', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'tools', name: 'name.crate', pose: { p: [1.5, TOOL_HALF[1], -0.6], q: qyaw(0.3) } }], // clear bench between the console and the phone (L1 round 3: Revert now stands at (-3.2, 0.35))
 };
 const undoneOf = (ev: readonly SimEvent[]) => ev.filter((e): e is Extract<SimEvent, { type: 'undone' }> => e.type === 'undone');
 const near = (a: readonly number[], b: readonly number[], d = 0.6): boolean => Math.hypot(a[0]! - b[0]!, a[2]! - b[2]!) < d;

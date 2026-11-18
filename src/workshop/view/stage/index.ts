@@ -69,6 +69,8 @@ export interface Stage {
   readonly camera: CameraRig;
   readonly lights: LightRig;
   readonly tier: Tier;
+  /** GPU time per pass (measurement; enabled by `gpuTimer`). */
+  readonly gpuTimer: GpuTimer;
   /** The live pass switches (high tier with post); flip a field and the next frame follows. */
   readonly passes: PassFlags;
   /** Whether the post chain runs. */
@@ -85,6 +87,8 @@ export interface Stage {
   /** Shadows on or off (step-down, debugging). */
   setShadows(on: boolean): void;
   stats(): StageStats;
+  /** Forget the GPU timer samples (the start of a measured window). */
+  resetGpuTimes(): void;
   /** True while the tab is hidden: render() draws nothing. */
   readonly hidden: boolean;
   dispose(): void;
@@ -134,6 +138,21 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const timer = new GpuTimer(gl);
   timer.enabled = opts.gpuTimer ?? false;
+  if (timer.enabled) {
+    // the shadow map is drawn inside the scene's render(): give it its own figure
+    const sm = renderer.shadowMap as unknown as { render: (...a: unknown[]) => void };
+    const drawShadows = sm.render;
+    sm.render = function (this: unknown, ...a: unknown[]) {
+      const resume = timer.current;
+      timer.split('shadow');
+      try {
+        drawShadows.apply(this, a);
+      } finally {
+        if (resume) timer.split(resume);
+        else timer.end();
+      }
+    };
+  }
   const rendererName = (() => {
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
@@ -175,6 +194,7 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
     camera,
     lights,
     tier,
+    gpuTimer: timer,
     passes,
     get post() {
       return post;
@@ -246,6 +266,9 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
         gpuMedian: timer.available ? timer.medians() : null,
         renderer: rendererName,
       };
+    },
+    resetGpuTimes() {
+      timer.reset();
     },
     dispose() {
       observer?.disconnect();
