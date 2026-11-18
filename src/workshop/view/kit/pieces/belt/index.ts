@@ -33,7 +33,7 @@
  */
 import { Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
-import type { KitOptions, Piece } from '../../types.ts';
+import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import { aim, chain, mat, part, piece, place, T } from '../../compose.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab } from '../../solids.ts';
@@ -43,23 +43,43 @@ import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { rng } from '../../rng.ts';
 import { bevelBox, hexHead, stud } from '../../cheap.ts';
-import { BELT } from './dims.ts';
+import { BELT, DEFLECT } from './dims.ts';
+import { buildDeflector } from './deflector.ts';
 import { loopGeom, loopPoints } from './loop.ts';
 import { buildMotor, dentKeep, oilCup } from './motor.ts';
-import { NAMED_POSES, posePiece } from './pose.ts';
+import { HIDDEN, MARKS, NAMED_POSES, parsePose, posePiece } from './pose.ts';
 import type { BeltPose, RollerInfo } from './pose.ts';
 
 export { BELT } from './dims.ts';
 export { loopGeom, loopAt, topRunS } from './loop.ts';
-export { poseBelt, posePiece, seamMatrix, NAMED_POSES, SEAM_X0 } from './pose.ts';
+export { poseBelt, posePiece, seamMatrix, markMatrix, parsePose, NAMED_POSES, SEAM_X0, MARKS, HIDDEN } from './pose.ts';
+export { DIAL, LEVER, dialAngle, leverAngle } from './controls.ts';
+export { DEFLECT } from './dims.ts';
+export { deflectorAt } from './deflector.ts';
 export type { BeltPose, RollerInfo } from './pose.ts';
 
 export interface BeltOptions extends KitOptions {
   /** Overall length, belt end to belt end (default 6). The motor housing stands beyond the left end. */
   length?: number;
-  /** Build already posed (a name from NAMED_POSES, or a pose). */
+  /** Build already posed (a name from NAMED_POSES, a pose, or `dial:2.5,lever:-1,travel:0.4,lamp:1`). */
   pose?: string | BeltPose;
+  /**
+   * The whole line's belt (the bench): everything below on. Each can still be set on its own.
+   * Off (the default) is the belt approved at G1, as the vignette builds it.
+   */
+  line?: boolean;
+  /** The control face: a real speed dial and direction lever and the lamp on a taller desk (default: blank plates). */
+  controls?: boolean;
+  /** The deflector at the motor end and the slide off the back (default off). */
+  deflector?: boolean;
+  /** 'rail': the bent guard rail round the tail drum (default); 'ramp': left off, for the dock's roller ramp. */
+  tail?: 'rail' | 'ramp';
+  /** Painted tracking stripes riding the belt with the laced seam, so its motion reads at any speed (default off). */
+  marks?: boolean;
 }
+
+/** The nodes of a belt that move (a view keeps these out of any static merge): rollers, seam, marks, dial, lever, lamp. */
+export const BELT_MOVING = /^(roller\d+|seam|mark\d+|dial|lever|lamp)$/;
 
 const RET_R = 0.045; // return idler radius
 
@@ -68,7 +88,8 @@ export function beltRollers(length: number = BELT.defaultLength): RollerInfo[] {
   const g = loopGeom(length);
   const half = g.span / 2;
   const out: RollerInfo[] = [{ name: 'roller0', x: -half, y: g.axisY, r: BELT.drumR + BELT.thickness, sense: 1 }];
-  const n = Math.max(1, Math.round(g.span / 2.2));
+  // a return idler every 2.2 under a short belt, every 3.2 under a long one (they cost triangles and hang in the shadow)
+  const n = Math.max(1, Math.round(g.span / (g.span > 6.5 ? 3.2 : 2.2)));
   const yRet = g.axisY - g.r - BELT.thickness / 2 - RET_R;
   for (let i = 0; i < n; i++) {
     const x = -half + (g.span * (i + 0.5)) / n + (i % 2 ? 0.17 : -0.11);
@@ -97,6 +118,10 @@ export function belt(o: BeltOptions = {}): Piece {
   const detail = o.detail ?? 'high';
   const hi = detail === 'high';
   const L = o.length ?? BELT.defaultLength;
+  const controls = o.controls ?? o.line ?? false;
+  const deflect = o.deflector ?? o.line ?? false;
+  const tail = o.tail ?? (o.line ? 'ramp' : 'rail');
+  const marks = o.marks ?? o.line ?? false;
   const R = rng(seed);
   const b = piece('belt', { detail, seed });
   const g = loopGeom(L);
@@ -111,7 +136,7 @@ export function belt(o: BeltOptions = {}): Piece {
   {
     const t = BELT.thickness, wdt = BELT.width;
     const c = Math.min(t * 0.45, wdt * 0.1);
-    const pts = loopPoints(g, hi ? 1.0 : 2.0, hi ? 8 : 6).map(([x, y]) => new Vector3(x, y, 0));
+    const pts = loopPoints(g, hi ? (L > 7 ? 2.5 : 1.5) : 2.5, 6).map(([x, y]) => new Vector3(x, y, 0));
     const gg = sweep({ points: pts, closed: true }, { section: sections.roundRect(wdt / 2 - c, t / 2 - c, 1), radius: c, up: [0, 0, 1], uv: true });
     b.add(part('belt', gg, 'ink', { seed: seed + 1, shade: 0.55 }));
   }
@@ -121,7 +146,9 @@ export function belt(o: BeltOptions = {}): Piece {
     dentKeep(near, [R.range(-1.5, 1.5), yR1, zo], [0, 1, -1], 0.1, 0.012);
     b.add(part('steel', near, 'teal-panel', { seed: seed + 2, shade: 1.12, jitter: 0.03 }));
     // the far rail: only its top and its face toward the belt are ever seen, so a chamfered bar does
-    const far = bevelBox({ min: [rails.x0, yR0, -zo], max: [rails.x1, yR1, -zi], c: 0.02, omit: ['nz', 'ny'], band: 0.02 });
+    // with the deflector, the far rail stops short of the motor end: the gap is the way off the back
+    const farX0 = deflect ? -L / 2 + DEFLECT.gap : rails.x0;
+    const far = bevelBox({ min: [farX0, yR0, -zo], max: [rails.x1, yR1, -zi], c: 0.02, omit: ['nz', 'ny'], band: 0.02 });
     b.add(part('steel', grain(far, 'x'), 'teal-panel', { seed: seed + 3, shade: 1.0, jitter: 0.03 }));
   }
   // legs under the near rail: stout flared posts on bolted feet
@@ -136,26 +163,25 @@ export function belt(o: BeltOptions = {}): Piece {
       const leg = lathe(
         profile(0, 0)
           .to(0.08, 0, { sharp: true })
-          .to(0.075, 0.016, { fillet: 0.008, segs: 1 })
+          .to(0.072, 0.02, { sharp: true })
           .to(0.04, 0.075, { fillet: 0.04, segs: 1 })
           .to(0.036, h - 0.03, { smooth: true })
-          .to(0.056, h, { sharp: true })
-          .to(0, h),
-        { segs: 8, detail, band: 0, caps: 'end' },
+          .to(0.056, h, { sharp: true }),
+        { segs: 6, detail, band: 0, caps: 'end' },
       );
-      b.add(part('steel', transform(leg, chain(T(x, 0.03, zc), mat({ rot: [0, 22.5 + R.spread(1.5), R.spread(0.8)] }), new Matrix4().makeScale(1.0, 1, 0.78))), 'teal-panel', { seed: seed + 10 + i, shade: 0.95, jitter: 0.04 }));
+      b.add(part('steel', transform(leg, chain(T(x, 0.03, zc), mat({ rot: [0, 30 + R.spread(1.5), R.spread(0.8)] }), new Matrix4().makeScale(1.0, 1, 0.78))), 'teal-panel', { seed: seed + 10 + i, shade: 0.95, jitter: 0.04 }));
       // the foot plate and its four bolts
       const foot = bevelBox({ min: [-0.15, 0, -0.125], max: [0.15, 0.032, 0.125], c: 0.012, omit: ['ny'] });
       b.add(part('steel', transform(foot, chain(T(x, 0, zc + 0.01), mat({ rot: [0, R.spread(3), 0] }))), 'teal-panel', { seed: seed + 20 + i, shade: 0.8 }));
-      // the front two bolts (the back two are under the rail's shadow, a stud each)
-      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        const gg = sz > 0 ? transform(hexHead(0.05, 0.028, R.range(0, Math.PI / 3)), T(x + sx * 0.112, 0.03, zc + 0.01 + sz * 0.085)) : transform(stud(0.022, 0.016, 5), T(x + sx * 0.112, 0.03, zc + 0.01 + sz * 0.085));
+      // the front two bolts (the back two are under the rail, in its shadow: not modelled)
+      for (const sx of [-1, 1]) {
+        const gg = transform(stud(0.026, 0.024, 6), T(x + sx * 0.112, 0.03, zc + 0.095));
         b.small(() => [part('metal', gg, 'steel', { seed: seed + 30 + i, jitter: 0.08 })]);
       }
     }
   }
   // the motor housing at the left end
-  const motor = buildMotor(b, -L / 2 - BELT.motorGap, seed + 1000, R, detail);
+  const motor = buildMotor(b, -L / 2 - BELT.motorGap, seed + 1000, R, detail, controls);
 
   // ======================================================================
   // MEDIUM: drums' bearings, the chain guard, idler nuts, the splice, the
@@ -165,8 +191,8 @@ export function belt(o: BeltOptions = {}): Piece {
   const drumL = rollers[0]!, drumR = rollers[rollers.length - 1]!;
   const brassCap = (r: number, h: number): BufferGeometry =>
     lathe(
-      profile(r, 0).to(r, h * 0.4, { fillet: h * 0.15, segs: 1 }).to(r * 0.8, h * 0.55, { sharp: true }).to(r * 0.76, h, { fillet: h * 0.3, segs: 1 }).to(0, h),
-      { segs: hi ? 9 : 7, detail, band: 0, caps: false },
+      profile(r, 0).to(r, h * 0.45, { sharp: true }).to(r * 0.78, h * 0.6, { sharp: true }).to(r * 0.7, h, { fillet: h * 0.3, segs: 1 }).to(0, h),
+      { segs: 7, detail, band: 0, caps: false },
     );
   // the chain guard: a stadium of yellow enamel from the gearbox sprocket to the drive drum, proud of everything
   const guardZ = Math.max(zo, 0.71) + 0.01;
@@ -176,7 +202,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const ra = 0.15, rb = 0.125;
     const ang = Math.atan2(ay - sy, ax - sx);
     const pts: Array<[number, number]> = [];
-    const n = 5;
+    const n = 4;
     for (let i = 0; i <= n; i++) {
       const a = ang - Math.PI / 2 + (Math.PI * i) / n;
       pts.push([ax + Math.cos(a) * ra, ay + Math.sin(a) * ra]);
@@ -208,7 +234,7 @@ export function belt(o: BeltOptions = {}): Piece {
       b.small(() => [part('metal', transform(stud(0.016, 0.01, 6), aim([midx + Math.cos(ang + Math.PI / 2) * k * 0.085, midy + Math.sin(ang + Math.PI / 2) * k * 0.085, guardZ + gd], [0, 0, 1])), 'steel', { seed: seed + 41 })]);
     }
     // the drive drum's bearing flange on the guard's face
-    const fg = lathe(profile(0, 0).to(0.075, 0, { sharp: true }).to(0.075, 0.016, { fillet: 0.006, segs: 2 }).to(0.05, 0.022, { fillet: 0.006, segs: 1 }).to(0.045, 0.04, { fillet: 0.008, segs: 1 }).to(0, 0.04), { segs: hi ? 10 : 8, detail, band: 0, caps: 'end' });
+    const fg = lathe(profile(0, 0).to(0.075, 0, { sharp: true }).to(0.075, 0.016, { fillet: 0.006, segs: 1 }).to(0.05, 0.022, { sharp: true }).to(0.045, 0.04, { fillet: 0.008, segs: 1 }).to(0, 0.04), { segs: 8, detail, band: 0, caps: 'end' });
     b.add(part('brass', transform(fg, aim([ax, ay, guardZ + gd - 0.004], [0, 0, 1])), 'brass', { seed: seed + 42, warm: 0.03 }));
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2 + 0.3;
@@ -237,7 +263,7 @@ export function belt(o: BeltOptions = {}): Piece {
     // the tension bolt: from the block out through a bracket at the rail's end, two nuts
     const ty = drumR.y - 0.035;
     const bx0 = drumR.x + 0.09, bx1 = rails.x1 + 0.06;
-    const rodG = lathe(profile(0, 0).to(0.013, 0).to(0.013, bx1 - bx0 + 0.06).to(0, bx1 - bx0 + 0.06), { segs: 8, detail, band: 0 });
+    const rodG = lathe(profile(0.013, 0).to(0.013, bx1 - bx0 + 0.06).to(0, bx1 - bx0 + 0.06), { segs: 6, detail, band: 0, caps: false });
     b.add(part('metal', transform(rodG, aim([bx0, ty, dz + 0.03], [1, 0, 0])), 'steel', { seed: seed + 50 }));
     const brk = bevelBox({ min: [0, -0.07, -0.06], max: [0.03, 0.05, 0.05], c: 0.008 });
     b.add(part('steel', transform(brk, T(rails.x1 - 0.005, ty, dz + 0.03)), 'teal-panel', { seed: seed + 51, shade: 0.9 }));
@@ -260,13 +286,13 @@ export function belt(o: BeltOptions = {}): Piece {
   // carrying idlers: their tubes are under the belt (not modelled); their fixed shaft ends show in the near rail's recess
   {
     const yI = BELT.topY - BELT.thickness - 0.045;
-    const pitch = 0.48;
+    const pitch = L > 7 ? 0.62 : 0.48;
     const n = Math.floor((g.span - 0.3) / pitch);
     const x0 = -((n - 1) * pitch) / 2;
     for (let i = 0; i < n; i++) {
       const x = x0 + i * pitch;
       if (Math.abs(x) < 0.25 && L >= 4) continue; // the splice plate is here
-      const gg = transform(stud(0.026, 0.02, 6), aim([x, yI, zw], [0, 0, 1]));
+      const gg = transform(stud(0.026, 0.02, 5), aim([x, yI, zw], [0, 0, 1]));
       b.add(part('metal', gg, 'steel', { seed: seed + 70 + i, jitter: 0.07 }));
     }
     // the drive drum's own bearing on the near rail (behind the guard) is not seen; the far rail's not at all
@@ -276,7 +302,7 @@ export function belt(o: BeltOptions = {}): Piece {
     const sp = bevelBox({ min: [-0.2, yR0 + fl + 0.008, zw], max: [0.2, yR1 - fl - 0.008, zw + 0.018], c: 0.006 });
     b.add(part('steel', transform(sp, T(0.03, 0, 0)), 'teal-panel', { seed: seed + 80, shade: 0.85 }));
     const ys = [yR0 + fl + 0.05, yR1 - fl - 0.05];
-    for (const x of [-0.13, -0.05, 0.11, 0.19]) for (const y of ys) {
+    for (const x of L > 7 ? [-0.13, 0.19] : [-0.13, -0.05, 0.11, 0.19]) for (const y of ys) {
       b.small(() => [part('metal', transform(stud(0.02, 0.016, 6), aim([x, y, zw + 0.018], [0, 0, 1])), 'steel', { seed: seed + 81, jitter: 0.07 })]);
     }
     // the joint itself: a hairline in the rail's top flange
@@ -292,7 +318,7 @@ export function belt(o: BeltOptions = {}): Piece {
     for (const sx of [-1, 1]) b.small(() => [part('brass', transform(stud(0.009, 0.006, 6), aim([px + sx * 0.125, yR1 - fl / 2, zo + 0.007], [0, 0, 1])), 'brass', { seed: seed + 92 })]);
   }
   // the guard rail at the right end: a bent rod round the tail drum, below the carrying surface, on brass collars
-  {
+  if (tail === 'rail') {
     const y = BELT.topY - 0.03;
     const xe = rails.x1 - 0.02;
     const reach = half + g.r + 0.2;
@@ -311,7 +337,7 @@ export function belt(o: BeltOptions = {}): Piece {
   {
     const seam = b.node('seam');
     const t2 = BELT.thickness / 2;
-    const n = hi ? 10 : 7;
+    const n = hi ? (L > 7 ? 7 : 8) : 6;
     const span = BELT.width - 0.1;
     for (let i = 0; i < n; i++) {
       const z = -span / 2 + (span * i) / (n - 1);
@@ -321,24 +347,52 @@ export function belt(o: BeltOptions = {}): Piece {
     const pin = lathe(profile(0, 0).to(0.006, 0).to(0.006, span + 0.04).to(0, span + 0.04), { segs: 6, detail: 'low', band: 0 });
     seam.add(part('metal', transform(pin, aim([0, t2 + 0.011, -span / 2 - 0.02], [0, 0, 1])), 'steel', { seed: seed + 199, shade: 1.1 }));
   }
+  // painted tracking stripes: tape-yellow bands across the belt that ride the loop with the seam (pose.ts places them)
+  if (marks) {
+    const t2 = BELT.thickness / 2;
+    for (let k = 1; k <= MARKS; k++) {
+      const m = b.node(`mark${k}`);
+      const w = BELT.width - 0.05;
+      const g0 = bevelBox({ min: [-0.045, t2 - 0.001, -w / 2], max: [0.045, t2 + 0.0035, w / 2], c: 0.002, omit: ['ny'] });
+      m.add(part('steel', g0, 'tape-yellow', { seed: seed + 210 + k, shade: 0.8, jitter: 0.05 }));
+    }
+  }
+  // the station lamp: a dark lens (unlit) and its lit twin, one hidden at a time (pose.ts)
   {
     const lamp = b.node('lamp', motor.lamp);
-    const gl = lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.026, 0.008, { fillet: 0.004, segs: 1 }).curve(0, 0.03, 0.022, 0.03, 3), { segs: 12, detail, band: 0 });
-    // unlit: a dark cut of the glow token (the view re-tints it to light it)
-    lamp.add(setFinish(part('bulb', transform(gl, new Matrix4().makeRotationX(Math.PI / 2)), 'amber', { shade: 0.08 }), 1));
+    const lr = controls ? 0.036 : 0.026;
+    const gl = lathe(profile(lr, 0).to(lr, 0.008, { sharp: true }).curve(0, lr * 1.15, lr * 0.85, lr * 1.15, 3), { segs: 10, detail, band: 0, caps: false });
+    const lens = (lit: boolean): KitPart => {
+      const gg = transform(gl.clone(), new Matrix4().makeRotationX(Math.PI / 2));
+      // unlit: a dark cut of the glow token; lit: the glow itself at the indicator level
+      return lit ? setFinish(part('bulb', gg, 'amber-glow', { seed: seed + 230 }), 1) : setFinish(part('bulb', gg, 'amber', { shade: 0.08 }), 1);
+    };
+    lamp.node('lamp.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(lens(true));
+    lamp.node('lamp.unlit').add(lens(false));
   }
+  // the way off the motor end
+  const off = deflect ? buildDeflector(b, -L / 2, seed + 400, R, detail) : null;
 
   b.socket('dial', motor.dial);
   b.socket('lever', motor.lever);
   b.socket('lamp', motor.lamp);
+  if (motor.dialGrip) b.socket('dial.grip', motor.dialGrip);
+  if (motor.leverGrip) b.socket('lever.grip', motor.leverGrip);
   b.socket('surface', T(0, BELT.topY, 0));
   b.socket('in', T(-half, BELT.topY, 0));
   b.socket('out', T(half, BELT.topY, 0));
+  // where the dock's roller ramp begins: the belt's bed end, heading +X
+  if (tail === 'ramp') b.socket('ramp', T(L / 2, BELT.topY, 0));
+  if (off) {
+    b.socket('off.back', off.offBack);
+    b.socket('deflector', off.face);
+  }
+  void DEFLECT;
   const built = b.build();
   posePiece(built.root, L, rollers, {});
   if (o.pose) {
-    const p = typeof o.pose === 'string' ? NAMED_POSES[o.pose] : o.pose;
-    if (!p) throw new Error(`belt: no pose '${String(o.pose)}' (has: ${Object.keys(NAMED_POSES).join(', ')})`);
+    const p = typeof o.pose === 'string' ? (NAMED_POSES[o.pose] ?? parsePose(o.pose)) : o.pose;
+    if (!p) throw new Error(`belt: no pose '${String(o.pose)}' (has: ${Object.keys(NAMED_POSES).join(', ')}, or 'dial:2,lever:-1,travel:0.5,lamp:1')`);
     posePiece(built.root, L, rollers, p);
   }
   return built;
@@ -353,8 +407,13 @@ export const catalogue: CatalogueEntry[] = [
         ...(opts.detail ? { detail: opts.detail } : {}),
         ...(typeof opts['length'] === 'number' ? { length: opts['length'] } : {}),
         ...(typeof opts['pose'] === 'string' ? { pose: opts['pose'] } : {}),
+        ...(typeof opts['line'] === 'boolean' ? { line: opts['line'] } : {}),
+        ...(typeof opts['controls'] === 'boolean' ? { controls: opts['controls'] } : {}),
+        ...(typeof opts['deflector'] === 'boolean' ? { deflector: opts['deflector'] } : {}),
+        ...(opts['tail'] === 'rail' || opts['tail'] === 'ramp' ? { tail: opts['tail'] } : {}),
+        ...(typeof opts['marks'] === 'boolean' ? { marks: opts['marks'] } : {}),
       }),
-    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 }, 'length 10': { length: 10 } },
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 }, 'length 10': { length: 10 }, line: { length: 10, line: true }, 'line 6': { line: true }, 'line 12': { length: 12, line: true } },
     poses: Object.keys(NAMED_POSES),
     camera: { distance: 9 },
     note: 'The belt: the room’s clock. Carries whatever is on it, left to right.',
