@@ -395,7 +395,8 @@ pool of the lamp's spill. The back wall runs on past the bench ends and
 fades. A few dim, generic workshop shapes stand at the room's edge
 (shelving, pipes), barely lit and not usable; nothing among them says
 anything personal about Taylor. The camera's limits never frame plain
-nothing. It stays a workbench, not a room. He approves its picture in P2.
+nothing. It stays a workbench, not a room. He approved its picture in P2:
+Taylor, 2026-11-18, "the room picture looks great" (`reference/p2-room/`).
 
 **Text in the world, three registers.**
 

@@ -141,7 +141,8 @@ describe('the Button, rung 1 (§ B4), bracketed (§ E5)', () => {
     const before = poses(world);
     world.dispatch({ type: 'press', id: 'button' });
     const first = run(world, 1);
-    expect(types(first).filter((t) => t !== 'crew.state')).toEqual(['handle.worked', 'button.pressed', 'rung.started', 'misfire', 'misfire']);
+    expect(types(first).filter((t) => t !== 'crew.state')).toEqual(['handle.worked', 'button.pressed', 'rung.started', 'rung.beat', 'misfire', 'misfire', 'rung.beat', 'rung.beat']);
+    expect(first.flatMap((e) => (e.type === 'rung.beat' ? [e.beat] : []))).toEqual(['flinch', 'shove', 'revert']);
     expect(first).toContainEqual({ type: 'button.pressed', rung: 1, presses: 1 });
     expect(first).toContainEqual({ type: 'misfire', id: 'lamp', level: 1 });
     expect(first).toContainEqual({ type: 'misfire', id: 'belt', level: 1 });
@@ -171,7 +172,7 @@ describe('the Button, rung 1 (§ B4), bracketed (§ E5)', () => {
     }
     expect(n).toBe(steps(BUTTON_TUNING.flinch) + steps(BUTTON_TUNING.rewind));
     const named = types(rest).filter((t) => t.startsWith('rung') || t === 'card');
-    expect(named).toEqual(['rung.rewinding', 'rung.ended', 'card']);
+    expect(named).toEqual(['rung.rewinding', 'rung.beat', 'rung.ended', 'rung.beat', 'card']);
     expect(rest).toContainEqual({ type: 'card', by: 'revert', content: 'card.rung1' });
     expect(types(rest)).not.toContain('effect');
     expect(world.durable()).toEqual(durable);
@@ -189,10 +190,10 @@ describe('the Button, rung 1 (§ B4), bracketed (§ E5)', () => {
     expect(world.button().presses).toBe(0);
   });
 
-  test('the press count goes on; the rung and count can be restored from a save', () => {
+  test('the press count goes on; the rung and count can be restored from a save (the next press climbs on from there)', () => {
     const { world } = stubWorld(1, { button: { rung: 1, presses: 7 } });
     world.dispatch({ type: 'press', id: 'button' });
-    expect(run(world, 1)).toContainEqual({ type: 'button.pressed', rung: 1, presses: 8 });
+    expect(run(world, 1)).toContainEqual({ type: 'button.pressed', rung: 2, presses: 8 });
   });
 });
 

@@ -137,6 +137,21 @@ export interface FetchPose {
   aerial?: [number, number];
   /** Flag flutter phase, radians. */
   flag?: number;
+  /**
+   * The whole robot turned about the vertical through its axle (+ turns +Z toward +X), radians:
+   * a performance's spin (knocked round). The caller's root keeps the lane heading.
+   */
+  spin?: number;
+  /** The whole robot shoved across the bench from where its root stands, [x, z] in root space (units): a skid. */
+  slide?: [number, number];
+  /** The axle lifted off its rest height (units): a hop. */
+  lift?: number;
+  /**
+   * [fore, side] radians: the wheel, fork and spring swinging under the torso about the torso's
+   * mounting cup, the torso staying where it is (held in a hand: a pendulum). Signs as `lean`'s,
+   * for the wheel's end: fore + swings the tyre toward -Z (the top's side of `lean`'s +).
+   */
+  hang?: [number, number];
 }
 
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, grip: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, grip });
@@ -174,6 +189,10 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
   arms: 'rest',
   aerial: [0, 0],
   flag: 0,
+  spin: 0,
+  slide: [0, 0],
+  lift: 0,
+  hang: [0, 0],
 };
 
 /**
@@ -336,12 +355,21 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   const m: Record<string, Matrix4> = {};
 
   m.root = new Matrix4();
-  m.lean = chain(T(0, WHEEL_R, 0), RZ(-side), RX(fore));
+  // spin, slide and lift move the whole robot off its root (a knock, a hop); lean tilts it in its spun frame
+  m.lean = chain(T(p.slide[0], WHEEL_R + Math.max(0, p.lift), p.slide[1]), RY(p.spin), RZ(-side), RX(fore));
   m.wheel = chain(RZ(-Math.PI / 2), RY(p.wheel));
   const k = 1 - squash * SQUASH_TRAVEL;
   m.suspension = chain(T(0, CROWN_TOP, 0), S(1, k, 1));
   // the torso rides raked a little forward on its spring: keen, top-heavy, wants to go
-  m.body = chain(T(0, CROWN_TOP + SPRING_L * k, 0), RX(BODY_RAKE));
+  const mount = CROWN_TOP + SPRING_L * k;
+  m.body = chain(T(0, mount, 0), RX(BODY_RAKE));
+  const hf = clamp(p.hang[0], -0.6, 0.6), hs = clamp(p.hang[1], -0.6, 0.6);
+  if (hf !== 0 || hs !== 0) {
+    // hanging: everything under the torso swings about its mounting cup; the torso is turned back so it stays put
+    const H = chain(RZ(-hs), RX(hf));
+    m.lean = chain(m.lean, T(0, mount, 0), H, T(0, -mount, 0));
+    m.body = chain(T(0, mount, 0), H.clone().invert(), RX(BODY_RAKE));
+  }
   m.head = chain(T(0, SWIVEL.y, SWIVEL.z), RY(yaw));
   // + pitch looks up: the eye (+Z) turns toward +Y, which is a rotation of -pitch about X
   // (the body's rake is taken out here, so a pitch of 0 looks level)
@@ -384,6 +412,19 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   m.flag = chain(T(0, segs[2] - 0.012, 0), RY(-2.35 + 0.28 * Math.sin(f)));
   m.flagTip = chain(T(0.085, 0, 0), RY(0.35 * Math.sin(f - 1.1)));
   return m;
+}
+
+/**
+ * Where the tyre touches the bench for a pose, in root space (x, z): under the axle, moved by the
+ * pose's slide and its lean. For a contact shadow that follows a skid.
+ */
+export function contactPoint(pose: FetchPose = {}): [number, number] {
+  const p = { ...NEUTRAL, ...pose };
+  const fore = clamp(p.lean[0], -0.45, 0.45), side = clamp(p.lean[1], -0.35, 0.35);
+  // the tyre rolls on its round: leaning the body one way puts the contact under the axle, a little toward the lean
+  const lx = Math.sin(side) * WHEEL_R * 0.25, lz = Math.sin(fore) * WHEEL_R * 0.25;
+  const c = Math.cos(p.spin), s = Math.sin(p.spin);
+  return [p.slide[0] + lx * c + lz * s, p.slide[1] - lx * s + lz * c];
 }
 
 /** Anything with named children that have a position/quaternion/scale (a realized Object3D). */
