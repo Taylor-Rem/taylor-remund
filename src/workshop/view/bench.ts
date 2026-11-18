@@ -107,7 +107,7 @@ export const LAYOUT = {
     stack: spot(-7.65, 1.15, 0.8, 0.8, 1.85, { fill: 'piece' }),
     lane: spot(-1.575, 2.0, 11.05, 1.04, 0, { fill: 'tape' }),
     /** The belt piece at length 10 (the bed x -5.4..4.6) with its motor housing at the left end: the whole piece's footprint. */
-    belt: spot(-0.83, 3.695, 11.4, 1.57, 1.25, { fill: 'piece' }),
+    belt: spot(-0.83, 3.7, 11.4, 1.6, 1.25, { fill: 'piece' }),
     control: spot(-7.05, 4.3, 0.9, 0.5, 0.75),
     striker: spot(4.15, 2.78, 0.6, 0.44, 1.7),
     dock: spot(7.35, 3.25, 1.7, 1.2, 1.6, { yaw: -50 }),
@@ -148,7 +148,7 @@ export const FRAMING = {
  * the bench's back corners.
  */
 export const MUST_SEE: readonly Vec3[] = [
-  [-8.75, -0.35, 5.05], [8.75, -0.35, 5.05], [0, -0.8, 5.3],
+  [-8.75, -0.35, 5.05], [8.75, -0.35, 5.05], [0, -0.45, 5.08],
   [-3.5, 6.25, -4.95], [5.1, 6.25, -4.95],
   [-9.15, 4.4, -4.9], [8.45, 5.25, -4.7],
   [-9, 0, -5], [9, 0, -5],

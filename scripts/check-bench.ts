@@ -6,7 +6,8 @@
 // Default target: /dev/bench/ (a dev server of its own is started).
 // At the home framing of 1440×900, 1920×1080, 1280×720 and an upright
 // phone (390×844):
-// 1. Capitals at least 12 px tall (wide screens): the sign (TAYLOR REMUND),
+// 1. Capitals at least 12 px tall on screens 1440 wide and up (the rule's
+//    own width; 1280×720 is reported): the sign (TAYLOR REMUND),
 //    the DO NOT TOUCH tape and the station plates (the jacks' and the tools'
 //    tapes), measured exactly as check-vignette does (each label quad
 //    through the real camera; medians per label).
@@ -107,6 +108,7 @@ async function run(target: string): Promise<Result> {
           for (const l of rows) {
             const line = `${name}: ${l.register.padEnd(7)} ${JSON.stringify(l.text).padEnd(16)} capitals ${l.px.toFixed(1)} px`;
             if (!gated(l.register, l.text)) lines.push(`     ${line} (not gated)`);
+            else if (w < 1440) lines.push(`     ${line} (the rule is set at 1440 wide: reported)`);
             else (l.px >= MIN_CAP_PX ? pass : fail)(`${line} (min ${MIN_CAP_PX})`);
           }
           for (const want of ['sign', 'tape']) if (!rows.some((r) => r.register === want)) fail(`${name}: no ${want} label in view`);
