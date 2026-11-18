@@ -148,6 +148,8 @@ export interface SetOptions {
   laneTape?: { half: number; past: number } | false;
   /** Stand-in sizes for pieces that have not landed. */
   standIn: Record<'sign' | 'toolwall' | 'lamp' | 'phone' | 'stool', { w: number; h: number; d: number }>;
+  /** Pieces a view of their own draws (they move): the set leaves them out. */
+  omit?: ReadonlyArray<'phone' | 'stool'>;
 }
 
 /** What the set built, for the page's read-out. */
@@ -231,11 +233,11 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     }
 
     // the phone on its easel, the stool
-    const phone = build(E.phone);
-    const stool = build(E.stool);
+    const phone = o.omit?.includes('phone') ? null : build(E.phone);
+    const stool = o.omit?.includes('stool') ? null : build(E.stool);
     const ph = o.standIn.phone, st = o.standIn.stool;
-    items.push({ piece: phone ?? clay('phone', ph.w, ph.h, ph.d), at: placedMatrix(o.at.phone) });
-    items.push({ piece: stool ?? clay('stool', st.w, st.h, st.d), at: placedMatrix(o.at.stool) });
+    if (!o.omit?.includes('phone')) items.push({ piece: phone ?? clay('phone', ph.w, ph.h, ph.d), at: placedMatrix(o.at.phone) });
+    if (!o.omit?.includes('stool')) items.push({ piece: stool ?? clay('stool', st.w, st.h, st.d), at: placedMatrix(o.at.stool) });
 
     if (o.pool) items.push(...o.pool.items);
     const merged = mergedPiece('set', flatten(items));
