@@ -116,8 +116,14 @@ export function map(out: Gray, f: (i: number) => number): Gray {
  * A normal map (RGBA bytes, rows top to bottom like the input) from a height
  * image in 0..1. `strength` scales the slope; tangent-space, +Y up in the
  * texture (OpenGL convention, what three.js expects with default normalScale).
+ *
+ * `scale` multiplies the unit normal's x and y as they are written (the atlas's
+ * compensation, see atlas.ts `normalScaleFor`: three's tangent frame takes its
+ * lengths from the uv derivatives, which an atlas changes). [1, 1] writes the
+ * normal unchanged.
  */
-export function heightToNormal(hgt: Gray, strength: number): Uint8Array {
+export function heightToNormal(hgt: Gray, strength: number, scale: readonly [number, number] = [1, 1]): Uint8Array {
+  const [sx, sy] = scale;
   const { w, h, d } = hgt;
   const out = new Uint8Array(w * h * 4);
   for (let y = 0; y < h; y++) {
@@ -141,8 +147,8 @@ export function heightToNormal(hgt: Gray, strength: number): Uint8Array {
       ny /= len;
       nz /= len;
       const o = (y * w + x) * 4;
-      out[o] = Math.round((nx * 0.5 + 0.5) * 255);
-      out[o + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+      out[o] = Math.round((nx * sx * 0.5 + 0.5) * 255);
+      out[o + 1] = Math.round((ny * sy * 0.5 + 0.5) * 255);
       out[o + 2] = Math.round((nz * 0.5 + 0.5) * 255);
       out[o + 3] = 255;
     }
