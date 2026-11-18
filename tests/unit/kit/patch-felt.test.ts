@@ -8,9 +8,10 @@ import {
 } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import { pillow, smoothLoop, stitches, radialChart } from '../../../src/workshop/view/kit/pieces/patch-felt/felt.ts';
 import { checkGeometry } from './helpers.ts';
+import { budget } from '../../../src/workshop/view/kit/compose.ts';
 
 const RIG_NODES = [
-  'root', 'spine', 'head', 'earL', 'earR', 'browL', 'browR', 'lidL', 'lidR', 'lidLowL', 'lidLowR', 'pupilL', 'pupilR', 'mouthL', 'mouthR', 'boom',
+  'root', 'body', 'thighL', 'shinL', 'thighR', 'shinR', 'spine', 'head', 'headset', 'folder', 'folderLid', 'earL', 'earR', 'browL', 'browR', 'lidL', 'lidR', 'lidLowL', 'lidLowR', 'pupilL', 'pupilR', 'mouthL', 'mouthR', 'boom',
   'armL', 'forearmL', 'pawL', 'armR', 'forearmR', 'pawR', 'tail', 'tail2', 'tail3', 'tail4',
 ];
 
@@ -50,8 +51,9 @@ describe('patch-felt (Patch, take A: the felt puppet)', () => {
     for (const n of RIG_NODES) expect(all.filter((x) => x === n)).toHaveLength(1);
   });
 
-  it('stays inside its triangle budget (16,000 without the stand-in stool) and holds the kit invariants', () => {
-    expect(piece.triangles).toBeLessThanOrEqual(16_000);
+  it('stays inside its budget (10,000 triangles and 5 meshes without the stand-in stool) and holds the kit invariants', () => {
+    expect(piece.triangles).toBeLessThanOrEqual(10_000);
+    expect(budget(piece).meshes).toBeLessThanOrEqual(5);
     expect(patchFelt({ detail: 'low', standIn: false }).triangles).toBeLessThan(piece.triangles);
     const walk = (n: PieceNode): void => {
       for (const q of n.parts) checkGeometry(q.geometry);
@@ -125,8 +127,8 @@ describe('patch-felt (Patch, take A: the felt puppet)', () => {
     for (const k of ARM_PRESETS) {
       const ms = poseMatrices({ arms: k });
       for (const s of ['L', 'R']) {
-        const paw = new Vector3().applyMatrix4(at(ms, ['spine', `arm${s}`, `forearm${s}`, `paw${s}`]));
-        const hc = new Vector3(...HC).applyMatrix4(at(ms, ['spine', 'head']));
+        const paw = new Vector3().applyMatrix4(at(ms, ['body', 'spine', `arm${s}`, `forearm${s}`, `paw${s}`]));
+        const hc = new Vector3(...HC).applyMatrix4(at(ms, ['body', 'spine', 'head']));
         expect(paw.y).toBeLessThan(hc.y);
       }
     }
