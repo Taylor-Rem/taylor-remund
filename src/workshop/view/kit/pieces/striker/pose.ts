@@ -173,6 +173,7 @@ export const NAMED_POSES: Readonly<Record<string, StrikerPose>> = {
   'struck-S': { cam: DROPPED, arm: strikeDeg(PART_HEIGHT.S), lamp: true },
   'struck-M': { cam: DROPPED, arm: strikeDeg(PART_HEIGHT.M), lamp: true },
   'struck-L': { cam: DROPPED, arm: strikeDeg(PART_HEIGHT.L), lamp: true },
+  falling: { cam: DROPPED, arm: (COCKED.deg + strikeDeg(PART_HEIGHT.M)) / 2, lamp: true },
   stop: { cam: DROPPED, lamp: true },
   'lift-1': { cam: 0.15, lamp: true },
   'lift-2': { cam: 0.4, lamp: true },

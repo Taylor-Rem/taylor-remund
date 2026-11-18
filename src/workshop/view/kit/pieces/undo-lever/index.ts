@@ -163,6 +163,12 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
     const g = extrude(outline, Q.t, { radius: radii, bevel: 0.012, bevelBase: 0, caps: 'end', segs: 1, holes: [slot], holeRadius: 0, detail, band: 0 });
     transform(g, T(0, 0, Q.zFront - Q.t));
     b.add(part('steel', g, 'teal-panel', { seed: seed + 3, shade: 1.0, jitter: 0.03 }));
+    // a dark backing plate behind the slot, so the slot reads as a slot and not as a window onto the bench
+    {
+      const xs = (Q.slotR + Q.slotW + 0.02) * Math.sin(Math.max(Math.abs(sa), Math.abs(sb)) * DEG);
+      const ys0 = py + (Q.slotR - Q.slotW - 0.03) * Math.cos(Math.max(Math.abs(sa), Math.abs(sb)) * DEG), ys1 = py + Q.slotR + Q.slotW + 0.02;
+      b.add(part('steel', bevelBox({ min: [px - xs, ys0, Q.zFront - Q.t - 0.012], max: [px + xs, ys1, Q.zFront - Q.t - 0.006], omit: ['px', 'nx', 'py', 'ny', 'nz'] }), 'ink', { shade: 0.6 }));
+    }
     // the brass quadrant rim along the arc, proud of the plate's face
     const rim0 = Q.r - 0.06, rim1 = Q.r - 0.008;
     const ring: Array<[number, number]> = [...arc(px, py, rim1, a0 + 2, a1 - 2, hi ? 8 : 6), ...arc(px, py, rim0, a1 - 2, a0 + 2, hi ? 8 : 6)];
