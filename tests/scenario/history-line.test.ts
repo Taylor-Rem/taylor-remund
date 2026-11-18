@@ -16,6 +16,8 @@ import { crewStandin, patchStandin, revertStandin, PHONE } from './standins/inde
 import type { Crew, Patch, Revert, Text } from './standins/index.ts';
 import { checker } from './standins/replay.ts';
 import type { Checker } from './standins/replay.ts';
+import { roundsBench } from './fetch-helpers.ts';
+import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 
 const PARTS = BENCH.parts.map((p) => p.id);
 const VISIBLE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch'] as const;
@@ -32,11 +34,11 @@ interface Line {
   run(n: number): SimEvent[];
 }
 
-function line(seed: number, observe: (ev: readonly SimEvent[]) => void): Line {
-  const b = BENCH.bench;
+function line(seed: number, observe: (ev: readonly SimEvent[]) => void, scene: SceneDesc = BENCH): Line {
+  const b = scene.bench;
   const physics = createStubPhysics({ footprint: { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ } });
   const made: Partial<{ patch: Patch; crew: Crew; revert: Revert }> = {};
-  const world = createWorld({ seed, physics, scene: BENCH, units: [(c) => (made.patch = patchStandin(c)), (c) => (made.crew = crewStandin(c)), (c) => (made.revert = revertStandin(c))] });
+  const world = createWorld({ seed, physics, scene, units: [(c) => (made.patch = patchStandin(c)), (c) => (made.crew = crewStandin(c)), (c) => (made.revert = revertStandin(c))] });
   return {
     world,
     physics,
@@ -66,11 +68,46 @@ function spot(r: Rng, w: World, id: Id): Pose {
   return { p: [r.range(-8, 3), h, r.range(-3.5, 1.2)], q: qyaw(r.range(-3, 3)) };
 }
 
-function sequence(seed: number, o: { steps: number; others: boolean; maxActions?: number }): { b: Line; chk: Checker; start: ReturnType<World['durable']>; stats: Record<string, number> } {
+/**
+ * S5, Fetch's rounds under the stub physics: the stub has no belt to land on (its floor is the bench top
+ * everywhere), so a crate Fetch lets go of over the belt is scripted onto the belt's surface, as a real one
+ * falls the last hair onto it. Rule 5 is watched at every step: Fetch never takes hold of a part the visitor
+ * has touched, and the crew never writes one.
+ */
+function fetchWatch(b: () => Line, stats: Record<string, number>): (ev: readonly SimEvent[]) => void {
+  const modes = new Map<Id, string>();
+  let carrying: Id | null = null;
+  return (ev) => {
+    const w = b().world;
+    const now = w.crew('fetch')!.carrying;
+    if (now !== null && now !== carrying) {
+      if (w.touched(now)) throw new Error(`rule 5: Fetch took hold of ${now}, which the visitor touched`);
+      stats['fetchTook'] = (stats['fetchTook'] ?? 0) + 1;
+    }
+    carrying = now;
+    for (const e of ev) {
+      if (e.type === 'effect' && e.effect.cause === 'crew' && e.effect.target !== 'fetch' && w.touched(e.effect.target) && w.writer(e.effect.target, e.effect.field) === 'crew') throw new Error(`rule 5: the crew wrote ${e.effect.target}.${e.effect.field}, which the visitor touched`);
+      if (e.type === 'crew.state' && e.id === 'fetch' && e.state === 'place') stats['fetchPlaced'] = (stats['fetchPlaced'] ?? 0) + 1;
+    }
+    for (const p of w.parts()) {
+      const m = w.mode(p.id) ?? '';
+      const was = modes.get(p.id);
+      modes.set(p.id, m);
+      if (was !== 'crew' || m !== 'free' || p.id === 'fetch') continue;
+      const pos = w.motion(p.id)!.pose;
+      if (pos.p[0] < LINE.belt.from || pos.p[0] > LINE.belt.to || Math.abs(pos.p[2] - LINE.belt.z) > LINE.belt.halfWidth) continue;
+      b().physics.land(p.id, { p: [pos.p[0], LINE.belt.top + w.halfExtents(p.id)![1], pos.p[2]], q: pos.q }, 3);
+    }
+  };
+}
+
+function sequence(seed: number, o: { steps: number; others: boolean; maxActions?: number; rounds?: boolean }): { b: Line; chk: Checker; start: ReturnType<World['durable']>; stats: Record<string, number> } {
   const r = rng(`line-${seed}`);
   let chk: Checker | null = null;
   const stats: Record<string, number> = { shipped: 0, struck: 0, returnedDoor: 0, returnedChute: 0, restocked: 0, takenIn: 0 };
+  const watchFetch = o.rounds ? fetchWatch(() => b, stats) : null;
   const b = line(seed, (ev) => {
+    watchFetch?.(ev);
     for (const e of ev) {
       if (e.type === 'shipped') stats['shipped']!++;
       if (e.type === 'struck') stats['struck']!++;
@@ -79,7 +116,7 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
       if (e.type === 'taken-in') stats['takenIn']!++;
     }
     chk?.step(ev, b.world.step);
-  });
+  }, o.rounds ? roundsBench() : BENCH);
   chk = checker(b.world, { jacks: JACKS, parts: PARTS });
   const start = b.world.durable();
   const w = b.world;
@@ -89,7 +126,7 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
     const k = r.int(100);
     const visitor = o.maxActions === undefined || actions < o.maxActions;
     if (k < 30 && visitor) {
-      const g = grabbable(o.others);
+      const g = grabbable(o.others && (!o.rounds || r.chance(0.1))); // with the rounds, Fetch is picked up now and then, not every few seconds
       if (!g.length) return;
       const id = r.pick(g);
       const m = w.motion(id)!;
@@ -101,7 +138,9 @@ function sequence(seed: number, o: { steps: number; others: boolean; maxActions?
       b.run(1);
       actions++;
     } else if (k < 40 && visitor) {
-      w.dispatch({ type: 'turn', id: r.pick(['belt-dial', 'belt-lever']), value: r.next() });
+      const handle = r.pick(['belt-dial', 'belt-lever']);
+      // with Fetch's rounds, the lever mostly goes back to forward (it feeds only a belt running forward)
+      w.dispatch({ type: 'turn', id: handle, value: o.rounds && handle === 'belt-lever' && r.chance(0.75) ? 1 : r.next() });
       b.run(1);
       actions++;
     } else if (k < 46 && visitor) {
@@ -172,6 +211,20 @@ describe('§ E5 on the real line: the replay check and the invariants, with the 
     expect(total['returnedChute']).toBeGreaterThan(0);
     expect(total['restocked']).toBeGreaterThan(15);
     expect(total['undone']).toBeGreaterThan(300);
+  }, 120_000);
+
+  test('S5, Fetch\'s rounds running (the stack in its reach): the replay check and the invariants hold, and Fetch never takes or writes a part the visitor touched (rule 5)', () => {
+    const total: Record<string, number> = {};
+    for (const seed of seeds(40, 300)) {
+      const { chk, stats } = sequence(seed, { steps: 3000, others: true, rounds: true });
+      for (const [k, v] of [...Object.entries(chk.stats), ...Object.entries(stats)]) total[k] = (total[k] ?? 0) + v;
+    }
+    if (only !== null) return;
+    console.log('line replay with rounds:', JSON.stringify(total));
+    // the rounds really ran beside the visitor
+    expect(total['fetchTook']).toBeGreaterThan(40);
+    expect(total['fetchPlaced']).toBeGreaterThan(30);
+    expect(total['undone']).toBeGreaterThan(150);
   }, 120_000);
 
   test('the full drain on the line: the crew frozen, fewer actions than the stack holds; the lever until empty gives back the start', () => {

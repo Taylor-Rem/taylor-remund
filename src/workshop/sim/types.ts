@@ -307,7 +307,18 @@ export type SimEvent =
   /** The return chute's flap kicks open: a part pops out (`part`), or a misfire (null). */
   | { readonly type: 'flap'; readonly id: Id; readonly part: Id | null }
   /** A plain crate shipped and a fresh one is set on the crate stack in its place (dropped on from above, as `system`). */
-  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id };
+  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id }
+  // ── Fetch (S5: § B5 "hit by a thrown part"; sim/crew/fetch.ts) ──
+  /**
+   * A part (`by`) hit the crew member `id` hard enough to knock it (`FetchKnock` has the same numbers,
+   * for as long as the knock lasts). `strength` 1..3 from the part's momentum; `dir` the yaw (radians
+   * about +Y, 0 = +Z) it is shoved along; `distance` how far it slides (already cut short of anything
+   * in the way); `spin` the signed yaw it turns while sliding (positive = anticlockwise seen from
+   * above); `dropped` the crate it let go of, if any (charged to the throw).
+   */
+  | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
+  /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
+  | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id };
 
 // ───────────────────────── machines, as the view sees them ─────────────────────────
 
@@ -415,8 +426,48 @@ export interface CordView {
  * slide back after overshooting a stop (speed negative along its heading);
  * `held` is in the visitor's hand (wheel spinning); `return` is hurrying
  * back to its lane after being put down; `frozen` is during a Button rung.
+ * In play mode (S5): `pickup` also takes a fresh crate off the stack (it
+ * reaches, then the crate comes into its hands); `place` sets the crate in
+ * its hands on the belt (turn, reach out, lower, let go, arms back); `reach`
+ * stretches for something past its tape and gives up (then the OUT OF MY LANE
+ * slip and a `shrug`); `knocked` is being shoved and spun by a thrown part,
+ * then wobbling back to balance (`CrewMember.knock`), before it `return`s.
  */
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen';
+export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked';
+
+/**
+ * A knock in progress (§ B5, Taylor 2026-11-18: "shoved and spun, not merely bumped into; it wobbles,
+ * finds its balance and goes back to its lane"). The simulation moves the body: `x`, `z` and `heading`
+ * already slide and spin during the first `shove` seconds of the `knocked` state (eased out: fast, then
+ * slowing). The view adds what the collider does not: the lean away from the hit and the wobble back
+ * to upright over the following `wobble` seconds, sized by `strength`.
+ */
+export interface FetchKnock {
+  /** The part that hit it. */
+  readonly by: Id;
+  readonly strength: 1 | 2 | 3;
+  /** Yaw of the shove (radians about +Y, 0 = +Z): the way it slides, the way it leans away from. */
+  readonly dir: number;
+  /** How far it slides (units), already cut short of the bench edge and of every machine. */
+  readonly distance: number;
+  /** Signed yaw it turns while sliding (radians; positive = anticlockwise seen from above). */
+  readonly spin: number;
+  /** Seconds of sliding, then seconds of wobbling, from the start of the `knocked` state. */
+  readonly shove: number;
+  readonly wobble: number;
+}
+
+/**
+ * Where a crew member's eye goes when nothing in its state says otherwise (§ B3 "Fetch's head follows the
+ * pointer", § B5 "watches the pointer"). `held`: the part in the visitor's hand (the pointer, when it
+ * carries something); `moving`: the nearest loose part on the move within range (thrown, falling).
+ * Null: nothing the simulation knows of; the view follows the pointer (only the view knows where it is).
+ */
+export interface Gaze {
+  readonly at: Vec3;
+  readonly what: 'held' | 'moving';
+  readonly id: Id;
+}
 
 /** A robot's transient state (§ E5 "Transient"): where it is and what it intends. Never recorded. */
 export interface CrewMember {
@@ -434,6 +485,12 @@ export interface CrewMember {
   readonly carrying: Id | null;
   /** What it is attending to in the world, if anything (the view may prefer the pointer). */
   readonly lookAt: Vec3 | null;
+  /** S5: where its eye goes otherwise (`lookAt` wins); null: the view follows the pointer. */
+  readonly gaze?: Gaze | null;
+  /** S5: something is carried near it (in the visitor's hand) and it holds its hands up (§ B5). */
+  readonly handsUp?: boolean;
+  /** S5: the knock, while `state` is `knocked`; null otherwise. */
+  readonly knock?: FetchKnock | null;
 }
 
 // ───────────────────────── the world, read-only ─────────────────────────

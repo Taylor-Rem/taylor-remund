@@ -89,7 +89,7 @@ tests/              unit/, scenario/ (headless simulation), browser/ (Playwright
 scripts/            verify and the checks it runs; capture and perf tools
 integrations/       local Astro integrations: CNAME into the output, dev-only pages, legacy passthrough (temporary)
 legal-reference/    the approved text of record for the four compliance pages (byte-exact)
-reference/          the pictures approved at G1: the standard for the look (never regenerated)
+reference/          the pictures Taylor has approved: g1/ is the standard for the look, p2-room/ the room round the bench (never regenerated)
 legacy/             the old plain-HTML site, kept for migration; /resume/ and /ai/ are served from it until P3
 public/             assets/ at their old URLs, fonts/, robots.txt
 ```
