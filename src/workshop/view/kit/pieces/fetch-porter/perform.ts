@@ -487,7 +487,8 @@ export function dizzy(t: number): FetchPose {
   let arms = mixArms(PRESETS.rest, loose, on);
   arms = { left: addArm(arms.left, { swing: 0.25 * on * Math.sin(ph * 0.75 + 1) }), right: addArm(arms.right, { swing: 0.25 * on * Math.sin(ph * 0.75 + 2.2) }) };
   const aerial: [number, number] = [0.7 * on * Math.sin(ph * 0.75 - 0.6) + 0.5 * on, 0.7 * on * Math.cos(ph * 0.75 - 0.6) - 0.4 * sh];
-  return {
+  // the perk's bounce is let go into rest over the last fifth of a second
+  const pose: FetchPose = {
     lean,
     wheel: 0.6 * on * Math.sin(ph * 0.75 - 0.4),
     squash,
@@ -505,6 +506,7 @@ export function dizzy(t: number): FetchPose {
     slide: [0, 0],
     lift: 0,
   };
+  return blendPose(pose, { ...REST, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, smoothstep(L - 0.22, L, tt));
 }
 
 // ───────────────────────── salute ─────────────────────────
@@ -535,7 +537,7 @@ export function salute(t: number): FetchPose {
   let arms = mixArms(start, PRESETS.salute, s);
   if (tt > 0.85) arms = mixArms(PRESETS.rest, PRESETS.salute, s);
   const bl = blink(tt, 0.36);
-  return {
+  const pose: FetchPose = {
     lean: [lerp(0.12, -0.05, lk) + 0.04 * Math.max(0, -tall), 0],
     wheel: 0,
     squash: clamp(-0.4 * tall, -0.6, 1),
@@ -553,6 +555,7 @@ export function salute(t: number): FetchPose {
     slide: [0, 0],
     lift: 0,
   };
+  return blendPose(pose, { ...REST, flag: pose.flag ?? 0 }, smoothstep(L - 0.16, L, tt));
 }
 
 // ───────────────────────── hands up ─────────────────────────
@@ -646,7 +649,7 @@ export function outOfLane(t: number, o: OutOfLaneOptions = {}): FetchPose {
   const headYaw = clamp(yaw, -0.85, 0.85) * (see * (1 - giveUp * 0.6)) * (1 - smoothstep(1.2, L, tt));
   const sigh = window4(tt, 1.0, 1.12, 1.22, L);
   const pupilSize = lerp(1, 1.3, see) * (1 - giveUp) + 0.9 * giveUp;
-  return {
+  const pose: FetchPose = {
     lean: [clamp(lean[0], -0.45, 0.45), clamp(lean[1], -0.35, 0.35)],
     wheel,
     squash: -0.6 * stretch + 0.35 * giveUp - 0.04 * tremble,
@@ -664,4 +667,5 @@ export function outOfLane(t: number, o: OutOfLaneOptions = {}): FetchPose {
     slide,
     lift: 0,
   };
+  return blendPose(pose, { ...REST, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, smoothstep(L - 0.16, L, tt));
 }
