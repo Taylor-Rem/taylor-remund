@@ -926,13 +926,19 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const knockable = (): boolean => state !== 'held' && state !== 'frozen' && state !== 'knocked' && !ctx.bracketed && ctx.mode(spec.id) === 'crew';
 
   /** Read a step's hits: one involving Fetch (or the crate in its hands) and a free part. */
+  /** Parts it shoved about itself while knocked (sliding into them): their bounce off it a moment later is not a throw. */
+  const shovedByMe = new Map<Id, number>();
   function hear(events: readonly SimEvent[]): void {
+    const now = ctx.clock.step;
+    for (const [id, until] of shovedByMe) if (until < now) shovedByMe.delete(id);
+    if (state === 'knocked')
+      for (const e of events) if (e.type === 'part.hit' && e.other !== null && (e.id === spec.id || e.other === spec.id)) shovedByMe.set(e.id === spec.id ? e.other : e.id, now + steps(1.5));
     if (!knockable()) return;
     for (const e of events) {
       if (e.type !== 'part.hit' || e.other === null) continue;
       const mine = (id: Id): boolean => id === spec.id || (id === carrying && carrying !== null);
       const by = mine(e.id) ? e.other : mine(e.other) ? e.id : null;
-      if (by === null || by === carrying || ctx.mode(by) !== 'free' || startedInside.has(by)) continue;
+      if (by === null || by === carrying || ctx.mode(by) !== 'free' || startedInside.has(by) || shovedByMe.has(by)) continue;
       const part = ctx.part(by);
       const half = ctx.halfExtents(by);
       const pose = ctx.pose(by);
