@@ -14,6 +14,10 @@
  *   lever found nothing left (`card.revert.nothing`).
  * - **After rung 3** it trundles to the Button and fits the cover, then goes
  *   back to its hatch.
+ * - **Home again** (S7): standing on its hatch with nothing left to do (its
+ *   card down), it waits a deadpan `homePause` and sinks (`sinking`: the
+ *   lift takes it down over the rise time), then it is `below`. Called while
+ *   it sinks, it rises again from where the lift is.
  * - **Between jobs**: when the bench is crowded (`crowded` stray crates or
  *   more, resting off the stack) it puts away the oldest one nobody has
  *   stirred for `aWhile` seconds (`ctx.putAway`, rule 14: onto the stack if
@@ -33,16 +37,22 @@
  *   world). Where it is and what it intends are transient.
  * - While a rung plays its body stays where it was (the world is recorded
  *   and rewound); what it does then is drawn from its view and the body
- *   catches up when the rung ends.
+ *   catches up when the rung ends. A rung's `revert` beat calls it like any
+ *   other call: down (stowed) it rises; sinking, it rises again from where
+ *   its lift is. A rung without that beat (reduced motion) leaves the lift
+ *   alone: a sinking Revert finishes sinking during it. When the rewind ends
+ *   and it has nothing to do it stands by (`idle`), even if the next rung is
+ *   already playing, and the next rung's beats start its next act from there.
  *
  * Its view is a `MachineView` of kind `revert` (see `RevertView`); its body
  * is the loose part `spec.body` (kind robot).
  */
 import type { Cause, Id, Location, Outcome, Pose, RevertState, RevertView, SimEvent, StationId, Vec3 } from '../types.ts';
+import type { Shape } from '../physics/port.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
-import { qyaw, yawOf } from '../math.ts';
+import { qyaw, rotate, yawOf } from '../math.ts';
 import { Beat, OK } from '../machine.ts';
 
 /** Seconds, units per second, radians per second; tune here. Where and how much are scene numbers (`RevertSpec`). */
@@ -51,6 +61,8 @@ export const REVERT_TUNING = {
   rise: 0.9,
   /** The hatch's doors open (or shut) in this long. */
   doors: 0.3,
+  /** Back on its hatch with nothing to do (its card down): it stands this long, deadpan, then sinks. */
+  homePause: 1.2,
   /** Its hatch covered: it rattles the doors this long, then stays down. */
   stuck: 1.2,
   /** ...and does not try to come up to tidy again for this long. */
@@ -70,6 +82,8 @@ export const REVERT_TUNING = {
   card: 3.5,
   /** Putting a part away takes this long (it turns to face it and sweeps). */
   sweep: 1.2,
+  /** A part its own body brushed while sweeping: it waits at most this much longer for it to settle. */
+  settle: 1.5,
   /** At the Button, screwing the cover on. */
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
@@ -117,6 +131,11 @@ export interface RevertSpec {
   readonly parkAfter: number;
   /** Seconds between two put-aways. */
   readonly awayGap: number;
+  /**
+   * S7: where the visitor is (as Fetch's `outward`). It sweeps a part from the part's far side, facing
+   * the visitor, so the broom is seen. Default: straight out along +Z.
+   */
+  readonly outward?: Vec3;
 }
 
 export interface RevertUnit extends MachineUnit {
@@ -126,7 +145,7 @@ export interface RevertUnit extends MachineUnit {
 export const CARD_KEPT = 'card.revert.kept';
 export const CARD_NOTHING = 'card.revert.nothing';
 
-type Purpose = 'cover' | 'park' | 'home';
+type Purpose = 'cover' | 'park' | 'home' | 'sweep';
 
 interface Route {
   readonly pts: (readonly [number, number])[];
@@ -165,9 +184,18 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let speed = 0;
   let turning = 0;
   let card: { content: string; at: number } | null = null;
+  /** The step its last card came down (it sinks only a pause after that). */
+  let cardDown = -Infinity;
   let route: Route | null = null;
   let coverPending = false;
-  let sweeping: { part: Id; stir: number } | null = null;
+  /**
+   * The part it is putting away, when it was last stirred as the sweep began, and whether its own body has
+   * brushed it since (turning on the spot inside its kinematic collider). A stir it caused itself does not
+   * count; the visitor's does, and clears `brushed`.
+   */
+  let sweeping: { part: Id; stir: number; brushed: boolean } | null = null;
+  /** Out on a job (a sweep, the cover) and owed the trip home afterwards. */
+  let away = false;
   /** Its body is out of the world because it is down in its hatch (not because the dock shipped it). */
   let stowed = false;
   let resetting = false;
@@ -185,7 +213,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     ctx.emit({ type: 'crew.state', id: body, state: next, from });
   };
   const inState = (): number => ctx.clock.step - entered;
-  const up = (): boolean => state !== 'below' && state !== 'rising' && state !== 'stuck';
+  /** Up on the bench and able to act (rising and sinking are neither up nor down). */
+  const up = (): boolean => state !== 'below' && state !== 'rising' && state !== 'sinking' && state !== 'stuck';
   const loose = (): boolean => state === 'held' || state === 'loose';
 
   /** Where its body should be: on the bench at (x, z), lowered by the lift. */
@@ -273,22 +302,115 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   };
 
   /** A trip along its track to `to`. */
-  function goTo(to: RevertSpot, purpose: Purpose): void {
+  function goTo(to: RevertSpot, purpose: Purpose, via: readonly (readonly [number, number])[] = []): void {
     const pts: (readonly [number, number])[] = [];
+    const leave = via[0] ?? [to.x, to.z];
     if (spec.path.length > 0) {
       const ci = nearestOnPath(x, z);
-      const ti = nearestOnPath(to.x, to.z);
+      const ti = nearestOnPath(leave[0], leave[1]);
       const c = spec.path[ci] as readonly [number, number];
       if (ci !== ti && Math.hypot(c[0] - x, c[1] - z) > 0.05) pts.push(c);
       const dir = Math.sign(ti - ci);
       for (let i = ci + dir; dir !== 0 && i !== ti; i += dir) pts.push(spec.path[i] as readonly [number, number]);
+      // the waypoint it leaves the track from, when the place is off it (a spur, a stand by a part)
+      const t = spec.path[ti] as readonly [number, number];
+      if (ti !== ci && Math.hypot(t[0] - leave[0], t[1] - leave[1]) > 0.05) pts.push(t);
     }
-    pts.push([to.x, to.z]);
+    pts.push(...via, [to.x, to.z]);
     route = { pts, i: 0, purpose, heading: to.heading, blocked: 0 };
+    if (purpose === 'cover' || purpose === 'sweep') away = true;
     enter('trundle');
   }
 
   const near = (s: RevertSpot, d = 0.08): boolean => Math.hypot(x - s.x, z - s.z) < d;
+  /** Standing on its hatch (on the bench top, over the doors). */
+  const onHatch = (): boolean => Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
+
+  // ── where it stands to sweep (S7) ──
+  /** The fixed things it could run into, as boxes on the bench top (x, z, half x, half z, yaw); flat things are left out. */
+  const fixed: readonly (readonly [number, number, number, number, number])[] = (ctx.scene.statics ?? []).flatMap((st) => {
+    const sh: Shape = st.shape;
+    const parts = sh.type === 'box' ? [{ half: sh.half, at: { p: [0, 0, 0] as Vec3, q: [0, 0, 0, 1] as const } }] : sh.parts;
+    const yaw = yawOf(st.pose.q);
+    return parts.flatMap((pt) => {
+      const c = rotate(st.pose.q, pt.at.p);
+      const cy = st.pose.p[1] + c[1];
+      if (cy + pt.half[1] < 0.1 || cy - pt.half[1] > 2 * hy) return []; // the bench top, a runner; or overhead
+      return [[st.pose.p[0] + c[0], st.pose.p[2] + c[2], pt.half[0], pt.half[2], yaw + yawOf(pt.at.q as Pose['q'])] as const];
+    });
+  });
+  /** Half extents on x and z of a box (hx, hz) turned by `h`. */
+  const span = (ax: number, az: number, h: number): readonly [number, number] => {
+    const c = Math.abs(Math.cos(h));
+    const s = Math.abs(Math.sin(h));
+    return [c * ax + s * az, s * ax + c * az];
+  };
+  /** Two boxes on the bench top (centre, half extents, yaw) overlap, or come within `m` (separating axes). */
+  function overlaps(ax: number, az: number, ahx: number, ahz: number, ah: number, bx: number, bz: number, bhx: number, bhz: number, bh: number, m: number): boolean {
+    const ar = [Math.cos(ah), -Math.sin(ah)] as const;
+    const af = [Math.sin(ah), Math.cos(ah)] as const;
+    const br = [Math.cos(bh), -Math.sin(bh)] as const;
+    const bf = [Math.sin(bh), Math.cos(bh)] as const;
+    for (const ax_ of [ar, af, br, bf]) {
+      const pa = Math.abs(ar[0] * ax_[0] + ar[1] * ax_[1]) * ahx + Math.abs(af[0] * ax_[0] + af[1] * ax_[1]) * ahz;
+      const pb = Math.abs(br[0] * ax_[0] + br[1] * ax_[1]) * bhx + Math.abs(bf[0] * ax_[0] + bf[1] * ax_[1]) * bhz;
+      if (Math.abs((bx - ax) * ax_[0] + (bz - az) * ax_[1]) >= pa + pb + m) return false;
+    }
+    return true;
+  }
+  /** Room for its body at (px, pz) facing `h`: on the bench, clear of every fixed thing and every part. */
+  function room(px: number, pz: number, h: number): boolean {
+    const [ex, ez] = span(hx, hz, h);
+    const b = ctx.scene.bench;
+    const m = 0.02;
+    if (px - ex < b.minX + m || px + ex > b.maxX - m || pz - ez < b.minZ + m || pz + ez > b.maxZ - m) return false;
+    for (const [fx, fz, fhx, fhz, fyaw] of fixed) if (overlaps(px, pz, hx, hz, h, fx, fz, fhx, fhz, fyaw, m)) return false;
+    return blocker(px, pz, h) === null;
+  }
+  /** Its way in to a stand: it drives the last `approach` units straight in, facing the part. */
+  const APPROACH = 1;
+  /** A clear drive from (ax, az) to (bx, bz) facing the way it goes (the first stretch, near the track, is the track's). */
+  function clearRun(ax: number, az: number, bx: number, bz: number): boolean {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) return true;
+    const h = Math.atan2(bx - ax, bz - az);
+    for (let t = Math.min(len, 0.3); t <= len + 1e-9; t += 0.15) if (!room(ax + ((bx - ax) * t) / len, az + ((bz - az) * t) / len, h)) return false;
+    return true;
+  }
+  /** Room to turn on the spot at (px, pz) from one heading to another, the short way. */
+  function clearTurn(px: number, pz: number, from: number, to: number): boolean {
+    const d = wrap(to - from);
+    for (let k = 1; k <= 6; k++) if (!room(px, pz, from + (d * k) / 6)) return false;
+    return true;
+  }
+  /**
+   * Where it stands to sweep `part`, and the way in: on the part's far side from the visitor, facing them
+   * across it, so the broom pushes toward them and is seen. It comes in straight, facing the part, from a
+   * point `APPROACH` behind the stand (its body is wider than it is deep: it never sidles up to a part).
+   * Where the bench leaves no room for that (the back wall, a machine, other parts, Fetch), the nearest
+   * stand round the part (up to a quarter turn either way) that still keeps its front or side to the
+   * visitor. Null when there is none: it sweeps from where it is.
+   */
+  function standFor(part: Id): { readonly at: RevertSpot; readonly via: readonly (readonly [number, number])[] } | null {
+    const p = ctx.pose(part)?.p;
+    const e = ctx.halfExtents(part);
+    if (!p || !e) return null;
+    const out = spec.outward ?? [p[0], 0, p[2] + 10];
+    const toVisitor = Math.atan2(out[0] - p[0], out[2] - p[2]);
+    const d = hz + Math.max(e[0], e[2]) + 0.12;
+    for (const a of [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, Math.PI / 2, -Math.PI / 2]) {
+      const h = wrap(toVisitor + a);
+      const sx = p[0] - Math.sin(h) * d;
+      const sz = p[2] - Math.cos(h) * d;
+      const qx = sx - Math.sin(h) * APPROACH;
+      const qz = sz - Math.cos(h) * APPROACH;
+      if (!room(sx, sz, h) || !room(qx, qz, h)) continue;
+      const w = spec.path.length > 0 ? (spec.path[nearestOnPath(qx, qz)] as readonly [number, number]) : ([x, z] as const);
+      if (!clearRun(w[0], w[1], qx, qz) || !clearTurn(qx, qz, Math.atan2(qx - w[0], qz - w[1]), h)) continue;
+      return { at: { x: sx, z: sz, heading: h }, via: [[qx, qz]] };
+    }
+    return null;
+  }
 
   /** One step along the route. True when it has arrived (facing the spot's heading). */
   function drive(r: Route): boolean {
@@ -314,16 +436,20 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const want = Math.atan2(dx, dz);
     const err = wrap(want - heading);
     turning = 0;
-    if (Math.abs(err) > T.aim) {
-      // turn on the spot first (treads counter-rotate)
+    const sharp = Math.abs(err) > T.aim;
+    if (sharp) {
+      // turn on the spot first (treads counter-rotate); still rolling, it slows to a stop first and does not
+      // speed up again until it faces the way (S7: a short leg after a sharp corner used to circle its point)
       speed = Math.max(0, speed - T.accel * dt);
       const step = Math.sign(err) * Math.min(Math.abs(err), T.turn * dt);
       heading += step;
       turning = step / dt;
       if (speed <= 0) return false;
-    } else heading += err * Math.min(1, 8 * dt);
-    const stopping = (speed * speed) / (2 * T.accel);
-    speed = d <= stopping + 1e-4 ? Math.max(0.15, speed - T.accel * dt) : Math.min(T.speed, speed + T.accel * dt);
+    } else {
+      heading += err * Math.min(1, 8 * dt);
+      const stopping = (speed * speed) / (2 * T.accel);
+      speed = d <= stopping + 1e-4 ? Math.max(0.15, speed - T.accel * dt) : Math.min(T.speed, speed + T.accel * dt);
+    }
     const stepLen = Math.min(d, speed * dt);
     const nx = x + Math.sin(heading) * stepLen;
     const nz = z + Math.cos(heading) * stepLen;
@@ -345,6 +471,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
   // ── jobs ──
   function rise(): void {
+    if (state === 'sinking') {
+      // still in the hatch's mouth: back up from where the lift is (nothing can have covered the open hatch)
+      enter('rising');
+      return;
+    }
     if (blocker(spec.home.x, spec.home.z, spec.home.heading) !== null) {
       enter('stuck'); // its hatch is covered: it will not push the visitor's things off it
       return;
@@ -360,8 +491,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   function call(seconds: number): void {
     tidySince = ctx.clock.step;
     sweeping = null;
+    if (route?.purpose === 'sweep') route = null; // the bench is changing under it: that trip is off
     if (seconds > 0) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(seconds));
-    if (state === 'below') rise();
+    if (state === 'below' || state === 'sinking') rise();
     else if (state === 'park') enter('idle');
     else if (state === 'sweep') enter('idle');
   }
@@ -436,10 +568,23 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (now >= nextAway) {
       const c = clutter();
       if (c !== null) {
-        sweeping = { part: c, stir: stirred(c) };
-        enter('sweep');
+        sweeping = { part: c, stir: stirred(c), brushed: false };
+        const stand = standFor(c);
+        if (stand && !(near(stand.at, 0.05) && Math.abs(wrap(heading - stand.at.heading)) < 0.05)) goTo(stand.at, 'sweep', stand.via);
+        else enter('sweep');
         return;
       }
+    }
+    // a job done away from its hatch: back home (and then down)
+    if (state === 'idle' && away && ground < 0.05 && now - entered >= steps(T.righting)) {
+      goTo(spec.home, 'home');
+      return;
+    }
+    // home on its hatch with nothing to do: a deadpan pause, then down it goes
+    const pause = steps(T.homePause);
+    if (state === 'idle' && onHatch() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
+      enter('sinking');
+      return;
     }
     if (state === 'idle' && ground < 0.05 && now - tidySince >= steps(spec.parkAfter) && now - entered >= steps(T.righting)) {
       if (near(spec.park)) enter('park');
@@ -462,14 +607,25 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     enter('idle');
   }
 
+  /** The crank stops: back to the trip it was on, the cover it was fitting, or standing by. */
+  function doneCranking(): void {
+    if (route) enter('trundle');
+    else if (coverPending && near(spec.button)) enter('fit');
+    else enter('idle');
+  }
+
   function arrive(r: Route): void {
     route = null;
     speed = 0;
     turning = 0;
     if (r.purpose === 'cover' && coverPending) enter('fit');
     else if (r.purpose === 'cover') goTo(spec.home, 'home');
+    else if (r.purpose === 'sweep' && sweeping) enter('sweep');
     else if (r.purpose === 'park') enter('park');
-    else enter('idle');
+    else {
+      if (r.purpose === 'home') away = false;
+      enter('idle');
+    }
   }
 
   const unit: RevertUnit = {
@@ -491,19 +647,30 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
-        // what stirs a part: anything happening to it
+        // what stirs a part: anything happening to it, except its own body brushing the part it sweeps
+        const sw = sweeping;
+        const own = (id: Id): boolean => sw !== null && sw.brushed && id === sw.part; // the wobble and rest after its own brush
         switch (e.type) {
           case 'effect':
-            lastStir.set(e.effect.target, ctx.clock.step);
+            if (!own(e.effect.target)) lastStir.set(e.effect.target, ctx.clock.step);
+            break;
+          case 'part.rested':
+            if (!own(e.id)) lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.grabbed':
           case 'part.released':
-          case 'part.rested':
           case 'part.returned':
           case 'put-away':
+            if (sw && e.id === sw.part) sw.brushed = false; // someone else's hand: that counts
             lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.hit':
+            if (sw && ((e.id === sw.part && e.other === body) || (e.id === body && e.other === sw.part))) {
+              sw.brushed = true;
+              lastStir.set(body, ctx.clock.step);
+              break;
+            }
+            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = false;
             lastStir.set(e.id, ctx.clock.step);
             if (e.other) lastStir.set(e.other, ctx.clock.step);
             break;
@@ -522,7 +689,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         // its jobs
         if (e.type === 'rung.beat' && e.beat === 'revert') call(0);
         else if (e.type === 'rung.beat' && e.beat === 'rewind') {
-          if (state !== 'below' && state !== 'stuck' && !loose()) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(e.duration));
+          if (state !== 'below' && state !== 'stuck' && state !== 'sinking' && !loose()) crankUntil = Math.max(crankUntil, ctx.clock.step + steps(e.duration));
         } else if (e.type === 'card' && e.by === body) showCard(e.content);
         else if (e.type === 'cover' && e.state === 'fitting') coverPending = true;
         else if (e.type === 'cover' && (e.state === 'none' || e.state === 'shut')) {
@@ -546,7 +713,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     pre() {
       const now = ctx.clock.step;
-      if (card && now - card.at >= steps(T.card)) card = null;
+      if (card && now - card.at >= steps(T.card)) {
+        card = null;
+        cardDown = now;
+      }
       const cranking = now < crankUntil && state !== 'held' && state !== 'loose';
       if (cranking) crank += T.crankRate * dt;
       const mode = ctx.mode(body);
@@ -570,19 +740,23 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.min(1, lift + dt / T.rise);
         if (lift >= 1) enter(cranking ? 'crank' : 'idle');
       }
+      if (state === 'sinking') {
+        lift = Math.max(0, lift - dt / T.rise);
+        if (lift <= 0) enter('below');
+      }
       if (state === 'stuck' && inState() >= steps(T.stuck)) {
         nextAway = Math.max(nextAway, now + steps(T.stuckRetry));
         enter('below');
       }
-      const onHatch = Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
-      const doorsWant = state === 'rising' || (up() && onHatch) ? 1 : 0;
+      const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
       if (ctx.bracketed) {
-        // a rung plays: its body stays put (the world is recorded and rewound); it only cranks and rises
+        // a rung plays: its body stays put (the world is recorded and rewound); it only cranks, rises and sinks
         speed = 0;
         turning = 0;
         if (cranking && (state === 'idle' || state === 'park' || state === 'trundle' || state === 'fit')) enter('crank');
+        if (state === 'crank' && !cranking) doneCranking(); // the rewind is over: it stands by, even into the next rung
         return;
       }
 
@@ -593,11 +767,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         turning = 0;
         enter('crank');
       }
-      if (state === 'crank' && !cranking) {
-        if (route) enter('trundle');
-        else if (coverPending && near(spec.button)) enter('fit');
-        else enter('idle');
-      }
+      if (state === 'crank' && !cranking) doneCranking();
 
       switch (state) {
         case 'trundle': {
@@ -624,7 +794,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             heading += step;
             turning = step / dt;
           }
-          if (inState() >= steps(T.sweep)) {
+          // a part its own body brushed may still be wobbling: it waits for it to settle (a little while at most)
+          const wobbling = !!s && s.brushed && !ctx.settled(s.part) && inState() < steps(T.sweep + T.settle);
+          if (inState() >= steps(T.sweep) && !wobbling) {
             turning = 0;
             finishSweep();
           }
@@ -644,6 +816,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       sweeping = null;
       coverPending = false;
       card = null;
+      cardDown = -Infinity;
       crankUntil = -1;
       speed = 0;
       turning = 0;
@@ -656,6 +829,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       tidySince = ctx.clock.step;
       nextAway = -Infinity;
       glareUntil = -1;
+      away = false;
       beat.reset();
       enter(spec.start === 'up' ? 'idle' : 'below');
       resetting = true;
@@ -702,7 +876,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         turning,
         eyes,
         card: card ? { content: card.content, since: (now - card.at) / HZ } : null,
-        sweeping: sweeping?.part ?? null,
+        sweeping: state === 'sweep' ? (sweeping?.part ?? null) : null,
         drawn: state !== 'held' && state !== 'loose',
       };
     },

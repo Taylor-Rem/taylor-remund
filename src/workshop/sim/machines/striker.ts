@@ -59,6 +59,8 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
   let struckAt = -1;
   let last: Id | null = null;
   let cock = 0;
+  /** Seconds until the next riding part passes under the arm at the speed it went this step, or null. */
+  let next: number | null = null;
   const X = spec.x;
 
   function strike(part: Id | null, size: PartSize | null, material: PartMaterial | null): void {
@@ -85,6 +87,7 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
     abort(_cause: Cause) {},
     reset() {
       lastX.clear();
+      next = null;
       lamp.reset();
       beat.reset();
       struckAt = -1;
@@ -93,8 +96,12 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
     },
 
     post() {
-      if (ctx.bracketed) return;
+      if (ctx.bracketed) {
+        next = null; // a rung plays: nothing rides
+        return;
+      }
       cock = 0;
+      next = null;
       for (const id of ctx.parts()) {
         const p = ctx.part(id);
         const loc = p?.location;
@@ -114,14 +121,18 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
           strike(id, p.size, p.material);
           continue;
         }
-        // approaching: the arm cocks back
-        if (Math.sign(X - x) === Math.sign(x - was)) cock = Math.max(cock, 1 - Math.min(1, Math.abs(X - x) / STRIKER_TUNING.approach));
+        // approaching: the arm cocks back, and the next strike is due when the nearest arrives at this pace
+        if (Math.sign(X - x) === Math.sign(x - was)) {
+          cock = Math.max(cock, 1 - Math.min(1, Math.abs(X - x) / STRIKER_TUNING.approach));
+          const due = Math.abs(X - x) / (Math.abs(x - was) * HZ);
+          next = next === null ? due : Math.min(next, due);
+        }
       }
     },
 
     view(): StrikerView {
       const since = struckAt < 0 ? Infinity : (ctx.clock.step - struckAt) / HZ;
-      return { kind: 'striker', id: spec.id, station: spec.station, lamp: lamp.state(cock > 0 || since < STRIKER_TUNING.glow), misfire: beat.view(), cock, since, last };
+      return { kind: 'striker', id: spec.id, station: spec.station, lamp: lamp.state(cock > 0 || since < STRIKER_TUNING.glow), misfire: beat.view(), cock, since, last, next };
     },
   };
   return unit;
