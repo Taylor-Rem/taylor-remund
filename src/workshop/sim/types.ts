@@ -428,6 +428,11 @@ export interface BeltView extends MachineViewBase {
   readonly phase: number;
   /** Parts riding it now, in the order they lie along it from the motor end. */
   readonly riding: readonly Id[];
+  /**
+   * S7: running backward with the slide's foot full, the part held against the deflector, waiting for a
+   * free place (the belt runs on under it; the belt told once when it began to wait). Null otherwise.
+   */
+  readonly waiting: Id | null;
 }
 
 /** The striker (§ B2 X2): a hammer on a sprung arm over the belt. */

@@ -186,12 +186,23 @@ const DOOR = rampDoor(RAMP);
  */
 const DEFLECTOR = { meet: 0.29, rest: [0.5, -1.32] as const, clear: 1.1 } as const;
 const OFF_BACK: Vec3 = [AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.rest[0], 0, AT.belt.c[2] + DEFLECTOR.rest[1]];
+/**
+ * S7: the slide's foot as a row (world x of its ends): from just clear of the return chute's mouth (a part
+ * coming back up it must not be blocked) to where Fetch's footprint reaches when it overshoots the lane's
+ * near stop (it overshoots every stop: a part set down closer would be knocked by its next lap). Parts
+ * guided off the back fill it from the far (chute) end, side by side. (A part coming back up the chute
+ * lands about 0.7 in from its mouth: on the row's far end, if something stands there.)
+ */
+const OFF_BACK_ROW = {
+  minX: AT.chute.p[0] + 0.45,
+  maxX: AT.lane.a[0] + (FETCH_TUNING.inset - FETCH_TUNING.overshoot) * CREW_SCALE - Math.hypot(FETCH_HALF[0], FETCH_HALF[2]),
+} as const;
 
 /** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */
 const beltFeed = (ctx: SimContext): number => (ctx.setting('belt', BELT_FIELDS.running) === true ? (BELT_TUNING.speeds[(ctx.setting('belt', BELT_FIELDS.speed) as number) - 1] ?? 0) : 0);
 
 export const LINE = {
-  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK, deflectAt: AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.meet },
+  belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK, offBackRow: OFF_BACK_ROW, deflectAt: AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.meet },
   /** The striker's arm crosses the belt at its post's x. */
   strikerX: AT.striker.c[0],
   /** The roller ramp from the belt's far end to the dock's sill. */
