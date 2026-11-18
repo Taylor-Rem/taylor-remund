@@ -46,7 +46,7 @@ import { rng, type Rng } from '../../rng.ts';
 import { sweep, polylinePath, curvePath } from '../../sweep.ts';
 import { labelKey } from '../../../labels/layout.ts';
 import { world } from '../../../labels/content.ts';
-import { bevelBox, decalBands, innerBox, mergeMarked, skin, stud, type FaceName } from './geo.ts';
+import { axisChamfer, bevelBox, chamferBox, cornerChamfer, decalBands, innerBox, mergeMarked, pip, skin, type FaceName } from './geo.ts';
 import type { V3 } from '../../loft.ts';
 
 export type CrateSize = 'S' | 'M' | 'L';
@@ -74,23 +74,29 @@ interface Spec {
   /** Stencil: cap heights of the arrows and the letter, and their places on the front panel (fractions). */
   arrowCap: number; letterCap: number;
   skinPts: number;
+  /**
+   * The paint skin's point count when the crate was approved (G1): a skin draws 3n - 8 numbers
+   * from the crate's seeded stream, so a skin of fewer points burns the difference and every
+   * later plank keeps the tint, lean and chips it had.
+   */
+  skinStream: number;
 }
 
 const SPECS: Record<CrateSize, Spec> = {
   S: {
     w: 0.45, h: 0.44, d: 0.45, post: 0.066, postC: 0.011, proud: 0.034, railH: 0.062, railProud: 0.022, railC: 0.008,
     plankT: 0.024, plankC: 0.006, gap: 0.01, planks: 1, lidPlanks: 2, lidT: 0.03, cleatT: 0.022, cleatW: 0.062,
-    skid: 0, bracket: 0, rope: true, brace: false, nails: true, arrowCap: 0.055, letterCap: 0.11, skinPts: 14,
+    skid: 0, bracket: 0, rope: true, brace: false, nails: true, arrowCap: 0.055, letterCap: 0.11, skinPts: 9, skinStream: 14,
   },
   M: {
     w: 0.6, h: 0.57, d: 0.58, post: 0.076, postC: 0.012, proud: 0.038, railH: 0.072, railProud: 0.026, railC: 0.009,
     plankT: 0.026, plankC: 0.007, gap: 0.011, planks: 2, lidPlanks: 2, lidT: 0.032, cleatT: 0.024, cleatW: 0.072,
-    skid: 0, bracket: 0.104, rope: false, brace: false, nails: false, arrowCap: 0.068, letterCap: 0.15, skinPts: 16,
+    skid: 0, bracket: 0.104, rope: false, brace: false, nails: false, arrowCap: 0.068, letterCap: 0.15, skinPts: 10, skinStream: 16,
   },
   L: {
     w: 0.8, h: 0.75, d: 0.74, post: 0.09, postC: 0.014, proud: 0.044, railH: 0.086, railProud: 0.03, railC: 0.01,
     plankT: 0.028, plankC: 0.008, gap: 0.012, planks: 3, lidPlanks: 3, lidT: 0.036, cleatT: 0.028, cleatW: 0.086,
-    skid: 0.072, bracket: 0.124, rope: false, brace: true, nails: false, arrowCap: 0.08, letterCap: 0.15, skinPts: 10,
+    skid: 0.072, bracket: 0.124, rope: false, brace: true, nails: false, arrowCap: 0.08, letterCap: 0.15, skinPts: 7, skinStream: 10,
   },
 };
 
@@ -294,6 +300,10 @@ export function repaint(object: Object3D, paint: Token | null): number {
 // ---- the build -------------------------------------------------------------------
 
 const DEG = Math.PI / 180;
+/** Draw and drop n numbers from a seeded stream. */
+const burn = (R: Rng, n: number): void => {
+  for (let i = 0; i < n; i++) R();
+};
 const Ry = (deg: number): Matrix4 => new Matrix4().makeRotationY(deg * DEG);
 const Rx = (deg: number): Matrix4 => new Matrix4().makeRotationX(deg * DEG);
 
@@ -361,7 +371,8 @@ export function crate(o: CrateOptions = {}): Piece {
   const P = S.post;
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
     const x0 = sx > 0 ? W / 2 - P : -W / 2, z0 = sz > 0 ? D / 2 - P : -D / 2;
-    const g = grain(bevelBox({ min: [x0, y0, z0], max: [x0 + P, yLid, z0 + P], c: cB(S.postC), wear: 0.85 }), 'y');
+    // chamfered down its four long edges; its ends sit under the lid and on the ground, square
+    const g = grain(cB(S.postC) > 0 ? chamferBox({ min: [x0, y0, z0], max: [x0 + P, yLid, z0 + P], c: S.postC, wear: 0.85, chamfered: axisChamfer(1) }) : bevelBox({ min: [x0, y0, z0], max: [x0 + P, yLid, z0 + P], c: 0 }), 'y');
     into(b, wood(g, 'wood-light', { seed: R.int(0, 1e6), jitter: 0.08, warm: 0.05, shade: 0.95 }));
   }
 
@@ -406,6 +417,7 @@ export function crate(o: CrateOptions = {}): Piece {
       // the skin: the visible face between the posts and rails, a hair proud
       const vy0 = Math.max(-ph / 2 + cB(S.plankC), panelY0 - yc), vy1 = Math.min(ph / 2 - cB(S.plankC), panelY1 - yc);
       const sk = skin(-xIn + 0.003, xIn - 0.003, vy0, vy1, low ? 5 : S.skinPts, low ? 0.004 : S.gap * 0.9, R);
+      if (!low) burn(R, 3 * (S.skinStream - S.skinPts));
       transform(sk, T(0, 0, 0.0022));
       bands.push([yc + vy0, yc + vy1]);
       transform(g, Mp);
@@ -464,7 +476,7 @@ export function crate(o: CrateOptions = {}): Piece {
       const nr = 0.0085;
       for (const sx of [-1, 1]) for (const yy of [y0 + S.railH / 2, yLid - S.railH / 2]) {
         const nx = sx * (xIn + P / 2);
-        const s = grain(stud(nr, 0.005, 5), 'y');
+        const s = grain(pip(nr, 0.005, 4), 'y');
         const m = chain(Rw, aim([nx + R.spread(0.006), yy + R.spread(0.008), half], [0, 0, 1], R.range(0, 72)));
         into(b, part('metal', transform(s, m), 'steel', { seed: R.int(0, 1e6), shade: 0.55, jitter: 0.1 }));
       }
@@ -481,7 +493,7 @@ export function crate(o: CrateOptions = {}): Piece {
         [hx * 0.92, yh - sag * 0.55, zr + 0.013], [hx, yh, zr + 0.008], [hx, yh, zf - 0.02],
       ].map((p) => new Vector3(p[0], p[1], p[2]));
       const path = curvePath(new CatmullRomCurve3(pts, false, 'centripetal'), low ? 6 : 12);
-      const g = sweep(path, { radius: 0.0115, segs: low ? 4 : 6, ends: 'flat', detail });
+      const g = sweep(path, { radius: 0.0115, segs: low ? 4 : 5, ends: 'flat', detail });
       into(b, part('felt', transform(g, Rw), 'wood-light', { seed: R.int(0, 1e6), shade: 0.95 }));
       // the rope's whipping where it enters each hole
       if (!low) {
@@ -535,7 +547,8 @@ export function crate(o: CrateOptions = {}): Piece {
         const xa = sx > 0 ? W / 2 - bs : -W / 2 - e, xb = sx > 0 ? W / 2 + e : -W / 2 + bs;
         const za = sz > 0 ? D / 2 - bs : -D / 2 - e, zb = sz > 0 ? D / 2 + e : -D / 2 + bs;
         if (low && !top) continue; // far away, the bottom brackets are lost in the contact shadow
-        const g = bevelBox({ min: [xa, ya, za], max: [xb, yb, zb], c: cB(0.0042), wear: 0.95 });
+        // the chamfer only round the crate's own corner, where the light runs; its edges on the wood are a sheet's step
+        const g = chamferBox({ min: [xa, ya, za], max: [xb, yb, zb], c: cB(0.0042), wear: 0.95, chamfered: cornerChamfer(sx, top ? 1 : -1, sz) });
         into(b, part('metal', g, 'steel', { seed: R.int(0, 1e6), shade: 0.85, jitter: 0.1 }));
         if (low || (!top && size === 'L')) continue;
         const ym = (ya + yb) / 2 + (top ? 0.006 : -0.006);
@@ -544,7 +557,7 @@ export function crate(o: CrateOptions = {}): Piece {
           if (k++ === missing) continue; // one rivet long gone
           const at: V3 = face === 'z' ? [sx * (W / 2 - bs * 0.42), ym, sz * (D / 2 + e)] : [sx * (W / 2 + e), ym, sz * (D / 2 - bs * 0.42)];
           const dir: V3 = face === 'z' ? [0, 0, sz] : [sx, 0, 0];
-          const s = grain(stud(rr, rr * 0.75, 5), 'y');
+          const s = grain(pip(rr, rr * 0.75, 5), 'y');
           into(b, part('metal', transform(s, aim(at, dir, R.range(0, 60))), 'steel', { seed: R.int(0, 1e6), shade: 0.85, jitter: 0.1 }));
         }
       }
@@ -582,6 +595,7 @@ export function crate(o: CrateOptions = {}): Piece {
       const g = bevelBox({ min: [-W / 2, -pd / 2, -S.lidT], max: [W / 2, pd / 2, 0], c: cB(S.plankC), omit: ['nz'], wear: 0.75 });
       const xs = W / 2 - S.cleatW - 0.035;
       const sk = skin(-xs, xs, -pd / 2 + cB(S.plankC), pd / 2 - cB(S.plankC), low ? 5 : S.skinPts, low ? 0.004 : S.gap * 0.9, R);
+      if (!low) burn(R, 3 * (S.skinStream - S.skinPts));
       transform(sk, T(0, 0, 0.0022));
       transform(g, Mp);
       transform(sk, Mp);
@@ -609,9 +623,9 @@ export function crate(o: CrateOptions = {}): Piece {
   {
     const hw = size === 'L' ? 0.04 : size === 'M' ? 0.034 : 0.03;
     // the knuckle (barrel) and the plate
-    const kn = grain(bevelBox({ min: [latchX - hw - 0.006, kY - 0.0085, kZ - 0.0085], max: [latchX + hw + 0.006, kY + 0.0085, kZ + 0.0085], c: cB(0.0045), wear: 0.95 }), 'x');
+    const kn = grain(chamferBox({ min: [latchX - hw - 0.006, kY - 0.0085, kZ - 0.0085], max: [latchX + hw + 0.006, kY + 0.0085, kZ + 0.0085], c: cB(0.0045), wear: 0.95, chamfered: axisChamfer(0) }), 'x');
     into(latch, part('brass', kn, 'brass', { seed: R.int(0, 1e6) }), toHasp);
-    const plate = bevelBox({ min: [latchX - hw, stapleY - 0.03, kZ - 0.0035], max: [latchX + hw, kY - 0.004, kZ + 0.0035], c: cB(0.0025), wear: 0.9 });
+    const plate = chamferBox({ min: [latchX - hw, stapleY - 0.03, kZ - 0.0035], max: [latchX + hw, kY - 0.004, kZ + 0.0035], c: cB(0.0025), wear: 0.9, chamfered: axisChamfer(1) });
     into(latch, part('brass', grain(plate, 'y'), 'brass', { seed: R.int(0, 1e6), warm: 0.03 }), toHasp);
     // the fixed leaf of the hasp's hinge, on the lid's front edge
     const leaf = bevelBox({ min: [latchX - hw * 0.8, yLid + 0.004, D / 2 - 0.001], max: [latchX + hw * 0.8, yLid + S.lidT - 0.003, D / 2 + 0.004], c: 0, omit: ['nz'] });

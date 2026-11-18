@@ -117,6 +117,104 @@ export function bevelBox(o: BevelBoxOptions): BufferGeometry {
   return writeSurf(finish(md), wear);
 }
 
+/**
+ * `bevelBox` with a chamfer only on the edges `chamfered(a, sa, b, sb)` picks (the edge between
+ * face a of sign sa and face b of sign sb), for parts whose other edges no one sees chamfered:
+ * where a chamfer runs out into a face whose own edges are sharp, that face takes the chamfer's
+ * cut corner (a pentagon or an octagon). Two uses:
+ *  - `cornerChamfer(sx, sy, sz)`: the three edges meeting one corner and the corner itself (an
+ *    iron bracket: its outer corner of the crate is what catches the light; its edges against the
+ *    wood are a sheet's crisp step). 22 triangles.
+ *  - `axisChamfer(axis)`: the four edges along one axis (a post: its ends sit under the lid and on
+ *    the ground). 28 triangles.
+ * Not every pick is supported: an edge set must be one of those two kinds (all three edges at a
+ * corner, or edges that never meet).
+ */
+export function chamferBox(o: { min: V3; max: V3; c: number; wear?: number; chamfered: (a: number, sa: number, b: number, sb: number) => boolean }): BufferGeometry {
+  const lo = o.min, hi = o.max;
+  const c = Math.max(0, Math.min(o.c, (hi[0] - lo[0]) / 2 - 1e-5, (hi[1] - lo[1]) / 2 - 1e-5, (hi[2] - lo[2]) / 2 - 1e-5));
+  const ch = (a: number, sa: number, b: number, sb: number): boolean => c > 0 && (a < b ? o.chamfered(a, sa, b, sb) : o.chamfered(b, sb, a, sa));
+  const md = new MeshData();
+  const wear: number[] = [];
+  const W = o.wear ?? 0.75;
+  const C = new Map<string, number>();
+  const key = (a: number, s: number, sg: readonly number[]): string => `${a}${s}|${sg[0]}${sg[1]}${sg[2]}`;
+  const signs = [-1, 1];
+  const point = (sg: readonly number[], inset: readonly number[]): V3 => {
+    const p: V3 = [0, 0, 0];
+    for (let k = 0; k < 3; k++) p[k] = (sg[k]! > 0 ? hi[k]! : lo[k]!) - sg[k]! * (inset[k] ?? 0);
+    return p;
+  };
+  for (let a = 0; a < 3; a++) {
+    const u = (a + 1) % 3, v = (a + 2) % 3;
+    for (const s of signs) {
+      const n: V3 = [0, 0, 0];
+      n[a] = s;
+      const ring: number[] = [];
+      let prev: [number, number] = [-1, 1];
+      for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        const sg = [0, 0, 0];
+        sg[a] = s;
+        sg[u] = su;
+        sg[v] = sv;
+        const cu = ch(a, s, u, su), cv = ch(a, s, v, sv), cuv = ch(u, su, v, sv);
+        if (cu || cv) {
+          const inset = [0, 0, 0];
+          if (cu) inset[u] = c;
+          if (cv) inset[v] = c;
+          const p = point(sg, inset);
+          ring.push(md.v(p[0], p[1], p[2], n[0], n[1], n[2]));
+          wear.push(0);
+          C.set(key(a, s, sg), md.v(p[0], p[1], p[2], n[0], n[1], n[2]));
+          wear.push(W);
+        } else if (cuv) {
+          // the u-v chamfer runs out here: cut the corner. Coming along u (same v), the point inset along u first
+          const iu = [0, 0, 0], iv = [0, 0, 0];
+          iu[u] = c;
+          iv[v] = c;
+          const alongU = prev[1] === sv;
+          for (const inset of alongU ? [iu, iv] : [iv, iu]) {
+            const p = point(sg, inset);
+            ring.push(md.v(p[0], p[1], p[2], n[0], n[1], n[2]));
+            wear.push(0);
+          }
+        } else {
+          const p = point(sg, [0, 0, 0]);
+          ring.push(md.v(p[0], p[1], p[2], n[0], n[1], n[2]));
+          wear.push(0);
+        }
+        prev = [su, sv];
+      }
+      for (let i = 1; i < ring.length - 1; i++) md.tri(ring[0]!, ring[i]!, ring[i + 1]!);
+    }
+  }
+  for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) {
+    const w = 3 - a - b;
+    for (const sa of signs) for (const sb of signs) {
+      if (!ch(a, sa, b, sb)) continue;
+      const pick = (face: number, fs: number, sw: number): number => {
+        const sg = [0, 0, 0];
+        sg[a] = sa;
+        sg[b] = sb;
+        sg[w] = sw;
+        return C.get(key(face, fs, sg))!;
+      };
+      md.quad(pick(a, sa, -1), pick(a, sa, 1), pick(b, sb, 1), pick(b, sb, -1));
+    }
+  }
+  for (const sx of signs) for (const sy of signs) for (const sz of signs) {
+    if (!ch(0, sx, 1, sy) || !ch(0, sx, 2, sz) || !ch(1, sy, 2, sz)) continue;
+    const sg = [sx, sy, sz];
+    md.tri(C.get(key(0, sx, sg))!, C.get(key(1, sy, sg))!, C.get(key(2, sz, sg))!);
+  }
+  return writeSurf(finish(md), wear);
+}
+
+/** chamferBox's edge pick: the three edges meeting the corner of signs (sx, sy, sz). */
+export const cornerChamfer = (sx: number, sy: number, sz: number) => (a: number, sa: number, b: number, sb: number): boolean => sa === [sx, sy, sz][a] && sb === [sx, sy, sz][b];
+/** chamferBox's edge pick: the four edges running along `axis` (0 x, 1 y, 2 z). */
+export const axisChamfer = (axis: number) => (a: number, _sa: number, b: number): boolean => a !== axis && b !== axis;
+
 /** A box seen from inside: six faces whose normals point inward (12 triangles). */
 export function innerBox(min: V3, max: V3): BufferGeometry {
   const md = new MeshData();
@@ -223,6 +321,26 @@ export function stud(r: number, h: number, segs = 6): BufferGeometry {
     md.quad(base[i]!, base[j]!, mid[j]!, mid[i]!);
     md.tri(mid[i]!, mid[j]!, top);
   }
+  return writeSurf(finish(md), wear);
+}
+
+/**
+ * A rivet or nail head for where it is a dot of light (a pixel or two at the bench): a low cone of
+ * `segs` sides (`segs` triangles) whose normals lean like a dome's, so it shades as `stud` does.
+ */
+export function pip(r: number, h: number, segs = 5): BufferGeometry {
+  const md = new MeshData();
+  const wear: number[] = [];
+  const base: number[] = [];
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const cx = Math.cos(a), cz = Math.sin(a);
+    base.push(md.v(cx * r, 0, cz * r, cx, 0.6, cz));
+    wear.push(0.3);
+  }
+  const top = md.v(0, h, 0, 0, 1, 0);
+  wear.push(0.7);
+  for (let i = 0; i < segs; i++) md.tri(base[i]!, base[(i + 1) % segs]!, top);
   return writeSurf(finish(md), wear);
 }
 
