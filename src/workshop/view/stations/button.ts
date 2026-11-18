@@ -20,9 +20,9 @@
  * rattles, shakes or runs backwards. Everything runs on `frame.time`/`dt`.
  */
 import { Group, Quaternion, Vector3 } from 'three';
-import type { Id, WorldView } from '../../sim/types.ts';
+import type { CoverState, Id, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
-import { button as buttonPiece, buttonLabels, poseButton } from '../kit/pieces/button/index.ts';
+import { button as buttonPiece, buttonLabels, poseButton, POSE } from '../kit/pieces/button/index.ts';
 
 /** Tune here. Rates in rad/s, times in seconds, travel as fractions of the cap's travel. */
 export const BUTTON_FEEL = {
@@ -50,9 +50,33 @@ export const BUTTON_FEEL = {
   shudder: 0.011,
   shudderDecay: 9,
   shudderHz: [21, 15] as const,
-  /** Camera shake on the flinch (stage units; 0 for none). */
+  /** Camera shake on the flinch (stage units; 0 for none), and on rung 4's works (§ B4: small). */
   shake: 0.07,
+  shakeWorks: 0.1,
+  /** The cover (the guard): the nudge over the top as it is let go, gravity on its hinge (guard fraction / s²), and the bounce off the cap's rim. */
+  coverNudge: 2.7,
+  coverFall: 30,
+  coverBounce: 0.3,
+  /** While Revert fits the cover it comes down this long into Revert's `fit`. */
+  coverFitAt: 0.55,
 } as const;
+
+/** The guard's swing from parked to shut, radians (the piece's POSE). */
+const GUARD_SWING = ((POSE.guardClosedDeg - POSE.guardOpenDeg) * Math.PI) / 180;
+
+/**
+ * Where the cover should be: 1 shut over the cap, 0 parked open. While Revert is fitting it (`fitting`),
+ * it comes down when Revert, at the Button, turns it with its arm; the simulation shuts it on its own clock
+ * if Revert never gets there.
+ */
+export function coverGoal(w: WorldView, cover: CoverState): 0 | 1 {
+  if (cover === 'shut') return 1;
+  if (cover !== 'fitting') return 0;
+  for (const c of w.crewViews()) {
+    if (c.kind === 'revert' && c.view.state === 'fit' && c.view.stateTime >= BUTTON_FEEL.coverFitAt) return 1;
+  }
+  return 0;
+}
 
 /** A damped spring step: x toward `to`, in sub-steps. */
 function springStep(s: { x: number; v: number }, to: number, omega: number, zeta: number, dt: number): void {
@@ -127,6 +151,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const shud: [number, number, number] = [0, 0, 0];
     const tape: Sample[] = [];
     let replaying = false;
+    let wasShut = false;
     let flinchDur = 3;
     let rewDur = 1.2;
     const state: ButtonViewState = { press: 0, guard: 0, count: 0, shudder: shud };
@@ -165,6 +190,9 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
               guard.v += F.guardFlinch;
               if (F.shake > 0) ctx.stage.camera.shake(F.shake);
             }
+          } else if (e.type === 'rung.beat' && e.beat === 'shake' && !reduced && F.shakeWorks > 0) {
+            ctx.stage.camera.shake(F.shakeWorks);
+            guard.v += F.guardFlinch;
           } else if (e.type === 'misfire' && e.id === id && !reduced) {
             shudderAt = now;
             guard.v += F.guardFlinch;
@@ -218,18 +246,44 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
             springStep(cap, goal, F.capOmega, reduced ? 1 : F.capDamping, dt);
             state.press = cap.x;
           }
-          // the guard: a spring with a stop at its parked position
-          let left = dt;
-          while (left > 1e-6) {
-            const h = Math.min(left, 1 / 240);
-            springStep(guard, 0, F.guardOmega, F.guardDamping, h);
-            if (guard.x < 0) {
-              guard.x = -guard.x * F.guardStop;
-              guard.v = -guard.v * F.guardStop;
+          // the guard, which is the flip-up cover (§ B4 rung 3): parked open, or shut over the cap. It
+          // drops shut under its own weight and bounces on the cap's rim; lifted, it swings back onto its
+          // parked stop. While Revert fits it, it comes down when Revert's arm turns it (`coverGoal`).
+          const shut = coverGoal(w, b.cover) === 1;
+          if (shut && !wasShut && !reduced) guard.v = Math.max(guard.v, F.coverNudge);
+          wasShut = shut;
+          if (reduced) {
+            guard.x = shut ? 1 : 0;
+            guard.v = 0;
+          } else {
+            let left = dt;
+            while (left > 1e-6) {
+              const h = Math.min(left, 1 / 240);
+              if (shut) {
+                // falling shut: gravity on the hinge (it has to be nudged over the top first), a bounce off the rim
+                const theta = (1 - guard.x) * GUARD_SWING;
+                guard.v += F.coverFall * Math.cos(theta) * h;
+                guard.x += guard.v * h;
+                if (guard.x > 1) {
+                  guard.x = 1 - (guard.x - 1) * F.coverBounce;
+                  guard.v = -guard.v * F.coverBounce;
+                  if (Math.abs(guard.v) < 0.05) guard.v = 0;
+                }
+              } else {
+                springStep(guard, 0, F.guardOmega, F.guardDamping, h);
+                if (guard.x < 0) {
+                  guard.x = -guard.x * F.guardStop;
+                  guard.v = -guard.v * F.guardStop;
+                }
+              }
+              left -= h;
             }
-            left -= h;
+            if (!shut && Math.abs(guard.x) < 1e-5 && Math.abs(guard.v) < 1e-4) guard.x = guard.v = 0;
+            if (shut && guard.x > 0.999 && Math.abs(guard.v) < 1e-3) {
+              guard.x = 1;
+              guard.v = 0;
+            }
           }
-          if (Math.abs(guard.x) < 1e-5 && Math.abs(guard.v) < 1e-4) guard.x = guard.v = 0;
           state.guard = guard.x;
           // the console's shudder on its bolts
           const ts = now - shudderAt;

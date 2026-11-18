@@ -94,7 +94,12 @@ const smooth = (k: number): number => {
   return x * x * (3 - 2 * x);
 };
 
-export function createCardView(): (ctx: ViewContext) => CardView {
+export interface CardViewOptions {
+  /** Which cards this stand-in puts up (default: every one). The bench leaves Revert's to Revert while it is up. */
+  accept?(e: { readonly by: string; readonly content: string }, world: WorldView): boolean;
+}
+
+export function createCardView(opts: CardViewOptions = {}): (ctx: ViewContext) => CardView {
   return (ctx) => {
     const F = CARD_FEEL;
     const reduced = ctx.reducedMotion;
@@ -191,6 +196,7 @@ export function createCardView(): (ctx: ViewContext) => CardView {
         const dt = Math.min(frame.dt, 0.1);
         for (const e of frame.events) {
           if (e.type === 'card') {
+            if (opts.accept && !opts.accept(e, w)) continue;
             if (phase === 'stowed') show(e.content, now);
             else if (state.content === e.content && (phase === 'pop' || phase === 'hold')) {
               enter('hold', now); // the same card again: hold it longer, with a jolt
