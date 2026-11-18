@@ -1,9 +1,8 @@
 /**
  * Painting the storefront's two textures (browser only: canvas 2D).
  *
- * The labels module has no register for a sign whose words change while it
- * hangs, nor for drawn pictures, so the storefront borrows two label slots
- * of the right size (see labels.ts) and paints its own pixels into them:
+ * The storefront's texture is a region of the labels' atlas that it redraws
+ * itself (labels.ts, `Labels.region`); only the rows it repaints go up:
  *
  *  - WORDS: the fascia's two faces. Hand-painted capitals in the sign face
  *    (cream, an ink keyline, an ink drop shade) on a clear ground, so the
@@ -14,7 +13,7 @@
  *
  * Every colour comes from a palette token.
  */
-import type { Texture } from 'three';
+import type { LabelRegion } from '../../../types.ts';
 import { hex, type Token } from '../../../palette.ts';
 import { context } from '../../../labels/draw.ts';
 import { assertFace, font } from '../../../labels/fonts.ts';
@@ -26,26 +25,10 @@ import { WORDS } from './dims.ts';
 import { fitWords, SHADE, type WordsLayout } from './words.ts';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-type Img = { data: Uint8Array; width: number; height: number };
-
-/** The texture's pixels (a DataTexture made by view/labels: rows bottom-up, RGBA8). */
-function imageOf(tex: Texture): Img {
-  const img = tex.image as Img;
-  if (!img || !img.data || !img.width) throw new Error('storefront: the texture slot is not a data texture');
-  return img;
-}
-
-/** Copy canvas rows (top-down) into the texture (bottom-up), rows y0..y1 of the canvas only. */
-function upload(tex: Texture, ctx: Ctx, y0 = 0, y1?: number): void {
-  const img = imageOf(tex);
-  const w = img.width, h = img.height;
-  const end = y1 ?? h;
-  const src = ctx.getImageData(0, y0, w, end - y0).data;
-  for (let y = y0; y < end; y++) {
-    const row = src.subarray((y - y0) * w * 4, (y - y0 + 1) * w * 4);
-    img.data.set(row, (h - 1 - y) * w * 4);
-  }
-  tex.needsUpdate = true;
+/** Send canvas rows y0..y1 (top-down) to the region: only those rows are uploaded. */
+function upload(region: LabelRegion, ctx: Ctx, y0 = 0, y1?: number): void {
+  const end = y1 ?? region.px.h;
+  region.put(ctx.getImageData(0, y0, region.px.w, end - y0).data, y0, end - y0);
 }
 
 /** A canvas style from bytes: '#rrggbbaa' (every colour here is a palette token or a mix of two). */
@@ -83,9 +66,8 @@ export function layoutWords(text: string): WordsLayout {
  * Paint `text` on one face of the words texture (the other face is left as it is).
  * The face's half of the texture spans the whole fascia: WORDS.w × WORDS.h.
  */
-export function paintWords(tex: Texture, face: 'A' | 'B', text: string, seed = 1): WordsLayout {
-  const img = imageOf(tex);
-  const W = img.width, H = img.height;
+export function paintWords(region: LabelRegion, face: 'A' | 'B', text: string, seed = 1): WordsLayout {
+  const W = region.px.w, H = region.px.h;
   const [v0, v1] = faceV(face);
   const y0 = Math.round((1 - v1) * H), y1 = Math.round((1 - v0) * H);
   const fh = y1 - y0;
@@ -151,7 +133,7 @@ export function paintWords(tex: Texture, face: 'A' | 'B', text: string, seed = 1
     }
   });
   void j;
-  upload(tex, ctx, y0, y1);
+  upload(region, ctx, y0, y1);
   return lay;
 }
 
@@ -453,9 +435,8 @@ function plateWords(ctx: Ctx, w: number, h: number, text: string): void {
 }
 
 /** Paint everything in the atlas but the words: the six drum faces, the card's two faces, the plate. */
-export function paintAtlas(tex: Texture, words: { open: string; closed: string; plate: string }): void {
-  const img = imageOf(tex);
-  const W = img.width, H = img.height;
+export function paintAtlas(region: LabelRegion, words: { open: string; closed: string; plate: string }): void {
+  const W = region.px.w, H = region.px.h;
   const ctx = context(W, H);
   // a region in the slot's texels; drawings are made at the face's own proportions, then fitted
   const cell = (uv: Rect, face: { w: number; h: number }, f: (ctx: Ctx, w: number, h: number) => void): void => {
@@ -482,5 +463,5 @@ export function paintAtlas(tex: Texture, words: { open: string; closed: string; 
   cell(ATLAS.closed, FACES.card, (c, w, h) => cardWords(c, w, h, words.closed, false));
   cell(ATLAS.plate, FACES.plate, (c, w, h) => plateWords(c, w, h, words.plate));
   // only the lower half: the words' bands above belong to paintWords
-  upload(tex, ctx, Math.round(0.5 * H), H);
+  upload(region, ctx, Math.round(0.5 * H), H);
 }
