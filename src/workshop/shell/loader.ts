@@ -266,6 +266,14 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     ws = await bootWorkshop(o.canvas, {
       ...opts,
       manual: true,
+      // R2: the bench could not be kept going (shell/guard.ts): the picture stays, warm, as when the stage fails to start
+      onGiveUp: () => {
+        state.phase = 'failed';
+        state.failed = 'gave up after repeated faults';
+        root.classList.remove('live');
+        root.classList.add('stage-failed');
+        opts.onGiveUp?.();
+      },
       onProgress: (phase, done, total) => {
         report(phase, done, total);
         // the scene is built and its programs compiled: only the first frame is left. The picture comes up to

@@ -86,6 +86,12 @@ export interface LoopOptions extends FixedStepOptions {
   render(info: RenderInfo): void;
   /** Start in manual mode (captures): no animation frames until `setManual(false)`. */
   manual?: boolean;
+  /**
+   * R2: the last resort (lenient mode only). An error that escapes a frame is offered here; true means it was
+   * dealt with and the loop carries on with the next frame. Without it (or false) the error is thrown, and
+   * the loop stops, as it always did.
+   */
+  onError?(error: unknown): boolean;
 }
 
 /** What the loop needs from the browser; injectable so tests can drive it. */
@@ -158,11 +164,15 @@ export function createLoop(opts: LoopOptions, env: LoopEnv = browserEnv()): Loop
     }
     last = now;
     const tick = clock.tick(deltaMs / 1000);
-    for (let i = 0; i < tick.steps; i++) {
-      opts.step();
-      steps++;
+    try {
+      for (let i = 0; i < tick.steps; i++) {
+        opts.step();
+        steps++;
+      }
+      opts.render(info(tick.alpha, Math.min(deltaMs / 1000, clock.maxDelta)));
+    } catch (e) {
+      if (!opts.onError?.(e)) throw e;
     }
-    opts.render(info(tick.alpha, Math.min(deltaMs / 1000, clock.maxDelta)));
     schedule();
   };
 

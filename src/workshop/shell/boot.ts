@@ -26,7 +26,7 @@ import { Box3, Ray, Raycaster, Vector3, type Intersection, type Mesh, type Objec
 import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { gloveCursors, POSE_OF, type GlovePose } from '../ui/cursor.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
-import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
+import type { Id, Intent, PhysicsPort, SceneDesc, StepFault, Vec3, World, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
 import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOptions } from '../view/stage/index.ts';
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
@@ -39,6 +39,7 @@ import { attachInput, type DomInput } from '../input/dom.ts';
 import { createControls, type Controls } from '../input/controls.ts';
 import type { CarryTuning, RayLike } from '../input/carry.ts';
 import { Driver } from './frame.ts';
+import { FaultGuard, GUARD_TUNING, strictMode, type FaultCounts } from './guard.ts';
 import type { LatencyMeter } from './latency.ts';
 
 /**
@@ -93,6 +94,14 @@ export interface BootOptions {
    * world has a phone line (`line`) and there is a document; `false`: no phone.
    */
   phone?: false | { target?: Id; parent?: HTMLElement; line?: Id };
+  /**
+   * R2: strict (every error thrown, as before) or lenient (shell/guard.ts: the bench carries on). Default:
+   * strict in development, under automation and with `?strict=1`; lenient on the production page or with
+   * `?strict=0`.
+   */
+  strict?: boolean;
+  /** R2: the end of the line (lenient only): the bench could not be kept going; the caller shows the picture. */
+  onGiveUp?(): void;
 }
 
 export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
@@ -146,6 +155,8 @@ export interface Workshop {
   readonly focused: Id | null;
   /** Deterministic: run n steps and render one frame (manual mode for captures). */
   advance(n: number): void;
+  /** R2: faults caught by the guard (lenient mode): how many, how many resets, the last report. Zero in a clean session. */
+  faults(): FaultCounts;
   /** Dispatch an intent as if input had (tests, the controls list). */
   dispatch(intent: Intent, t?: number): void;
   dispose(): void;
@@ -214,7 +225,49 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const physics = await physicsReady;
   measure('physics wait', tp);
   const tw = now();
-  const world: World = createWorld({ seed: opts.seed, physics, ...(opts.scene ? { scene: opts.scene } : {}) });
+  // R2: the guard (strict in development and tests; lenient on the production page)
+  const strict =
+    opts.strict ??
+    strictMode({
+      dev: !!(import.meta as { env?: { DEV?: boolean } }).env?.DEV,
+      search: typeof location !== 'undefined' ? location.search : '',
+      webdriver: typeof navigator !== 'undefined' && !!navigator.webdriver,
+    });
+  const worldRef: { w: World | null } = { w: null };
+  const guard = new FaultGuard({
+    strict,
+    step: () => worldRef.w?.step ?? -1,
+    recover: () => worldRef.w?.recover(),
+    rebuild: () => giveUpOrRebuild(),
+  });
+  const world: World = createWorld({
+    seed: opts.seed,
+    physics,
+    ...(opts.scene ? { scene: opts.scene } : {}),
+    ...(strict ? {} : { onFault: (f: StepFault) => guard.stepFault(f) }),
+  });
+  worldRef.w = world;
+  /** Three resets in a minute: a cold start of the page once (a rebuild from scratch); again within a minute, the picture. */
+  function giveUpOrRebuild(): void {
+    const KEY = 'workshop.rebuiltAt';
+    try {
+      const last = Number(sessionStorage.getItem(KEY) ?? 0);
+      if (Date.now() - last > GUARD_TUNING.RESETS_WINDOW_MS) {
+        sessionStorage.setItem(KEY, String(Date.now()));
+        location.reload();
+        return;
+      }
+    } catch {
+      /* no storage: straight to the picture */
+    }
+    try {
+      loopRef.l?.stop();
+    } catch {
+      /* stopping is best effort */
+    }
+    opts.onGiveUp?.();
+  }
+  const loopRef: { l: Loop | null } = { l: null };
   const scene = world.scene;
   const frameCamera = opts.frameCamera ?? defaultFraming;
   frameCamera(stage, scene);
@@ -367,8 +420,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const dispatch = (intent: Intent, t: number = performance.now()): void => {
     world.dispatch(intent);
     dispatchedSinceStep = true;
-    driverRef.d?.latency.dispatched(intent, t);
-    opts.onIntent?.(intent, t);
+    guard.noteIntent(intent);
+    guard.run('input', () => {
+      driverRef.d?.latency.dispatched(intent, t);
+      opts.onIntent?.(intent, t);
+    });
   };
 
   const v3 = new Vector3();
@@ -455,6 +511,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const driver = new Driver({
     world,
     views,
+    guard,
     render: (dt) => stage.render({ dt }),
     input: {
       tick(now) {
@@ -497,7 +554,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       dispatchedSinceStep = false;
     },
     render: (info) => driver.render(info),
+    onError: (e) => guard.escaped(e),
   });
+  loopRef.l = loop;
+  // R2: what a script on the built page can read (nothing leaves the browser)
+  if (typeof window !== 'undefined') (window as unknown as { __workshopFaults?: () => FaultCounts }).__workshopFaults = () => guard.faults();
   const workshop: Workshop = {
     world,
     stage,
@@ -516,6 +577,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       return gestures.focused;
     },
     advance: (n) => loop.advance(n),
+    faults: () => guard.faults(),
     dispatch,
     dispose() {
       removeEventListener('resize', onResize);
@@ -577,9 +639,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     opts = {
       ...opts,
       onFrame(frame, ws) {
-        if (sound) sound.frame(frame);
-        else if (early && early.length < 2000) early.push(...frame.events);
-        callerFrame?.(frame, ws);
+        guard.run('audio', () => {
+          if (sound) sound.frame(frame);
+          else if (early && early.length < 2000) early.push(...frame.events);
+        });
+        guard.run('ui:page', () => callerFrame?.(frame, ws));
       },
     };
     const disposeWorkshop = workshop.dispose;

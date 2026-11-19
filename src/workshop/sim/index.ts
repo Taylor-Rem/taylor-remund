@@ -12,7 +12,7 @@
 // the read-only surface (WorldView and everything it returns, SceneDesc included)
 export type * from './types.ts';
 export { createWorld, LOOSE_TUNING } from './world.ts';
-export type { World, WorldOptions } from './world.ts';
+export type { World, WorldOptions, StepFault } from './world.ts';
 export type { CommitResult } from './context.ts';
 export type { Change, HistoryHooks, HistoryPort, Recorded, ActionKind, Entry, Job, TransactionView, UndoOutcome, UndoRequest, Undone } from './history.ts';
 export { createHistory, p1History, HISTORY_TUNING } from './history.ts';
