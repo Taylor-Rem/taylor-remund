@@ -108,10 +108,10 @@
       };
 
       // ── stills ──
-      function cell(o: { dist: number; size: 'S' | 'L'; facing: 'side' | 'toward'; ppu: number }): { short: number; tele: number; clip: ReturnType<typeof clipOf> } {
+      function cell(o: { dist: number; size: 'S' | 'L'; facing: 'side' | 'toward'; ppu: number; height?: number }): { short: number; tele: number; clip: ReturnType<typeof clipOf> } {
         yaw = o.facing === 'side' ? Math.PI / 2 : 0;
         const half = halfOf(o.size);
-        const target: V3 = [0, REACH_HEIGHT, o.dist / K];
+        const target: V3 = [0, o.height !== undefined ? o.height / K : REACH_HEIGHT, o.dist / K];
         const r = reachPose(target, { half });
         const pose = blendPose(REST, r.pose, 1);
         pose.arms = r.pose.arms;
