@@ -984,9 +984,13 @@ export function createWorld(opts: WorldOptions): World {
       const l = loose.get(id);
       if (!l || l.mode !== 'free') return;
       const st = physics.state(id);
-      physics.setVelocity(id, add(st.linvel, dv), st.angvel);
+      // (R4) never faster than the hand could throw it; and set moving by something else, an open window takes it
+      // (§ E5 rule 4: a crate knocked by a thrown Patch is the throw's), as when physics sets it moving
+      physics.setVelocity(id, clampLength(add(st.linvel, dv), throwCap(l.mass)), st.angvel);
       physics.wake(id);
+      if (!l.unsettled) history.disturbed(id);
       l.unsettled = true;
+      l.calm = 0;
     },
     crewFor: (part, handle) => crewHandles.set(part, handle),
     undo: (req) => performUndo(req),
