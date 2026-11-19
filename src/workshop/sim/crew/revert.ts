@@ -31,7 +31,13 @@
  * Its rules (§ E5 rule 5, § B5 "the visitor always comes first"):
  * - It never moves a part. Its body is kinematic and it stops for anything
  *   in its way (and gives up after `blockedFor`); it does not rise through a
- *   covered hatch. The one thing it does to a part is put it away, and only
+ *   covered hatch. (S7 round 2) Its trips are safe against the layout: it
+ *   joins its track only by a straight leg clear of every fixed thing (after
+ *   a short straight shuffle on its treads if it cannot turn where it
+ *   stands), it never turns a corner into a fixed thing or a part, and with
+ *   no room to turn mid-trip it backs straight off a little first. A trip
+ *   home given up means its way home is shut: it parks instead, and tries
+ *   again after `stuckRetry`. With no way onto its track at all it stays put. The one thing it does to a part is put it away, and only
  *   one nobody has touched, the visitor included, for `aWhile` seconds.
  * - Nothing it does commits, except the put-away (as `system`, by the
  *   world). Where it is and what it intends are transient.
@@ -88,6 +94,11 @@ export const REVERT_TUNING = {
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
   righting: 0.6,
+  /** Set down off its hatch by the visitor: let alone this long, it heads home. */
+  alone: 3,
+  /** No room to turn: it backs straight off at this speed, at most this far a trip, to make room. */
+  backSpeed: 0.5,
+  backOff: 0.8,
   /** Something in its way: it waits this long, then gives up the trip. */
   blockedFor: 3,
   /** A misfire: a jolt, a glare. */
@@ -153,6 +164,10 @@ interface Route {
   readonly purpose: Purpose;
   readonly heading: number;
   blocked: number;
+  /** How far it has backed off this trip to make room to turn (S7 round 2). */
+  backed: number;
+  /** S7 round 2: the index of a point it reaches by backing straight off (to find room to turn onto its track), or -1. */
+  readonly reverse: number;
 }
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
@@ -196,6 +211,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let sweeping: { part: Id; stir: number; brushed: boolean } | null = null;
   /** Out on a job (a sweep, the cover) and owed the trip home afterwards. */
   let away = false;
+  /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
+  let homeShutAt = -Infinity;
   /** Its body is out of the world because it is down in its hatch (not because the dock shipped it). */
   let stowed = false;
   let resetting = false;
@@ -269,8 +286,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   // ── what is in its way ──
   /** A part that overlaps its footprint at (px, pz) facing `h` (and, when moving, that it would come closer to). */
   function blocker(px: number, pz: number, h: number, from?: readonly [number, number]): Id | null {
+    return blockers(px, pz, h, from)[0] ?? null;
+  }
+  function blockers(px: number, pz: number, h: number, from?: readonly [number, number]): Id[] {
     const s = Math.sin(h);
     const c = Math.cos(h);
+    const out: Id[] = [];
     for (const id of ctx.parts()) {
       if (id === body) continue;
       const m = ctx.mode(id);
@@ -286,30 +307,74 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const lz = dx * s + dz * c;
       if (Math.abs(lx) >= hx + r || Math.abs(lz) >= hz + r) continue;
       if (from && Math.hypot(p[0] - from[0], p[2] - from[1]) < Math.hypot(dx, dz)) continue; // moving away from it
-      return id;
+      out.push(id);
     }
-    return null;
+    return out;
   }
 
-  const nearestOnPath = (px: number, pz: number): number => {
+  /** Its body at (px, pz) facing `h` would be off the bench or in a fixed thing (the layout; parts aside). */
+  function fixedHit(px: number, pz: number, h: number): boolean {
+    const [ex, ez] = span(hx, hz, h);
+    const b = ctx.scene.bench;
+    if (px - ex < b.minX || px + ex > b.maxX || pz - ez < b.minZ || pz + ez > b.maxZ) return true;
+    return fixed.some(([fx, fz, fhx, fhz, fyaw]) => overlaps(px, pz, hx, hz, h, fx, fz, fhx, fhz, fyaw, 0));
+  }
+  /** A straight drive from (ax, az) to (bx, bz), facing the way, clear of the layout along its whole length. */
+  function legClear(ax: number, az: number, bx: number, bz: number): boolean {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) return true;
+    const h = Math.atan2(bx - ax, bz - az);
+    for (let t = 0; t <= len + 1e-9; t += 0.1) if (fixedHit(ax + ((bx - ax) * t) / len, az + ((bz - az) * t) / len, h)) return false;
+    return !fixedHit(bx, bz, h);
+  }
+  /** Turning on the spot at (px, pz) from one heading to another, the short way, clear of the layout. */
+  function turnClearOfLayout(px: number, pz: number, from: number, to: number): boolean {
+    const d = wrap(to - from);
+    const n = Math.max(2, Math.ceil(Math.abs(d) / (T.turn / HZ)));
+    for (let k = 1; k <= n; k++) if (fixedHit(px, pz, from + (d * k) / n)) return false;
+    return true;
+  }
+
+  /**
+   * The waypoint nearest (px, pz). The hatch (the track's first point) is only ever a destination: for any
+   * trip but the one home it is skipped, so a trip elsewhere never heads for its hatch first (it may be covered).
+   */
+  const nearestOnPath = (px: number, pz: number, home = true): number => {
     let best = 0;
     let bd = Infinity;
     spec.path.forEach(([wx, wz], i) => {
+      if (i === 0 && !home && spec.path.length > 1) return;
       const d = Math.hypot(wx - px, wz - pz);
       if (d < bd) [best, bd] = [i, d];
     });
     return best;
   };
 
-  /** A trip along its track to `to`. */
-  function goTo(to: RevertSpot, purpose: Purpose, via: readonly (readonly [number, number])[] = []): void {
+  /**
+   * A trip along its track to `to` (S7 round 2: safe against the layout as it stands). From wherever it is it
+   * joins the track at the nearest waypoint it can drive straight to, turning on the spot and driving clear
+   * of every fixed thing (the track itself, its spurs and the ways in to its stands are checked where they
+   * are made: the track by the scene's tests, a stand by `standFor`). False, and no trip, when there is no
+   * such way onto the track: it stays where it is.
+   */
+  function goTo(to: RevertSpot, purpose: Purpose, via: readonly (readonly [number, number])[] = []): boolean {
     const pts: (readonly [number, number])[] = [];
+    let reverse = -1;
     const leave = via[0] ?? [to.x, to.z];
     if (spec.path.length > 0) {
-      const ci = nearestOnPath(x, z);
-      const ti = nearestOnPath(leave[0], leave[1]);
+      const home = purpose === 'home';
+      const join = joinAt(home);
+      if (!join) return false;
+      const ci = join.i;
+      if (join.pre) {
+        if (join.back) reverse = pts.length;
+        pts.push(join.pre);
+      }
+      const ti = nearestOnPath(leave[0], leave[1], home);
       const c = spec.path[ci] as readonly [number, number];
-      if (ci !== ti && Math.hypot(c[0] - x, c[1] - z) > 0.05) pts.push(c);
+      const [sx, sz] = join.pre ?? [x, z];
+      // onto the track first (unless it is there, or the track's point is where it is going anyway)
+      if (Math.hypot(c[0] - sx, c[1] - sz) > 0.05 && Math.hypot(c[0] - leave[0], c[1] - leave[1]) > 0.05) pts.push(c);
       const dir = Math.sign(ti - ci);
       for (let i = ci + dir; dir !== 0 && i !== ti; i += dir) pts.push(spec.path[i] as readonly [number, number]);
       // the waypoint it leaves the track from, when the place is off it (a spur, a stand by a part)
@@ -317,14 +382,64 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       if (ti !== ci && Math.hypot(t[0] - leave[0], t[1] - leave[1]) > 0.05) pts.push(t);
     }
     pts.push(...via, [to.x, to.z]);
-    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0 };
+    if (spec.path.length === 0 && !legClear(x, z, pts[0]![0], pts[0]![1])) return false;
+    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse };
     if (purpose === 'cover' || purpose === 'sweep') away = true;
     enter('trundle');
+    return true;
+  }
+
+  /** No new trip is planned before this step (a trip that found no way onto the track: it does not re-plan every step). */
+  let noRouteUntil = -Infinity;
+  /** Start a trip if there is a way; otherwise stay where it is (and try again after `blockedFor`). */
+  function trip(to: RevertSpot, purpose: Purpose, via: readonly (readonly [number, number])[] = []): boolean {
+    const now = ctx.clock.step;
+    if (now >= noRouteUntil && goTo(to, purpose, via)) return true;
+    if (now >= noRouteUntil) noRouteUntil = now + steps(T.blockedFor);
+    if (purpose === 'home') homeShutAt = now; // no way home from here: it parks if it can
+    if (purpose === 'sweep') sweeping = null;
+    route = null;
+    if (state === 'trundle') enter('idle');
+    return false;
+  }
+
+  /** The waypoint it joins the track at: the nearest it can turn toward and drive straight to clear of the layout; -1 if none. */
+  /**
+   * Where it joins the track: the nearest waypoint it can turn toward and drive straight to, clear of the
+   * layout; where it cannot turn where it stands, first a short straight shuffle forward or back (on its
+   * treads, no turning) to where it can. Null when there is no such way.
+   */
+  function joinAt(home: boolean): { readonly i: number; readonly pre: readonly [number, number] | null; readonly back: boolean } | null {
+    const order = spec.path
+      .map((w, i) => ({ i, d: Math.hypot(w[0] - x, w[1] - z) }))
+      .filter((c) => home || c.i !== 0 || spec.path.length === 1)
+      .sort((a, b) => a.d - b.d || a.i - b.i);
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    for (const shift of [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9]) {
+      const sx = x + fx * shift;
+      const sz = z + fz * shift;
+      if (shift !== 0) {
+        let ok = true;
+        for (let t = 0.1; t <= Math.abs(shift) + 1e-9 && ok; t += 0.1) ok = !fixedHit(x + fx * Math.sign(shift) * t, z + fz * Math.sign(shift) * t, heading);
+        if (!ok) continue;
+      }
+      for (const { i } of order) {
+        const [wx, wz] = spec.path[i] as readonly [number, number];
+        const pre = shift === 0 ? null : ([sx, sz] as const);
+        if (Math.hypot(wx - sx, wz - sz) <= 0.05) return { i, pre, back: shift < 0 };
+        const h = Math.atan2(wx - sx, wz - sz);
+        if (turnClearOfLayout(sx, sz, heading, h) && legClear(sx, sz, wx, wz)) return { i, pre, back: shift < 0 };
+      }
+    }
+    return null;
   }
 
   const near = (s: RevertSpot, d = 0.08): boolean => Math.hypot(x - s.x, z - s.z) < d;
   /** Standing on its hatch (on the bench top, over the doors). */
   const onHatch = (): boolean => Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
+  /** Standing squarely on its hatch, where the lift is: the only place it goes down from. */
+  const atHome = (): boolean => near(spec.home, 0.08) && ground < 0.05;
 
   // ── where it stands to sweep (S7) ──
   /** The fixed things it could run into, as boxes on the bench top (x, z, half x, half z, yaw); flat things are left out. */
@@ -380,7 +495,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   /** Room to turn on the spot at (px, pz) from one heading to another, the short way. */
   function clearTurn(px: number, pz: number, from: number, to: number): boolean {
     const d = wrap(to - from);
-    for (let k = 1; k <= 6; k++) if (!room(px, pz, from + (d * k) / 6)) return false;
+    const n = Math.max(2, Math.ceil(Math.abs(d) / (T.turn / HZ)));
+    for (let k = 1; k <= n; k++) if (!room(px, pz, from + (d * k) / n)) return false;
     return true;
   }
   /**
@@ -405,7 +521,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const qx = sx - Math.sin(h) * APPROACH;
       const qz = sz - Math.cos(h) * APPROACH;
       if (!room(sx, sz, h) || !room(qx, qz, h)) continue;
-      const w = spec.path.length > 0 ? (spec.path[nearestOnPath(qx, qz)] as readonly [number, number]) : ([x, z] as const);
+      const w = spec.path.length > 0 ? (spec.path[nearestOnPath(qx, qz, false)] as readonly [number, number]) : ([x, z] as const);
       if (!clearRun(w[0], w[1], qx, qz) || !clearTurn(qx, qz, Math.atan2(qx - w[0], qz - w[1]), h)) continue;
       return { at: { x: sx, z: sz, heading: h }, via: [[qx, qz]] };
     }
@@ -419,9 +535,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       // at the end: turn to the spot's heading
       const d = wrap(r.heading - heading);
       const step = Math.sign(d) * Math.min(Math.abs(d), T.turn * dt);
+      speed = 0;
+      if (!canTurn(heading + step)) return backOff(r);
       heading += step;
       turning = step / dt;
-      speed = 0;
       return Math.abs(d) < 1e-3;
     }
     const dx = target[0] - x;
@@ -433,6 +550,19 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       r.i += 1;
       return false;
     }
+    if (r.i === r.reverse) {
+      // backing straight off to where it has room to turn: no turning, never into anything
+      const stepLen = Math.min(d, T.backSpeed * dt);
+      const nx = x + (dx / d) * stepLen;
+      const nz = z + (dz / d) * stepLen;
+      turning = 0;
+      if (blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
+      r.blocked = 0;
+      speed = -T.backSpeed;
+      x = nx;
+      z = nz;
+      return false;
+    }
     const want = Math.atan2(dx, dz);
     const err = wrap(want - heading);
     turning = 0;
@@ -442,6 +572,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       // speed up again until it faces the way (S7: a short leg after a sharp corner used to circle its point)
       speed = Math.max(0, speed - T.accel * dt);
       const step = Math.sign(err) * Math.min(Math.abs(err), T.turn * dt);
+      if (!canTurn(heading + step)) return backOff(r);
       heading += step;
       turning = step / dt;
       if (speed <= 0) return false;
@@ -453,19 +584,52 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const stepLen = Math.min(d, speed * dt);
     const nx = x + Math.sin(heading) * stepLen;
     const nz = z + Math.cos(heading) * stepLen;
-    if (blocker(nx, nz, heading, [x, z]) !== null) {
-      // something is in the way: it never pushes; it waits, then gives up the trip
-      speed = 0;
-      r.blocked += 1;
-      if (r.blocked >= steps(T.blockedFor)) {
-        route = null;
-        enter('idle');
-      }
-      return false;
-    }
+    if (blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
     r.blocked = 0;
     x = nx;
     z = nz;
+    return false;
+  }
+
+  /**
+   * Something is in the way (a part, or the layout where it was not expected): it never pushes. It stops and
+   * waits; after `blockedFor` it gives up the trip (a trip home given up: its way home is shut, it parks).
+   */
+  function held(r: Route): false {
+    speed = 0;
+    turning = 0;
+    r.blocked += 1;
+    if (r.blocked >= steps(T.blockedFor)) {
+      route = null;
+      if (r.purpose === 'home') homeShutAt = ctx.clock.step;
+      if (r.purpose === 'sweep') {
+        sweeping = null;
+        nextAway = Math.max(nextAway, ctx.clock.step + steps(spec.awayGap)); // it looks again later
+      }
+      enter('idle');
+    }
+    return false;
+  }
+  /** Room to turn on the spot to `h`: no fixed thing, and no part it does not already touch. */
+  function canTurn(h: number): boolean {
+    if (fixedHit(x, z, h) && !fixedHit(x, z, heading)) return false;
+    const already = new Set(blockers(x, z, heading));
+    return blockers(x, z, h).every((id) => already.has(id));
+  }
+  /**
+   * No room to turn (a corner would swing into something): it backs straight off a little, if the way back
+   * is clear, and tries the turn again; at most `backOff` units a trip, then it waits like any blocked trip.
+   */
+  function backOff(r: Route): false {
+    const stepLen = T.backSpeed * dt;
+    const nx = x - Math.sin(heading) * stepLen;
+    const nz = z - Math.cos(heading) * stepLen;
+    if (r.backed + stepLen > T.backOff || blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
+    x = nx;
+    z = nz;
+    r.backed += stepLen;
+    speed = -T.backSpeed;
+    turning = 0;
     return false;
   }
 
@@ -516,11 +680,25 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
   /** The oldest stray nobody has stirred for a while, if the bench is crowded. */
   function clutter(): Id | null {
+    return clutterList()[0] ?? null;
+  }
+  /** Every stray nobody has stirred for a while, oldest first, if the bench is crowded. */
+  function clutterList(): Id[] {
     const s = strays();
-    if (s.length < spec.crowded) return null;
-    const old = s.filter((id) => ctx.clock.step - stirred(id) >= steps(spec.aWhile));
-    if (old.length === 0) return null;
-    return old.reduce((a, b) => (stirred(b) < stirred(a) ? b : a));
+    if (s.length < spec.crowded) return [];
+    return s.filter((id) => ctx.clock.step - stirred(id) >= steps(spec.aWhile)).sort((a, b) => stirred(a) - stirred(b) || (a < b ? -1 : 1));
+  }
+  /**
+   * S7 round 2: the stray it will sweep next and where it stands to do it: the oldest that has a proper
+   * stand (its far side, facing the visitor, or the nearest that keeps its front or side to them). A stray
+   * with no clear stand is left for later; it is never swept from wherever Revert happens to be.
+   */
+  function nextSweep(): { readonly part: Id; readonly stand: NonNullable<ReturnType<typeof standFor>> } | null {
+    for (const part of clutterList()) {
+      const stand = standFor(part);
+      if (stand) return { part, stand };
+    }
+    return null;
   }
 
   /** Where a put-away crate goes: on top of the stack if it has room, else down the hatch (a spare). */
@@ -547,8 +725,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (!s) return;
     const p = ctx.part(s.part);
     const pose = ctx.pose(s.part);
-    // still where it was, still nobody's, still clutter: away it goes (rule 14); otherwise leave it be
-    if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || !ctx.settled(s.part) || stirred(s.part) !== s.stir) return;
+    // still on the bench, still nobody's (no hand on it since it was picked): into the dustpan and away it
+    // goes (rule 14), wherever the sweep left it; otherwise leave it be
+    if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || stirred(s.part) !== s.stir) return;
     const to = destination(s.part);
     ctx.emit({ type: 'revert.sweep', id: body, part: s.part, from: pose, to });
     ctx.putAway(s.part, to);
@@ -562,33 +741,43 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (state !== 'idle' && state !== 'park') return;
     if (coverPending && ground < 0.05) {
       if (near(spec.button) && Math.abs(wrap(heading - spec.button.heading)) < 1e-2) enter('fit');
-      else goTo(spec.button, 'cover');
+      else trip(spec.button, 'cover');
       return;
     }
     if (now >= nextAway) {
-      const c = clutter();
-      if (c !== null) {
-        sweeping = { part: c, stir: stirred(c), brushed: false };
-        const stand = standFor(c);
-        if (stand && !(near(stand.at, 0.05) && Math.abs(wrap(heading - stand.at.heading)) < 0.05)) goTo(stand.at, 'sweep', stand.via);
+      const n = nextSweep();
+      if (n !== null) {
+        sweeping = { part: n.part, stir: stirred(n.part), brushed: false };
+        if (!(near(n.stand.at, 0.05) && Math.abs(wrap(heading - n.stand.at.heading)) < 0.05)) trip(n.stand.at, 'sweep', n.stand.via);
         else enter('sweep');
         return;
       }
+      if (clutter() !== null) nextAway = now + steps(spec.awayGap); // strays it cannot get at: it looks again later
     }
-    // a job done away from its hatch: back home (and then down)
-    if (state === 'idle' && away && ground < 0.05 && now - entered >= steps(T.righting)) {
-      goTo(spec.home, 'home');
+    // away from its hatch: after a job, at once; set down by the visitor, once it has been let alone a few
+    // seconds. Back home by its track (and then down). With its way home shut, it parks in the window's
+    // light instead, and tries the way home again after a while.
+    const shut = now - homeShutAt < steps(T.stuckRetry);
+    if (state === 'idle' && !atHome() && ground < 0.05 && now - entered >= steps(away ? T.righting : T.alone)) {
+      if (!shut) trip(spec.home, 'home');
+      else if (!near(spec.park)) trip(spec.park, 'park');
+      else enter('park');
+      return;
+    }
+    if (state === 'park' && !shut && homeShutAt > -Infinity && now - entered >= steps(T.stuckRetry)) {
+      homeShutAt = -Infinity;
+      trip(spec.home, 'home');
       return;
     }
     // home on its hatch with nothing to do: a deadpan pause, then down it goes
     const pause = steps(T.homePause);
-    if (state === 'idle' && onHatch() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
+    if (state === 'idle' && atHome() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
       enter('sinking');
       return;
     }
     if (state === 'idle' && ground < 0.05 && now - tidySince >= steps(spec.parkAfter) && now - entered >= steps(T.righting)) {
       if (near(spec.park)) enter('park');
-      else goTo(spec.park, 'park');
+      else trip(spec.park, 'park');
     }
   }
 
@@ -619,11 +808,14 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     speed = 0;
     turning = 0;
     if (r.purpose === 'cover' && coverPending) enter('fit');
-    else if (r.purpose === 'cover') goTo(spec.home, 'home');
+    else if (r.purpose === 'cover') trip(spec.home, 'home');
     else if (r.purpose === 'sweep' && sweeping) enter('sweep');
     else if (r.purpose === 'park') enter('park');
     else {
-      if (r.purpose === 'home') away = false;
+      if (r.purpose === 'home') {
+        away = false;
+        homeShutAt = -Infinity;
+      }
       enter('idle');
     }
   }
@@ -647,9 +839,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
-        // what stirs a part: anything happening to it, except its own body brushing the part it sweeps
+        // what stirs a part: anything happening to it. The part it is out to sweep (from the moment it picks
+        // it, through the trip and the sweep) is stirred only by a hand: what its own body or the engine does
+        // to it on the way (woken as Revert passes, brushed as it turns, settled again) does not count.
         const sw = sweeping;
-        const own = (id: Id): boolean => sw !== null && sw.brushed && id === sw.part; // the wobble and rest after its own brush
+        const own = (id: Id): boolean => sw !== null && id === sw.part;
         switch (e.type) {
           case 'effect':
             if (!own(e.effect.target)) lastStir.set(e.effect.target, ctx.clock.step);
@@ -665,14 +859,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.hit':
-            if (sw && ((e.id === sw.part && e.other === body) || (e.id === body && e.other === sw.part))) {
-              sw.brushed = true;
-              lastStir.set(body, ctx.clock.step);
-              break;
-            }
-            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = false;
-            lastStir.set(e.id, ctx.clock.step);
-            if (e.other) lastStir.set(e.other, ctx.clock.step);
+            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = true;
+            if (!own(e.id)) lastStir.set(e.id, ctx.clock.step);
+            if (e.other && !own(e.other)) lastStir.set(e.other, ctx.clock.step);
             break;
           case 'taken-in':
           case 'shipped':
@@ -694,7 +883,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         else if (e.type === 'cover' && e.state === 'fitting') coverPending = true;
         else if (e.type === 'cover' && (e.state === 'none' || e.state === 'shut')) {
           coverPending = false;
-          if (route?.purpose === 'cover') goTo(spec.home, 'home'); // fitted without it: back home
+          if (route?.purpose === 'cover') trip(spec.home, 'home'); // fitted without it: back home
         }
         else if (e.type === 'undone') {
           const U = T.undoCrank;
@@ -782,7 +971,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         case 'fit':
           if (inState() >= steps(T.fit)) {
             coverPending = false;
-            goTo(spec.home, 'home');
+            trip(spec.home, 'home');
           }
           break;
         case 'sweep': {
@@ -794,7 +983,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             heading += step;
             turning = step / dt;
           }
-          // a part its own body brushed may still be wobbling: it waits for it to settle (a little while at most)
+          // a part something knocked may still be wobbling: it waits for it to settle (a little while at most)
           const wobbling = !!s && s.brushed && !ctx.settled(s.part) && inState() < steps(T.sweep + T.settle);
           if (inState() >= steps(T.sweep) && !wobbling) {
             turning = 0;
@@ -807,7 +996,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           turning = 0;
       }
       if (up()) think();
-      else if (state === 'below' && now >= nextAway && clutter() !== null) rise(); // it comes up to tidy
+      else if (state === 'below' && now >= nextAway && clutter() !== null) {
+        // it comes up to tidy only a stray it can get at
+        if (nextSweep() !== null) rise();
+        else nextAway = now + steps(spec.awayGap);
+      }
       place(false);
     },
 
@@ -830,6 +1023,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       nextAway = -Infinity;
       glareUntil = -1;
       away = false;
+      homeShutAt = -Infinity;
       beat.reset();
       enter(spec.start === 'up' ? 'idle' : 'below');
       resetting = true;

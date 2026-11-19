@@ -80,6 +80,15 @@ export interface Stage {
   debugView: 'none' | 'ao' | 'coc';
   /** Draw one frame. `dt` (seconds) advances camera easing, shake and the lamp dip. */
   render(frame?: { dt?: number }): void;
+  /**
+   * Compile every program the scene can ask for, before it is shown (T1 round 3): every
+   * object made visible and unculled for the moment, the scene's materials compiled in
+   * parallel (compileAsync), then the shadow pass alone, once per kind of caster, which links
+   * what compile cannot reach: the depth programs (a full frame here cost 0.6 s; the post
+   * chain links its own on the first frame, as before). Everything is put back as it was. For the boot's compile step, behind the
+   * loading picture. Returns the programs it linked.
+   */
+  warm(): Promise<number>;
   /** Re-read the canvas size (also done automatically on resize). */
   resize(): void;
   /** Render at a fraction of the pixel ratio (step-down when frame time worsens, § E7). */
@@ -99,6 +108,10 @@ const TONE: Record<ToneMap, ToneMapping> = {
   aces: ACESFilmicToneMapping,
   neutral: NeutralToneMapping,
 };
+
+/** What the last warm() spent (ms) and how many kinds of shadow caster it drew alone. */
+export const warmTimes = { compileAsync: 0, frame: 0, shadowPasses: 0, kinds: 0 };
+(globalThis as { __warmTimes?: typeof warmTimes }).__warmTimes = warmTimes;
 
 export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stage {
   const tier = opts.tier;
@@ -223,6 +236,87 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
     },
     set debugView(v: 'none' | 'ao' | 'coc') {
       if (chain) chain.debugView = v;
+    },
+    async warm() {
+      const before = renderer.info.programs?.length ?? 0;
+      const saved: Array<[import('three').Object3D, boolean, boolean]> = [];
+      scene.traverse((o) => {
+        saved.push([o, o.visible, o.frustumCulled]);
+        o.visible = true;
+        o.frustumCulled = false;
+      });
+      try {
+        scene.updateMatrixWorld(true);
+        const t0 = performance.now();
+        await renderer.compileAsync(scene, camera.camera);
+        const t1 = performance.now();
+        // (no full frame here: the post chain links its own on the first frame, cheaply, as before)
+        const t2 = performance.now();
+        warmTimes.compileAsync = t1 - t0;
+        warmTimes.frame = t2 - t1;
+        // The shadow pass shares one depth material among its casters, and three picks that
+        // material's program again only when something it tracks changes (skinning, among
+        // others): which caster's attributes the program is made for then depends on the order
+        // the casters happen to be drawn in. A caster with normals that first follows a skinned
+        // one in play (the cord, when a text first reaches the platen: 20 ms in the gate's
+        // session) links a program there. Draw each kind of caster alone, just after a caster
+        // of the other skinning, so every variant is linked now.
+        const casters: import('three').Mesh[] = [];
+        scene.traverse((o) => {
+          const m = o as import('three').Mesh;
+          if (m.isMesh && m.castShadow) casters.push(m);
+        });
+        const kind = (m: import('three').Mesh): string => {
+          const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as import('three').Material & { map?: unknown };
+          return [!!(m as { isSkinnedMesh?: boolean }).isSkinnedMesh, !!m.geometry.getAttribute('normal'), mat?.side, mat?.shadowSide, (mat?.alphaTest ?? 0) > 0, !!mat?.map].join('|');
+        };
+        const reps = new Map<string, import('three').Mesh>();
+        for (const m of casters) if (!reps.has(kind(m))) reps.set(kind(m), m);
+        const skinned = casters.find((m) => (m as { isSkinnedMesh?: boolean }).isSkinnedMesh);
+        const plain = casters.find((m) => !(m as { isSkinnedMesh?: boolean }).isSkinnedMesh);
+        const only = (keep: ReadonlyArray<import('three').Object3D>): void => {
+          const show = new Set<import('three').Object3D>();
+          for (const k of keep) for (let a: import('three').Object3D | null = k; a; a = a.parent) show.add(a);
+          for (const [o] of saved) if (o !== scene) o.visible = show.has(o) || !(o as { isMesh?: boolean }).isMesh;
+        };
+        // only the shadow pass draws (the camera looks at a layer nothing is on): no post chain,
+        // and no main-pass program for the canvas's own output
+        const layers = camera.camera.layers.mask;
+        camera.camera.layers.set(31);
+        // the lights must still be seen by the camera, or there is no shadow pass at all
+        const lit: Array<[import('three').Object3D, number]> = [];
+        scene.traverse((o) => {
+          if ((o as { isLight?: boolean }).isLight) {
+            lit.push([o, o.layers.mask]);
+            o.layers.enable(31);
+          }
+        });
+        const t3 = performance.now();
+        try {
+          for (const rep of reps.values()) {
+            const other = (rep as { isSkinnedMesh?: boolean }).isSkinnedMesh ? plain : skinned;
+            if (other) {
+              only([other]);
+              renderer.render(scene, camera.camera);
+            }
+            only([rep]);
+            renderer.render(scene, camera.camera);
+          }
+        } finally {
+          camera.camera.layers.mask = layers;
+          for (const [o, m] of lit) o.layers.mask = m;
+          warmTimes.kinds = reps.size;
+          warmTimes.shadowPasses = performance.now() - t3;
+        }
+      } catch {
+        /* the first frame compiles whatever is left */
+      } finally {
+        for (const [o, v, c] of saved) {
+          o.visible = v;
+          o.frustumCulled = c;
+        }
+      }
+      return (renderer.info.programs?.length ?? 0) - before;
     },
     render(frame) {
       if (hidden) return;

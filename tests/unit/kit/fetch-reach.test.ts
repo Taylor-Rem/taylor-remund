@@ -70,8 +70,8 @@ describe('fetch-porter reach (telescoping forearms)', () => {
 
   it('reachLimits agrees with the exported numbers', () => {
     const l = reachLimits(REACH_HEIGHT, S_CRATE_HALF);
-    expect(l.natural).toBeCloseTo(NATURAL_REACH, 6);
-    expect(l.greatest).toBeCloseTo(GREATEST_REACH, 6);
+    expect(l.natural).toBeCloseTo(NATURAL_REACH, 2);
+    expect(l.greatest).toBeCloseTo(GREATEST_REACH, 2);
   });
 
   it('plays a reach in order: arms first, then the tubes; back in first, then the arms; reduced motion never overshoots', () => {

@@ -171,7 +171,7 @@ describe('Revert stands where the work is seen', () => {
     const from = p && p.type === 'revert.sweep' ? p.from.p : c.pose.p;
     expect(at!.z).toBeLessThan(from[2]); // behind it, seen from the visitor
     const toVisitor = Math.atan2(REVERT.outward[0] - from[0], REVERT.outward[2] - from[2]);
-    expect(Math.abs(wrap(at!.heading - toVisitor))).toBeLessThan(0.36); // facing out toward the visitor (the first or second stand tried), the part between
+    expect(Math.abs(wrap(at!.heading - toVisitor))).toBeLessThan(0.71); // facing out toward the visitor (one of the first stands tried round the far side), the part between
     expect(Math.hypot(at!.x - from[0], at!.z - from[2])).toBeLessThan(HZ + 0.6);
     // then home, and down
     const after = [] as SimEvent[];
@@ -200,5 +200,78 @@ describe('Revert stands where the work is seen', () => {
     expect(Math.abs(wrap(at!.heading - toVisitor))).toBeLessThanOrEqual(Math.PI / 2 + 1e-6); // its front or its side to the visitor
     expect(Math.abs(wrap(at!.heading - toVisitor))).toBeGreaterThan(0.1); // not straight behind: there was no room
     expect(hits(at!.x, at!.z, at!.heading)).toBeNull();
+  });
+});
+
+describe("Revert's trips are safe against the layout (S7 round 2)", () => {
+  /** The parts its footprint overlaps (as its own `blocker` measures them): what it would be pushing. */
+  function touching(w: World, r: RevertView): Id[] {
+    const [ra, fa] = axes(r.heading);
+    const out: Id[] = [];
+    for (const p of w.parts()) {
+      if (p.id === 'revert' || w.mode(p.id) === 'gone' || w.mode(p.id) === 'chute') continue;
+      const m = w.motion(p.id)!.pose.p;
+      const e = w.halfExtents(p.id)!;
+      if (m[1] - e[1] > 2 * AT.revert.half[1]) continue;
+      const d = [m[0] - r.x, m[2] - r.z] as const;
+      const lx = Math.abs(d[0] * ra[0] + d[1] * ra[1]);
+      const lz = Math.abs(d[0] * fa[0] + d[1] * fa[1]);
+      const rr = Math.max(e[0], e[2]) * 0.8;
+      if (lx < HX + rr - 1e-6 && lz < HZ + rr - 1e-6) out.push(p.id);
+    }
+    return out;
+  }
+  /** Rung 1 brings it up; then the visitor sets it down at (x, z). */
+  function upAndSetDown(x: number, z: number): { world: World; physics: StubPhysics } {
+    const { world, physics } = quietStub();
+    run(world, 5);
+    world.dispatch({ type: 'press', id: 'button' });
+    for (let i = 0; i < 2000 && (i < 2 || world.bracketed); i++) run(world, 1);
+    run(world, 10);
+    setDown(world, physics, 'revert', x, z);
+    return { world, physics };
+  }
+
+  test('set down anywhere on the open bench, it finds its way home without ever driving or turning into a fixed thing', () => {
+    let tried = 0;
+    let home = 0;
+    for (const x of [-7.5, -5, -2.5, 0.4, 2.5, 5, 7.5])
+      for (const z of [-3.6, -2, 0.6, 1.4, 3.2]) {
+        if (hits(x, z, 0) !== null) continue; // not a place it can be set down
+        const { world } = upAndSetDown(x, z);
+        if (R(world).state !== 'idle' || Math.hypot(R(world).x - x, R(world).z - z) > 0.01) continue;
+        tried++;
+        let went = 0;
+        for (let i = 0; i < steps(40) && R(world).state !== 'below'; i++) {
+          run(world, 1);
+          const r = R(world);
+          if (!r.drawn || r.lift < 1) continue;
+          expect(hits(r.x, r.z, r.heading), `set down at ${x}, ${z}: at ${r.x.toFixed(2)}, ${r.z.toFixed(2)} facing ${r.heading.toFixed(2)}`).toBeNull();
+          if (r.state === 'trundle' && r.speed !== 0) went++;
+        }
+        if (R(world).state === 'below') home++;
+        else expect(went, `set down at ${x}, ${z}: it stays put only when it has no clear way onto its track`).toBe(0);
+      }
+    expect(tried).toBeGreaterThanOrEqual(12);
+    expect(home / tried).toBeGreaterThan(0.8);
+  }, 120_000);
+
+  test('something put in its way: it stops short, never pushes it, backs off to turn if it must, and gives the trip up (home shut: it parks)', () => {
+    const { world, physics } = upAndSetDown(0.4, -2.6);
+    // the visitor drops crates on its way home and on its hatch
+    setDown(world, physics, 'crate-3', -2.5, -1.6);
+    setDown(world, physics, 'crate-1', REVERT.home.x, REVERT.home.z);
+    const still = new Map(['crate-3', 'crate-1'].map((id) => [id, world.motion(id)!.pose.p]));
+    const seen = new Set<string>();
+    for (let i = 0; i < steps(60); i++) {
+      run(world, 1);
+      const r = R(world);
+      seen.add(r.state);
+      expect(touching(world, r).filter((id) => id === 'crate-3' || id === 'crate-1'), `step ${i}`).toEqual([]);
+      expect(hits(r.x, r.z, r.heading)).toBeNull();
+    }
+    for (const [id, p] of still) expect(world.motion(id)!.pose.p, id).toEqual(p);
+    expect(seen.has('trundle')).toBe(true);
+    expect(R(world).state).not.toBe('below');
   });
 });

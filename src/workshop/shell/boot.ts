@@ -174,7 +174,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   progress('stage', 1, 1);
   const tl = now();
   // start-up labels are painted in workers while the views are built (T1); awaited below
-  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), workers: true, ...opts.labels });
+  const labels = await createLabels({ anisotropy: stage.renderer.capabilities.getMaxAnisotropy(), workers: true, renderer: stage.renderer, ...opts.labels });
   const materials = createMaterials({ tier: opts.tier, labels });
   measure('labels+materials', tl);
   progress('labels', 1, 1);
@@ -444,7 +444,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   // 6. the shaders, without blocking
   if (yieldBetween) await yieldToBrowser();
   const tc = now();
-  await compileShaders(stage);
+  // every program the scene can ask for, shadow depth programs included (stage.warm, T1 round 3)
+  await stage.warm();
   measure('compile', tc);
   progress('compile', 1, 1);
 

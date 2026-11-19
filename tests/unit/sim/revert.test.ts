@@ -315,26 +315,53 @@ describe('Revert in the hand', () => {
 });
 
 describe('Revert between jobs', () => {
-  test('left off its hatch, a tidy bench for two minutes: it trundles to the window\'s light and powers down, one eye open, moving nothing', () => {
+  test('S7 round 2: set down off its hatch and let alone a few seconds, it goes home by its track and sinks', () => {
     const { world, physics } = quietStub();
     run(world, 5);
     rung(world);
     run(world, 10);
-    setDown(world, physics, 'revert', -5.5, -0.5); // off its hatch: it does not go down, it waits where it is
+    setDown(world, physics, 'revert', -5.5, -0.5);
+    expect(R(world).state).toBe('idle');
     const before = others(world);
-    const ev = run(world, steps(135)); // (A1 round 7: its track runs further back behind the console, a longer trip)
+    run(world, steps(REVERT_TUNING.alone - 1));
+    expect(R(world).state).toBe('idle'); // let alone, it waits a moment first
+    const ev = run(world, steps(30));
+    const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
+    expect(seq).toEqual(expect.arrayContaining(['trundle', 'idle', 'sinking', 'below']));
+    expect(seq).not.toContain('park');
+    expect(R(world)).toMatchObject({ state: 'below', lift: 0 });
+    expect(R(world).x).toBeCloseTo(REVERT.home.x, 5);
+    expect(R(world).z).toBeCloseTo(REVERT.home.z, 5);
+    for (const [id, p] of others(world)) if (id !== 'fetch' && id !== 'crate-4') expect(p, id).toEqual(before.get(id));
+  });
+
+  test("S7 round 2: its way home shut (something on its hatch), it parks in the window's light, one eye open, and tries again later", () => {
+    const { world, physics } = quietStub();
+    run(world, 5);
+    rung(world);
+    run(world, 10);
+    setDown(world, physics, 'revert', -5.5, -0.5);
+    setDown(world, physics, 'crate-3', REVERT.home.x, REVERT.home.z); // on its hatch
+    const before = others(world);
+    const ev: SimEvent[] = [];
+    for (let i = 0; i < steps(40) && R(world).state !== 'park'; i++) ev.push(...run(world, 1));
     expect(states(ev)).toContain('trundle');
     expect(R(world)).toMatchObject({ state: 'park', eyes: 'one' });
     expect(R(world).x).toBeCloseTo(REVERT.park.x, 5);
     expect(R(world).z).toBeCloseTo(REVERT.park.z, 5);
     for (const [id, p] of others(world)) if (id !== 'fetch' && id !== 'crate-4') expect(p, id).toEqual(before.get(id));
+    // the visitor clears its hatch: after a while it tries the way home again, and goes down
+    setDown(world, physics, 'crate-3', 3, 3.5);
+    const later = run(world, steps(REVERT_TUNING.stuckRetry + 30));
+    expect(states(later)).toContain('sinking');
+    expect(R(world).state).toBe('below');
   });
 
   test('a crowded bench: after a while it comes up and puts away the oldest crate nobody has stirred, onto the stack', () => {
     const { world, physics } = quietStub();
     run(world, 5);
     // the visitor scatters the stack and takes the loose crate out of Fetch's hands: four strays
-    setDown(world, physics, 'crate-3', -6, -3);
+    setDown(world, physics, 'crate-3', -6.6, -1.6);
     const first = world.step;
     run(world, steps(5));
     setDown(world, physics, 'crate-2', -6.5, 1);
@@ -364,7 +391,7 @@ describe('Revert between jobs', () => {
   /** Four strays, then on to the moment Revert starts its sweep: the part it sweeps. */
   function toSweep(world: World, physics: StubPhysics): Id {
     run(world, 5);
-    setDown(world, physics, 'crate-3', -6, -3);
+    setDown(world, physics, 'crate-3', -6.6, -1.6);
     run(world, steps(5));
     setDown(world, physics, 'crate-2', -6.5, 1);
     setDown(world, physics, 'crate-1', -2, -3.5);
@@ -401,6 +428,21 @@ describe('Revert between jobs', () => {
     world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     const ev = run(world, steps(REVERT_TUNING.sweep + REVERT_TUNING.settle + 1));
     expect(ev.some((e) => e.type === 'revert.sweep' && e.part === part)).toBe(false);
+  });
+
+  test('S7 round 2: a stray with no clear stand (hard against the back of the bench) is left for later, not swept from wherever Revert is', () => {
+    const { world, physics } = quietStub();
+    run(world, 5);
+    setDown(world, physics, 'crate-3', -6, -3);
+    run(world, steps(5));
+    setDown(world, physics, 'crate-2', -6.5, 1);
+    setDown(world, physics, 'crate-1', -2, -3.5);
+    setDown(world, physics, 'crate-4', 1.5, -3.2);
+    const ev = run(world, steps(A_WHILE - 4)); // crate-3 is old enough from about 83 s in; the others not yet
+    expect(ev.some((e) => e.type === 'revert.sweep' || e.type === 'put-away')).toBe(false);
+    expect(states(ev)).not.toContain('sweep');
+    expect(states(ev)).not.toContain('rising'); // it does not even come up for it
+    expect(world.writer('crate-3', 'location')).not.toBe('system');
   });
 
   test('it never puts away what the visitor touched within the while', () => {

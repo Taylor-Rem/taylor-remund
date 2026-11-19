@@ -30,6 +30,7 @@ import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
 import { bevelBox, sheet, stud } from '../../cheap.ts';
 import { world } from '../../../labels/content.ts';
+import { phonePixels, phoneRegion } from '../../../labels/index.ts';
 
 const DEG = Math.PI / 180;
 
@@ -66,8 +67,16 @@ export interface PhoneOptions extends KitOptions {
  * the same proportions.
  */
 export function phoneScreen(labels: Labels, messages = world.phone.attract): PhoneScreenRef {
-  return { key: labels.phone(messages) };
+  // a region of the label atlas that the phone's view redraws in place (T1 round 3), painted
+  // with `messages` the first time these labels make it
+  const r = phoneRegion(labels);
+  if (!screens.has(r)) {
+    screens.add(r);
+    r.put(phonePixels(messages));
+  }
+  return { key: r.key };
 }
+const screens = new WeakSet<object>();
 
 /** A rounded rectangle outline, centred at (cx, cy). */
 function rrect(w: number, h: number, cx = 0, cy = 0): Array<[number, number]> {

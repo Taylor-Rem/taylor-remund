@@ -38,7 +38,7 @@
  * row) and the GPU rebuilds the page's mips.
  */
 import { ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, NoColorSpace, RGBAFormat, SRGBColorSpace, UnsignedByteType } from 'three';
-import type { Material, Texture } from 'three';
+import type { Material, Texture, WebGLRenderer } from 'three';
 import { textureBytes } from './layout.ts';
 
 export type PageKind = 'relief' | 'flat';
@@ -170,6 +170,29 @@ export function blit(dst: Uint8Array, dw: number, src: Uint8Array, w: number, h:
 
 type MapName = 'color' | 'normal' | 'rough';
 
+/**
+ * Uploads after a page is on the GPU (T1 round 3). Rows written to a live page are queued as
+ * rectangles and sent up in BANDS: one texSubImage2D per band (UNPACK_ROW_LENGTH / SKIP_* cut
+ * the band out of the page's CPU copy), at most `frameBytes` a frame, spread over animation
+ * frames; when a page's queue is empty its mip chain is rebuilt once (generateMipmap). Without a
+ * renderer the old path stands: three uploads the rows itself at the next draw, a call a row.
+ */
+export interface Uploads {
+  renderer: WebGLRenderer | null;
+  /** Bytes in one band (one texSubImage2D). */
+  bandBytes: number;
+  /** Bytes sent up in one frame, at most (a band is never split below one row). */
+  frameBytes: number;
+  /** Ask for a pump at the next animation frame. */
+  schedule(): void;
+  /** What it cost (performance.now() ms on the main thread). */
+  stats: { bands: number; bytes: number; ms: number; maxMs: number; mips: number; mipMs: number };
+}
+
+/** Bytes in one band, and sent up in one frame at most (measured: see the T1 round 3 hand-in). */
+export const BAND_BYTES = 256 * 1024;
+export const FRAME_BYTES = 256 * 1024;
+
 /** Rows a page texture grows by (a multiple of CELL, so mips stay aligned). */
 const GROW = 64;
 
@@ -193,13 +216,17 @@ class PageMap {
   dropAfterUpload = false;
   /** Row ranges written since the last upload (start, count in bytes). */
   private pending: Array<{ start: number; count: number }> = [];
+  /** Rectangles written since the page went up, to send in bands (with a renderer). */
+  private queue: Rect[] = [];
+  private up: Uploads | null;
   readonly w: number;
   readonly h: number;
   /** Rows the texture holds now. */
   rows = 0;
-  constructor(w: number, h: number, colour: boolean, anisotropy: number) {
+  constructor(w: number, h: number, colour: boolean, anisotropy: number, up: Uploads | null = null) {
     this.w = w;
     this.h = h;
+    this.up = up;
     const t = new DataTexture(new Uint8Array(0), w, 0, RGBAFormat, UnsignedByteType);
     t.colorSpace = colour ? SRGBColorSpace : NoColorSpace;
     t.generateMipmaps = true;
@@ -227,6 +254,7 @@ class PageMap {
       for (const v of this.views) v.dispose();
       this.live = false;
       this.pending = [];
+      this.queue = [];
     }
     this.texture.source.data = { data, width: this.w, height: want };
     this.rows = want;
@@ -273,6 +301,11 @@ class PageMap {
   }
   /** Rows [y0, y1) of columns [x0, x1) were written: send them up at the next draw. */
   touched(x0: number, x1: number, y0: number, y1: number): void {
+    if (this.live && this.up?.renderer && this.glTexture()) {
+      this.queue.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      this.up.schedule();
+      return;
+    }
     if (this.live) {
       for (let y = y0; y < y1; y++) {
         const r = { start: (y * this.w + x0) * 4, count: (x1 - x0) * 4 };
@@ -282,6 +315,76 @@ class PageMap {
     }
     for (const v of this.views) v.needsUpdate = true;
   }
+  /** The GL texture three made for this page (any live view's), or null. */
+  private glTexture(): WebGLTexture | null {
+    const r = this.up?.renderer;
+    if (!r) return null;
+    for (const v of this.views) {
+      const t = (r.properties.get(v) as { __webglTexture?: WebGLTexture }).__webglTexture;
+      if (t) return t;
+    }
+    return null;
+  }
+  /** Bytes still queued. */
+  queued(): number {
+    return this.queue.reduce((n, q) => n + q.w * q.h * 4, 0);
+  }
+  /**
+   * Send up to `budget` bytes of the queue, a band per texSubImage2D; rebuild the mips when the
+   * queue is empty. Returns the bytes sent.
+   */
+  pump(budget: number): number {
+    const up = this.up;
+    if (!up?.renderer || !this.queue.length) return 0;
+    const tex = this.glTexture();
+    if (!tex) {
+      // the GL texture went (disposed, grown): the next draw uploads the whole page
+      this.queue = [];
+      for (const v of this.views) v.needsUpdate = true;
+      return 0;
+    }
+    const r = up.renderer;
+    const gl = r.getContext() as WebGL2RenderingContext;
+    const st = r.state;
+    const data = this.data;
+    st.bindTexture(gl.TEXTURE_2D, tex);
+    st.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    st.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    st.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    st.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    st.pixelStorei(gl.UNPACK_ROW_LENGTH, this.w);
+    let sent = 0;
+    while (this.queue.length) {
+      const q = this.queue[0]!;
+      const n = Math.min(q.h, Math.max(1, Math.floor(up.bandBytes / (q.w * 4))));
+      // never past the frame's budget (one band always goes, so a queue always moves)
+      if (sent > 0 && sent + n * q.w * 4 > budget) break;
+      const t0 = performance.now();
+      st.pixelStorei(gl.UNPACK_SKIP_PIXELS, q.x);
+      st.pixelStorei(gl.UNPACK_SKIP_ROWS, q.y);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, q.x, q.y, q.w, n, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      const dt = performance.now() - t0;
+      up.stats.bands++;
+      up.stats.bytes += q.w * n * 4;
+      up.stats.ms += dt;
+      up.stats.maxMs = Math.max(up.stats.maxMs, dt);
+      sent += q.w * n * 4;
+      q.y += n;
+      q.h -= n;
+      if (q.h <= 0) this.queue.shift();
+    }
+    st.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    st.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    st.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    if (!this.queue.length) {
+      const t0 = performance.now();
+      gl.generateMipmap(gl.TEXTURE_2D);
+      up.stats.mips++;
+      up.stats.mipMs += performance.now() - t0;
+    }
+    st.unbindTexture();
+    return sent;
+  }
   /** After an upload, forget the ranges (every view's are cleared in onUpdate). */
   uploaded(): void {
     this.pending = [];
@@ -289,6 +392,10 @@ class PageMap {
   /** GPU bytes (RGBA8 + mips) of what the texture holds now. */
   bytes(): number {
     return this.rows ? textureBytes(this.w, this.rows) : 0;
+  }
+  /** GPU bytes actually allocated: a page nothing has drawn yet was never uploaded. */
+  gpuBytes(): number {
+    return this.live ? this.bytes() : 0;
   }
   /** CPU bytes kept. */
   cpuBytes(): number {
@@ -335,15 +442,15 @@ export class Page {
   redrawn = false;
   readonly kind: PageKind;
   readonly index: number;
-  constructor(kind: PageKind, index: number, anisotropy: number, size: { w: number; h: number } = PAGE_SIZE[kind], gutter = GUTTER) {
+  constructor(kind: PageKind, index: number, anisotropy: number, size: { w: number; h: number } = PAGE_SIZE[kind], gutter = GUTTER, up: Uploads | null = null) {
     this.kind = kind;
     this.index = index;
     const { w, h } = size;
     this.w = w;
     this.h = h;
-    this.color = new PageMap(w, h, true, anisotropy);
-    this.normal = kind === 'relief' ? new PageMap(w, h, false, anisotropy) : null;
-    this.rough = kind === 'relief' ? new PageMap(w / 2, h / 2, false, anisotropy) : null;
+    this.color = new PageMap(w, h, true, anisotropy, up);
+    this.normal = kind === 'relief' ? new PageMap(w, h, false, anisotropy, up) : null;
+    this.rough = kind === 'relief' ? new PageMap(w / 2, h / 2, false, anisotropy, up) : null;
     this.shelves = new Shelves(w, h, gutter);
   }
   /** The key materials use for this page's whole views with `alpha` (see materials labelAlpha: sprayed keys start "stencil"). */
@@ -441,6 +548,9 @@ export class Page {
   cpuBytes(): number {
     return this.maps().reduce((s, m) => s + m.cpuBytes(), 0);
   }
+  gpuBytes(): number {
+    return this.maps().reduce((s, m) => s + m.gpuBytes(), 0);
+  }
   dispose(): void {
     for (const m of this.maps()) m.dispose();
   }
@@ -450,8 +560,39 @@ export class Page {
 export class Atlas {
   readonly pages: Page[] = [];
   private readonly anisotropy: number;
-  constructor(anisotropy: number) {
+  private frame = 0;
+  /** Band uploads (see Uploads); live once a renderer is attached. */
+  readonly up: Uploads;
+  constructor(anisotropy: number, band: { bandBytes?: number; frameBytes?: number } = {}) {
     this.anisotropy = anisotropy;
+    this.up = {
+      renderer: null,
+      bandBytes: band.bandBytes ?? BAND_BYTES,
+      frameBytes: band.frameBytes ?? FRAME_BYTES,
+      schedule: () => this.schedule(),
+      stats: { bands: 0, bytes: 0, ms: 0, maxMs: 0, mips: 0, mipMs: 0 },
+    };
+  }
+  /** Send later writes to live pages up in bands through this renderer. */
+  attach(renderer: WebGLRenderer): void {
+    this.up.renderer = renderer;
+  }
+  private schedule(): void {
+    if (this.frame || typeof requestAnimationFrame !== 'function') return;
+    this.frame = requestAnimationFrame(() => {
+      this.frame = 0;
+      this.pump();
+    });
+  }
+  /** One frame's worth of bands, across every page; asks for another frame while any are left. */
+  pump(budget = this.up.frameBytes): void {
+    let left = budget;
+    for (const p of this.pages) for (const m of p.maps()) if (left > 0) left -= m.pump(left);
+    if (this.pages.some((p) => p.maps().some((m) => m.queued() > 0))) this.schedule();
+  }
+  /** Bytes still waiting to go up. */
+  queued(): number {
+    return this.pages.reduce((n, p) => n + p.maps().reduce((k, m) => k + m.queued(), 0), 0);
   }
   place(kind: PageKind, w: number, h: number): { page: Page; rect: Rect } | null {
     const { w: pw, h: ph } = PAGE_SIZE[kind];
@@ -461,7 +602,7 @@ export class Atlas {
       const rect = page.alloc(w, h);
       if (rect) return { page, rect };
     }
-    const page = new Page(kind, this.pages.filter((p) => p.kind === kind).length, this.anisotropy);
+    const page = new Page(kind, this.pages.filter((p) => p.kind === kind).length, this.anisotropy, PAGE_SIZE[kind], GUTTER, this.up);
     this.pages.push(page);
     const rect = page.alloc(w, h);
     return rect ? { page, rect } : null;
@@ -469,7 +610,7 @@ export class Atlas {
   /** A page of its own for a region too big for a shared page (flat only). */
   dedicated(w: number, h: number): { page: Page; rect: Rect } {
     // exactly its size, no gutter: sampled as a texture of its own would be (ClampToEdge, its own mips)
-    const page = new Page('flat', this.pages.filter((p) => p.kind === 'flat').length, this.anisotropy, { w, h }, 0);
+    const page = new Page('flat', this.pages.filter((p) => p.kind === 'flat').length, this.anisotropy, { w, h }, 0, this.up);
     this.pages.push(page);
     return { page, rect: page.alloc(w, h)! };
   }
@@ -484,11 +625,16 @@ export class Atlas {
   cpuBytes(): number {
     return this.pages.reduce((s, p) => s + p.cpuBytes(), 0);
   }
+  gpuBytes(): number {
+    return this.pages.reduce((s, p) => s + p.gpuBytes(), 0);
+  }
   /** Start-up is over: the pages made so far take no more labels. */
   seal(): void {
     for (const p of this.pages) p.seal();
   }
   dispose(): void {
+    if (this.frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
+    this.frame = 0;
     for (const p of this.pages) p.dispose();
     this.pages.length = 0;
   }
