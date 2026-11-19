@@ -166,6 +166,138 @@ describe('Patch is lifted off its stool', () => {
   });
 });
 
+describe('Patch let go of past the edge of the bench (R1)', () => {
+  const T = PATCH_TUNING;
+  const EDGE = { minX: -9, maxX: 9, maxZ: 5 };
+  /** Carry it from above its stool to `to` over `n` steps, and let go there. */
+  function carryAndDrop(w: World, t: Tape, to: Vec3, n = 60): void {
+    const from: Vec3 = [SEAT[0], 3, SEAT[2] + 1];
+    for (let i = 0; i <= n; i++) {
+      w.dispatch({ type: 'drag', id: 'patch', target: [from[0] + ((to[0] - from[0]) * i) / n, from[1] + ((to[1] - from[1]) * i) / n, from[2] + ((to[2] - from[2]) * i) / n] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'drag', id: 'patch', target: to, end: true });
+    t.run(1);
+  }
+
+  test('off the front: it hangs from the front edge, hauls itself up, dusts off, gives the look and walks back; never physics, nothing charged', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    const before = w.durable();
+    carryAndDrop(w, t, [2, 2.5, EDGE.maxZ + 0.5], 240); // slow: let go past the edge
+    const v = patchView(w);
+    expect(v.state).toBe('ledge');
+    expect(v.ledge?.edge).toBe('front');
+    expect(v.ledge?.out).toEqual([0, 0, 1]);
+    expect(v.at[2]).toBe(EDGE.maxZ);
+    expect(v.at[1]).toBe(PATCHLAMP.patch.foot[1]);
+    expect(Math.abs(v.at[0] - 2)).toBeLessThan(0.3); // the nearest point of the edge
+    expect(v.stateLength).toBe(T.ledge);
+    t.run(Math.round(T.ledge * HZ) + 1);
+    expect(patchView(w).state).toBe('haul');
+    t.run(Math.round((T.haul / 2) * HZ));
+    const mid = patchView(w).at;
+    expect(mid[2]).toBeLessThan(EDGE.maxZ);
+    expect(mid[2]).toBeGreaterThan(EDGE.maxZ - T.ledgeIn);
+    t.run(Math.round((T.haul / 2) * HZ) + 1);
+    expect(patchView(w).state).toBe('dust');
+    expect(patchView(w).at[2]).toBeCloseTo(EDGE.maxZ - T.ledgeIn, 6);
+    t.run(Math.round(T.dust * HZ) + 1);
+    expect(patchView(w)).toMatchObject({ state: 'look', lookAt: PATCHLAMP.patch.visitor, ledge: null });
+    t.run(Math.round(T.look * HZ) + 1);
+    expect(patchView(w).state).toBe('walk');
+    for (let i = 0; i < 15 * HZ && patchView(w).state !== 'seated'; i++) t.run(1);
+    expect(patchView(w)).toMatchObject({ state: 'seated', at: SEAT });
+    expect(states(t)).toEqual(['held', 'ledge', 'haul', 'dust', 'look', 'walk', 'climb', 'seated']);
+    expect(w.durable()).toEqual(before);
+    expect(w.undoStack()).toEqual([]);
+  });
+
+  test('off a side: it hangs from that end of the bench, facing in', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    carryAndDrop(w, t, [EDGE.maxX + 0.5, 2.5, 0], 300);
+    const v = patchView(w);
+    expect(v.state).toBe('ledge');
+    expect(v.ledge?.edge).toBe('right');
+    expect(v.at[0]).toBe(EDGE.maxX);
+    expect(Math.abs(v.at[2])).toBeLessThan(0.3);
+    expect(Math.sin(v.heading)).toBeCloseTo(-1, 6); // facing −X, in over the edge
+    const left = await benchWorld();
+    const tl = tape(left);
+    carryAndDrop(left, tl, [EDGE.minX - 0.5, 2.5, -1], 300);
+    expect(patchView(left)).toMatchObject({ state: 'ledge', ledge: { edge: 'left' } });
+    expect(patchView(left).at[0]).toBe(EDGE.minX);
+  });
+
+  test('let go of far past the bench: it catches the nearest point of the edge it went furthest over (never a corner, never the back)', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    carryAndDrop(w, t, [30, 2.5, 40], 240);
+    expect(patchView(w)).toMatchObject({ state: 'ledge', ledge: { edge: 'front' } });
+    expect(patchView(w).at).toEqual([EDGE.maxX - 0.5, PATCHLAMP.patch.foot[1], EDGE.maxZ]);
+    const b = await benchWorld();
+    const tb = tape(b);
+    carryAndDrop(b, tb, [0, 2.5, -30], 240); // behind the wall: put down on the bench, as before
+    expect(patchView(b).state).toBe('walk');
+    expect(patchView(b).ledge).toBeNull();
+  });
+
+  test('flung toward the edge and let go short of it, it goes over (the hand travel carries on); let go gently there, it is put down', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    // fast: 3 units in a sixth of a second, let go 0.3 inside the front edge
+    carryAndDrop(w, t, [2, 2.5, EDGE.maxZ - 0.3], 10);
+    expect(patchView(w)).toMatchObject({ state: 'ledge', ledge: { edge: 'front' } });
+    const g = await benchWorld();
+    const tg = tape(g);
+    carryAndDrop(g, tg, [2, 2.5, EDGE.maxZ - 0.3], 400);
+    expect(patchView(g).state).toBe('walk');
+  });
+
+  test('a second grab while it hangs or hauls does nothing; once on its feet it can be lifted again', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    carryAndDrop(w, t, [0, 2.5, EDGE.maxZ + 0.6], 240);
+    expect(patchView(w).state).toBe('ledge');
+    const at = patchView(w).at;
+    w.dispatch({ type: 'grab', id: 'patch', grip: at });
+    t.run(1);
+    w.dispatch({ type: 'carry', target: [0, 3, 0] });
+    t.run(1);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    t.run(1);
+    expect(patchView(w)).toMatchObject({ state: 'ledge', at });
+    t.run(Math.round(T.ledge * HZ) - 2);
+    expect(patchView(w).state).toBe('haul');
+    w.dispatch({ type: 'grab', id: 'patch', grip: patchView(w).at });
+    t.run(1);
+    w.dispatch({ type: 'carry', target: [0, 3, 0] });
+    t.run(1);
+    expect(patchView(w).state).toBe('haul');
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    t.run(Math.round(T.haul * HZ));
+    expect(patchView(w).state).toBe('dust');
+    w.dispatch({ type: 'grab', id: 'patch', grip: patchView(w).at });
+    t.run(1);
+    expect(patchView(w)).toMatchObject({ state: 'held', ledge: null });
+  });
+
+  test('a job in hand waits while it is off the edge, and carries on once it is back on its stool', async () => {
+    const w = await benchWorld();
+    const t = tape(w);
+    const a = send(w, t, 'make the sign red');
+    expect(untilPatch(w, t, 'drawer')).toBe(true);
+    carryAndDrop(w, t, [3, 2.5, EDGE.maxZ + 0.5], 240);
+    expect(patchView(w).state).toBe('ledge');
+    t.run(Math.round((T.ledge + T.haul + T.dust) * HZ));
+    expect(t.events.some((x) => x.e.type === 'line.reply' && x.e.n === a)).toBe(false);
+    expect(shopView(w).sign).toBe('paint-green');
+    expect(answer(t, a, 20).e.type).toBe('line.reply');
+    expect(shopView(w).sign).toBe('cable-red');
+  });
+});
+
 describe("Patch's job", () => {
   test('rolls to THAT jack, opens its drawer, leans out to check the station; the whole job takes four and a half seconds and the roll', async () => {
     const w = await benchWorld();

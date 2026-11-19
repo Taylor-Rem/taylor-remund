@@ -1660,6 +1660,150 @@ export function walkDuration(from: V3, o: ReturnOptions = {}): number {
   return Math.hypot(from[0] - foot[0], from[2] - foot[2]) / (o.speed ?? T_.walk / CREW);
 }
 
+// ---- R1: off the edge of the bench ---------------------------------------------------------------
+
+export const LEDGE_LENGTH: number = T_.ledge;
+export const HAUL_LENGTH: number = T_.haul;
+export const DUST_LENGTH: number = T_.dust;
+
+export interface LedgeOptions {
+  /** The point of the edge its paws hold (root space: the bench top at the edge). */
+  at: V3;
+  /** Where its feet are once it is up (root space, on the bench just in from the edge). */
+  up: V3;
+  /** Its body's yaw in root space: facing in, over the edge it holds. */
+  heading: number;
+  /** The front edge: it is seen from behind against the bench's apron, so it turns and gives the visitor the look while it hangs. */
+  front: boolean;
+  visitor?: V3;
+}
+
+/** Hanging legs: down from the hips, a little bent. */
+const DANGLE: [LegJoints, LegJoints] = [{ lift: -1.45, splay: 0.1, knee: -1.0 }, { lift: -1.5, splay: 0.12, knee: -0.9 }];
+/** Arms up over the edge (stretched as a toy's are to reach: the head is bigger than its arms are long). */
+const HANG_ARM: ArmJoints = J(2.0, 0.12, 0, 0.15, -0.2, 0);
+
+/** The body's place that puts the paws (both: their middle; or one) on `edge` with the rest of the pose as it is. */
+function hangFrom(edge: V3, p: PatchPose, which: 'both' | 'left' | 'right'): BodyPlace {
+  const rot = (p.body?.rot ?? [0, 0, 0]) as V3;
+  const q: PatchPose = { ...p, body: { at: [0, 0, 0], rot } };
+  const l = pawPoint(q, 'left'), r = pawPoint(q, 'right');
+  const g: V3 = which === 'left' ? l : which === 'right' ? r : [(l[0] + r[0]) / 2, (l[1] + r[1]) / 2, (l[2] + r[2]) / 2];
+  return { at: [edge[0] - g[0], edge[1] - g[1], edge[2] - g[2]], rot };
+}
+
+/**
+ * Let go of past the edge (`ledge`, `haul`, `dust`: the simulation's 1.6, 0.7 and 0.5 s): it catches the edge
+ * and swings on it, legs kicking, ears flat; then, off the front, it lets go with one paw, turns round on the
+ * other and gives the visitor the look over its shoulder, and takes hold again; off a side only the paws and
+ * the ears show above the edge, so they do the acting: the ears come up one at a time and a paw shifts its
+ * grip. It hauls itself up, a knee over the edge, onto its feet; and dusts itself off. Reduced motion: each
+ * stage's end (t = the stage's length).
+ */
+export function overTheEdge(stage: 'ledge' | 'haul' | 'dust', t: number, o: LedgeOptions): PatchPose {
+  const vis = o.visitor ?? VISITOR;
+  const keys = memoKeys('ledge', [o.at, o.up, o.heading, o.front, vis], () => buildLedge(o, vis));
+  const t0 = stage === 'ledge' ? 0 : stage === 'haul' ? LEDGE_LENGTH : LEDGE_LENGTH + HAUL_LENGTH;
+  const L = stage === 'ledge' ? LEDGE_LENGTH : stage === 'haul' ? HAUL_LENGTH : DUST_LENGTH;
+  return toPose(sampleOverlap(keys, t0 + clamp(t, 0, L), { ears: -0.05, tail: -0.12 }));
+}
+
+function buildLedge(o: LedgeOptions, vis: V3): Array<{ t: number; pose: FullPose; ease: Ease }> {
+  const E = o.at, hd = o.heading;
+  const base: PatchPose = {
+    ...SEATED,
+    legs: DANGLE,
+    lean: [-0.2, 0],
+    twist: 0,
+    arms: { left: HANG_ARM, right: HANG_ARM },
+    armScale: [1.5, 1.5],
+    headYaw: 0,
+    headPitch: 0.3,
+    headTilt: 0,
+    gaze: [0, 0.6],
+    ...FACE.alert,
+    ears: [1, 1],
+    tail: [-0.3, 0],
+    tailLift: -1.3,
+    boom: 0.2,
+  };
+  /** A hanging pose: the body turned by (pitch, yaw, roll) about the grip, everything else from `over`. */
+  const hang = (pitch: number, yaw: number, roll: number, over: PatchPose = {}, which: 'both' | 'left' | 'right' = 'both'): PatchPose => {
+    const p: PatchPose = { ...base, ...over, body: { rot: [pitch, hd + yaw, roll] } };
+    return { ...p, body: hangFrom(E, p, which) };
+  };
+  const kick = (a: number): [LegJoints, LegJoints] => [
+    { lift: -1.45 + 0.5 * a, splay: 0.15, knee: -1.0 + 0.6 * Math.max(0, a) },
+    { lift: -1.45 - 0.5 * a, splay: 0.15, knee: -1.0 + 0.6 * Math.max(0, -a) },
+  ];
+  const L = LEDGE_LENGTH;
+  const k: Key[] = [
+    // caught it: swung out under the edge, legs going, ears flat, eyes wide
+    { t: 0, set: hang(0.45, 0, 0, { legs: kick(1) }) },
+    { t: L * 0.12, set: hang(-0.18, 0, 0.16, { legs: kick(-1), lids: [0.22, 0.24], brows: [0.6, 0.5] }), ease: inOutQuad },
+    { t: L * 0.27, set: hang(0.12, 0, -0.12, { legs: kick(0.7) }), ease: inOutQuad },
+    { t: L * 0.42, set: hang(-0.05, 0, 0.06, { legs: kick(-0.3), ears: [0.3, 0.6], ...FACE.flat }), ease: inOutQuad },
+  ];
+  if (o.front) {
+    // off the front: it lets go with one paw, turns round on the other and gives the visitor the look
+    const dir = Math.atan2(vis[0] - E[0], vis[2] - E[2]);
+    const side = normAngle(dir - hd) >= 0 ? 1 : -1; // the way round that is nearer the visitor
+    const hold: 'left' | 'right' = side > 0 ? 'right' : 'left'; // it turns away from the paw it keeps
+    // the arm it keeps bends: a one-armed chin-up that brings its face up to the edge for the look
+    const CHIN = J(1.55, 0.2, 0, 1.45, -0.2, 0);
+    const free = (j: ArmJoints): PatchPose => (hold === 'right' ? { arms: { left: j, right: CHIN }, armScale: [1, 1.5] } : { arms: { left: CHIN, right: j }, armScale: [1.5, 1] });
+    const turned = (yaw: number, roll: number, over: PatchPose): PatchPose => {
+      const p = hang(0, yaw, roll, { ...free(J(0.35, 0.55, 0, 0.5, 0.1, 0.4)), legs: DANGLE, ...over }, hold);
+      const lk = lookAt(resolvePose(p), vis, 1);
+      return { ...p, headYaw: clamp(lk.headYaw, -1.3, 1.3), headPitch: clamp(lk.headPitch, -0.3, 0.6), gaze: lk.gaze };
+    };
+    k.push(
+      { t: L * 0.52, set: turned(side * 0.55, side * 0.1, { ...FACE.flat, ears: [-0.2, -0.2] }), ease: inOutQuad },
+      // the look: deadpan, over its shoulder, swinging a little on one arm
+      { t: L * 0.66, set: turned(side * 0.75, -side * 0.06, { ...FACE.deadpan, ears: [0.25, 0.15], tail: [0.2, side * 0.4] }), ease: inOutCubic },
+      { t: L * 0.82, set: turned(side * 0.7, side * 0.05, { ...FACE.deadpan, lids: [0.42, 0.45], ears: [0.25, 0.15] }), ease: inOutQuad },
+      // and round again, and takes hold with both
+      { t: L * 0.95, set: hang(0, 0, 0, { ...FACE.flat, ears: [0.4, 0.4], legs: DANGLE }), ease: inOutCubic },
+      { t: L, set: hang(0, 0, 0, { ...FACE.flat, ears: [0.4, 0.4], legs: DANGLE, headPitch: 0.35 }) },
+    );
+  } else {
+    // off a side: only the paws and the ears show over the edge, so they act: the ears come up one at a
+    // time and swivel; one paw lets go and slaps down again further along
+    const shift = (j: ArmJoints): PatchPose => ({ arms: { left: HANG_ARM, right: j } });
+    k.push(
+      { t: L * 0.55, set: hang(0, 0, 0.03, { legs: DANGLE, ears: [-0.6, 0.6], headPitch: 0.45 }), ease: inOutQuad },
+      { t: L * 0.66, set: hang(0, 0, -0.03, { legs: DANGLE, ears: [-0.6, -0.5], headPitch: 0.45 }, 'left'), ease: inOutQuad },
+      { t: L * 0.76, set: hang(0, 0, 0.05, { ...shift(J(2.0, 0.35, 0, 0.9, -0.4, 0)), legs: DANGLE, ears: [-0.7, -0.6] }, 'left'), ease: outCubic },
+      { t: L * 0.86, set: hang(0, 0, 0, { legs: DANGLE, ears: [0.2, -0.6], headPitch: 0.4 }), ease: inCubic },
+      { t: L, set: hang(0, 0, 0, { legs: DANGLE, ears: [-0.4, -0.4], headPitch: 0.35 }) },
+    );
+  }
+  // ── the haul: a pull, a knee over the edge, up onto its feet ──
+  const H = HAUL_LENGTH;
+  const inward: V3 = [Math.sin(hd), 0, Math.cos(hd)];
+  const upStand = standAt(o.up);
+  const pull: PatchPose = { ...base, arms: { left: J(1.2, 0.35, 0, 1.9, -0.3, 0), right: J(1.2, 0.35, 0, 1.9, -0.3, 0) }, armScale: [1.3, 1.3], lean: [0.35, 0], headPitch: 0.1, ...FACE.squeezed, ears: [0.7, 0.7], legs: [{ lift: 0.9, splay: 0.15, knee: 1.5 }, { lift: -1.4, splay: 0.1, knee: -0.8 }] };
+  const pulled = { ...pull, body: hangFrom(E, { ...pull, body: { rot: [0.25, hd, 0] } }, 'both') };
+  const knee: V3 = [E[0] + inward[0] * 0.1, E[1] + 0.12, E[2] + inward[2] * 0.1];
+  const t1 = L;
+  k.push(
+    { t: t1 + H * 0.4, set: pulled, ease: inOutCubic },
+    { t: t1 + H * 0.72, set: { ...SEATED, body: { at: knee, rot: [0.5, hd, 0] }, legs: [{ lift: -0.3, splay: 0.15, knee: 1.5 }, { lift: 0.4, splay: 0.15, knee: 1.6 }], lean: [0.35, 0], twist: 0, arms: { left: J(0.6, 0.25, 0, 0.3, 0.2, 0.4), right: J(0.6, 0.25, 0, 0.3, 0.2, 0.4) }, armScale: [1, 1], headPitch: 0.15, headYaw: 0, ...FACE.flat, ears: [0.4, 0.4], tail: [0.6, 0], tailLift: 0.3, boom: 0.1 }, ease: outCubic },
+    { t: t1 + H, set: { body: { at: upStand, rot: [0, hd, 0] }, legs: STAND, lean: [0.05, 0], arms: { left: J(0.15, 0.12, 0, 0.45, 0.1, 0.5), right: J(0.15, 0.12, 0, 0.45, 0.1, 0.5) }, headPitch: -0.05, tail: [0.3, 0], tailLift: -0.5, boom: 0 }, ease: inOutQuad },
+  );
+  // ── dusting off: a brush down the front with each paw, a shake, and up straight ──
+  const D = DUST_LENGTH, t2 = L + H;
+  const brush = J(0.75, 0.25, 0.6, 1.7, 0.4, 0.8), down = J(0.15, 0.12, 0, 0.45, 0.1, 0.5);
+  const lkVis = lookAt({ body: { at: upStand, rot: [0, hd, 0] }, lean: [0.02, 0], twist: 0 }, vis, 0.6);
+  k.push(
+    { t: t2 + D * 0.22, set: { arms: { left: brush, right: down }, headPitch: -0.4, headYaw: 0.15, gaze: [0, -0.5], lean: [0.15, 0], ...FACE.flat, ears: [0.2, 0.2] }, ease: inOutQuad },
+    { t: t2 + D * 0.48, set: { arms: { left: down, right: brush }, headYaw: -0.15, twist: 0.12 }, ease: inOutQuad },
+    { t: t2 + D * 0.7, set: { arms: { left: down, right: down }, headPitch: -0.1, headYaw: 0, headTilt: 0.25, twist: 0, lean: [0.03, 0], ears: [-0.4, 0.3] }, ease: inOutQuad },
+    { t: t2 + D, set: { headYaw: clamp(lkVis.headYaw, -1.2, 1.2), headPitch: lkVis.headPitch, headTilt: 0, gaze: lkVis.gaze, ...FACE.deadpan, ears: [0.25, 0.15] }, ease: inOutQuad },
+  );
+  return bake(resolvePose(k[0]!.set), k);
+}
+
 /** Put down at a root-space floor point: toddles to the stool's foot, then climbs (for reviews; the view drives `toddle` and `climb` itself). */
 export function returnToStool(t: number, from: V3, o: ReturnOptions = {}): PatchPose {
   const W = walkDuration(from, o);
