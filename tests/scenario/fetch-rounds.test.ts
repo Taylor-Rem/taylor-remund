@@ -24,7 +24,8 @@ function farBench(): SceneDesc {
     ...bench,
     id: 'bench-far',
     parts: bench.parts.map((p) => (moved.has(p.id) ? { ...p, pose: { p: [p.pose.p[0] - sx + far[0], p.pose.p[1], p.pose.p[2] - sz + far[1]] as const, q: p.pose.q } } : p)),
-    runner: { ...bench.runner, rounds: { ...bench.runner.rounds!, stack: far } },
+    // (S5 R1: and no pad for its rounds, which would otherwise feed from the chute's pad and never go for the stack)
+    runner: { ...bench.runner, rounds: (({ pad: _pad, padRadius: _r, ...r }) => ({ ...r, stack: far }))(bench.runner.rounds!) },
   };
 }
 
@@ -38,9 +39,10 @@ describe('its rounds (play mode)', () => {
     t.run(steps(45));
     const placed = t.of('taken-in').filter((x) => x.e.mouth === ROUNDS.mouth);
     const shipped = t.of('shipped');
-    expect(placed.length).toBeGreaterThanOrEqual(6);
-    expect(shipped.length).toBeGreaterThanOrEqual(5);
-    expect(t.of('struck').filter((x) => x.e.part !== null).length).toBeGreaterThanOrEqual(5);
+    // (S5 R1: one crate at a time circulates, belt → dock → the chute's pad → the belt: about one every 12.5 s)
+    expect(placed.length).toBeGreaterThanOrEqual(3);
+    expect(shipped.length).toBeGreaterThanOrEqual(3);
+    expect(t.of('struck').filter((x) => x.e.part !== null).length).toBeGreaterThanOrEqual(3);
     expect(states(t.events.map((x) => x.e))).toEqual(expect.arrayContaining(['pickup', 'place']));
     // nothing of it is the visitor's: every write is the crew's or the system's, and the lever has nothing to take
     for (const x of t.of('effect')) expect(['crew', 'system']).toContain(x.e.effect.cause);
@@ -81,7 +83,7 @@ describe('its rounds (play mode)', () => {
         at.push(x.step);
       }
     }
-    expect(at.length).toBeGreaterThan(8);
+    expect(at.length).toBeGreaterThan(5);
     for (let i = 1; i < at.length; i++) expect((at[i] as number) - (at[i - 1] as number)).toBeGreaterThanOrEqual(steps(ROUNDS.every) - 1);
     w.dispose();
   }, 60_000);
@@ -130,7 +132,7 @@ describe('its rounds (play mode)', () => {
     // the belt never stalls: a crate ships at least every quarter minute, the whole ten minutes
     // A1 round 7: Fetch rolls between the stack and the feed near the belt's left end, 3.3 further along its front run
     // (one corner each way): about one every 8 s
-    expect(ships).toBeGreaterThanOrEqual(68);
+    expect(ships).toBeGreaterThanOrEqual(40); // S5 R1: one crate circulating through the chute's pad (was 68 off the stack)
     expect(longestGap).toBeLessThan(steps(15));
     expect(w.step - lastShip).toBeLessThan(steps(15));
     // never dry for long (a restock follows each shipment) and never piled up

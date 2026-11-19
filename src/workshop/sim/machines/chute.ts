@@ -65,6 +65,7 @@ export function createChute(ctx: SimContext, spec: ChuteSpec): ChuteUnit {
     },
     heard(events: readonly SimEvent[]) {
       for (const e of events) if (e.type === 'part.returned') kick(e.id);
+      for (const e of events) if (e.type === 'restock.launched') kick(e.part); // S5 R1: a fresh crate thrown out to the pad
     },
     view(): ChuteView {
       const waiting = ctx.parts().filter((id) => ctx.mode(id) === 'chute').length;

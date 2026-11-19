@@ -32,7 +32,7 @@ import type { Job } from '../history.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
-import { qmul, qyaw } from '../math.ts';
+import { qaxis, qmul, qyaw } from '../math.ts';
 import { rampAt, rampDoor, rampLength, rampNearest } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { Beat, CHANGED_SINCE, Lamp, OK } from '../machine.ts';
@@ -91,6 +91,20 @@ export interface DockSpec {
    * spare stays behind the door), so a fourth crate dropped on a tower of three never topples it.
    */
   readonly stackMax?: number;
+  /**
+   * S5 R1: the chute's pad. With it, a plain crate's replacement does not appear on the stack: it comes up the
+   * return chute and is thrown onto the pad (the stack is Fetch's to restock from there). `from` is the chute's
+   * mouth, `apex` the height of the throw's top (world y); `radius` how far from `at` a crate counts as on the pad.
+   * A replacement waits (owed) while the pad is taken.
+   */
+  readonly pad?: {
+    readonly at: readonly [number, number];
+    readonly radius: number;
+    readonly from: Vec3;
+    readonly apex: number;
+    /** Aim by the crate's near face: every size lands with its face toward this point AT it (a big crate further in), not centred on `at`. */
+    readonly near?: readonly [number, number];
+  };
 }
 
 export interface DockUnit extends MachineUnit {
@@ -109,6 +123,24 @@ interface Shipment {
   readonly off: readonly [number, number];
   readonly q0: Pose['q'];
   readonly yaw0: number;
+}
+
+/** S5 R1: a crate thrown from the chute's mouth onto the pad: a ballistic arc, steps flown so far. */
+interface Flight {
+  readonly id: Id;
+  age: number;
+  readonly from: Vec3;
+  readonly to: Vec3;
+  /** Horizontal velocity, the upward start speed, the time of flight (s), its yaw and its tumble. */
+  readonly vx: number;
+  readonly vz: number;
+  readonly vy: number;
+  readonly time: number;
+  readonly yaw0: number;
+  readonly spin: number;
+  readonly axis: Vec3;
+  /** On the pad (driven there exactly): handed to physics at the next step. */
+  down: boolean;
 }
 
 interface Return {
@@ -130,6 +162,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   const queue: Shipment[] = [];
   let returns: Return[] = [];
   let restocks: { at: number; size: Part['size'] }[] = [];
+  /** S5 R1: replacements in the air from the chute to the pad (the dock's custody, kinematic, until they touch down). */
+  let flights: Flight[] = [];
   /** Crates in the order they shipped (oldest first): restocking takes from the front. */
   let shippedOrder: Id[] = [];
   let door = 0;
@@ -228,7 +262,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
    * inside the one being lifted.
    */
   function restock(size: Part['size']): boolean {
-    {
+    if (spec.pad && padTaken()) return false; // S5 R1: owed until the pad is free
+    if (!spec.pad) {
       const [sx, sz] = spec.stack;
       const inHand = ctx.parts().some((id) => {
         const p = ctx.pose(id)?.p;
@@ -236,7 +271,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       });
       if (inHand) return false;
     }
-    if (spec.stackMax !== undefined) {
+    if (!spec.pad && spec.stackMax !== undefined) {
       const [sx, sz] = spec.stack;
       const standing = ctx.parts().filter((id) => {
         const m = ctx.mode(id);
@@ -261,6 +296,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       if (f) ctx.commit([{ target: spare, field: 'colour', after: f.colour }, { target: spare, field: 'label', after: f.label }, { target: spare, field: 'marks', after: f.marks }, { target: spare, field: 'contents', after: f.contents }], 'system');
     }
     const half = ctx.halfExtents(spare) ?? [0.3, 0.3, 0.3];
+    if (spec.pad) {
+      throwToPad(spare, half);
+      return true;
+    }
     const [sx, sz] = spec.stack;
     let top = 0;
     for (const id of ctx.parts()) {
@@ -271,8 +310,88 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       top = Math.max(top, pose.p[1] + (ctx.halfExtents(id)?.[1] ?? 0.3));
     }
     ctx.launch(spare, { p: [sx, top + half[1] + T.restockDrop, sz], q: qyaw(rng.range(-0.12, 0.12)) }, [0, 0, 0], [0, 0, 0], 'system');
-    ctx.emit({ type: 'restocked', id: spec.id, part: spare });
+    ctx.emit({ type: 'restocked', id: spec.id, part: spare, on: 'stack' });
     return true;
+  }
+
+  // ── S5 R1: the chute throws the replacement onto the pad ──
+
+  const g = Math.abs(ctx.scene.gravity);
+  /** Is anything on the pad, or on its way there? */
+  function padTaken(): boolean {
+    const pad = spec.pad;
+    if (!pad || flights.length > 0) return flights.length > 0;
+    return ctx.parts().some((id) => {
+      const m = ctx.mode(id);
+      const p = ctx.pose(id)?.p;
+      return !!p && m !== 'gone' && m !== 'chute' && Math.hypot(p[0] - pad.at[0], p[2] - pad.at[1]) <= pad.radius + 0.3 && p[1] < 1.6;
+    });
+  }
+  /** Out of the chute's mouth, up over the deflector's row and down onto the pad: a ballistic arc with its top at `apex`. */
+  function throwToPad(id: Id, half: Vec3): void {
+    const pad = spec.pad as NonNullable<DockSpec['pad']>;
+    const from = pad.from;
+    // how it will lie: square to the pad (a turned crate reaches further toward the stand, or its middle further from
+    // Fetch's reach: on this pad there is no room for either); it tumbles in the air by whole turns
+    const yaw0 = rng.range(-0.02, 0.02);
+    const spin = 0;
+    let [cx, cz] = pad.at;
+    if (pad.near) {
+      // its nearest point on `near`: the centre its extent along that line further in (a turned crate's corner reaches
+      // further than its face), along the line from `near` through the pad's middle
+      const dx0 = pad.at[0] - pad.near[0];
+      const dz0 = pad.at[1] - pad.near[1];
+      const l0 = Math.hypot(dx0, dz0) || 1;
+      const a = yaw0 + spin;
+      // the box's extent along (dx0, dz0): its half extents projected onto that line, turned by `a`
+      const ux = dx0 / l0;
+      const uz = dz0 / l0;
+      const ext = half[0] * Math.abs(ux * Math.cos(a) - uz * Math.sin(a)) + half[2] * Math.abs(ux * Math.sin(a) + uz * Math.cos(a));
+      [cx, cz] = [pad.near[0] + ux * ext, pad.near[1] + uz * ext];
+    }
+    const to: Vec3 = [cx, ctx.scene.bench.top + half[1] + 0.005, cz];
+    const apex = Math.max(pad.apex, from[1] + 0.1, to[1] + 0.1);
+    const vy = Math.sqrt(2 * g * (apex - from[1]));
+    const time = vy / g + Math.sqrt((2 * (apex - to[1])) / g);
+    // a tumble that ends square: whole turns about a level axis across the throw, and a little yaw
+    const dx = to[0] - from[0];
+    const dz = to[2] - from[2];
+    const l = Math.hypot(dx, dz) || 1;
+    const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], down: false };
+    ctx.launch(id, { p: from, q: qyaw(yaw0) }, [0, 0, 0], [0, 0, 0], 'system');
+    if (!ctx.take(id, spec.id)) return; // (never: it was just put into the world, free)
+    flights.push(f);
+    ctx.emit({ type: 'restock.launched', id: spec.id, part: id, from, to, flight: time });
+  }
+  function flightPose(f: Flight): Pose {
+    const t = Math.min(f.time, f.age / HZ);
+    const k = t / f.time;
+    const p: Vec3 = [f.from[0] + f.vx * t, f.from[1] + f.vy * t - 0.5 * g * t * t, f.from[2] + f.vz * t];
+    return { p, q: qmul(qyaw(f.yaw0 + f.spin * k), qaxis(f.axis, 2 * Math.PI * k)) };
+  }
+  function fly(): void {
+    for (const f of [...flights]) {
+      if (ctx.mode(f.id) !== 'machine') {
+        flights = flights.filter((x) => x !== f);
+        continue;
+      }
+      f.age += 1;
+      if (f.age / HZ < f.time) {
+        ctx.drive(f.id, flightPose(f));
+        continue;
+      }
+      if (!f.down) {
+        // the last step of the arc ends exactly on the pad
+        f.down = true;
+        ctx.drive(f.id, { p: f.to, q: qyaw(f.yaw0 + f.spin) });
+        continue;
+      }
+      // touch down: set where it lands (it is there: the last step drove it so), handed to physics still, to settle
+      // (not with its run left: that slid it toward Fetch's stand); whatever stands on the pad by now, physics parts them
+      flights = flights.filter((x) => x !== f);
+      ctx.release(f.id, [0, -0.5, 0], [0, 0, 0], 'system');
+      ctx.emit({ type: 'restocked', id: spec.id, part: f.id, on: 'pad' });
+    }
   }
 
   // (I1 R1) the brass bell over the door can be rung by hand: a press swings and sounds it. It is the visitor's
@@ -331,6 +450,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     keeps: (part: Id): boolean => queue.some((x) => x.id === part && x.s + x.inside + Math.max(...[0, 2].map((k) => ctx.halfExtents(part)?.[k] ?? 0.3)) > LEN + R.lipZ),
 
     lost(part: Id) {
+      flights = flights.filter((f) => f.id !== part); // a crate caught in the air: the visitor's now
       const s = queue.find((x) => x.id === part);
       if (!s) return;
       queue.splice(queue.indexOf(s), 1);
@@ -360,6 +480,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       for (const r of returns) r.job?.done();
       returns = [];
       restocks = [];
+      flights = [];
       shippedOrder = [];
       openUntil = -1;
       lamp.reset();
@@ -398,6 +519,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         }
         ctx.drive(x.id, poseOf(x));
       }
+      fly();
       const now = ctx.clock.step;
       for (const r of returns.filter((x) => x.at <= now)) {
         returns = returns.filter((x) => x !== r);
