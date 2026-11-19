@@ -451,7 +451,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             handPrev.copy(hand);
             const c = Math.cos(-SIDE_ON), s = Math.sin(-SIDE_ON);
             const vr: V3 = [(handVel.x * c + handVel.z * s) / S, handVel.y / S, (-handVel.x * s + handVel.z * c) / S];
-            pose = held(reduced ? 1 : age, reduced ? [0, 0, 0] : vr, { visitor: boardToRoot(VISITOR_BOARD, stoolB) });
+            pose = held(reduced ? 3 : age, reduced ? [0, 0, 0] : vr, { visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
           case 'walk': {
