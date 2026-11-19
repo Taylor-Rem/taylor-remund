@@ -742,22 +742,6 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
  * Carry a part by mouse to stand over a world point and let it go there, the way a person does: press it, then
  * steer by watching where it is until it hangs over the spot, hold still a moment, let go (no throw).
  */
-/** Click a part (it stays in the hand), point at a world spot (it follows), click again: it is set down there. */
-async function setDownAt(page: Page, id: string, to: number[]): Promise<void> {
-  const at = await waitClear(page, id, 'mouse');
-  await page.mouse.move(at.x, at.y);
-  await frames(page, 2);
-  await page.mouse.down();
-  await page.mouse.up();
-  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding()?.id ?? null), 240, `${id} in the hand`).toBe(id);
-  const p = await page.evaluate((to) => (window as any).__bench.project(to) as XY, to);
-  await page.mouse.move(p.x, p.y, { steps: 12 });
-  await frames(page, 12);
-  await page.mouse.down();
-  await page.mouse.up();
-  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding()), 240, `${id} set down`).toBeNull();
-}
-
 async function carryTo(page: Page, id: string, to: number[]): Promise<void> {
   const where = (): Promise<{ p: number[]; s: XY; t: XY }> =>
     page.evaluate(
@@ -812,10 +796,18 @@ test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end t
   await stroke(page, hand, line({ x: from.x, y: from.y + 3 }, { x: platen.x + 6, y: platen.y - 8 }, 16), 16);
   await pollFrames(page, () => setting(page, 'cord', 'jack')).toBe('jack-platen');
   await waitClear(page, 'crate-2', 'mouse');
-  // the tray by click-then-click (§ B6 tap-then-tap): a visitor can set a crate down exactly where they point. A drag
-  // let go over the tray can glance off the platen's column and come to rest on it (run 8 of ten): that is physics,
-  // and the tray is small; the click places it
-  await setDownAt(page, 'crate-2', (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[]);
+  // onto the platen's small tray, carried and let go over it. A crate let go over a small tray sometimes glances off its
+  // edge or the column and lands beside it (physics, as on a real bench): then, as a visitor would, pick it up and try again
+  const trayDrop = (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await waitClear(page, 'crate-2', 'mouse');
+    await carryTo(page, 'crate-2', trayDrop);
+    const on = await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 240)
+      .toMatch(/"mouth":"platen"/)
+      .then(() => true)
+      .catch(() => false);
+    if (on) break;
+  }
   await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 900, 'the crate on the tray').toMatch(/"mouth":"platen"/);
 
   // the phone: "Make it blue." typed and sent; Patch does the job; the crate on the tray turns blue
