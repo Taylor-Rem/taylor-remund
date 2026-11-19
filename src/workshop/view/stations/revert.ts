@@ -35,7 +35,7 @@ import { Group, Matrix4, Quaternion, Vector3, type Object3D, type Texture } from
 import type { Id, Pose, RevertView, SimEvent, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { contentById } from '../labels/content.ts';
-import { revert as revertPiece, revertCard, poseRevertInto, revertScratch, cardMatrixInto, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL } from '../kit/pieces/revert/index.ts';
+import { revert as revertPiece, revertCard, poseRevertInto, revertScratch, cardMatrixInto, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL, PAN } from '../kit/pieces/revert/index.ts';
 import type { ArmJoints, RevertPose } from '../kit/pieces/revert/index.ts';
 import { broomGrip } from '../kit/pieces/revert/rig.ts';
 import { revertHatch, poseHatch, liftHeight } from '../kit/pieces/revert-hatch/index.ts';
@@ -82,6 +82,21 @@ export const REVERT_FEEL = {
    * round (`look` seconds each), so the quiet seconds of a rung are never a still picture.
    */
   survey: { start: 1.5, look: 0.85, nod: 0.9 },
+  /**
+   * R3, out to heal a dry bench: before it sets off it takes in the scene, a look at each in turn (seconds each):
+   * the empty belt, Fetch waiting, the crate, the visitor (a weary nod). The simulation stands it still for
+   * `REVERT_TUNING.survey` (2.4 s): four looks.
+   */
+  heal: { look: 0.6, nod: 0.7 },
+  /** R3: the pan: how fast it opens out round a crate and folds back; the tip at the hatch (up, held, back; radians). */
+  panOmega: 9,
+  panDamping: 0.75,
+  tip: { up: 0.22, hold: 0.32, down: 0.4, angle: 0.75, reduced: 0.4 },
+  /** R3: the crate goes off the pan's lip this long after the tip starts, and drops this far, out of sight. */
+  dropAfter: 0.2,
+  panDropTime: 0.55,
+  /** R3: the visitor took the crate out of its pan: a look at the empty pan, then at the visitor (seconds). */
+  emptyPan: { pan: 1.1, visitor: 1.6, open: 1.3 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
   /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
@@ -178,8 +193,10 @@ const Y = new Vector3(0, 1, 0);
 /** Every card Revert may hold up (content ids): the rungs, the deck, and its own two. */
 const REVERT_CARDS = ['card.rung1', 'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing'];
 
-/** Where the dustpan's mouth is, in Revert's root (piece) space. */
+/** Where the dustpan's mouth is, in Revert's root (piece) space (stowed). */
 const DUSTPAN = new Vector3(HULL.w / 2 + 0.11, 0.5, 0.06);
+/** R3: the middle of the pan opened out round a crate `fit` across (piece space), `up` above its floor. */
+const panMiddle = (out: Vector3, fit: number, up: number): Vector3 => out.set(PAN.x + PAN.lip + fit / 2, PAN.y + up, PAN.zOpen);
 
 export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) => RevertStationView {
   return (ctx) => {
@@ -253,7 +270,13 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     let rungParts: string[] = [];
     let surveyFrom = -Infinity;
     let surveyStep = -1;
-    let worldNow: { bracketed: boolean; motion(id: string): { pose: Pose } | undefined; scene: { button: { at: readonly number[] } } } | null = null;
+    let worldNow: WorldView | null = null;
+    // R3: the pan (opened out round a crate, tipped at the hatch), the look round before healing, the empty pan
+    const panOpen = reg(new Spring(0, { omega: F.panOmega, zeta: z(F.panDamping) }), F.panDamping);
+    let panFit = 0.8;
+    let tipAt = -Infinity;
+    let healFrom = -Infinity;
+    let healStep = -1;
     // the card
     let cardPhase: CardPhase = 'stowed';
     let cardAt = 0;
@@ -595,7 +618,8 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           lastSpeed = damp(lastSpeed, speed, 30, dt);
           const moving = Math.abs(rv.speed) > 0.05 || Math.abs(rv.turning) > 0.1;
           // nose up pulling away, down stopping; a lean into a turn; chatter while the treads run
-          const pGoal = R ? 0 : clamp(acc * F.pitchPerAccel, -0.12, 0.12) + (moving ? -0.03 : 0);
+          // (carrying a crate in its pan: it drives level, gingerly)
+          const pGoal = R ? 0 : (clamp(acc * F.pitchPerAccel, -0.12, 0.12) + (moving ? -0.03 : 0)) * (rv.carrying ? 0.3 : 1);
           pitch.step(pGoal, dt);
           roll.step(R ? 0 : clamp(-rv.turning * F.rollPerTurn, -0.08, 0.08), dt);
           bob.step(0, dt);
@@ -642,6 +666,23 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         swing.step(0, dt);
         pose.sag = clamp(sag.x, 0, 1.2);
 
+        // R3: the pan: opened out round the crate it sweeps up and carries (and through the tip, and the look at
+        // it when the visitor took the crate), folded back after; the tip at the hatch
+        const EP = F.emptyPan;
+        const tt = now - tipAt;
+        const TP = F.tip;
+        const panWant = rv.carrying !== null || (rv.state === 'sweep' && rv.bound !== null) || tt < TP.up + TP.hold + TP.down + 0.3 || rv.emptyPan < EP.open;
+        if (rv.carrying) {
+          const he = w.halfExtents(rv.carrying);
+          if (he) panFit = (2 * Math.max(he[0], he[2])) / S;
+        }
+        if (R) panOpen.set(panWant ? 1 : 0);
+        else panOpen.step(panWant ? 1 : 0, dt);
+        pose.panOpen = clamp01(panOpen.x);
+        pose.panFit = panFit;
+        if (R) pose.panTip = tt >= 0 && tt < TP.up + TP.hold + TP.down ? TP.reduced : 0;
+        else pose.panTip = tt < 0 ? 0 : tt < TP.up ? TP.angle * smoothstep(0, 1, tt / TP.up) : tt < TP.up + TP.hold ? TP.angle : tt < TP.up + TP.hold + TP.down ? TP.angle * (1 - smoothstep(0, 1, (tt - TP.up - TP.hold) / TP.down)) : 0;
+
         poseRevertInto(obj, pose, cardSize, scratch);
         if (cardNode && cardPhase !== 'stowed') {
           const c = pose.card!;
@@ -668,11 +709,21 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         bob.kick(-0.5);
         pitch.kick(1.2);
       } else if (e.type === 'revert.sweep' && e.id === bodyId) {
-        // the part hops into the dustpan, and on to where it was put
-        const pan = DUSTPAN.clone().multiplyScalar(1).applyMatrix4(obj.matrixWorld);
-        const to = e.to.at === 'rest' ? e.to.pose : null;
-        hops.add(e.part, e.from, now, { via: pan, ...(to ? { to } : { to: { p: [pan.x, pan.y - 0.2, pan.z], q: e.from.q } as Pose, vanish: true }), dur: 0.85 });
-        sweepEnd = now;
+        const he = worldNow?.halfExtents(e.part);
+        if (he) panFit = (2 * Math.max(he[0], he[2])) / S;
+        obj.updateWorldMatrix(true, false);
+        if (e.to.at === 'rest') {
+          // R3: swept up: the part hops in over the pan's middle (the pan opens out round it) and sits in it
+          const over = panMiddle(new Vector3(), panFit, panFit * 0.9).applyMatrix4(obj.matrixWorld);
+          hops.add(e.part, e.from, now, { via: over, to: e.to.pose, dur: 0.85 });
+          sweepEnd = now;
+        } else if (rv.carrying === null && e.from) {
+          // R3: at the hatch: the pan tips outward, the crate slides off its lip and drops out of sight
+          tipAt = now;
+          const lip = new Vector3(PAN.x + panFit + 2 * PAN.lip + 0.12, PAN.y + 0.05, PAN.zOpen).applyMatrix4(obj.matrixWorld);
+          const down: Pose = { p: [lip.x, lip.y - 1.6, lip.z], q: e.from.q };
+          hops.add(e.part, e.from, now + F.dropAfter, { via: lip, to: down, vanish: true, dur: F.panDropTime });
+        }
       }
     }
 
@@ -725,6 +776,60 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       // hovered: the eyes slide to the pointer; the head does not move
       if (pointer && rv.drawn && eyes !== 'rolled') {
         gazeAt(look, heading, tmpV2, tmpV.set(pointer[0], pointer[1], pointer[2]));
+        gx = look[0];
+        gy = look[1];
+      }
+      // R3: out to heal a dry bench, before it sets off: the empty belt, Fetch waiting, the crate, the visitor
+      if (rv.surveying && rv.drawn && healFrom === -Infinity) {
+        healFrom = now;
+        healStep = -1;
+      } else if (!rv.surveying) healFrom = -Infinity;
+      const H = F.heal;
+      if (rv.surveying && worldNow && healFrom > -Infinity) {
+        const k = Math.min(3, Math.floor((now - healFrom) / H.look));
+        let target: readonly number[] | null = null;
+        if (k === 0) target = worldNow.scene.mouths?.find((mo) => mo.id === 'belt')?.drop ?? null;
+        else if (k === 1) target = worldNow.motion('fetch')?.pose.p ?? null;
+        else if (k === 2 && rv.bound) target = worldNow.motion(rv.bound)?.pose.p ?? null;
+        if (target) gazeAt(look, heading, tmpV2, tmpV.set(target[0]!, target[1]!, target[2]!));
+        else gazeAtCamera(look, heading, tmpV2);
+        gx = look[0];
+        gy = look[1];
+        // the belt: flat; Fetch: the brow up a little; the crate: narrowed; the visitor: heavy-lidded, low brow, a nod
+        if (k === 0) {
+          l0 = l1 = 0.55;
+          bw = 0.3;
+        } else if (k === 1) {
+          l0 = l1 = 0.5;
+          bw = -0.25;
+        } else if (k === 2) {
+          l0 = l1 = 0.6;
+          s0 = s1 = 0.14;
+          bw = 0.5;
+        } else {
+          l0 = l1 = 0.66;
+          s0 = s1 = 0.2;
+          bw = 0.8;
+        }
+        if (k !== healStep) {
+          healStep = k;
+          if (!R) pitch.kick(k === 3 ? H.nod : 0.25); // a glance; a weary nod at the visitor
+        }
+      }
+      // R3: the visitor took the crate out of its pan: a look down at the empty pan, then at the visitor
+      const EP = F.emptyPan;
+      if (rv.drawn && rv.emptyPan < EP.pan + EP.visitor) {
+        if (rv.emptyPan < EP.pan) {
+          gazeAt(look, heading, tmpV2, panMiddle(tmpV, panFit, 0).applyMatrix4(obj.matrixWorld));
+          l0 = l1 = 0.38;
+          bw = -0.5;
+          s0 = s1 = 0;
+        } else {
+          gazeAtCamera(look, heading, tmpV2);
+          l0 = l1 = 0.62;
+          s0 = s1 = 0.26;
+          bw = 1;
+        }
         gx = look[0];
         gy = look[1];
       }

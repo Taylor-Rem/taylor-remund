@@ -77,10 +77,14 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
   const overlaps: string[] = [];
   let fed: number | null = null;
   let heals = 0;
-  for (let i = 0; i < steps(150); i++) {
+  for (let i = 0; i < steps(Number(process.env.TRAFFIC_SECS ?? 150)); i++) {
     for (const e of t.run(1)) {
       if (e.type === 'taken-in' && e.id === 'belt' && fed === null) fed = i / HZ;
       if (e.type === 'revert.sweep' && e.to.at === 'rest') heals++;
+    }
+    if (process.env.TRAFFIC_DBG && (i % 120 === 0 || (i > 1900 && i < 2150 && i % 6 === 0))) {
+      const rv = w.machine('revert-crew') as RevertView;
+      process.stderr.write(`\n  ${(i / HZ).toFixed(0)}s revert ${rv.state} @${rv.x.toFixed(2)},${rv.z.toFixed(2)} h${rv.heading.toFixed(2)} carrying ${rv.carrying} | fetch ${w.crew('fetch')?.state} @${w.motion('fetch')!.pose.p.map((v) => v.toFixed(1)).join(',')} | patch ${(w.machine('patch') as PatchView).state}`);
     }
     const rb = revertBox(w);
     if (!rb) continue;
@@ -89,6 +93,7 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
     if (fb && overlap(rb, fb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Fetch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${fb.x.toFixed(2)},${fb.z.toFixed(2)} (${w.crew('fetch')?.state})`);
     if (pb && overlap(rb, pb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
   }
+  if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${w.crew('fetch')?.state}`);
   w.dispose();
   return { fed, overlaps, heals };
 }
@@ -98,7 +103,8 @@ describe('the robots\' routes while the bench heals', () => {
     const report: string[] = [];
     let bad = 0;
     let heals = 0;
-    for (let seed = 0; seed < SESSIONS; seed++) {
+    const only = process.env.TRAFFIC_SEED;
+    for (let seed = only ? Number(only) : 0; seed < (only ? Number(only) + 1 : SESSIONS); seed++) {
       const s = await session(seed);
       heals += s.heals;
       if (s.overlaps.length || s.fed === null) bad++;

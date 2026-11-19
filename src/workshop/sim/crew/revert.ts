@@ -99,8 +99,16 @@ export const REVERT_TUNING = {
   sweep: 1.2,
   /** A part its own body brushed while sweeping: it waits at most this much longer for it to settle. */
   settle: 1.5,
-  /** R3: carrying a crate in its pan home to drop it down the hatch: how far out from its side the pan holds it. */
-  pan: 0.08,
+  /**
+   * R3: carrying a crate in its pan home to drop it down the hatch: the pan opens out round it from its inner edge
+   * on the bracket, so the crate's inner face is this far out from Revert's centre line, its bottom this high on
+   * the pan's floor (the view's `PAN` at Revert's drawn scale, 1.2: inner edge 0.56 plus a 0.06 lip, from a
+   * footprint centred 0.015 off the piece's origin; floor 0.43 plus the sheet).
+   */
+  pan: 0.762,
+  panHeight: 0.542,
+  /** R3: out to heal a dry bench, it first takes in the scene this long (the empty belt, Fetch waiting, the crate, the visitor). */
+  survey: 2.4,
   /** At the Button, screwing the cover on. */
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
@@ -242,6 +250,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let starvedSince = -1;
   /** R3: the step it last put a crate away (the dock's last resort waits for it). */
   let lastPutAway = -Infinity;
+  /** R3: the crate it is about to set off for while it takes in the scene (the view looks at it), or null. */
+  let surveyFor: Id | null = null;
   /** R3: when the visitor took the crate out of its pan (it looks at the empty pan). */
   let emptyPanAt = -Infinity;
   /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
@@ -341,7 +351,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const e = ctx.halfExtents(id);
       if (!p || !e) continue;
       if (p[1] - e[1] > ground + 2 * hy) continue; // above it
-      const r = Math.max(e[0], e[2]) * 0.8;
+      // a crate it may brush past by a little (it is wide); another robot (Fetch) whichever way it is turned
+      const r = ctx.part(id)?.kind === 'robot' ? Math.hypot(e[0], e[2]) + 0.03 : Math.max(e[0], e[2]) * 0.8;
       const dx = p[0] - px;
       const dz = p[2] - pz;
       const lx = dx * c - dz * s;
@@ -868,9 +879,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   /** R3: where the pan holds a crate: on the bench at its right side, where its dustpan rides (the view's `DUSTPAN`). */
   function panPose(part: Id): Pose {
     const e = ctx.halfExtents(part) ?? [0.3, 0.3, 0.3];
-    const d = hx + T.pan + e[0];
+    const d = T.pan + e[0];
     // its local +x (heading 0 faces +Z): (cos h, -sin h) on the bench
-    return { p: [x + Math.cos(heading) * d, ground + e[1] + 0.02, z - Math.sin(heading) * d], q: qyaw(heading) };
+    return { p: [x + Math.cos(heading) * d, ground + T.panHeight + e[1], z - Math.sin(heading) * d], q: qyaw(heading) };
   }
   /** R3: at its hatch with a crate in the pan: down it goes (as a spare, out of the world); the chute brings it back. */
   function dropCarried(): void {
@@ -896,6 +907,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     }
     if (now >= nextAway) {
       const n = nextSweep();
+      // R3: out to heal a dry bench, it takes in the scene before it sets off (the view's look round)
+      if (n !== null && starving() && state === 'idle' && now - entered < steps(T.survey)) {
+        surveyFor = n.part;
+        return;
+      }
+      surveyFor = null;
       if (n !== null) {
         sweeping = { part: n.part, stir: stirred(n.part), brushed: false };
         if (!(near(n.stand.at, 0.05) && Math.abs(wrap(heading - n.stand.at.heading)) < 0.05)) trip(n.stand.at, 'sweep', n.stand.via);
@@ -1259,6 +1276,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         card: card ? { content: card.content, since: (now - card.at) / HZ, read: Math.max(0, readUntil - card.at) / HZ } : null,
         sweeping: state === 'sweep' ? (sweeping?.part ?? null) : null,
         carrying,
+        bound: sweeping?.part ?? (state === 'idle' ? surveyFor : null),
+        surveying: state === 'idle' && surveyFor !== null && starving(),
         emptyPan: (now - emptyPanAt) / HZ,
         starving: starving(),
         drawn: state !== 'held' && state !== 'loose',

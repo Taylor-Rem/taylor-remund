@@ -143,6 +143,33 @@ export interface RevertPose {
   broom?: number;
   /** The sweep stroke: -1 drawn back .. 1 pushed out (with broom 1). */
   stroke?: number;
+  /** R3: the dustpan: 0 stowed (small, askew on its bracket) .. 1 opened out square round a crate `panFit` units across. */
+  panOpen?: number;
+  panFit?: number;
+  /** R3: the pan tipped outward about its inner edge (radians, +): the crate slides off its lip, down the hatch. */
+  panTip?: number;
+}
+
+/**
+ * R3: the dustpan on its bracket over the right tread (body space): the pan's size (W across, D deep, H high),
+ * its inner edge's centre on its floor, its askew yaw and tilt when stowed, and the lip it keeps round a crate
+ * when opened out. The simulation holds a carried crate centred `x + lip + edge / 2` out, its floor at `y`.
+ */
+export const PAN = { W: 0.3, D: 0.22, H: 0.1, cx: HULL.w / 2 + 0.11, x: HULL.w / 2 + 0.11 - 0.15, y: 0.43, z: -0.04, zOpen: -0.064, yaw: -0.12, tilt: 0.12, lip: 0.06, rim: 2.2 } as const;
+/** The pan's transform (body space) for an opening, a crate size and a tip. */
+export function panMatrixInto(open: number, fit: number, tip: number, out: Matrix4, s: { t0: Matrix4; v0: Vector3; q0: Quaternion }): Matrix4 {
+  const k = smooth(0, 1, clamp(open, 0, 1));
+  const w = Math.max(PAN.W, fit + 2 * PAN.lip);
+  const sx = 1 + (w / PAN.W - 1) * k;
+  const sz = 1 + (w / PAN.D - 1) * k;
+  const sy = 1 + (PAN.rim - 1) * k;
+  out.makeRotationZ(-clamp(tip, 0, 1.2)).multiply(s.t0.makeRotationY(PAN.yaw * (1 - k))).multiply(s.t0.makeRotationX(PAN.tilt * (1 - k)));
+  out.scale(s.v0.set(sx, sy, sz));
+  // the pan's sheet is built askew (as it sits stowed): undo that before the opening's square scale
+  out.multiply(s.t0.makeRotationX(-PAN.tilt)).multiply(s.t0.makeRotationY(-PAN.yaw));
+  // stowed, the inner edge is where the askew pan (its middle on the bracket at `cx`) puts it; open, at `x`
+  const x0 = PAN.cx - (PAN.W / 2) * Math.cos(PAN.yaw), z0 = PAN.z + (PAN.W / 2) * Math.sin(PAN.yaw);
+  return out.setPosition(x0 + (PAN.x - x0) * k, PAN.y - BODY_Y, z0 + (PAN.zOpen - z0) * k);
 }
 
 export type ArmPreset = 'tucked' | 'hang' | 'point' | 'dangle';
@@ -180,6 +207,9 @@ export const NEUTRAL: Required<Omit<RevertPose, 'card' | 'arm' | 'travel'>> & { 
   arm: 'tucked',
   broom: 0,
   stroke: 0,
+  panOpen: 0,
+  panFit: 0.8,
+  panTip: 0,
 };
 
 /**
@@ -373,6 +403,7 @@ export function poseMatrices(pose: RevertPose = {}): Record<string, Matrix4> {
   const jaw = 0.08 + clamp(j.grip, 0, 1) * 0.55;
   m.jaw0 = chain(T(0, -0.035, 0.022), RX(-jaw));
   m.jaw1 = chain(T(0, -0.035, -0.022), RX(jaw));
+  m.pan = panMatrixInto(p.panOpen, p.panFit, p.panTip, new Matrix4(), { t0: new Matrix4(), v0: new Vector3(), q0: new Quaternion() });
   return m;
 }
 
@@ -453,7 +484,7 @@ export const MOVING_NODES: readonly string[] = (() => {
     for (const [e] of ENDS) n.push(`wheel${s}${e}`);
     for (let i = 0; i < TRACK.n; i++) n.push(`shoe${s}${i}`);
   }
-  n.push('body', 'brow', 'eyeL', 'lampL', 'lidL', 'eyeR', 'lampR', 'lidR', 'crank', 'card', 'cardL', 'broom', 'arm', 'forearm', 'hand', 'jaw0', 'jaw1');
+  n.push('body', 'brow', 'eyeL', 'lampL', 'lidL', 'eyeR', 'lampR', 'lidR', 'crank', 'card', 'cardL', 'broom', 'arm', 'forearm', 'hand', 'jaw0', 'jaw1', 'pan');
   return n;
 })();
 
@@ -651,6 +682,7 @@ export function poseRevertInto(root: Posable, pose: RevertPose, card: { w: numbe
   const jaw = 0.08 + clamp(j.grip, 0, 1) * 0.55;
   at(m.jaw0!.makeRotationX(-jaw), 0, -0.035, 0.022);
   at(m.jaw1!.makeRotationX(jaw), 0, -0.035, -0.022);
+  panMatrixInto(pose.panOpen ?? N.panOpen, pose.panFit ?? N.panFit, pose.panTip ?? N.panTip, m.pan!, s);
 
   // ---- into the nodes ----
   if (s.root !== root || !s.nodes) {

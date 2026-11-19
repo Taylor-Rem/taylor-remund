@@ -36,7 +36,7 @@ import type { PoseName, RevertPose } from './rig.ts';
 
 export {
   poseRevert, poseRevertInto, revertScratch, cardMatrixInto, poseMatrices, poseMatricesFor, cardMatrix, loopPoint, armReach, broomMatrix, POSES, POSE_NAMES, NEUTRAL, ARMS, ARM_PRESETS, HIDDEN, CARD_CAP,
-  CARD_ESTIMATE, TRACK, LOOP, HULL, EYE, LID, BROW, CRANK, DRUM, SLOT, SHOULDER, BROOM, BODY_Y, AXLE_Y, FACE, faceZ, MOVING_NODES,
+  CARD_ESTIMATE, TRACK, LOOP, HULL, PAN, panMatrixInto, EYE, LID, BROW, CRANK, DRUM, SLOT, SHOULDER, BROOM, BODY_Y, AXLE_Y, FACE, faceZ, MOVING_NODES,
 } from './rig.ts';
 export type { RevertPose, PoseName, CardPose, ArmJoints, ArmPreset, RevertScratch } from './rig.ts';
 
@@ -102,7 +102,7 @@ export function revert(o: RevertOptions = {}): Piece {
   const stowed = broomMatrix(0, 0);
   buildBroom(body.node('broom', rest.broom), c);
   buildBroomClips(body, stowed, c);
-  buildDustpan(body, c);
+  buildDustpan(body.node('pan', rest.pan), body, c);
 
   b.socket('card', new Matrix4().makeTranslation(0, 1.6, -0.03));
   b.socket('lift', new Matrix4().makeTranslation(0, 1.0, 0));
@@ -110,7 +110,7 @@ export function revert(o: RevertOptions = {}): Piece {
   foldClasses(b, { metal: 'steel', wood: 'steel', glass: 'steel' });
   const built = b.build();
   // parts that move away from where they were baked keep the open air's shading, not the bake's
-  capCavity(built.root, (n) => n.startsWith('lid') || n.startsWith('lamp') || n === 'broom' || n === 'card' || n === 'cardL', 0.15);
+  capCavity(built.root, (n) => n.startsWith('lid') || n.startsWith('lamp') || n === 'broom' || n === 'card' || n === 'cardL' || n === 'pan', 0.15);
   capCavity(built.root, (n) => n.startsWith('shoe'), 0.35);
   // its size is the size at rest (card stowed, broom on its rack), not at the bake pose: layout and the collider use it
   applyPose(built, NEUTRAL, card);
