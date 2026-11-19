@@ -79,3 +79,39 @@ test('ignored, it gets back to work briskly: rolling as the offer ends, the crat
   expect((at['fed']! - at['offerEnds']!) / HZ).toBeLessThan(5);
   w.dispose();
 }, 60_000);
+
+// S5 R1 (the lead, from the film): in play mode Fetch waits for its next crate at the pad's stand, facing the pad, not
+// at the feed (from the home camera the feed stand is in front of the UNDO plate). It comes to the feed only to set a
+// crate down, and leaves at once.
+test('play mode: empty-handed it waits at the pad\'s stand facing the pad; at the feed only to set a crate down', async () => {
+  const w = await benchWorld('wait-at-pad', { scene: FULL_BENCH });
+  for (let i = 0; i < 2 * HZ; i++) w.advance();
+  startPlay(w);
+  const stands = FULL_BENCH.runner.stands!;
+  const pad = stands.pad as readonly [number, number];
+  const feed = stands.feed as readonly [number, number];
+  const padAt = FULL_BENCH.runner.rounds!.pad!;
+  let atFeed = 0;
+  let waiting = 0;
+  let waitingAtPad = 0;
+  let fed = 0;
+  for (let i = 0; i < 120 * HZ; i++) {
+    w.advance();
+    for (const e of w.drainEvents()) if (e.type === 'taken-in' && e.mouth === 'belt') fed++;
+    const f = w.crew('fetch')!;
+    if (Math.hypot(f.x - feed[0], f.z - feed[1]) < 0.3) atFeed++;
+    if (f.state === 'idle' && f.carrying === null && f.stateTime > 1.5) {
+      waiting++;
+      const there = Math.hypot(f.x - pad[0], f.z - pad[1]) < 0.02;
+      const facing = Math.cos(f.heading - Math.atan2(padAt[0] - f.x, padAt[1] - f.z)) > Math.cos((20 * Math.PI) / 180);
+      if (there && facing) waitingAtPad++;
+    }
+  }
+  console.log(`two minutes of play: fed ${fed}, ${(atFeed / HZ).toFixed(1)} s at the feed, ${(waiting / HZ).toFixed(1)} s waiting empty-handed (${(waitingAtPad / HZ).toFixed(1)} s of it at the pad's stand facing the pad)`);
+  expect(fed).toBeGreaterThan(6);
+  expect(waiting).toBeGreaterThan(0);
+  expect(waitingAtPad).toBe(waiting);
+  // at the feed: about the length of a set-down per crate fed (turn, out, lower, back: under 2 s each)
+  expect(atFeed / HZ).toBeLessThan(fed * 2.2);
+  w.dispose();
+}, 120_000);
