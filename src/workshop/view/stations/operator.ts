@@ -36,7 +36,7 @@ import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, LAND_LENGTH, SHAKE_LENGTH,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -75,7 +75,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'cross' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'cross' | 'fly' | 'land' | 'shake' | 'away' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
 
 /** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
 const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
@@ -187,6 +187,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let walkPrev: V3 | null = null;
     /** R2: the walk's body yaw (root space), turning toward the simulation's heading; the glance back and being stopped (0..1). */
     let walkYaw = 0;
+    /** R4: in the air: how far it has turned head over heels, when it left the hand, the way it was going; and on landing. */
+    let flySpin = 0;
+    let flyAt = 0;
+    let flyYaw = 0;
+    let landSpin = 0;
+    let landYaw = 0;
     let glance = 0;
     let glanced = 0;
     let stopped = 0;
@@ -378,6 +384,29 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             case 'cross':
               enter('cross', t, true);
               break;
+            case 'fly':
+              // R4: thrown (or back up the chute): from the hand into the air at once
+              if (prev !== 'fly') {
+                flySpin = 0;
+                flyAt = t;
+              }
+              enter('fly', t, false);
+              blendDur = F.blendReact;
+              break;
+            case 'land':
+              landSpin = flySpin;
+              landYaw = flyYaw;
+              enter('land', t, true);
+              blendFrom = null;
+              break;
+            case 'shake':
+              enter('shake', t, true);
+              blendFrom = null;
+              break;
+            case 'away':
+              enter('away', t, true);
+              blendFrom = null;
+              break;
             case 'ledge':
             case 'haul':
             case 'dust':
@@ -520,6 +549,24 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             }
             break;
           }
+          case 'fly': {
+            // turning head over heels as it goes, faster the harder it was thrown
+            const tv = v.thrown?.v;
+            const sp = tv ? Math.hypot(tv[0], tv[2]) : 0;
+            if (tv && sp > 0.3) flyYaw = Math.atan2(tv[0], tv[2]) - SIDE_ON;
+            if (!reduced) flySpin += Math.min(11, Math.max(4, sp * 1.3)) * dt;
+            pose = tumble(reduced ? 0 : t - flyAt, seatSpace(v.at), flySpin, flyYaw);
+            break;
+          }
+          case 'land':
+            pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced ? 0 : landSpin, v.thrown?.speed ?? 0);
+            break;
+          case 'shake':
+            pose = shakeOff(reduced ? SHAKE_LENGTH : sT, seatSpace(v.at), landYaw);
+            break;
+          case 'away':
+            pose = last;
+            break;
           case 'ledge':
             pose = ledgeO && (st === 'ledge' || st === 'haul' || st === 'dust') ? overTheEdge(st, sT, ledgeO) : last;
             break;
@@ -627,6 +674,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         // ── place the stool and Patch ──
         const dx = stoolB - REST_X;
         stool.position.set(stoolRest.x + dx, stoolRest.y, stoolRest.z);
+        // R4: thrown off the bench, it is out of sight until it comes back up the chute
+        root.visible = mode !== 'away';
         if (mode === 'held') root.position.set(v.at[0], v.at[1], v.at[2]);
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);

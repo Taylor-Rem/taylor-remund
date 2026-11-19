@@ -170,12 +170,14 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
   const T = PATCH_TUNING;
   const EDGE = { minX: -9, maxX: 9, maxZ: 5 };
   /** Carry it from above its stool to `to` over `n` steps, and let go there. */
-  function carryAndDrop(w: World, t: Tape, to: Vec3, n = 60): void {
+  /** Carry it there over `n` steps and let go: after a pause (a set-down, R4), or at once with the hand still moving (a throw). */
+  function carryAndDrop(w: World, t: Tape, to: Vec3, n = 60, pause = true): void {
     const from: Vec3 = [SEAT[0], 3, SEAT[2] + 1];
     for (let i = 0; i <= n; i++) {
       w.dispatch({ type: 'drag', id: 'patch', target: [from[0] + ((to[0] - from[0]) * i) / n, from[1] + ((to[1] - from[1]) * i) / n, from[2] + ((to[2] - from[2]) * i) / n] });
       t.run(1);
     }
+    if (pause) t.run(12);
     w.dispatch({ type: 'drag', id: 'patch', target: to, end: true });
     t.run(1);
   }
@@ -246,12 +248,12 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(patchView(b).ledge).toBeNull();
   });
 
-  test('flung toward the edge and let go short of it, it goes over (the hand travel carries on); let go gently there, it is put down', async () => {
+  test('flung toward the edge and let go short of it, it is thrown (R4: it flies); let go after a pause there, it is put down', async () => {
     const w = await benchWorld();
     const t = tape(w);
-    // fast: 3 units in a sixth of a second, let go 0.3 inside the front edge
-    carryAndDrop(w, t, [2, 2.5, EDGE.maxZ - 0.3], 10);
-    expect(patchView(w)).toMatchObject({ state: 'ledge', ledge: { edge: 'front' } });
+    // fast: 3 units in a sixth of a second, let go 0.3 inside the front edge with the hand moving
+    carryAndDrop(w, t, [2, 2.5, EDGE.maxZ - 0.3], 10, false);
+    expect(patchView(w).state).toBe('fly');
     const g = await benchWorld();
     const tg = tape(g);
     carryAndDrop(g, tg, [2, 2.5, EDGE.maxZ - 0.3], 400);

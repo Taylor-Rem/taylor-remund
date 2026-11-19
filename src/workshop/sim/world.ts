@@ -409,11 +409,11 @@ export function createWorld(opts: WorldOptions): World {
     unitHand = target;
     holderOf(held.id)?.intent?.({ type: 'drag', id: held.id, target });
   }
-  function letGoOfUnit(at: Vec3 = unitHand): void {
+  function letGoOfUnit(at: Vec3 = unitHand, velocity?: Vec3): void {
     if (held?.kind !== 'unit') return;
     const id = held.id;
     held = null;
-    holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true });
+    holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true, ...(velocity ? { velocity } : {}) });
   }
 
   function grab(id: Id, grip: Vec3): boolean {
@@ -1107,7 +1107,7 @@ export function createWorld(opts: WorldOptions): World {
           return true;
         }
         if (held.kind === 'unit') {
-          letGoOfUnit();
+          letGoOfUnit(unitHand, intent.velocity);
           return true;
         }
         letGoOfPart(lp(held.id), intent.velocity, 'release');
