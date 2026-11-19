@@ -45,6 +45,12 @@ import { createFetch, FETCH_TUNING } from './crew/fetch.ts';
 import { vignette } from './scenes/vignette.ts';
 
 /** How loose parts feel. Tune here (§ E0: "polish time goes to feel"). */
+/** R4: the fastest a part of this mass leaves the hand (`LOOSE_TUNING.throwMax`, less for a heavy part). */
+export function throwCap(mass: number): number {
+  const T = LOOSE_TUNING;
+  return T.throwMax * Math.max(T.throwMassMin, Math.min(1, (T.throwMassRef / Math.max(mass, 1e-3)) ** T.throwMassExp));
+}
+
 export const LOOSE_TUNING = {
   /** Carry spring: the held part closes this fraction of its gap per second (critically damped first order). */
   carryRate: 18,
@@ -493,9 +499,6 @@ export function createWorld(opts: WorldOptions): World {
     emit({ type: 'part.released', id: l.id, speed: 0 });
     return true;
   }
-
-  /** R4: the fastest a part of this mass leaves the hand. */
-  const throwCap = (mass: number): number => T.throwMax * Math.max(T.throwMassMin, Math.min(1, (T.throwMassRef / Math.max(mass, 1e-3)) ** T.throwMassExp));
 
   function letGoOfPart(l: Loose, velocity: Vec3, kind: 'release' | 'place'): void {
     if (kind === 'release' && cancelledPickUp(l, velocity)) return;

@@ -114,8 +114,10 @@ export const FETCH_TUNING = {
   shakeAfter: 3,
   /** R4: loose this long below this speed without the world calling it at rest (wedged and rocking), it gets up anyway. */
   stuckAfter: 2.5,
-  /** R4: held this long without moving in a machine's hands (the platen's tray, a stopped belt), it hops off on its jets. */
+  /** R4: thrown into a machine's hands and held there this long without moving (the platen's tray, a stopped belt), it hops off on its jets. */
   leaveMachine: 2.5,
+  /** ...but set there on purpose (on the platen's tray, to be painted), it waits this long first. */
+  leaveMachineSet: 45,
   stuckSpeed: 0.4,
   /** R4: come to rest with its lowest point more than this over the bench top, it is up on something: it hops down. */
   standOn: 0.08,
@@ -425,6 +427,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let slowFor = 0;
   /** R4: steps held still in a machine's hands, and where it was last step. */
   let machineStill = 0;
+  /** R4: it came into the machine's hands thrown (not set there on purpose). */
+  let arrivedFlung = false;
   let machineLast: Vec3 | null = null;
   let shrugThenReturn = false;
   let lookAt: Vec3 | null = null;
@@ -1203,14 +1207,15 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
     return s0;
   }
-  /** R4: nothing but `mine` stands within a crate's reach of the seat at `d` (the tray's). */
+  /** R4: nothing but `mine` stands on the seat at `d` (the tray's, the stack's top) within a crate's reach. */
   function seatClear(d: Vec3, mine: Id): boolean {
     return !ctx.parts().some((id) => {
       if (id === mine || id === spec.id) return false;
       const m = ctx.mode(id);
       const q = ctx.pose(id)?.p;
       if (!q || m === 'gone' || m === 'chute' || m === 'held') return false;
-      return Math.hypot(q[0] - d[0], q[2] - d[2]) < 0.6 && q[1] < d[1] + 1.2;
+      // on the seat, not under it (the stack's lower crates hold the seat up)
+      return Math.hypot(q[0] - d[0], q[2] - d[2]) < 0.6 && q[1] > d[1] && q[1] < d[1] + 1.2;
     });
   }
   /** R4: the up axis's height (1 upright, 0 on its side, -1 on its back). */
@@ -1467,6 +1472,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         }
         const speedNow = mode === 'free' && pNow && heldLast ? Math.hypot(pNow.p[0] - heldLast[0], pNow.p[1] - heldLast[1], pNow.p[2] - heldLast[2]) * HZ : Infinity;
         if (mode === 'free' && pNow && heldLast) flung = Math.max(flung, Math.hypot(pNow.p[0] - heldLast[0], pNow.p[2] - heldLast[2]) * HZ);
+        if (mode === 'free' || mode === 'held') arrivedFlung = mode === 'free' && flung > T.shakeAfter;
         if (mode !== 'free') flung = 0;
         // R4: never settled (rocking where it is wedged, creeping): after `stuckAfter` loose and slow, it gets up anyway
         slowFor = mode === 'free' && speedNow < T.stuckSpeed ? slowFor + 1 : 0;
@@ -1474,7 +1480,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         const still = mode === 'machine' && pNow && machineLast ? Math.hypot(pNow.p[0] - machineLast[0], pNow.p[1] - machineLast[1], pNow.p[2] - machineLast[2]) < 0.002 : false;
         machineStill = still ? machineStill + 1 : 0;
         machineLast = mode === 'machine' && pNow ? pNow.p : null;
-        if (machineStill >= steps(T.leaveMachine) && pNow && !ctx.bracketed) {
+        if (machineStill >= steps(arrivedFlung ? T.leaveMachine : T.leaveMachineSet) && pNow && !ctx.bracketed) {
           machineStill = 0;
           machineLast = null;
           startHop(pNow);
