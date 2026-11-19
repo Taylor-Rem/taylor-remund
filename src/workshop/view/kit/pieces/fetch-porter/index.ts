@@ -36,7 +36,7 @@ import type { NodeBuilder } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { setFinish, grain } from '../../space.ts';
 import {
-  AERIAL, CAN, CROWN_TOP, EXPRESSIONS, TELE, EXPRESSION_NAMES, EYE, EYE_C, FOREARM, IRIS, LID, NECK, NEUTRAL, SHOULDER, SPRING_L, TORSO, UPPER_ARM,
+  AERIAL, CAN, CROWN_TOP, FLAME, PACK, EXPRESSIONS, TELE, EXPRESSION_NAMES, EYE, EYE_C, FOREARM, IRIS, LID, NECK, NEUTRAL, SHOULDER, SPRING_L, TORSO, UPPER_ARM,
   WHEEL_R, WHEEL_W, poseMatrices,
 } from './rig.ts';
 import type { ExpressionName, FetchPose } from './rig.ts';
@@ -127,6 +127,7 @@ export function fetchPorter(o: FetchPorterOptions = {}): Piece {
   buildEye(eye, rest, detail, seed);
   for (const s of ['L', 'R'] as const) buildArm(body, s, rest, detail, seed + (s === 'L' ? 100 : 200));
   buildAerial(body, rest, detail, seed);
+  buildPack(body, detail, seed);
 
   if (!lo) b.socket('nameplate', mat({ at: [0.02, rest.body!.elements[13]! + WHEEL_R + TORSO.y1 + 0.022, TORSO.d / 2 + 0.012] }));
   b.socket('carry', mat({ at: [0, 0.5, 0.42] }));
@@ -740,6 +741,36 @@ function buildAerial(body: NodeBuilder, rest: Record<string, Matrix4>, detail: '
 
 
 /** Make Fetch's name tape (label tape from content) and return what `nameTape` wants. */
+/**
+ * The jetpack (S5; Taylor asked for it by name): always on its back, built in the kit's language. A small
+ * painted pack with a brass band and two brass nozzles pointing down; under each nozzle a flame (the bulb
+ * class: it glows), and a puff of smoke below them, on nodes the pose scales from nothing. Built at full
+ * size (the skin's bind pose must be invertible); the pose shrinks them away at rest.
+ */
+function buildPack(body: NodeBuilder, detail: KitOptions['detail'], seed: number): void {
+  const lo = detail === 'low';
+  const { y, z, w, h, d, nozzleX } = PACK;
+  body.add(part('steel', bevelBox({ min: [-w / 2, y - h / 2, z - d / 2], max: [w / 2, y + h / 2, z + d / 2 + 0.01], c: 0.014, omit: ['pz'] }), 'teal-panel', { seed: seed + 400, shade: 0.9, jitter: 0.04 }));
+  // a brass band round it, and the two nozzles under it
+  body.add(part('brass', bevelBox({ min: [-w / 2 - 0.004, y + 0.018, z - d / 2 - 0.004], max: [w / 2 + 0.004, y + 0.04, z + d / 2 + 0.006], c: 0.004, omit: ['pz'] }), 'brass', { seed: seed + 401, jitter: 0.05, warm: 0.04 }));
+  const bell = turn(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.017, 0.022).to(0.015, 0.05, { sharp: true }).to(0, 0.05), { segs: lo ? 8 : 10, detail: 'low', support: false, caps: false });
+  for (const sx of [1, -1]) {
+    body.add(part('brass', transform(bell.clone(), T(sx * nozzleX, y - h / 2 - 0.05, z)), 'brass', { seed: seed + 402 + sx, jitter: 0.05, warm: 0.04 }));
+  }
+  // the flames, hanging from the nozzles' mouths (y up from the tip to the mouth, then turned to hang down)
+  const L = FLAME.len, r = FLAME.r;
+  const tongue = transform(turn(profile(0, 0).to(r * 0.55, L * 0.45).to(r, L * 0.82).to(r * 0.6, L * 0.97, { sharp: true }).to(0, L), { segs: 7, detail: 'low', support: false, caps: false }), T(0, -L, 0));
+  const rest = poseMatrices({ ...NEUTRAL, jet: [1, 1], puff: 1 });
+  body.node('flameL', rest.flameL).add(setFinish(part('bulb', tongue.clone(), 'amber-glow'), 0));
+  body.node('flameR', rest.flameR).add(setFinish(part('bulb', tongue.clone(), 'amber-glow'), 0));
+  // the puff: three soft balls of smoke (painted paper-white, matte)
+  const ball = (rr: number): BufferGeometry => turn(capSamples(rr, 0, Math.PI, 3), { segs: 6, detail: 'low', caps: false });
+  const puff = body.node('puff', rest.puff);
+  puff.add(part('steel', transform(ball(0.035), T(0.03, -0.02, 0)), 'paper', { seed: seed + 410, shade: 0.95 }));
+  puff.add(part('steel', transform(ball(0.028), T(-0.035, -0.03, 0.01)), 'paper', { seed: seed + 411, shade: 0.9 }));
+  puff.add(part('steel', transform(ball(0.024), T(0, -0.055, -0.015)), 'paper', { seed: seed + 412, shade: 0.92 }));
+}
+
 export function fetchNameTape(labels: Labels): NonNullable<FetchPorterOptions['nameTape']> {
   const key = labels.tape(world.names.fetch, 'black', { capHeight: 0.013 });
   const sz = labels.size(key);

@@ -113,6 +113,14 @@ export function teleStages(total: number): [number, number, number] {
 }
 
 /** Aerial: base in body space, segment lengths. */
+/**
+ * The jetpack (S5; Taylor: "a little jetpack to fly back on"): a small painted pack on the torso's back with
+ * two brass nozzles pointing down. Body space. `flameY` is where the flames leave the nozzles.
+ */
+export const PACK = { y: 0.135, z: -0.19 - 0.04, w: 0.2, h: 0.15, d: 0.075, nozzleX: 0.06, flameY: 0.135 - 0.075 - 0.048 } as const;
+/** A flame's drawn size at `jet` 1 (its node scales it): length and radius. */
+export const FLAME = { len: 0.26, r: 0.034 } as const;
+
 export const AERIAL = { x: -0.205, y: 0.275, z: -0.12, segs: [0.17, 0.15, 0.13] } as const;
 
 // ---- pose -----------------------------------------------------------------------------
@@ -180,6 +188,10 @@ export interface FetchPose {
   slide?: [number, number];
   /** The axle lifted off its rest height (units): a hop. */
   lift?: number;
+  /** The jetpack's flames, [left, right]: 0 out .. 1 full (the rise) .. 1.3 a flicker's peak. */
+  jet?: [number, number];
+  /** The puff of smoke under the nozzles (at ignition and the cut): 0 none .. 1 full. */
+  puff?: number;
   /**
    * [fore, side] radians: the wheel, fork and spring swinging under the torso about the torso's
    * mounting cup, the torso staying where it is (held in a hand: a pendulum). Signs as `lean`'s,
@@ -228,6 +240,8 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
   slide: [0, 0],
   lift: 0,
   hang: [0, 0],
+  jet: [0, 0],
+  puff: 0,
 };
 
 /**
@@ -448,6 +462,17 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   };
   arm(1, L, 'L');
   arm(-1, R, 'R');
+
+  // the jetpack's flames and puff: scaled from nothing (never quite zero: the skin needs an invertible matrix)
+  const flame = (j: number): Matrix4 => {
+    const l = j > 0.01 ? Math.min(1.5, j) : 1e-3;
+    const w = j > 0.01 ? 0.75 + 0.25 * Math.min(1, j) : 1e-3;
+    return S(w, l, w);
+  };
+  m.flameL = chain(T(PACK.nozzleX, PACK.flameY, PACK.z), flame(p.jet[0]));
+  m.flameR = chain(T(-PACK.nozzleX, PACK.flameY, PACK.z), flame(p.jet[1]));
+  const pf = p.puff > 0.01 ? Math.min(1.2, p.puff) : 1e-3;
+  m.puff = chain(T(0, PACK.flameY - 0.02, PACK.z), S(pf, pf, pf));
 
   const [bx, bz] = p.aerial;
   const wts = [0.25, 0.35, 0.4];

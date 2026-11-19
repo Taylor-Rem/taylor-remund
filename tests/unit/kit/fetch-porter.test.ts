@@ -53,10 +53,10 @@ describe('fetch-porter (Fetch, take B)', () => {
     for (const n of RIG_NODES) expect(all.filter((x) => x === n)).toHaveLength(1);
   });
 
-  it('stays inside its triangle budget (9,600 with the telescope) and five meshes, and holds the kit invariants', () => {
-    expect(piece.triangles).toBeLessThanOrEqual(9_600);
+  it('stays inside its triangle budget (9,600 with the telescope, 10,200 with the jetpack) and five meshes, and holds the kit invariants', () => {
+    expect(piece.triangles).toBeLessThanOrEqual(10_200);
     const b = budget(fetchPorter({ seed: 3, nameTape: { key: 'fetch-tape', w: 0.16, h: 0.028 } }));
-    expect(b.total).toBeLessThanOrEqual(9_600);
+    expect(b.total).toBeLessThanOrEqual(10_200);
     expect(b.meshes).toBeLessThanOrEqual(5);
     expect(Object.keys(b.byMaterial).sort()).toEqual(['brass', 'bulb', 'rubber', 'steel', 'tape']);
     expect(fetchPorter({ detail: 'low' }).triangles).toBeLessThan(piece.triangles);
