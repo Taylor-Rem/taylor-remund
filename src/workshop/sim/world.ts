@@ -1234,5 +1234,10 @@ export function createWorld(opts: WorldOptions): World {
       physics.dispose();
     },
   };
+  // S7: a Button rung snapshots the physics at the press and restores it at the end. The first time a page
+  // does either, the engine pays for it (code compiled, memory grown: ~11 ms at the press and ~35 ms at the
+  // end, in one step). Pay that here, while the world is being built and nothing is drawn: a snapshot and a
+  // restore of the world as it stands, which leaves every body exactly where it is.
+  physics.restore(physics.snapshot());
   return world;
 }
