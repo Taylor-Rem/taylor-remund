@@ -81,7 +81,7 @@ export const AT = {
   phone: { c: [2.9, 0.36, 1.6], half: [0.21, 0.36, 0.15] } as Box,
   /** The platen (real piece, origin (4.9, 0.85): today's piece, its left foot at x 3.7 where the reshaped piece's will be): its base and deck, its arm's column, its tank. */
   platen: { c: [4.9, 0.31, 0.705], half: [1.2, 0.31, 1.005] } as Box,
-  platenColumn: { c: [3.92, 1.5, 0.75], half: [0.15, 1.5, 0.15] } as Box,
+  platenColumn: { c: [3.9, 1.5, 0.75], half: [0.1, 1.5, 0.12] } as Box,
   platenTank: { c: [5.72, 0.75, 0.0], half: [0.26, 0.75, 0.26] } as Box,
   /** The storefront (real piece, origin (7.6, -3.6)): its bounds, jack box and conduit included. */
   storefront: { c: [7.07, 1.415, -3.535], half: [1.74, 1.415, 0.535] } as Box,
@@ -101,8 +101,8 @@ export const AT = {
   ] as readonly Box[],
   /** The mailbox on its post, the résumé clipboard on it (P4, clay): front right. */
   mailbox: { c: [7.7, 0.65, 3.75], half: [0.21, 0.65, 0.16] } as Box,
-  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.95, 0.3)). Its hatch's doors stand open either side, low. */
-  revert: { c: [-4.932, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
+  /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.85, 0.3)). Its hatch's doors stand open either side, low. */
+  revert: { c: [-4.832, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
 
   // ── the Button's row ──
   /** The Button's console (the body only). Deck top at y 1.04. */
@@ -125,6 +125,8 @@ export const AT = {
   lane: { points: [[-0.5, 2.93], [1.08, 2.93], [1.08, 0.75], [3.6, 0.75]] as const },
   /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
   stands: { feed: [0.63, 2.93] as const, phone: [2.9, 0.75] as const, stack: [1.08, 1.85] as const, tray: [3.6, 0.75] as const },
+  /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
+  offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
   beltFeed: 0.63,
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
@@ -210,9 +212,12 @@ const OFF_BACK: Vec3 = [AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.rest[0], 0, A
  * guided off the back fill it from the far (chute) end, side by side. (A part coming back up the chute
  * lands about 0.7 in from its mouth: on the row's far end, if something stands there.)
  */
+const OFF_BACK_ROW_MIN = Math.max(AT.chute.p[0] + 0.45, AT.beltMotor.c[0] + AT.beltMotor.half[0] + 0.05);
 const OFF_BACK_ROW = {
-  minX: AT.chute.p[0] + 0.45,
-  maxX: Math.min(...AT.lane.points.map((p) => p[0])) - Math.hypot(FETCH_HALF[0], FETCH_HALF[2]),
+  // A1 round 6: and right of the belt's control housing, which hides the bench behind it from the home framing; three
+  // crates' room (2.4) long, and never into Fetch's reach of its path's start
+  minX: OFF_BACK_ROW_MIN,
+  maxX: Math.min(OFF_BACK_ROW_MIN + AT.offBackRow, Math.min(...AT.lane.points.map((p) => p[0])) - Math.hypot(FETCH_HALF[0], FETCH_HALF[2])),
 } as const;
 
 /** The belt's surface speed as its settings ask (read from the world, not from the belt): the dock's rollers keep up with it. */

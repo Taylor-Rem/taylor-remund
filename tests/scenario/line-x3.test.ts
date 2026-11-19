@@ -285,7 +285,7 @@ describe('picking Fetch up', () => {
     t.run(30);
     expect(w.crew('fetch')!.carrying).toBe('crate-4');
     const home = w.part('crate-4')!.location;
-    putOn(w, t, 'fetch', [2.0, 0, 0.9]);
+    putOn(w, t, 'fetch', [-2.5, 0, 2.2]); // (A1 round 6) clear bench in front of the lever, off Fetch's path
     expect(waitFor(w, t, 'crate-4', 'rest')).toBe(true);
     t.run(2 * HZ);
     expect(w.part('crate-4')!.location).not.toEqual(home);

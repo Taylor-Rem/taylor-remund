@@ -175,9 +175,9 @@ export const LAYOUT = {
     shipped: spot(7.88, -1.0, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
     /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`). Left of the lever, in the lamp's spill. */
-    hatch: real(-4.95, 0.3, BOUNDS.hatch),
+    hatch: real(-4.85, 0.3, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
-    revert: real(-4.95, 0.3, BOUNDS.revert),
+    revert: real(-4.85, 0.3, BOUNDS.revert),
     /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
     undo: real(-2.5, 0.3, BOUNDS.undo),
     button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),

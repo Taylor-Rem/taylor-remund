@@ -337,7 +337,11 @@ describe('seam 6: Fetch sees Revert', () => {
       const now = distanceTo(box, m.x, m.z);
       expect(now >= footprint - 1e-6 || now >= start - 1e-6).toBe(true); // never into Revert (only ever away, if it began closer)
     }
-    expect(k!.distance).toBeLessThan((KNOCK_TUNING.distance[k!.strength - 1] as number) * (bench.crewScale ?? 1));
+    // cut short only when Revert is within the slide's full run (A1 round 6: Fetch's path keeps well clear of the hatch,
+    // so on the real bench the slide ends before it gets there; the "never into Revert" check above still holds every step)
+    const full = (KNOCK_TUNING.distance[k!.strength - 1] as number) * (bench.crewScale ?? 1);
+    if (start - footprint < full) expect(k!.distance).toBeLessThan(full);
+    else expect(k!.distance).toBeLessThanOrEqual(full + 1e-9);
   });
 
   test('a part that starts inside Fetch (let go of in its body) is not a hit; once clear, a real hit counts once', () => {
