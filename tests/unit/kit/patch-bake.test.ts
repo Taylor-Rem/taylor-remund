@@ -38,6 +38,15 @@ function everything(): void {
   for (const foot of [benchFoot(), undefined]) for (const t of span(PF.CLIMB_LENGTH)) PF.climb(t, foot ? { foot } : {});
   for (const from of [[2, 1, 3], [-2, 1, 3]] as PF.V3[]) for (const t of span(PF.BONK_LENGTH)) PF.bonked(t, { from });
   for (const t of span(PF.CATCH_LENGTH)) PF.catchCrate(t);
+  // the Button's rungs and the facepalm, at each stop of the stool (the visitor as the view passes it), from the rest and from work
+  for (const x of PF.STOOL_STOPS) {
+    const visitor = PF.boardToRoot(PF.VISITOR_BOARD, x);
+    const froms = [PF.SEATED, PF.atWork(PF.jobTargets('storefront'))];
+    for (const from of froms) {
+      for (const rung of [1, 2, 3, 4]) for (const presses of [rung, 5, 6, 7]) PF.rungReaction(rung, 1.5, { play: 3, rewind: 1.2, visitor, from, presses });
+      for (const variant of ['one', 'both', 'drag'] as const) PF.facepalm(1, { visitor, from, variant, glance: [1, 0.3, 1] });
+    }
+  }
   // a caught part set on the shelf, from each stop of the stool, for each part a paw can catch
   for (const shelf of benchShelves()) for (const t of span(PF.CATCH_LENGTH, 6)) PF.catchCrate(t, { shelf });
 }

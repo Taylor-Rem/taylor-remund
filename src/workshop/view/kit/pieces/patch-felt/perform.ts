@@ -80,6 +80,7 @@ export interface FullPose {
   arms: Arms;
   tail: [number, number];
   tailLift: number;
+  armScale: [number, number];
 }
 
 const ARM_KEYS: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'roll'];
@@ -120,6 +121,7 @@ export function resolvePose(p: PatchPose = {}): FullPose {
     arms: { left: { ...arms.left }, right: { ...arms.right } },
     tail: [...q.tail],
     tailLift: q.tailLift,
+    armScale: [...q.armScale],
   };
 }
 
@@ -141,7 +143,7 @@ const CHANNEL_FIELDS: Record<Channel, (keyof FullPose)[]> = {
   ears: ['ears'],
   arms: ['arms'],
   tail: ['tail', 'tailLift'],
-  props: ['headset', 'folder', 'folderOpen', 'boom'],
+  props: ['headset', 'folder', 'folderOpen', 'boom', 'armScale'],
 };
 
 /** Mix two resolved poses (w = 0: a, 1: b). The folder is a switch: it follows whichever side w is nearer. */
@@ -168,6 +170,7 @@ export function mixPose(a: FullPose, b: FullPose, w: number): FullPose {
     arms: { left: mixJ(ARM_KEYS, a.arms.left, b.arms.left, w), right: mixJ(ARM_KEYS, a.arms.right, b.arms.right, w) },
     tail: l2(a.tail, b.tail, w),
     tailLift: lerp(a.tailLift, b.tailLift, w),
+    armScale: l2(a.armScale, b.armScale, w),
   };
 }
 
@@ -375,7 +378,7 @@ function solveArmAnalytic(side: 'left' | 'right', targetSpine: Vector3, base: Ar
   const short = Math.max(0, dRaw - (a + b));
   const dh = D.clone().normalize();
   // the elbow goes out and down and a little back (toward the pole)
-  const pole = new Vector3(s * 0.8, -0.5, -0.35);
+  const pole = armPole ? new Vector3(s * armPole[0], armPole[1], armPole[2]) : new Vector3(s * 0.8, -0.5, -0.35);
   const perp = pole.clone().addScaledVector(dh, -pole.dot(dh));
   if (perp.lengthSq() < 1e-8) perp.set(s, 0, 0);
   perp.normalize();
@@ -502,7 +505,7 @@ export interface Reach {
  * A paw to a root-space point: the body swivels and leans (fore up to 0.42, side up to 0.3) only as much
  * as the arm needs, the paw goes there, the head watches it. `base` is the rest of the pose.
  */
-export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPRESSIONS.unimpressed, o: { swivel?: number; watch?: boolean } = {}): Reach {
+export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPRESSIONS.unimpressed, o: { swivel?: number; watch?: boolean; pole?: V3 } = {}): Reach {
   // the same question gets the same answer; the questions the performances ask on the bench were answered
   // when the piece was built (reach-table.ts, made by the exact search offline), so play never searches
   const key = reachKey(target, side, base, o);
@@ -512,7 +515,12 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
   const baked = bakeMode ? undefined : REACH_TABLE[key];
   if (baked) r = fromBaked(baked, target, side, base, o);
   else {
-    r = reachUncached(target, side, base, o, bakeMode !== null);
+    armPole = o.pole ?? null;
+    try {
+      r = reachUncached(target, side, base, o, bakeMode !== null);
+    } finally {
+      armPole = null;
+    }
     if (bakeMode) bakeMode.set(key, toBaked(r, side));
     else REACH_MISSES.add(key);
   }
@@ -521,13 +529,15 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
   return r;
 }
 const reachCache = new Map<string, Reach>();
+/** The elbow's pole for the reach being solved (x mirrored by side), or null for the usual out-and-down. */
+let armPole: V3 | null = null;
 
 /** Questions answered live (not in the table): a test holds the bench's to none. */
 export const REACH_MISSES = new Set<string>();
 
 /** The question's key: its numbers to 1e-4, hashed (FNV-1a, 52 bits) to keep the table small. */
-function reachKey(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean }): string {
-  const str = JSON.stringify([target, side, base, o.swivel ?? null, o.watch ?? true], round4);
+function reachKey(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean; pole?: V3 }): string {
+  const str = JSON.stringify([target, side, base, o.swivel ?? null, o.watch ?? true, ...(o.pole ? [o.pole] : [])], round4);
   let h1 = 0x811c9dc5, h2 = 0x01000193;
   for (let i = 0; i < str.length; i++) {
     const c = str.charCodeAt(i);
@@ -1223,6 +1233,193 @@ export function theLook(t: number, o: LookOptions): PatchPose {
   return toPose(f);
 }
 
+// ---- 4b. the Button's rungs: Patch is the audience ---------------------------------------------------
+
+/** The facepalm's three readings: one paw; both paws ("again"); the paw dragged down the face. */
+export type FacepalmVariant = 'one' | 'both' | 'drag';
+
+/**
+ * Patch's signature move, laid into a list of keys from t0 over L seconds: the paw comes up slowly, the head
+ * drops into it, a held beat, then one eye opens between the fingers at `peek` (the first, then the second);
+ * 'both' brings both paws; 'drag' ends by pulling the paw down the face and giving the visitor the look.
+ * The paw is asked of a canonical seat (the body swivelled as it sits, snapped to the rest or the work) so
+ * its arm comes from the reach table. The elbow goes out to the side: the silhouette carries it at home framing.
+ */
+function facepalmKeys(k: Key[], t0: number, L: number, variant: FacepalmVariant, sit: FullPose, vis: V3, peek: readonly V3[]): void {
+  const swv = Math.abs(sit.body.rot[1] - WORK_SWIVEL) < 0.3 ? WORK_SWIVEL : 0;
+  const lkVis = lookAt(resolvePose({ ...SEATED, body: { rot: [0, swv, 0] } }), vis, 0.6);
+  // a toy's arm is shorter than its head is far: the arm stretches a little (armScale) and the head bows hard
+  // to meet the paw. Found by a search over the rig (paw on the face, the elbow as far out as that allows).
+  // the body swivels half round to the visitor on the stool, so the paw and the bowed head face the camera
+  const swPalm = swv + 0.5;
+  const palmBase: PatchPose = { ...SEATED, body: { rot: [0, swPalm, 0] }, lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28 };
+  // out at the side, elbow high: the silhouette reads the move before the paw arrives
+  const lift: ArmJoints = J(1.2, 1.0, -0.4, 1.7, 0.3, 0.9);
+  const palmL: ArmJoints = J(1.5, 0.7, 0.3, 1.25, 0.3, 1.2);
+  const palmR: ArmJoints | null = variant === 'both' ? J(1.5, 0.6, 0.3, 1.3, 0.3, 1.2) : null;
+  const chin: ArmJoints | null = variant === 'drag' ? J(1.15, 0.45, 0, 0.95, 0.4, 1.2) : null;
+  const lkPeek = peek.map((p) => lookAt(resolvePose(palmBase), p, 0));
+  const tt = (u: number): number => t0 + L * u;
+  k.push(
+    // the paw comes up, slowly, out to the side first
+    { t: tt(0.22), set: { armL: lift, ...(palmR ? { armR: { ...lift, abduct: lift.abduct * 0.9 } } : {}), armScale: [1.55, palmR ? 1.55 : 1], body: { rot: [0, swPalm, 0] }, ...FACE.flat, lids: [0.4, 0.42], brows: [-0.3, -0.2] }, ease: inOutQuad },
+    // the head drops into it
+    { t: tt(0.45), set: { armL: palmL, ...(palmR ? { armR: palmR } : {}), lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28, lids: [1, 1], lidsLow: [0.5, 0.5], brows: [-0.65, -0.6], browTilt: [0.35, 0.3], mouth: [-0.25, -0.2], ears: [0.6, 0.5], tail: [-0.2, 0] }, ease: inOutCubic },
+    // the held beat
+    { t: tt(0.66), set: { headPitch: -0.36, ears: [0.8, 0.7] } },
+  );
+  if (variant === 'drag' && chin) {
+    k.push(
+      { t: tt(0.86), set: { armL: chin, lean: [0.12, 0.08], twist: -0.1, headPitch: -0.12, headYaw: lkVis.headYaw, gaze: [0.2, 0.3], lids: [0.48, 0.52], lidsLow: [0.35, 0.35], brows: [-0.6, -0.3], mouth: [-0.4, -0.35] }, ease: inOutQuad },
+      { t: tt(1), set: { mouth: [-0.3, -0.3] } },
+    );
+  } else {
+    // one eye opens between the fingers: the right (the paw covers the left)
+    const g0 = lkPeek[0]?.gaze ?? [0.5, 0.6];
+    k.push({ t: tt(0.8), set: { lids: [1, 0.46], lidsLow: [0.5, 0.25], gaze: [clamp(g0[0], -1, 1), clamp(g0[1] + 0.3, -1, 1)], brows: [-0.6, -0.15], browTilt: [0.35, -0.15] }, ease: inOutQuad });
+    const g1 = lkPeek[1];
+    if (g1) k.push({ t: tt(0.92), set: { gaze: [clamp(g1.gaze[0], -1, 1), clamp(g1.gaze[1] + 0.3, -1, 1)] }, ease: inOutQuad });
+    k.push({ t: tt(1), set: { lids: [1, 0.48] } });
+  }
+}
+
+export interface FacepalmOptions {
+  variant?: FacepalmVariant;
+  /** How long, seconds (default 3: Fetch's offer leaves room for it and a settle). */
+  length?: number;
+  /** What it turns to first (root space): the crash. The eye between the fingers peeks at it, then at the visitor. */
+  glance?: V3;
+  visitor?: V3;
+  from?: PatchPose;
+}
+
+/**
+ * The facepalm on its own (Fetch fumbled its crate): a beat, the head turns to the crash, the facepalm, a peek
+ * through the fingers at Fetch and at the visitor, and the paw down again by the end. Reduced motion: t = length.
+ */
+export function facepalm(t: number, o: FacepalmOptions = {}): PatchPose {
+  const L = o.length ?? 3;
+  const vis = o.visitor ?? VISITOR;
+  const from = o.from ?? SEATED;
+  const variant = o.variant ?? 'one';
+  const keys = memoKeys('facepalm', [L, vis, from, variant, o.glance ?? null], () => {
+    const f0 = resolvePose(from);
+    const sit: FullPose = { ...f0, legs: [LEG_REST, LEG_REST] };
+    const k: Key[] = [{ t: 0, set: toPose(sit) }];
+    const glance = o.glance;
+    if (glance) {
+      const lk = lookCheated(sit, glance, vis, 0.8, 1.0);
+      k.push({ t: 0.35, set: { ...lk, ...FACE.flat, lids: [0.34, 0.36], brows: [0.3, 0.2], ears: [-0.4, -0.3] }, ease: inOutQuad });
+    }
+    facepalmKeys(k, glance ? 0.45 : 0.1, L - (glance ? 0.45 : 0.1) - 0.45, variant, sit, vis, glance ? [glance, vis] : [vis]);
+    // the paw comes down; the look at the visitor stays
+    k.push({ t: L, set: { arms: 'rest', armScale: [1, 1], lean: [0.02, 0], ...lookAt(resolvePose(SEATED), vis, 0.85), ...FACE.deadpan, ears: [0.3, 0.2], tail: [0.3, 0] }, ease: inOutQuad });
+    return bake(from, k);
+  });
+  return toPose(sampleOverlap(keys, t, { eyes: 0.03, ears: -0.05, tail: -0.12, body: -0.02 }));
+}
+
+/** A quick glance at something and a small shake of the head, laid over whatever Patch is doing (k: 0..1 through it, ~0.9 s). */
+export function glanceShake(p: PatchPose, k: number, at: V3): PatchPose {
+  if (k <= 0 || k >= 1) return p;
+  const f = resolvePose(p);
+  const lk = lookAt(f, at, 0.6);
+  const w = Math.sin(Math.PI * clamp01(k / 0.9)) ** 0.7;
+  const shake = Math.sin(clamp01((k - 0.35) / 0.55) * Math.PI * 4) * 0.12 * smoothstep(0.3, 0.45, k) * (1 - smoothstep(0.85, 1, k));
+  return toPose({ ...f, headYaw: lerp(f.headYaw, lk.headYaw, w) + shake, headPitch: lerp(f.headPitch, lk.headPitch, w), gaze: [lerp(f.gaze[0], lk.gaze[0], w), lerp(f.gaze[1], lk.gaze[1], w)], brows: [lerp(f.brows[0], -0.4, w), lerp(f.brows[1], -0.2, w)] });
+}
+
+export interface RungOptions {
+  /** The rung's script lengths (ButtonView.script): seconds it plays, and its rewind. */
+  play: number;
+  rewind: number;
+  /** The Button (root space): rung 3 watches it. */
+  button?: V3;
+  visitor?: V3;
+  /** Where Patch was when the Button went (the reaction starts from it and the body stays on its seat). */
+  from?: PatchPose;
+  /** Presses so far: a later press of the same rung gets a slightly different reading. */
+  presses?: number;
+}
+
+/**
+ * Patch reacts to a Button rung, for its whole length, within its seat's worth of movement (t: seconds since
+ * the press, through the play and the rewind). It has settled before Revert's card comes up (at play + rewind),
+ * so the card has the eye.
+ *   rung 1: a startle, then a slow facepalm, held; one eye opens to look at the visitor.
+ *   rung 2: a look over its shoulder at the visitor, and a slow shake of the head.
+ *   rung 3: it watches the Button with a raised brow, and nods as the bench runs back (the cover is coming).
+ *   rung 4: it ducks down behind its knees and peeks out over them; it comes up as the bench runs back.
+ * Reduced motion: call with t = play + rewind (the settled pose); the view blends to it once.
+ */
+export function rungReaction(rung: number, t: number, o: RungOptions): PatchPose {
+  const r = rung <= 1 ? 1 : rung >= 4 ? 4 : rung;
+  const vis = o.visitor ?? VISITOR;
+  const from = o.from ?? SEATED;
+  const P = Math.max(0.5, o.play), RW = Math.max(0.2, o.rewind), END = P + RW;
+  const alt = (o.presses ?? 0) % 2 === 1;
+  const keys = memoKeys('rung', [r, P, RW, o.button ?? null, vis, from, alt], () => {
+    const f0 = resolvePose(from);
+    // the body stays where the stool has it; only the seat's worth of movement
+    const sit: FullPose = { ...f0, legs: [LEG_REST, LEG_REST], folder: f0.folder };
+    const lkVis = lookAt(sit, vis, 0.85);
+    const startle: Partial<PatchPose> = { lids: [0.12, 0.14], lidsLow: [0, 0], brows: [0.9, 0.85], browTilt: [0.2, 0.2], ears: [-1, -1], mouth: [-0.2, -0.2], boom: 0.15 };
+    const k: Key[] = [{ t: 0, set: toPose(sit) }];
+    const deckVariant: FacepalmVariant = (['one', 'both', 'drag'] as const)[(o.presses ?? 0) % 3]!;
+    if (r === 1) {
+      // the startle: a jump on the seat, everything up; a beat; then the facepalm, settled before the card
+      k.push(
+        { t: 0.12, set: { body: { at: [0, 0.05, 0] }, lean: [-0.12, 0], ...startle, arms: { left: J(0.6, 0.6, 0, 0.6, 0.4, 0.4), right: J(0.6, 0.6, 0, 0.6, 0.4, 0.4) }, tail: [1, 0], tailLift: 0.5 }, ease: outCubic },
+        { t: 0.45, set: { body: {}, lean: [0.02, 0], ears: [0.2, 0.2], tailLift: 0, tail: [0.3, 0] }, ease: inOutQuad },
+        { t: 0.75, set: { ...lkVis, ...FACE.flat, lids: [0.45, 0.48], arms: 'rest' } },
+      );
+      facepalmKeys(k, 0.75, END - 0.95, (o.presses ?? 1) > 4 ? deckVariant : 'one', sit, vis, [vis]);
+    } else if (r === 2) {
+      // "again": the look over its shoulder at the visitor, then the bigger facepalm (both paws)
+      k.push(
+        { t: 0.12, set: { ...startle, lids: [0.25, 0.27], ears: [-0.6, -0.6], lean: [-0.05, 0] }, ease: outCubic },
+        { t: 0.8, set: { twist: 0.3, ...lkVis, ...FACE.deadpan, lids: [0.36, 0.38], ears: [0.3, 0.2], lean: [0.02, 0] }, ease: inOutCubic },
+        { t: 1.25, set: { headYaw: lkVis.headYaw - 0.2 } },
+        { t: 1.6, set: { headYaw: lkVis.headYaw + 0.15, mouth: [-0.1, -0.15] } },
+      );
+      facepalmKeys(k, 1.75, END - 1.95, (o.presses ?? 2) > 4 ? deckVariant : 'both', sit, vis, [vis]);
+    } else if (r === 3) {
+      // it watches the Button, one brow up; as the bench runs back, a nod: the cover is coming
+      const btn = o.button ?? [0, 0, 2];
+      const lkBtn = lookAt(sit, btn, 0.8);
+      k.push(
+        { t: 0.12, set: { ...startle, lids: [0.25, 0.27], ears: [-0.6, -0.6] }, ease: outCubic },
+        { t: 0.8, set: { ...lkBtn, lean: [0.1, 0.05], ...FACE.flat, lids: [0.34, 0.36], brows: [0.5, -0.2], browTilt: [0.3, -0.1], ears: [-0.3, -0.2] }, ease: inOutCubic },
+        { t: P - 0.5, set: { headPitch: lkBtn.headPitch - 0.05, gaze: [lkBtn.gaze[0] + 0.1, lkBtn.gaze[1]] } },
+        { t: P + RW * 0.35, set: { headPitch: lkBtn.headPitch - 0.22, ...FACE.smug, mouth: [0.6, 0.1] }, ease: inOutQuad },
+        { t: P + RW * 0.6, set: { headPitch: lkBtn.headPitch + 0.02 }, ease: outCubic },
+        { t: END - 0.1, set: { ...lkVis, lean: [0.02, 0], ...FACE.smug } },
+      );
+    } else {
+      // rung 4: down behind its knees, arms over its head; a peek over them; up as the bench runs back
+      const crouch: [LegJoints, LegJoints] = [{ lift: 0.7, splay: 0.25, knee: 1.35 }, { lift: 0.7, splay: 0.25, knee: 1.35 }];
+      const down: Partial<PatchPose> = { body: { at: [0.06, -0.42, 0.22], rot: [0.35, 0, 0] }, legs: crouch, lean: [0.45, 0], twist: 0, headYaw: 0.35, headPitch: -0.5, headTilt: 0.1, gaze: [0, -0.2], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [1, 0.3], tailLift: 0.4, boom: 0.2 };
+      const peek: Partial<PatchPose> = { body: { at: [0.06, -0.28, 0.22], rot: [0.2, 0, 0] }, legs: crouch, lean: [0.3, 0], headYaw: lkVis.headYaw * 0.7, headPitch: 0.15, gaze: [0.4, 0.5], lids: [0.2, 0.22], lidsLow: [0, 0], brows: [0.7, 0.6], browTilt: [0.2, 0.2], ears: [-0.2, 0.3], mouth: [-0.25, -0.2] };
+      k.push(
+        { t: 0.15, set: { ...down }, ease: outCubic },
+        { t: 1.3, set: { ...peek }, ease: inOutQuad },
+        { t: 2.0, set: { headYaw: lkVis.headYaw * 0.3, gaze: [-0.3, 0.4] } },
+        { t: 2.4, set: { ...down }, ease: inCubic },
+        { t: 3.6, set: { ...peek, headYaw: lkVis.headYaw * 0.9, gaze: [0.6, 0.5] }, ease: inOutQuad },
+        { t: P, set: { headPitch: 0.1 } },
+        // up, as the bench runs back; straightens; the look
+        { t: P + RW * 0.7, set: { body: {}, legs: [LEG_REST, LEG_REST], lean: [0.04, 0], ...lkVis, ...FACE.deadpan, ears: [0.3, 0.2], arms: 'rest', tail: [0.3, 0], tailLift: 0, boom: 0, headset: [0.06, 0] }, ease: inOutCubic },
+        { t: END - 0.1, set: { headset: [0, 0] } },
+      );
+    }
+    k.push({ t: END, set: {} });
+    return bake(from, k);
+  });
+  let f = sampleOverlap(keys, t, { eyes: 0.03, ears: -0.05, tail: -0.12, body: -0.02 });
+  if (r !== 1 && r !== 4) f = withBlinks(f, t, [P + RW * 0.8]);
+  return toPose(f);
+}
+
 // ---- 5. lifted, and back to the stool ------------------------------------------------------------
 
 export interface HeldOptions {
@@ -1278,13 +1475,45 @@ export function held(t: number, carryVelocity: V3 = [0, 0, 0], o: HeldOptions = 
     tail: [-0.4 + lag, clamp(-roll * 0.9 + lag * 1.2, -0.6, 0.6)],
     tailLift: lerp(0, -1.15, lift) + clamp(pitch * 0.5, -0.3, 0.3),
   });
-  // the first moment: eyes shut slowly in resignation, then open half
-  let g = withBlinks(f, t, [0.25]);
-  const resign = Math.exp(-(((t - 0.45) / 0.25) ** 2));
-  g = { ...g, lids: [lerp(g.lids[0], 0.85, resign), lerp(g.lids[1], 0.85, resign)] };
+  // the flail (a picked-up Mii): limbs paddling, tail whipping, eyes wide; a burst at the pick-up, settling
+  // over about two seconds into the resigned dangle; a new burst whenever it is shaken or swung
+  const speed = Math.hypot(carryVelocity[0], carryVelocity[1], carryVelocity[2]);
+  // full for the first second, then running out by about two (a sigh's worth); swung or shaken, it starts again
+  const A = clamp(Math.max((1 - smoothstep(0.9, 2.1, t)) * smoothstep(0, 0.1, t), smoothstep(0.2, 1.0, speed)), 0, 1);
+  const g0 = flail(f, t, A);
+  // the look: down at the drop first (eyes wide), then at the visitor (resigned)
+  const down = smoothstep(0.05, 0.25, t) * (1 - smoothstep(0.55, 1.1, t));
+  const look: FullPose = { ...g0, headPitch: lerp(g0.headPitch, -0.45, down), gaze: [lerp(g0.gaze[0], 0, down), lerp(g0.gaze[1], -0.6, down)] };
+  let g = withBlinks(look, t, A > 0.3 ? [] : [0.25]);
+  // the resignation as the flail runs out: the lids come down slowly, once
+  const resign = A < 0.25 ? Math.exp(-(((t - 2.1) / 0.3) ** 2)) : 0;
+  g = { ...g, lids: [lerp(g.lids[0], 0.8, resign), lerp(g.lids[1], 0.8, resign)] };
   const blinks: number[] = [];
-  for (let k = 0; k < 40; k++) blinks.push(2.6 + k * 3.1 + (k % 2) * 0.7);
+  for (let k = 0; k < 40; k++) blinks.push(3.2 + k * 3.1 + (k % 2) * 0.7);
   return toPose(withBlinks(g, t, blinks));
+}
+
+/** The flail laid over the dangle, at amplitude A (0 still .. 1 all four limbs going). */
+function flail(f: FullPose, t: number, A: number): FullPose {
+  if (A <= 1e-3) return f;
+  const s = (w: number, ph: number): number => Math.sin(t * w + ph) * A;
+  // out to the sides (the silhouette at home framing), paddling: windmilling arms, kicking legs
+  const arm = (a: ArmJoints, ph: number): ArmJoints => ({ ...a, swing: a.swing + 0.5 * A + s(10, ph) * 0.9, abduct: a.abduct + 1.05 * A + s(8, ph + 1) * 0.3, elbow: a.elbow + 0.4 * A + s(13, ph + 2) * 0.6, wrist: a.wrist + s(15, ph) * 0.5 });
+  const leg = (l: LegJoints, ph: number): LegJoints => ({ ...l, lift: l.lift + 0.55 * A + s(12, ph) * 0.8, knee: l.knee + 0.4 * A + s(12, ph + 1.3) * 0.7, splay: l.splay + 0.6 * A + s(9, ph + 0.7) * 0.3 });
+  return {
+    ...f,
+    arms: { left: arm(f.arms.left, 0), right: arm(f.arms.right, Math.PI) },
+    legs: [leg(f.legs[0], 0.4), leg(f.legs[1], 0.4 + Math.PI)],
+    tail: [f.tail[0] + s(9, 0.5) * 0.6, f.tail[1] + s(7, 0) * 1.2],
+    tailLift: f.tailLift + 0.6 * A,
+    headTilt: f.headTilt + s(6, 1) * 0.15,
+    lean: [f.lean[0] + s(5, 0.3) * 0.08, f.lean[1] + s(6.5, 1) * 0.12],
+    lids: [lerp(f.lids[0], 0.12, A), lerp(f.lids[1], 0.14, A)],
+    lidsLow: [lerp(f.lidsLow[0], 0, A), lerp(f.lidsLow[1], 0, A)],
+    brows: [lerp(f.brows[0], 0.8, A), lerp(f.brows[1], 0.7, A)],
+    mouth: [lerp(f.mouth[0], -0.3, A), lerp(f.mouth[1], -0.3, A)],
+    ears: [lerp(f.ears[0], -0.6, A) + s(10, 0) * 0.3, lerp(f.ears[1], -0.6, A) + s(10, 2) * 0.3],
+  };
 }
 
 export interface ClimbOptions {
