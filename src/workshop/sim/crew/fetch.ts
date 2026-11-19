@@ -101,6 +101,8 @@ export const FETCH_TUNING = {
   /** Ignored this long, it fetches the crate back (§ B3: 12 s). */
   /** R1 (Taylor, 2026-11-19: "it just takes him too long to get back to things"): 5 s, was 12. */
   ignoredFor: 5,
+  /** R1: while the visitor's pointer is on the offered crate the offer holds, to at most this long in all (the old 12 s). */
+  offerHeldFor: 12,
   /** How far from its lane it can reach for a part (beyond `handForward`). */
   reach: 1.15,
   pickup: 0.45,
@@ -1306,7 +1308,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             break;
           }
           lookAt = inState() < steps(T.offerLook) ? (ctx.pose(fumbled)?.p ?? null) : spec.outward;
-          if (inState() >= steps(T.ignoredFor) && ctx.settled(fumbled)) goFor(fumbled, 'retrieve');
+          // R1: never from under a hand reaching for it: the pointer on the crate holds the offer (to `offerHeldFor`)
+          const reachedFor = ctx.hovered() === fumbled && inState() < steps(T.offerHeldFor);
+          if (inState() >= steps(T.ignoredFor) && !reachedFor && ctx.settled(fumbled)) goFor(fumbled, 'retrieve');
           break;
         }
         case 'pickup': {
