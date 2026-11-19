@@ -43,7 +43,7 @@ export const PLATEN = {
   /** The label strip on an L crate (tray frame from the seat): from x0 to x1, centred at height y, its face at z. The L crate's top front batten. */
   label: { x0: -0.42, x1: -0.02, y: 0.643, z: 0.372, h: 0.072 },
   /** The PLATEN plate's centre on the console's slope (x). */
-  plateX: 1.15,
+  plateX: 1.19,
   /**
    * Where a porter stands to reach the seat (piece space, on the bench, [x, z]): its centre 0.40 outside the
    * plinth's foot, opposite the seat, on the open LEFT (the bench's taped run) and the open FRONT.
