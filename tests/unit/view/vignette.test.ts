@@ -106,7 +106,7 @@ describe('the camera homes', () => {
       phone: [body('phone').getCenter(new Vector3()).x, 0.55, body('phone').getCenter(new Vector3()).z],
       'patch head': [fit.stool.seat[0], fit.stool.seat[1] + 0.9, fit.stool.seat[2]],
       'stack top': scene.parts.find((p) => p.id === scene.button.stack[2])!.pose.p,
-      'fetch offering': [2.5, 0.8, scene.runner.lane.a[1]],
+      'fetch offering': [2.5, 0.8, scene.runner.lane.points[0]![1]],
       'loose crate': REST,
     };
     const blockers = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, body(s.id)] as const);

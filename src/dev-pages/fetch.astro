@@ -91,8 +91,8 @@
             add(ctx.realize(backWall({ width: 20, height: 6, seed: 5 })), 0, 0, -5);
             const lane = w.scene.runner.lane;
             const pad = 0.55;
-            const [ax, az] = lane.a;
-            const [bx, bz] = lane.b;
+            const [ax, az] = lane.points[0]!;
+            const [bx, bz] = lane.points[lane.points.length - 1]!;
             add(ctx.realize(laneTape({ points: [[ax - pad, az - 0.42], [bx + pad, bz - 0.42]], seed: 3 })), 0, 0, 0);
             add(ctx.realize(laneTape({ points: [[ax - pad, az + 0.42], [bx + pad, bz + 0.42]], seed: 4 })), 0, 0, 0);
             const ped = w.scene.statics.find((s) => s.id === 'console');
@@ -126,10 +126,10 @@
           const lane = scene.runner.lane;
           const box =
             v === 'wide' ? new Box3(new Vector3(-5, -0.3, -5), new Vector3(6, 2.6, 5))
-            : v === 'phone' ? new Box3(new Vector3(lane.a[0] - 0.6, 0, lane.a[1] - 0.8), new Vector3(lane.b[0] + 0.6, 1.5, 2.6))
-            : new Box3(new Vector3(lane.a[0] - 0.7, 0, lane.a[1] - 0.9), new Vector3(lane.b[0] + 0.7, 1.4, 2.4));
+            : v === 'phone' ? new Box3(new Vector3(lane.points[0]![0] - 0.6, 0, lane.points[0]![1] - 0.8), new Vector3(lane.points[lane.points.length - 1]![0] + 0.6, 1.5, 2.6))
+            : new Box3(new Vector3(lane.points[0]![0] - 0.7, 0, lane.points[0]![1] - 0.9), new Vector3(lane.points[lane.points.length - 1]![0] + 0.7, 1.4, 2.4));
           stage.camera.setSubject(box, { edge, bounds: new Box3(new Vector3(scene.bench.minX, -1, scene.bench.minZ), new Vector3(scene.bench.maxX, 4, scene.bench.maxZ)) });
-          stage.camera.focusOn(new Vector3((lane.a[0] + lane.b[0]) / 2, 0.5, lane.a[1] + 0.3));
+          stage.camera.focusOn(new Vector3((lane.points[0]![0] + lane.points[lane.points.length - 1]![0]) / 2, 0.5, lane.points[0]![1] + 0.3));
           stage.camera.cutTo(stage.camera.home());
         },
         onFrame,
