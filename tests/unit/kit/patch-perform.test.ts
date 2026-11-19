@@ -4,6 +4,7 @@ import * as PF from '../../../src/workshop/view/kit/pieces/patch-felt/perform.ts
 import { EXPRESSIONS, HC, NEUTRAL, poseMatrices } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import type { PatchPose } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import { BOARD_WHOLE } from '../../../src/workshop/view/kit/pieces/switchboard/board.ts';
+import { PATCH_TUNING } from '../../../src/workshop/sim/index.ts';
 import { JACKS } from '../../../src/workshop/view/kit/pieces/switchboard/labels.ts';
 
 const finite = (p: PatchPose): boolean => {
@@ -39,7 +40,8 @@ describe('patch-felt performances (pure functions of time)', () => {
     const fs = { duck: (t: number) => PF.duck(t), bonked: (t: number) => PF.bonked(t), catch: (t: number) => PF.catchCrate(t).pose };
     for (const [nm, f] of Object.entries(fs)) {
       if (nm === "duck") expect(close(f(0), EXPRESSIONS.unimpressed, 0.05), `${nm} starts at rest`).toBe(true);
-      expect(close(f(PF.REACTION_LENGTH), f(PF.REACTION_LENGTH + 2), 1e-3), `${nm} done by 1.5 s`).toBe(true);
+      // each is the simulation's own stage (catch: a tug of the paw home after it, still inside 1.5 s)
+      expect(close(f(1.5), f(3.5), 1e-3), `${nm} done by 1.5 s`).toBe(true);
     }
   });
 
@@ -64,13 +66,16 @@ describe('patch-felt performances (pure functions of time)', () => {
     }
     expect(at).toBeCloseTo(PF.JOB_LENGTH, 6);
     expect(PF.job(0, T).drawer).toBe(0);
-    expect(PF.job(5, T).drawer).toBe(1);
+    const sAt = (n: PF.JobStage, u: number): number => { const st = PF.JOB_STAGES.find((x) => x.name === n)!; return st.at + st.dur * u; };
+    expect(PF.job(sAt('work', 0.5), T).drawer).toBe(1);
     expect(PF.job(PF.JOB_LENGTH, T).drawer).toBe(0);
-    expect(PF.job(1.0, T).pose.folder ?? 0).toBeLessThan(0.5);
-    expect(PF.job(4.0, T).pose.folder ?? 0).toBeGreaterThanOrEqual(0.5);
+    expect(PF.job(sAt('drawer', 0.5), T).pose.folder ?? 0).toBeLessThan(0.5);
+    expect(PF.job(sAt('work', 0.5), T).pose.folder ?? 0).toBeGreaterThanOrEqual(0.5);
+    // the stages are the simulation's own lengths: played at natural speed
+    expect(PF.JOB_STAGES.slice(0, 4).map((x) => x.dur)).toEqual([PATCH_TUNING.drawer, PATCH_TUNING.work, PATCH_TUNING.check, PATCH_TUNING.reply]);
     expect(PF.job(PF.JOB_LENGTH, T).pose.folder ?? 0).toBeLessThan(0.5);
     // a stage can be driven by u, and reversing u retraces it
-    expect(close(PF.jobStage('check', 0.3, T).pose, PF.job(5.3 + 0.3 * 1.9, T).pose)).toBe(true);
+    expect(close(PF.jobStage('check', 0.3, T).pose, PF.job(sAt('check', 0.3), T).pose)).toBe(true);
     // it begins and ends sat at the jack
     expect(close(PF.job(0, T).pose, PF.job(PF.JOB_LENGTH, T).pose, 0.05)).toBe(true);
   });
@@ -133,7 +138,12 @@ describe('patch-felt performances (pure functions of time)', () => {
   it('catch hands the station the crate while Patch has it, and not before or after', () => {
     expect(PF.catchCrate(0.05).crate).toBeNull();
     expect(PF.catchCrate(0.5).crate).not.toBeNull();
-    expect(PF.catchCrate(1.3).crate).toBeNull();
+    // it ends exactly on the shelf the simulation gives, so nothing jumps when the simulation takes over
+    const shelf: PF.V3 = [-0.4, 0.15, 0.5];
+    const end = PF.catchCrate(PF.CATCH_LENGTH, { shelf }).crate!;
+    expect(Math.hypot(end[0] - shelf[0], end[1] - shelf[1], end[2] - shelf[2])).toBeLessThan(1e-6);
+    const near = PF.catchCrate(PF.CATCH_LENGTH - 0.02, { shelf }).crate!;
+    expect(Math.hypot(near[0] - shelf[0], near[1] - shelf[1], near[2] - shelf[2])).toBeLessThan(0.15);
   });
 
   it('the look ends on the visitor, heavy-lidded, the head part way and the eyes the rest', () => {

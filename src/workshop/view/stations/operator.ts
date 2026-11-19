@@ -4,18 +4,18 @@
  * The simulation says what Patch is doing (`PatchView.state`, `stateTime`,
  * `stateLength`, the stool on its runner); this view performs it with the
  * felt piece's performances (kit/pieces/patch-felt/perform.ts), each
- * TIME-SCALED to the simulation's stage: the performances are authored at
- * their own lengths and the stages are shorter, so a stage's 0..1 is
- * mapped onto its stretch of the performance, never the other way.
+ * authored FOR the simulation's stage lengths (PATCH_TUNING) and played at
+ * natural speed: a performance's t is the stage's own `stateTime`.
  *
  *   notice                       notice()          lamp of the line, ears first
- *   roll                         rollTo()          the yank, the glide, the stop; the stool rides the runner
- *   drawer / work / check / reply job()            0-2.5 / 2.5-5.3 / 5.3-7.8 / 7.8-9.2 of JOB_LENGTH
- *   seated after a reply         job() 9.2-10.6    the folder put back, the drawer shoved home (follow-through)
- *   stare + look (cord pulled)   theLook()         its first 4.4 s into the 1.5 s the stages allow, then held for as long as the plug is out
+ *   roll                         rollTo()          the shove, the glide, the stop, over the stage's own length
+ *   plug (attract mode)          movePlug()        the cord out of one jack and into another
+ *   drawer / work / check / reply job()            JOB_STAGES, each at its own start
+ *   seated after a reply         job() 'shut'      the folder put back, the drawer shoved home (follow-through)
+ *   stare + look (cord pulled)   theLook()         the plug, then the visitor; held for as long as the plug is out
  *   look (the lever)             a head turn to the lever
- *   held / walk / climb          held(), returnToStool(), climb()
- *   duck / catch / bonk          duck(), catchCrate(), bonked()
+ *   held / walk / climb          held(), toddle(), climb() (from PatchView.foot)
+ *   duck / catch / bonk          duck(), catchCrate() (onto PatchView.shelf), bonked()
  *
  * Changing performance blends from wherever Patch is (`blendTo`). The stool
  * is drawn here (it rolls): the set leaves it out. The drawer for the jack
@@ -32,10 +32,9 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
 import {
-  CLIMB_LENGTH, JOB_LENGTH, LOOK_LENGTH, NOTICE_LENGTH, REACTION_LENGTH, REST_X, SEATED, VISITOR_BOARD,
-  atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, notice, resolvePose,
-  returnToStool, rollLength, rollTo, theLook, toPose, walkDuration, withBlinks, withBreath, type JobTargets, type V3,
-  WORK_SWIVEL, mixPose, pawPoint, reach, type FullPose,
+  BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
+  atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
+  rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -76,7 +75,9 @@ export interface OperatorViewOptions {
 
 type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk';
 
-const JOB_SPAN: Partial<Record<PatchState, [number, number]>> = { drawer: [0, 2.5], work: [2.5, 5.3], check: [5.3, 7.8], reply: [7.8, 9.2] };
+/** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
+const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
+const SHUT_AT = JOB_AT.get('shut' satisfies JobStage)!.at;
 
 const tv = new Vector3();
 
@@ -165,13 +166,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let stoolB: number = REST_X; // the stool's board x as drawn
     let rollFrom: number = REST_X, rollTo_: number = REST_X;
     let lookPlug: V3 = [0, 0, 1];
-    let walkFrom: V3 = [0, 0, 1];
-    let walkSim = 1;
+    let walked = 0;
+    let walkPrev: V3 | null = null;
+    let climbFoot: V3 = [0, 0, 1];
+    let catchShelf: V3 | null = null;
     let reactFrom: V3 = [0, 0, 1];
     let lookStart = 0;
     let hover = 0;
-    /** The cord's move (state `plug`): the poses of the paw at the plug, yanking it, and at the new jack. */
-    let plugKeys: { base: FullPose; at: FullPose; yank: FullPose; to: FullPose } | null = null;
+    /** The cord's move (state `plug`): from which jack to which. */
+    let plugMove: { from: JackName; to: JackName } | null = null;
     const pawW = new Vector3();
     let heldId: string | null = null;
     let heldObj: Object3D | null = null;
@@ -242,8 +245,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const t = frame.time;
         const dt = Math.min(frame.dt, 0.1);
         const st = v.state;
-        const u = Number.isFinite(v.stateLength) && v.stateLength > 0 ? clamp01(v.stateTime / v.stateLength) : 0;
-        const U = reduced ? (Number.isFinite(v.stateLength) ? 1 : u) : u; // reduced motion: each stage holds its end pose
+        // natural speed: a performance's time is the stage's own; reduced motion holds each stage's end pose
+        const finite = Number.isFinite(v.stateLength) && v.stateLength > 0;
+        const sT = reduced && finite ? v.stateLength : finite ? Math.min(v.stateTime, v.stateLength) : v.stateTime;
         const cord = w.cord('cord');
         const plugOut = !!cord?.lifted;
 
@@ -266,16 +270,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               break;
             case 'plug': {
               const from = jackName(v.plug?.from ?? null), to = jackName(v.plug?.to ?? null);
-              plugKeys = null;
-              if (from && to) {
-                const L = BOARD_WHOLE;
-                const grip = (j: JackName): V3 => boardToRoot([L.jackX[j], L.jackY, L.panelZ + L.plateT + 0.3], stoolB);
-                const base = atWork(targetsFor(to));
-                const a = grip(from), b = grip(to);
-                const mid: V3 = [(a[0] + b[0]) / 2 + 0.05, Math.max(a[1], b[1]) - 0.02, (a[2] + b[2]) / 2 + 0.2];
-                const r = (p: V3): FullPose => resolvePose(reach(p, 'right', base, { swivel: WORK_SWIVEL }).pose);
-                plugKeys = { base: resolvePose(entry), at: r(a), yank: r(mid), to: r(b) };
-              }
+              plugMove = from && to ? { from, to } : null;
               enter('plug', t, true);
               break;
             }
@@ -299,19 +294,21 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               enter('held', t, false);
               break;
             case 'walk': {
-              walkFrom = seatSpace([v.at[0], 0, v.at[2]]);
-              walkSim = Math.max(0.2, Math.hypot(v.at[0] - (seat.x + stoolB - REST_X), v.at[2] - (seat.z + 0.77)) / 1.6);
+              walked = 0;
+              walkPrev = null;
               enter('walk', t, false);
               break;
             }
             case 'climb':
-              if (prev !== 'walk') walkFrom = seatSpace([v.at[0], 0, v.at[2]]);
+              // from its feet at the stool's foot (where the walk ended, or where it was put down)
+              climbFoot = seatSpace(v.foot);
               enter('climb', t, prev === 'walk');
               break;
             case 'duck':
             case 'catch':
             case 'bonk':
               reactFrom = v.lookAt ? seatSpace(v.lookAt) : [0, 0.5, 2];
+              catchShelf = null;
               enter(st, t, true);
               blendDur = F.blendReact;
               break;
@@ -326,7 +323,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         }
         // the look ends when the plug goes back in (the simulation is seated by then)
         if (mode === 'look' && st === 'seated' && !plugOut) enter('idle', t, false);
-        if (mode === 'shut' && t - modeAt >= JOB_LENGTH - F.shutFrom) enter('idle', t, true);
+        if (mode === 'shut' && t - modeAt >= SHUT_LENGTH) enter('idle', t, true);
 
         // ── the stool: the simulation's place, or the roll's own curve ──
         let pose: PatchPose;
@@ -339,49 +336,37 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           case 'notice': {
             const ringing = (lv?.kind === 'line' ? jackName(lv.ringing) : null) ?? nearestJack(stoolB);
             const lamp = boardToRoot([BOARD_WHOLE.jackX[ringing] + BOARD_WHOLE.lampDX, BOARD_WHOLE.jackY, BOARD_WHOLE.panelZ + BOARD_WHOLE.plateT + 0.07], stoolB);
-            pose = notice(U * NOTICE_LENGTH, lamp, entry);
+            pose = notice(reduced ? NOTICE_LENGTH : sT, lamp, entry);
             break;
           }
           case 'roll': {
-            const len = rollLength(rollFrom, rollTo_);
-            const r = rollTo(U * len, { fromX: rollFrom, toX: rollTo_, from: entry, to: restPose(rollTo_) });
+            const len = finite ? v.stateLength : undefined;
+            const r = rollTo(sT, { fromX: rollFrom, toX: rollTo_, ...(len !== undefined ? { length: len } : {}), from: entry, to: restPose(rollTo_) });
             stoolB = r.stoolX;
             pose = r.pose;
             break;
           }
           case 'plug': {
             // reach for the plug, a yank that brings it out on its cord, across, and into the new jack
-            const K = plugKeys;
-            if (!K) {
-              pose = entry;
-              break;
-            }
-            let f: FullPose;
-            if (U < 0.3) f = mixPose(K.base, K.at, inOutCubic(U / 0.3));
-            else if (U < 0.5) f = mixPose(K.at, K.yank, outCubic((U - 0.3) / 0.2));
-            else if (U < 0.85) f = mixPose(K.yank, K.to, inOutQuad((U - 0.5) / 0.35));
-            else f = mixPose(K.to, K.base, inOutCubic((U - 0.85) / 0.15) * 0.25);
-            pose = toPose(f);
+            pose = plugMove ? movePlug(sT, plugMove.from, plugMove.to, stoolB, entry).pose : entry;
             break;
           }
           case 'job': {
-            const span = JOB_SPAN[st] ?? [0, 0];
+            const span = JOB_AT.get(st) ?? { at: 0, dur: 0 };
             const T = targetsFor(jobJack ?? nearestJack(stoolB));
-            const f = job(span[0] + (span[1] - span[0]) * U, T);
+            const f = job(span.at + Math.min(sT, span.dur), T);
             pose = f.pose;
             drawer = f.drawer;
             break;
           }
           case 'shut': {
-            const f = job(reduced ? JOB_LENGTH : Math.min(JOB_LENGTH, F.shutFrom + age), targetsFor(jobJack ?? nearestJack(stoolB)));
+            const f = job(SHUT_AT + (reduced ? SHUT_LENGTH : Math.min(SHUT_LENGTH, age)), targetsFor(jobJack ?? nearestJack(stoolB)));
             pose = f.pose;
             drawer = f.drawer;
             break;
           }
           case 'look': {
-            const a = t - lookStart;
-            const lt = reduced ? LOOK_LENGTH : Math.min(a, F.lookStages) * (LOOK_LENGTH / F.lookStages) + Math.max(0, a - F.lookStages);
-            pose = theLook(lt, { plug: lookPlug, from: entry, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
+            pose = theLook(reduced ? LOOK_LENGTH : t - lookStart, { plug: lookPlug, from: entry, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
           case 'lever': {
@@ -411,28 +396,33 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'walk': {
-            const W = walkDuration(walkFrom);
-            pose = returnToStool(reduced ? W : Math.min(W, age * (W / walkSim)), walkFrom, { seatH });
+            // the feet where the simulation has them; the gait's phase from the distance walked (no sliding)
+            const feet = seatSpace([v.at[0], v.at[1], v.at[2]]);
+            if (walkPrev) walked += Math.hypot(feet[0] - walkPrev[0], feet[2] - walkPrev[2]);
+            walkPrev = feet;
+            pose = toddle(reduced ? 0 : walked, feet, v.heading - SIDE_ON, { visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
           case 'climb': {
-            pose = climb(U * CLIMB_LENGTH, { seatH });
+            pose = climb(reduced ? CLIMB_LENGTH : sT, { foot: climbFoot, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
           case 'duck':
-            pose = duck(U * REACTION_LENGTH, { from: reactFrom });
+            pose = duck(reduced ? DUCK_LENGTH : sT, { from: reactFrom });
             break;
           case 'catch': {
-            const L = BOARD_WHOLE;
-            // the keyshelf point the simulation sets a caught part on (AT.keyshelf; PatchView does not carry it yet)
-            const shelf = boardToRoot([L.jackX.lamp - 0.22, L.shelfY, L.shelfZ - 0.2], stoolB);
-            const c = catchCrate(U * REACTION_LENGTH, { from: reactFrom, shelf });
+            // set down where the simulation sets the part: its centre on PatchView.shelf (half its height up, and 0.01)
+            if (!catchShelf) {
+              const h = (v.holding ? w.halfExtents(v.holding)?.[1] : undefined) ?? 0.2;
+              catchShelf = seatSpace([v.shelf[0], v.shelf[1] + h + 0.01, v.shelf[2]]);
+            }
+            const c = catchCrate(reduced ? CATCH_LENGTH : sT, { from: reactFrom, shelf: catchShelf });
             pose = c.pose;
             caught = c.crate;
             break;
           }
           case 'bonk':
-            pose = bonked(U * REACTION_LENGTH, { from: reactFrom });
+            pose = bonked(reduced ? BONK_LENGTH : sT, { from: reactFrom });
             break;
           default: {
             // idle: the rest (side-on, face to the visitor) or at work by a jack; the head follows the action, slowly
@@ -512,9 +502,11 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           }
         }
         if (mode === 'plug' && st === 'plug') {
-          const p = pawPoint(pose, 'right');
-          pawW.set(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld);
-          bus.paw = { x: pawW.x, y: pawW.y, z: pawW.z, u: U };
+          const p = plugMove ? movePlug(sT, plugMove.from, plugMove.to, stoolB, entry).paw : null;
+          if (p) {
+            pawW.set(p[0], p[1], p[2]).applyMatrix4(root.matrixWorld);
+            bus.paw = { x: pawW.x, y: pawW.y, z: pawW.z, u: finite ? clamp01(v.stateTime / v.stateLength) : 1 };
+          } else bus.paw = null;
         } else bus.paw = null;
 
         // ── the drawer of the jack in hand follows the paw; any other closes ──
