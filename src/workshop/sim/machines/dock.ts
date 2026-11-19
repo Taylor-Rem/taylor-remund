@@ -218,7 +218,21 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   }
 
   /** A fresh crate onto the stack, as the system. */
-  function restock(size: Part['size']): void {
+  /**
+   * Put a crate back on the stack. Answers false when it must wait: while the crew has a crate in its
+   * hands at the stack (lifting the top one, or setting one down), the stack cannot be counted or
+   * measured (a crate in the crew's hands is neither free nor held), and a crate set down then lands
+   * inside the one being lifted.
+   */
+  function restock(size: Part['size']): boolean {
+    {
+      const [sx, sz] = spec.stack;
+      const inHand = ctx.parts().some((id) => {
+        const p = ctx.pose(id)?.p;
+        return ctx.part(id)?.kind === 'crate' && ctx.mode(id) === 'crew' && !!p && Math.hypot(p[0] - sx, p[2] - sz) <= 0.55;
+      });
+      if (inHand) return false;
+    }
     if (spec.stackMax !== undefined) {
       const [sx, sz] = spec.stack;
       const standing = ctx.parts().filter((id) => {
@@ -226,14 +240,14 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         const p = ctx.pose(id)?.p;
         return ctx.part(id)?.kind === 'crate' && (m === 'free' || m === 'held') && !!p && Math.hypot(p[0] - sx, p[2] - sz) <= 0.55;
       }).length;
-      if (standing >= spec.stackMax) return;
+      if (standing >= spec.stackMax) return true;
     }
     const crates = ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at === 'shipped' && ctx.mode(id) === 'gone');
     const free = crates.filter((id) => !isTxn(ctx.writer(id, 'location')));
     // (S5 round 2) the same size first, a spare or else the longest shipped, so the stack is put back as it was
     const sameSize = (id: Id): boolean => ctx.part(id)?.size === size;
     const spare = free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
-    if (spare === undefined) return;
+    if (spare === undefined) return true;
     shippedOrder = shippedOrder.filter((x) => x !== spare);
     const p = ctx.part(spare) as Part;
     const f = fresh.get(spare);
@@ -255,6 +269,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     }
     ctx.launch(spare, { p: [sx, top + half[1] + T.restockDrop, sz], q: qyaw(rng.range(-0.12, 0.12)) }, [0, 0, 0], [0, 0, 0], 'system');
     ctx.emit({ type: 'restocked', id: spec.id, part: spare });
+    return true;
   }
 
   const unit: DockUnit = {
@@ -368,8 +383,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         sendBack(r);
       }
       for (const r of restocks.filter((x) => x.at <= now)) {
-        restocks = restocks.filter((x) => x !== r);
-        restock(r.size);
+        // not while the crew's hands are in the stack: it stays owed and is tried again next step
+        if (restock(r.size)) restocks = restocks.filter((x) => x !== r);
       }
     },
 
