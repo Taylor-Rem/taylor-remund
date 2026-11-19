@@ -119,7 +119,7 @@ describe('Patch thrown (R4)', () => {
     const w = await benchWorld(1);
     const t = tape(w);
     t.run(20);
-    throwFrom(w, t, [2, 0.9, 4.2], [0, 0, 3]);
+    throwFrom(w, t, [7, 1.4, 4.6], [0, 0, 3]); // (clear of the belt and the ramp: its middle 0.8 up as it crosses the edge)
     const f = watch(w, t, 30);
     expect(f.states.slice(0, 2)).toEqual(['fly', 'ledge']);
     expect(f.states.at(-1)).toBe('seated');
