@@ -510,11 +510,11 @@ export class FetchPerformer {
           this.offerNear = near;
           const hope = this.hope.step(near ? 1 : 0, dt);
           if (hope > 0.01) {
-            squash -= 0.22 * hope + (rm ? 0 : 0.08 * hope * Math.abs(Math.sin((i.time - this.offerNearAt) * Math.PI * 2.4)));
+            squash -= 0.34 * hope + (rm ? 0 : 0.14 * hope * Math.abs(Math.sin((i.time - this.offerNearAt) * Math.PI * 2.4)));
             brow = Math.min(brow, -0.65 * hope);
             pupil = lerp(pupil, 1.35, hope);
             lids = [lids[0] * (1 - hope), lerp(lids[1], 0.35, hope)];
-            arms = mixArms(arms, { left: add(PRESETS.offer.left, { swing: 0.35, abduct: -0.1 }), right: add(PRESETS.offer.right, { swing: 0.35, abduct: -0.1 }) }, hope);
+            arms = mixArms(arms, { left: add(PRESETS.offer.left, { swing: 0.6, abduct: 0.1 }), right: add(PRESETS.offer.right, { swing: 0.6, abduct: 0.1 }) }, hope);
             sideLean *= 1 - hope;
             if (pointer) look = lookAt ? lookAt.clone().lerp(pointer, 0.4) : pointer;
           }

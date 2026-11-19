@@ -16,14 +16,16 @@ const KEYS = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'] as const;
 function mixArm(a: ArmJoints, b: ArmJoints, k: number): ArmJoints {
   const o = J(0, 0, 0, 0, 0, 0);
   for (const key of KEYS) o[key] = lerp(a[key], b[key], k);
+  const ta = typeof a.tele === 'number' ? a.tele : 0, tb = typeof b.tele === 'number' ? b.tele : 0;
+  o.tele = lerp(ta, tb, k);
   return o;
 }
 const mixArms = (a: Arms, b: Arms, k: number): Arms => ({ left: mixArm(a.left, b.left, k), right: mixArm(a.right, b.right, k) });
 
 /** The claws pulled in tight in front of its chest, jaws shut. */
-export const GUARD: Arms = { left: J(1.25, -0.3, -0.4, 2.1, -0.6, 0.1), right: J(1.2, -0.28, -0.4, 2.15, -0.6, 0.12) };
+export const GUARD: Arms = { left: J(1.55, -0.3, -0.4, 2.0, -0.6, 0.1), right: J(1.5, -0.28, -0.4, 2.05, -0.6, 0.12) };
 /** Both claws up and in front of its eye: hiding. */
-export const HIDE: Arms = { left: J(2.2, -0.5, -0.1, 1.15, -1.0, 0.25), right: J(2.2, -0.52, -0.1, 1.2, -1.0, 0.25) };
+export const HIDE: Arms = { left: { ...J(1.9, 0.55, 0, 0.9, -1.0, 0.2), tele: 0.22 }, right: { ...J(1.92, 0.53, 0, 0.92, -1.0, 0.2), tele: 0.22 } };
 /** Claws over its head: cowering. */
 export const COWER: Arms = { left: J(2.2, 0.3, 0.6, 1.7, 0, 0.2), right: J(2.15, 0.32, 0.6, 1.75, 0, 0.2) };
 const REST_ARMS: Arms = { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.38, 0.18, -0.35, 0.9, -0.3, 0.25) };
@@ -56,9 +58,10 @@ export function frightened(o: FrightOptions): Fright {
   const playing = o.phase === 'playing';
   const t = playing ? o.t : 1e3;
   // the startle: a hop up off the spring, then down into a crouch
-  const hop = rm ? 0 : (v === 1 ? 0.07 : 0.045) * Math.sin(Math.PI * clamp(t / 0.28, 0, 1)) * (t < 0.28 ? 1 : 0);
+  const hop = rm ? 0 : (v === 1 ? 0.1 : 0.075) * Math.sin(Math.PI * clamp(t / 0.28, 0, 1)) * (t < 0.28 ? 1 : 0);
   const crouch = smoothstep(0.15, 0.4, t);
-  const arms0: Arms = hide ? HIDE : v === 2 ? COWER : GUARD;
+  // (the second press: one claw up over its head, the other guarding; the third: both over its head)
+  const arms0: Arms = hide ? HIDE : v === 2 ? COWER : v === 1 ? { left: GUARD.left, right: COWER.right } : GUARD;
   const snap = rm ? 1 : smoothstep(0.02, 0.12, t);
   let arms = mixArms(REST_ARMS, arms0, snap);
   // rung 4: peeks between its claws, one claw drawn down for a moment every 1.3 s
@@ -66,7 +69,7 @@ export function frightened(o: FrightOptions): Fright {
   if (hide && !rm && playing) {
     const p = (t - 0.8) % 1.3;
     peek = t > 0.8 ? smoothstep(0, 0.15, p) * (1 - smoothstep(0.45, 0.6, p)) : 0;
-    arms = { left: arms.left, right: mixArm(arms.right, J(1.6, -0.3, -0.2, 1.6, -0.8, 0.5), peek) };
+    arms = { left: arms.left, right: mixArm(arms.right, { ...J(1.5, 0.5, 0, 0.9, -0.8, 0.5), tele: 0.06 }, peek) };
   }
   // the shiver (not in reduced motion)
   const sh = rm ? 0 : 1;
@@ -74,7 +77,7 @@ export function frightened(o: FrightOptions): Fright {
   const shiver = sh * (1 - smoothstep(0, 0.8, playing ? 0 : o.t));
   const lean: [number, number] = [
     lerp(0.02, v === 1 ? -0.14 : -0.06, crouch) + 0.014 * shiver * Math.sin(tt * Math.PI * 2 * 9.5 + 1),
-    0.022 * shiver * Math.sin(tt * Math.PI * 2 * 12),
+    0.035 * shiver * Math.sin(tt * Math.PI * 2 * 12),
   ];
   const squash = (t < 0.12 && !rm ? -0.5 : 0) + crouch * (v === 2 ? 0.5 : 0.32);
   const pose: FetchPose = {
