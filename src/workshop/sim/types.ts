@@ -726,7 +726,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -781,6 +781,14 @@ export interface PatchView extends MachineViewBase {
    * direction (unit, horizontal); `edge` which edge it is. Null otherwise.
    */
   readonly ledge: { readonly edge: 'front' | 'left' | 'right'; readonly at: Vec3; readonly up: Vec3; readonly out: Vec3 } | null;
+  /**
+   * R2: walking back (`walk`, and `cross`: over the belt, `at` carrying its feet up onto the rail, across and
+   * down, the belt carrying it along meanwhile). `pace`: units/s on the ground (a scamper above the walk's);
+   * `next`: the point it is walking to now (it looks along its way); `waiting`: stopped (something that moves is
+   * in its way, or it is shut in). The walk's first `PATCH_TUNING.setOff` seconds are a look at the visitor and a
+   * turn to face its way, without a step. Null otherwise.
+   */
+  readonly walk: { readonly pace: number; readonly scamper: boolean; readonly next: Vec3 | null; readonly waiting: boolean } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

@@ -201,14 +201,17 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(mid[2]).toBeGreaterThan(EDGE.maxZ - T.ledgeIn);
     t.run(Math.round((T.haul / 2) * HZ) + 1);
     expect(patchView(w).state).toBe('dust');
-    expect(patchView(w).at[2]).toBeCloseTo(EDGE.maxZ - T.ledgeIn, 6);
+    // R2: it lands just in from the edge, clear of the belt's front rail (never inside a body)
+    expect(patchView(w).at[2]).toBeLessThanOrEqual(EDGE.maxZ - 0.22 + 1e-9);
+    expect(patchView(w).at[2]).toBeGreaterThanOrEqual(4.52 + 0.22 - 1e-9);
     t.run(Math.round(T.dust * HZ) + 1);
     expect(patchView(w)).toMatchObject({ state: 'look', lookAt: PATCHLAMP.patch.visitor, ledge: null });
     t.run(Math.round(T.look * HZ) + 1);
     expect(patchView(w).state).toBe('walk');
     for (let i = 0; i < 15 * HZ && patchView(w).state !== 'seated'; i++) t.run(1);
     expect(patchView(w)).toMatchObject({ state: 'seated', at: SEAT });
-    expect(states(t)).toEqual(['held', 'ledge', 'haul', 'dust', 'look', 'walk', 'climb', 'seated']);
+    expect(states(t).slice(0, 6)).toEqual(['held', 'ledge', 'haul', 'dust', 'look', 'walk']);
+    expect(states(t).slice(-2)).toEqual(['climb', 'seated']);
     expect(w.durable()).toEqual(before);
     expect(w.undoStack()).toEqual([]);
   });
