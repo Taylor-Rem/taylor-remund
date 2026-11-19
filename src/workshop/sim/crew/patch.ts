@@ -687,11 +687,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     intent(intent: Intent): boolean {
       if (intent.type !== 'drag' || intent.id !== id || ctx.bracketed) return false;
       // R1: hanging from the edge, or hauling itself up: it cannot be taken hold of until it is on its feet
-      if (state === 'ledge' || state === 'haul') return false;
+      // (out of sight after a throw off the bench: nothing to take hold of)
+      if (state === 'ledge' || state === 'haul' || state === 'away') return false;
       const taken = state !== 'held'; // the grab itself: where the hand took hold, not where it carries to
       if (taken) {
         trail.length = 0;
         ledge = null;
+        fly = null;
+        landing = null;
         way = null;
         crossing = null;
         afoot = false;
@@ -1090,6 +1093,99 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           if (n <= stepLen) way.points.shift();
           break;
         }
+        case 'fly': {
+          // R4: thrown: a scripted arc under the world's gravity (never a physics body)
+          const f = fly;
+          if (!f) {
+            walkBack();
+            break;
+          }
+          f.v = [f.v[0], f.v[1] + g / HZ, f.v[2]];
+          let np: Vec3 = [at[0] + f.v[0] / HZ, at[1] + f.v[1] / HZ, at[2] + f.v[2] / HZ];
+          const top = ctx.scene.bench.top;
+          const e = spec.edge;
+          const outside = (p: Vec3): boolean => !!e && (p[0] < e.minX || p[0] > e.maxX || p[2] > e.maxZ);
+          if (!f.out && !f.chute && outside(np)) {
+            // over an open edge: within reach of it, it catches it (as when let go there); well clear, it is gone
+            const over = np[1] <= top + T.reachUp && np[1] >= top - T.reachDown ? edgeFor(np) : null;
+            if (over) {
+              fly = null;
+              ledge = over;
+              at = over.at;
+              heading = Math.atan2(-over.out[0], -over.out[2]);
+              enter('ledge');
+              break;
+            }
+            f.out = true;
+          }
+          if (f.out) {
+            at = np;
+            if (np[1] < top - 1.5) {
+              fly = null;
+              enter('away');
+            }
+            break;
+          }
+          // never through a fixed body: met from the side, it stops there and drops; come down on its top, tipped off
+          for (const o of SOLIDS) {
+            if (!sphereMeets(o, np[0], np[1], np[2], T.bodyR)) continue;
+            if (at[1] - T.bodyR >= o.y1 - 0.03) {
+              const ax = at[0] - o.x, az = at[2] - o.z;
+              const an = Math.hypot(ax, az) || 1;
+              f.v = [(ax / an) * 1.6, 1.4, (az / an) * 1.6];
+            } else f.v = [-f.v[0] * 0.12, Math.min(f.v[1], 0), -f.v[2] * 0.12];
+            np = [at[0], at[1] + f.v[1] / HZ, at[2]];
+            if (SOLIDS.some((q) => sphereMeets(q, np[0], np[1], np[2], T.bodyR))) np = at;
+            break;
+          }
+          if (np[1] - T.bodyR <= top) {
+            landAt(np, f.v);
+            break;
+          }
+          if (Math.hypot(f.v[0], f.v[2]) > 0.3) heading = Math.atan2(f.v[0], f.v[2]);
+          at = np;
+          break;
+        }
+        case 'land': {
+          // R4: a bounce and a roll that eats the speed, ending sat up
+          const l = landing;
+          if (l) {
+            const k = Math.min(1, t / T.land);
+            const e = 1 - (1 - k) * (1 - k);
+            at = add(l.from, scale(sub(l.to, l.from), e));
+          }
+          if (t >= length_) {
+            if (l) at = l.to;
+            enter('shake');
+          }
+          break;
+        }
+        case 'shake':
+          if (t >= length_) {
+            // a shake of the head, then the look at the visitor; then it gets up and walks home
+            landing = null;
+            afoot = true;
+            lookAt = spec.visitor;
+            enter('look');
+          }
+          break;
+        case 'away': {
+          // R4: thrown well clear of the bench: out of sight; then up the chute and onto the bench by the pad
+          if (t < length_) break;
+          const c = spec.chute;
+          if (!c) {
+            landAt(standingAt(footNow()), [0, 0, 0]);
+            break;
+          }
+          const land = standingAt([c.pad[0], spec.foot[1], c.pad[1]]);
+          const tf = T.chuteFly;
+          const v: Vec3 = [(land[0] - c.from[0]) / tf, (land[1] + T.bodyR - c.from[1]) / tf - 0.5 * g * tf, (land[2] - c.from[2]) / tf];
+          at = c.from;
+          fly = { v, out: false, chute: true };
+          heading = Math.atan2(v[0], v[2]);
+          enter('fly');
+          break;
+        }
         case 'cross': {
           // R2: up onto the rail, two quick steps across while the belt carries it, down the far side
           const c = crossing;
@@ -1154,6 +1250,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       ledge = null;
       way = null;
       crossing = null;
+      fly = null;
+      landing = null;
       afoot = false;
       trail.length = 0;
       stoolX = restX;
@@ -1187,6 +1285,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         shelf: spec.shelf,
         foot: footNow(),
         ledge: ledge && (state === 'ledge' || state === 'haul' || state === 'dust') ? { edge: ledge.edge, at: ledge.at, up: ledge.up, out: ledge.out } : null,
+        thrown: state === 'fly' || state === 'land' ? { v: fly ? fly.v : null, speed: landing ? landing.speed : fly ? length(fly.v) : 0, chute: fly?.chute ?? false } : null,
         walk: state === 'walk' || state === 'cross' ? { pace, scamper: pace > T.walk, next: way ? onGround(way.points[0] ?? way.cross?.from ?? pt(footNow())) : null, waiting: state === 'walk' && seconds() >= T.setOff && (way === null || blockedAt >= 0) } : null,
       };
     },
