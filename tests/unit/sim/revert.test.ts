@@ -67,8 +67,10 @@ describe('Revert and the Button', () => {
       if (world.button().phase === 'rewinding' && R(world).cranking) cranked = true;
     }
     expect(cranked).toBe(true);
+    // R1: it faces the visitor, then raises the card
+    for (let i = 0; i < 60 && !R(world).card; i++) run(world, 1);
     expect(R(world).card).toMatchObject({ content: 'card.rung1' });
-    run(world, 2);
+    expect(R(world).state).toBe('present');
     expect(world.mode('revert')).toBe('crew');
     const p = world.motion('revert')!.pose.p;
     expect(p[0]).toBeCloseTo(AT.revert.c[0], 5);
@@ -143,6 +145,7 @@ describe('Revert and the UNDO lever: the undo never waits for it', () => {
     const ev = press(world, 'undo-lever');
     expect(ev).toContainEqual({ type: 'undo.refused', by: 'lever', reason: 'nothing', txn: null });
     expect(ev).toContainEqual({ type: 'card', by: 'revert', content: CARD_NOTHING });
+    for (let i = 0; i < steps(3) && !R(world).card; i++) run(world, 1); // R1: it rises, cranks, faces the visitor, then raises it
     expect(R(world).card?.content).toBe(CARD_NOTHING);
   });
 
@@ -183,7 +186,7 @@ describe('Revert goes home (S7)', () => {
     run(world, 5);
     const ev = rung(world); // rises, cranks, holds up its card
     ev.push(...run(world, 1));
-    expect(R(world)).toMatchObject({ state: 'idle', lift: 1 });
+    expect(R(world)).toMatchObject({ state: 'present', lift: 1 }); // R1: it shows its card first
     // a deadpan pause after the card comes down, then the lift takes it down; the doors stay open meanwhile
     for (let i = 0; i < steps(REVERT_TUNING.card + REVERT_TUNING.homePause + 1) && R(world).state !== 'sinking'; i++) ev.push(...run(world, 1));
     expect(R(world).state).toBe('sinking');
@@ -211,7 +214,7 @@ describe('Revert goes home (S7)', () => {
     expect(R(world)).toMatchObject({ state: 'below', lift: 0, hatch: 0 });
     expect(world.mode('revert')).toBe('gone');
     const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
-    expect(seq).toEqual(['rising', 'idle', 'crank', 'idle', 'sinking', 'rising', ...seq.slice(6, -2), 'sinking', 'below']);
+    expect(seq).toEqual(['rising', 'idle', 'crank', 'idle', 'present', 'idle', 'sinking', 'rising', ...seq.slice(8, -2), 'sinking', 'below']);
   });
 
   test('a rung pressed while it sinks calls it back up; a reduced-motion rung (no call) lets it finish going down', () => {
@@ -252,9 +255,10 @@ describe('Revert between presses (S7)', () => {
     }
     expect(crankingIdle).toBe(0);
     const seq = states(ev).filter((s, i, a) => s !== a[i - 1]);
-    expect(seq.filter((s) => s === 'crank').length).toBe(2);
+    // R1: the first rung's card is shown (presenting) through the next rung; its rewind turns the crank in place
+    expect(seq.filter((s) => s === 'crank').length).toBeGreaterThanOrEqual(1);
     ev.push(...run(world, 1));
-    expect(states(ev).at(-1)).toBe('idle');
+    expect(['idle', 'present']).toContain(states(ev).at(-1));
   });
 
   test('a press during the rewind\'s last moment: the crank stops when the rewind does, in the bracket of the next rung', () => {
@@ -262,7 +266,7 @@ describe('Revert between presses (S7)', () => {
     run(world, 5);
     press(world, 'button');
     while (world.bracketed) run(world, 1);
-    run(world, 1);
+    for (let i = 0; i < steps(6) && R(world).state !== 'idle'; i++) run(world, 1); // R1: its card is read first
     expect(R(world).state).toBe('idle');
     // crank into the next rung: an undo crank that outlasts the press
     world.dispatch({ type: 'turn', id: 'belt-dial', value: 0 });
