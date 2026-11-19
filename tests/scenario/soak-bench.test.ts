@@ -54,6 +54,8 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
       // no part at rest below the bench top inside its footprint (the edge sends it back by the chute)
       const inFoot = pos[0] >= b.minX && pos[0] <= b.maxX && pos[2] >= b.minZ && pos[2] <= b.maxZ;
       if ((m.mode === 'free' && !m.awake) || m.mode === 'held') expect(!inFoot || pos[1] > b.top, `${p.id} below the bench top at step ${w.step}: ${pos.join(', ')}`).toBe(true);
+      // (S5: Fetch flying back onto the bench on its jetpack is outside it by design until it lands)
+      if (p.id === 'fetch' && w.crew('fetch')?.state === 'jetpack') continue;
       if (m.mode !== 'free' || !m.awake) expect(pos[0] >= b.minX - 0.01 && pos[0] <= b.maxX + 0.01 && pos[2] >= b.minZ - 0.01 && pos[2] <= b.maxZ + 0.01 && pos[1] > -0.05 && pos[1] < b.ceiling, `${p.id} outside the bench at step ${w.step}: ${pos.join(', ')}`).toBe(true);
     }
   };
