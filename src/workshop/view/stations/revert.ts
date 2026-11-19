@@ -725,6 +725,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           const over = panMiddle(new Vector3(), panFit, panFit * 0.9).applyMatrix4(obj.matrixWorld);
           hops.add(e.part, e.from, now, { via: over, to: e.to.pose, dur: 0.85 });
           sweepEnd = now;
+        } else if (rv.knock >= 0 || rv.state === 'rising' || rv.state === 'stuck') {
+          // R3: knocked in from below: it drops straight through the opened leaves, out of sight
+          hops.add(e.part, e.from, now, { to: { p: [e.from.p[0], e.from.p[1] - 1.4, e.from.p[2]], q: e.from.q }, vanish: true, dur: F.panDropTime });
         } else if (rv.carrying === null && e.from) {
           // R3: at the hatch: the pan tips outward, the crate slides off its lip and drops out of sight
           tipAt = now;

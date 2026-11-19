@@ -163,7 +163,7 @@ describe('Revert and the UNDO lever: the undo never waits for it', () => {
     expect(ev).toContainEqual({ type: 'card', by: 'revert', content: CARD_KEPT });
   });
 
-  test('its hatch covered by something: it never pushes it off; it rattles the doors and stays down', () => {
+  test('its hatch covered by a crate: it never pushes it off; it rattles the doors, and after a while knocks it in from below (R3) and comes up', () => {
     const { world, physics } = benchStub();
     run(world, 5);
     setDown(world, physics, 'crate-4', AT.revert.c[0] + 0.2, AT.revert.c[2]);
@@ -172,11 +172,16 @@ describe('Revert and the UNDO lever: the undo never waits for it', () => {
     const before = others(world);
     const ev = press(world, 'undo-lever'); // takes back the dial, not the crate
     expect(R(world).state).toBe('stuck');
-    run(world, steps(REVERT_TUNING.stuck) + 2);
-    expect(R(world).state).toBe('below');
-    expect(world.mode('revert')).toBe('gone');
-    expect(others(world).get('crate-4')).toEqual(before.get('crate-4'));
+    run(world, steps(REVERT_TUNING.knockAfter) - 2);
+    expect(R(world).state).toBe('stuck');
+    expect(others(world).get('crate-4')).toEqual(before.get('crate-4')); // not pushed off while it rattles
     expect(ev.some((e) => e.type === 'undone')).toBe(true); // the undo itself did not wait
+    // the knock: the leaves open and the crate drops in (a put-away, rule 14); Revert comes up through them
+    const knock = run(world, steps(REVERT_TUNING.knockOpen + 0.5));
+    expect(knock.some((e) => e.type === 'revert.sweep' && e.part === 'crate-4' && e.to.at === 'shipped')).toBe(true);
+    expect(world.part('crate-4')!.location.at).toBe('shipped');
+    expect(world.touched('crate-4')).toBe(false);
+    expect(['rising', 'idle', 'crank']).toContain(R(world).state);
   });
 });
 
