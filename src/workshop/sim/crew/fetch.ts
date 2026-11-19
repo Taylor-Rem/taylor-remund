@@ -7,7 +7,7 @@
  * Attract mode (the vignette's Fetch, unchanged): rolls up and down its lane
  * carrying a crate; after ~4 s with no visitor input it fumbles the crate so
  * it tumbles to a stop beside the Button, looks at it, then out at the
- * visitor, hands out; if ignored for 12 s it fetches it back, shrugs and
+ * visitor, hands out; if ignored for 5 s (12 s while the pointer is on the crate) it fetches it back, shrugs and
  * carries on. The fumble repeats at most every 40 s and never after the
  * visitor's first action (§ B3 "Never nag"). It freezes while a Button rung
  * plays.
@@ -98,7 +98,7 @@ export const FETCH_TUNING = {
   fumbleRecover: 0.7,
   /** In the offer: looks at the crate this long, then out at the visitor. */
   offerLook: 0.9,
-  /** Ignored this long, it fetches the crate back (§ B3: 12 s). */
+  /** Ignored this long, it fetches the crate back (§ B3). */
   /** R1 (Taylor, 2026-11-19: "it just takes him too long to get back to things"): 5 s, was 12. */
   ignoredFor: 5,
   /** R1: while the visitor's pointer is on the offered crate the offer holds, to at most this long in all (the old 12 s). */
