@@ -62,6 +62,8 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
   canvas.style.outline = 'none';
   let shiftTab = false;
+  /** The canvas is taking focus from a press, not from Tab: no control is focused for it. */
+  let pointerFocus = false;
 
   const local = (e: PointerEvent | WheelEvent | MouseEvent): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
@@ -115,7 +117,11 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
     }
     e.preventDefault();
     // the stage takes keyboard focus from a press on it (preventDefault stops the browser doing so)
-    if (typeof document !== 'undefined' && document.activeElement !== canvas) canvas.focus({ preventScroll: true });
+    if (typeof document !== 'undefined' && document.activeElement !== canvas) {
+      pointerFocus = true;
+      canvas.focus({ preventScroll: true });
+      pointerFocus = false;
+    }
     gestures.down(sample(e, p.x, p.y));
     flush();
   };
@@ -170,7 +176,7 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   };
   const onFocus = (e: FocusEvent): void => {
     // arriving by Tab (not a press): the first control (the last, coming back with Shift+Tab) takes focus
-    if (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible')) return;
+    if (pointerFocus || (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible'))) return;
     if (gestures.focused === null) gestures.key('Tab', e.timeStamp, { shift: shiftTab });
     flush();
   };

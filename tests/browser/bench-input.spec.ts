@@ -376,6 +376,14 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   }, [under[0]!, under[2]!] as const);
   expect(Math.hypot(x1 - want[0]!, z1 - want[1]!), `aim ${x1},${z1} vs the light moved with the hand ${want[0]},${want[1]}`).toBeLessThan(0.35);
 
+  // the lamp put back with U: aimed at the front, its shade hangs in front of the board and would cover the jacks
+  // the plug step needs (that is the lamp really being there, not a box too big); and U takes the arm back too
+  await page.keyboard.press('u');
+  await pollFrames(page, async () => [Math.round(((await setting(page, 'lamp', 'x')) as number) * 100), Math.round(((await setting(page, 'lamp', 'z')) as number) * 100)]).toEqual([
+    Math.round(x0 * 100),
+    Math.round(z0 * 100),
+  ]);
+
   // 5. Patch: lifted off its stool and set down on the bench in front of it
   const patch = await bringIntoView(page, hand, 'patch', kind);
   const toP = { x: patch.x - vp.width * 0.06, y: Math.min(vp.height - 30, patch.y + vp.height * 0.12) };
@@ -404,8 +412,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
   const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
   await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
-  await expect
-    .poll(() => setting(page, 'cord', 'jack'))
+  await pollFrames(page, () => setting(page, 'cord', 'jack'))
     .toBe('jack-lamp')
     .catch(async (e) => {
       throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);

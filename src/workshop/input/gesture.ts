@@ -327,7 +327,8 @@ export class Gestures {
       return;
     }
 
-    if (this.focus !== null && s.kind !== 'mouse') this.setFocus(null, s.t);
+    // a hand on the stage takes over from the keys: no focus mark under a pointer
+    if (this.focus !== null) this.setFocus(null, s.t);
 
     const h = this.holding;
     if (h) {
