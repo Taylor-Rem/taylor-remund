@@ -54,7 +54,7 @@ async function rig(): Promise<Rig> {
     reducedMotion: false,
     realize: (p) => K.realize(p, stubMaterials),
     pickable() {},
-  } as ViewContext;
+  } as unknown as ViewContext;
   const view = createPartsView({
     half: (p) => w.halfExtents(p.id) ?? [0.3, 0.3, 0.3],
     tapes: true,
@@ -71,7 +71,7 @@ async function rig(): Promise<Rig> {
     const ev = w.drainEvents();
     for (const e of ev) events.push({ step: w.step, e });
     perfs.update(w.machine('platen') as PlatenView, w, false);
-    const frame: Frame = { world: w, events: ev, time: w.time, dt: 1 / HZ, alpha: 1, pointer: null, hovered: null, held: null };
+    const frame = { world: w, events: ev, time: w.time, dt: 1 / HZ, alpha: 1, pointer: null, hovered: null, held: null, focused: null } as unknown as Frame;
     view.update(frame);
     for (const part of w.parts()) {
       if (part.kind === 'robot') continue;
