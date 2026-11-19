@@ -25,7 +25,7 @@ import type { Token } from '../../../palette.ts';
 import { askew } from '../../rng.ts';
 import type { Rng } from '../../rng.ts';
 import { grain, setFinish } from '../../space.ts';
-import {
+import { PAN,
   AXLE_Y, BODY_Y, BROOM, BROW, CARD_STICK, CRANK, DRUM, EYE, EYE_C, FACE, FORE, HULL, LAMP, LID, LOWER, RM, SHOE_L, SHOULDER, SLOT, TAN_RAKE, TRACK, UPPER,
   faceZ,
 } from './rig.ts';
@@ -512,9 +512,14 @@ export function buildBroomClips(n: NodeBuilder, stowed: Matrix4, c: Ctx): void {
   }
 }
 
-/** The dustpan, carried flat on a bracket off the right flank, its mouth forward (body node): from above it reads as what it is. */
-export function buildDustpan(n: NodeBuilder, c: Ctx): void {
-  const W = 0.3, D = 0.22, H = 0.1, t = 0.01;
+/**
+ * The dustpan, carried flat on a bracket off the right flank, its mouth forward: from above it reads as what it
+ * is. The pan is its own node (`pan`, origin at its inner edge on its floor: it opens out round a crate and tips);
+ * the bracket is the body's.
+ */
+export function buildDustpan(pan: NodeBuilder, n: NodeBuilder, c: Ctx): void {
+  const { W, D, H } = PAN;
+  const t = 0.01;
   const parts: KitPart[] = [];
   // the pan: a floor, a back wall, two sloping cheeks (sheet with visible thickness)
   parts.push(part('metal', bevelBox({ min: [-W / 2, 0, 0], max: [W / 2, t, D], c: 0.003 }), 'steel', { seed: c.seed + 130, shade: 0.95 }));
@@ -525,9 +530,9 @@ export function buildDustpan(n: NodeBuilder, c: Ctx): void {
   }
   // a short turned handle off the back wall
   parts.push(part('wood', grain(transform(turn(profile(0, 0).to(0.019, 0, { fillet: 0.005, segs: 1 }).to(0.017, 0.15, { fillet: 0.006, segs: 1 }).to(0, 0.152), { segs: 8, caps: true }), chain(T(0, H * 0.6, -t), new Matrix4().makeRotationX(-Math.PI / 2 - 0.5))), 'y'), 'wood-light', { seed: c.seed + 133, shade: 0.85 }));
-  // on its bracket over the right tread, mouth forward, a little askew
-  const m = chain(T(HULL.w / 2 + 0.11, by(0.43), -0.04), new Matrix4().makeRotationY(-0.12), new Matrix4().makeRotationX(0.12), T(0, 0, -D * 0.5));
-  for (const q of parts) n.add({ ...q, geometry: transform(q.geometry, m) });
+  // in the pan node: from its inner edge outward, centred fore and aft, a little askew (as it sits on its bracket)
+  const m = chain(new Matrix4().makeRotationY(PAN.yaw), new Matrix4().makeRotationX(PAN.tilt), T(W / 2, 0, -D * 0.5));
+  for (const q of parts) pan.add({ ...q, geometry: transform(q.geometry, m) });
   // its bracket: a bent strap off the flank that the pan sits in
   for (const z of [-0.12, 0.06]) n.add(setFinish(part('brass', bevelBox({ min: [HULL.w / 2 - 0.01, by(0.405), z - 0.022], max: [HULL.w / 2 + 0.2, by(0.43), z + 0.022], c: 0.008, omit: ['nx'] }), 'brass', { seed: c.seed + 134 }), 0.3));
 }
