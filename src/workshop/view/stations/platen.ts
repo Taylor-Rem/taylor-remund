@@ -150,8 +150,12 @@ export class PlatenPerformances {
       const fwd = l.how === 'change';
       const u = fwd ? this.k(l, t) : 1 - this.k(l, t);
       const before = String(fwd ? l.from : l.to), after = String(fwd ? l.to : l.from);
-      // the words being laid grow behind the roller; a label taken away peels back the same way
-      out.label = after !== '' ? { text: after, length: tapeAt(u) } : { text: before, length: 1 - tapeAt(u) };
+      // the words being laid grow behind the roller; a label taken away peels back the same way; new words over
+      // old: the old strip peels off in the first half of the run, the new one goes on in the second
+      const p = tapeAt(u);
+      if (after === '') out.label = { text: before, length: 1 - p };
+      else if (before === '' || before === after) out.label = { text: after, length: p };
+      else out.label = p < 0.5 ? { text: before, length: 1 - 2 * p } : { text: after, length: 2 * p - 1 };
       any = true;
     }
     return any;

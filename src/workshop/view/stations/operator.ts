@@ -40,6 +40,7 @@ import {
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
 import { jackName, patchlampBus } from './patchlamp-bus.ts';
+import { partsHooks, unhook, type PartsOverlay } from './parts.ts';
 
 /** Tune here: seconds, rates in 1/s. */
 export const OPERATOR_FEEL = {
@@ -174,6 +175,24 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     const pawW = new Vector3();
     let heldId: string | null = null;
     let heldObj: Object3D | null = null;
+    // the part in the paw, for the parts view's overlay
+    const inPaw: { id: string; frame: Frame | null; x: number; y: number; z: number } = { id: '', frame: null, x: 0, y: 0, z: 0 };
+    let partsFrame: Frame | null = null;
+    const hooks = partsHooks(ctx.scene);
+    const overlay: PartsOverlay = {
+      begin(f) {
+        partsFrame = f;
+      },
+      pose(id, f, m) {
+        if (inPaw.frame !== f || inPaw.id !== id) return false;
+        const e = m.elements;
+        e[12] = inPaw.x;
+        e[13] = inPaw.y;
+        e[14] = inPaw.z;
+        return true;
+      },
+    };
+    hooks.overlays.push(overlay);
     let drawer = 0;
     let drawerShown = -1;
     const drawers: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
@@ -468,19 +487,28 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
         apply(pose);
-        // a caught part is drawn in the paw (the parts view drew it where the simulation has it; this runs after)
-        if (mode === 'catch' && v.holding) {
-          if (v.holding !== heldId) {
-            heldId = v.holding;
-            heldObj = ctx.scene.getObjectByName(`part:${v.holding}`) ?? null;
-          }
-          if (heldObj && caught && !reduced) {
-            pawW.set(caught[0], caught[1], caught[2]).applyMatrix4(root.matrixWorld);
-            const e = heldObj.matrix.elements;
-            e[12] = pawW.x;
-            e[13] = pawW.y;
-            e[14] = pawW.z;
-            heldObj.matrixWorldNeedsUpdate = true;
+        // a caught part is drawn in the paw: through the parts view's overlay when it draws after this view (its
+        // shadow goes with it), or straight onto its matrix when it has drawn already this frame
+        inPaw.frame = null;
+        if (mode === 'catch' && v.holding && caught && !reduced) {
+          pawW.set(caught[0], caught[1], caught[2]).applyMatrix4(root.matrixWorld);
+          inPaw.id = v.holding;
+          inPaw.frame = frame;
+          inPaw.x = pawW.x;
+          inPaw.y = pawW.y;
+          inPaw.z = pawW.z;
+          if (partsFrame === frame) {
+            if (v.holding !== heldId) {
+              heldId = v.holding;
+              heldObj = ctx.scene.getObjectByName(`part:${v.holding}`) ?? null;
+            }
+            if (heldObj) {
+              const e = heldObj.matrix.elements;
+              e[12] = pawW.x;
+              e[13] = pawW.y;
+              e[14] = pawW.z;
+              heldObj.matrixWorldNeedsUpdate = true;
+            }
           }
         }
         if (mode === 'plug' && st === 'plug') {
@@ -501,6 +529,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         }
       },
       dispose() {
+        unhook(hooks.overlays, overlay);
         root.removeFromParent();
         stool.removeFromParent();
       },

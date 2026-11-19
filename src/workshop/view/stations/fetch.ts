@@ -28,7 +28,7 @@ import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms
 import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
-import { partShows, partsHooks, paintToken, type PartWork } from './parts.ts';
+import { partShows, partsHooks, paintToken, unhook, type PartWork, type PartsOverlay } from './parts.ts';
 import type { Token } from '../palette.ts';
 import {
   AngleSpring, Cadence, Derivative, Spring, SpringVec, clamp, damp, fbm1, lerp, outBack, reducedMotionParams, smoothstep, track, wrapAngle,
@@ -1055,6 +1055,49 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const paintAxis = new Vector3();
     const qInv = new Quaternion();
 
+    // the crate in its hands: the body's offset from its unanimated pose, applied to the crate's drawn matrix
+    const carry: { id: Id | null; frame: Frame | null; x: number; z: number; reach: number } = { id: null, frame: null, x: 0, z: 0, reach: 0.3 };
+    let partsFrame: Frame | null = null;
+    const carryInto = (m: Matrix4, time: number): void => {
+      // only a crate in its hands rides its body; one the simulation carries out of reach (the lob onto
+      // the belt) is where the simulation says, or a lean would swing it a long way at arm's length
+      m.decompose(dp.p, dp.q, dp.s);
+      const dd = Math.hypot(dp.p.x - carry.x, dp.p.z - carry.z);
+      const wr = 1 - smoothstep(carry.reach * 2.0, carry.reach * 2.6, dd);
+      if (wr >= 1) m.premultiply(delta);
+      else if (wr > 0) {
+        m.premultiply(delta).decompose(dd0.p, dd0.q, dd0.s);
+        dp.p.lerp(dd0.p, wr);
+        dp.q.slerp(dd0.q, wr);
+        m.compose(dp.p, dp.q, dp.s);
+      }
+      if (catchFrom && catchFrom.id === carry.id) {
+        catchFrom.t0 ??= time;
+        const k = (time - catchFrom.t0) / CATCH;
+        if (k >= 1) catchFrom = null;
+        else {
+          const e = k * k * (3 - 2 * k);
+          catchFrom.m.decompose(ca.p, ca.q, ca.s);
+          m.decompose(cb.p, cb.q, cb.s);
+          ca.p.lerp(cb.p, e);
+          ca.p.y += 0.3 * Math.sin(Math.PI * k);
+          ca.q.slerp(cb.q, e);
+          m.compose(ca.p, ca.q, cb.s);
+        }
+      }
+    };
+    const overlay: PartsOverlay = {
+      begin(frame) {
+        partsFrame = frame;
+      },
+      pose(pid, frame, m) {
+        if (carry.id !== pid || carry.frame !== frame) return false;
+        carryInto(m, frame.time);
+        return true;
+      },
+    };
+    hooks.overlays.push(overlay);
+
     const view: StationView = {
       root,
       update(frame: Frame) {
@@ -1156,40 +1199,24 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           }
         }
         if (member.carrying && motion.mode === 'crew' && w.mode(member.carrying) === 'crew') {
-          if (carriedObj?.id !== member.carrying) carriedObj = { id: member.carrying, o: ctx.scene.getObjectByName(`part:${member.carrying}`) };
-          const c = carriedObj.o;
-          if (c) {
-            restRoot.compose(pb.set(pa.x, pa.y - half[1], pa.z), qYaw.setFromAxisAngle(yAxis, member.heading), one);
-            restRoot.multiply(bodyRest0).invert();
-            bodyNow.copy(out.root).multiply(ms.lean!).multiply(ms.body!);
-            delta.multiplyMatrices(bodyNow, restRoot);
-            // only a crate in its hands rides its body; one the simulation carries out of reach (the lob onto
-            // the belt) is where the simulation says, or a lean would swing it a long way at arm's length
-            c.matrix.decompose(dp.p, dp.q, dp.s);
-            const dd = Math.hypot(dp.p.x - pa.x, dp.p.z - pa.z);
-            const wr = 1 - smoothstep(half[2] * 2.0, half[2] * 2.6, dd);
-            if (wr >= 1) c.matrix.premultiply(delta);
-            else if (wr > 0) {
-              c.matrix.premultiply(delta).decompose(dd0.p, dd0.q, dd0.s);
-              dp.p.lerp(dd0.p, wr);
-              dp.q.slerp(dd0.q, wr);
-              c.matrix.compose(dp.p, dp.q, dp.s);
+          restRoot.compose(pb.set(pa.x, pa.y - half[1], pa.z), qYaw.setFromAxisAngle(yAxis, member.heading), one);
+          restRoot.multiply(bodyRest0).invert();
+          bodyNow.copy(out.root).multiply(ms.lean!).multiply(ms.body!);
+          delta.multiplyMatrices(bodyNow, restRoot);
+          carry.id = member.carrying;
+          carry.frame = frame;
+          carry.x = pa.x;
+          carry.z = pa.z;
+          carry.reach = half[2];
+          // drawn by the parts view's overlay when the parts view draws after this one (the bench: its shadow goes
+          // with it); when it has drawn already this frame (the vignette's order), straight onto its matrix
+          if (partsFrame === frame) {
+            if (carriedObj?.id !== member.carrying) carriedObj = { id: member.carrying, o: ctx.scene.getObjectByName(`part:${member.carrying}`) };
+            const c = carriedObj.o;
+            if (c) {
+              carryInto(c.matrix, frame.time);
+              c.matrixWorldNeedsUpdate = true;
             }
-            if (catchFrom && catchFrom.id === member.carrying) {
-              catchFrom.t0 ??= frame.time;
-              const k = (frame.time - catchFrom.t0) / CATCH;
-              if (k >= 1) catchFrom = null;
-              else {
-                const e = k * k * (3 - 2 * k);
-                catchFrom.m.decompose(ca.p, ca.q, ca.s);
-                c.matrix.decompose(cb.p, cb.q, cb.s);
-                ca.p.lerp(cb.p, e);
-                ca.p.y += 0.3 * Math.sin(Math.PI * k);
-                ca.q.slerp(cb.q, e);
-                c.matrix.compose(ca.p, ca.q, cb.s);
-              }
-            }
-            c.matrixWorldNeedsUpdate = true;
           }
         } else if (member.state === 'pickup' && member.lookAt) {
           // remember where the crate it is about to take is drawn
@@ -1216,6 +1243,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         }
       },
       dispose() {
+        unhook(hooks.overlays, overlay);
         shadows?.dispose();
         root.removeFromParent();
       },
