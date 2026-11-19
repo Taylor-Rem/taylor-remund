@@ -48,10 +48,6 @@ export const OPERATOR_FEEL = {
   blendFar: 0.35,
   /** A thrown part: no time to ease into it. */
   blendReact: 0.07,
-  /** The look held after the cord comes out: the stages' share of it (s), then natural speed. */
-  lookStages: 1.5,
-  /** The job's follow-through after the reply: the folder put back, the drawer shut (natural speed). */
-  shutFrom: 9.2,
   /** The idle head: how fast it follows, how near the pointer must be, how much of the way it turns. */
   idleRate: 2.4,
   near: 4.5,
@@ -152,6 +148,19 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
       if (!p) workRest.set(j, (p = atWork(targetsFor(j))));
       return p;
     };
+
+    // ── idle prep: while Patch sits doing nothing, one small piece of its repertoire is got ready per frame
+    // (each line's job keyframes, kept; the rest run once so the first real one is not its first time) ──
+    const prep: Array<() => void> = [
+      ...JACKS.map((j) => () => void job(0, targetsFor(j))),
+      () => void notice(0.1, [-1, 0.4, 0.5]),
+      () => void rollTo(0.3, { fromX: REST_X, toX: REST_X - 1, length: 0.6 }),
+      () => void theLook(0.5, { plug: [-0.5, 0.2, 0.4] }),
+      () => void climb(0.3),
+      () => void duck(0.3),
+      () => void bonked(0.3),
+      () => void catchCrate(0.6),
+    ];
 
     // ── view state ──
     let mode: Mode = 'idle';
@@ -425,6 +434,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             pose = bonked(reduced ? BONK_LENGTH : sT, { from: reactFrom });
             break;
           default: {
+            if (prep.length && t > 1 && !reduced) prep.shift()!();
             // idle: the rest (side-on, face to the visitor) or at work by a jack; the head follows the action, slowly
             const base = resolvePose(restPose(stoolB));
             let target: V3 | null = null;

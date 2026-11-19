@@ -16,14 +16,25 @@
  * open past "mildly interested", the head turns slowly and the eyes lead it,
  * the smirk is one-sided, it never waves and it is never hurt.
  *
+ * Timing. Every performance is authored FOR the simulation's stage lengths (sim/crew/patch.ts
+ * PATCH_TUNING, read here, not copied) and played at natural speed: the view passes the stage's own
+ * stateTime. A practised operator's economy: one clear action a beat.
+ *
+ * The arm. Every reach the performances ask on the bench was answered offline by the exact search and
+ * is carried as data (reach-table.ts; tests/unit/kit/patch-bake.test.ts makes it and holds play to it),
+ * so play never searches; a question the table lacks is answered by the quick search (REACH_MISSES).
+ *
  * The performances (lengths in seconds, `*_LENGTH`):
- *   job(t, targets)             the job, staged (`JOB_STAGES`, `jobStage`), ~11.5 s
- *   theLook(t, o)               the cord pulled mid-job: the dead plug, then slowly the visitor; holds
- *   held(t, carryVelocity, o)   lifted by the scruff (the root goes at the visitor's hand); loops
- *   climb(t, o)                 put down by the stool: paws on the seat, a hop, a turn, settle, headset, ~3.4 s
- *   returnToStool(t, from, o)   put down anywhere: toddles to the stool's foot, then climb
- *   duck(t, o) / catchCrate(t, o) / bonked(t, o)   a thrown crate, ≤ 1.5 s each
- *   reachJack / reachDrawer     a paw to a point, with the body leaning (and what is still short)
+ *   notice(t, lamp, from)                   NOTICE_LENGTH (the sim's notice)
+ *   rollTo(t, {fromX, toX, length})         the sim's roll length (a shove under 0.5 s; shove, glide, stop above)
+ *   movePlug(t, from, to, stoolX, from)     PLUG_LENGTH: the cord to another jack (attract mode)
+ *   job(t, targets) / jobStage              JOB_STAGES: drawer, work, check, reply at the sim's lengths, then shut
+ *   theLook(t, o)                           STARE_LENGTH + the look, then holds
+ *   held(t, carryVelocity, o)               the root at the visitor's hand; loops
+ *   climb(t, {foot})                        CLIMB_LENGTH, from PatchView.foot
+ *   toddle(walked, feet, heading)           the walk back, driven by where the sim has its feet
+ *   duck / catchCrate (onto PatchView.shelf) / bonked     DUCK_ / CATCH_ / BONK_LENGTH (≤ 1.5 s)
+ *   reach / reachJack / reachDrawer         a paw to a point, the body leaning only as needed, and what is short
  */
 import { Matrix4, Vector3 } from 'three';
 import { clamp, clamp01, inOutCubic, inOutQuad, lerp, outBack, outCubic, inCubic, smoothstep } from '../../../anim/ease.ts';
@@ -1480,7 +1491,7 @@ const CRATE_ON_PAW = 0.13;
  */
 export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
   const vis = o.visitor ?? VISITOR;
-  const at = o.at ?? [0.5, 0.5, 0.22];
+  const at = o.at ?? [0.45, 0.34, 0.3];
   const shelf = o.shelf ?? CATCH_SHELF;
   const H = T_.catchHold, L = CATCH_LENGTH;
   const keys = memoKeys('catch', [vis, at, shelf], () => {
@@ -1500,6 +1511,8 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
       { t: H * 0.22, set: { armL: upArm, lean: up.pose.lean ?? [0, 0], twist: up.pose.twist ?? 0, lids: [0.4, 0.38], ears: [0.05, 0.1] }, ease: outBack(1.2) },
       { t: H * 0.55, set: { armL: giveArm, lean: [0.03, 0.06] }, ease: outCubic },
       { t: H, set: { brows: [0.35, -0.25], browTilt: [0.3, -0.1], ...pick(FACE.smug, ['lidsLow', 'mouth']) } },
+      // low across the belly (never across the face), then out to the shelf
+      { t: H + (L - H) * 0.35, set: { armL: J(0.75, -0.2, -0.5, 1.15, 0.1, 0.3), twist: -0.15 }, ease: inOutQuad },
       { t: H + (L - H) * 0.7, set: { armL: setArm, lean: setR.pose.lean ?? [0.08, 0], twist: setR.pose.twist ?? 0 }, ease: inOutCubic },
       { t: L, set: { armL: { ...setArm, wrist: setArm.wrist - 0.25 } }, ease: outCubic },
       { t: L + 0.35, set: { arms: 'rest', lean: [0.02, 0], twist: 0.05, ...FACE.smug } },
