@@ -1469,7 +1469,8 @@ export function held(t: number, carryVelocity: V3 = [0, 0, 0], o: HeldOptions = 
   // the flail (a picked-up Mii): limbs paddling, tail whipping, eyes wide; a burst at the pick-up, settling
   // over about two seconds into the resigned dangle; a new burst whenever it is shaken or swung
   const speed = Math.hypot(carryVelocity[0], carryVelocity[1], carryVelocity[2]);
-  const A = clamp(Math.max(Math.exp(-Math.max(0, t - 0.15) / 0.75) * smoothstep(0, 0.12, t), smoothstep(0.6, 2.2, speed)), 0, 1);
+  // full for the first second, then running out by about two (a sigh's worth); swung or shaken, it starts again
+  const A = clamp(Math.max((1 - smoothstep(0.9, 2.1, t)) * smoothstep(0, 0.1, t), smoothstep(0.2, 1.0, speed)), 0, 1);
   const g0 = flail(f, t, A);
   // the look: down at the drop first (eyes wide), then at the visitor (resigned)
   const down = smoothstep(0.05, 0.25, t) * (1 - smoothstep(0.55, 1.1, t));
@@ -1487,13 +1488,14 @@ export function held(t: number, carryVelocity: V3 = [0, 0, 0], o: HeldOptions = 
 function flail(f: FullPose, t: number, A: number): FullPose {
   if (A <= 1e-3) return f;
   const s = (w: number, ph: number): number => Math.sin(t * w + ph) * A;
-  const arm = (a: ArmJoints, ph: number): ArmJoints => ({ ...a, swing: a.swing + 0.9 + s(11, ph) * 0.9, abduct: a.abduct + 0.35 + s(8.5, ph + 1) * 0.35, elbow: a.elbow + 0.4 + s(13, ph + 2) * 0.5, wrist: a.wrist + s(15, ph) * 0.4 });
-  const leg = (l: LegJoints, ph: number): LegJoints => ({ ...l, lift: l.lift + 0.35 * A + s(12, ph) * 0.75, knee: l.knee + 0.45 * A + s(12, ph + 1.3) * 0.6, splay: l.splay + 0.1 * A });
+  // out to the sides (the silhouette at home framing), paddling: windmilling arms, kicking legs
+  const arm = (a: ArmJoints, ph: number): ArmJoints => ({ ...a, swing: a.swing + 0.45 * A + s(10, ph) * 0.8, abduct: a.abduct + 0.85 * A + s(8, ph + 1) * 0.55, elbow: a.elbow + 0.5 * A + s(13, ph + 2) * 0.55, wrist: a.wrist + s(15, ph) * 0.5 });
+  const leg = (l: LegJoints, ph: number): LegJoints => ({ ...l, lift: l.lift + 0.45 * A + s(12, ph) * 0.8, knee: l.knee + 0.5 * A + s(12, ph + 1.3) * 0.7, splay: l.splay + 0.35 * A + s(9, ph + 0.7) * 0.3 });
   return {
     ...f,
     arms: { left: arm(f.arms.left, 0), right: arm(f.arms.right, Math.PI) },
     legs: [leg(f.legs[0], 0.4), leg(f.legs[1], 0.4 + Math.PI)],
-    tail: [f.tail[0] + s(9, 0.5) * 0.5, f.tail[1] + s(7, 0) * 0.9],
+    tail: [f.tail[0] + s(9, 0.5) * 0.6, f.tail[1] + s(7, 0) * 1.2],
     tailLift: f.tailLift + 0.6 * A,
     headTilt: f.headTilt + s(6, 1) * 0.15,
     lean: [f.lean[0] + s(5, 0.3) * 0.08, f.lean[1] + s(6.5, 1) * 0.12],
