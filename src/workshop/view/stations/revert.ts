@@ -79,7 +79,7 @@ export const REVERT_FEEL = {
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
   /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
-  copyRows: 32,
+  copyRows: 10,
   /** Before it rises: the card's top peeks out of the slot this far (fraction of its rise) and waits this long. */
   peek: 0.09,
   peekHold: 0.3,
@@ -312,24 +312,33 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         /* a card the content does not have (yet): painted when asked for */
       }
     }
-    /** The next card's label, copied into the region a band of rows a frame while the card waits in its slot. */
+    /**
+     * The next card's label, copied into a buffer a band of rows a frame, from as soon as the card is
+     * known (the Button says which card a rung ends with when it is pressed, seconds before the card is
+     * wanted), and put into the region (uploaded) once the card is stowed in its slot.
+     */
     let copying: { content: string; key: string; row: number } | null = null;
     let regionHolds: string | null = null;
     const startCard = (content: string): void => {
-      if (copying?.content === content) return;
+      if (copying?.content === content || (regionHolds === content && !copying)) return;
       copying = { content, key: cardKey(content), row: 0 };
     };
-    /** Copy the next band; true once the whole card is in the region (and uploaded). */
-    const stepCard = (): boolean => {
+    /** One band (no more than `copyRows` rows a frame, whatever else is asked). */
+    const copyBand = (): void => {
       const c = copying;
-      if (!c) return true;
+      if (!c || c.row >= region.px.h) return;
       const j1 = Math.min(region.px.h, c.row + F.copyRows);
       copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
       c.row = j1;
-      if (j1 < region.px.h) return false;
+    };
+    /** Once copied and with the card in its slot: into the region. True when the region holds `content`. */
+    const settleCard = (content: string): boolean => {
+      if (regionHolds === content && (!copying || copying.content !== content)) return true;
+      const c = copying;
+      if (!c || c.content !== content || c.row < region.px.h || cardPhase !== 'stowed') return false;
       region.put(regionPx);
       const sz = ctx.labels.size(c.key);
-      cardContent = regionHolds = c.content;
+      regionHolds = c.content;
       cardSize.w = sz.w;
       cardSize.h = sz.h;
       cardScale.x = sz.w / card0.w;
@@ -387,6 +396,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
 
         // ── events ──
         for (const e of frame.events) onEvent(e, rv, now);
+        // the card a rung will end with is known at the press: start copying it now, a band a frame
+        const coming = w.button().card;
+        if (coming && w.button().phase !== 'idle' && !copying && regionHolds !== coming) startCard(coming);
+        copyBand();
 
         // ── the hatch ──
         const doorGoal = rv.hatch;
@@ -719,11 +732,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       const s = now - cardAt;
       switch (cardPhase) {
         case 'stowed':
-          if (want && want !== cardContent) {
-            if (regionHolds === want) cardContent = want;
-            else startCard(want);
-          }
-          if (want && rv.drawn && lift.x > 0.9 && stepCard() && cardContent === want) {
+          if (want) startCard(want);
+          if (want && rv.drawn && lift.x > 0.9 && settleCard(want)) {
+            cardContent = want;
             cardPhase = 'up';
             cardAt = now;
             cardLift.set(0);
