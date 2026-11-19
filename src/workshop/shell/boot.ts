@@ -24,6 +24,7 @@
  */
 import { Box3, Ray, Raycaster, Vector3, type Intersection, type Mesh, type Object3D } from 'three';
 import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
+import { gloveCursors, POSE_OF, type GlovePose } from '../ui/cursor.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
@@ -439,6 +440,14 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       else camera.back();
     },
     undo: () => controls.undo(),
+    cursor: (c) => glove?.[POSE_OF[c]] ?? null,
+  });
+  // (R1) the bench's own cursor, a work glove: drawn once (1x and 2x) and handed to the canvas as CSS cursors;
+  // the system's cursor until then, and for visitors who ask for more contrast or less motion (ui/cursor.ts)
+  let glove: Record<GlovePose, string> | null = null;
+  void gloveCursors().then((g) => {
+    glove = g;
+    dom.refreshCursor();
   });
 
   // 6. the loop
