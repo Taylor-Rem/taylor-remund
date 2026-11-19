@@ -30,7 +30,7 @@ export interface Cue {
 
 /** A looped sound's settings this frame. */
 export interface LoopCue {
-  readonly id: 'loop.hum' | 'loop.treads' | 'loop.wheel';
+  readonly id: 'loop.hum' | 'loop.treads' | 'loop.wheel' | 'loop.jet';
   readonly gain: number;
   readonly rate: number;
   readonly pan: number;
@@ -63,6 +63,8 @@ export const SCORE_TUNING = {
   padLanding: { gain: 0.6, quiet: 0.35 },
   /** (R1) A crew member's yelp when lifted is not heard again within this long (s). */
   yelpGap: 2,
+  /** (S5 jet) The landing after the cut, in Fetch's own note: the touchdown and the bounce's. */
+  jetLanding: { gain: 0.42, bounce: 0.2, near: 0.012 },
   /** The same sound starts at most once in this long (s), unless it is a note. */
   sameGap: 0.03,
   /** (I1 R1) The bell rung by hand: its gain (a shipment's is 1), how much quieter each ring on the last one's heels, the window (s), the most at once. */
@@ -99,6 +101,10 @@ export class Score {
   private launched = new Map<Id, number>();
   /** (R1) When each crew member last yelped. */
   private yelped = new Map<Id, number>();
+  /** (S5 jet) The jets are burning (from `jet.ignited` to `jet.cut`): the hiss sounds. */
+  private jetOn = false;
+  /** (S5 jet) After the cut: where it lands, and whether the touchdown has been heard. */
+  private jetDown: { y: number; touched: boolean } | null = null;
   private speeds = new Map<Id, number>();
   private leverPhase: string | null = null;
   private crank: number | null = null;
@@ -235,7 +241,19 @@ export class Score {
       }
       case 'undone':
         return this.play('tape.rewind', now, { param: Math.min(T.rewind.max, T.rewind.base + T.rewind.per * e.restores.length), pan: 0 });
+      case 'jet.ignited':
+        this.jetOn = true;
+        this.jetDown = null;
+        return this.play('jet.pop', now, {}, e.at);
+      case 'jet.cut': {
+        this.jetOn = false;
+        const j = this.fetch ? w.crew(this.fetch)?.jet : null;
+        this.jetDown = j ? { y: j.to[1], touched: false } : null;
+        return this.play('jet.puff', now, {}, e.at);
+      }
       case 'reset':
+        this.jetOn = false;
+        this.jetDown = null;
         return this.play('tape.rewind', now, { param: T.resetRewind, pan: 0 });
       case 'cord.unplugged':
         return this.play('plug.out', now, { gain: e.by ? 0.6 : 1 }, this.posOf(w, e.jack));
@@ -303,6 +321,24 @@ export class Score {
   // ───────────────────────── one-shots, from states ─────────────────────────
 
   private states(w: WorldView, now: number): void {
+    // (S5 jet) the hiss never outlives the flight (caught in mid-air, put back by a rung); the landing after the cut
+    if (this.fetch) {
+      const T = SCORE_TUNING.jetLanding;
+      const f = w.crew(this.fetch);
+      const j = f?.jet ?? null;
+      if (!j || f?.state !== 'jetpack') {
+        this.jetOn = false;
+        // done: the bounce comes down on its tape (only after a cut: a flight caught in a hand lands nowhere)
+        if (this.jetDown && f?.state !== 'held') this.play(this.fetchNote(w), now, { gain: this.jetDown.touched ? T.bounce : T.gain, lowpass: 6000 }, f ? [f.x, 0, f.z] : null);
+        this.jetDown = null;
+      } else if (this.jetDown && !this.jetDown.touched) {
+        const y = w.motion(this.fetch)?.pose.p[1];
+        if (y !== undefined && y <= this.jetDown.y + T.near) {
+          this.jetDown.touched = true;
+          this.play(this.fetchNote(w), now, { gain: T.gain, lowpass: 8000 }, [f!.x, 0, f!.z]);
+        }
+      }
+    }
     // the UNDO lever: the thunk at its stop and the clack home, from its own published phase
     if (this.lever) {
       const v = w.machine(this.lever);
@@ -362,11 +398,14 @@ export class Score {
     } else out.push({ id: 'loop.treads', gain: 0, rate: 1, pan: 0 });
     // Fetch's wheel: by its speed; spinning free in the visitor's hand
     const f = this.fetch ? w.crew(this.fetch) : undefined;
-    if (f) {
+    if (f && f.state !== 'jetpack') {
       const held = f.state === 'held';
       const s = held ? T.fetchSpeed * 0.6 : Math.abs(f.speed);
       out.push({ id: 'loop.wheel', gain: clamp(s / 0.5, 0, 1) * (held ? 0.6 : 1), rate: 0.7 + 0.6 * clamp(s / T.fetchSpeed, 0, 1), pan: this.panOf(held ? this.posOf(w, f.id) : [f.x, 0, f.z]) });
     } else out.push({ id: 'loop.wheel', gain: 0, rate: 1, pan: 0 });
+    // (S5 jet) the jetpack's hiss: one voice from the ignition to the cut; louder and brighter with the thrust
+    const thrust = this.jetOn && f?.jet ? clamp(f.jet.thrust, 0, 1) : 0;
+    out.push({ id: 'loop.jet', gain: thrust > 0 ? 0.25 + 0.75 * Math.pow(thrust, 0.8) : 0, rate: 0.82 + 0.36 * thrust, pan: f ? this.panOf([f.x, 0, f.z]) : 0 });
     return out;
   }
 
@@ -406,6 +445,12 @@ export class Score {
     const fetch = w.crewViews().find((c) => c.kind === 'fetch');
     this.fetch = fetch ? fetch.id : null;
     if (this.fetch && !w.crew(this.fetch)) this.fetch = null;
+  }
+
+  /** Fetch's own knock: its note by its size and material (the landing of a flight). */
+  private fetchNote(w: WorldView): string {
+    const p = this.fetch ? w.part(this.fetch) : undefined;
+    return p ? `hit.${p.material}.${p.size}` : 'hit.metal.M';
   }
 
   private revertBody(w: WorldView): Id | null {

@@ -609,6 +609,31 @@ const OTHERS: SoundDef[] = [
     },
   }),
   once({
+    id: 'jet.pop',
+    group: 'crew',
+    answers: "jet.ignited (Fetch's jets catch: a small pop)",
+    level: -10,
+    length: [0.04, 0.2],
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.2);
+      partial(out, sr, { f: 260, amp: 0.7, tau: 0.018, glide: 1.6, glideTime: 0.03, attack: 0.001 });
+      mixInto(out, burst(sr, 0.08, rnd, 'bandpass', 1400, 0.8, ad(0.0008, 0.012)), 0.8);
+      return out;
+    },
+  }),
+  once({
+    id: 'jet.puff',
+    group: 'crew',
+    answers: 'jet.cut (the jets cut: a little puff)',
+    level: -12,
+    length: [0.06, 0.25],
+    draw: (sr, rnd) => {
+      const b = noise(Math.round(sr * 0.22), rnd);
+      sweep(b, sr, 'bandpass', (t) => 2400 - 1600 * Math.min(1, t / 0.12), 0.9);
+      return shape(b, sr, ad(0.008, 0.035));
+    },
+  }),
+  once({
     id: 'chute.launch',
     group: 'line',
     answers: 'restock.launched (a fresh crate thrown out of the chute: a pneumatic thump and a whoosh)',
@@ -727,6 +752,29 @@ const OTHERS: SoundDef[] = [
       const out = alloc(sr, 1.05);
       [1, 0.4, 0.2].forEach((a, i) => partial(out, sr, { f: 75 * (i + 1), amp: a * 0.6, tau: 1e9, phase: rnd() * 6.28 }));
       for (let i = 0; i <= 12; i++) knock(out, sr, rnd, [[620, 0.5, 0.01], [1400, 0.3, 0.006]], { at: i / 12, gain: 0.8 + rnd() * 0.4, noiseF: 1800, jitter: 0.06 });
+      return seamless(out, sr, 0.05);
+    },
+  },
+  {
+    id: 'loop.jet',
+    group: 'loop',
+    answers: "Fetch's jetpack burning (from jet.ignited to jet.cut; level and brightness follow CrewMember.jet.thrust)",
+    level: -14,
+    length: [0.9, 1.1],
+    pitch: null,
+    kind: 'loop',
+    variants: 1,
+    draw: (sr, rnd) => {
+      // a toy's jet, not a rocket: a soft breathy hiss with a little flutter, a faint low breath under it
+      const out = alloc(sr, 1.05);
+      const hiss = noise(out.length, rnd);
+      biquad(hiss, sr, 'bandpass', 2600, 0.7);
+      biquad(hiss, sr, 'lowpass', 6000, 0.7);
+      mixInto(out, hiss, 1);
+      const low = noise(out.length, rnd);
+      biquad(low, sr, 'lowpass', 260, 0.7);
+      mixInto(out, low, 0.6);
+      shape(out, sr, (t) => 0.85 + 0.15 * Math.sin(2 * Math.PI * 24 * t));
       return seamless(out, sr, 0.05);
     },
   },
