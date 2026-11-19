@@ -139,15 +139,17 @@ describe('knocked', () => {
   test('the part bounces off it like off a toy, not a wall: it does not fly back the way it came', async () => {
     const w = await readyWorld('knock-toy');
     const speed = 6.5;
-    const yaw = THROW_YAW + 0.2;
-    const ev = throwAndSee(w, 'crate-2', { yaw, speed });
+    // (A1 round 7: here it waits on its front run with the crate it started with, the bench open behind it: the
+    // loose S is thrown from behind and a little left of it, over the open bench in front of the lever)
+    const yaw = Math.PI + 0.4;
+    const ev = throwAndSee(w, 'crate-3', { yaw, speed });
     expect(knocks(ev)).toHaveLength(1);
     runWhile(w, () => true, 4);
     // along the throw (from yaw toward Fetch: -sin, -cos), what is left of its speed
-    const p0 = w.motion('crate-2')!.pose.p;
+    const p0 = w.motion('crate-3')!.pose.p;
     w.advance();
     w.drainEvents();
-    const p1 = w.motion('crate-2')!.pose.p;
+    const p1 = w.motion('crate-3')!.pose.p;
     const along = ((p1[0] - p0[0]) * -Math.sin(yaw) + (p1[2] - p0[2]) * -Math.cos(yaw)) * 60;
     expect(along).toBeGreaterThan(-0.25 * speed);
     w.dispose();

@@ -322,7 +322,7 @@ describe('Revert between jobs', () => {
     run(world, 10);
     setDown(world, physics, 'revert', -5.5, -0.5); // off its hatch: it does not go down, it waits where it is
     const before = others(world);
-    const ev = run(world, steps(130));
+    const ev = run(world, steps(135)); // (A1 round 7: its track runs further back behind the console, a longer trip)
     expect(states(ev)).toContain('trundle');
     expect(R(world)).toMatchObject({ state: 'park', eyes: 'one' });
     expect(R(world).x).toBeCloseTo(REVERT.park.x, 5);

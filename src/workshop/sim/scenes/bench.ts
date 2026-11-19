@@ -78,7 +78,7 @@ export const AT = {
   /** The UNDO lever (real piece, origin (-2.5, 0.3)): its console, quadrant and lever at home, as one box. */
   undo: { c: [-2.5, 0.983, 0.352], half: [0.79, 0.983, 0.462] } as Box,
   /** The phone on its easel. */
-  phone: { c: [0.12, 0.36, 1.95], half: [0.21, 0.36, 0.15] } as Box,
+  phone: { c: [0.2, 0.36, 1.9], half: [0.21, 0.36, 0.15] } as Box,
   /** The reshaped platen (real piece, origin (3.14, 0.8)): its console (x 0.4..2.12, z -1.2..0.42 from the origin, the column, tank and PLATEN plate on it); its column; its tank. Its left stand, PLATEN.stand.left, is the end of Fetch's path. */
   platen: { c: [4.4, 0.31, 0.41], half: [0.86, 0.31, 0.81] } as Box,
   /** The platen's turntable on its round plinth, at the piece's front left: its cast foot (radius 0.59 round the seat) as a box. */
@@ -117,16 +117,20 @@ export const AT = {
    * The crate stack: ground point (x, z) of its bottom crate; L then M (two high, A1 round 7), a little off true. Between Fetch's
    * two runs, IN FRONT of the back run: Fetch takes from it facing the visitor, 0.95 from where it stands.
    */
-  stack: [2.13, 1.85] as const,
+  stack: [2.21, 1.75] as const,
   /**
-   * Fetch's path of yellow tape (x, z), A1 round 6: a FRONT run just behind the belt's far rail (it feeds the belt
-   * facing the visitor), a short jog back beside the console, and a BACK run that ends at the platen's left stand
-   * (side-on, arms out across its low left edge) with the phone and the stack in front of it. Every place it
+   * Fetch's path of yellow tape (x, z), A1 round 7: a FRONT run just behind the belt's far rail from the lever to
+   * past the phone (it feeds the belt near its left end, facing the visitor, so a crate rides past the lever and the
+   * Button, under the striker and out through the dock), a short jog back beside the console, and a BACK run that
+   * ends AT the platen's left stand (taken exactly: side-on, the seat straight ahead, arms out across its low left
+   * edge) with the phone and the stack in front of it. Every run is at least Fetch's footprint (0.69) off every fixed
+   * body (the belt's bed, the console, the phone), so it can always drive back to it (S5 round 3: a way back to a
+   * point of its path closer than that to a body is never clear); but its last 0.3, by the platen's plinth. Every place it
    * handles is within 1.0 of where it stands (`runner.stands`, `reach` 1.10).
    */
-  lane: { points: [[-2.6, 2.93], [1.08, 2.93], [1.08, 0.7], [2.5, 0.7]] as const },
+  lane: { points: [[-2.6, 2.78], [1.16, 2.78], [1.16, 0.7], [2.2, 0.7]] as const },
   /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
-  stands: { feed: [-2.2, 2.93] as const, phone: [1.08, 1.95] as const, stack: [1.08, 1.85] as const, tray: [2.5, 0.7] as const },
+  stands: { feed: [-2.2, 2.78] as const, phone: [1.16, 1.9] as const, stack: [1.16, 1.75] as const, tray: [2.2, 0.7] as const },
   /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
   offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
@@ -134,22 +138,31 @@ export const AT = {
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
   platenSeat: [3.19, 0.62, 0.7] as Vec3,
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands: on the front run, left of the phone. */
-  fetchStart: 0.36,
+  fetchStart: 0.12,
   /**
    * A1 round 7: the stack is two high (its top within the arm's reach); today's third crate starts loose on the bench in
    * front of the Button's console, the first thing to pick up (clear of Fetch's front run and below the console's plate).
    */
-  firstCrate: [-1.0, 0.225, 2.0] as Vec3,
+  firstCrate: [-1.0, 0.225, 1.85] as Vec3,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
   looseCrate: [0.0, 0.225, 2.2] as Vec3,
-  /** Where on the lane Fetch fumbles (x, on its front run): right of the console's front; the crate tumbles back and left, to rest in front of the console. */
-  fumbleX: 0.4,
-  fumble: { heading: -Math.PI / 2, linvel: [-0.9, 1.8, -0.3] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
+  /**
+   * Where on the lane Fetch fumbles (x, on its front run): in front of the UNDO lever, under the lamp, in profile; the
+   * crate tumbles back off the run (A1 round 7: the run goes on past it, so it must land clear of the path) to rest
+   * in front of the lever, between the run and the lever.
+   */
+  fumbleX: -1.6,
+  fumble: { heading: -Math.PI / 2, linvel: [-0.4, 1.8, -1.3] as Vec3, angvel: [-5, 0, 0] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
-  /** The striker (real piece, origin (2.975, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.1 high (the post's foot: the arm above it, which parts on the belt pass under, is no body). */
-  striker: { c: [2.6, 0.55, 3.072], half: [0.55, 0.55, 0.13] } as Box,
+  /**
+   * The striker (real piece, origin (2.975, 3.072), its post there): its post, base plate and cam housing (right of the
+   * post) as one box, 1.1 high (the arm above, which parts on the belt pass under, is no body). Its hammer, over the
+   * belt 0.375 left of the post, is `strikerHammer` (LINE.strikerX reads it): 1.5 from the belt's far end, right of the stack.
+   */
+  striker: { c: [3.175, 0.55, 3.072], half: [0.4, 0.55, 0.13] } as Box,
+  strikerHammer: 2.6,
   /**
    * The dock (real piece, origin the door's middle at (5.92, 3.55), its ramp's straight run 0.5 longer than L1's so the platen's plate stands clear of its portal; its bay turned 40° toward the camera,
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
@@ -233,7 +246,7 @@ const beltFeed = (ctx: SimContext): number => (ctx.setting('belt', BELT_FIELDS.r
 export const LINE = {
   belt: { from: AT.belt.c[0] - AT.belt.half[0], to: beltEnd, top: beltTop, z: AT.belt.c[2], halfWidth: AT.belt.half[2], offBack: OFF_BACK, offBackRow: OFF_BACK_ROW, deflectAt: AT.belt.c[0] - AT.belt.half[0] + DEFLECTOR.meet },
   /** The striker's arm crosses the belt at its post's x. */
-  strikerX: AT.striker.c[0],
+  strikerX: AT.strikerHammer,
   /** The roller ramp from the belt's far end to the dock's sill. */
   ramp: RAMP,
   /** The dock's door: its origin (where the dock piece stands), the middle of its sill, and the way in. */
@@ -262,7 +275,7 @@ const rampBox = (() => {
 /** The mouths (§ B1 law 2). A part rests in one when its centre is inside. */
 const MOUTHS: readonly MouthSpec[] = [
   // the belt: its whole carrying surface, anything resting on it (centre above the surface)
-  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [Math.max(L.from + DEFLECTOR.clear, AT.beltFeed), L.top, L.z - 0.07] },
+  { id: 'belt', machine: 'belt', station: 'line', c: [(L.from + L.to) / 2, L.top + 1.5, L.z], half: [(L.to - L.from) / 2, 1.5, L.halfWidth], drop: [Math.max(L.from + DEFLECTOR.clear, AT.beltFeed), L.top, L.z - 0.22] },
   // the dock: its ramp from the belt's end to the sill (and the bench either side of it)
   { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + rampBox.maxX) / 2, 1.3, (rampBox.minZ + rampBox.maxZ) / 2], half: [(rampBox.maxX - L.to) / 2, 1.3, (rampBox.maxZ - rampBox.minZ) / 2], drop: rampAt(RAMP, 0.2).p },
 ];

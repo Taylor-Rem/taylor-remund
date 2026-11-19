@@ -182,10 +182,10 @@ export const LAYOUT = {
     undo: real(-2.5, 0.3, BOUNDS.undo),
     button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
     /** The phone on its easel: in front of the console's right end, beside Fetch's jog; Fetch taps it side-on from the jog. */
-    phone: spot(0.12, 1.95, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
+    phone: spot(0.2, 1.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
     /** The crate stack, two high (the ground point of its bottom crate): right of Fetch's jog, 1.05 from where it stands for it, between its front and back runs, left of the striker's hammer. */
-    stack: spot(2.13, 1.85, 0.8, 0.8, 1.4, { fill: 'piece' }),
+    stack: spot(2.21, 1.75, 0.8, 0.8, 1.4, { fill: 'piece' }),
     /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
     lane: laneSpot(),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */

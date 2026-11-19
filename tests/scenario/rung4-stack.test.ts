@@ -8,7 +8,7 @@ import type { ButtonSaved } from '../../src/workshop/sim/machines/button.ts';
 import type { Pose } from '../../src/workshop/sim/types.ts';
 
 const AT_THE_WORKS: ButtonSaved = { rung: 3, reached: 3, presses: 3, cover: 'none', used: ['belt', 'striker', 'dock', 'chute', 'cord', 'undo-lever', 'lamp'] };
-const STACK = ['crate-1', 'crate-2', 'crate-3'] as const;
+const STACK = ['crate-1', 'crate-2'] as const; // two high (A1 round 7)
 const RADIUS = 0.6; // the ladder's stack radius (scenes/bench.ts)
 const SEEDS = 8;
 

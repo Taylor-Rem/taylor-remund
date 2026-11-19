@@ -466,8 +466,11 @@ describe('seam 3: reduced motion at run time; the saved Button; the undo id', ()
   });
 
   test('switching it is not a first action and is not input to the crew', () => {
+    // without attract mode's lap: Fetch's patience runs out on an ordinary lap (A1 round 7: in the lap its first trip,
+    // to the tray, is over before the patience is, and the fumble comes later, carrying the lap's crate to the belt)
+    const { attract: _attract, ...lapless } = bench.runner;
     const fumbleStep = (switchAt: number | null): number => {
-      const { world } = benchStub();
+      const { world } = stubWorld(1, { scene: { ...bench, runner: lapless } });
       for (let i = 0; i < 12 * 60; i++) {
         if (i === switchAt) world.dispatch({ type: 'motion', reduced: true });
         const ev = run(world, 1);

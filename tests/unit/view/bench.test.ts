@@ -21,7 +21,7 @@ import type { Materials } from '../../../src/workshop/view/types.ts';
 import { patchFelt, posePatch, SIDE_ON } from '../../../src/workshop/view/kit/pieces/patch-felt/index.ts';
 import { fitPieces, staticBox } from '../../../src/workshop/view/vignette.ts';
 import { bench as scene, AT } from '../../../src/workshop/sim/scenes/bench.ts';
-import { defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
+import { CRATE_EDGE, defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
 import { FETCH_TUNING } from '../../../src/workshop/sim/crew/fetch.ts';
 import { pieceFolders } from '../../../src/workshop/view/kit/pieces/registry.ts';
 import { switchboard, stool } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
@@ -45,8 +45,10 @@ const body = (id: string): Box3 => {
 };
 const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
-/** Where the fumbled crate comes to rest: tossed back and left off the front run, in front of the console (about; the simulation decides). */
-const REST: Vec3 = [AT.fumbleX - 0.45, 0.225, AT.lane.points[0]![1] - 0.2];
+/** Where the fumbled crate comes to rest: tossed ahead and back off the front run, just past its left end, in front of the UNDO lever (about; the simulation decides: (-3.11, 2.80) in the attract test's first lap). */
+const REST: Vec3 = [AT.lane.points[0]![0] - 0.5, 0.225, AT.lane.points[0]![1]];
+/** The loose crate at the start: the first thing to pick up, in front of the Button's console. */
+const FIRST: Vec3 = AT.firstCrate;
 /** Patch, drawn at the crew's scale on its seat: its seated box. */
 const patchBox = (): Box3 => {
   const s = fit.stool.seat;
@@ -55,7 +57,7 @@ const patchBox = (): Box3 => {
 function cluster(): Record<string, Box3> {
   return {
     button: body('console').expandByVector(new Vector3(0, 0.45, 0)),
-    crate: new Box3(new Vector3(REST[0] - 0.25, 0, REST[2] - 0.25), new Vector3(REST[0] + 0.25, 0.45, REST[2] + 0.25)),
+    crate: new Box3(new Vector3(FIRST[0] - 0.25, 0, FIRST[2] - 0.25), new Vector3(FIRST[0] + 0.25, 0.45, FIRST[2] + 0.25)),
     phone: body('phone'),
     patch: patchBox(),
   };
@@ -187,7 +189,7 @@ describe('the footprints', () => {
   });
 });
 
-describe("Fetch's path (A1 round 6: runs of tape, corners rounded)", () => {
+describe("Fetch's path (A1 round 7: runs of tape, corners rounded, a stand at an end taken exactly)", () => {
   const FETCH_HALF: Vec3 = defaultHalfExtents('robot', 'M');
   const S_HALF: Vec3 = defaultHalfExtents('crate', 'S');
   const statics = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, body(s.id)] as const);
@@ -195,11 +197,12 @@ describe("Fetch's path (A1 round 6: runs of tape, corners rounded)", () => {
   const k = CREW_SCALE;
   const PTS = AT.lane.points as readonly (readonly [number, number])[];
   const path = lanePath(PTS, FETCH_TUNING.cornerRadius * k);
-  const inset = FETCH_TUNING.inset;
   const runs = PTS.slice(1).map((b, i) => ({ a: PTS[i]!, b, len: Math.hypot(b[0] - PTS[i]![0], b[1] - PTS[i]![1]) }));
 
-  it("keeps to its engineer's rules: runs at least 0.9 between corners and 1.35 at an end, turns of 135° or less, parallel runs 1.4 apart", () => {
-    runs.forEach((r, i) => expect(r.len, `run ${i}`).toBeGreaterThanOrEqual(i === 0 || i === runs.length - 1 ? 0.9 + 0.45 : 0.9));
+  it("keeps to its engineer's rules: runs at least 0.9 between corners, straight for a corner's tangent and 0.25 more into an end, turns of 135° or less, parallel runs 1.4 apart", () => {
+    // a right angle's tangent (S5 round 3: a 0.44 run arrived still turning and clipped the platen)
+    const tangent = FETCH_TUNING.cornerRadius * k;
+    runs.forEach((r, i) => expect(r.len, `run ${i}`).toBeGreaterThanOrEqual(i === 0 || i === runs.length - 1 ? tangent + 0.25 : 0.9));
     for (const c of path.corners) expect(c.turn).toBeLessThanOrEqual((135 * Math.PI) / 180 + 1e-9);
     for (let i = 0; i < runs.length; i++)
       for (let j = i + 2; j < runs.length; j++) {
@@ -211,12 +214,7 @@ describe("Fetch's path (A1 round 6: runs of tape, corners rounded)", () => {
       }
   });
 
-  const TODAYS_PLATEN = new Set(['platen-plinth']);
-  const trayS = (() => {
-    const t = scene.mouths!.find((m) => m.id === scene.runner.attract!.tray)!;
-    return fetchStand(scene, 'tray', t.drop[0], t.drop[2]).s;
-  })();
-  it('lets Fetch and the crate in its hands ride the whole path, the overshoot past each end included, clear of every body', () => {
+  it('lets Fetch and the crate in its hands ride the whole path to its very ends (nothing carries it past one), clear of every body', () => {
     const reach = (FETCH_TUNING.bodyHalfDepth + FETCH_TUNING.handGap) * k + S_HALF[2];
     const half: Vec3 = [FETCH_HALF[0] * k, FETCH_HALF[1] * k, FETCH_HALF[2] * k];
     let along = Infinity;
@@ -233,13 +231,6 @@ describe("Fetch's path (A1 round 6: runs of tape, corners rounded)", () => {
         const crate = new Box3(c.clone().sub(new Vector3(...S_HALF)), c.clone().add(new Vector3(...S_HALF)));
         for (const [id, b] of statics)
           for (const it of [bodyB, crate]) {
-            // the crate it carries to the tray goes in over the platen's low left edge; today's piece still has its column
-            // and tank on that side (the reshaped piece moves them right and back): held against the body only
-            if (it === crate && TODAYS_PLATEN.has(id)) continue;
-            // KNOWN (A1 round 6, reported): at the platen's left stand Fetch's nose is at the foot (0.40 out, its half-depth 0.39), and
-            // its overshoot past that stop runs to the path's end, 0.3 on, into the platen's low left edge. Wants the simulation to
-            // stand it AT the path's end when a stand is given there (no inset), so the overshoot has nowhere to go.
-            if ((id === 'platen' || TODAYS_PLATEN.has(id)) && s >= trayS - 0.02) continue;
             const d = overlap(it, b);
             expect(d, `at s ${s.toFixed(2)} (${x.toFixed(2)}, ${z.toFixed(2)}): ${id}`).toBeLessThan(0);
             along = Math.min(along, -d);
@@ -327,8 +318,10 @@ describe('the camera homes', () => {
       ...Object.fromEntries(scene.cord.jacks.map((j) => [j.id, j.at])),
       phone: top('phone', 0.75),
       'patch head': [fit.stool.seat[0], fit.stool.seat[1] + 0.9 * CREW_SCALE, fit.stool.seat[2]],
-      'stack top': scene.parts.find((p) => p.id === scene.button.stack[2])!.pose.p,
-      'loose crate': REST,
+      'stack top': scene.parts.find((p) => p.id === scene.button.stack[scene.button.stack.length - 1])!.pose.p,
+      'stack bottom': [AT.stack[0], 0.15, AT.stack[1] + 0.4],
+      'fumbled crate': REST,
+      'first crate': AT.firstCrate,
       'undo lever': top('undo', 0.9),
       platen: top('platen', 0.9),
       'storefront front': top('storefront', 0.5),
@@ -496,7 +489,7 @@ describe('the real pieces', () => {
     expect(post.max.x).toBeGreaterThanOrEqual(ox + 0.15);
     expect(post.max.z).toBeLessThan(AT.belt.c[2] - AT.belt.half[2]);
     // far enough from the belt's far end for a run of notes played backwards (§ B2 X2): three crates' room
-    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5);
+    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5 - 1e-9);
   });
 
   it("stands the whole board against the wall, its jacks where the simulation has them, the stool on its runner's right end", () => {
@@ -566,7 +559,7 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
     }
     const t = fetchStand(scene, 'tray', tray.drop[0], tray.drop[2]);
     const end = AT.lane.points[AT.lane.points.length - 1]!;
-    expect(Math.hypot(t.at[0] - end[0], t.at[1] - end[1])).toBeCloseTo(FETCH_TUNING.inset, 3);
+    expect(Math.hypot(t.at[0] - end[0], t.at[1] - end[1])).toBeCloseTo(0, 3); // taken exactly: the path's very end
     // the reshaped platen's left stand: 0.40 outside its left foot (today's piece is placed with its left foot there)
     expect(body('platen-plinth').min.x - t.at[0]).toBeCloseTo(0.4, 2);
     expect(Math.abs(tray.drop[0] - t.at[0] - 0.99)).toBeLessThan(0.02); // PLATEN.stand.left: 0.99 from the seat
@@ -575,13 +568,15 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
 
   it("gets its grip to each thing it handles from where it stands, by the arm's own solver at the thing's real height (short 0)", () => {
     const S_HALF: V3 = [0.225, 0.225, 0.225];
-    // the stack two high (its middle crate: what it takes once the top is gone); the top crate of a full stack, 1.63 up,
-    // is out of the arm's reach from any stand its footprint allows (it needs 0.7 at that height): KNOWN, reported, held below
-    const top = scene.parts.find((p) => p.id === scene.button.stack[1])!;
+    // the stack is two high (A1 round 7): its top crate as today's stack has it, and the tallest pair a restock can put
+    // there (two L crates: the top one's middle 1.2 up, its own half 0.4)
+    const top = scene.parts.find((p) => p.id === scene.button.stack[scene.button.stack.length - 1])!;
+    expect(scene.button.stack.length).toBe(2);
     const seat = platen({ detail: 'low' } as never).sockets!['seat']!;
     const seatY = new Vector3().setFromMatrixPosition(seat).y;
     const grips: Array<['stack' | 'tray' | 'phone' | 'feed', V3, V3 | null]> = [
       ['stack', top.pose.p as unknown as V3, S_HALF],
+      ['stack', [r.stack[0], CRATE_EDGE.L * 1.5, r.stack[1]], [0.4, 0.4, 0.4]],
       ['tray', [tray.drop[0], seatY + S_HALF[1], tray.drop[2]], S_HALF],
       ['phone', [lap.phone[0], lap.phone[1] + 0.14, lap.phone[2]], null], // the screen's middle
       ['feed', [feed.drop[0], feed.drop[1] + S_HALF[1], feed.drop[2]], S_HALF],
@@ -592,11 +587,6 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
       if (process.env['BENCH_REPORT']) console.log(`GRIP ${what} short ${r.short.toFixed(3)} tele ${r.tele.toFixed(3)}`);
       expect(r.short, what).toBeLessThanOrEqual(0.005); // the solver's own tolerance
     }
-    // the full stack's top crate: short by this much today (A1 round 6, reported: the stack wants to be two high, or the
-    // arm to reach higher); this holds it from getting worse
-    const full = scene.parts.find((p) => p.id === scene.button.stack[2])!;
-    const st = fetchStand(scene, 'stack', full.pose.p[0], full.pose.p[2]);
-    expect(reachFrom([st.at[0], 0, st.at[1]], full.pose.p as unknown as V3, { half: S_HALF }).short).toBeLessThan(0.2);
   });
 
   it("feeds the belt in front of its front run, upstream of the striker and past the deflector's reach", () => {

@@ -306,7 +306,7 @@ describe('the dock', () => {
     const { world, physics } = benchStub();
     run(world, 2);
     lever(world, 0.5);
-    const id = 'crate-3';
+    const id = 'crate-2'; // off the stack (two high, A1 round 7), so the stack is short of one
     const m = world.motion(id)!;
     world.dispatch({ type: 'grab', id, grip: m.pose.p });
     run(world, 1);
@@ -329,7 +329,7 @@ describe('the dock', () => {
     expect(out.find((e) => e.type === 'shipped')).toEqual({ type: 'shipped', id: 'dock', part: id });
     expect(world.part(id)!.marks).toEqual([MARK_SHIPPED]);
     expect(world.mode(id)).toBe('gone');
-    expect(out.find((e) => e.type === 'restocked')).toMatchObject({ part: 'crate-spare-1' });
+    expect(out.find((e) => e.type === 'restocked')).toMatchObject({ part: 'crate-spare-2' }); // the M spare, for the M shipped
   });
 
   test('a misfire jumps the door open and shut; nothing durable changes', () => {
@@ -353,13 +353,14 @@ describe('the dock', () => {
       expect(world.part(id)!.location.at).toBe('shipped');
       run(world, 3 * HZ);
     };
-    for (const id of ['crate-3', 'crate-2', 'crate-1', 'crate-4']) ship(id);
+    // the stack is two high (A1 round 7): the three spares replace crate-2, crate-1 and the M spare; the S spare
+    // shipped in its turn is replaced by crate-2, the longest shipped, forgotten by the history first
+    for (const id of ['crate-2', 'crate-1', 'crate-spare-2', 'crate-spare-1']) ship(id);
     const restocked = world.drainEvents();
     void restocked;
-    // three spares went to the stack; the fourth replacement is crate-3, forgotten by the history first
-    expect(world.part('crate-3')!.location.at).toBe('rest');
-    expect(world.part('crate-3')!.marks).toEqual([]);
-    expect(world.writer('crate-3', 'location')).toBe('system');
+    expect(world.part('crate-2')!.location.at).toBe('rest');
+    expect(world.part('crate-2')!.marks).toEqual([]);
+    expect(world.writer('crate-2', 'location')).toBe('system');
     for (const t of world.undoStack()) expect(t.entries.some((e) => e.target === 'crate-3')).toBe(false);
   });
 });
