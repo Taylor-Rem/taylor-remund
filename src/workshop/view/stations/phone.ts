@@ -23,7 +23,7 @@ import type { Fit } from '../vignette.ts';
 import { phoneScreen, posePhone } from '../kit/pieces/phone/index.ts';
 import { paintPhone } from '../labels/draw.ts';
 import { planPhone } from '../labels/layout.ts';
-import { toTextureRows } from '../labels/raster.ts';
+import { phonePixels, phoneRegion, putChangedRows, world } from '../labels/index.ts';
 import { rng } from '../labels/rng.ts';
 import { SUBSET } from '../labels/fonts.ts';
 import { renderReply } from '../../../content/texts.ts';
@@ -112,9 +112,11 @@ export function createPhoneView(o: PhoneViewOptions): StationViewFactory {
     current = { phone: obj, stage: ctx.stage, stations: bus.stations };
     ctx.pickable('phone', obj, { pad: 0.12 });
 
-    // the screen's texture, repainted in place with the last exchange
-    const key = phoneScreen(ctx.labels).key;
-    const tex = ctx.labels.texture(key) as DataTexture;
+    // the screen: a region of the label atlas, repainted in place with the last exchange; only
+    // the rows that changed go up (labels band uploads, T1 round 3)
+    phoneScreen(ctx.labels);
+    const screen = phoneRegion(ctx.labels);
+    let shown: Uint8Array | null = phonePixels(world.phone.attract);
     const plan = planPhone();
     let shownN = -1;
     let shownKind = '';
@@ -123,12 +125,9 @@ export function createPhoneView(o: PhoneViewOptions): StationViewFactory {
       if (answer !== null) msgs.push({ from: 'patch', text: printable(answer) || '…' });
       try {
         const p = paintPhone(plan, msgs, rng(`phone-live|${sent}|${answer ?? ''}`));
-        const rows = toTextureRows(p.color, p.w, p.h);
-        const img = tex.image as { data: Uint8Array; width: number; height: number };
-        if (img.data && img.data.length === rows.length) {
-          img.data.set(rows);
-          tex.needsUpdate = true;
-        }
+        if (p.w !== screen.px.w || p.h !== screen.px.h) return;
+        putChangedRows(screen, shown, p.color);
+        shown = p.color;
       } catch {
         /* a text the screen cannot lay out stays off it: the panel shows it */
       }
