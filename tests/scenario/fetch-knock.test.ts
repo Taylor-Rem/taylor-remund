@@ -7,6 +7,13 @@ import { runWhile, throwAndSee } from './fetch-helpers-throw.ts';
 import { obstacles, distanceTo } from '../../src/workshop/sim/crew/fetch-knock.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { steps } from '../../src/workshop/sim/clock.ts';
+import { lanePath } from '../../src/workshop/sim/path.ts';
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
+/**
+ * A1 round 6: Fetch waits with its crate at the stack's stand on its path's jog, the stack on its right, the
+ * console behind its left shoulder: the scripted throws come from its open side (-X, the front-left), THROW_YAW.
+ */
+const THROW_YAW = -Math.PI / 2 + 0.3;
 import type { Id, SimEvent } from '../../src/workshop/sim/types.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 
@@ -36,7 +43,10 @@ function watchKnock(w: World, max: number): { ev: SimEvent[]; recovered: boolean
       if (f.state === 'knocked') expect(d >= Math.min(r, start[i] as number) - 1e-6, `into ${o.id}: ${d.toFixed(3)} at ${f.x.toFixed(2)}, ${f.z.toFixed(2)}`).toBe(true);
     });
     const lane = w.scene.runner.lane;
-    if (f.state === 'idle' && Math.abs(f.z - lane.points[0]![1]) < 1e-6) recovered = true;
+    // back on its path (A1 round 6: runs of tape)
+    const path = lanePath(lane.points, FETCH_TUNING.cornerRadius * (w.scene.crewScale ?? 1));
+    const q = path.at(path.nearest(f.x, f.z));
+    if (f.state === 'idle' && Math.hypot(f.x - q[0], f.z - q[1]) < 1e-6) recovered = true;
   });
   return { ev, recovered };
 }
@@ -63,7 +73,7 @@ describe('knocked', () => {
     for (const c of cases) {
       const w = await readyWorld(`knock-${c.id}-${c.speed}`);
       const thrown = c.id;
-      const ev = throwAndSee(w, thrown, { yaw: 0.3, speed: c.speed });
+      const ev = throwAndSee(w, thrown, { yaw: THROW_YAW, speed: c.speed });
       const k = knocks(ev);
       if (c.want === 'nudge') {
         expect(k, `${c.id} at ${c.speed}`).toEqual([]);
@@ -71,8 +81,8 @@ describe('knocked', () => {
       } else {
         expect(k.map((x) => x.strength), `${c.id} at ${c.speed}`).toEqual([c.want]);
         expect(k[0]!.by).toBe(thrown);
-        // shoved away from the throw (the part came from yaw 0.3, so it goes toward yaw 0.3 + PI, give or take its fall)
-        const away = Math.atan2(Math.sin(k[0]!.dir - (0.3 + Math.PI)), Math.cos(k[0]!.dir - (0.3 + Math.PI)));
+        // shoved away from the throw (the part came from THROW_YAW, so it goes toward THROW_YAW + PI, give or take its fall)
+        const away = Math.atan2(Math.sin(k[0]!.dir - (THROW_YAW + Math.PI)), Math.cos(k[0]!.dir - (THROW_YAW + Math.PI)));
         expect(Math.abs(away)).toBeLessThan(0.6);
         expect(Math.abs(k[0]!.spin)).toBeGreaterThan(0.5);
         const r = watchKnock(w, steps(6));
@@ -87,7 +97,7 @@ describe('knocked', () => {
     const held = w.crew('fetch')!.carrying!;
     expect(held).not.toBeNull();
     const before = w.part(held)!.location;
-    const ev = throwAndSee(w, 'crate-2', { yaw: -0.2, speed: 6.5 });
+    const ev = throwAndSee(w, 'crate-2', { yaw: THROW_YAW - 0.5, speed: 6.5 });
     const k = knocks(ev);
     expect(k).toHaveLength(1);
     expect(k[0]!.dropped).toBe(held);
@@ -115,7 +125,9 @@ describe('knocked', () => {
     runWhile(w, () => w.crew('fetch')!.carrying !== null, steps(15));
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     runWhile(w, () => !(w.crew('fetch')!.state === 'idle' && w.crew('fetch')!.stateTime > 1), steps(20));
-    expect(w.crew('fetch')!.x).toBeLessThan(lane.points[0]![0] + 1.5);
+    // (A1 round 6: it waits at the stack's stand, the stack beside it and the console behind it)
+    void lane;
+    expect(Math.hypot(w.crew('fetch')!.x - (w.scene.runner.stands!.stack as readonly [number, number])[0], w.crew('fetch')!.z - (w.scene.runner.stands!.stack as readonly [number, number])[1])).toBeLessThan(0.6);
     const ev = throwAndSee(w, 'crate-1', { yaw: Math.PI / 2 + 0.4, speed: 7 });
     const r = watchKnock(w, steps(8));
     const k = knocks([...ev, ...r.ev]);
@@ -127,7 +139,7 @@ describe('knocked', () => {
   test('the part bounces off it like off a toy, not a wall: it does not fly back the way it came', async () => {
     const w = await readyWorld('knock-toy');
     const speed = 6.5;
-    const yaw = 0.2;
+    const yaw = THROW_YAW + 0.2;
     const ev = throwAndSee(w, 'crate-2', { yaw, speed });
     expect(knocks(ev)).toHaveLength(1);
     runWhile(w, () => true, 4);

@@ -4,6 +4,18 @@ import { describe, expect, test } from 'vitest';
 import { benchWorld, onBelt, putOn, tape } from './line-helpers.ts';
 import { roundsBench, startPlay } from './fetch-helpers.ts';
 import { steps } from '../../src/workshop/sim/clock.ts';
+import { lanePath } from '../../src/workshop/sim/path.ts';
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
+import type { World } from '../../src/workshop/sim/world.ts';
+
+/** How far Fetch stands from the nearest point of its path. */
+function offPath(w: World): number {
+  const f = w.crew('fetch')!;
+  const sc = w.scene;
+  const path = lanePath(sc.runner.lane.points, FETCH_TUNING.cornerRadius * (sc.crewScale ?? 1));
+  const q = path.at(path.nearest(f.x, f.z));
+  return Math.hypot(f.x - q[0], f.z - q[1]);
+}
 
 const SCENE = roundsBench();
 
@@ -19,7 +31,7 @@ describe('picked up and put down', () => {
     expect(back).not.toBeNull();
     const idle = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'idle', steps(8));
     expect(idle).not.toBeNull();
-    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.points[0]![1], 9);
+    expect(offPath(w)).toBeLessThan(1e-6); // back on its path (A1 round 6: runs of tape)
     // its rounds go on: a crate onto the belt within a quarter minute
     const fed = t.until((e) => e.type === 'taken-in' && e.mouth === 'belt' && e.part !== 'fetch', steps(15));
     expect(fed).not.toBeNull();
@@ -52,7 +64,7 @@ describe('picked up and put down', () => {
     expect(w.writer('fetch', 'location')).toBe('crew');
     const idle = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'idle', steps(8));
     expect(idle).not.toBeNull();
-    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.points[0]![1], 9);
+    expect(offPath(w)).toBeLessThan(1e-6); // back on its path (A1 round 6: runs of tape)
     w.dispose();
   }, 60_000);
 });
