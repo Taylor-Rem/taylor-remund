@@ -85,8 +85,17 @@ export function advance(role: FaceRole): Advance {
 
 /** Throws if any glyph of `text` would come from a fallback face. */
 export function checkText(role: FaceRole, text: string): void {
+  // a text that passed once passes again (the faces do not change): the phone redraws its
+  // conversation often, and the check measures every character twice
+  const seen = (checked[role] ??= new Set<string>());
+  if (seen.has(text)) return;
   assertFace(metrics(role).ctx, role, text);
+  seen.add(text);
 }
+const checked: Partial<Record<FaceRole, Set<string>>> = {};
+
+/** One canvas per size for the phone (it is filled whole before anything is drawn on it). */
+const phoneCanvas = new Map<string, Ctx>();
 
 /** Draw a plan's glyphs in white on black and read them back as a mask. */
 function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyphIndex: number) => number, extra?: (ctx: Ctx) => void, spread = 0): Gray {
@@ -533,7 +542,9 @@ export function paintSign(plan: Plan, r: Rng): Painted {
 export function paintPhone(plan: Plan, messages: readonly PhoneMessage[], r: Rng): Painted {
   const { w, h } = plan.px;
   const cap = plan.capTexels;
-  const ctx = context(w, h);
+  const ck = `${w}x${h}`;
+  let ctx = phoneCanvas.get(ck);
+  if (!ctx) phoneCanvas.set(ck, (ctx = context(w, h)));
   const hexOf = (c: RGB): string => `#${c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')}`;
   const bg = mix(rgb('ink'), rgb('teal-deep'), 0.45);
   ctx.fillStyle = hexOf(bg);
@@ -610,6 +621,6 @@ export function paintPhone(plan: Plan, messages: readonly PhoneMessage[], r: Rng
   }
   void r;
   const img = ctx.getImageData(0, 0, w, h).data;
-  return { w, h, color: new Uint8Array(img.buffer.slice(0)), normal: null, rough: null, alpha: false };
+  return { w, h, color: new Uint8Array(img.buffer, img.byteOffset, img.byteLength), normal: null, rough: null, alpha: false };
 }
 
