@@ -48,7 +48,7 @@ describe('seam 2: one grab', () => {
     world.dispatch({ type: 'carry', target: [0, 2, 1] });
     run(world, 1);
     expect(patch().at).toEqual([0, 2, 1]);
-    world.dispatch({ type: 'release', velocity: [3, 0, 0] });
+    world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     run(world, 1);
     expect(world.holding()).toBeNull();
     expect(['walk', 'climb']).toContain(patch().state);

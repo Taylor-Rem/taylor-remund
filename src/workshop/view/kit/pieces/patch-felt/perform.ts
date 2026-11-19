@@ -1898,6 +1898,108 @@ function buildLedge(o: LedgeOptions, vis: V3): Array<{ t: number; pose: FullPose
   return bake(resolvePose(k[0]!.set), k);
 }
 
+// ---- R4: thrown ----------------------------------------------------------------------------------------
+
+export const LAND_LENGTH: number = T_.land;
+export const SHAKE_LENGTH: number = T_.shake;
+/** The body's middle above its origin (root units): where a tumble turns about. */
+const MIDDLE = 0.3;
+
+/** The body placed so that its middle is at `mid` (root space), turned by (pitch, yaw, roll). */
+function aboutMiddle(mid: V3, pitch: number, yaw: number, roll: number): BodyPlace {
+  // the middle is (0, MIDDLE, 0) in the body; bodyMatrix turns RY(yaw)·RX(pitch)·RZ(-roll) about the origin
+  const y1 = MIDDLE * Math.cos(pitch) * Math.cos(roll), z1 = MIDDLE * Math.sin(pitch) * Math.cos(roll), x1 = MIDDLE * Math.sin(roll);
+  const x = x1 * Math.cos(yaw) + z1 * Math.sin(yaw), z = -x1 * Math.sin(yaw) + z1 * Math.cos(yaw);
+  return { at: [mid[0] - x, mid[1] - y1, mid[2] - z], rot: [pitch, yaw, roll] };
+}
+
+/**
+ * In the air after a throw (R4): limbs flung out (the flail's cousin), the tail streaming, ears flat, eyes wide,
+ * turning head over heels about its middle. `mid` is the simulation's `at` (its middle, root space), `spin` how far
+ * it has turned (radians: the station runs it on with the speed), `yaw` the way it is going, `t` seconds in the air.
+ */
+export function tumble(t: number, mid: V3, spin: number, yaw: number): PatchPose {
+  const w = Math.sin(t * 13), w2 = Math.sin(t * 11 + 1.3);
+  return toPose(
+    resolvePose({
+      ...SEATED,
+      body: aboutMiddle(mid, spin, yaw, 0.25 * Math.sin(t * 5)),
+      legs: [
+        { lift: 0.5 + 0.35 * w, splay: 0.6, knee: 0.3 - 0.3 * w2 },
+        { lift: 0.5 - 0.35 * w, splay: 0.6, knee: 0.3 + 0.3 * w2 },
+      ],
+      lean: [-0.15, 0],
+      twist: 0.2 * w2,
+      arms: { left: J(1.4 + 0.3 * w, 1.1, 0, 0.3, 0, 0), right: J(1.4 - 0.3 * w, 1.1, 0, 0.3, 0, 0) },
+      headYaw: 0,
+      headPitch: 0.2,
+      headTilt: 0,
+      gaze: [0, 0],
+      lids: [0.15, 0.17],
+      lidsLow: [0, 0],
+      brows: [0.8, 0.75],
+      browTilt: [0.2, 0.2],
+      mouth: [-0.4, -0.35],
+      ears: [1, 1],
+      tail: [-0.6, 0.4 * w],
+      tailLift: 0.8,
+      boom: 0.3,
+    }),
+  );
+}
+
+/** Sat on the bench where it came to rest: legs out in front, propped on its paws, a little dazed. */
+function satOnBench(feet: V3, yaw: number): PatchPose {
+  return {
+    ...SEATED,
+    body: { at: [feet[0], feet[1] + 0.02, feet[2]], rot: [-0.08, yaw, 0] },
+    legs: [{ lift: 0.1, splay: 0.35, knee: 0.15 }, { lift: 0.05, splay: 0.4, knee: 0.25 }],
+    lean: [-0.12, 0],
+    twist: 0,
+    arms: { left: J(-0.35, 0.45, 0, 0.2, 0.3, 0.4), right: J(-0.35, 0.45, 0, 0.2, 0.3, 0.4) },
+    headYaw: 0,
+    headPitch: 0,
+    headTilt: 0,
+    ...FACE.flat,
+    ears: [0.3, 0.3],
+    tail: [0.4, 0.3],
+    tailLift: -0.4,
+    boom: 0.15,
+  };
+}
+
+/**
+ * Come down (R4, the simulation's `land`, 0.8 s): a bounce (higher the harder it came in), a roll head over heels
+ * that eats the speed, and it ends sat up on the bench, legs out. `feet` is the simulation's `at` (root space, on
+ * the bench, sliding on meanwhile), `spin0` how far it had turned in the air, `speed` how fast it came in.
+ */
+export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: number): PatchPose {
+  const L = LAND_LENGTH;
+  const k = clamp01(t / L);
+  const hard = clamp01(speed / 6);
+  // one or two bounces, decaying
+  const b = Math.abs(Math.sin(Math.PI * Math.min(1, k / 0.55) * (1 + hard))) * (1 - Math.min(1, k / 0.55)) * (0.12 + 0.3 * hard);
+  // the roll: on round the way it was turning, to upright
+  const end = spin0 + ((((-spin0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
+  const e = 1 - Math.pow(1 - Math.min(1, k / 0.75), 3);
+  const spin = lerp(spin0, end, e);
+  const sat = resolvePose(satOnBench(feet, yaw));
+  if (k >= 0.75) {
+    const u = smoothstep(0.75, 1, k);
+    return toPose(mixPose(resolvePose(tumble(0.3, [feet[0], feet[1] + MIDDLE * 0.9, feet[2]], 0, yaw)), sat, 0.6 + 0.4 * u));
+  }
+  const air = resolvePose(tumble(0.3 + t, [feet[0], feet[1] + MIDDLE * 0.9 + b, feet[2]], spin, yaw));
+  return toPose(mixPose(air, sat, 0.6 * smoothstep(0.3, 0.75, k)));
+}
+
+/** Sat on the bench after a throw (R4, the simulation's `shake`, 0.6 s): a shake of the head, and the eyes clear. */
+export function shakeOff(t: number, feet: V3, yaw: number): PatchPose {
+  const k = clamp01(t / SHAKE_LENGTH);
+  const p = satOnBench(feet, yaw);
+  const sh = Math.sin(k * Math.PI * 6) * (1 - k) * 0.45;
+  return { ...p, headYaw: sh, headTilt: -sh * 0.4, lids: [lerp(0.6, 0.36, k), lerp(0.62, 0.39, k)], ears: [0.3 + sh, 0.3 - sh], brows: [-0.3, -0.2] };
+}
+
 /** Put down at a root-space floor point: toddles to the stool's foot, then climbs (for reviews; the view drives `toddle` and `climb` itself). */
 export function returnToStool(t: number, from: V3, o: ReturnOptions = {}): PatchPose {
   const W = walkDuration(from, o);

@@ -15,6 +15,8 @@
 import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo } from './fetch-knock.ts';
 import { legClear, route } from './fetch-route.ts';
+import type { SceneDesc } from '../scene.ts';
+import { yawOf } from '../math.ts';
 import type { Pt } from './fetch-route.ts';
 
 export const PATCH_ROUTE = {
@@ -128,4 +130,47 @@ export function planWay(from: Pt, to: Pt, r: number, bodies: readonly Obstacle[]
 /** Is the next step clear of `bodies` (dynamic ones: Fetch, a crate) by `r`, or at least no nearer than now? */
 export function stepClear(a: Pt, b: Pt, r: number, bodies: readonly Obstacle[]): boolean {
   return legClear(a, b, r, bodies);
+}
+
+/** R4: a fixed body in three dimensions (its footprint as an Obstacle, and its height): what a thrown Patch meets. */
+export interface Solid extends Obstacle {
+  readonly y0: number;
+  readonly y1: number;
+}
+
+/** Every fixed body standing on the bench (not the slab), with its height. */
+export function solidsOf(scene: SceneDesc): Solid[] {
+  const top = scene.bench.top;
+  const out: Solid[] = [];
+  for (const st of scene.statics) {
+    const yaw = yawOf(st.pose.q);
+    const parts = st.shape.type === 'box' ? [{ half: st.shape.half, at: [0, 0, 0] as const }] : st.shape.parts.map((q) => ({ half: q.half, at: q.at.p }));
+    for (const q of parts) {
+      const cy = st.pose.p[1] + q.at[1];
+      if (cy + q.half[1] <= top + 0.05) continue;
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      out.push({ id: st.id, x: st.pose.p[0] + c * q.at[0] + sn * q.at[2], z: st.pose.p[2] - sn * q.at[0] + c * q.at[2], hx: q.half[0], hz: q.half[2], yaw, y0: cy - q.half[1], y1: cy + q.half[1] });
+    }
+  }
+  return out;
+}
+
+/** Is a sphere at (x, y, z) of radius r inside (or touching) a solid? */
+export function sphereMeets(o: Solid, x: number, y: number, z: number, r: number): boolean {
+  if (y + r < o.y0 || y - r > o.y1) return false;
+  const dy = Math.max(0, o.y0 - y, y - o.y1);
+  const d = distanceTo(o, x, z);
+  return d * d + dy * dy < r * r;
+}
+
+/** The way off a body's top from (x, z): out by its nearer side (unit, world x and z). */
+export function offTop(o: Obstacle, x: number, z: number): Pt {
+  const dx = x - o.x, dz = z - o.z;
+  const c = Math.cos(o.yaw), sn = Math.sin(o.yaw);
+  const lx = c * dx - sn * dz, lz = sn * dx + c * dz;
+  // in the body's frame: along whichever of its axes is the nearer way out
+  const alongX = o.hx - Math.abs(lx) < o.hz - Math.abs(lz);
+  const l: Pt = alongX ? [lx >= 0 ? 1 : -1, 0] : [0, lz >= 0 ? 1 : -1];
+  // back to the world (the inverse of the turn above)
+  return [c * l[0] + sn * l[1], -sn * l[0] + c * l[1]];
 }
