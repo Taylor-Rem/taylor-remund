@@ -77,7 +77,7 @@ function rig(reducedMotion = false): Rig {
   const ctx: ViewContext = {
     scene,
     stage: { camera: { shake: (a: number) => shakes.push(a) }, lights } as unknown as ViewContext['stage'],
-    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial() },
+    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial(), focusMark: () => new MeshBasicMaterial() },
     labels: stubLabels(),
     tier: 'high',
     reducedMotion,
@@ -102,7 +102,7 @@ function rig(reducedMotion = false): Rig {
         world.advance();
         const events = world.drainEvents();
         all.push(...events);
-        const frame: Frame = { world, events, time: world.step / HZ, dt: 1 / HZ, alpha: 1, pointer: null, hovered: r.hovered, held: null };
+        const frame: Frame = { world, events, time: world.step / HZ, dt: 1 / HZ, alpha: 1, pointer: null, hovered: r.hovered, held: null, focused: null, keyDest: null, working: null };
         for (const v of [lamp, button, card]) v.update(frame);
         levels.push(lampLevel);
       }

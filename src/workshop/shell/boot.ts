@@ -91,7 +91,7 @@ export interface BootOptions {
    * registers (default `phone`); `parent` where the panel lives (default `document.body`). Made when the
    * world has a phone line (`line`) and there is a document; `false`: no phone.
    */
-  phone?: false | { target?: Id; parent?: HTMLElement };
+  phone?: false | { target?: Id; parent?: HTMLElement; line?: Id };
 }
 
 export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
@@ -188,6 +188,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     reducedMotion: opts.reducedMotion,
     realize: (piece, o) => realize(piece, materials, o),
     pickable: (id, object, o) => picking.add(id, object, o),
+    targetBox: (id, out) => picking.worldBox(id, out),
     stage,
     picking,
   };
@@ -238,7 +239,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const phoneOpt = opts.phone === false ? null : (opts.phone ?? {});
   const hasPhone = phoneOpt !== null && typeof document !== 'undefined' && world.machine('line')?.kind === 'line';
   const phoneTarget = phoneOpt?.target ?? 'phone';
+  /** The phone line the in-world phone stands for: a press on the phone is a press on it (it declares `open`). */
+  const lineId = phoneOpt?.line ?? 'line';
+  const lineSet: ReadonlySet<Id> = new Set([lineId]);
   const panelIds: ReadonlySet<Id> = new Set(hasPhone ? [phoneTarget] : []);
+  const noIds: ReadonlySet<Id> = new Set();
   const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
   const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
   /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
@@ -320,6 +325,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       return [((s.x + 1) / 2) * (canvas.clientWidth || 1), ((1 - s.y) / 2) * (canvas.clientHeight || 1)];
     },
     panels: () => panelIds,
+    hidden: () => (hasPhone ? lineSet : noIds),
     ...(opts.carry ? { carry: opts.carry } : {}),
   });
   const gestures = new Gestures(surface, opts.gestures);
@@ -360,7 +366,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   /** Input's intents, with the page's own handles taken out: a press on the phone opens its panel. */
   const fromInput = (intent: Intent, t: number): void => {
     if (intent.type === 'press' && panelIds.has(intent.id)) {
-      if (phone && !phone.isOpen) phone.open(canvas);
+      if (phone && !phone.isOpen) {
+        phone.open(canvas);
+        // the line hears it: picking the phone up is the visitor's doing (it ends attract mode, § B3)
+        if (world.interactable(lineId)) dispatch({ type: 'press', id: lineId }, t);
+      }
       return;
     }
     dispatch(intent, t);
@@ -415,6 +425,9 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       },
       pointer: () => pointerWorld,
       hovered: () => gestures.hover,
+      focused: () => gestures.focused,
+      keyDest: () => gestures.keyHold?.dest ?? null,
+      working: () => gestures.working,
       settle() {
         // the world refused a grab (or let go by itself): input forgets it
         if (!dispatchedSinceStep && gestures.held && !world.holding()) gestures.forget();

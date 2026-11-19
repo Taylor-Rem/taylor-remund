@@ -12,7 +12,7 @@ import { checkGeometry } from './helpers.ts';
 
 const RIG_NODES = [
   'root', 'lean', 'wheel', 'suspension', 'body', 'head', 'headCock', 'headTilt', 'brow', 'eye', 'pupil', 'pupilDot', 'lidTop', 'lidBottom',
-  'armL', 'forearmL', 'handL', 'pincerL0', 'pincerL1', 'armR', 'forearmR', 'handR', 'pincerR0', 'pincerR1',
+  'armL', 'forearmL', 'teleL1', 'teleL2', 'teleL3', 'handL', 'pincerL0', 'pincerL1', 'armR', 'forearmR', 'teleR1', 'teleR2', 'teleR3', 'handR', 'pincerR0', 'pincerR1',
   'aerial', 'aerial2', 'aerial3', 'flag', 'flagTip',
 ];
 
@@ -53,10 +53,10 @@ describe('fetch-porter (Fetch, take B)', () => {
     for (const n of RIG_NODES) expect(all.filter((x) => x === n)).toHaveLength(1);
   });
 
-  it('stays inside its triangle budget (9,000) and five meshes, and holds the kit invariants', () => {
-    expect(piece.triangles).toBeLessThanOrEqual(9_000);
+  it('stays inside its triangle budget (9,600 with the telescope) and five meshes, and holds the kit invariants', () => {
+    expect(piece.triangles).toBeLessThanOrEqual(9_600);
     const b = budget(fetchPorter({ seed: 3, nameTape: { key: 'fetch-tape', w: 0.16, h: 0.028 } }));
-    expect(b.total).toBeLessThanOrEqual(9_000);
+    expect(b.total).toBeLessThanOrEqual(9_600);
     expect(b.meshes).toBeLessThanOrEqual(5);
     expect(Object.keys(b.byMaterial).sort()).toEqual(['brass', 'bulb', 'rubber', 'steel', 'tape']);
     expect(fetchPorter({ detail: 'low' }).triangles).toBeLessThan(piece.triangles);

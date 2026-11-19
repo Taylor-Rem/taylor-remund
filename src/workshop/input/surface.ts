@@ -28,6 +28,8 @@ export interface SurfaceDeps {
   screen?(id: Id): { x: number; y: number; r: number } | null;
   /** Ids that open something of the page's (the phone): a hand presses them like a handle. */
   panels?(): ReadonlySet<Id>;
+  /** Interactables a hand reaches through something else (the line, through the phone): left out of the controls list. */
+  hidden?(): ReadonlySet<Id>;
   /** A world point on screen (CSS px of the canvas), or null behind the camera. */
   project?(p: Vec3): [number, number] | null;
   /** World units per CSS pixel at a world point (the camera's scale there), for reaches measured on screen. */
@@ -344,6 +346,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const byStation = new Map<string, Id[]>();
       for (const it of w.interactables()) {
         if (it.affordances.length === 0 && !panels().has(it.id)) continue;
+        if (deps.hidden?.().has(it.id)) continue;
         if (role(it.id) === 'none' || role(it.id) === 'jack') continue;
         let l = byStation.get(it.station);
         if (!l) byStation.set(it.station, (l = []));
