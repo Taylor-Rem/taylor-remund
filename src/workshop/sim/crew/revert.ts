@@ -99,7 +99,7 @@ export const REVERT_TUNING = {
   sweep: 1.2,
   /** A part its own body brushed while sweeping: it waits at most this much longer for it to settle. */
   settle: 1.5,
-  /** R3: carrying a crate in its pan home to drop it down the hatch: how far in front of its body the pan holds it. */
+  /** R3: carrying a crate in its pan home to drop it down the hatch: how far out from its side the pan holds it. */
   pan: 0.08,
   /** At the Button, screwing the cover on. */
   fit: 1.2,
@@ -848,11 +848,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     lastPutAway = ctx.clock.step;
     nextAway = ctx.clock.step + steps(spec.awayGap);
   }
-  /** R3: where the pan holds a crate: on the bench just in front of its body. */
+  /** R3: where the pan holds a crate: on the bench at its right side, where its dustpan rides (the view's `DUSTPAN`). */
   function panPose(part: Id): Pose {
     const e = ctx.halfExtents(part) ?? [0.3, 0.3, 0.3];
-    const d = hz + T.pan + e[2];
-    return { p: [x + Math.sin(heading) * d, ground + e[1] + 0.02, z + Math.cos(heading) * d], q: qyaw(heading) };
+    const d = hx + T.pan + e[0];
+    // its local +x (heading 0 faces +Z): (cos h, -sin h) on the bench
+    return { p: [x + Math.cos(heading) * d, ground + e[1] + 0.02, z - Math.sin(heading) * d], q: qyaw(heading) };
   }
   /** R3: at its hatch with a crate in the pan: down it goes (as a spare, out of the world); the chute brings it back. */
   function dropCarried(): void {
