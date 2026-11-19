@@ -469,6 +469,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         out.push({ id: `${f.body}:ahead`, x: p.p[0] + (vx * ahead) / 2, z: p.p[2] + (vz * ahead) / 2, hx: e + (Math.abs(vx) * ahead) / 2, hz: e + (Math.abs(vz) * ahead) / 2, yaw: 0 });
       }
     }
+    // R3: Revert on the bench (its body is the crew's, not a loose part at rest): a body Patch walks round and
+    // stops short of, as it does Fetch; Revert waits for Patch in turn, so the one that yields is whoever is moving
+    const rv = ctx.crewView('revert-crew');
+    if (rv && rv.kind === 'revert' && rv.body) {
+      const v = rv.view as { drawn: boolean; lift: number; x: number; z: number; heading: number };
+      const h = ctx.halfExtents(rv.body);
+      if (v.drawn && v.lift > 0.5 && h) out.push({ id: rv.body, x: v.x, z: v.z, hx: h[0], hz: h[2], yaw: v.heading });
+    }
     const top = ctx.scene.bench.top;
     for (const id of ctx.parts()) {
       if (ctx.mode(id) !== 'free') continue;
