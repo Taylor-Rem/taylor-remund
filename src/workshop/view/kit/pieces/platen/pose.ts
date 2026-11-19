@@ -48,8 +48,8 @@ export const POSE = {
   dipDeg: 0,
   /** How far the arm rides down its column at dip 1, world units. */
   dipDrop: 0.7,
-  /** How far the tape head's ram drops the roller at press 1, world units. */
-  pressTravel: 0.28,
+  /** How far the tape head's two-stage ram drops the roller at press 1, world units (half each stage): from the arm's full height to an L crate's lid. */
+  pressTravel: 0.98,
   /** The gauge needle's sweep, degrees either side of straight up. */
   gaugeSweepDeg: 120,
 };
@@ -71,7 +71,7 @@ export const NAMED_POSES: Readonly<Record<string, PlatenPose>> = {
   /** Dipped and painting: the stream runs, the tube's level is falling, the tray part way round. */
   dipping: { swing: 1, dip: 1, flow: 1, level: 0.55, tray: 0.9, lamp: 1, pressure: 0.7, wheel: 1.4 },
   /** The arm has lifted back; the tape head is in, laying the label. */
-  pressing: { swing: 1, dip: 1, press: 1, tape: 0.6, level: 0.55, tray: 0, lamp: 1, pressure: 0.55, wheel: 1.4 },
+  pressing: { swing: 1, dip: 0, press: 1, tape: 0.6, level: 0.55, tray: 0, lamp: 1, pressure: 0.55, wheel: 1.4 },
   /** Undo, half way: the stream is drawn up toward the tip and the tube is refilling. */
   draining: { swing: 1, dip: 0.85, flow: 0.4, level: 0.7, tray: 0.5, lamp: 1, pressure: 0.4, wheel: 0.7 },
 };
@@ -113,7 +113,8 @@ export function localFor(name: string, rest: Matrix4, pose: Required<PlatenPose>
       p.x += (PLATEN.labelHead.end - PLATEN.labelHead.start) * clamp01(pose.tape);
       break;
     case 'tapehead.ram':
-      p.y -= POSE.pressTravel * clamp01(pose.press);
+    case 'tapehead.ram.inner':
+      p.y -= (POSE.pressTravel / 2) * clamp01(pose.press);
       break;
     case 'tapehead.reel':
       // the reel turns as tape pays out (its axis is the node's +Y)

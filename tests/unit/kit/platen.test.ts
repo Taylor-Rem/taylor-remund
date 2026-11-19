@@ -9,7 +9,7 @@ import { catalogue, nozzleTip, platen, posePlaten, setPaint, tapeFace, PLATEN, N
 import { ROBOT_H, ROBOT_W } from '../../../src/workshop/view/kit/pieces/platen/load.ts';
 import { checkGeometry } from './helpers.ts';
 
-const CAP = 6000; // ART-P2 § 4
+const CAP = 6200; // ART-P2 § 4, raised to 6,200 by the lead for the round-3 rebuild
 
 const stub: Materials = {
   of: (): Material => new MeshBasicMaterial(),
@@ -139,13 +139,60 @@ describe('the platen', () => {
     expect(Math.hypot(PLATEN.tank.x - PLATEN.tray.x, PLATEN.tank.z - PLATEN.tray.z) - PLATEN.tank.r).toBeGreaterThan(ROBOT_W / 2);
     // the tape head rides the arm: swinging, its roller passes over the robot too
     for (let s = 0; s <= 1; s += 0.1) expect(pos(tapeFace({ swing: s })).y - (seatY + ROBOT_H)).toBeGreaterThan(0.08);
-    // dipped and pressed, the roller sits on an L crate's top front edge, and runs from the label's left end to its right
+    // over and pressed (no dip: the station view does not dip for a label), the roller sits on an L crate's top front edge and runs from the label's left end to its right
     const L = PLATEN.label;
-    const a = pos(tapeFace({ swing: 1, dip: 1, press: 1 })), b = pos(tapeFace({ swing: 1, dip: 1, press: 1, tape: 1 }));
+    const a = pos(tapeFace({ swing: 1, dip: 0, press: 1 })), b = pos(tapeFace({ swing: 1, dip: 0, press: 1, tape: 1 }));
     expect(a.y).toBeCloseTo(seatY + 0.75, 2);
     expect(a.z - PLATEN.tray.z).toBeCloseTo(0.33, 2);
     expect(a.x - PLATEN.tray.x).toBeCloseTo(L.x0 + 0.05, 1);
     expect(b.x - a.x).toBeCloseTo(L.x1 - L.x0, 5);
+  });
+
+  it('can be reached: a porter at either stand point is within 1.0 of the seat, and the seat is near two open feet', () => {
+    const seat = pos(p.sockets!['seat']!);
+    for (const k of ['left', 'front'] as const) {
+      const [x, z] = PLATEN.stand[k];
+      expect(Math.hypot(x - seat.x, z - seat.z), k).toBeLessThanOrEqual(1.0);
+    }
+    // the feet: the outermost line of the base at the bench top, measured from the built geometry near the bench
+    let minX = Infinity, maxZ = -Infinity;
+    const walk = (n: PieceNode, parent: Matrix4): void => {
+      const w = parent.clone().multiply(n.transform ?? new Matrix4());
+      if (n.name === 'root') {
+        for (const q of n.parts) {
+          const a = q.geometry.getAttribute('position');
+          for (let i = 0; i < a.count; i++) {
+            const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i)).applyMatrix4(w);
+            if (v.y > 0.05) continue;
+            // only what is near the seat's two open sides counts (the conduit leaves at the far right)
+            if (v.x < seat.x + 0.4) minX = Math.min(minX, v.x);
+            if (v.x < seat.x + 0.4) maxZ = Math.max(maxZ, v.z);
+          }
+        }
+      }
+      for (const c of n.children ?? []) walk(c, w);
+    };
+    walk(p.root, new Matrix4());
+    expect(seat.x - minX).toBeLessThanOrEqual(0.6);
+    expect(maxZ - seat.z).toBeLessThanOrEqual(0.62);
+    // nothing taller than the dish's lip stands between those feet and the turntable (left of and in front of the dish)
+    let tall = 0;
+    const lip = PLATEN.deckY + 0.07;
+    const walk2 = (n: PieceNode, parent: Matrix4): void => {
+      const w = parent.clone().multiply(n.transform ?? new Matrix4());
+      if (n.name === 'root') for (const q of n.parts) {
+        const a = q.geometry.getAttribute('position');
+        for (let i = 0; i < a.count; i++) {
+          const v = new Vector3(a.getX(i), a.getY(i), a.getZ(i)).applyMatrix4(w);
+          const leftOf = v.x < seat.x - PLATEN.tray.dishR && Math.abs(v.z - seat.z) < PLATEN.tray.dishR;
+          const frontOf = v.z > seat.z + PLATEN.tray.dishR && Math.abs(v.x - seat.x) < PLATEN.tray.dishR;
+          if ((leftOf || frontOf) && v.y > lip) tall++;
+        }
+      }
+      for (const c of n.children ?? []) if (c.name !== 'arm') walk2(c, w);
+    };
+    walk2(p.root, new Matrix4());
+    expect(tall).toBe(0);
   });
 
   it('builds with a crate or a robot on the tray', () => {
@@ -166,7 +213,7 @@ describe('the platen', () => {
     expect(lit.scale.x).toBeCloseTo(1, 6);
     expect(unlit.scale.x).toBeCloseTo(HIDDEN, 6);
     const head = o.getObjectByName('tapehead')!, ram = o.getObjectByName('tapehead.ram')!;
-    expect(head.position.x).toBeGreaterThan(before.get(head.uuid)![0]!);
+    expect(head.position.x).toBeLessThan(before.get(head.uuid)![0]!); // the carriage runs inward along the beam (left to right over the tray)
     expect(ram.position.y).toBeLessThan(before.get(ram.uuid)![1]!);
     // the head is the arm's: it is a descendant of the arm node
     let up: Object3D | null = head;
