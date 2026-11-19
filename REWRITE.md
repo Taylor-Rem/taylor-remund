@@ -1381,7 +1381,11 @@ writer.
 2. The stage script and, in parallel, the physics file.
 3. The scene is built in the same state and from the same camera as the
    still picture, then swapped in.
-4. Sound loads on the first click or tap.
+4. Sound is heard from the first click or tap, and not before. It is made
+   ready, silent, in the first idle time after the bench starts (never on
+   the way to usable), so that the first gesture only switches it on:
+   making it inside the gesture cost the first grab of a visit three and a
+   half frames (found 2026-11-19).
 
 The still picture is rendered from the real scene by a script and
 committed; a check fails if the scene has changed since it was rendered.
