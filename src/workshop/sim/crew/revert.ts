@@ -252,6 +252,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let lastPutAway = -Infinity;
   /** R3: the crate it is about to set off for while it takes in the scene (the view looks at it), or null. */
   let surveyFor: Id | null = null;
+  /** R3: when it began its look round this time up (-1: not yet; Infinity: done until it next comes up). */
+  let surveyFrom = -1;
   /** R3: when the visitor took the crate out of its pan (it looks at the empty pan). */
   let emptyPanAt = -Infinity;
   /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
@@ -270,6 +272,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const from = state;
     state = next;
     entered = ctx.clock.step;
+    if (next === 'rising' || next === 'below') surveyFrom = -1;
     ctx.emit({ type: 'crew.state', id: body, state: next, from });
   };
   const inState = (): number => ctx.clock.step - entered;
@@ -908,10 +911,15 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (now >= nextAway) {
       const n = nextSweep();
       // R3: out to heal a dry bench, it takes in the scene before it sets off (the view's look round)
-      if (n !== null && starving() && state === 'idle' && now - entered < steps(T.survey)) {
-        surveyFor = n.part;
-        return;
+      // (once each time it comes up, at its hatch, whenever the heal begins: it may have been up a while)
+      if (n !== null && starving() && state === 'idle' && atHome() && !carrying && surveyFrom !== Infinity) {
+        if (surveyFrom < 0) surveyFrom = now;
+        if (now - surveyFrom < steps(T.survey)) {
+          surveyFor = n.part;
+          return;
+        }
       }
+      if (surveyFrom >= 0) surveyFrom = Infinity;
       surveyFor = null;
       if (n !== null) {
         sweeping = { part: n.part, stir: stirred(n.part), brushed: false };
@@ -1208,6 +1216,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       route = null;
       carrying = null;
       starvedSince = -1;
+      surveyFrom = -1;
+      surveyFor = null;
       sweeping = null;
       coverPending = false;
       card = null;
