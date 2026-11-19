@@ -40,7 +40,7 @@
  */
 import { ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, NoColorSpace, RGBAFormat, SRGBColorSpace, UnsignedByteType } from 'three';
 import type { Texture } from 'three';
-import type { LabelOptions, Labels } from '../types.ts';
+import type { LabelOptions, LabelRegion as LabelRegionContract, Labels } from '../types.ts';
 import type { Alpha, AtlasInfo, Page, PageKind, Rect } from './atlas.ts';
 import { Atlas } from './atlas.ts';
 import type { Painted } from './draw.ts';
@@ -48,7 +48,8 @@ import { ARROW, ARROW_ADVANCE, advance, checkText, context, paintPhone } from '.
 import { fontBytes, loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
 import type { Plan, PlanOptions, Register } from './layout.ts';
-import { TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
+import { PHONE_SCREEN, REGISTERS, TAPES, labelKey, planPaper, planPhone, planPlate, planSign, planStencil, planTape, textureBytes } from './layout.ts';
+import type { PhoneMessage } from './layout.ts';
 import type { JobRegister, PaintJob, PaintedJob } from './paint.ts';
 import { paintJob } from './paint.ts';
 import { Pool } from './pool.ts';
@@ -111,6 +112,13 @@ export interface LabelsOptions {
   workers?: boolean | number;
   /** Put labels on shared atlas pages (default true; `?labelAtlas=0` turns it off for A/B). */
   atlas?: boolean;
+  /**
+   * The renderer: with it, rows written to a page already on the GPU (a redrawn region, a late
+   * label) go up in bands, one texSubImage2D each, a frame's budget at a time, and the page's
+   * mips are rebuilt once at the end (atlas.ts Uploads). Without it three uploads them itself,
+   * a call a row, at the next draw. `attach(renderer)` gives it later.
+   */
+  renderer?: import('three').WebGLRenderer;
 }
 
 /** The labels' options: the contract's, plus the texel density (first-class here; see the hand-in for the contract change). */
@@ -169,10 +177,51 @@ export interface WorkshopLabels extends Labels {
   region(name: string, size: { w: number; h: number }, opts?: RegionOptions): LabelRegion;
   /** Resolves when every label asked for so far has its pixels (immediately without workers). */
   ready(): Promise<void>;
+  /** Send later uploads through this renderer (see LabelsOptions.renderer). */
+  attach(renderer: import('three').WebGLRenderer): void;
+  /** Band uploads so far: count, bytes, main-thread ms (total and the longest band), mip rebuilds. */
+  uploads(): { bands: number; bytes: number; ms: number; maxMs: number; mips: number; mipMs: number; queued: number };
   /** Every label made so far, and the GPU memory their textures take (RGBA8 + mips; atlas pages counted whole). */
   memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number; perPage: Array<{ key: string; w: number; rows: number; labelTexels: number }> };
   entries(): readonly LabelEntry[];
   dispose(): void;
+}
+
+/**
+ * The phone's screen as a region redrawn in place (T1 round 3): the phone register's size and
+ * density (391 x 690 texels), so a conversation laid out by `paintPhone` lands texel for texel.
+ * The same labels give the same region whoever asks (the phone piece, the phone's view).
+ */
+export function phoneRegion(labels: Labels): LabelRegionContract {
+  return labels.region('phone', PHONE_SCREEN, { texelsPerUnit: REGISTERS.phone.texelsPerUnit });
+}
+
+/** A conversation painted for the phone's screen: RGBA rows top-down, the region's size (`put` takes it). */
+export function phonePixels(messages: readonly PhoneMessage[]): Uint8Array {
+  const plan = planPhone();
+  return paintPhone(plan, messages, rng('phone')).color;
+}
+
+/**
+ * Put `next` (a region's pixels, rows top-down) into `region`, sending only the rows that differ
+ * from `prev` (null: all of them). Returns the rows sent.
+ */
+export function putChangedRows(region: LabelRegionContract, prev: Uint8Array | null, next: Uint8Array): number {
+  const stride = region.px.w * 4;
+  const h = region.px.h;
+  let top = 0, bot = h - 1;
+  if (prev && prev.length === next.length) {
+    const same = (j: number): boolean => {
+      const o = j * stride;
+      for (let i = o; i < o + stride; i++) if (prev[i] !== next[i]) return false;
+      return true;
+    };
+    while (top < h && same(top)) top++;
+    if (top === h) return 0;
+    while (bot > top && same(bot)) bot--;
+  }
+  region.put(next.subarray(top * stride, (bot + 1) * stride), top, bot - top + 1);
+  return bot - top + 1;
 }
 
 /** Which page and alpha each register goes to (null: a texture of its own). */
@@ -227,6 +276,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
   const made = new Map<string, LabelEntry>();
   const own = new Set<Texture>();
   const atlas = new Atlas(anisotropy);
+  if (opts.renderer) atlas.attach(opts.renderer);
   const regions = new Map<string, LabelRegion>();
 
   const advFor = new Map<FaceRole, ReturnType<typeof advance>>();
@@ -469,6 +519,10 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       regions.set(key, region);
       return region;
     },
+    attach(renderer) {
+      atlas.attach(renderer);
+    },
+    uploads: () => ({ ...atlas.up.stats, queued: atlas.queued() }),
     ready() {
       if (!pending.size) {
         closeWindow();
