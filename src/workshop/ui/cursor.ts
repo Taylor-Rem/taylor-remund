@@ -56,8 +56,11 @@ function mix(a: Token, b: Token, t: number): string {
   return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
 }
 
+/** How much stouter than drawn the fingers and thumb are (a cursor is small). */
+const FINGER = 1.18;
+
 /** The hand's lean (degrees, about the picture's centre): a little to the left, as a hand rests on a mouse. */
-const LEAN = -14;
+const LEAN = -10;
 
 /** A finger: a rounded bar from its root (x, y) up by `h`, `w` wide, turned `a` degrees about its root. */
 interface Bar {
@@ -121,8 +124,28 @@ const SHAPES: Record<GlovePose, Shape> = {
 const r = (n: number): string => (Math.round(n * 100) / 100).toString();
 
 /** The glove in one pose as an SVG document (32 × 32 user units). */
-export function gloveSvg(pose: GlovePose, look: GloveLook = GLOVES[GLOVE]): string {
+/**
+ * Each pose scaled about the picture so its drawing (outline included) is about 30 px on its long side and
+ * centred in the 32 px cursor: `x' = tx + s·x`. Measured from the laid-out drawing (shots/p2/i1-r1/bbox.ts).
+ */
+const FIT: Record<GlovePose, { s: number; tx: number; ty: number }> = {
+  rest: { s: 1.127, tx: -1.04, ty: -2.38 },
+  open: { s: 1.048, tx: 1.72, ty: -0.05 },
+  closed: { s: 1.34, tx: -6.21, ty: -8.72 },
+  point: { s: 1.076, tx: -0.41, ty: -0.88 },
+};
+
+export interface GloveSvgOptions {
+  /** Scale and centre the drawing to fill the 32 px picture (default true; false is the drawing as laid out). */
+  fit?: boolean;
+  /** The density it is drawn for: at 1x details that turn to mud are left out (the palm seam). Default 2. */
+  density?: 1 | 2;
+}
+
+export function gloveSvg(pose: GlovePose, look: GloveLook = GLOVES[GLOVE], o: GloveSvgOptions = {}): string {
   const s = SHAPES[pose];
+  const fit = o.fit === false ? null : FIT[pose];
+  const fine = (o.density ?? 2) >= 2;
   const canvas = mix(look.canvas, 'paper', look.canvasLift);
   const canvasShade = mix(look.canvas, 'ink', 0.12);
   const leather = hex(look.leather);
@@ -130,9 +153,12 @@ export function gloveSvg(pose: GlovePose, look: GloveLook = GLOVES[GLOVE]): stri
   const brass = hex(look.snap);
   const brassHi = mix(look.snap, 'paper', 0.55);
   const cuffBand = look.patches ? leather : mix('paper', look.canvas, 0.15);
-  const sw = 1.35;
+  // the outline: never thinner than 1.55 px once fitted
+  const sw = fit ? Math.max(1.35, 1.55 / fit.s) : 1.35;
   const stroke = `stroke="${ink}" stroke-width="${sw}" stroke-linejoin="round"`;
-  const bar = (b: Bar, fill: string, tip: boolean): string => {
+  const bar = (b0: Bar, fill: string, tip: boolean): string => {
+    // fingers a little stouter than a hand's: at 32 px a slender finger is a line, not a finger
+    const b = { ...b0, w: b0.w * FINGER };
     const x = b.x - b.w / 2;
     const y = b.y - b.h;
     const rr = b.w / 2;
@@ -150,7 +176,7 @@ export function gloveSvg(pose: GlovePose, look: GloveLook = GLOVES[GLOVE]): stri
   for (const f of s.fingers) parts.push(bar(f, canvas, true));
   // the palm and back of the hand
   parts.push(`<rect x="8.4" y="11" width="15.6" height="13.4" rx="4.2" fill="${canvas}" ${stroke}/>`);
-  if (look.patches) parts.push(`<path d="M10 14.6 Q16.2 12.6 22.4 14.6" fill="none" stroke="${canvasShade}" stroke-width="0.7"/>`);
+  if (look.patches && fine) parts.push(`<path d="M10 14.6 Q16.2 12.6 22.4 14.6" fill="none" stroke="${canvasShade}" stroke-width="0.7"/>`);
   if (s.curl) {
     const c = s.curl;
     parts.push(`<rect x="${r(c.x)}" y="${r(c.y)}" width="${r(c.w)}" height="${r(c.h)}" rx="${r(c.h / 2)}" fill="${canvas}" ${stroke}/>`);
@@ -164,20 +190,26 @@ export function gloveSvg(pose: GlovePose, look: GloveLook = GLOVES[GLOVE]): stri
   }
   parts.push(bar(s.thumb, canvas, true));
   // the cuff: a band of leather (or stitched paper-white) with a brass snap
-  parts.push(`<rect x="9.4" y="23.2" width="13.6" height="7.4" rx="1.8" fill="${cuffBand}" ${stroke}/>`);
-  if (!look.patches) parts.push(`<line x1="10.6" y1="25.1" x2="21.8" y2="25.1" stroke="${leather}" stroke-width="0.6" stroke-dasharray="1.1 0.9"/>`);
-  parts.push(`<circle cx="19.6" cy="27" r="1.75" fill="${brass}" stroke="${ink}" stroke-width="0.8"/>`);
-  parts.push(`<circle cx="19.2" cy="26.6" r="0.55" fill="${brassHi}"/>`);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="rotate(${LEAN} 16 16)">${parts.join('')}</g></svg>`;
+  parts.push(`<rect x="9.4" y="23.2" width="13.6" height="5" rx="1.8" fill="${cuffBand}" ${stroke}/>`);
+  if (!look.patches) parts.push(`<line x1="10.6" y1="24.6" x2="21.8" y2="24.6" stroke="${leather}" stroke-width="0.6" stroke-dasharray="1.1 0.9"/>`);
+  parts.push(`<circle cx="19.6" cy="25.7" r="1.6" fill="${brass}" stroke="${ink}" stroke-width="0.8"/>`);
+  parts.push(`<circle cx="19.25" cy="25.35" r="0.55" fill="${brassHi}"/>`);
+  const place = fit ? `translate(${r(fit.tx)} ${r(fit.ty)}) scale(${r(fit.s)}) ` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="${place}rotate(${LEAN} 16 16)">${parts.join('')}</g></svg>`;
 }
 
 /** The hotspot of a pose in the 32-unit picture (the lean applied), rounded to whole CSS px. */
-export function gloveHotspot(pose: GlovePose): [number, number] {
+export function gloveHotspot(pose: GlovePose, o: { fit?: boolean } = {}): [number, number] {
   const [x, y] = SHAPES[pose].hot;
   const a = (LEAN * Math.PI) / 180;
   const dx = x - 16, dy = y - 16;
-  const hx = 16 + dx * Math.cos(a) - dy * Math.sin(a);
-  const hy = 16 + dx * Math.sin(a) + dy * Math.cos(a);
+  let hx = 16 + dx * Math.cos(a) - dy * Math.sin(a);
+  let hy = 16 + dx * Math.sin(a) + dy * Math.cos(a);
+  const fit = o.fit === false ? null : FIT[pose];
+  if (fit) {
+    hx = fit.tx + fit.s * hx;
+    hy = fit.ty + fit.s * hy;
+  }
   return [Math.max(0, Math.min(31, Math.round(hx))), Math.max(0, Math.min(31, Math.round(hy)))];
 }
 
@@ -213,8 +245,7 @@ export async function gloveCursors(look: GloveLook = GLOVES[GLOVE]): Promise<Rec
   try {
     const out = {} as Record<GlovePose, string>;
     for (const pose of GLOVE_POSES) {
-      const svg = gloveSvg(pose, look);
-      const [a, b] = await Promise.all([rasterise(svg, 1), rasterise(svg, 2)]);
+      const [a, b] = await Promise.all([rasterise(gloveSvg(pose, look, { density: 1 }), 1), rasterise(gloveSvg(pose, look, { density: 2 }), 2)]);
       const [hx, hy] = gloveHotspot(pose);
       out[pose] = `image-set(url("${a}") 1x, url("${b}") 2x) ${hx} ${hy}, url("${a}") ${hx} ${hy}, ${FALLBACK[pose]}`;
     }

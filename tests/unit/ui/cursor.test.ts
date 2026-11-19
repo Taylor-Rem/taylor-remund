@@ -29,6 +29,20 @@ describe('the glove cursor', () => {
     expect(gloveHotspot('point')[1]).toBeLessThan(6);
   });
 
+  it('fitted to the picture (scaled about its centre), the outline at least 1.5 px, and the 1x picture without the palm seam', () => {
+    for (const p of GLOVE_POSES) {
+      const svg = gloveSvg(p);
+      const m = /scale\(([\d.]+)\)/.exec(svg);
+      expect(m, p).toBeTruthy();
+      const s = Number(m![1]);
+      expect(s).toBeGreaterThan(1);
+      const sw = Math.max(...[...svg.matchAll(/stroke-width="([\d.]+)" stroke-linejoin/g)].map((x) => Number(x[1])));
+      expect(sw * s, `${p} outline px`).toBeGreaterThanOrEqual(1.5);
+    }
+    expect(gloveSvg('open', GLOVES.canvas, { density: 2 })).toContain('<path');
+    expect(gloveSvg('open', GLOVES.canvas, { density: 1 })).not.toContain('<path');
+  });
+
   it('each of input’s cursors has a pose; the glove in use is a candidate', () => {
     expect(Object.keys(POSE_OF).sort()).toEqual(['default', 'grab', 'grabbing', 'pointer']);
     expect(GLOVES[GLOVE]).toBeTruthy();
