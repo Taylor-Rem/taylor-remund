@@ -732,7 +732,7 @@ export interface JetpackOptions {
 }
 
 /** Arms out for balance, claws open: not sure this is a good idea. */
-const BALANCE: Arms = { left: J(0.35, 1.35, -0.3, 0.25, 0, 0.8), right: J(0.3, 1.4, -0.3, 0.3, 0, 0.75) };
+export const BALANCE: Arms = { left: J(0.35, 1.35, -0.3, 0.25, 0, 0.8), right: J(0.3, 1.4, -0.3, 0.3, 0, 0.75) };
 
 /**
  * Fetch's jetpack (S5): the flight back onto the bench, a pure function of the simulation's flight phase.
