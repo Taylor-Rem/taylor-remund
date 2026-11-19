@@ -253,7 +253,7 @@ export type Intent =
    * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
    * (S6) Kept while the input layer moves to `grab`/`carry`/`release`, which now reach the same units.
    */
-  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean }
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean; readonly velocity?: Vec3 }
   // ── S6 ──
   /**
    * The settings' reduced-motion switch, at run time (§ B4, § B10): from the next press a Button rung is
