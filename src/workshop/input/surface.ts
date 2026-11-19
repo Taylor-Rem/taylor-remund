@@ -122,6 +122,8 @@ class Aim {
 
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
+  /** (R4) The height of the level plane the hand is measured on while it carries (where it took hold). */
+  let handY: number | null = null;
   let carried: {
     id: Id;
     what: HeldKind | 'aim';
@@ -234,6 +236,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
     beginCarry(id, what, grip, t) {
       const w = deps.world();
       if (!w) return;
+      handY = grip[1];
       plane ??= new CarryPlane(w.scene.bench, deps.carry);
       if (what === 'plug') {
         const cord = w.cord(id);
@@ -296,6 +299,17 @@ export function createSurface(deps: SurfaceDeps): Surface {
     endCarry() {
       plane?.end();
       carried = null;
+      handY = null;
+    },
+
+    handPoint(x, y) {
+      const ray = deps.ray(x, y);
+      const w = deps.world();
+      const h = handY ?? w?.scene.bench.top ?? 0;
+      // a level plane through where the hand took hold (or the bench, for an arm that aims)
+      const dy = ray.dir[1];
+      const t = dy < -1e-6 ? (h - ray.origin[1]) / dy : 0;
+      return [ray.origin[0] + ray.dir[0] * t, h, ray.origin[2] + ray.dir[2] * t];
     },
 
     gripFor(id, what, point) {

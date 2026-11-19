@@ -71,6 +71,11 @@ export class VelocityTracker {
     return set(out, this.x[first]!, this.y[first]!, this.z[first]!);
   }
 
+  /** The newest sample's time, or null. */
+  newest(): number | null {
+    return this.n > 0 ? this.t[this.at(this.n - 1)]! : null;
+  }
+
   /** The oldest sample's time, or null. */
   oldest(): number | null {
     return this.n > 0 ? this.t[this.at(0)]! : null;
@@ -101,16 +106,18 @@ export class VelocityTracker {
 /** Tune here (ms, units per second). */
 export const THROW_TUNING = {
   /** How far back the throw is looked for. */
-  span: 140,
+  span: 150,
   /** The width of each window slid across it, and its step. Wide enough that one late or doubled event cannot spike it. */
   window: 48,
   step: 6,
-  /** The hand's way at the end: its velocity over this last stretch. */
-  end: 40,
+  /** The hand's way at the end: its velocity over the last stretch of its samples (two frames). */
+  end: 32,
+  /** No sample of the hand for this long before the release: it had come to rest (a mouse at rest sends nothing). */
+  still: 70,
   /** Slower than this over the last stretch, the hand has come to rest: a set-down, not a throw. */
-  rest: 0.6,
+  rest: 0.25,
   /** The throw is never more than this many times the hand's speed over the last stretch (a flick that stops dead is a set-down). */
-  overEnd: 4,
+  overEnd: 8,
 } as const;
 
 export type ThrowTuning = { -readonly [K in keyof typeof THROW_TUNING]: number };
@@ -119,6 +126,7 @@ export type ThrowTuning = { -readonly [K in keyof typeof THROW_TUNING]: number }
 export interface Path {
   velocity(now: number, windowMs: number): Vec3;
   oldest(): number | null;
+  newest(): number | null;
 }
 
 /**
@@ -129,6 +137,10 @@ export interface Path {
  */
 export function throwOf(path: Path, now: number, o: Partial<ThrowTuning> = {}): Vec3 {
   const T = { ...THROW_TUNING, ...o };
+  // the hand's last report: a release well after it is a hand that had stopped
+  const last = path.newest() ?? now;
+  if (now - last > T.still) return [0, 0, 0];
+  now = Math.max(last, Math.min(now, last));
   const end = path.velocity(now, T.end);
   const es = Math.hypot(end[0], end[1], end[2]);
   if (es < T.rest) return end;

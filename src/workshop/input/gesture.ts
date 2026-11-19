@@ -103,6 +103,8 @@ export interface GestureWorld {
   where?(id: Id): Vec3 | null;
   /** What `id` is to a hand (keyboard focus has no pointer to ask `at` with). */
   role?(id: Id): Role;
+  /** (R4) Where the hand is, for the throw: the pointer on a level plane through where it took hold. */
+  handPoint?(x: number, y: number): Vec3;
   /** The grip a grab names (default: the point the hand took it at; an arm that aims is taken where it points). */
   gripFor?(id: Id, what: HeldKind, point: Vec3): Vec3;
 }
@@ -628,14 +630,14 @@ export class Gestures {
     const a = this.active;
     if (a?.k === 'carry') {
       const p = this.ptrs.get(a.p);
-      if (p) this.sampleCarry(p.x, p.y, t);
+      if (p) this.sampleCarry(p.x, p.y, t, false);
       return;
     }
     if (this.holding?.key) {
       this.intent({ type: 'carry', target: this.holding.key.at }, t);
       return;
     }
-    if (this.holding?.tap && this.mouse) this.sampleCarry(this.mouse.x, this.mouse.y, t);
+    if (this.holding?.tap && this.mouse) this.sampleCarry(this.mouse.x, this.mouse.y, t, false);
     if (!a && this.mouse) this.updateHover(t);
   }
 
@@ -843,10 +845,16 @@ export class Gestures {
     this.setCursor('grabbing');
   }
 
-  private sampleCarry(x: number, y: number, t: number): void {
+  /**
+   * Re-aim the carried thing at the pointer. (R4) Only a pointer event is a sample of the hand for the throw: a
+   * frame re-aiming at a pointer that has not reported is not the hand stopping. The hand is measured on a level
+   * plane through where it took hold (`handPoint`), not on the carry target, whose height eases over what is
+   * under it (that rise is the carry's, not the hand's).
+   */
+  private sampleCarry(x: number, y: number, t: number, fromEvent = true): void {
     if (!this.holding) return;
     const target = this.world.carryTarget(x, y, t);
-    this.vel.add(t, target);
+    if (fromEvent) this.vel.add(t, this.world.handPoint?.(x, y) ?? target);
     this.intent({ type: 'carry', target }, t);
   }
 

@@ -35,7 +35,7 @@ describe('the throw (R4)', () => {
 
   it('a slow carry sets down at the carry’s own speed', () => {
     const v = hand(400, () => 0.4);
-    expect(speedOf(v.throw(400))).toBeLessThan(THROW_TUNING.rest);
+    expect(speedOf(v.throw(400))).toBeLessThan(0.5);
   });
 
   it('a flick and a stop sets down: a hand that has come to rest throws nothing', () => {
@@ -60,5 +60,12 @@ describe('the throw (R4)', () => {
     dup.add(300, [1.8, 0.5, 0]); // the same moment again
     expect(speedOf(dup.throw(300))).toBeLessThan(7.5);
     expect(speedOf(dup.throw(300))).toBeGreaterThan(5);
+  });
+
+  it('a release long after the hand last reported is a set-down (a mouse at rest sends nothing)', () => {
+    const v = new VelocityTracker();
+    for (let t = 0; t <= 200; t += 16) v.add(t, [(8 * t) / 1000, 0.5, 0]);
+    expect(speedOf(v.throw(208))).toBeGreaterThan(7);
+    expect(speedOf(v.throw(208 + THROW_TUNING.still + 10))).toBe(0);
   });
 });
