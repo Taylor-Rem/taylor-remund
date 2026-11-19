@@ -16,8 +16,9 @@
  * from the bench under its tyre). A view at another scale divides by it on the way in.
  */
 import { Vector3 } from 'three';
-import { PRESETS, SHOULDER, TELE, TELE_MAX, handPoint, teleStages, type ArmJoints, type Arms, type FetchPose } from './rig.ts';
+import { PRESETS, SHOULDER, TELE, TELE_MAX, TORSO, WHEEL_R, handPoint, teleStages, type ArmJoints, type Arms, type FetchPose } from './rig.ts';
 import { Spring, clamp, lerp, smoothstep } from '../../../anim/index.ts';
+import { REACH_SEEDS } from './reach-seeds.ts';
 
 /** A point or a size in Fetch's own space (scale 1). */
 export type V3 = readonly [number, number, number];
@@ -35,6 +36,11 @@ export interface ReachOptions {
   hand?: 'left' | 'right';
   /** The last solution for a nearby target: the solver starts there (cheaper, and no jumps between answers). */
   from?: ReachSolution | null;
+  /**
+   * Search hard from several shapes of arm (tens of milliseconds): for a layout test and for baking the seed
+   * table. Without it a cold solve starts once, from the baked table's nearest answer (about a millisecond).
+   */
+  thorough?: boolean;
 }
 
 export interface ReachSolution {
@@ -52,11 +58,11 @@ export interface ReachSolution {
 
 /** The unknowns' bounds: lean fore, squash, swing, abduct, elbow, telescope. */
 const QLO = [-0.12, -0.6, -0.6, -0.55, 0, 0];
-const QHI = [0.34, 0.5, 2.2, 1.6, 2.3, TELE_MAX];
+const QHI = [0.28, 0.5, 2.2, 1.6, 2.3, TELE_MAX];
 /** Where the solver starts, and what it leans toward among equal answers: carrying. */
 const Q0 = [0.03, 0, 0.78, -0.2, 0.85, 0];
 /** Shapes of arm a cold solve starts from: carrying; elbows out and bent; arms up and out straight. */
-const SEEDS = [Q0, [0.12, 0, 1.3, 0.6, 1.2, 0], [0.3, 0, 2.0, 0.6, 0.2, 0], [0.25, 0.2, 1.0, 0.4, 0.15, 0], [0.34, 0.45, 0.8, 0.2, 0.05, 0]];
+const SEEDS = [Q0, [0.12, 0, 1.3, 0.6, 1.2, 0], [0.24, 0, 2.0, 0.6, 0.2, 0], [0.25, 0.2, 1.0, 0.4, 0.15, 0], [0.26, 0.45, 0.8, 0.2, 0.05, 0]];
 
 function solveLinear(A: number[][], b: number[]): number[] {
   const n = b.length;
@@ -78,7 +84,7 @@ function solveLinear(A: number[][], b: number[]): number[] {
 }
 
 /** Levenberg–Marquardt over the unknowns `free`, bounded by clamping: six unknowns, a handful of residuals. */
-function lm(q: number[], free: readonly number[], res: (q: number[]) => number[], iters: number): number[] {
+function lm(q: number[], free: readonly number[], res: (q: number[]) => number[], iters: number, tries0 = 6): number[] {
   let x = q.slice();
   let r = res(x);
   let cost = r.reduce((s, v) => s + v * v, 0);
@@ -97,7 +103,7 @@ function lm(q: number[], free: readonly number[], res: (q: number[]) => number[]
     const A = Array.from({ length: n }, (_, a) => Array.from({ length: n }, (_, b) => Jc[a]!.reduce((s, v, k) => s + v * Jc[b]![k]!, 0)));
     const g = Jc.map((col) => col.reduce((s, v, k) => s + v * r[k]!, 0));
     let improved = false;
-    for (let tries = 0; tries < 6; tries++) {
+    for (let tries = 0; tries < tries0; tries++) {
       const Ad = A.map((row, a) => row.map((v, b) => (a === b ? v * (1 + mu) + mu : v)));
       const dx = solveLinear(Ad, g.map((v) => -v));
       const xn = x.slice();
@@ -121,6 +127,20 @@ function lm(q: number[], free: readonly number[], res: (q: number[]) => number[]
 
 const tmpL = new Vector3();
 const tmpR = new Vector3();
+
+/**
+ * The baked seed table (reach-seeds.ts, made by `bakeReachSeeds`): a thorough answer for every distance and
+ * height on a grid, two-handed and tapping. A cold solve starts from the nearest one.
+ */
+function tableSeed(d: number, y: number, tap: boolean): number[] | null {
+  const g = REACH_SEEDS;
+  const rows = tap ? g.tap : g.crate;
+  if (!rows.length) return null;
+  const i = Math.max(0, Math.min(g.nd - 1, Math.round((d - g.d0) / g.dStep)));
+  const j = Math.max(0, Math.min(g.ny - 1, Math.round((y - g.y0) / g.yStep)));
+  const k = (i * g.ny + j) * 6;
+  return rows.slice(k, k + 6);
+}
 
 /** The arms for the unknowns: mirrored for a two-handed hold, or one arm out and the other at rest (a tap). */
 function reachArms(q: readonly number[], tap: 'left' | 'right' | null, grip: number): Arms {
@@ -151,7 +171,14 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
   const side: 'L' | 'R' = tap === 'right' ? 'R' : 'L';
   const local = tap ? TIP_POINT : GRIP_POINT;
   const grip = half ? 0.5 : 0.08;
-  const want = half ? new Vector3(half[0] + JAW, ty, tz) : new Vector3(tx, ty, tz);
+  // a held thing never goes into its body: its near face stays in front of the pail (a big crate held close is
+  // drawn out to there, and the pull counts in `short`), and the lean may not carry the pail into it
+  const nearest = half ? TORSO.d / 2 + 0.03 + half[2] : 0;
+  const pushed = half ? Math.max(0, nearest - tz) : 0;
+  const want = half ? new Vector3(half[0] + JAW, ty, tz + pushed) : new Vector3(tx, ty, tz);
+  const room = half ? tz + pushed - half[2] - 0.012 : Infinity;
+  /** How far the leaning pail's front, at the crate's height, comes past the crate's near face (0: clear). */
+  const clip = (q: number[]): number => (half ? Math.max(0, TORSO.d / 2 + 0.02 + Math.sin(q[0]!) * Math.max(0, ty - WHEEL_R) - room) : 0);
   const err = (q: number[]): Vector3 => {
     const arms = reachArms(q, tap, grip);
     return handPoint({ lean: [q[0]!, 0], squash: q[1]! }, side, side === 'L' ? arms.left : arms.right, local, tmpL).sub(want);
@@ -159,17 +186,28 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
   // A: no telescope; lean and spring cost a little, the arm's own joints almost nothing (they open first)
   const resA = (q: number[]): number[] => {
     const e = err(q);
-    return [e.x, e.y, e.z, 0.03 * (q[0]! - Q0[0]!), 0.016 * q[1]!, 0.004 * (q[2]! - Q0[2]!), 0.004 * (q[3]! - Q0[3]!), 0.004 * (q[4]! - Q0[4]!)];
+    return [e.x, e.y, e.z, 4 * clip(q), 0.03 * (q[0]! - Q0[0]!), 0.016 * q[1]!, 0.004 * (q[2]! - Q0[2]!), 0.004 * (q[3]! - Q0[3]!), 0.004 * (q[4]! - Q0[4]!)];
   };
-  // warm, from the last answer; cold (or if that went wrong), from a few shapes of arm and keep the best
+  // warm, from the last answer; cold, from the baked table's nearest answer for this distance and height (the
+  // problem is the same at any bearing: it turns to face the target); thorough, from a few shapes of arm too
   const warm = o.from && o.from.tap === tap ? o.from : null;
-  const starts = warm ? [warm.q] : SEEDS;
+  const thorough = o.thorough === true;
+  const seed = tableSeed(d, ty, tap !== null);
+  const starts = warm ? [warm.q] : thorough ? (seed ? [seed, ...SEEDS] : SEEDS) : [seed ?? Q0];
+  const itA = warm ? 2 : thorough ? 30 : 16;
   let q: number[] = [];
   let e = Infinity;
-  for (const st of starts) {
+  // warm and already telescoping: the tubes stay in play (phase B alone; its pull on the tubes takes them in
+  // again when they are not needed), which halves a frame's work
+  const skipA = warm !== null && warm.q[5]! > 1e-3;
+  if (skipA) {
+    q = warm.q.slice();
+    e = err(q).length();
+  }
+  for (const st of skipA ? [] : starts) {
     const x0 = st.slice();
     x0[5] = 0;
-    const x = lm(x0, [0, 1, 2, 3, 4], resA, starts.length > 1 ? 30 : 20);
+    const x = lm(x0, [0, 1, 2, 3, 4], resA, itA, warm ? 3 : 6);
     const ex = err(x).length();
     if (ex < e - 1e-5) {
       q = x;
@@ -177,31 +215,23 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
     }
     if (e < 0.001) break;
   }
-  if (e > 0.003 && !warm) {
-    for (const st of SEEDS) {
-      const x0 = st.slice();
-      const x = lm(x0, [0, 1, 2, 3, 4], resA, 30);
-      const ex = err(x).length();
-      if (ex < e - 1e-5) {
-        q = x;
-        e = ex;
-      }
-    }
-  }
   if (e > 0.003) {
     // B: the tubes run out for what is left, the body held as it was at full stretch
     const qa = q.slice();
     const resB = (x: number[]): number[] => {
       const ee = err(x);
-      return [ee.x, ee.y, ee.z, 0.05 * (x[0]! - qa[0]!), 0.03 * (x[1]! - qa[1]!), 0.004 * (x[4]! - qa[4]!), 0.004 * x[5]!];
+      return [ee.x, ee.y, ee.z, 4 * clip(x), 0.05 * (x[0]! - qa[0]!), 0.03 * (x[1]! - qa[1]!), 0.004 * (x[4]! - qa[4]!), (skipA ? 0.012 : 0.004) * x[5]!];
     };
-    const qb = q.slice();
+    // from the last answer (warm) or the seed (cold) with its own telescope, else from A's answer
+    const from = warm ? warm.q : seed;
+    const qb = from && from[5]! > 1e-3 ? from.slice() : q.slice();
     if (qb[5]! < 1e-3) qb[5] = Math.min(TELE_MAX, e * 0.8);
-    let best = lm(qb, [0, 1, 2, 3, 4, 5], resB, 30);
+    let best = lm(qb, [0, 1, 2, 3, 4, 5], resB, warm ? 3 : thorough ? 30 : 16, warm ? 3 : 6);
     let eb = err(best).length();
     // far and low (or wherever the first answer went wrong): from the other shapes too, tubes half out
-    if (eb > 0.003 && !warm) {
-      for (const st of SEEDS) {
+    if (eb > 0.003 && (thorough || !warm)) {
+      // (cold: one more shape only, a millisecond; thorough: all of them)
+      for (const st of thorough ? SEEDS : SEEDS.slice(0, 3)) {
         const x = lm([st[0]!, st[1]!, st[2]!, st[3]!, st[4]!, TELE_MAX * 0.5], [0, 1, 2, 3, 4, 5], resB, 30);
         const ex = err(x).length();
         if (ex < eb - 1e-4) {
@@ -213,7 +243,7 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
     q = best;
     e = eb;
   }
-  return { pose: { lean: [q[0]!, 0], squash: q[1]!, spin, arms: reachArms(q, tap, grip) }, short: e, tele: q[5]!, tap, q };
+  return { pose: { lean: [q[0]!, 0], squash: q[1]!, spin, arms: reachArms(q, tap, grip) }, short: e + pushed, tele: q[5]!, tap, q };
 }
 
 /** Where the grip is for a pose (root space): the middle of the two claws (two-handed), or a claw's closed tips. */
@@ -237,7 +267,7 @@ export function reachLimits(height: number, half: V3 | null): { natural: number;
     let lo = 0.2, hi = 1.6;
     for (let i = 0; i < 18; i++) {
       const m = (lo + hi) / 2;
-      const r = reachPose([0, height, m], { half });
+      const r = reachPose([0, height, m], { half, thorough: true });
       if (r.short < 0.002 && (useTele || r.tele < 1e-3)) lo = m;
       else hi = m;
     }
@@ -250,11 +280,11 @@ export function reachLimits(height: number, half: V3 | null): { natural: number;
 export const REACH_HEIGHT = 0.62;
 /** An S crate (0.45 a side) held at the bench's crew scale of 1.5: its half-size in Fetch's units. */
 export const S_CRATE_HALF: V3 = [0.15, 0.1467, 0.15];
-const LIMITS = reachLimits(REACH_HEIGHT, S_CRATE_HALF);
+// (measured by reachLimits and held to it by a test; constants so that nothing is solved when the module loads)
 /** Its reach with arms, lean and spring alone: centre to grip, an S crate at the carrying height (Fetch's units, scale 1). */
-export const NATURAL_REACH = LIMITS.natural;
+export const NATURAL_REACH = 0.529;
 /** Its reach with the telescope all the way out, the same way (Fetch's units, scale 1). */
-export const GREATEST_REACH = LIMITS.greatest;
+export const GREATEST_REACH = 0.774;
 
 // ───────────────────────── the motion ─────────────────────────
 
@@ -265,6 +295,8 @@ export interface ReachInput {
   half: V3 | null;
   /** Something is in its claws (they close on it); else, reaching, they open. */
   holding: boolean;
+  /** The claw that taps (a tap only): the caller picks the one the visitor sees. Default: the one on the target's side. */
+  hand?: 'left' | 'right';
   dt: number;
   reducedMotion?: boolean;
   /**
@@ -311,6 +343,35 @@ export class ReachMotion {
   private tap: 'left' | 'right' | null = null;
   private latch = 0;
 
+  private solvedFor: V3 | null = null;
+  private readonly warm: Array<{ target: V3; tap: boolean; sol: ReachSolution }> = [];
+
+  /**
+   * Solve the places it will reach for in advance (when the view is built, during the loading picture), so a
+   * reach to one of them starts warm. Fetch's own space, scale 1. Returns the milliseconds it took.
+   */
+  warmUp(places: ReadonlyArray<{ target: V3; half: V3 | null }>): number {
+    const t0 = performance.now();
+    for (const p of places) this.warm.push({ target: p.target, tap: p.half === null, sol: reachPose(p.target, { half: p.half }) });
+    return performance.now() - t0;
+  }
+
+  /** The solved pose for a place near `t` (0.12 at most, the same kind of reach), if any. */
+  private nearestWarm(t: V3, half: V3 | null): ReachSolution | null {
+    let best: ReachSolution | null = null;
+    let bd = 0.12;
+    for (const w of this.warm) {
+      if (w.tap !== (half === null)) continue;
+      // the reach is the same at any bearing: compare distance and height only
+      const d = Math.hypot(Math.hypot(t[0], t[2]) - Math.hypot(w.target[0], w.target[2]), t[1] - w.target[1]);
+      if (d < bd) {
+        bd = d;
+        best = w.sol;
+      }
+    }
+    return best;
+  }
+
   /** Its state as it was at rest (call when the robot is reset). */
   reset(): void {
     this.w.set(0);
@@ -330,7 +391,8 @@ export class ReachMotion {
     let sol: ReachSolution | null = null;
     if (i.target) {
       // a new reach (or a jump to somewhere else): start the clock for the draw back
-      if (!this.lastTarget || Math.hypot(i.target[0] - this.lastTarget[0], i.target[1] - this.lastTarget[1], i.target[2] - this.lastTarget[2]) > 0.35) {
+      const jump = !this.lastTarget || Math.hypot(i.target[0] - this.lastTarget[0], i.target[1] - this.lastTarget[1], i.target[2] - this.lastTarget[2]) > 0.35;
+      if (jump) {
         this.startAt = this.time;
         this.latch = 0;
         // from nothing: the arms start where the caller's are (about at rest), so they visibly open first
@@ -344,7 +406,16 @@ export class ReachMotion {
           this.spin.set(0);
         }
       }
-      sol = reachPose(i.target, { half: i.half, from: this.last });
+      const t = i.target;
+      const still = this.last && this.solvedFor && !jump && Math.hypot(t[0] - this.solvedFor[0], t[1] - this.solvedFor[1], t[2] - this.solvedFor[2]) < 2e-4;
+      if (still) sol = this.last!;
+      else {
+        // warm from the last answer while the grip moves on; a jump starts from a pose solved in advance for a
+        // place near there (`warmUp`), else from the baked table: never a search during play
+        const from = jump ? this.nearestWarm(t, i.half) : this.last;
+        sol = reachPose(t, { half: i.half, from, ...(i.hand ? { hand: i.hand } : {}) });
+        this.solvedFor = [t[0], t[1], t[2]];
+      }
       this.last = sol;
       this.tap = sol.tap;
     }
@@ -433,6 +504,25 @@ export function reachFrom(stand: V3, point: V3, o: ReachFromOptions = {}): { sho
   const k = o.scale ?? 1.5;
   const half = o.half === undefined ? [0.225, 0.22, 0.225] as V3 : o.half;
   const target: V3 = [(point[0] - stand[0]) / k, (point[1] - stand[1]) / k, (point[2] - stand[2]) / k];
-  const r = reachPose(target, { half: half ? [half[0] / k, half[1] / k, half[2] / k] : null });
+  const r = reachPose(target, { half: half ? [half[0] / k, half[1] / k, half[2] / k] : null, thorough: true });
   return { short: r.short * k, tele: r.tele * k, telescoped: r.tele > 1e-3 };
+}
+
+/**
+ * Bake the seed table: a thorough solve at every grid point (distance × height), two-handed (an S crate at the
+ * bench's scale) and tapping. Seconds of work: run it offline when the rig or the solver changes and write the
+ * result into reach-seeds.ts (shots/V/gen-seeds.test.ts does both).
+ */
+export function bakeReachSeeds(grid = { d0: 0.2, dStep: 0.05, nd: 17, y0: 0, yStep: 0.0625, ny: 17 }): typeof REACH_SEEDS {
+  const crate: number[] = [];
+  const tap: number[] = [];
+  const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+  for (let i = 0; i < grid.nd; i++) {
+    for (let j = 0; j < grid.ny; j++) {
+      const d = grid.d0 + i * grid.dStep, y = grid.y0 + j * grid.yStep;
+      crate.push(...reachPose([0, y, d], { half: S_CRATE_HALF, thorough: true }).q.map(r3));
+      tap.push(...reachPose([0, y, d], { half: null, hand: 'left', thorough: true }).q.map(r3));
+    }
+  }
+  return { ...grid, crate, tap };
 }
