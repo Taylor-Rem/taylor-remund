@@ -57,8 +57,8 @@ import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo, obstacles } from './fetch-knock.ts';
 import { bodiesOf, legClear } from './fetch-route.ts';
 import type { Pt } from './fetch-route.ts';
-import { PATCH_ROUTE, clearPoint, crossPoints, planWay, stepClear } from './patch-route.ts';
-import type { BeltCrossing, Way } from './patch-route.ts';
+import { PATCH_ROUTE, clearPoint, crossPoints, planWay, solidsOf, sphereMeets, stepClear } from './patch-route.ts';
+import type { BeltCrossing, Solid, Way } from './patch-route.ts';
 
 /** Seconds, units, units per second. Tune here. */
 export const PATCH_TUNING = {
@@ -119,6 +119,24 @@ export const PATCH_TUNING = {
   crossOn: 0.25,
   crossOver: 0.45,
   crossOff: 0.25,
+  /** R4: let go with the hand moving at least this fast (units/s), it is thrown; slower is a set-down. */
+  throwAt: 1.5,
+  /** R4: a throw's speed is clamped to the parts' (the world's LOOSE_TUNING.throwMax: a test holds them together). */
+  throwMax: 7.5,
+  /** R4: in the hand its body's middle hangs this far below the hand (the scruff); a sphere of `bodyR` for what it meets. */
+  hangBelow: 0.6,
+  bodyR: 0.45,
+  /** R4: crossing an open edge with its middle this near the bench top (above, below), it catches the edge. */
+  reachUp: 0.9,
+  reachDown: 0.7,
+  /** R4: landed: a bounce and a roll that eats the speed (`slide` seconds of it, at most `slideMax` units), sat up; a shake of the head. */
+  land: 0.8,
+  slide: 0.12,
+  slideMax: 0.9,
+  shake: 0.6,
+  /** R4: thrown well clear of the bench: out of sight this long, then up the chute and onto the bench by the pad over `chuteFly`. */
+  away: 1.6,
+  chuteFly: 1.0,
 } as const;
 
 export interface PatchSpec {
@@ -158,6 +176,8 @@ export interface PatchSpec {
    * the stretch (x) a crossing may start and end in (clear of the motor end, the striker and the ramp).
    */
   readonly belt?: { readonly id: Id; readonly bed: Id; readonly safe: readonly [number, number] };
+  /** R4: thrown off the bench, it comes back up the chute (its mouth, world) and lands by the pad (x, z), as a shipped robot does. */
+  readonly chute?: { readonly from: Vec3; readonly pad: readonly [number, number] };
   /**
    * S6: the stool's runner along the board (world x of the stool's middle). `rest` is its place at the
    * runner's right end (where `seat` and `foot` are measured); `jacks` is where it stands to work each
@@ -298,6 +318,44 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let gapWaitAt = -1;
   /** Where Fetch was last seen (its velocity is read from it). */
   let fetchSeen: { step: number; x: number; z: number; vx: number; vz: number } | null = null;
+
+  // ── R4: thrown ──
+  const SOLIDS: Solid[] = solidsOf(ctx.scene);
+  /** In the air: its velocity; past an open edge and going (out); coming back from the chute. */
+  let fly: { v: Vec3; out: boolean; chute: boolean } | null = null;
+  /** Landed: from where it came down to where the roll ends, and how fast it came in. */
+  let landing: { from: Vec3; to: Vec3; speed: number } | null = null;
+  /** Thrown from `p` (its middle, world) with the hand's velocity `v`. */
+  function throwFrom(p: Vec3, v: Vec3): void {
+    const n = length(v);
+    const vv = n > T.throwMax ? scale(v, T.throwMax / n) : v;
+    let q = p;
+    // (never starting inside a body: above it)
+    for (const o of SOLIDS) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
+    at = q;
+    fly = { v: vv, out: false, chute: false };
+    landing = null;
+    lookAt = null;
+    if (Math.hypot(vv[0], vv[2]) > 0.1) heading = Math.atan2(vv[0], vv[2]);
+    enter('fly');
+  }
+  /** Where a throw comes down: where it stands (clear of every body), and the roll on from there that eats its speed. */
+  function landAt(p: Vec3, v: Vec3): void {
+    const from = standingAt([p[0], spec.foot[1], p[2]]);
+    const sp = Math.hypot(v[0], v[2]);
+    let roll = Math.min(T.slideMax, sp * T.slide);
+    const dir: Pt = sp > 1e-6 ? [v[0] / sp, v[2] / sp] : [0, 0];
+    let to: Pt = [from[0] + dir[0] * roll, from[2] + dir[1] * roll];
+    while (roll > 0.02 && (!legClear(pt(from), to, R, STATICS) || clearPoint(to, R, STATICS, routeBench)?.[0] !== to[0])) {
+      roll *= 0.5;
+      to = [from[0] + dir[0] * roll, from[2] + dir[1] * roll];
+    }
+    if (roll <= 0.02) to = pt(from);
+    landing = { from, to: onGround(to), speed: sp };
+    at = from;
+    fly = null;
+    enter('land');
+  }
   const pt = (v: Vec3): Pt => [v[0], v[2]];
   const onGround = (p: Pt): Vec3 => [p[0], spec.foot[1], p[1]];
   /** The belt's surface speed now (+X), 0 without one. */
@@ -401,24 +459,38 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   };
   const seconds = (): number => (ctx.clock.step - since) / HZ;
   const lengthOf = (s: PatchState): number =>
-    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust, cross: T.crossOn + T.crossOver + T.crossOff } as Record<string, number>)[s] ?? Infinity);
+    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust, cross: T.crossOn + T.crossOver + T.crossOff, land: T.land, shake: T.shake, away: T.away } as Record<string, number>)[s] ?? Infinity);
 
   /**
    * R1: where a release at `p` goes over an open edge (with the hand's travel carried on for `fling`
    * seconds), the point of that edge nearest to where it was going; null when it stays on the bench.
    */
+  /**
+   * The hand's velocity as it let go (world units/s): the input's, when it sends one; else from the hand's own
+   * trail of carries, from the carry a little before the last to the last (the release itself is where the hand
+   * was last carried to, so it is not counted twice). A fling needs a few carries and a recent one: one jump of
+   * the target is not a throw, and a hand that paused has set Patch down.
+   */
+  function handVelocity(given?: Vec3): Vec3 {
+    if (given) return given;
+    const last = trail[trail.length - 1];
+    const old = last ? trail.find((s) => last.step - s.step <= Math.round(0.15 * HZ)) : undefined;
+    if (trail.length >= 3 && last && old && last.step > old.step && ctx.clock.step - last.step <= Math.round(0.1 * HZ)) return scale(sub(last.p, old.p), HZ / (last.step - old.step));
+    return [0, 0, 0];
+  }
+
   function overEdge(p: Vec3): { edge: 'front' | 'left' | 'right'; at: Vec3; up: Vec3; out: Vec3 } | null {
     const e = spec.edge;
     if (!e) return null;
-    // the hand's travel before it let go: from the carry a little before the last to the last (the release
-    // itself is where the hand was last carried to, so it is not counted twice)
-    let v: Vec3 = [0, 0, 0];
-    const last = trail[trail.length - 1];
-    const old = last ? trail.find((s) => last.step - s.step <= Math.round(0.15 * HZ)) : undefined;
-    // (a fling needs a few carries of the hand, and a recent one: one jump of the target is not a throw)
-    if (trail.length >= 3 && last && old && last.step > old.step && ctx.clock.step - last.step <= Math.round(0.1 * HZ)) v = scale(sub(last.p, old.p), HZ / (last.step - old.step));
+    const v = handVelocity();
     const fast = Math.hypot(v[0], v[2]) >= T.flingMin;
-    const q: Vec3 = fast ? add(p, scale(v, T.fling)) : p;
+    return edgeFor(fast ? add(p, scale(v, T.fling)) : p);
+  }
+
+  /** The edge a point beyond the bench is past (the one it is furthest past), and the point of it nearest; null when it is on the bench. */
+  function edgeFor(q: Vec3): { edge: 'front' | 'left' | 'right'; at: Vec3; up: Vec3; out: Vec3 } | null {
+    const e = spec.edge;
+    if (!e) return null;
     // how far past each open edge it goes; the edge it goes furthest past is the one it catches
     const past = { left: e.minX - q[0], right: q[0] - e.maxX, front: q[2] - e.maxZ };
     const [edge, d] = (Object.entries(past) as ['front' | 'left' | 'right', number][]).reduce((a, b) => (b[1] > a[1] ? b : a));
@@ -639,6 +711,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         while (trail.length > 0 && ctx.clock.step - (trail[0] as { step: number }).step > Math.round(0.3 * HZ)) trail.shift();
       }
       if (intent.end) {
+        // R4: let go with the hand moving, it flies (a scripted arc: never a physics body)
+        const hv = handVelocity((intent as { velocity?: Vec3 }).velocity);
+        if (length(hv) >= T.throwAt) {
+          trail.length = 0;
+          throwFrom([intent.target[0], intent.target[1] - T.hangBelow, intent.target[2]], hv);
+          return true;
+        }
         const over = overEdge(intent.target);
         trail.length = 0;
         if (over) {
