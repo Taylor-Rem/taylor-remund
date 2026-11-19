@@ -41,7 +41,7 @@ import { clamp, clamp01, inOutCubic, inOutQuad, lerp, outBack, outCubic, inCubic
 import type { Ease } from '../../../anim/ease.ts';
 import {
   EXPRESSIONS, FOREARM, GAZE_MAX, HC, HEAD_SCALE, HIPS, LEG_REST, NECK, NEUTRAL, SCRUFF, SHOULDER, UPPER_ARM, CUP,
-  ARM_LIMITS, SIDE_ON, bodyMatrix, poseMatrices, resolveArms,
+  ARM_LIMITS, SIDE_ON, bodyMatrix, poseMatrices, resolveArms, KNEE, KNEE_MID, LEG, HIP,
 } from './rig.ts';
 import { BOARD_WHOLE, STOOL_SEAT } from '../switchboard/board.ts';
 import { POSE as BOARD_POSE } from '../switchboard/pose.ts';
@@ -1609,44 +1609,138 @@ export function climb(t: number, o: ClimbOptions = {}): PatchPose {
 
 export interface WalkOptions {
   visitor?: V3;
+  /** Where it is going (root space): the head looks along its way. Default: straight ahead. */
+  toward?: V3 | null;
+  /** A scamper (a long way back): longer, quicker steps, a forward lean, arms pumping, the tail streaming. */
+  scamper?: boolean;
+  /** 0..1: a glance over its shoulder at the visitor (a long walk's one look back). */
+  glance?: number;
+  /** 0..1: stopped (something in its way, or shut in): the feet come together under it, it stands and looks. */
+  stopped?: number;
 }
-/** The toddle's stride (one step, root units): short legs, quick steps. */
-const STRIDE = 0.15;
+
+// ── R2: the gait: feet that plant ──
+// The leg in its own (z forward, y up) plane, as complex numbers w = z + i·y: the knee from the hip (thigh), and
+// the sole from the knee (shin), both at the rig's zero. A rotation of the thigh by `lift` multiplies by e^{i·lift};
+// the knee's by e^{-i·knee}. Two links: solved exactly for a sole point (no search).
+const TW = { z: KNEE.z, y: KNEE.y };
+const SW = { z: LEG.foot[2] - KNEE_MID[2], y: LEG.foot[1] - KNEE_MID[1] - 0.05 };
+const LT = Math.hypot(TW.z, TW.y), LS = Math.hypot(SW.z, SW.y);
+const ARG_T = Math.atan2(TW.y, TW.z), ARG_S = Math.atan2(SW.y, SW.z);
+/** Hip joint height above the soles when standing (root units). */
+const HIP_UP = STAND_HIPS;
+/** The hip joint is this far along the body (z) from the body's origin, which stands over the feet. */
+const HIPS_Z_OFF = HIP.z;
+
+/** The leg's joints that put its sole at (z forward, y up) from the hip, in the body's frame. */
+export function legFor(z: number, y: number, splay = 0.08): LegJoints {
+  let r = Math.hypot(z, y);
+  r = clamp(r, Math.abs(LT - LS) + 1e-4, LT + LS - 1e-4);
+  const v = Math.acos(clamp((r * r - LT * LT - LS * LS) / (2 * LT * LS), -1, 1));
+  // of the two ways to bend, always the one with the knee forward (continuous from straight to tucked)
+  const knee = ARG_S - ARG_T + v;
+  const sz = TW.z + Math.cos(-knee) * SW.z - Math.sin(-knee) * SW.y;
+  const sy = TW.y + Math.sin(-knee) * SW.z + Math.cos(-knee) * SW.y;
+  const lift = Math.atan2(y, z) - Math.atan2(sy, sz);
+  return { lift: clamp(normAngle(lift), -1.7, 1.2), splay, knee: clamp(knee, -1.5, 1.4) };
+}
+
+/** Walk and scamper: step length (root units, one foot's step), hip drop, swing height, body bob and roll, arm swing. */
+const GAIT = {
+  walk: { step: 0.24, hip: 0.035, lift: 0.075, bob: 0.03, roll: 0.13, arm: 0.75, lean: 0.1, tail: 0.55 },
+  scamper: { step: 0.3, hip: 0.07, lift: 0.1, bob: 0.05, roll: 0.08, arm: 1.05, lean: 0.3, tail: 0.35 },
+} as const;
 
 /**
- * Walking back to the stool: a quick toddle at the simulation's walking speed. The station gives where the
- * feet are now (root space, the simulation's `PatchView.at`) and which way it is going (radians about +Y);
- * the gait's phase runs from the distance walked so far, so the feet never slide.
+ * Walking back to the stool (R2). The station gives where the feet are now (root space, the simulation's
+ * `PatchView.at`), the body's yaw (radians about +Y), and the distance walked so far; the gait's phase runs from
+ * that distance, and the stance foot moves back under the body exactly as far as the body moves on, so a planted
+ * foot stays put. Weight from side to side over the stance foot, a bob, arms opposite the legs and out where they
+ * show, the tail trailing and swinging, the head up and looking where it goes.
  */
 export function toddle(walked: number, feet: V3, heading: number, o: WalkOptions = {}): PatchPose {
-  const ph = (walked / (2 * STRIDE)) * Math.PI * 2;
-  const amp = smoothstep(0, STRIDE * 0.6, walked);
-  const step = Math.sin(ph) * amp;
-  const bob = Math.abs(Math.cos(ph)) * 0.022 * amp;
-  const at = standAt(feet);
+  const g = o.scamper ? GAIT.scamper : GAIT.walk;
+  const stop = clamp01(o.stopped ?? 0);
+  const amp = smoothstep(0, g.step * 0.5, walked) * (1 - stop);
+  const cyc = walked / (2 * g.step); // one cycle: a step with each foot
+  const ph = cyc - Math.floor(cyc);
+  /** A foot's place along the body (z) and its height, phase u (0..0.5: on the ground, moving back; 0.5..1: swinging forward). */
+  const foot = (u: number): [number, number] => {
+    if (u < 0.5) return [g.step * (0.5 - 2 * u), 0];
+    const s = (u - 0.5) * 2;
+    const e = s * s * (3 - 2 * s);
+    return [g.step * (-0.5 + e), g.lift * Math.sin(Math.PI * s)];
+  };
+  const hipY = HIP_UP - g.hip * amp - 0.02 * stop;
+  const L = foot(ph), Rf = foot((ph + 0.5) % 1);
   const legs: [LegJoints, LegJoints] = [
-    { lift: STAND[0].lift + Math.max(0, step) * 0.6 - Math.max(0, -step) * 0.2, splay: 0.08, knee: STAND[0].knee + Math.max(0, step) * 0.75 },
-    { lift: STAND[1].lift + Math.max(0, -step) * 0.6 - Math.max(0, step) * 0.2, splay: 0.08, knee: STAND[1].knee + Math.max(0, -step) * 0.75 },
+    legFor(L[0] * amp - HIPS_Z_OFF, -hipY + L[1] * amp, 0.1),
+    legFor(Rf[0] * amp - HIPS_Z_OFF, -hipY + Rf[1] * amp, 0.1),
   ];
+  const s2 = Math.sin(ph * Math.PI * 2); // + while the left foot is down
+  const bob = g.bob * amp * (0.5 + 0.5 * Math.cos(ph * Math.PI * 4)); // highest mid-stance
+  const at: V3 = [feet[0], feet[1] + hipY - LEG_LIFT_HIP + bob, feet[2]];
+  const roll = g.roll * amp * s2; // over the stance foot
+  const rot: V3 = [g.lean * amp, heading, -roll];
   const vis = o.visitor ?? VISITOR;
-  const body = resolvePose({ body: { at: [at[0], at[1] + bob, at[2]], rot: [0.08 * amp, heading, step * 0.07] }, lean: [0.08, 0], twist: -step * 0.12 });
-  const lk = lookAt(body, vis, 0.6);
+  // the head: along its way (a point a little ahead at eye height), or the visitor over its shoulder
+  const fullBody = { body: { at, rot }, lean: [0.06, 0] as [number, number], twist: 0 };
+  const ahead: V3 = o.toward ? [o.toward[0], feet[1] + 0.55, o.toward[2]] : [feet[0] + Math.sin(heading) * 2, feet[1] + 0.4, feet[2] + Math.cos(heading) * 2];
+  const lkWay = lookAt(fullBody as never, ahead, 0.85);
+  const lkVis = lookAt(fullBody as never, vis, 0.9);
+  const gl = smoothstep(0, 1, clamp01(o.glance ?? 0));
+  const yaw = lerp(clamp(lkWay.headYaw, -0.7, 0.7), clamp(lkVis.headYaw, -1.25, 1.25), gl);
+  const pitch = lerp(clamp(lkWay.headPitch, -0.35, 0.2), lkVis.headPitch, gl);
+  const armA = g.arm * amp;
   const f = resolvePose({
     ...SEATED,
-    body: { at: [at[0], at[1] + bob, at[2]], rot: [0.08 * amp, heading, step * 0.07] },
+    body: { at, rot },
     legs,
-    lean: [0.08, 0],
-    twist: -step * 0.12,
-    arms: { left: J(0.15 - step * 0.4, 0.12, 0, 0.45, 0.1, 0.5), right: J(0.15 + step * 0.4, 0.12, 0, 0.45, 0.1, 0.5) },
-    headYaw: clamp(lk.headYaw, -0.9, 0.9),
-    headPitch: 0.05,
-    headTilt: -step * 0.05,
-    gaze: lk.gaze,
-    ...FACE.flat,
-    tail: [0.3, step * 0.4],
-    tailLift: -0.5,
+    lean: [0.06 + (o.scamper ? 0.1 : 0) * amp, roll * 0.4],
+    twist: -0.14 * amp * Math.sin(ph * Math.PI * 2 + 0.3),
+    // arms out from the sweater, swinging opposite the legs (left arm forward while the right foot steps)
+    arms: {
+      left: J(0.25 - armA * s2 * 0.6 + (o.scamper ? 0.35 : 0), 0.32, 0.1, 0.7 + (o.scamper ? 0.6 : 0.2), 0.2, 0.5),
+      right: J(0.25 + armA * s2 * 0.6 + (o.scamper ? 0.35 : 0), 0.32, 0.1, 0.7 + (o.scamper ? 0.6 : 0.2), 0.2, 0.5),
+    },
+    headYaw: yaw,
+    headPitch: pitch + bob * 1.5,
+    headTilt: roll * 0.5,
+    gaze: gl > 0.5 ? lkVis.gaze : lkWay.gaze,
+    ...(gl > 0.5 ? FACE.deadpan : o.scamper ? FACE.alert : FACE.flat),
+    ears: o.scamper ? [0.55, 0.55] : [0.1 + 0.15 * s2 * amp, 0.1 - 0.15 * s2 * amp],
+    // the tail trails: swinging a beat behind the hips, higher at a scamper
+    tail: [0.25, clamp(g.tail * amp * Math.sin(ph * Math.PI * 2 - 1.2), -0.6, 0.6)],
+    tailLift: o.scamper ? 0.1 * amp - 0.4 * (1 - amp) : -0.25 * amp - 0.5 * (1 - amp),
   });
   return toPose(f);
+}
+
+/**
+ * Over the belt (R2: `cross`, the simulation's 0.25 + 0.45 + 0.25 s): a hop up onto the rail with the knees
+ * tucked and the arms out for balance, two quick steps across while the belt carries it, a hop down and a
+ * landing. `feet` is the simulation's `at` (root space: its feet, up on the belt's top meanwhile).
+ */
+export function crossBelt(t: number, feet: V3, heading: number, ground: number, top: number, o: WalkOptions = {}): PatchPose {
+  const on = T_.crossOn, over = T_.crossOver, off = T_.crossOff;
+  // the steps across: the gait's phase from the time on the belt (two steps)
+  const k = clamp01((t - on) / over);
+  const walked = k * 2 * GAIT.walk.step + (t > on + over ? 2 * GAIT.walk.step : 0);
+  const p = resolvePose(toddle(Math.max(walked, 0.13), feet, heading, { ...o, scamper: false }));
+  // a hop: up at the start, down at the end (the knees tuck in the air; a squash on landing)
+  const up = t < on ? Math.sin(Math.PI * clamp01(t / on)) : t > on + over ? Math.sin(Math.PI * clamp01((t - on - over) / off)) : 0;
+  const land = t > on + over + off * 0.75 ? Math.sin(Math.PI * clamp01((t - on - over - off * 0.75) / (off * 0.25))) : 0;
+  const tuck = (l: LegJoints): LegJoints => ({ lift: lerp(l.lift, 0.2, up), splay: l.splay + 0.2 * up, knee: lerp(l.knee, 1.35, up) });
+  return toPose({
+    ...p,
+    // (sized to read at 80 px: a real hop up onto the rail and a drop off it, not a glide)
+    body: { at: [p.body.at[0], p.body.at[1] + up * 0.3 - land * 0.1, p.body.at[2]], rot: [p.body.rot[0] + 0.35 * up - 0.2 * land, p.body.rot[1], p.body.rot[2]] },
+    legs: [tuck(p.legs[0]), tuck(p.legs[1])],
+    arms: { left: J(0.6 + 0.4 * up, 0.9, 0, 0.5, 0.2, 0.4), right: J(0.6 + 0.4 * up, 0.9, 0, 0.5, 0.2, 0.4) },
+    ...FACE.alert,
+    ears: [0.5 * up, 0.5 * up],
+    tailLift: 0.3 * up,
+  });
 }
 
 export interface ReturnOptions extends ClimbOptions {

@@ -30,12 +30,13 @@ import type { Piece } from '../kit/types.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
+import { PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -57,7 +58,11 @@ export const OPERATOR_FEEL = {
   blinkEvery: 3.4,
   /** The hand's velocity while held: a damped follower. */
   carryRate: 7,
+  /** R2: how fast the body turns to its way while walking (1/s). */
+  walkTurn: 9,
 };
+/** R2: the walk's first seconds: a look at the visitor and a turn, no step (the simulation's). */
+const SET_OFF: number = PATCH_TUNING.setOff;
 
 export interface OperatorViewOptions {
   patch: Entry | undefined;
@@ -70,7 +75,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'cross' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
 
 /** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
 const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
@@ -180,6 +185,11 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let lookPlug: V3 = [0, 0, 1];
     let walked = 0;
     let walkPrev: V3 | null = null;
+    /** R2: the walk's body yaw (root space), turning toward the simulation's heading; the glance back and being stopped (0..1). */
+    let walkYaw = 0;
+    let glance = 0;
+    let glanced = 0;
+    let stopped = 0;
     let climbFoot: V3 = [0, 0, 1];
     /** R1: the edge it went over (root space), kept for the ledge, the haul and the dusting off. */
     let ledgeO: LedgeOptions | null = null;
@@ -355,11 +365,19 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               enter('held', t, false);
               break;
             case 'walk': {
-              walked = 0;
-              walkPrev = null;
-              enter('walk', t, false);
+              // (back on the ground after the belt: the same walk goes on)
+              if (prev !== 'cross') {
+                walked = 0;
+                walkPrev = null;
+                walkYaw = resolvePose(last).body.rot[1];
+                glanced = 0;
+              }
+              enter('walk', t, prev === 'cross');
               break;
             }
+            case 'cross':
+              enter('cross', t, true);
+              break;
             case 'ledge':
             case 'haul':
             case 'dust':
@@ -466,16 +484,40 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             pose = held(reduced ? 3 : age, reduced ? [0, 0, 0] : vr, { visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
-          case 'walk': {
+          case 'walk':
+          case 'cross': {
             // the feet where the simulation has them; the gait's phase from the distance walked (no sliding)
             const feet = seatSpace([v.at[0], v.at[1], v.at[2]]);
             if (walkPrev) walked += Math.hypot(feet[0] - walkPrev[0], feet[2] - walkPrev[2]);
             walkPrev = feet;
-            pose = toddle(reduced ? 0 : walked, feet, v.heading - SIDE_ON, { visitor: boardToRoot(VISITOR_BOARD, stoolB) });
+            // the body turns to its way (before the first step, and at each corner), stepping round as it turns
+            const want = v.heading - SIDE_ON;
+            const dYaw = Math.atan2(Math.sin(want - walkYaw), Math.cos(want - walkYaw));
+            const turn = reduced ? dYaw : dYaw * (1 - Math.exp(-F.walkTurn * dt));
+            walkYaw += turn;
+            if (st === 'walk' && v.stateTime < SET_OFF) walked += Math.abs(turn) * 0.12;
+            const vis = boardToRoot(VISITOR_BOARD, stoolB);
+            const toward = v.walk?.next ? seatSpace(v.walk.next) : null;
+            // the look at the visitor before it sets off (the simulation's lookAt); on a long walk, one glance back
+            const glanceGoal = v.lookAt ? 1 : v.walk?.scamper && walked > 1.3 && walked < 2.1 && glanced < 1 ? 1 : 0;
+            if (walked >= 2.1 && v.walk?.scamper) glanced = 1;
+            glance = reduced ? glanceGoal : damp(glance, glanceGoal, 9, dt);
+            stopped = reduced ? (v.walk?.waiting ? 1 : 0) : damp(stopped, v.walk?.waiting ? 1 : 0, 8, dt);
+            const o = { visitor: vis, toward, scamper: !!v.walk?.scamper, glance, stopped };
+            if (st === 'cross' && finite) {
+              const ground = seatSpace([v.at[0], v.foot[1], v.at[2]])[1];
+              pose = crossBelt(reduced ? v.stateLength : sT, feet, walkYaw, ground, feet[1], o);
+            } else pose = toddle(reduced ? 0 : walked, feet, walkYaw, o);
             break;
           }
           case 'climb': {
             pose = climb(reduced ? CLIMB_LENGTH : sT, { foot: climbFoot, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
+            // R2: arriving at a run, a little skid first: leaning back on its heels, ears forward, before the hop
+            if (!reduced && blendFrom && sT < 0.2) {
+              const k = Math.sin(Math.PI * clamp01(sT / 0.2));
+              const r = pose.body?.rot ?? [0, 0, 0];
+              pose = { ...pose, body: { ...pose.body, rot: [r[0] - 0.3 * k, r[1], r[2]] }, lean: [(pose.lean?.[0] ?? 0) - 0.15 * k, pose.lean?.[1] ?? 0], ears: [-0.5 * k, -0.5 * k] };
+            }
             break;
           }
           case 'ledge':

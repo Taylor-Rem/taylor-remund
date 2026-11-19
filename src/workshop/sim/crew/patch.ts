@@ -53,6 +53,12 @@ import { deskOf } from '../machines/line.ts';
 import { boardOf } from '../machines/shared/patchlamp.ts';
 import { HZ, steps } from '../clock.ts';
 import { add, dist, dot, length, scale, sub } from '../math.ts';
+import type { Obstacle } from './fetch-knock.ts';
+import { distanceTo, obstacles } from './fetch-knock.ts';
+import { bodiesOf, legClear } from './fetch-route.ts';
+import type { Pt } from './fetch-route.ts';
+import { PATCH_ROUTE, clearPoint, crossPoints, planWay, stepClear } from './patch-route.ts';
+import type { BeltCrossing, Way } from './patch-route.ts';
 
 /** Seconds, units, units per second. Tune here. */
 export const PATCH_TUNING = {
@@ -98,6 +104,21 @@ export const PATCH_TUNING = {
   ledgeIn: 0.35,
   /** A release carries on the hand's travel for this long (s) when deciding whether it went over an edge (a fling). */
   fling: 0.25,
+  /** R2: only a hand moving at least this fast (units/s) as it lets go has flung Patch (a carry is not a throw). */
+  flingMin: 6,
+  /** R2: before the first step: a look at the visitor, then it turns to face its way (s). */
+  setOff: 0.6,
+  /** R2: a walk longer than this (units) is a scamper, at `scamper` units/s. */
+  scamperOver: 4,
+  scamper: 3.0,
+  /** R2: out of Fetch's way, a dash (units/s): Fetch drives its rounds and does not look out for Patch. */
+  dash: 5.5,
+  /** R2: stopped by something that moves (Fetch, a crate) or shut in: it tries a new way this often (s). */
+  retry: 0.6,
+  /** R2: across the belt: up onto the rail, two steps across (carried by the belt), down the far side (s). */
+  crossOn: 0.25,
+  crossOver: 0.45,
+  crossOff: 0.25,
 } as const;
 
 export interface PatchSpec {
@@ -132,6 +153,11 @@ export interface PatchSpec {
    * of past one, Patch catches it and hangs (`ledge`). Without it a release past the bench is put down on it.
    */
   readonly edge?: { readonly minX: number; readonly maxX: number; readonly maxZ: number };
+  /**
+   * R2: the belt, which Patch may cross on its way back: the belt machine's id, its bed's static body id, and
+   * the stretch (x) a crossing may start and end in (clear of the motor end, the striker and the ramp).
+   */
+  readonly belt?: { readonly id: Id; readonly bed: Id; readonly safe: readonly [number, number] };
   /**
    * S6: the stool's runner along the board (world x of the stool's middle). `rest` is its place at the
    * runner's right end (where `seat` and `foot` are measured); `jacks` is where it stands to work each
@@ -234,9 +260,148 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   }
 
   const bodyCentre = (): Vec3 => add(seatNow(), [0, spec.body.up, 0]);
+
+  // ── R2: the way back to the stool, round things (sim/crew/patch-route.ts) ──
+  const R = PATCH_ROUTE.radius;
+  // the bench's fixed bodies, and Fetch's tape: Fetch drives up and down it and does not look out for Patch, so
+  // Patch keeps off it (it walks round its ends) as it keeps off a body
+  const TAPE: Obstacle[] = (() => {
+    const pts = (ctx.scene as { runner?: { lane?: { points?: readonly (readonly [number, number])[] } } }).runner?.lane?.points ?? [];
+    const out: Obstacle[] = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i] as readonly [number, number], b = pts[i + 1] as readonly [number, number];
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const l = Math.hypot(dx, dz);
+      if (l < 1e-6) continue;
+      out.push({ id: `tape:${i}`, x: (a[0] + b[0]) / 2, z: (a[1] + b[1]) / 2, hx: l / 2 + 0.3, hz: 0.3, yaw: Math.atan2(-dz, dx) });
+    }
+    return out;
+  })();
+  const STATICS: Obstacle[] = bodiesOf(obstacles(ctx.scene));
+  const BODIES: Obstacle[] = [...STATICS, ...TAPE];
+  const routeBench = { minX: ctx.scene.bench.minX, maxX: ctx.scene.bench.maxX, minZ: ctx.scene.bench.minZ, maxZ: ctx.scene.bench.maxZ };
+  const BELT: BeltCrossing | null = (() => {
+    const b = spec.belt;
+    const bed = b ? BODIES.find((o) => o.id === b.bed) : undefined;
+    const st = b ? ctx.scene.statics.find((s) => s.id === b.bed) : undefined;
+    if (!b || !bed || !st) return null;
+    const top = st.pose.p[1] + (st.shape.type === 'box' ? st.shape.half[1] : 0.25);
+    return { bed, top, safe: b.safe };
+  })();
+  const CROSS = T.crossOn + T.crossOver + T.crossOff;
+  /** The way in hand (its points still to walk; a crossing of the belt at its end), the pace, and the crossing under way. */
+  let way: Way | null = null;
+  let pace: number = T.walk;
+  let blockedAt = -1;
+  let retryAt = 0;
+  let crossing: { x: number; z0: number; side: 1 | -1 } | null = null;
+  let gapWaitAt = -1;
+  /** Where Fetch was last seen (its velocity is read from it). */
+  let fetchSeen: { step: number; x: number; z: number; vx: number; vz: number } | null = null;
+  const pt = (v: Vec3): Pt => [v[0], v[2]];
+  const onGround = (p: Pt): Vec3 => [p[0], spec.foot[1], p[1]];
+  /** The belt's surface speed now (+X), 0 without one. */
+  function beltSurface(): number {
+    if (!spec.belt) return 0;
+    const v = (ctx.machine(spec.belt.id) as Partial<MachineUnit> | undefined)?.view?.();
+    return v && v.kind === 'belt' ? v.surface : 0;
+  }
+  const fetchBody = (): Id | null => {
+    const f = ctx.crewView('fetch');
+    return f && f.kind === 'fetch' ? f.body : null;
+  };
+  /** Things that move and stand on the bench: Fetch, and loose parts at rest on the bench top (not riding a machine). */
+  function movers(): Obstacle[] {
+    const out: Obstacle[] = [];
+    const f = ctx.crewView('fetch');
+    if (f && f.kind === 'fetch') {
+      const p = ctx.pose(f.body);
+      const h = ctx.halfExtents(f.body);
+      if (p && h) {
+        // Fetch drives its rounds and does not look out for Patch: Patch keeps out of where Fetch will be in the
+        // next half second too (its box swept along its velocity)
+        const now = ctx.clock.step;
+        let vx = 0, vz = 0;
+        if (fetchSeen && now > fetchSeen.step && now - fetchSeen.step <= 3) {
+          vx = ((p.p[0] - fetchSeen.x) * HZ) / (now - fetchSeen.step);
+          vz = ((p.p[2] - fetchSeen.z) * HZ) / (now - fetchSeen.step);
+        } else if (fetchSeen && now === fetchSeen.step) {
+          vx = fetchSeen.vx;
+          vz = fetchSeen.vz;
+        }
+        if (!fetchSeen || now !== fetchSeen.step) fetchSeen = { step: now, x: p.p[0], z: p.p[2], vx, vz };
+        const e = Math.max(h[0], h[2]);
+        const ahead = 1.5;
+        out.push({ id: f.body, x: p.p[0], z: p.p[2], hx: e, hz: e, yaw: 0 });
+        out.push({ id: `${f.body}:ahead`, x: p.p[0] + (vx * ahead) / 2, z: p.p[2] + (vz * ahead) / 2, hx: e + (Math.abs(vx) * ahead) / 2, hz: e + (Math.abs(vz) * ahead) / 2, yaw: 0 });
+      }
+    }
+    const top = ctx.scene.bench.top;
+    for (const id of ctx.parts()) {
+      if (ctx.mode(id) !== 'free') continue;
+      const p = ctx.pose(id);
+      const h = ctx.halfExtents(id);
+      if (!p || !h || p.p[1] - h[1] > top + 0.3) continue;
+      const e = Math.max(h[0], h[2]);
+      out.push({ id, x: p.p[0], z: p.p[2], hx: e, hz: e, yaw: 0 });
+    }
+    return out;
+  }
+  /** Where it stands when set down at `p` (or landed from the ledge): the nearest point clear of every body. */
+  function standingAt(p: Vec3): Vec3 {
+    const c = clearPoint(pt(p), R, [...STATICS, ...movers()], routeBench) ?? clearPoint(pt(p), R, STATICS, routeBench);
+    return c ? onGround(c) : [p[0], spec.foot[1], p[2]];
+  }
+  function planBack(withMovers: boolean): void {
+    const bodies = withMovers ? [...BODIES, ...movers()] : BODIES;
+    const drift = beltSurface() * (T.crossOver + T.crossOn);
+    way = planWay(pt(at), pt(footNow()), R, bodies, routeBench, BELT, drift);
+    // no way round the things that move as they stand now: the way round the fixed bodies (each step still stops
+    // short of them); none round Fetch's tape either: across it (Fetch is still watched for, step by step)
+    if (!way && withMovers) way = planWay(pt(at), pt(footNow()), R, [...STATICS, ...movers()], routeBench, BELT, drift);
+    if (!way && withMovers) way = planWay(pt(at), pt(footNow()), R, BODIES, routeBench, BELT, drift);
+    if (!way) way = planWay(pt(at), pt(footNow()), R, STATICS, routeBench, BELT, drift);
+    retryAt = ctx.clock.step + steps(T.retry);
+  }
+  /** On its feet on the bench: the way back (a look at the visitor and a turn first, unless it is on its way already). */
+  function walkBack(going = false): void {
+    if (dist(at, footNow()) < 0.15) {
+      way = null;
+      enter('climb');
+      return;
+    }
+    planBack(false);
+    pace = way && way.length > T.scamperOver ? T.scamper : T.walk;
+    blockedAt = -1;
+    enter('walk', going ? T.setOff : 0);
+  }
+  /** Is the belt clear at x for a crossing (nothing riding it there while Patch is over it)? */
+  function beltGap(x: number): boolean {
+    if (!spec.belt) return true;
+    const v = (ctx.machine(spec.belt.id) as Partial<MachineUnit> | undefined)?.view?.();
+    if (!v || v.kind !== 'belt') return true;
+    const s = v.surface;
+    for (const id of v.riding) {
+      const p = ctx.pose(id);
+      if (!p) continue;
+      const h = Math.max(...(ctx.halfExtents(id) ?? [0.3, 0.3, 0.3]));
+      for (let k = 0; k <= 8; k++) {
+        const t = (k / 8) * CROSS;
+        const me = x + s * Math.max(0, t - T.crossOn * 0.5);
+        if (Math.abs(p.p[0] + s * t - me) < h + R + 0.2) return false;
+      }
+    }
+    return true;
+  }
+  /** Will a crossing that starts at x now stay where the belt cannot carry it to a machine? */
+  const crossSafe = (x: number): boolean => {
+    if (!BELT) return false;
+    const end = x + beltSurface() * (CROSS - T.crossOn * 0.5 - T.crossOff * 0.5);
+    return x >= BELT.safe[0] && x <= BELT.safe[1] && end >= BELT.safe[0] && end <= BELT.safe[1];
+  };
   const seconds = (): number => (ctx.clock.step - since) / HZ;
   const lengthOf = (s: PatchState): number =>
-    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust } as Record<string, number>)[s] ?? Infinity);
+    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust, cross: T.crossOn + T.crossOver + T.crossOff } as Record<string, number>)[s] ?? Infinity);
 
   /**
    * R1: where a release at `p` goes over an open edge (with the hand's travel carried on for `fling`
@@ -252,7 +417,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const old = last ? trail.find((s) => last.step - s.step <= Math.round(0.15 * HZ)) : undefined;
     // (a fling needs a few carries of the hand, and a recent one: one jump of the target is not a throw)
     if (trail.length >= 3 && last && old && last.step > old.step && ctx.clock.step - last.step <= Math.round(0.1 * HZ)) v = scale(sub(last.p, old.p), HZ / (last.step - old.step));
-    const fast = Math.hypot(v[0], v[2]) >= T.throwMin;
+    const fast = Math.hypot(v[0], v[2]) >= T.flingMin;
     const q: Vec3 = fast ? add(p, scale(v, T.fling)) : p;
     // how far past each open edge it goes; the edge it goes furthest past is the one it catches
     const past = { left: e.minX - q[0], right: q[0] - e.maxX, front: q[2] - e.maxZ };
@@ -264,7 +429,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const zIn = Math.min(e.maxZ - 0.5, Math.max(spec.bench.minZ, q[2]));
     const xIn = Math.min(e.maxX - 0.5, Math.max(e.minX + 0.5, q[0]));
     const at: Vec3 = edge === 'front' ? [xIn, y, e.maxZ] : edge === 'left' ? [e.minX, y, zIn] : [e.maxX, y, zIn];
-    return { edge, at, up: sub(at, scale(out, T.ledgeIn)), out };
+    return { edge, at, up: standingAt(sub(at, scale(out, T.ledgeIn))), out };
   }
 
   /** Start the stool rolling to `to` (state `roll`); false (and nothing) when it is already there. */
@@ -455,6 +620,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       if (taken) {
         trail.length = 0;
         ledge = null;
+        way = null;
+        crossing = null;
         afoot = false;
         interrupt();
         back = null; // the cord's way back is given up: the line puts it back when attract mode ends
@@ -486,7 +653,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         const b = spec.bench;
         at = [Math.min(b.maxX, Math.max(b.minX, intent.target[0])), spec.foot[1], Math.min(b.maxZ, Math.max(b.minZ, intent.target[2]))];
         lookAt = null;
-        enter(dist(at, footNow()) < 0.15 ? 'climb' : 'walk');
+        if (dist(at, footNow()) >= 0.15) at = standingAt(at); // R2: never standing inside a body
+        walkBack();
       }
       return true;
     },
@@ -676,7 +844,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
               // R1: the look after the ledge ends in the walk back to the stool
               afoot = false;
               lookAt = null;
-              enter(dist(at, footNow()) < 0.15 ? 'climb' : 'walk');
+              walkBack();
             } else carryOn();
           }
           break;
@@ -725,16 +893,158 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         case 'held':
           break;
         case 'walk': {
-          const foot = footNow();
-          const d = sub(foot, at);
-          const n = Math.hypot(d[0], d[2]);
-          const stepLen = T.walk / HZ;
-          if (n <= stepLen) {
-            at = foot;
+          // R2: round things, never through them (sim/crew/patch-route.ts)
+          // Fetch coming at it (Fetch drives its rounds and does not look out for Patch): it steps out of the way
+          const mv = movers();
+          const near = (p: Pt): { d: number; o: Obstacle | null } => {
+            let best: { d: number; o: Obstacle | null } = { d: Infinity, o: null };
+            for (const o of mv) {
+              const d = distanceTo(o, p[0], p[1]);
+              if (d < best.d) best = { d, o };
+            }
+            return best;
+          };
+          const here = near(pt(at));
+          const fb = fetchBody();
+          const fetchBoxes = fb ? mv.filter((o) => o.id === fb || o.id === `${fb}:ahead`) : [];
+          const fetchDist = (p: Pt): number => Math.min(Infinity, ...fetchBoxes.map((o) => distanceTo(o, p[0], p[1])));
+          const fetchHere = fetchDist(pt(at));
+          if (fetchBoxes.length > 0 && fetchHere < R) {
+            // out of Fetch's way: of eight directions, the step that leaves it furthest from where Fetch will be,
+            // among those clear of the fixed bodies (a step it can take: never into a body to escape Fetch)
+            const stepAway = T.dash / HZ;
+            let best: { p: Pt; d: number } | null = null;
+            for (let i = 0; i < 8; i++) {
+              const a = (i / 8) * Math.PI * 2;
+              const q: Pt = [at[0] + Math.sin(a) * stepAway, at[2] + Math.cos(a) * stepAway];
+              // (out of Fetch's way it may step onto Fetch's own tape: only the fixed bodies stop it)
+              if (!legClear(pt(at), q, R, STATICS) || clearPoint(q, R, STATICS, routeBench)?.[0] !== q[0]) continue;
+              // look a few steps on, so it does not step into a corner it cannot leave
+              const q4: Pt = [at[0] + Math.sin(a) * stepAway * 6, at[2] + Math.cos(a) * stepAway * 6];
+              // never past Fetch: no step nearer its body than it is now
+              const real = fetchBoxes[0] as Obstacle;
+              const dq = distanceTo(real, q[0], q[1]);
+              if (dq < distanceTo(real, at[0], at[2]) - 1e-9 && dq < 1.2) continue;
+              // the best: furthest from where Fetch will be in a moment (and a few steps on, still clear)
+              const soon: Obstacle = fetchSeen ? { ...real, x: real.x + fetchSeen.vx * 0.3, z: real.z + fetchSeen.vz * 0.3 } : real;
+              const d = distanceTo(soon, q[0], q[1]) + 0.5 * (legClear(q, q4, R, STATICS) ? distanceTo(soon, q4[0], q4[1]) : 0);
+              if (!best || d > best.d) best = { p: q, d };
+            }
+            if (best && fetchDist(best.p) >= fetchHere - 1e-9) {
+              heading = Math.atan2(best.p[0] - at[0], best.p[1] - at[2]);
+              at = onGround(best.p);
+              way = null; // its way is planned again from where it has stepped to
+              retryAt = ctx.clock.step + 1;
+              blockedAt = ctx.clock.step;
+              break;
+            }
+          }
+          // in Fetch's way and nowhere to dash: it stands still (it does not walk on into Fetch)
+          if (fetchBoxes.length > 0 && fetchHere < R && t >= T.setOff) {
+            if (blockedAt < 0) blockedAt = ctx.clock.step;
+            break;
+          }
+          if (!way && ctx.clock.step >= retryAt) planBack(true); // shut in, or stopped: try again
+          const next: Pt | undefined = way ? (way.points[0] ?? way.cross?.from) : undefined;
+          if (t < T.setOff) {
+            // first a look at the visitor, then it turns to face its way
+            lookAt = t < T.setOff * 0.5 ? spec.visitor : null;
+            if (t >= T.setOff * 0.5 && next && Math.hypot(next[0] - at[0], next[1] - at[2]) > 1e-6) heading = Math.atan2(next[0] - at[0], next[1] - at[2]);
+            break;
+          }
+          lookAt = null;
+          if (!way) break; // shut in: it waits where it is (clear of everything) and tries again
+          const target = way.points[0];
+          if (!target) {
+            if (way.cross) {
+              // at the belt: across it when there is a gap and the belt cannot carry it to a machine; else wait
+              const c = way.cross;
+              if (!crossSafe(at[0])) {
+                planBack(true);
+                break;
+              }
+              heading = c.side > 0 ? Math.PI : 0;
+              // and nothing (Fetch) where it will land, nor coming there
+              const land = BELT ? crossPoints(BELT, at[0], c.side, beltSurface() * (CROSS - T.crossOn * 0.5 - T.crossOff * 0.5), R).off : null;
+              const landClear = !land || mv.every((o) => distanceTo(o, land[0], land[1]) >= R + 0.1);
+              if (beltGap(at[0]) && landClear) {
+                gapWaitAt = -1;
+                crossing = { x: at[0], z0: at[2], side: c.side };
+                way = null;
+                enter('cross');
+              } else if (gapWaitAt < 0) gapWaitAt = ctx.clock.step;
+              else if (ctx.clock.step - gapWaitAt >= steps(T.retry * 2) && Math.abs(beltSurface()) < 0.1 && BELT) {
+                // the belt is stopped with something on it just here: along the belt to a clear stretch
+                gapWaitAt = -1;
+                const lo = BELT.safe[0], hi = BELT.safe[1];
+                const x2 = [at[0] - 0.9, at[0] + 0.9, at[0] - 1.8, at[0] + 1.8].find((x) => x >= lo && x <= hi && beltGap(x));
+                if (x2 !== undefined) way = { points: [[x2, at[2]]], cross: { ...c, from: [x2, at[2]], x: x2 }, length: Math.abs(x2 - at[0]) };
+              }
+              break;
+            }
+            way = null;
+            at = footNow();
             enter('climb');
+            break;
+          }
+          const stepLen = pace / HZ;
+          const dx = target[0] - at[0], dz = target[1] - at[2];
+          const n = Math.hypot(dx, dz);
+          const np: Pt = n <= stepLen ? target : [at[0] + (dx / n) * stepLen, at[2] + (dz / n) * stepLen];
+          // something that moves in its way (Fetch, a crate): it stops, and after a moment finds another way
+          // (each thing that moves: no step that brings it nearer than its footprint, nor nearer once it is that near)
+          const closer = mv.some((o) => {
+            const dn = distanceTo(o, np[0], np[1]);
+            return dn < R && dn < distanceTo(o, at[0], at[2]) - 1e-9;
+          });
+          if (!stepClear(pt(at), np, R, mv) || closer) {
+            if (blockedAt < 0) blockedAt = ctx.clock.step;
+            if (ctx.clock.step - blockedAt >= steps(T.retry)) {
+              blockedAt = -1;
+              planBack(true);
+            }
+            break;
+          }
+          blockedAt = -1;
+          if (n > 1e-6) heading = Math.atan2(dx, dz);
+          at = onGround(np);
+          if (n <= stepLen) way.points.shift();
+          break;
+        }
+        case 'cross': {
+          // R2: up onto the rail, two quick steps across while the belt carries it, down the far side
+          const c = crossing;
+          if (!c || !BELT) {
+            crossing = null;
+            walkBack(true);
+            break;
+          }
+          const b = BELT.bed;
+          const on = T.crossOn, over = T.crossOver;
+          // carried the way the belt runs while its feet are on it (it stops just short of either end of the safe stretch)
+          if (t > on * 0.5 && t < on + over + T.crossOff * 0.5) c.x = Math.min(BELT.safe[1], Math.max(BELT.safe[0], c.x + beltSurface() / HZ));
+          const zIn = b.z + c.side * b.hz * 0.6, zOut = b.z - c.side * b.hz * 0.6;
+          const zOff = crossPoints(BELT, c.x, c.side, 0, R).off[1];
+          const ease = (k: number): number => k * k * (3 - 2 * k);
+          let z: number, y: number;
+          if (t < on) {
+            const k = ease(Math.min(1, t / on));
+            z = c.z0 + (zIn - c.z0) * k;
+            y = spec.foot[1] + (BELT.top - spec.foot[1]) * Math.min(1, k * 1.4);
+          } else if (t < on + over) {
+            z = zIn + (zOut - zIn) * ease((t - on) / over);
+            y = BELT.top;
           } else {
-            at = [at[0] + (d[0] / n) * stepLen, foot[1], at[2] + (d[2] / n) * stepLen];
-            heading = Math.atan2(d[0], d[2]);
+            const k = ease(Math.min(1, (t - on - over) / T.crossOff));
+            z = zOut + (zOff - zOut) * k;
+            y = BELT.top + (spec.foot[1] - BELT.top) * k;
+          }
+          at = [c.x, y, z];
+          heading = c.side > 0 ? Math.PI : 0;
+          if (t >= length_) {
+            crossing = null;
+            at = standingAt([c.x, spec.foot[1], zOff]);
+            walkBack(true);
           }
           break;
         }
@@ -763,6 +1073,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       back = null;
       plugging = null;
       ledge = null;
+      way = null;
+      crossing = null;
       afoot = false;
       trail.length = 0;
       stoolX = restX;
@@ -796,6 +1108,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         shelf: spec.shelf,
         foot: footNow(),
         ledge: ledge && (state === 'ledge' || state === 'haul' || state === 'dust') ? { edge: ledge.edge, at: ledge.at, up: ledge.up, out: ledge.out } : null,
+        walk: state === 'walk' || state === 'cross' ? { pace, scamper: pace > T.walk, next: way ? onGround(way.points[0] ?? way.cross?.from ?? pt(footNow())) : null, waiting: state === 'walk' && seconds() >= T.setOff && (way === null || blockedAt >= 0) } : null,
       };
     },
   };
