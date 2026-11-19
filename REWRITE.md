@@ -470,7 +470,7 @@ Machines and their verbs in release 1:
 | The belt | its whole surface | carries it, at the speed and direction set | size | where it is |
 | The striker | under the arm at the end of the belt | strikes it; it sounds | size, material | nothing |
 | The dock | the roll-up door | ships it: out, with a bell (the bell also rings when the visitor presses it; that changes nothing) | nothing | marks; where it is |
-| The bench edge | anything that falls off | sends it back up the return chute | nothing | where it is |
+| The bench edge | anything that falls off | sends it back up the return chute; the crew save themselves instead (Patch catches the edge, hangs, hauls itself up and walks back to its stool; Fetch drops out of sight and flies back to its tape on a little jetpack), neither ever carried by physics (Taylor, 2026-11-19) | nothing | where it is |
 
 **The feedback grammar**, the same everywhere:
 
