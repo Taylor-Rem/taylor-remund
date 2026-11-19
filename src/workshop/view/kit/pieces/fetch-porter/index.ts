@@ -36,7 +36,7 @@ import type { NodeBuilder } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { setFinish, grain } from '../../space.ts';
 import {
-  AERIAL, CAN, CROWN_TOP, EXPRESSIONS, EXPRESSION_NAMES, EYE, EYE_C, FOREARM, IRIS, LID, NECK, NEUTRAL, SHOULDER, SPRING_L, TORSO, UPPER_ARM,
+  AERIAL, CAN, CROWN_TOP, EXPRESSIONS, TELE, EXPRESSION_NAMES, EYE, EYE_C, FOREARM, IRIS, LID, NECK, NEUTRAL, SHOULDER, SPRING_L, TORSO, UPPER_ARM,
   WHEEL_R, WHEEL_W, poseMatrices,
 } from './rig.ts';
 import type { ExpressionName, FetchPose } from './rig.ts';
@@ -646,9 +646,10 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
   const knuckle = turn(profile(0, -0.04).to(0.031, -0.04, { fillet: 0.01, segs: 1 }).to(0.031, 0.04, { fillet: 0.01, segs: 1 }).to(0, 0.04), { segs: 7, detail, caps: true, filletSegs: 1 });
   fore.add(part('brass', transform(knuckle, Y_TO_X), 'brass', { seed: seed + 3 }));
   // the forearm swells toward the wrist: chunky, like a toy's
+  // (its last 0.012 toward the wrist is the brass collar the telescope runs out of)
   const fa = turn(
-    profile(0, -FOREARM + 0.004)
-      .to(0.044, -FOREARM + 0.004, { fillet: 0.01, segs: 1 })
+    profile(0, -FOREARM + 0.015)
+      .to(0.0445, -FOREARM + 0.015, { sharp: true })
       .to(0.047, -FOREARM + 0.036, { fillet: 0.012, segs: 1 })
       .to(0.03, -0.03, { smooth: true })
       .to(0.024, -0.012, { sharp: true })
@@ -656,8 +657,38 @@ function buildArm(body: NodeBuilder, s: 'L' | 'R', rest: Record<string, Matrix4>
     { segs: sg, detail, caps: true },
   );
   fore.add(wearScale(part('steel', fa, 'teal-light', { seed: seed + 4, jitter: 0.03 }), 0.5));
+  // the telescope: three bright tubes nested in the forearm, each in its own node that slides out of the
+  // last along -Y. Stowed, their wrist ends sit flush inside the collar and nothing shows but brass.
+  const E = TELE.end;
+  const tseg = 7;
+  // the collar: a brass cuff that finishes the forearm, its mouth chamfered round the first tube
+  fore.add(part('brass', turn(
+    profile(TELE.r[0] + 0.002, E - 0.001)
+      .to(0.041, E - 0.001, { fillet: 0.004, segs: 1 })
+      .to(0.0445, E + 0.012, { sharp: true })
+      .to(0.036, E + 0.012),
+    { segs: sg, detail, caps: false },
+  ), 'brass', { seed: seed + 11, warm: 0.03 }));
+  let stage: NodeBuilder = fore;
+  for (let i = 0; i < 3; i++) {
+    stage = stage.node(`tele${s}${i + 1}`, rest[`tele${s}${i + 1}`]);
+    const r = TELE.r[i]!, L = TELE.len[i]!, out = TELE.out[i]!;
+    // the tube itself: bright drawn steel, polished where it slides
+    stage.add(setFinish(part('metal', turn(profile(r, E).to(r, E + L, { sharp: true }), { segs: tseg, detail, caps: false }), 'steel', { seed: seed + 20 + i, shade: 1.08 }), 0.75));
+    // its stop: a brass band that meets the mouth of the tube outside it when this one is all the way out
+    // (its top face is never seen: it is inside the outer tube until it stops against that tube's collar)
+    stage.add(part('brass', turn(profile(r, E + out - 0.006).to(r + 0.0032, E + out - 0.006, { sharp: true }).to(r + 0.0032, E + out + 0.001), { segs: tseg, detail, caps: false }), 'brass', { seed: seed + 24 + i }));
+    if (i < 2) {
+      // its own mouth: a small brass collar round the next tube
+      const rn = TELE.r[i + 1]! + 0.0015;
+      stage.add(part('brass', turn(profile(rn, E - 0.003).to(r + 0.0025, E - 0.003, { fillet: 0.002, segs: 1 }).to(r + 0.0025, E + 0.004, { sharp: true }), { segs: tseg, detail, caps: false }), 'brass', { seed: seed + 27 + i }));
+    } else {
+      // the last tube's end: a ferrule the wrist turns on
+      stage.add(part('brass', turn(profile(0, E - 0.008).to(r + 0.003, E - 0.008, { fillet: 0.002, segs: 1 }).to(r + 0.003, E + 0.003, { sharp: true }), { segs: tseg, detail, caps: false }), 'brass', { seed: seed + 29 }));
+    }
+  }
   // the hand: a palm block and two chunky claws
-  const hand = fore.node(`hand${s}`, rest[`hand${s}`]);
+  const hand = stage.node(`hand${s}`, rest[`hand${s}`]);
   hand.add(part('metal', transform(turn(profile(0, -0.034).to(0.05, -0.034, { fillet: 0.014, segs: 1 }).to(0.05, 0.034, { fillet: 0.014, segs: 1 }).to(0, 0.034), { segs: 8, caps: true }), chain(T(0, -0.054, 0), Y_TO_Z, new Matrix4().makeRotationY(Math.PI / 8))), 'steel', { seed: seed + 6 }));
   // one claw outline (in the jaw's XY plane, pivot at the origin, curling in at the tip)
   for (const j of [0, 1] as const) {

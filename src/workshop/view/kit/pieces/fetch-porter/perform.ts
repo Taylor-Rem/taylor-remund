@@ -24,21 +24,27 @@
  * position and heading; `contactPoint(pose)` says where the tyre is for the
  * contact shadow.
  */
-import { PRESETS, type ArmJoints, type Arms, type FetchPose } from './rig.ts';
+import { PRESETS, stagesOf, type ArmJoints, type Arms, type FetchPose } from './rig.ts';
 import { clamp, clamp01, inOutQuad, lerp, outBack, smoothstep, track } from '../../../anim/index.ts';
 
 // ───────────────────────── small maths ─────────────────────────
 
 const TAU = Math.PI * 2;
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, grip: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, grip });
-const KEYS: readonly (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'];
+/** The joints that are plain angles (the telescope's `tele` is mixed stage by stage). */
+type AngleKey = Exclude<keyof ArmJoints, 'tele'>;
+const KEYS: readonly AngleKey[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'];
 function mixArm(a: ArmJoints, b: ArmJoints, k: number): ArmJoints {
   const o = J(0, 0, 0, 0, 0, 0);
   for (const key of KEYS) o[key] = lerp(a[key], b[key], k);
+  if (a.tele !== undefined || b.tele !== undefined) {
+    const sa = stagesOf(a), sb = stagesOf(b);
+    o.tele = [lerp(sa[0], sb[0], k), lerp(sa[1], sb[1], k), lerp(sa[2], sb[2], k)];
+  }
   return o;
 }
 const mixArms = (a: Arms, b: Arms, k: number): Arms => ({ left: mixArm(a.left, b.left, k), right: mixArm(a.right, b.right, k) });
-function addArm(a: ArmJoints, d: Partial<ArmJoints>): ArmJoints {
+function addArm(a: ArmJoints, d: Partial<Record<AngleKey, number>>): ArmJoints {
   const o = { ...a };
   for (const key of KEYS) o[key] += d[key] ?? 0;
   return o;
@@ -669,3 +675,6 @@ export function outOfLane(t: number, o: OutOfLaneOptions = {}): FetchPose {
   };
   return blendPose(pose, { ...REST, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, smoothstep(L - 0.16, L, tt));
 }
+
+// the reach (telescoping forearms) lives in reach.ts
+export * from './reach.ts';
