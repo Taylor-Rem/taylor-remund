@@ -679,9 +679,18 @@ and a crank on its back. It lives in a cupboard under the bench.
 
 - *Temperament:* deadpan. It answers with printed cards.
 - *What it does:* comes out after the Button, and whenever the UNDO lever
-  is pulled: it turns its crank and the change runs backwards. It restocks
-  the crate stack and, when the bench is crowded, puts away the oldest
-  things nobody has touched for a while.
+  is pulled: it turns its crank and the change runs backwards.
+- *It keeps the bench from running dry* (Taylor, 2026-11-19: "Revert
+  should be able to come out and clean them up. That way the simulation
+  will never get stuck because Fetch can't reach any boxes"). When Fetch
+  has had nothing it may carry for twenty seconds, Revert comes out for
+  every crate nobody has stirred for thirty, wherever it lies and however
+  few: it sweeps the crate into its dustpan, carries it home, drops it down
+  its hatch, and the dock sends that same crate back up the chute onto the
+  pad, fresh, for Fetch. A crowded bench is tidied the same way, oldest
+  first. Every put-away has this one picture; nothing hops across the
+  bench by itself. A crate the visitor takes out of the pan is the
+  visitor's again.
 - *Left in peace:* if the bench stays tidy for two minutes it parks in the
   light from the window and powers down, one eye still open.
 - *Picked up:* it is heavy and goes limp.
@@ -937,7 +946,11 @@ the stack stocked from the pad and otherwise feeds the belt from it; a robot is 
 thrown home up the chute, tumbling, to land on its wheels by the pad
 (Taylor's coworkers, 2026-11-19: "he disappears completely. He should come
 back somehow"; it had been away ten seconds); a tool comes back up the chute with a RETURN TO
-SENDER mark. *Reset:* UNDO brings a shipment back through the door. *Why:*
+SENDER mark. A crate Revert drops down its hatch (§ B5) comes back the
+same way, the same crate. The dock's last resort: where Revert cannot
+stand by a crate, or cannot come up, and Fetch has had nothing to carry
+for a minute, the dock sends one spare up the chute, never to more than
+five loose crates on the bench. *Reset:* UNDO brings a shipment back through the door. *Why:*
 things have somewhere to go, and coming back is funnier than leaving.
 
 **8. UNDO.** X3. *Input:* pull the lever; or text "undo that". *Why:*
@@ -1332,7 +1345,9 @@ its place in `src/workshop/sim/history.ts`.*
   free spot": the replay check requires the restored value to equal the
   recorded one, and the physics separates anything that now overlaps.
 - When Revert puts a part away its "touched by the visitor" mark is
-  cleared. Undo is allowed while the visitor is holding something.
+  cleared. Nothing else clears it but "Reset the workshop": not undo, not
+  time, not a trip through the dock. That is why a bench where the visitor
+  has handled every crate needs Revert to start again (§ B5). Undo is allowed while the visitor is holding something.
 - Undo is published as data: one `undone` event listing what was
   restored, most recent first, with the pose each body was at, so every
   station draws its own part of the change running backwards.
