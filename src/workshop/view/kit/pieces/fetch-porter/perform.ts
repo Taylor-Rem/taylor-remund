@@ -114,6 +114,8 @@ export const REST: Readonly<Required<Omit<FetchPose, 'arms'>> & { arms: Arms }> 
   slide: [0, 0],
   lift: 0,
   hang: [0, 0],
+  jet: [0, 0],
+  puff: 0,
 };
 
 /** Named strengths for `knocked`. */
@@ -179,6 +181,8 @@ export function blendPose(a: FetchPose, b: FetchPose, k: number): FetchPose {
     slide: l2(arr(ra.slide, 2, [0, 0]), arr(rb.slide, 2, [0, 0])),
     lift: lerp(ra.lift, rb.lift, t),
     hang: l2(arr(ra.hang, 2, [0, 0]), arr(rb.hang, 2, [0, 0])),
+    jet: l2(arr(ra.jet, 2, [0, 0]), arr(rb.jet, 2, [0, 0])),
+    puff: lerp(ra.puff, rb.puff, t),
   };
 }
 
@@ -708,3 +712,78 @@ export function outOfLane(t: number, o: OutOfLaneOptions = {}): FetchPose {
 
 // the reach (telescoping forearms) lives in reach.ts
 export * from './reach.ts';
+
+export interface JetpackOptions {
+  /** The simulation's flight phase, its clock and length, and the thrust (CrewMember.jet). */
+  phase: 'fall' | 'ignite' | 'rise' | 'cruise' | 'hover' | 'land';
+  phaseTime: number;
+  phaseLength: number;
+  thrust: number;
+  /** Seconds since the jets lit (for the puff), and since they were cut. */
+  sinceIgnite?: number;
+  sinceCut?: number;
+  /** Seconds into the whole flight (the flicker's and the wobble's clock). */
+  t: number;
+  reducedMotion?: boolean;
+}
+
+/** Arms out for balance, claws open: not sure this is a good idea. */
+const BALANCE: Arms = { left: J(0.35, 1.35, -0.3, 0.25, 0, 0.8), right: J(0.3, 1.4, -0.3, 0.3, 0, 0.75) };
+
+/**
+ * Fetch's jetpack (S5): the flight back onto the bench, a pure function of the simulation's flight phase.
+ * In the fall, before the jets catch, it flails; at ignition a puff and the flames catch; in the rise the eye
+ * is wide, the arms go out for balance, the wheel dangles on its fork, and the whole of it wobbles; in the
+ * cruise it leans into the flight; it hovers, the flames ease out, a puff at the cut. The flames flicker with
+ * the thrust. The head's aim is the caller's. Reduced motion: the flight with a steady flame, no wobble, no
+ * flicker, no flail.
+ */
+export function jetpack(o: JetpackOptions): FetchPose {
+  const rm = o.reducedMotion === true;
+  const t = o.t;
+  const u = o.phaseLength > 0 ? clamp01(o.phaseTime / o.phaseLength) : 1;
+  const th = clamp01(o.thrust);
+  // the flames: the thrust, with a candle's flicker (the two sides out of step)
+  const fl = (ph: number): number => (rm ? th : th * (1 + 0.16 * Math.sin(t * 37 + ph) + 0.1 * Math.sin(t * 23 + 2 * ph) + 0.06 * Math.sin(t * 61 + ph)));
+  const jet: [number, number] = [fl(0), fl(1.7)];
+  // the puff: at ignition and at the cut, swelling then thinning away
+  const pf = (s: number | undefined): number => (s === undefined || s < 0 ? 0 : smoothstep(0, 0.08, s) * (1 - smoothstep(0.18, 0.55, s)));
+  const puff = Math.max(pf(o.sinceIgnite), pf(o.sinceCut));
+  if (o.phase === 'fall') {
+    // before the jets catch: the flail (held's, a picked-up Mii), eye wide
+    const f = held(rm ? 2.6 : 0.2 + t);
+    return { ...f, hang: [0, 0], lean: rm ? [0, 0] : [0.12 * Math.sin(t * 9), 0.1 * Math.sin(t * 7 + 1)], jet: [0, 0], puff: 0, brow: -1, pupilSize: 0.55, eyeScale: 1.3, lids: [0, 0] };
+  }
+  const wob = rm ? 0 : o.phase === 'ignite' || o.phase === 'rise' ? 1 : o.phase === 'land' ? 0.4 * (1 - u) : 0.6;
+  const lean: [number, number] = [
+    (o.phase === 'cruise' ? 0.16 * Math.sin(Math.PI * u) : 0) + 0.07 * wob * Math.sin(t * 5.3 + 0.5),
+    0.1 * wob * Math.sin(t * 4.1),
+  ];
+  // the wheel dangles on its fork in the air (it swings under the torso), and comes back under it to land
+  const dangle = o.phase === 'land' ? 1 - smoothstep(0.1, 0.5, u) : 1;
+  const hang: [number, number] = [dangle * (0.12 + 0.08 * wob * Math.sin(t * 3.3)), dangle * 0.1 * wob * Math.sin(t * 2.7 + 1)];
+  // arms out for balance, paddling a little in the rise
+  const k = o.phase === 'land' ? 1 - smoothstep(0.3, 1, u) : 1;
+  const arms = mixArms(PRESETS.rest, BALANCE, k);
+  if (!rm) {
+    arms.left.abduct += 0.18 * wob * Math.sin(t * 6.1);
+    arms.right.abduct += 0.18 * wob * Math.sin(t * 6.1 + 2.2);
+  }
+  const wide = o.phase === 'ignite' || o.phase === 'rise' ? 1 : o.phase === 'cruise' ? 0.6 : 0.4 * k;
+  return {
+    lean,
+    squash: o.phase === 'land' ? (u > 0.55 ? 0.3 * Math.sin(Math.PI * clamp01((u - 0.55) / 0.3)) : 0) : -0.35 * dangle,
+    hang,
+    arms,
+    brow: lerp(-0.2, -0.95, wide),
+    pupilSize: lerp(1, 0.6, wide),
+    eyeScale: lerp(1, 1.3, wide),
+    lids: [0, lerp(0.15, 0, wide)],
+    aerial: [rm ? 0 : -0.6 * th + 0.2 * wob * Math.sin(t * 8), rm ? 0 : 0.25 * wob * Math.sin(t * 6.5)],
+    jet,
+    puff,
+    spin: 0,
+    slide: [0, 0],
+    lift: 0,
+  };
+}

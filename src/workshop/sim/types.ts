@@ -372,6 +372,10 @@ export type SimEvent =
   | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
   /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
   | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id }
+  /** S5: Fetch's jets light (`at`: where it is), below the bench's edge after going over it. */
+  | { readonly type: 'jet.ignited'; readonly id: Id; readonly at: Vec3 }
+  /** S5: Fetch cuts its jets over its landing point (`at`), a hair above its tape: the drop and the bounce follow. */
+  | { readonly type: 'jet.cut'; readonly id: Id; readonly at: Vec3 }
   // ── the Patchlamp station (S3: § B2 X1, § D 3-4, § B5 Patch) ──
   /**
    * A text went down the line (`n` numbers the visit's texts from 1) into `jack` (a scene jack id;
@@ -851,7 +855,7 @@ export interface CordView {
  * slip and a `shrug`); `knocked` is being shoved and spun by a thrown part,
  * then wobbling back to balance (`CrewMember.knock`), before it `return`s.
  */
-export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked' | 'tap';
+export type FetchState = 'idle' | 'roll' | 'skid' | 'fumble' | 'offer' | 'pickup' | 'shrug' | 'salute' | 'held' | 'return' | 'frozen' | 'place' | 'reach' | 'knocked' | 'tap' | 'jetpack';
 
 /**
  * A knock in progress (§ B5, Taylor 2026-11-18: "shoved and spun, not merely bumped into; it wobbles,
@@ -873,6 +877,25 @@ export interface FetchKnock {
   /** Seconds of sliding, then seconds of wobbling, from the start of the `knocked` state. */
   readonly shove: number;
   readonly wobble: number;
+}
+
+/**
+ * Fetch's jetpack (state `jetpack`): over the bench's edge (thrown, dropped or let go past it) it falls out of sight for
+ * a beat, lights its jets, rises clear of the edge, flies a short arc to the nearest free point of its tape, hovers,
+ * cuts the jets, drops the last hair with a bounce, and carries on as after being put down. The body's pose is scripted
+ * (`motion('fetch')`, kinematic): the view adds the flame, the wobble and the legs. Four seconds at most.
+ */
+export interface FetchJet {
+  /** `fall`: dropping below the edge; `ignite`: the jets catch, the fall is caught; `rise`: up clear of the edge; `cruise`: the arc over the bench; `hover`: over its landing point; `land`: down, the cut, a little drop and a bounce. */
+  readonly phase: 'fall' | 'ignite' | 'rise' | 'cruise' | 'hover' | 'land';
+  /** Seconds since this phase began, and its length. */
+  readonly phaseTime: number;
+  readonly phaseLength: number;
+  /** How hard the jets burn, 0 (off) to 1 (full: the rise). */
+  readonly thrust: number;
+  /** Where it went over the edge (where it rises), and where it will land (on its tape), world space (centres). */
+  readonly from: Vec3;
+  readonly to: Vec3;
 }
 
 /**
@@ -919,6 +942,8 @@ export interface CrewMember {
    * bench; a part is taken from where it rests and set down where it will rest.
    */
   readonly hands?: Vec3 | null;
+  /** S5 (Taylor, 2026-11-19: "a little jetpack to fly back on"): the flight back onto the bench, while `state` is `jetpack`; null otherwise. */
+  readonly jet?: FetchJet | null;
 }
 
 // ── S6: one crew (every member listed in one place, each as the view object it already had) ──

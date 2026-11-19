@@ -25,7 +25,7 @@ import type { BodyMode, CrewMember, FetchState, Id, Pose, SimEvent, Vec3 } from 
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts';
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
-import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
+import { blendPose, handsUp as handsUpBeat, held as heldBeat, jetpack as jetpackBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { ReachMotion, gripOf, type V3 } from '../kit/pieces/fetch-porter/reach.ts';
 import { frightened } from '../kit/pieces/fetch-porter/fright.ts';
 import { FETCH_TUNING, fetchStand } from '../../sim/index.ts';
@@ -272,6 +272,8 @@ export class FetchPerformer {
     for (const e of i.events) {
       if (e.type === 'crew.state' && e.id === m.id) this.transition(e.from as FetchState, e.state as FetchState, i.time);
       if (e.type === 'part.hit' && (e.id === m.id || e.other === m.id) && i.mode === 'free') this.squash.kick(Math.min(6, e.strength * 1.4));
+      if (e.type === 'jet.ignited' && e.id === m.id) this.ignitedAt = i.time;
+      if (e.type === 'jet.cut' && e.id === m.id) this.cutAt = i.time;
       if (e.type === 'restock.launched') {
         this.toss = { part: e.part, from: e.from, to: e.to, flight: e.flight, at: i.time };
         this.chute = e.from;
@@ -739,6 +741,20 @@ export class FetchPerformer {
       brow = Math.min(brow, -0.35);
     }
     if (pointerOk && pointerOn) pupil = Math.max(pupil, 1.15);
+    // ── the jetpack: the eye out at the visitor in the rise (wide: "is this a good idea?"), then fixed on its
+    // landing spot; after it lands, a proud little look at the visitor ──
+    const jet = act === 'jetpack' ? m.jet ?? null : null;
+    if (jet) {
+      if (jet.phase === 'fall') look = new Vector3(P.x, P.y - 2, P.z);
+      else if (jet.phase === 'ignite' || jet.phase === 'rise') look = visitor;
+      else look = new Vector3(jet.to[0], jet.to[1] - 0.3, jet.to[2]);
+    } else if (grounded && i.time - this.cutAt > 0.6 && i.time - this.cutAt < 2.4) {
+      look = visitor;
+      brow = Math.min(brow, -0.4);
+      lids = [0, Math.max(lids[1], 0.45)];
+      roll += 0.18;
+      squash -= 0.12;
+    }
     // ── S5's thrown restock: waiting for its crate at the pad like a dog for a ball; in attract mode, a flinch ──
     const toss = this.toss;
     const sinceToss = toss ? i.time - toss.at : Infinity;
@@ -859,7 +875,11 @@ export class FetchPerformer {
 
     // ── wheel: exactly the ground under it; in the air it spins ──
     if (!frozen) {
-      if (grounded && !i.teleport) {
+      if (act === 'jetpack' && !inHand) {
+        // in the air on its jets (the simulation scripts its body, still 'crew'): the wheel dangles and keeps turning
+        this.spin = damp(this.spin, rm ? 3 : 9, 1.5, db);
+        this.wheel += this.spin * db;
+      } else if (grounded && !i.teleport) {
         // along the way the body is drawn facing (it may be turned off its heading), shuffle included
         const face = yaw + this.bodyTurn.x;
         const dsFace = moved.x * Math.sin(face) + moved.z * Math.cos(face);
@@ -973,6 +993,15 @@ export class FetchPerformer {
     // the restock's landing: a small hop as its crate touches the pad (not in reduced motion)
     const sinceHop = i.time - this.restockHop;
     if (sinceHop >= 0 && sinceHop < 0.32 && grounded && !rm) pose = { ...pose, lift: Math.max(pose.lift ?? 0, 0.12 * Math.sin((sinceHop / 0.32) * Math.PI)) };
+    // the jetpack's flight (S5): the whole pose but the head's aim, while it flies
+    if (jet) {
+      const jp = jetpackBeat({ phase: jet.phase, phaseTime: jet.phaseTime, phaseLength: jet.phaseLength, thrust: jet.thrust, sinceIgnite: i.time - this.ignitedAt, sinceCut: i.time - this.cutAt, t: st, reducedMotion: rm });
+      pose = { ...pose, ...jp, headYaw: pose.headYaw ?? 0, headPitch: pose.headPitch ?? 0, headRoll: pose.headRoll ?? 0, gaze: pose.gaze ?? [0, 0], wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 };
+    } else if (i.time - this.cutAt < 0.6) {
+      // the cut's puff thins away after it has landed
+      const s = i.time - this.cutAt;
+      pose = { ...pose, puff: smoothstep(0, 0.08, s) * (1 - smoothstep(0.18, 0.55, s)) };
+    }
     // set down: the spring takes it, it steadies (from the moment it is back on its wheel)
     const sinceDown = i.time - this.downAt;
     if (grounded && sinceDown >= 0 && sinceDown < LENGTHS.setDown && !rm) {
@@ -1158,6 +1187,9 @@ export class FetchPerformer {
   private toss: { part: string; from: Vec3; to: Vec3; flight: number; at: number } | null = null;
   private chute: Vec3 | null = null;
   private restockHop = -Infinity;
+  /** The jetpack's ignition and cut (events): the puffs, and the proud look after it lands. */
+  private ignitedAt = -Infinity;
+  private cutAt = -Infinity;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;

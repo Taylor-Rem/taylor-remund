@@ -63,6 +63,8 @@ import { MATERIAL, massOf } from '../parts.ts';
 import { KNOCK_TUNING, classify, clearRun, obstacles, toyBounce } from './fetch-knock.ts';
 import { lanePath } from '../path.ts';
 import { bodiesOf, route } from './fetch-route.ts';
+import { jetAt, planJet } from './fetch-jet.ts';
+import type { JetPhase, JetPlan, TallBody } from './fetch-jet.ts';
 import type { Pt } from './fetch-route.ts';
 import type { SceneDesc, StandPoint } from '../scene.ts';
 import type { Obstacle, Strength } from './fetch-knock.ts';
@@ -441,6 +443,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let way: Pt[] | null = null;
   let wayRetry = -Infinity;
   let shutIn = false;
+  // ── the jetpack: over the bench's edge, it flies back onto its tape (fetch-jet.ts) ──
+  /** The flight in hand: its plan, the tumble it went over with (eased upright in the fall), its landing on the path, the phase last published. */
+  let jet: { plan: JetPlan; q0: Quat; landS: number; phase: JetPhase; cut: boolean } | null = null;
+  let jetY = 0;
+  /** While held: where its body was last step (how it was moving when it went over). */
+  let heldLast: Vec3 | null = null;
   let armBack: { from: Vec3; at: number; dur: number } | null = null;
 
   const enter = (next: FetchState): void => {
@@ -465,7 +473,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   };
   const yawTo = (p: Vec3): number => Math.atan2(p[0] - x, p[2] - z);
 
-  const bodyPose = (): Pose => ({ p: [x, T.bodyHalfHeight, z], q: qyaw(heading) });
+  const bodyPose = (): Pose => (jet ? { p: [x, jetY, z], q: jetQ() } : { p: [x, T.bodyHalfHeight, z], q: qyaw(heading) });
   const handPose = (): Pose => {
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);
@@ -577,6 +585,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   // take hold of its own body and its crate
   ctx.crewFor(spec.id, {
     grabbed() {
+      // caught in mid-flight: the flight is dropped; it is held like any other time (and goes over again if let go there)
+      jet = null;
+      heldLast = null;
       letGo([0, 0, 0], [0, 0, 0], 'crew');
       fumbled = null;
       goal = null;
@@ -1049,7 +1060,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   }
 
   /** Can it be knocked now? Not held, not in a machine, not frozen, not still recovering from the last one. */
-  const knockable = (): boolean => state !== 'held' && state !== 'frozen' && state !== 'knocked' && !ctx.bracketed && ctx.mode(spec.id) === 'crew';
+  const knockable = (): boolean => state !== 'held' && state !== 'frozen' && state !== 'knocked' && state !== 'jetpack' && !ctx.bracketed && ctx.mode(spec.id) === 'crew';
 
   /** Read a step's hits: one involving Fetch (or the crate in its hands) and a free part. */
   /** Parts it shoved about itself while knocked (sliding into them): their bounce off it a moment later is not a throw. */
@@ -1136,6 +1147,94 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
   }
 
+  // ── the jetpack ──
+
+  /** The fixed bodies with their tops (what the cruise must clear). */
+  const TALL: TallBody[] = (() => {
+    const out: TallBody[] = [];
+    for (const st of ctx.scene.statics) {
+      if (st.shape.type !== 'box') continue;
+      const o = BODIES.find((b) => b.id === st.id);
+      if (o) out.push({ o, top: st.pose.p[1] + st.shape.half[1] });
+    }
+    return out;
+  })();
+  /** Its centre past the bench's edge: it is going over. */
+  function overEdge(p: Vec3): boolean {
+    const b = ctx.scene.bench;
+    const outside = p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ;
+    return outside; // (at any height: from here its fall is scripted, as physics would have it, and then a beat out of sight)
+  }
+  /** The nearest free point of its tape to (px, pz): nothing loose standing in its footprint there (else the next along). */
+  function freeLanding(px: number, pz: number): number {
+    const s0 = nearest(px, pz);
+    const free = (sv: number): boolean => {
+      const [lx, lz] = at(sv);
+      return !ctx.parts().some((id) => {
+        if (id === spec.id) return false;
+        const m = ctx.mode(id);
+        const p = ctx.pose(id)?.p;
+        return !!p && (m === 'free' || m === 'machine') && p[1] < 2 && Math.hypot(p[0] - lx, p[2] - lz) < footprint + Math.max(...[0, 2].map((k) => ctx.halfExtents(id)?.[k] ?? 0.3));
+      });
+    };
+    for (let k = 0; k <= 40; k++) {
+      for (const sv of k === 0 ? [s0] : [s0 + k * 0.3, s0 - k * 0.3]) if (sv >= stopA && sv <= stopB && free(sv)) return sv;
+    }
+    return s0;
+  }
+  function startJet(p: Pose, last: Vec3 | null): void {
+    const v0: Vec3 = last ? [(p.p[0] - last[0]) * HZ, (p.p[1] - last[1]) * HZ, (p.p[2] - last[2]) * HZ] : [0, 0, 0];
+    ctx.attach(spec.id, spec.id); // out of physics: a scripted path from here (never carried by physics while it flies)
+    letGo([0, 0, 0], [0, 0, 0], null); // (a crate in its hands falls by itself, and comes back by the edge's ordinary law)
+    const landS = freeLanding(p.p[0], p.p[2]);
+    const [lx, lz] = at(landS);
+    const plan = planJet({ p0: p.p, v0, land: [lx, lz], half: T.bodyHalfHeight, radius: Math.hypot(selfHalf[0], selfHalf[2]), bench: ctx.scene.bench, bodies: TALL, g: Math.abs(ctx.scene.gravity) });
+    jet = { plan, q0: p.q, landS, phase: 'fall', cut: false };
+    x = p.p[0];
+    z = p.p[2];
+    jetY = p.p[1];
+    heading = yawOf(p.q);
+    v = 0;
+    enter('jetpack');
+  }
+  /** Upright from the tumble it went over with, eased over the fall; then its heading. */
+  function jetQ(): Quat {
+    if (!jet) return qyaw(heading);
+    const f = smooth(clamp01(inState() / HZ / 0.4));
+    return f >= 1 ? qyaw(heading) : nlerp(jet.q0, qyaw(heading), f);
+  }
+  function flyJet(now: number): void {
+    const j = jet;
+    if (!j) {
+      enter('return');
+      return;
+    }
+    const a = jetAt(j.plan, inState() / HZ);
+    if (a.phase !== j.phase) {
+      if (a.phase === 'ignite') ctx.emit({ type: 'jet.ignited', id: spec.id, at: a.p });
+      j.phase = a.phase;
+    }
+    if (a.cut && !j.cut) {
+      j.cut = true;
+      ctx.emit({ type: 'jet.cut', id: spec.id, at: a.p });
+    }
+    const dx = a.p[0] - x;
+    const dz = a.p[2] - z;
+    if (a.phase === 'cruise' && Math.hypot(dx, dz) > 1e-4) turnToward(Math.atan2(dx, dz));
+    x = a.p[0];
+    z = a.p[2];
+    jetY = a.p[1];
+    lookAt = a.phase === 'cruise' || a.phase === 'hover' || a.phase === 'land' ? j.plan.land : null;
+    if (!a.done || ctx.bracketed) return;
+    // down on its tape: where it came to rest is written as a rest would be (the same cause as a rest out of the chute)
+    jet = null;
+    s = j.landS;
+    [x, z] = at(s);
+    const cause = ctx.history.chargeReturn(spec.id, now);
+    ctx.commit([{ target: spec.id, field: 'location', after: { at: 'rest', pose: { p: [x, T.bodyHalfHeight, z], q: qyaw(heading) } } }], cause);
+    enter('return');
+  }
+
   // ── what it watches ──
 
   function watch(): void {
@@ -1205,6 +1304,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
     reset() {
       // "Reset the workshop": back to idle on its lane (what is in its hands stays there; the world leaves crew parts be)
+      if (jet) {
+        // mid-flight: down at once on its landing point
+        s = jet.landS;
+        [x, z] = at(s);
+        jet = null;
+      }
       goal = null;
       gather = null;
       placing = null;
@@ -1273,6 +1378,15 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         saluteDue = false;
         hands = null;
         armBack = null;
+        // over the bench's edge (thrown, dropped or let go past it): it falls a beat, then flies back on its jetpack
+        const pNow = ctx.pose(spec.id);
+        // (not while a Button rung plays: physics runs free then, the rung is rewound, and nothing commits)
+        if (mode === 'free' && pNow && !ctx.bracketed && overEdge(pNow.p)) {
+          startJet(pNow, heldLast);
+          heldLast = null;
+          return;
+        }
+        heldLast = mode === 'free' && pNow ? pNow.p : null;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
         if (mode === 'free' && ctx.settled(spec.id)) {
           const p = ctx.pose(spec.id);
@@ -1574,6 +1688,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         case 'knocked':
           knocked();
           break;
+        case 'jetpack':
+          flyJet(now);
+          break;
         case 'shrug':
           if (inState() >= steps(T.shrug)) {
             toIdle();
@@ -1668,7 +1785,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       const facing = Math.cos(heading - pathYaw(s)) >= 0 ? 1 : -1;
       const speed = state === 'return' || state === 'knocked' ? v : v * facing;
       const kn: FetchKnock | null = knock && state === 'knocked' ? { by: knock.by, strength: knock.strength, dir: knock.dir, distance: knock.distance, spin: knock.spin, shove: knock.shove, wobble: knock.wobble } : null;
-      return { id: spec.id, state, stateTime: inState() / HZ, x, z, heading, speed, carrying, lookAt, gaze, handsUp, knock: kn, hands };
+      let jv: CrewMember['jet'] = null;
+      if (jet && state === 'jetpack') {
+        const a = jetAt(jet.plan, inState() / HZ);
+        jv = { phase: a.phase, phaseTime: a.phaseTime, phaseLength: a.phaseLength, thrust: a.thrust, from: [jet.plan.out[0], jet.plan.deep, jet.plan.out[1]], to: jet.plan.land };
+      }
+      return { id: spec.id, state, stateTime: inState() / HZ, x, z, heading, speed, carrying, lookAt, gaze, handsUp, knock: kn, hands, jet: jv };
     },
   };
   return unit;
