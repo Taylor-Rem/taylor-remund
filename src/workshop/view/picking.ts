@@ -64,6 +64,7 @@ const tmpN = new Vector3();
 const tmpS = new Vector3();
 const tmpM = new Matrix4();
 const fwd = new Vector3();
+const tmpSc = new Vector3();
 
 /** The object's geometry bounds in its own frame (children included). */
 export function localBounds(object: Object3D, out = new Box3()): Box3 {
@@ -116,6 +117,11 @@ export class Picking {
     this.entries.delete(id);
   }
 
+  /** The object `id`'s proxy rides (for a finer test against what is drawn), or null. */
+  objectOf(id: Id): Object3D | null {
+    return this.entries.get(id)?.object ?? null;
+  }
+
   has(id: Id): boolean {
     return this.entries.has(id);
   }
@@ -159,9 +165,11 @@ export class Picking {
     // pass 1: the true boxes
     for (const e of this.entries.values()) {
       if (e.id === exclude || !visible(e.object) || (opts.filter && !opts.filter(e.id))) continue;
+      axisScale(e.object, tmpSc);
+      if (Math.min(tmpSc.x, tmpSc.y, tmpSc.z) < HIDDEN_SCALE) continue;
       tmpInv.copy(e.object.matrixWorld).invert();
       tmpRay.copy(ray).applyMatrix4(tmpInv);
-      tmpBox.copy(e.box).expandByScalar(e.pad);
+      growWorld(tmpBox.copy(e.box), e.pad, tmpSc);
       if (!tmpRay.intersectBox(tmpBox, tmpP)) continue;
       tmpP.applyMatrix4(e.object.matrixWorld);
       const d = tmpP.distanceTo(ray.origin);
@@ -178,14 +186,18 @@ export class Picking {
     let bestPerp = Infinity;
     for (const e of this.entries.values()) {
       if (e.id === exclude || !visible(e.object) || (opts.filter && !opts.filter(e.id))) continue;
+      axisScale(e.object, tmpSc);
+      if (Math.min(tmpSc.x, tmpSc.y, tmpSc.z) < HIDDEN_SCALE) continue;
       e.box.getCenter(tmpC).applyMatrix4(e.object.matrixWorld);
       const minHalf = (minPx / 2) * this.unitsPerPixel(tmpC);
       tmpInv.copy(e.object.matrixWorld).invert();
       tmpRay.copy(ray).applyMatrix4(tmpInv);
-      tmpBox.copy(e.box).expandByScalar(e.pad);
+      growWorld(tmpBox.copy(e.box), e.pad, tmpSc);
       e.box.getCenter(tmpS);
-      tmpBox.min.set(Math.min(tmpBox.min.x, tmpS.x - minHalf), Math.min(tmpBox.min.y, tmpS.y - minHalf), Math.min(tmpBox.min.z, tmpS.z - minHalf));
-      tmpBox.max.set(Math.max(tmpBox.max.x, tmpS.x + minHalf), Math.max(tmpBox.max.y, tmpS.y + minHalf), Math.max(tmpBox.max.z, tmpS.z + minHalf));
+      // the minimum size is a world measure: in the box's own frame it is divided by the axis scale
+      const hx = minHalf / tmpSc.x, hy = minHalf / tmpSc.y, hz = minHalf / tmpSc.z;
+      tmpBox.min.set(Math.min(tmpBox.min.x, tmpS.x - hx), Math.min(tmpBox.min.y, tmpS.y - hy), Math.min(tmpBox.min.z, tmpS.z - hz));
+      tmpBox.max.set(Math.max(tmpBox.max.x, tmpS.x + hx), Math.max(tmpBox.max.y, tmpS.y + hy), Math.max(tmpBox.max.z, tmpS.z + hz));
       if (!tmpRay.intersectBox(tmpBox, tmpP)) continue;
       const perp = ray.distanceSqToPoint(tmpC);
       if (perp < bestPerp) {
@@ -205,12 +217,37 @@ export class Picking {
     // normal: the face of the (padded) local box the local hit point lies on
     tmpInv.copy(e.object.matrixWorld).invert();
     tmpP.copy(h.point).applyMatrix4(tmpInv);
-    tmpBox.copy(e.box).expandByScalar(e.pad);
+    growWorld(tmpBox.copy(e.box), e.pad, axisScale(e.object, tmpSc));
     faceNormal(tmpBox, tmpP, tmpN).transformDirection(e.object.matrixWorld);
     h.normal.copy(tmpN);
     return h;
   }
 }
+
+/**
+ * The object's world scale along its own axes, into `out`. Padding and the minimum on-screen size are world
+ * measures; the proxy box is in the object's frame, so they are divided by this before they grow the box
+ * (a proxy under a node scaled 10× would otherwise grow 10× too far: the Button's cap took most of a phone's
+ * screen on touch). A target scaled to almost nothing (the house way of hiding a node) is not there.
+ */
+function axisScale(o: Object3D, out: Vector3): Vector3 {
+  const m = o.matrixWorld.elements;
+  return out.set(Math.hypot(m[0]!, m[1]!, m[2]!), Math.hypot(m[4]!, m[5]!, m[6]!), Math.hypot(m[8]!, m[9]!, m[10]!));
+}
+
+/** Grow `box` (object frame) by `w` world units on every side, for an object of this axis scale. */
+function growWorld(box: Box3, w: number, sc: Vector3): Box3 {
+  box.min.x -= w / sc.x;
+  box.min.y -= w / sc.y;
+  box.min.z -= w / sc.z;
+  box.max.x += w / sc.x;
+  box.max.y += w / sc.y;
+  box.max.z += w / sc.z;
+  return box;
+}
+
+/** Below this world scale on any axis, a target has been hidden by scaling it away. */
+const HIDDEN_SCALE = 1e-3;
 
 function visible(o: Object3D): boolean {
   for (let p: Object3D | null = o; p; p = p.parent) if (!p.visible) return false;

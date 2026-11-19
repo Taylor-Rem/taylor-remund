@@ -180,6 +180,31 @@ describe('picking against proxies', () => {
     expect(picking.has('a')).toBe(true);
   });
 
+  it('a proxy under a scaled node grows to the minimum size in WORLD units, not 10× it (I1 round 3)', () => {
+    const { picking, cam } = make();
+    // the Button's cap: a 0.1 box under a node scaled 10× (1 unit across in the world)
+    const c = new Group();
+    c.position.set(-3, 0.5, 0);
+    c.scale.set(10, 5, 10);
+    c.updateMatrixWorld(true);
+    picking.add('cap', c, { box: new Box3(new Vector3(-0.05, -0.05, -0.05), new Vector3(0.05, 0.05, 0.05)), pad: 0.03 });
+    const at = (x: number) => ray(cam.position, new Vector3(x, 0.5, 0));
+    expect(picking.pick(at(-3), { minPx: 44 })?.id).toBe('cap');
+    // its edge is at x = -2.5; with the pad 3 cm more. 0.6 units beyond is far outside a 44 px target at this distance
+    expect(picking.unitsPerPixel(new Vector3(-3, 0.5, 0)) * 22).toBeLessThan(0.3);
+    expect(picking.pick(at(-1.9), { minPx: 44 })?.id).not.toBe('cap');
+  });
+
+  it('a target scaled away (hidden the house way) is not there', () => {
+    const { picking } = make();
+    const h = new Group();
+    h.position.set(-4, 0.5, 0);
+    h.scale.setScalar(1e-4);
+    h.updateMatrixWorld(true);
+    picking.add('cover', h, { box: new Box3(new Vector3(-0.05, -0.05, -0.05), new Vector3(0.05, 0.05, 0.05)) });
+    expect(picking.pick(ray(new Vector3(-4, 5, 0), new Vector3(-4, 0, 0)), { minPx: 44 })?.id).not.toBe('cover');
+  });
+
   it('follows its object: the proxy rides the world matrix', () => {
     const picking = new Picking();
     const g = new Group();

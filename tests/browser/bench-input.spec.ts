@@ -44,9 +44,18 @@ function watchErrors(page: Page): string[] {
 
 async function open(page: Page, w: number, h: number): Promise<void> {
   await page.setViewportSize({ width: w, height: h });
-  await page.goto(`${origin}/dev/bench/?hud=0`);
-  await page.waitForFunction('window.__ready === true', null, { timeout: 0 });
-  await page.waitForTimeout(300);
+  // the default page, as a visitor gets it: the picture first, then the stage takes over (shell/loader.ts)
+  await page.goto(`${origin}/dev/bench/`);
+  await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
+  await page.evaluate(() => {
+    const cam = (window as any).__bench.ws.stage.camera;
+    const panBy = cam.panBy.bind(cam);
+    (window as any).__i1pans = 0;
+    cam.panBy = (dx: number, dz?: number) => {
+      (window as any).__i1pans++;
+      return panBy(dx, dz);
+    };
+  });
 }
 
 /**
@@ -205,7 +214,8 @@ async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' |
     const my = Math.min(140, vp.height * 0.16) * margin;
     if (d.x > mx && d.x < vp.width - mx && d.y > my && d.y < vp.height - my) {
       await settled(page);
-      return (await screenOf(page, id))!;
+      // and pressed only once nothing is in front of it
+      return waitClear(page, id, kind);
     }
     // somewhere on empty bench to drag from
     const spot = await page.evaluate(
@@ -233,11 +243,55 @@ async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' |
     const want = { x: vp.width / 2 - d.x, y: vp.height / 2 - d.y };
     const lim = (v: number, m: number) => Math.max(-m, Math.min(m, v));
     const to = { x: Math.max(4, Math.min(vp.width - 4, spot!.x + lim(want.x, vp.width * 0.45))), y: Math.max(4, Math.min(vp.height - 4, spot!.y + lim(want.y, vp.height * 0.3))) };
-    const before = await camPos(page);
+    const pans0 = await pans(page);
+    const was = await page.evaluate(() => (window as any).__bench.ws.stage.camera.view());
     await stroke(page, hand, line(spot!, to, 10), 16);
-    expect(await camPos(page), 'one finger (or the mouse) on empty bench pans').not.toEqual(before);
+    // the drag moved the camera (while the finger was down: at a pan limit it gives a little and springs back)
+    const moved = await page.evaluate((v) => {
+      const now = (window as any).__bench.ws.stage.camera.view();
+      return Math.hypot(now.focus[0] - v.focus[0], now.focus[2] - v.focus[2]);
+    }, was);
+    const panned = (await pans(page)) > pans0 || moved > 1e-3;
+    expect(panned, 'one finger (or the mouse) on empty bench pans').toBe(true);
+    if (moved < 1e-3) {
+      // at the pan limit: as far as a pan goes at this zoom. On screen is enough; off it is a fault to report
+      await settled(page);
+      const now = (await screenOf(page, id))!;
+      expect(now.x > 0 && now.x < vp.width && now.y > 0 && now.y < vp.height, `${id} is out of reach of a pan at this zoom`).toBe(true);
+      return waitClear(page, id, kind);
+    }
   }
-  return (await screenOf(page, id))!;
+  return waitClear(page, id, kind);
+}
+
+/** How many times the camera has been panned by a drag (counted by a wrapper `open` puts round `panBy`). */
+const pans = (page: Page): Promise<number> => page.evaluate(() => (window as any).__i1pans ?? 0);
+
+/**
+ * A visitor presses what they can see. The crew roll and walk across the bench (Fetch's front run passes between
+ * the camera and the Button and the phone on every round), so before a press this waits, as a person would, until
+ * none of the crew is over the target on screen and the point to be pressed is the target's. Counted in frames.
+ */
+async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY | null = null, limit = 1800): Promise<Disc> {
+  const f0 = await frameNo(page);
+  for (;;) {
+    const r = await page.evaluate(
+      ([id, kind, at]) => {
+        const ws = (window as any).__bench.ws;
+        const t = ws.surface.screen(id);
+        if (!t) return { ok: false, t: null, why: 'no target' };
+        const p = at ?? t;
+        const crew = ['fetch', 'patch', 'revert'].filter((c) => c !== id).map((c) => [c, ws.surface.screen(c)] as const);
+        const over = crew.find(([, c]) => c && Math.hypot(c.x - t.x, c.y - t.y) < c.r + t.r + 12);
+        const under = ws.surface.at(p.x, p.y, kind, null).id;
+        return { ok: !over && under === id, t, why: over ? `${over[0]} over it` : `${under} under the point` };
+      },
+      [id, kind, at] as const,
+    );
+    if (r.ok) return r.t as Disc;
+    if ((await frameNo(page)) - f0 > limit) throw new Error(`${id} never came clear in ${limit} frames (${r.why})`);
+    await page.waitForTimeout(50);
+  }
 }
 
 /** Wait for the camera to come to rest (a pan past a limit springs back). */
@@ -317,9 +371,8 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   await pollFrames(page, async () => (await belt(page)).direction).toBe('forward');
 
   // 4. the lamp: the arm dragged by its shade toward the front right
-  await bringIntoView(page, hand, 'lamp', kind);
   // its pick target is its shade (the view's SHADE_BOX): taken there, as a hand would
-  const lamp = (await screenOf(page, 'lamp'))!;
+  const lamp = await bringIntoView(page, hand, 'lamp', kind);
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
   const z0 = (await setting(page, 'lamp', 'z')) as number;
@@ -419,15 +472,8 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     });
 
   // 7. the phone: opened from the bench, a ready-made text sent down the line
+  // (bringIntoView waits, as a visitor would, until Fetch's front run is not between the camera and the phone)
   const phone = await bringIntoView(page, hand, 'phone', kind);
-  // the porter rolls along its front run between the camera and the phone on every round: a visitor
-  // presses what they can see, so wait until the phone is what is under the point (not Fetch passing)
-  await pollFrames(
-    page,
-    () => page.evaluate(([x, y, k]) => (window as any).__bench.ws.surface.at(x, y, k, null).id, [phone.x, phone.y, kind === 'touch' ? 'touch' : 'mouse'] as const),
-    900,
-    'the phone never came clear of whatever was in front of it',
-  ).toBe('phone');
   await use(page, hand, [phone, phone]);
   const panel = page.getByRole('dialog');
   await expect(panel).toBeVisible();
@@ -618,6 +664,71 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   // Tab off the end leaves the stage
   for (let i = 0; i < 40 && (await focused()) !== null; i++) await page.keyboard.press('Tab');
   expect(await focused()).toBeNull();
+});
+
+test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end to end): the first press ends the demonstration; a crate on the belt sounds at the striker and ships; "Make it blue." through PLATEN paints the crate on the tray; the Button once; UNDO', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page, 1440, 900);
+  const hand = mouseHand(page);
+  const w = (fn: string) => page.evaluate(fn);
+  const partAt = (id: string) => page.evaluate((id) => (window as any).__bench.where(id) as XY, id);
+  const proj = (p: number[]) => page.evaluate((p) => (window as any).__bench.project(p) as XY, p);
+  const loc = (id: string) => page.evaluate((id) => (window as any).__bench.ws.world.part(id)?.location, id);
+  const events = (type: string) => page.evaluate((type) => (window as any).__bench.log.filter((l: any) => l.e.type === type).map((l: any) => l.e), type);
+  expect(await w('window.__bench.ws.world.attract().on')).toBe(true);
+
+  // the loose crate (S, wood) off the bench onto the belt: the first press ends the demonstration
+  await waitClear(page, 'crate-3', 'mouse');
+  const c3 = await partAt('crate-3');
+  const beltDrop = await proj((await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "belt").drop')) as number[]);
+  await stroke(page, hand, line(c3, beltDrop, 18), 18);
+  await pollFrames(page, () => w('window.__bench.ws.world.playMode')).toBe(true);
+  expect(await w('window.__bench.ws.world.attract().on')).toBe(false);
+  await pollFrames(page, async () => (await loc('crate-3'))?.at, 600, 'the crate is taken onto the belt').toMatch(/in|shipped/);
+  // it rides to the striker, which strikes it (a note by size and material), and on through the dock
+  await pollFrames(page, async () => (await events('struck')).some((e: any) => e.part === 'crate-3'), 4000, 'struck at the striker').toBe(true);
+  await pollFrames(page, async () => (await events('shipped')).some((e: any) => e.part === 'crate-3'), 4000, 'shipped').toBe(true);
+
+  // the cord into PLATEN (let go near it), a crate from the stack onto the platen's tray
+  const from = await jackAt(page, 'jack-storefront');
+  const platen = await jackAt(page, 'jack-platen');
+  await waitClear(page, 'cord', 'mouse', { x: from.x, y: from.y + 3 });
+  await stroke(page, hand, line({ x: from.x, y: from.y + 3 }, { x: platen.x + 6, y: platen.y - 8 }, 16), 16);
+  await pollFrames(page, () => setting(page, 'cord', 'jack')).toBe('jack-platen');
+  await waitClear(page, 'crate-2', 'mouse');
+  const c2 = await partAt('crate-2');
+  const tray = await proj((await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[]);
+  await stroke(page, hand, line(c2, tray, 18), 18);
+  await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 900, 'the crate on the tray').toMatch(/"mouth":"platen"/);
+
+  // the phone: "Make it blue." typed and sent; Patch does the job; the crate on the tray turns blue
+  const phone = await waitClear(page, 'phone', 'mouse');
+  await stroke(page, hand, [phone, phone]);
+  const panel = page.getByRole('dialog');
+  await expect(panel).toBeVisible();
+  const input = panel.locator('input[type="text"], textarea, input:not([type])').first();
+  await input.fill('Make it blue.');
+  await input.press('Enter');
+  await pollFrames(page, async () => (await page.evaluate(() => (window as any).__bench.ws.world.machine('line').log)).some((e: any) => e.kind === 'sent' && e.text === 'Make it blue.'), 300, 'sent').toBe(true);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2')?.colour), 6000, 'the crate on the tray painted').toBe('paint-blue');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+
+  // the Button, once: Revert rises through its hatch and shows a card; the rung plays and ends
+  const cards0 = (await events('card')).length;
+  const btn = await waitClear(page, 'button', 'mouse');
+  await stroke(page, hand, [btn, btn]);
+  await pollFrames(page, async () => (await events('button.pressed')).length, 300, 'the Button pressed').toBe(1);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewViews().find((c: any) => c.kind === 'revert')?.view.state), 1200, 'Revert up').toMatch(/rising|idle|trundle|crank|fit|sweep|park/);
+  await pollFrames(page, async () => (await events('card')).length > cards0, 2400, 'a card shown').toBe(true);
+  await pollFrames(page, async () => (await events('rung.ended')).length, 4000, 'the rung ends').toBe(1);
+
+  // UNDO: the last thing the visitor changed (the paint) is taken back
+  const undo = await waitClear(page, 'undo-lever', 'mouse');
+  await stroke(page, hand, [undo, undo]);
+  await pollFrames(page, async () => (await events('undone')).length + (await events('undo.refused')).length, 300, 'UNDO answered').toBe(1);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2')?.colour), 600, 'the paint taken back').toBe('bare');
+  expect(errors).toEqual([]);
 });
 
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
