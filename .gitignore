@@ -6,3 +6,7 @@ test-results/
 playwright-report/
 public/assets/taylor.jpeg
 .claude/worktrees/
+
+# secrets: never tracked (a key file lives in the working tree)
+.env
+.env.*
