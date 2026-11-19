@@ -102,6 +102,16 @@ export interface BootOptions {
   strict?: boolean;
   /** R2: the end of the line (lenient only): the bench could not be kept going; the caller shows the picture. */
   onGiveUp?(): void;
+  /**
+   * R2: build the stage and the views on this world instead of a new one (a stage rebuilt after a lost
+   * graphics context: the visitor's bench survives). The workshop does not dispose it.
+   */
+  world?: World;
+  /**
+   * R2: the graphics context was lost (the GPU reset or was taken away). The workshop has stopped (no step,
+   * no drawing; the world's state kept). The caller shows the picture and rebuilds on `webglcontextrestored`.
+   */
+  onContextLost?(): void;
 }
 
 export type BootPhase = 'stage' | 'labels' | 'views' | 'physics' | 'world' | 'compile' | 'frame';
@@ -138,6 +148,10 @@ export function yieldToBrowser(): Promise<void> {
 export interface Workshop {
   /** The world, read-only. */
   readonly world: WorldView;
+  /** R2: the world itself (a stage rebuilt after a lost graphics context is built on it). */
+  readonly simWorld: World;
+  /** R2: keep the world when this workshop is disposed (it is handed to a stage rebuilt on it); returns it. */
+  disown(): World;
   readonly stage: Stage;
   readonly loop: Loop;
   readonly picking: Picking;
@@ -168,8 +182,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const t0 = now();
   mark('boot');
 
-  // 1. physics at once
-  const physicsReady = (opts.physics ?? createRapierPhysics)().then((p) => {
+  // 1. physics at once (none to make when the world is given: R2, a rebuild after a lost context)
+  const physicsReady = (opts.world ? async (): Promise<PhysicsPort | null> => null : (opts.physics ?? createRapierPhysics))().then((p) => {
     mark('physics-ready');
     progress('physics', 1, 1);
     return p;
@@ -240,12 +254,15 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     recover: () => worldRef.w?.recover(),
     rebuild: () => giveUpOrRebuild(),
   });
-  const world: World = createWorld({
-    seed: opts.seed,
-    physics,
-    ...(opts.scene ? { scene: opts.scene } : {}),
-    ...(strict ? {} : { onFault: (f: StepFault) => guard.stepFault(f) }),
-  });
+  let ownsWorld = !opts.world;
+  const world: World =
+    opts.world ??
+    createWorld({
+      seed: opts.seed,
+      physics: physics as PhysicsPort,
+      ...(opts.scene ? { scene: opts.scene } : {}),
+    });
+  world.setOnFault(strict ? null : (f: StepFault) => guard.stepFault(f));
   worldRef.w = world;
   /** Three resets in a minute: a cold start of the page once (a rebuild from scratch); again within a minute, the picture. */
   function giveUpOrRebuild(): void {
@@ -557,10 +574,29 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     onError: (e) => guard.escaped(e),
   });
   loopRef.l = loop;
+  // R2: a lost graphics context (a GPU reset, a weaker machine giving up): our canvas would be a frozen
+  // picture for the rest of the visit with no error anywhere. Stop (the world keeps its state), count it,
+  // and let the caller show the picture and rebuild when the context comes back.
+  const onContextLost = (e: Event): void => {
+    e.preventDefault();
+    try {
+      loop.stop();
+    } catch {
+      /* stopping is best effort */
+    }
+    guard.contextLost();
+    opts.onContextLost?.();
+  };
+  canvas.addEventListener('webglcontextlost', onContextLost);
   // R2: what a script on the built page can read (nothing leaves the browser)
   if (typeof window !== 'undefined') (window as unknown as { __workshopFaults?: () => FaultCounts }).__workshopFaults = () => guard.faults();
   const workshop: Workshop = {
     world,
+    simWorld: world,
+    disown() {
+      ownsWorld = false;
+      return world;
+    },
     stage,
     loop,
     picking,
@@ -581,11 +617,13 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     dispatch,
     dispose() {
       removeEventListener('resize', onResize);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      world.setOnFault(null);
       loop.dispose();
       dom.dispose();
       phone?.destroy();
       for (const v of views) v.dispose();
-      world.dispose();
+      if (ownsWorld) world.dispose();
       materials.dispose();
       labels.dispose();
       stage.dispose();
