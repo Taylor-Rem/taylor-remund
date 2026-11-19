@@ -21,7 +21,7 @@ import type { Materials } from '../../../src/workshop/view/types.ts';
 import { patchFelt, posePatch, SIDE_ON } from '../../../src/workshop/view/kit/pieces/patch-felt/index.ts';
 import { fitPieces, staticBox } from '../../../src/workshop/view/vignette.ts';
 import { bench as scene, AT } from '../../../src/workshop/sim/scenes/bench.ts';
-import { defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
+import { CRATE_EDGE, defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
 import { FETCH_TUNING } from '../../../src/workshop/sim/crew/fetch.ts';
 import { pieceFolders } from '../../../src/workshop/view/kit/pieces/registry.ts';
 import { switchboard, stool } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
@@ -32,6 +32,9 @@ import { striker } from '../../../src/workshop/view/kit/pieces/striker/index.ts'
 import { chute } from '../../../src/workshop/view/kit/pieces/chute/index.ts';
 import { JACKS, BOARD_WHOLE, STOOL_SEAT } from '../../../src/workshop/view/kit/pieces/switchboard/index.ts';
 import { LINE } from '../../../src/workshop/sim/scenes/bench.ts';
+import { lanePath, laneOutline } from '../../../src/workshop/sim/path.ts';
+import { canRunLap, fetchStand } from '../../../src/workshop/sim/crew/fetch.ts';
+import { reachFrom, type V3 } from '../../../src/workshop/view/kit/pieces/fetch-porter/reach.ts';
 import type { Vec3 } from '../../../src/workshop/sim/types.ts';
 
 const S = LAYOUT.stations as Record<StationKey, Spot>;
@@ -42,8 +45,10 @@ const body = (id: string): Box3 => {
 };
 const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
-/** Where the fumbled crate comes to rest: about 0.5 left of the fumble, in front of the lane (the vignette's toss, unchanged). */
-const REST: Vec3 = [AT.fumbleX - 0.55, 0.225, AT.lane.points[0]![1] + 0.1];
+/** Where the fumbled crate comes to rest: tossed ahead and back off the front run, just past its left end, in front of the UNDO lever (about; the simulation decides: (-3.11, 2.80) in the attract test's first lap). */
+const REST: Vec3 = [AT.lane.points[0]![0] - 0.5, 0.225, AT.lane.points[0]![1]];
+/** The loose crate at the start: the first thing to pick up, in front of the Button's console. */
+const FIRST: Vec3 = AT.firstCrate;
 /** Patch, drawn at the crew's scale on its seat: its seated box. */
 const patchBox = (): Box3 => {
   const s = fit.stool.seat;
@@ -52,7 +57,7 @@ const patchBox = (): Box3 => {
 function cluster(): Record<string, Box3> {
   return {
     button: body('console').expandByVector(new Vector3(0, 0.45, 0)),
-    crate: new Box3(new Vector3(REST[0] - 0.25, 0, REST[2] - 0.25), new Vector3(REST[0] + 0.25, 0.45, REST[2] + 0.25)),
+    crate: new Box3(new Vector3(FIRST[0] - 0.25, 0, FIRST[2] - 0.25), new Vector3(FIRST[0] + 0.25, 0.45, FIRST[2] + 0.25)),
     phone: body('phone'),
     patch: patchBox(),
   };
@@ -111,10 +116,13 @@ describe('the layout table and the simulation agree', () => {
     expect(at.x + pb.min.x).toBeGreaterThanOrEqual(b.min.x - 0.02);
     expect(at.x + pb.max.x).toBeLessThanOrEqual(b.max.x + 0.02);
     expect([S.stack.x, S.stack.z]).toEqual([...AT.stack]);
-    expect(S.lane.x).toBeCloseTo((AT.lane.points[0]![0] + AT.lane.points[AT.lane.points.length - 1]![0]) / 2, 6);
-    expect(S.lane.z).toBeCloseTo(AT.lane.points[0]![1], 6);
-    expect(S.lane.w).toBeCloseTo(AT.lane.points[AT.lane.points.length - 1]![0] - AT.lane.points[0]![0] + 2 * LANE_TAPE.past, 6);
-    expect(S.lane.d).toBeCloseTo(2 * LANE_TAPE.half, 6);
+    // the lane's spot is the box round its path, the tape's width included
+    const xs = AT.lane.points.map((q) => q[0]), zs = AT.lane.points.map((q) => q[1]);
+    const lb = spotBox(S.lane);
+    expect(lb.min.x).toBeLessThanOrEqual(Math.min(...xs) - LANE_TAPE.past + 1e-6);
+    expect(lb.max.x).toBeGreaterThanOrEqual(Math.max(...xs) + LANE_TAPE.past - 1e-6);
+    expect(lb.min.z).toBeLessThanOrEqual(Math.min(...zs) - LANE_TAPE.half + 1e-6);
+    expect(lb.max.z).toBeGreaterThanOrEqual(Math.max(...zs) + LANE_TAPE.half - 1e-6);
   });
 
   it("clamps the lamp where the simulation's lamp has its shoulder", () => {
@@ -134,9 +142,13 @@ describe('the footprints', () => {
    * Overlaps that are meant: the striker's arm reaches over the belt; the stool stands on the board's runner; Revert parks on its
    * hatch; the dock's mouth meets the belt's end, and its turned footprint's box (the ramp's straight run included) reaches over the
    * lane's right end, which stops clear of its portal (the oriented test below); the chute's footprint box takes in the corner by
-   * the belt's motor housing (its duct passes behind it).
+   * the belt's motor housing (its duct passes behind it); the stack stands at today's platen's front-left corner, over the
+   * conduit that leaves its jack plate (the reshaped piece's footprint ends at its left foot, 0.1 right of the stack); the dock's
+   * turned footprint's box reaches back over today's platen's front-right corner (its portal is clear of it: the oriented test).
    */
-  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'lane|dock', 'chute|belt']);
+  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'chute|belt', 'platen|stack', 'platen|dock']);
+  /** The lane is a path of runs, not a box: its tape is held off every body, run by run, below. */
+  const SKIP = new Set(['lane']);
   // the real pieces' footprints are their bounds (the platen's conduit, the storefront's jack box, the dock's ramp included)
   it('lie on the bench and do not overlap (except where one stands on another)', () => {
     for (const [k, s] of onBench) {
@@ -149,7 +161,7 @@ describe('the footprints', () => {
     for (let i = 0; i < onBench.length; i++)
       for (let j = i + 1; j < onBench.length; j++) {
         const [ka, sa] = onBench[i]!, [kb, sb] = onBench[j]!;
-        if (MEANT.has(`${ka}|${kb}`) || MEANT.has(`${kb}|${ka}`)) continue;
+        if (MEANT.has(`${ka}|${kb}`) || MEANT.has(`${kb}|${ka}`) || SKIP.has(ka) || SKIP.has(kb)) continue;
         const a = spotBox(sa), b = spotBox(sb);
         // footprints only (x, z); the dock's turned footprint is tested as its bounding box, a little generous
         const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x), oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
@@ -165,8 +177,8 @@ describe('the footprints', () => {
     }
   });
 
-  it('flow left to right: stack, belt, striker, dock; the storefront right of the platen', () => {
-    expect(S.stack.x).toBeLessThan(S.belt.x);
+  it('flow left to right: the feed, the striker, the dock; the storefront right of the platen', () => {
+    expect(AT.beltFeed).toBeLessThan(LINE.strikerX);
     expect(S.striker.x).toBeGreaterThan(S.belt.x);
     expect(S.dock.x).toBeGreaterThan(S.striker.x);
     expect(S.storefront.x).toBeGreaterThan(S.platen.x);
@@ -177,52 +189,91 @@ describe('the footprints', () => {
   });
 });
 
-describe("Fetch's lane", () => {
+describe("Fetch's path (A1 round 7: runs of tape, corners rounded, a stand at an end taken exactly)", () => {
   const FETCH_HALF: Vec3 = defaultHalfExtents('robot', 'M');
   const S_HALF: Vec3 = defaultHalfExtents('crate', 'S');
   const statics = scene.statics.filter((s) => s.id !== 'bench' && s.id !== 'back-wall').map((s) => [s.id, body(s.id)] as const);
   const overlap = (a: Box3, b: Box3): number => Math.min(a.max.x - b.min.x, b.max.x - a.min.x, a.max.y - b.min.y, b.max.y - a.min.y, a.max.z - b.min.z, b.max.z - a.min.z);
+  const k = CREW_SCALE;
+  const PTS = AT.lane.points as readonly (readonly [number, number])[];
+  const path = lanePath(PTS, FETCH_TUNING.cornerRadius * k);
+  const runs = PTS.slice(1).map((b, i) => ({ a: PTS[i]!, b, len: Math.hypot(b[0] - PTS[i]![0], b[1] - PTS[i]![1]) }));
 
-  it('lets Fetch and the crate in its hands run the whole lane, overshoot included, clear of every body', () => {
-    const [ax, az] = AT.lane.points[0]!;
-    const [bx] = AT.lane.points[AT.lane.points.length - 1]!;
-    // Fetch drawn at the crew's scale: its body and its reach grow with it (the crate does not)
-    const k = CREW_SCALE;
+  it("keeps to its engineer's rules: runs at least 0.9 between corners, straight for a corner's tangent and 0.25 more into an end, turns of 135° or less, parallel runs 1.4 apart", () => {
+    // a right angle's tangent (S5 round 3: a 0.44 run arrived still turning and clipped the platen)
+    const tangent = FETCH_TUNING.cornerRadius * k;
+    runs.forEach((r, i) => expect(r.len, `run ${i}`).toBeGreaterThanOrEqual(i === 0 || i === runs.length - 1 ? tangent + 0.25 : 0.9));
+    for (const c of path.corners) expect(c.turn).toBeLessThanOrEqual((135 * Math.PI) / 180 + 1e-9);
+    for (let i = 0; i < runs.length; i++)
+      for (let j = i + 2; j < runs.length; j++) {
+        const a = runs[i]!, b = runs[j]!;
+        const ua = [(a.b[0] - a.a[0]) / a.len, (a.b[1] - a.a[1]) / a.len], ub = [(b.b[0] - b.a[0]) / b.len, (b.b[1] - b.a[1]) / b.len];
+        if (Math.abs(ua[0]! * ub[1]! - ua[1]! * ub[0]!) > 1e-6) continue;
+        // parallel: their distance apart
+        expect(Math.abs((b.a[0] - a.a[0]) * -ua[1]! + (b.a[1] - a.a[1]) * ua[0]!), `runs ${i} and ${j}`).toBeGreaterThanOrEqual(1.4);
+      }
+  });
+
+  it('lets Fetch and the crate in its hands ride the whole path to its very ends (nothing carries it past one), clear of every body', () => {
     const reach = (FETCH_TUNING.bodyHalfDepth + FETCH_TUNING.handGap) * k + S_HALF[2];
     const half: Vec3 = [FETCH_HALF[0] * k, FETCH_HALF[1] * k, FETCH_HALF[2] * k];
-    let closest = Infinity;
     let along = Infinity;
-    for (let i = 0; i <= 200; i++) {
-      const x = ax + ((bx - ax) * i) / 200;
-      // running along the lane (±X): body and crate; facing the visitor (+Z), empty-handed (it turns to the visitor only to offer, its crate fumbled)
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1]] as const) {
-        const hx = dx ? half[2] : half[0], hz = dx ? half[0] : half[2];
-        const bodyB = new Box3(new Vector3(x - hx, 0, az - hz), new Vector3(x + hx, 2 * half[1], az + hz));
-        const c = new Vector3(x + dx * reach, FETCH_TUNING.handHeight * k, az + dz * reach);
+    for (let i = 0; i <= 400; i++) {
+      const s = (path.length * i) / 400;
+      const [x, z] = path.at(s);
+      const yaw = path.yaw(s);
+      const ux = Math.sin(yaw), uz = Math.cos(yaw);
+      // the body as a box round its turned footprint; the crate held ahead of it, either way along the path
+      const hx = Math.abs(ux) * half[2] + Math.abs(uz) * half[0], hz = Math.abs(uz) * half[2] + Math.abs(ux) * half[0];
+      const bodyB = new Box3(new Vector3(x - hx, 0, z - hz), new Vector3(x + hx, 2 * half[1], z + hz));
+      for (const sgn of [1, -1]) {
+        const c = new Vector3(x + sgn * ux * reach, FETCH_TUNING.handHeight * k, z + sgn * uz * reach);
         const crate = new Box3(c.clone().sub(new Vector3(...S_HALF)), c.clone().add(new Vector3(...S_HALF)));
         for (const [id, b] of statics)
-          for (const it of dz ? [bodyB] : [bodyB, crate]) {
+          for (const it of [bodyB, crate]) {
             const d = overlap(it, b);
-            expect(d, `at x ${x.toFixed(2)} facing (${dx}, ${dz}): ${id}`).toBeLessThan(0);
-            closest = Math.min(closest, -d);
-            if (dx && -d < along) {
-              along = -d;
-              if (process.env['BENCH_REPORT']) console.log(`ALONG ${along.toFixed(3)} ${id} x ${x.toFixed(2)} dx ${dx}`);
-            }
+            expect(d, `at s ${s.toFixed(2)} (${x.toFixed(2)}, ${z.toFixed(2)}): ${id}`).toBeLessThan(0);
+            along = Math.min(along, -d);
           }
       }
     }
-    // running along the lane it keeps 0.3 from everything; facing the visitor, its body comes nearest the striker's post
-    expect(along).toBeGreaterThan(0.3);
-    expect(closest).toBeGreaterThan(0.1);
+    if (process.env['BENCH_REPORT']) console.log(`PATH nearest body ${along.toFixed(3)}`);
   });
 
-  it("keeps the lane's tape off every body's footprint", () => {
-    const tape = new Box3(new Vector3(AT.lane.points[0]![0] - LANE_TAPE.past, 0, AT.lane.points[0]![1] - LANE_TAPE.half), new Vector3(AT.lane.points[AT.lane.points.length - 1]![0] + LANE_TAPE.past, 0.001, AT.lane.points[0]![1] + LANE_TAPE.half));
-    for (const [id, b] of statics) {
-      const foot = new Box3(new Vector3(b.min.x, 0, b.min.z), new Vector3(b.max.x, 0.001, b.max.z));
-      expect(tape.intersectsBox(foot) && !(tape.max.z <= foot.min.z || foot.max.z <= tape.min.z) ? `tape under ${id}` : null).toBe(null);
+  it("keeps the path's tape off every body's footprint", () => {
+    const pts = laneOutline(PTS, LANE_TAPE.half, LANE_TAPE.past);
+    const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+    // each run's band of tape as a box (the outline's runs are axis-aligned here)
+    runs.forEach((r, i) => {
+      // across the run: half the tape's width; along it: the overrun at the path's ends, half the width at a corner
+      const ux = Math.abs(r.b[0] - r.a[0]) / r.len, uz = Math.abs(r.b[1] - r.a[1]) / r.len;
+      const ea = i === 0 ? LANE_TAPE.past : LANE_TAPE.half, eb = i === runs.length - 1 ? LANE_TAPE.past : LANE_TAPE.half;
+      const ax = r.a[0] <= r.b[0] ? ea : eb, bx = r.a[0] <= r.b[0] ? eb : ea, az = r.a[1] <= r.b[1] ? ea : eb, bz = r.a[1] <= r.b[1] ? eb : ea;
+      const lo = [Math.min(r.a[0], r.b[0]) - (ux ? ax : LANE_TAPE.half), Math.min(r.a[1], r.b[1]) - (uz ? az : LANE_TAPE.half)];
+      const hi = [Math.max(r.a[0], r.b[0]) + (ux ? bx : LANE_TAPE.half), Math.max(r.a[1], r.b[1]) + (uz ? bz : LANE_TAPE.half)];
+      const tape = new Box3(new Vector3(lo[0], 0, lo[1]), new Vector3(hi[0], 0.001, hi[1]));
+      for (const [id, b] of statics) {
+        const foot = new Box3(new Vector3(b.min.x, 0, b.min.z), new Vector3(b.max.x, 0.001, b.max.z));
+        const ox = Math.min(tape.max.x, foot.max.x) - Math.max(tape.min.x, foot.min.x), oz = Math.min(tape.max.z, foot.max.z) - Math.max(tape.min.z, foot.min.z);
+        expect(ox > 1e-6 && oz > 1e-6 ? `tape under ${id}` : null).toBe(null);
+      }
+    });
+    expect(Math.min(...xs)).toBeGreaterThan(LAYOUT.bench.minX);
+    expect(Math.max(...zs)).toBeLessThan(LAYOUT.bench.maxZ);
+  });
+
+  it('keeps off Revert\'s hatch and its doors\' swing, and never waits in front of it; Revert on its hatch clears the stack by 0.2', () => {
+    const hatch = spotBox(S.hatch);
+    const pad = Math.hypot(FETCH_HALF[0], FETCH_HALF[2]) * k;
+    for (let i = 0; i <= 200; i++) {
+      const [x, z] = path.at((path.length * i) / 200);
+      const dx = Math.max(0, hatch.min.x - x, x - hatch.max.x), dz = Math.max(0, hatch.min.z - z, z - hatch.max.z);
+      expect(Math.hypot(dx, dz)).toBeGreaterThan(pad);
     }
+    const rev = (scene.parts.find((p) => p.id === 'revert')!.half ?? [0, 0, 0]) as Vec3;
+    const rx = AT.revert.c[0], rz = AT.revert.c[2];
+    const sx = Math.max(0, AT.stack[0] - 0.4 - (rx + rev[0]), rx - rev[0] - (AT.stack[0] + 0.4)), sz = Math.max(0, AT.stack[1] - 0.4 - (rz + rev[2]), rz - rev[2] - (AT.stack[1] + 0.4));
+    expect(Math.hypot(sx, sz)).toBeGreaterThanOrEqual(0.2);
   });
 });
 
@@ -267,8 +318,10 @@ describe('the camera homes', () => {
       ...Object.fromEntries(scene.cord.jacks.map((j) => [j.id, j.at])),
       phone: top('phone', 0.75),
       'patch head': [fit.stool.seat[0], fit.stool.seat[1] + 0.9 * CREW_SCALE, fit.stool.seat[2]],
-      'stack top': scene.parts.find((p) => p.id === scene.button.stack[2])!.pose.p,
-      'loose crate': REST,
+      'stack top': scene.parts.find((p) => p.id === scene.button.stack[scene.button.stack.length - 1])!.pose.p,
+      'stack bottom': [AT.stack[0], 0.15, AT.stack[1] + 0.4],
+      'fumbled crate': REST,
+      'first crate': AT.firstCrate,
       'undo lever': top('undo', 0.9),
       platen: top('platen', 0.9),
       'storefront front': top('storefront', 0.5),
@@ -436,7 +489,7 @@ describe('the real pieces', () => {
     expect(post.max.x).toBeGreaterThanOrEqual(ox + 0.15);
     expect(post.max.z).toBeLessThan(AT.belt.c[2] - AT.belt.half[2]);
     // far enough from the belt's far end for a run of notes played backwards (§ B2 X2): three crates' room
-    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5);
+    expect(AT.belt.c[0] + AT.belt.half[0] - LINE.strikerX).toBeGreaterThanOrEqual(1.5 - 1e-9);
   });
 
   it("stands the whole board against the wall, its jacks where the simulation has them, the stool on its runner's right end", () => {
@@ -466,86 +519,123 @@ describe('the real pieces', () => {
   });
 });
 
-describe("Fetch's reach (S5: its rounds; the attract loop, § B3)", () => {
-  /** How far from a point of its lane between its stops Fetch can take hold of a part (the simulation's own sum, at the crew's scale). */
-  const REACH = (FETCH_TUNING.reach + FETCH_TUNING.handForward) * CREW_SCALE;
-  const inset = FETCH_TUNING.inset * CREW_SCALE;
-  const [ax, az] = AT.lane.points[0]!, [bx] = AT.lane.points[AT.lane.points.length - 1]!;
-  const fromLane = (x: number, z: number, stops = true): { d: number; at: [number, number] } => {
-    const lo = stops ? ax + inset : ax, hi = stops ? bx - inset : bx;
-    const lx = Math.min(hi, Math.max(lo, x));
-    return { d: Math.hypot(x - lx, z - az), at: [lx, az] };
-  };
+describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor)", () => {
   const L = LINE.belt;
+  const r = scene.runner.rounds!;
+  const lap = scene.runner.attract!;
+  const tray = scene.mouths!.find((m) => m.id === lap.tray)!;
+  const feed = scene.mouths!.find((m) => m.id === r.mouth)!;
+  const places: Array<['stack' | 'tray' | 'phone' | 'feed', number, number]> = [
+    ['stack', r.stack[0], r.stack[1]],
+    ['tray', tray.drop[0], tray.drop[2]],
+    ['phone', lap.phone[0], lap.phone[2]],
+    ['feed', feed.drop[0], feed.drop[2]],
+  ];
 
-  it('takes a crate off the stack: 1.7 to 2.3 from the lane, so the crate it lifts swings clear of the stack, and nothing taller than 1.8 between', () => {
-    const { d, at } = fromLane(AT.stack[0], AT.stack[1]);
-    expect(d).toBeGreaterThanOrEqual(1.7);
-    expect(d).toBeLessThanOrEqual(2.3);
-    expect(d).toBeLessThanOrEqual(REACH - 0.2);
-    const from = new Vector3(AT.stack[0], 0.9, AT.stack[1]), to = new Vector3(at[0], 0.9, at[1]);
+  it('can run the lap with the telescoping arms\' reach (1.10): canRunLap', () => {
+    expect(scene.runner.reach).toBeCloseTo(1.1, 6);
+    expect(canRunLap(scene)).toEqual({ ok: true });
+  });
+
+  it.each(places)('stands within 1.0 of the %s, with it beside or in front (never behind its back)', (what, px, pz) => {
+    const st = fetchStand(scene, what, px, pz);
+    // (the stack: 1.05, the 0.05 its bottom crate needs to clear Fetch's round footprint on the jog, reported)
+    expect(st.d, what).toBeLessThanOrEqual((what === 'stack' ? 1.05 : 1.0) + 1e-6);
+    // the way it turns to it: no more than a quarter turn from facing the visitor (+Z)
+    const dx = px - st.at[0], dz = pz - st.at[1];
+    expect(dz, `${what}: behind the run`).toBeGreaterThanOrEqual(-0.05 * Math.hypot(dx, dz));
+  });
+
+  it("takes from the stack facing the visitor across clear bench (nothing taller than 1.8 between), and stands the tray's at the path's end, side-on", () => {
+    const st = fetchStand(scene, 'stack', r.stack[0], r.stack[1]);
+    const from = new Vector3(r.stack[0], 0.9, r.stack[1]), to = new Vector3(st.at[0], 0.9, st.at[1]);
     const ray = new Ray(from, to.clone().sub(from).normalize());
-    for (const st of scene.statics) {
-      if (st.id === 'bench' || st.id === 'back-wall') continue;
-      const b = body(st.id);
+    for (const s of scene.statics) {
+      if (s.id === 'bench' || s.id === 'back-wall') continue;
+      const b = body(s.id);
       if (b.max.y <= 1.8) continue;
       const hit = ray.intersectBox(b, new Vector3());
-      expect(hit && hit.distanceTo(from) < from.distanceTo(to) ? `${st.id} stands between the stack and the lane` : null).toBe(null);
+      expect(hit && hit.distanceTo(from) < from.distanceTo(to) ? `${s.id} stands between the stack and Fetch` : null).toBe(null);
+    }
+    const t = fetchStand(scene, 'tray', tray.drop[0], tray.drop[2]);
+    const end = AT.lane.points[AT.lane.points.length - 1]!;
+    expect(Math.hypot(t.at[0] - end[0], t.at[1] - end[1])).toBeCloseTo(0, 3); // taken exactly: the path's very end
+    // the reshaped platen's left stand: 0.40 outside its left foot (today's piece is placed with its left foot there)
+    expect(body('platen-plinth').min.x - t.at[0]).toBeCloseTo(0.4, 2);
+    expect(Math.abs(tray.drop[0] - t.at[0] - 0.99)).toBeLessThan(0.02); // PLATEN.stand.left: 0.99 from the seat
+    expect(tray.drop[2]).toBeCloseTo(t.at[1], 3);
+  });
+
+  it("gets its grip to each thing it handles from where it stands, by the arm's own solver at the thing's real height (short 0)", () => {
+    const S_HALF: V3 = [0.225, 0.225, 0.225];
+    // the stack is two high (A1 round 7): its top crate as today's stack has it, and the tallest pair a restock can put
+    // there (two L crates: the top one's middle 1.2 up, its own half 0.4)
+    const top = scene.parts.find((p) => p.id === scene.button.stack[scene.button.stack.length - 1])!;
+    expect(scene.button.stack.length).toBe(2);
+    const seat = platen({ detail: 'low' } as never).sockets!['seat']!;
+    const seatY = new Vector3().setFromMatrixPosition(seat).y;
+    const grips: Array<['stack' | 'tray' | 'phone' | 'feed', V3, V3 | null]> = [
+      ['stack', top.pose.p as unknown as V3, S_HALF],
+      ['stack', [r.stack[0], CRATE_EDGE.L * 1.5, r.stack[1]], [0.4, 0.4, 0.4]],
+      ['tray', [tray.drop[0], seatY + S_HALF[1], tray.drop[2]], S_HALF],
+      ['phone', [lap.phone[0], lap.phone[1] + 0.14, lap.phone[2]], null], // the screen's middle
+      ['feed', [feed.drop[0], feed.drop[1] + S_HALF[1], feed.drop[2]], S_HALF],
+    ];
+    for (const [what, p, half] of grips) {
+      const st = fetchStand(scene, what, p[0], p[2]);
+      const r = reachFrom([st.at[0], 0, st.at[1]], p, { half });
+      if (process.env['BENCH_REPORT']) console.log(`GRIP ${what} short ${r.short.toFixed(3)} tele ${r.tele.toFixed(3)}`);
+      expect(r.short, what).toBeLessThanOrEqual(0.005); // the solver's own tolerance
     }
   });
 
-  it("sets it on the belt's motor end (the belt mouth's drop), and reaches the platen's tray and the phone", () => {
-    const drop = scene.mouths!.find((m) => m.id === 'belt')!.drop;
-    expect(drop[0]).toBeGreaterThanOrEqual(L.from + 0.8); // past the deflector's reach
-    expect(fromLane(drop[0], drop[2]).d).toBeLessThanOrEqual(REACH - 0.2);
-    const seat = new Vector3().setFromMatrixPosition(platen({ detail: 'low' } as never).sockets!['seat']!);
-    const [px, pz] = S.platen.at!;
-    expect(fromLane(px + seat.x, pz + seat.z).d).toBeLessThanOrEqual(REACH - 0.2);
-    // the platen's mouth (the Patchlamp station's) sits on the real tray
-    const pm = scene.mouths!.find((m) => m.id === 'platen')!;
-    expect(new Vector3(...pm.drop).distanceTo(new Vector3(px + seat.x, seat.y, pz + seat.z))).toBeLessThan(0.02);
-    expect(fromLane(AT.phone.c[0], AT.phone.c[2]).d).toBeLessThanOrEqual(REACH - 0.2);
+  it("feeds the belt in front of its front run, upstream of the striker and past the deflector's reach", () => {
+    expect(feed.drop[0]).toBeGreaterThanOrEqual(L.from + 1.1 - 1e-6);
+    expect(feed.drop[0]).toBeLessThan(LINE.strikerX - 0.5);
   });
 
-  it("lands what the chute returns on clear bench beside the stack, not on it, and off the lane's tape", () => {
+  it("lands what the chute returns on clear bench, off the path's tape and left of the deflector's foot", () => {
     const p = chute({ detail: 'low', run: CHUTE_RUN, aim: CHUTE_AIM });
     const [cx, cz] = S.chute.at!;
     const mouth = new Vector3().setFromMatrixPosition(p.sockets!['mouth']!).add(new Vector3(cx, 0, cz));
     expect(mouth.distanceTo(new Vector3(...AT.chute.p))).toBeLessThan(0.01);
     const land = new Vector3().setFromMatrixPosition(p.sockets!['land']!).add(new Vector3(cx, 0, cz));
-    const toStack = Math.hypot(land.x - AT.stack[0], land.z - AT.stack[1]);
-    expect(toStack).toBeGreaterThan(0.55 + 0.4);
-    expect(toStack).toBeLessThan(2);
-    expect(land.x).toBeLessThan(ax - LANE_TAPE.past - 0.25);
-    // clear of the belt's motor housing
+    expect(land.x + 0.25).toBeLessThan(L.offBack[0] - 0.4);
     const motor = body('belt-motor');
     expect(land.z + 0.25).toBeLessThan(motor.min.z);
-    // the pop: forward along the mouth's heading, a little up
     expect(AT.chute.linvel[0]).toBeGreaterThan(0);
     expect(AT.chute.linvel[1]).toBeGreaterThan(0);
   });
 
-  it("keeps clear the spot where the deflector runs a reversed part off the belt's back, beside the stack; the dock's ramp starts at the belt's open tail", () => {
+  it("keeps room for three crates side by side at the deflector's foot, clear of every body and of Fetch's path; the dock's ramp starts at the belt's open tail", () => {
     const p = belt({ length: LAYOUT.beltLength, detail: 'low', line: true });
     const [bx0, bz0] = S.belt.at!;
     const off = new Vector3().setFromMatrixPosition(p.sockets!['off.back']!).add(new Vector3(bx0, 0, bz0));
-    // an L crate resting there touches no body
-    const crate = new Box3(new Vector3(off.x - 0.4, 0, off.z - 0.4), new Vector3(off.x + 0.4, 0.8, off.z + 0.4));
-    for (const st of scene.statics) {
-      if (st.id === 'bench' || st.id === 'back-wall') continue;
-      expect(crate.intersectsBox(body(st.id)) ? `off.back in ${st.id}` : null).toBe(null);
+    const foot = new Box3(new Vector3(off.x - 0.4, 0, off.z - 0.4), new Vector3(off.x - 0.4 + 3 * 0.8, 0.8, off.z + 0.4));
+    for (const s of scene.statics) {
+      if (s.id === 'bench' || s.id === 'back-wall') continue;
+      expect(foot.intersectsBox(body(s.id)) ? `the foot under ${s.id}` : null).toBe(null);
     }
-    expect(Math.hypot(off.x - AT.stack[0], off.z - AT.stack[1])).toBeLessThan(2.5);
-    expect(fromLane(off.x, off.z).d).toBeLessThanOrEqual(REACH - 0.2);
+    const pad = Math.hypot(defaultHalfExtents('robot', 'M')[0], defaultHalfExtents('robot', 'M')[2]) * CREW_SCALE;
+    const path = lanePath(AT.lane.points as readonly (readonly [number, number])[], FETCH_TUNING.cornerRadius * CREW_SCALE);
+    for (let i = 0; i <= 200; i++) {
+      const [x, z] = path.at((path.length * i) / 200);
+      const dx = Math.max(0, foot.min.x - x, x - foot.max.x), dz = Math.max(0, foot.min.z - z, z - foot.max.z);
+      expect(Math.hypot(dx, dz)).toBeGreaterThan(pad);
+    }
     const ramp = new Vector3().setFromMatrixPosition(p.sockets!['ramp']!).add(new Vector3(bx0, 0, bz0));
     expect(ramp.x).toBeCloseTo(L.to, 3);
     expect(S.dock.at![0] + DOCK_REACH[0] - 0.12).toBeCloseTo(ramp.x, 3);
   });
 
-  it('keeps 1.4 round the lane free of anything without a body Fetch could slide through when knocked (the chute stands off)', () => {
+  it('keeps 1.4 round the path free of anything without a body Fetch could slide through when knocked (the chute stands off)', () => {
     const c = spotBox(S.chute);
-    const dx = Math.max(0, ax - c.max.x, c.min.x - bx), dz = Math.max(0, c.min.z - az, az - c.max.z);
-    expect(Math.hypot(dx, dz)).toBeGreaterThanOrEqual(1.4);
+    const path = lanePath(AT.lane.points as readonly (readonly [number, number])[], FETCH_TUNING.cornerRadius * CREW_SCALE);
+    for (let i = 0; i <= 200; i++) {
+      const [x, z] = path.at((path.length * i) / 200);
+      const dx = Math.max(0, c.min.x - x, x - c.max.x), dz = Math.max(0, c.min.z - z, z - c.max.z);
+      expect(Math.hypot(dx, dz)).toBeGreaterThanOrEqual(1.4);
+    }
   });
 });
 

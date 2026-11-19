@@ -1,7 +1,7 @@
 // Fetch's scenarios (S5) on the bench: `roundsBench()` is the real bench, whose stack (A1's layout) is in
 // Fetch's reach of its lane.
 import { bench, AT } from '../../src/workshop/sim/scenes/bench.ts';
-import { FETCH_TUNING, fetchReach } from '../../src/workshop/sim/crew/fetch.ts';
+import { FETCH_TUNING, fetchReach, fetchStand } from '../../src/workshop/sim/crew/fetch.ts';
 import { lanePath } from '../../src/workshop/sim/path.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -20,29 +20,20 @@ export function laneDistance(scene: SceneDesc, x: number, z: number): { at: [num
   return { at, d: Math.hypot(x - at[0], z - at[1]) };
 }
 
-/** The bench Fetch's rounds run on: the real bench (A1 put its stack within reach of the lane, 2.02 from its left stop). */
+/** The bench Fetch's rounds run on: the real bench (A1 round 6: everything it handles within its reach of where it stands for it). */
 export function roundsBench(): SceneDesc {
-  const d = laneDistance(bench, AT.stack[0], AT.stack[1]).d;
-  if (d > fetchReach(bench) - 0.2) throw new Error(`the bench's stack is ${d.toFixed(2)} from Fetch's lane: out of its reach (${REACH.toFixed(2)})`);
+  const d = fetchStand(bench, 'stack', AT.stack[0], AT.stack[1]).d;
+  if (d > fetchReach(bench)) throw new Error(`the bench's stack is ${d.toFixed(2)} from where Fetch stands for it: out of its reach (${REACH.toFixed(2)})`);
   return bench;
 }
 
 /**
- * S5 round 2: the bench with an honest reach (`FetchSpec.reach` = `reach`) and a lane of runs laid to serve
- * the stack, the belt's feed, the phone and the platen's tray within it (a path of five points: along the
- * front, in behind the striker, across to the phone, down to the tray). For the reach property only: its runs
- * cross the motor housing's corner and the platen's deck, which a kinematic Fetch passes through.
+ * S5 round 2: the bench with a given reach (`FetchSpec.reach` = `reach`). Since A1 round 6 the real bench's path
+ * serves the stack, the belt's feed, the phone and the platen's tray within arm's length, so this is the real
+ * bench with only the reach changed.
  */
 export function reachBench(reach = 1.3): SceneDesc {
-  return {
-    ...bench,
-    id: 'bench-reach',
-    runner: {
-      ...bench.runner,
-      reach,
-      lane: { points: [[-6.1, 2.8], [1.3, 2.8], [1.3, 1.9], [4.65, 1.9], [4.65, 0.85]] },
-    },
-  };
+  return { ...bench, id: 'bench-reach', runner: { ...bench.runner, reach } };
 }
 
 /** Play mode without changing anything: one pull of the lever on an empty stack (it answers "nothing"). */

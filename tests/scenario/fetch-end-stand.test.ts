@@ -1,6 +1,7 @@
 // S5 round 3: a stand at a path's very end is taken exactly. The platen's tray is handled from the end of the
 // last run, the platen's body 0.4 beyond it: over three attract laps Fetch's centre never passes either end of
-// its path, and its footprint never enters the platen.
+// its path, and its footprint never enters the platen. (A1 round 7: on the bench as laid out, its last run ending
+// AT the platen's left stand, side-on to the plinth: the plinth and every other body of the platen.)
 import { expect, test } from 'vitest';
 import { benchWorld } from './line-helpers.ts';
 import { bench } from '../../src/workshop/sim/scenes/bench.ts';
@@ -8,14 +9,10 @@ import { canRunLap, fetchStand } from '../../src/workshop/sim/crew/fetch.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 
-const PLATEN = bench.statics.find((s) => s.id === 'platen')!;
-const PH = PLATEN.shape.type === 'box' ? PLATEN.shape.half : [0, 0, 0];
-const FACE = PLATEN.pose.p[2] + PH[2]!; // the platen's front face (z)
-const END: [number, number] = [4.65, FACE + 0.4];
-// an L: along the front, then a straight run of 1.3 down onto the stand (a stand at an end wants a straight
-// approach at least the corner's tangent plus the turn clearance long: the robot arrives square)
-const POINTS: [number, number][] = [[-6.1, 2.8], [4.65, 2.8], END];
-const SCENE: SceneDesc = { ...bench, id: 'bench-end-stand', runner: { ...bench.runner, reach: 2.0, lane: { points: POINTS }, stands: { tray: 1 } } };
+const PLATEN = bench.statics.filter((s) => s.id.startsWith('platen'));
+const POINTS = bench.runner.lane.points as readonly (readonly [number, number])[];
+const END = POINTS[POINTS.length - 1]!;
+const SCENE: SceneDesc = bench;
 
 /** The overlap of two turned rectangles on the bench (positive: they overlap by that much). */
 function overlap(ax: number, az: number, ayaw: number, ahx: number, ahz: number, bx: number, bz: number, byaw: number, bhx: number, bhz: number): number {
@@ -49,12 +46,15 @@ test('a stand at the end of the last run: three laps, never past an end, never i
     if (f.state === 'held' || f.state === 'knocked' || f.state === 'return') continue;
     // never past either end of the path
     expect(POINTS[0]![0] - f.x, `step ${w.step} ${f.state}: past the first end`).toBeLessThanOrEqual(1e-6);
-    expect(END[1] - f.z, `step ${w.step} ${f.state}: past the last end (${f.z.toFixed(4)})`).toBeLessThanOrEqual(1e-6);
+    expect(f.x - END[0], `step ${w.step} ${f.state}: past the last end (${f.x.toFixed(4)})`).toBeLessThanOrEqual(1e-6);
     if (Math.hypot(f.x - END[0], f.z - END[1]) < 1e-6) atEnd++;
     // its footprint never in the platen
-    const o = overlap(f.x, f.z, f.heading, half[0], half[2], PLATEN.pose.p[0], PLATEN.pose.p[2], 0, PH[0]!, PH[2]!);
-    worst = Math.max(worst, o);
-    expect(o, `step ${w.step} ${f.state}: into the platen by ${o.toFixed(4)}`).toBeLessThanOrEqual(1e-6);
+    for (const p of PLATEN) {
+      const ph = p.shape.type === 'box' ? p.shape.half : [0, 0, 0];
+      const o = overlap(f.x, f.z, f.heading, half[0], half[2], p.pose.p[0], p.pose.p[2], 0, ph[0]!, ph[2]!);
+      worst = Math.max(worst, o);
+      expect(o, `step ${w.step} ${f.state}: into ${p.id} by ${o.toFixed(4)}`).toBeLessThanOrEqual(1e-6);
+    }
   }
   console.log(`end stand: ${w.attract().laps.length} laps, ${(atEnd / HZ).toFixed(1)} s at the very end, closest to the platen ${(-worst).toFixed(3)}`);
   expect(w.attract().laps.length).toBe(3);

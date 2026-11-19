@@ -194,7 +194,7 @@ describe('the ladder on the bench', () => {
     // what stands on the stack at the press (in play mode Fetch may have taken one off it: it is in reach since layout round 4)
     const L = bench.button.ladder!;
     const standing = [...world.parts()].filter((p) => p.kind === 'crate' && world.mode(p.id) === 'free' && Math.hypot(world.motion(p.id)!.pose.p[0] - L.stackAt[0], world.motion(p.id)!.pose.p[2] - L.stackAt[1]) <= L.stackRadius).map((p) => p.id);
-    expect(standing.length).toBeGreaterThanOrEqual(2);
+    expect(standing.length).toBeGreaterThanOrEqual(1); // two high (A1 round 7), less what Fetch has in hand
     const stack = standing.map((id) => world.motion(id)!.pose.p);
     world.dispatch({ type: 'press', id: 'button' });
     const ev: SimEvent[] = [];

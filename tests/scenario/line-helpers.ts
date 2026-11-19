@@ -14,7 +14,11 @@ import { line } from './helpers.ts';
  * soak pass the real `bench` as `scene`.
  */
 const { rounds: _rounds, ...quietRunner } = bench.runner;
-const QUIET: SceneDesc = { ...bench, runner: quietRunner };
+/**
+ * (A1 round 6) Without its rounds Fetch laps its lane end to end as in P1, a crate in its hands; on the bench its path
+ * ends at the platen's tray, so here it laps only the path's first run, behind the belt, out of the tray's way.
+ */
+const QUIET: SceneDesc = { ...bench, runner: { ...quietRunner, lane: { points: bench.runner.lane.points.slice(0, 2) } } };
 
 export { QUIET as BENCH, bench as FULL_BENCH, LINE, AT };
 

@@ -94,7 +94,7 @@ export const REVERT_SCALE = CREW_SCALE / 1.25;
  */
 export const BOUNDS = {
   storefront: { x: [-2.27, 1.21], z: [-0.47, 0.6], h: 2.83 },
-  platen: { x: [-1.7, 1.31], z: [-1.26, 1.09], h: 2.99 },
+  platen: { x: [-0.54, 2.49], z: [-1.51, 0.65], h: 3.08 },
   dock: { x: [-1.7, 1.38], z: [-1.35, 1.2], h: 2.29 },
   revert: { x: [-0.84 * REVERT_SCALE, 0.87 * REVERT_SCALE], z: [-0.58 * REVERT_SCALE, 0.7 * REVERT_SCALE], h: 1.12 * REVERT_SCALE },
   hatch: { x: [-1.3 * REVERT_SCALE, 1.3 * REVERT_SCALE], z: [-0.81 * REVERT_SCALE, 0.81 * REVERT_SCALE], h: 0.87 * REVERT_SCALE },
@@ -121,7 +121,7 @@ const BED_END: readonly [number, number] = [-0.9 + 5, 4.0];
 const DOOR: readonly [number, number] = [BED_END[0] + 0.12 - DOCK_REACH[0], BED_END[1] - DOCK_REACH[1]];
 
 /** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
-export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.1 } as const;
+export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.01, past: 0.08 } as const;
 /** The lane's footprint: the box round every run of the scene's path, the tape's half width either side and its overrun past the ends (for a lane of two points along X, the old rectangle exactly). */
 function laneSpot(): Spot {
   const pts = BENCH_LAYOUT.lane.points as readonly (readonly [number, number])[];
@@ -166,38 +166,38 @@ export const LAYOUT = {
     /** The storefront (real; its jack box and conduit run off its left side). */
     storefront: real(7.6, -3.6, BOUNDS.storefront),
     /** The reserved bays (the room's pieces, their labels flat on the bench), at the back left under the tool wall: INSPECTION at the corner, the plain one right of it. Nothing tall stands in front of either label. */
-    bayInspection: spot(-7.15, -3.6, 3.4, 1.9, 0, { fill: 'piece' }),
-    bayNext: spot(-4.05, -3.55, 2.4, 1.6, 0, { fill: 'piece' }),
+    bayInspection: spot(-7.25, -3.6, 3.3, 1.9, 0, { fill: 'piece' }),
+    bayNext: spot(-4.18, -3.55, 2.72, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
-    /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Right of Patch and forward, its column clear of Patch's tail; its tray 1.9 from the lane. */
-    platen: real(4.6, 0.2, BOUNDS.platen),
+    /** The reshaped platen (real): its turntable on a round plinth at the front left, open on the left and the front; its left stand (PLATEN.stand.left, 0.99 from the seat) is the end of Fetch's path, so Fetch works it side-on. */
+    platen: real(3.14, 0.8, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
-    shipped: spot(7.88, -1.0, 2.24, 2.8, 1.2, { fill: 'zone' }),
+    shipped: spot(7.88, -1.2, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
     /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`). Left of the lever, in the lamp's spill. */
-    hatch: real(-4.6, 0.3, BOUNDS.hatch),
+    hatch: real(-4.85, 0.3, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
-    revert: real(-4.6, 0.3, BOUNDS.revert),
+    revert: real(-4.85, 0.3, BOUNDS.revert),
     /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
-    undo: real(-2.2, 0.3, BOUNDS.undo),
-    button: spot(-0.05, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
-    /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
-    phone: spot(2.4, 0.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
+    undo: real(-2.5, 0.3, BOUNDS.undo),
+    button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
+    /** The phone on its easel: in front of the console's right end, beside Fetch's jog; Fetch taps it side-on from the jog. */
+    phone: spot(0.2, 1.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
-    /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
-    stack: spot(-6.0, 1.75, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    /** The crate stack, two high (the ground point of its bottom crate): right of Fetch's jog, 1.05 from where it stands for it, between its front and back runs, left of the striker's hammer. */
+    stack: spot(2.21, 1.75, 0.8, 0.8, 1.4, { fill: 'piece' }),
     /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
     lane: laneSpot(),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
     belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
-    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.1, 2.0 from its far end: room for a run of notes played backwards. */
-    striker: real(2.475, 3.072, BOUNDS.striker),
+    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.6, 1.5 from its far end (room for a run of notes played backwards), right of the stack so the stack is seen whole. */
+    striker: real(2.975, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
-    mailbox: spot(7.7, 3.75, 0.42, 0.36, 1.3),
-    /** The return chute (real): up out of the dark at the front-left corner, its mouth looking along the bench at the stack's front. */
-    chute: real(-8.4, 5, BOUNDS.chute),
+    mailbox: spot(8.25, 4.2, 0.42, 0.36, 1.3),
+    /** The return chute (real): up out of the dark near the front-left corner, its mouth looking along the bench; in from the corner so its duct is in frame. */
+    chute: real(-7.8, 5, BOUNDS.chute),
   },
 } as const;
 
@@ -222,15 +222,15 @@ const PALLET = { w: 1.0, d: 1.0, h: 0.15 } as const;
 export const SHIPPED = {
   pallet: PALLET,
   pallets: [
-    { x: 7.4, z: -1.85, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
-    { x: 8.45, z: -1.85, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
-    { x: 7.48, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
-    { x: 8.5, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 7.4, z: -2.05, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 8.45, z: -2.05, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
+    { x: 7.48, z: -0.5, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 8.5, z: -0.5, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
   ] as ReadonlyArray<{ x: number; z: number; crates: readonly ShippedCrate[] }>,
 } as const;
 
 /** The mailbox on its post and the résumé clipboard hanging from the post's front (clay; P4). */
-export const MAILBOX = { x: 7.7, z: 3.75, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 }, clipboard: { w: 0.34, h: 0.44, t: 0.03, y: 0.42 } } as const;
+export const MAILBOX = { x: 8.25, z: 4.2, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 }, clipboard: { w: 0.34, h: 0.44, t: 0.03, y: 0.42 } } as const;
 
 /** Each pallet as two boxes, the pallet and its stack of crates: the bodies. */
 export function shippedBoxes(): Array<{ id: string; box: Box3 }> {
