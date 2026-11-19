@@ -74,6 +74,7 @@ test('a mouse drag lifts a crate within two frames of the press; a fling throws 
   expect(first).toBeGreaterThanOrEqual(0);
   expect(first).toBeLessThanOrEqual(1); // the first or second frame after the press
   const lat = await page.evaluate(() => (window as any).__play.ws.latency.report());
+  console.log(`[play] the first grab of the visit: ${lat.frame.grab.last.toFixed(1)} ms to its frame`);
   expect(lat.frame.grab.last).toBeLessThan(50); // § E0: a grab within 50 ms
 
   // fling to the right, released while moving

@@ -634,42 +634,74 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     },
   };
   // ─── AU1 sound (src/workshop/audio): this block, and nothing else in this file ──────────────────
-  // The audio context is made on the visitor's first click, tap or key and never before, and the
-  // sound's code is loaded then too (§ E6 step 4). M mutes, remembered in the browser (§ B9). Every
-  // frame reaches it through the caller's `onFrame`, wrapped here; the events of the frames between
-  // the first gesture and the code's arrival are kept, so the first pick-up is heard. `dispose`
-  // closes it. The sound reads the world and never writes it.
+  // The sound is heard from the visitor's first click, tap or key and never before (§ E6 step 4). M mutes,
+  // remembered in the browser (§ B9). Every frame reaches it through the caller's `onFrame`, wrapped here;
+  // the events of the frames between the first gesture and the sound being ready are kept, so the first
+  // pick-up is heard. `dispose` closes it. The sound reads the world and never writes it.
+  //
+  // (I1 R3) What the first gesture needs is made BEFORE it, in idle time once the bench is running: making an
+  // AudioContext opens the audio device (136 ms on the reference laptop) and the sound's code renders its
+  // palette (about 60 ms more); done inside the first press they made the visit's first grab take 170 ms
+  // (§ E0: 50). The context is made suspended, nothing is fed to it, and the first gesture only resumes it.
+  // It is asked for in the first idle time after the loop starts running on the wall clock (after the hand-over
+  // on the loader's path, so never on the way to usable). A visitor who presses before even that comes gets it
+  // made just after the frame that shows the press, never inside it.
   {
     type SoundModule = typeof import('../audio/index.ts');
     let sound: import('../audio/index.ts').Sound | null = null;
     let mod: Promise<SoundModule> | null = null;
-    let early: Frame['events'][number][] | null = null;
+    let context: AudioContext | null = null;
+    /** True from the first gesture: frames reach the sound (or wait in `early` until it is ready). */
+    let heard = false;
+    let early: Frame['events'][number][] = [];
     let gone = false;
     const load = (): Promise<SoundModule> => (mod ??= import('../audio/index.ts'));
     const editable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
-    const first = (): void => {
-      removeEventListener('pointerdown', first, true);
-      removeEventListener('keydown', first, true);
+    /** Make the context (suspended until a gesture) and the sound. Idempotent. */
+    const prepare = (): void => {
+      if (context || gone) return;
       const Ctx = globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctx || gone) return;
-      let context: AudioContext;
+      if (!Ctx) return;
+      let c: AudioContext;
       try {
-        context = new Ctx({ latencyHint: 'interactive' });
+        c = new Ctx({ latencyHint: 'interactive' });
       } catch {
         return; // no sound on this browser; the workshop carries on silent
       }
-      early = [];
+      context = c;
+      if (heard) c.resume().catch(() => {});
       load()
         .then((m) => {
-          if (gone) return void context.close();
-          sound = m.createSound(context);
-          if (early && early.length > 0) sound.frame({ world, events: early });
-          early = null;
+          if (gone) return void c.close();
+          sound = m.createSound(c);
+          if (heard && early.length > 0) sound.frame({ world, events: early });
+          early = [];
         })
         .catch(() => {
-          early = null;
+          early = [];
         });
     };
+    const first = (): void => {
+      removeEventListener('pointerdown', first, true);
+      removeEventListener('keydown', first, true);
+      heard = true;
+      if (context) context.resume().catch(() => {});
+      // not made yet (a press before any idle time): after the frame that answers the press, not inside it
+      else requestAnimationFrame(() => setTimeout(prepare, 0));
+    };
+    // bound: called bare, the browser's requestIdleCallback throws "Illegal invocation"
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    const idle = ric ? ric.bind(globalThis) : null;
+    let asked = false;
+    /** Once the loop runs on the wall clock: ask for the first idle time. */
+    const ask = (): void => {
+      // (`loop.running` is false inside a frame: the next one is asked for after it; manual is the test)
+      if (asked || loop.manual) return;
+      asked = true;
+      if (idle) idle(prepare, { timeout: 1000 });
+      else soon = setTimeout(prepare, 200);
+    };
+    let soon: ReturnType<typeof setTimeout> | undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key !== 'm' && e.key !== 'M') || editable(e.target)) return;
       void load().then((m) => m.toggleMuted());
@@ -682,8 +714,10 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       ...opts,
       onFrame(frame, ws) {
         guard.run('audio', () => {
+          ask();
+          if (!heard) return; // before the first gesture nothing is heard (and nothing piles up for later)
           if (sound) sound.frame(frame);
-          else if (early && early.length < 2000) early.push(...frame.events);
+          else if (early.length < 2000) early.push(...frame.events);
         });
         guard.run('ui:page', () => callerFrame?.(frame, ws));
       },
@@ -691,6 +725,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     const disposeWorkshop = workshop.dispose;
     workshop.dispose = () => {
       gone = true;
+      clearTimeout(soon);
       removeEventListener('pointerdown', first, true);
       removeEventListener('keydown', first, true);
       removeEventListener('keydown', onKey);
