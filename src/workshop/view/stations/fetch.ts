@@ -26,6 +26,7 @@ import type { Frame, StationView, StationViewFactory, ViewContext } from '../typ
 import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts';
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
 import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
+import { ReachMotion, gripOf, type V3 } from '../kit/pieces/fetch-porter/reach.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
 import { partShows, partsHooks, paintToken, unhook, type PartWork, type PartsOverlay } from './parts.ts';
@@ -109,6 +110,15 @@ export interface FetchInput {
   nearHeld: Vec3 | null;
   /** Things worth a glance when nothing else is going on. */
   sights: readonly Vec3[];
+  /**
+   * Where its grip should be (world): the simulation's `CrewMember.hands` when it has it, or the view's own
+   * stand-in until then (the crate it sets down, the crate it goes for, the phone it taps). Null: no reach.
+   */
+  hands?: Vec3 | null;
+  /** Half-size (world) of what the claws hold or go for there; null for a tap with one claw. */
+  handsHalf?: Vec3 | null;
+  /** The scale the piece is drawn at (the bench's crew scale): the reach is solved in its own units. Default 1. */
+  scale?: number;
   /** Events since last frame (any; it picks out its own). */
   events: readonly SimEvent[];
   reducedMotion: boolean;
@@ -120,12 +130,14 @@ export interface FetchOutput {
   root: Matrix4;
   /** Contact shadow: ground point, size and strength. */
   shadow: { x: number; z: number; y: number; r: number; strength: number };
+  /** The reach as drawn: how much of the pose is the reach's (0..1), and where its grip is (root space, unscaled). */
+  reach?: { weight: number; grip: Vector3; two: boolean };
 }
 
 // ───────────────────────── helpers ─────────────────────────
 
 const J = (s: number, a: number, t: number, e: number, w: number, g: number): ArmJoints => ({ swing: s, abduct: a, twist: t, elbow: e, wrist: w, grip: g });
-const KEYS: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'];
+const KEYS: Exclude<keyof ArmJoints, 'tele'>[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'];
 const toVec = (a: ArmJoints): number[] => KEYS.map((k) => a[k]);
 const fromVec = (v: readonly number[]): ArmJoints => J(v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!);
 function mixArm(a: ArmJoints, b: ArmJoints, t: number): ArmJoints {
@@ -146,10 +158,6 @@ const REACH: Arms = { left: J(1.05, -0.12, -0.25, 0.35, 1.57, 1), right: J(1.05,
 const REACH_UP: Arms = { left: J(1.95, 0.05, -0.25, 0.3, 1.57, 1), right: J(1.95, 0.05, -0.25, 0.3, 1.57, 1) };
 /** Arms swept back, hurrying. */
 const HURRY: Arms = { left: J(-0.35, 0.25, -0.3, 1.1, -0.3, 0.2), right: J(-0.35, 0.25, -0.3, 1.1, -0.3, 0.2) };
-/** Lobbing a crate onto the belt: thrust out at arm's length. */
-const PLACE_OUT: Arms = { left: J(1.3, -0.16, -0.25, 0.3, 1.57, 0.55), right: J(1.3, -0.16, -0.25, 0.3, 1.57, 0.55) };
-/** The simulation's place timings (sim FETCH_TUNING.place): turn, out, lower, back. */
-const PLACE_T = { turn: 0.3, out: 0.4, lower: 0.18, back: 0.3 } as const;
 /** Rotate [x, z] by `a` (as the performance's own spin frame does). */
 const rot2 = (v: readonly [number, number], a: number): [number, number] => {
   const c = Math.cos(a), s = Math.sin(a);
@@ -549,51 +557,19 @@ export class FetchPerformer {
         break;
       }
       case 'place': {
-        // The belt is further from the lane than its arms reach: the simulation carries the crate out over
-        // the belt from its hands. So it is a lob: turning to the belt it winds up (crouched on its spring,
-        // leaning back, the crate drawn in), thrusts as the crate leaves its hands (up on its spring, over
-        // on its wheel, jaws flung open), follows it with its eye and arms held out, and when it is down,
-        // arms back with a bounce and a pleased lower lid.
-        const t0 = PLACE_T.turn;
+        // setting a crate down: the arms are the reach's (below: out on their tubes to where it goes, down,
+        // let go, back in); the eye on the crate, and a pleased lower lid once it is down
         look = carried ?? lookAt ?? ahead(0.9, 0.4);
         pointerOk = false;
         blinkOk = false;
-        const hands = i.half[2] * 2.4; // how far from its centre the crate is still in its hands
-        const flying = carried !== null && Math.hypot(carried.x - P.x, carried.z - P.z) > hands;
-        if (flying && this.lobAt < this.placeAt) this.lobAt = i.time;
-        const sinceLob = this.lobAt >= this.placeAt ? i.time - this.lobAt : -1;
-        if (carrying && sinceLob < 0) {
-          // the wind-up: the crate drawn in to the chest, crouched, leaning back
-          const k = smoothstep(0, t0, st);
-          const drawn: Arms = { left: add(PRESETS.carry.left, { swing: -0.25, elbow: 0.35 }), right: add(PRESETS.carry.right, { swing: -0.25, elbow: 0.35 }) };
-          arms = mixArms(PRESETS.carry, drawn, k);
-          armOmega = 14;
-          fore = F.leanLoad - 0.08 * k;
-          squash = 0.14 + 0.22 * k;
-          brow = 0.35;
-          lids = [0.25, 0.3];
-          pupil = 0.9;
-        } else if (carrying || i.time - this.letGoAt < 0.06) {
-          // the thrust and the follow-through: out after it, jaws open, eye on it
-          const u = Math.max(0, sinceLob);
-          const thrust = 1 - smoothstep(0.12, 0.4, u);
-          const open: Arms = { left: { ...PLACE_OUT.left, grip: lerp(0.55, 1, smoothstep(0.02, 0.08, u)) }, right: { ...PLACE_OUT.right, grip: lerp(0.55, 1, smoothstep(0.03, 0.09, u)) } };
-          arms = open;
-          armOmega = u < 0.15 ? 26 : 14;
-          fore = 0.06 + 0.2 * thrust;
-          squash = -0.35 * thrust + 0.05;
-          brow = -0.45;
-          lids = [0, 0.15];
-          pupil = 1.2;
+        turnOk = false;
+        if (carrying) {
+          brow = -0.3;
+          lids = [0.05, 0.15];
+          pupil = 1.15;
         } else {
           const u = i.time - this.letGoAt;
-          const open: Arms = { left: { ...PLACE_OUT.left, grip: 1 }, right: { ...PLACE_OUT.right, grip: 1 } };
-          arms = mixArms(open, PRESETS.rest, smoothstep(0.06, 0.3, u));
           look = lookAt ?? look;
-          armOmega = 13;
-          fore = 0.02 + 0.05 * (1 - smoothstep(0, 0.3, u));
-          squash = -0.15 * (1 - smoothstep(0.05, 0.35, u));
-          // done: a look at it on the belt, a pleased lower lid
           brow = -0.25;
           lids = [0.08, 0.38];
           pupil = 1.1;
@@ -881,11 +857,38 @@ export class FetchPerformer {
       hp.gaze = pose.gaze ?? [0, 0];
       pose = blendPose(pose, hp, clamp(this.huW.x, 0, 1));
     } else if (handsUpNow && rm) pose = { ...pose, arms: HANDS_UP };
+    pose.spin = 0;
+    pose.slide = [0, 0];
+    // the reach: the grip goes where the simulation says (telescoping forearms; kit/pieces/fetch-porter/reach.ts),
+    // blended in over whatever it was doing and out again; the body turns to it with the pose's own spin
+    {
+      const k = i.scale ?? 1;
+      let target: V3 | null = null;
+      if (i.hands && grounded && !frozen) {
+        const dx = i.hands[0] - P.x, dz = i.hands[2] - P.z;
+        const [ox, oz] = own(dx, dz);
+        target = [ox / k, (i.hands[1] - (P.y - i.half[1])) / k, oz / k];
+      }
+      const half: V3 | null = i.handsHalf ? [i.handsHalf[0] / k, i.handsHalf[1] / k, i.handsHalf[2] / k] : null;
+      // knocked, picked up or fumbling, the hands are let go at once (the simulation's hands jump to null):
+      // the reach is dropped on the spot, under the beat that takes over
+      const drop = act === 'knocked' || act === 'fumble' || act === 'held' || !grounded;
+      if (drop) target = null;
+      const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm, drop });
+      if (ro.weight > 1e-3) {
+        const w = ro.weight;
+        const spinW = (ro.pose.spin ?? 0) * w;
+        pose = blendPose(pose, { ...pose, lean: ro.pose.lean!, squash: ro.pose.squash!, arms: ro.pose.arms! }, w);
+        pose.spin = spinW;
+        // the head was aimed for a body that had not turned: take the turn back out of it, and the nod
+        pose.headYaw = clamp((pose.headYaw ?? 0) - spinW, -F.headYawMax, F.headYawMax);
+        pose.headPitch = (pose.headPitch ?? 0) + ro.nod;
+      }
+      this.reachOut = { weight: ro.weight, grip: gripOf(pose, half ? null : (target && target[0] >= 0 ? 'left' : 'right')), two: half !== null };
+    }
     // the wheel and the pennant are the acting's own (they turn with the ground and the air)
     pose.wheel = this.wheel + extraWheel;
     pose.flag = this.flag;
-    pose.spin = 0;
-    pose.slide = [0, 0];
 
     // ── the root ──
     const root = this.rootM;
@@ -920,13 +923,13 @@ export class FetchPerformer {
     const h = Math.max(0, foot.y) + Math.max(0, pose.lift ?? 0);
     // a contact shadow only: the stage's cast shadow does the rest once it leaves the bench
     const shadow = { x: foot.x, z: foot.z, y: 0, r: 0.2, strength: 1 - smoothstep(0, 0.3, h) };
-    return { pose, root, shadow };
+    return { pose, root, shadow, reach: this.reachOut };
   }
 
   private wasCarrying: Id | null = null;
   private letGoAt = -Infinity;
-  private placeAt = -Infinity;
-  private lobAt = -Infinity;
+  private readonly reach = new ReachMotion();
+  private reachOut: { weight: number; grip: Vector3; two: boolean } = { weight: 0, grip: new Vector3(), two: true };
   private downAt = -Infinity;
   private lastBeat: FetchPose | null = null;
   private lastBeatW = 0;
@@ -983,13 +986,30 @@ export class FetchPerformer {
     }
     if (from === 'held' && to === 'return') this.downAt = time;
     if (to === 'knocked') this.squash.kick(4);
-    if (to === 'place') this.placeAt = time;
     if (to === 'fumble') this.squash.kick(0.8);
     if (from === 'fumble' && to === 'offer') this.squash.kick(-1);
   }
 }
 
 // ───────────────────────── the view ─────────────────────────
+
+/** The loose part nearest a point (within 0.3), not `except`: what a reach for that point is going for. */
+function nearestPart(w: Frame['world'], at: Vec3 | null, except: Id): Id | null {
+  if (!at) return null;
+  let best: Id | null = null;
+  let bd = 0.3;
+  for (const part of w.parts()) {
+    if (part.id === except) continue;
+    const mp = w.motion(part.id)?.pose.p;
+    if (!mp) continue;
+    const d = Math.hypot(mp[0] - at[0], mp[1] - at[1], mp[2] - at[2]);
+    if (d < bd) {
+      bd = d;
+      best = part.id;
+    }
+  }
+  return best;
+}
 
 export interface FetchViewOptions {
   /** The scale it is drawn at (the bench's crew scale): its contact shadow is sized to match. Default 1. */
@@ -1029,7 +1049,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const qb = new Quaternion();
     const camPos = new Vector3();
     // the carried crate is drawn in its hands: the body's offset from its unanimated pose is applied to the
-    // crate's drawn matrix (the parts view rewrites that matrix every frame, so this view must update after it)
+    // crate's drawn matrix through the parts view's overlay (or straight onto it when the parts view has drawn already)
     const ms0 = poseMatrices({});
     const bodyRest0 = ms0.lean!.clone().multiply(ms0.body!);
     const restRoot = new Matrix4();
@@ -1046,6 +1066,8 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const CATCH = 0.3;
     const dp = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
     const dd0 = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
+    const gripW = new Vector3();
+    const scaleM = new Matrix4();
     // its paint as drawn (built cream: bare); the platen works on it through the parts hooks
     const hooks = partsHooks(ctx.scene);
     const work: PartWork = { paint: null, label: null };
@@ -1056,12 +1078,14 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const qInv = new Quaternion();
 
     // the crate in its hands: the body's offset from its unanimated pose, applied to the crate's drawn matrix
-    const carry: { id: Id | null; frame: Frame | null; x: number; z: number; reach: number } = { id: null, frame: null, x: 0, z: 0, reach: 0.3 };
+    const carry: { id: Id | null; frame: Frame | null; x: number; z: number; reach: number; rw: number; grip: Vector3; sim: Vector3 } = { id: null, frame: null, x: 0, z: 0, reach: 0.3, rw: 0, grip: new Vector3(), sim: new Vector3() };
+    const simAt = new Vector3();
     let partsFrame: Frame | null = null;
     const carryInto = (m: Matrix4, time: number): void => {
       // only a crate in its hands rides its body; one the simulation carries out of reach (the lob onto
       // the belt) is where the simulation says, or a lean would swing it a long way at arm's length
       m.decompose(dp.p, dp.q, dp.s);
+      simAt.copy(dp.p);
       const dd = Math.hypot(dp.p.x - carry.x, dp.p.z - carry.z);
       const wr = 1 - smoothstep(carry.reach * 2.0, carry.reach * 2.6, dd);
       if (wr >= 1) m.premultiply(delta);
@@ -1070,6 +1094,14 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         dp.p.lerp(dd0.p, wr);
         dp.q.slerp(dd0.q, wr);
         m.compose(dp.p, dp.q, dp.s);
+      }
+      // reaching, it is in its claws: wherever the drawn grip is (the simulation's crate centre is
+      // where the grip is aimed; the springs and a reach it falls short of are the drawing's)
+      if (carry.rw > 1e-3) {
+        m.decompose(dd0.p, dd0.q, dd0.s);
+        simAt.add(carry.grip).sub(carry.sim);
+        dd0.p.lerp(simAt, carry.rw);
+        m.compose(dd0.p, dd0.q, dd0.s);
       }
       if (catchFrom && catchFrom.id === carry.id) {
         catchFrom.t0 ??= time;
@@ -1149,6 +1181,25 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           }
         }
         if (button) sights.push(button);
+        // where its grip goes: the simulation's hands when it has them (S7); until then the view's own stand-in
+        const k = opts.scale ?? 1;
+        const simHands = member.hands;
+        let hands: Vec3 | null = null;
+        let handsHalf: Vec3 | null = null;
+        const st = member.stateTime;
+        if (simHands !== undefined) hands = simHands;
+        else if (member.state === 'place' && carriedAt) hands = carriedAt;
+        else if (member.state === 'pickup' && carriedAt) hands = carriedAt;
+        else if (member.state === 'pickup' && member.lookAt && st > 0.05) hands = member.lookAt;
+        else if (member.state === 'tap' && member.lookAt && st > 0.12 && st < 0.72) {
+          // the claw's tips on the phone's screen: in, a jab at the moment the text goes, out
+          const jab = Math.sin(Math.PI * clamp((st - 0.38) / 0.14, 0, 1));
+          hands = [member.lookAt[0], member.lookAt[1] + 0.06 * k - 0.03 * k * jab, member.lookAt[2]];
+        }
+        if (hands && member.state !== 'tap') {
+          const what = member.carrying ?? nearestPart(w, member.lookAt, id);
+          handsHalf = (what ? w.halfExtents(what) : null) ?? [0.225, 0.22, 0.225];
+        }
         const out = perf.update({
           time: frame.time,
           dt: frame.dt,
@@ -1166,6 +1217,9 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           sights,
           events: frame.events,
           reducedMotion: ctx.reducedMotion || w.reducedMotion === true,
+          hands,
+          handsHalf,
+          scale: k,
         });
         body.matrix.copy(out.root);
         body.matrixWorldNeedsUpdate = true;
@@ -1208,6 +1262,12 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           carry.x = pa.x;
           carry.z = pa.z;
           carry.reach = half[2];
+          const rw = out.reach?.weight ?? 0;
+          carry.rw = rw > 1e-3 && carriedAt ? rw : 0;
+          if (carry.rw > 0) {
+            carry.grip.copy(out.reach!.grip).applyMatrix4(scaleM.makeScale(k, k, k)).applyMatrix4(out.root);
+            carry.sim.set(...carriedAt!);
+          }
           // drawn by the parts view's overlay when the parts view draws after this one (the bench: its shadow goes
           // with it); when it has drawn already this frame (the vignette's order), straight onto its matrix
           if (partsFrame === frame) {
