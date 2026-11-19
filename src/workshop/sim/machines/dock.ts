@@ -64,9 +64,10 @@ export const DOCK_TUNING = {
   /**
    * R3: the bench never holds more loose crates than this (on it, in hands, riding, flying): a crate Revert drops
    * down its hatch comes back up the chute onto the pad only below it (else it stays a spare), and so does the
-   * last resort's spare.
+   * last resort's spare. Six, not five: five handled crates with one of them on Revert's hatch (it cannot come up)
+   * and none Fetch may take leave the bench dry for good unless the last resort may bring a sixth.
    */
-  looseMax: 5,
+  looseMax: 6,
   /** R3: the last resort: Fetch has had nothing it may carry for this long and Revert has put nothing away meanwhile: one spare up the chute. */
   lastResort: 60,
   /**
@@ -256,9 +257,14 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   // ── R3: the bench never runs dry ──
   let starvedSince = -1;
   let lastPutAway = -Infinity;
-  /** Crates in the world (not shipped behind the door or down Revert's hatch). */
+  /** Crates Revert has swept into its pan (heard on the bus), until they go down its hatch or out of its hands. */
+  const inPan = new Set<Id>();
+  /**
+   * Crates in the world (not shipped behind the door or down Revert's hatch), and those already owed back to it
+   * (a restock queued and not yet thrown: several drops inside `restockAfter` must not overshoot `looseMax`).
+   */
   function looseCrates(): number {
-    return ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at !== 'shipped').length;
+    return ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at !== 'shipped').length + restocks.length;
   }
   /** A crate Fetch may carry now (nobody has touched it, lying still on the pad or the stack), or one already in someone's hands or a machine. */
   function fetchHasWork(): boolean {
@@ -267,6 +273,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       const p = ctx.part(id);
       if (!p || p.kind !== 'crate') return false;
       const m = ctx.mode(id);
+      if (m === 'crew' && inPan.has(id)) return false; // in Revert's pan on its way down the hatch: not Fetch's work
       if (m === 'crew' || m === 'chute' || (m === 'machine' && p.location.at === 'in' && (p.location.mouth === 'belt' || p.location.mouth === 'dock'))) return true;
       if (ctx.touched(id) || m !== 'free' || p.location.at !== 'rest') return false;
       const q = ctx.pose(id)?.p;
@@ -347,7 +354,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     // (S5 round 2) the same size first, a spare or else the longest shipped, so the stack is put back as it was
     const sameSize = (id: Id): boolean => ctx.part(id)?.size === size;
     // (R3) the very crate Revert dropped down its hatch, when it is owed back: the visitor sees the same crate return
-    const spare = (want !== undefined && free.includes(want) ? want : undefined) ?? free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
+    // (R3) the very crate Revert dropped down its hatch: that one or none. Revert's put-away forgot every entry
+    // about it (rule 14), so no transaction is its writer; were one ever, it is put away again below like any spare
+    if (want !== undefined && !crates.includes(want)) return true; // no longer down there (reset): nothing owed
+    const spare = (want !== undefined ? want : undefined) ?? free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
     if (spare === undefined) return true;
     shippedOrder = shippedOrder.filter((x) => x !== spare);
     const p = ctx.part(spare) as Part;
@@ -581,6 +591,11 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
         if (e.type === 'revert.sweep' || e.type === 'put-away') lastPutAway = ctx.clock.step;
+        if (e.type === 'revert.sweep') {
+          if (e.to.at === 'rest') inPan.add(e.part);
+          else inPan.delete(e.part);
+        }
+        if (e.type === 'part.grabbed' || e.type === 'reset') inPan.clear();
         // R3: a crate Revert dropped down its hatch comes back up the chute onto the pad (bounded: `looseMax`)
         if (e.type === 'revert.sweep' && e.to.at === 'shipped' && ctx.part(e.part)?.kind === 'crate' && looseCrates() < T.looseMax) {
           restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: (ctx.part(e.part) as Part).size, part: e.part });
