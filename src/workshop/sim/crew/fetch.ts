@@ -1342,6 +1342,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             const nearStack = Math.hypot(x - rounds.stack[0], z - rounds.stack[1]) < R + 1;
             if (carrying && d && !nearStack) turnToward(yawTo(d));
             else if (carrying) turnToward(alongPath());
+            else if (rounds.pad && inState() >= Math.min(idleFor, steps(0.4))) {
+              // S5 R1: empty-handed with nothing to do, it waits at the pad's stand (the tape's left end), facing the pad
+              // where its next crate lands: not at the feed, where from the camera it stands in front of the UNDO plate
+              const pad = rounds.pad;
+              const home = standS('pad', pad[0], pad[1]);
+              if (Math.abs(s - home) > 0.02) {
+                rollTo(home, 'lap');
+                break;
+              }
+              lookAt = [pad[0], T.handHeight, pad[1]];
+              turnToward(Math.atan2(pad[0] - x, pad[1] - z));
+            }
             break;
           }
           if (lapOn()) {
@@ -1554,6 +1566,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             placing = null;
             placeAt = null;
             toIdle();
+            // S5 R1: on its rounds it leaves the feed at once (back to the pad's stand to wait, or on to the next job)
+            if (ctx.playMode && rounds.pad) idleFor = 0;
           }
           break;
         }
