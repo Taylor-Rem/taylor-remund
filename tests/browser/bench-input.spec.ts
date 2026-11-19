@@ -274,23 +274,36 @@ const pans = (page: Page): Promise<number> => page.evaluate(() => (window as any
  */
 async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY | null = null, limit = 1800): Promise<Disc> {
   const f0 = await frameNo(page);
+  let streak = 0;
   for (;;) {
     const r = await page.evaluate(
       ([id, kind, at]) => {
         const ws = (window as any).__bench.ws;
         const t = ws.surface.screen(id);
-        if (!t) return { ok: false, t: null, why: 'no target' };
-        const p = at ?? t;
-        const crew = ['fetch', 'patch', 'revert'].filter((c) => c !== id).map((c) => [c, ws.surface.screen(c)] as const);
-        const over = crew.find(([, c]) => c && Math.hypot(c.x - t.x, c.y - t.y) < c.r + t.r + 12);
-        const under = ws.surface.at(p.x, p.y, kind, null).id;
-        return { ok: !over && under === id, t, why: over ? `${over[0]} over it` : `${under} under the point` };
+        if (!t) return { p: null, why: 'no target' };
+        // the points of the target a hand could press (the one asked for, or its middle and round it), each only if
+        // it is the target's now; of those, the one farthest from any of the crew (a robot may be rolling closer)
+        const cands = at ? [at] : [[0, 0], [0.35, 0], [-0.35, 0], [0, 0.35], [0, -0.35], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]].map(([a, b]) => ({ x: t.x + a! * t.r, y: t.y + b! * t.r }));
+        const crew = ['fetch', 'patch', 'revert'].filter((c) => c !== id).map((c) => ws.surface.screen(c)).filter(Boolean);
+        let best: { x: number; y: number } | null = null;
+        let bd = -Infinity;
+        for (const c of cands) {
+          if (ws.surface.at(c.x, c.y, kind, null).id !== id) continue;
+          const d = crew.length ? Math.min(...crew.map((k: any) => Math.hypot(k.x - c.x, k.y - c.y) - k.r)) : 1e9;
+          if (d > bd) {
+            bd = d;
+            best = c;
+          }
+        }
+        return { p: best ? { x: best.x, y: best.y, r: t.r } : null, why: best ? '' : `${ws.surface.at(cands[0]!.x, cands[0]!.y, kind, null).id} under it` };
       },
       [id, kind, at] as const,
     );
-    if (r.ok) return r.t as Disc;
+    // pressed once it has been plainly there for three looks running (a person waits for the robot to pass)
+    streak = r.p ? streak + 1 : 0;
+    if (r.p && streak >= 3) return r.p as Disc;
     if ((await frameNo(page)) - f0 > limit) throw new Error(`${id} never came clear in ${limit} frames (${r.why})`);
-    await page.waitForTimeout(50);
+    await page.waitForTimeout(40);
   }
 }
 
@@ -365,8 +378,8 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   // 3. UNDO: a pull takes back the lever
   const undos = await logCount(page, 'undone');
   const undo = await bringIntoView(page, hand, 'undo-lever', kind);
-  if (kind === 'mouse') await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.4 }, { x: undo.x + 4, y: undo.y + undo.r * 0.4 }, 6));
-  else await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.3 }, { x: undo.x, y: undo.y + undo.r * 0.5 }, 6)); // pulled down its arc
+  // taken where it can be seen and pulled down its arc
+  await use(page, hand, line(undo, { x: undo.x + (kind === 'mouse' ? 4 : 0), y: undo.y + undo.r * 0.6 }, 6));
   await pollFrames(page, () => logCount(page, 'undone')).toBe(undos + 1);
   await pollFrames(page, async () => (await belt(page)).direction).toBe('forward');
 
@@ -561,7 +574,7 @@ test('every pick target is at least 44 px on a touch screen at the phone framing
   const page = await ctx.newPage();
   await open(page, 390, 844);
   await standIns(page);
-  // A 44 px square round each target's centre: every point of its edge (and the centre) picks it on touch,
+  // A 44 px fingertip round each target's centre: every point of its rim (and the centre) picks it on touch,
   // unless a neighbour's centre is nearer that point (two small things side by side split the space between them).
   // Things the home framing leaves off screen are panned to the middle first, at the home zoom.
   const ids = ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'phone', 'button-cover', 'button', 'lamp', 'cord'];
@@ -605,7 +618,8 @@ test('every pick target is at least 44 px on a touch screen at the phone framing
       const s = centre(id);
       if (s.x < 0 || s.x > W || s.y < 0 || s.y > H) return 'off screen at the home zoom';
       const misses: string[] = [];
-      for (const [dx, dy] of [[-21, -21], [0, -21], [21, -21], [-21, 0], [21, 0], [-21, 21], [0, 21], [21, 21], [0, 0]]) {
+      // a 44 px fingertip: the centre and eight points round a circle of 21 px radius
+      for (const [dx, dy] of [[-15, -15], [0, -21], [15, -15], [-21, 0], [21, 0], [-15, 15], [0, 21], [15, 15], [0, 0]]) {
         const x = s.x + dx!, y = s.y + dy!;
         const got = isJack ? ws.surface.jackNear(x, y, 'touch') : ws.surface.at(x, y, 'touch', null).id;
         if (got === id) continue;
@@ -666,22 +680,50 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   expect(await focused()).toBeNull();
 });
 
+/**
+ * Carry a part by mouse to stand over a world point and let it go there, the way a person does: press it, then
+ * steer by watching where it is until it hangs over the spot, hold still a moment, let go (no throw).
+ */
+async function carryTo(page: Page, id: string, to: number[]): Promise<void> {
+  const where = (): Promise<{ p: number[]; s: XY; t: XY }> =>
+    page.evaluate(
+      ([id, to]) => {
+        const B = (window as any).__bench;
+        const p = B.ws.world.motion(id).pose.p as number[];
+        return { p, s: B.project(p), t: B.project([to[0], p[1], to[2]]) };
+      },
+      [id, to] as const,
+    );
+  let at = await where();
+  let m = { x: at.s.x, y: at.s.y };
+  await page.mouse.move(m.x, m.y);
+  await frames(page, 2);
+  await page.mouse.down();
+  for (let i = 0; i < 80; i++) {
+    at = await where();
+    if (Math.hypot(at.p[0]! - to[0]!, at.p[2]! - to[2]!) < 0.08) break;
+    const step = Math.min(1, 40 / Math.max(1, Math.hypot(at.t.x - at.s.x, at.t.y - at.s.y)));
+    m = { x: m.x + (at.t.x - at.s.x) * step, y: m.y + (at.t.y - at.s.y) * step };
+    await page.mouse.move(m.x, m.y, { steps: 2 });
+    await frames(page, 3);
+  }
+  await frames(page, 12); // still, so it is set down, not thrown
+  await page.mouse.up();
+  await frames(page, 4);
+}
+
 test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end to end): the first press ends the demonstration; a crate on the belt sounds at the striker and ships; "Make it blue." through PLATEN paints the crate on the tray; the Button once; UNDO', async ({ page }) => {
   const errors = watchErrors(page);
   await open(page, 1440, 900);
   const hand = mouseHand(page);
   const w = (fn: string) => page.evaluate(fn);
-  const partAt = (id: string) => page.evaluate((id) => (window as any).__bench.where(id) as XY, id);
-  const proj = (p: number[]) => page.evaluate((p) => (window as any).__bench.project(p) as XY, p);
   const loc = (id: string) => page.evaluate((id) => (window as any).__bench.ws.world.part(id)?.location, id);
   const events = (type: string) => page.evaluate((type) => (window as any).__bench.log.filter((l: any) => l.e.type === type).map((l: any) => l.e), type);
   expect(await w('window.__bench.ws.world.attract().on')).toBe(true);
 
   // the loose crate (S, wood) off the bench onto the belt: the first press ends the demonstration
   await waitClear(page, 'crate-3', 'mouse');
-  const c3 = await partAt('crate-3');
-  const beltDrop = await proj((await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "belt").drop')) as number[]);
-  await stroke(page, hand, line(c3, beltDrop, 18), 18);
+  await carryTo(page, 'crate-3', (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "belt").drop')) as number[]);
   await pollFrames(page, () => w('window.__bench.ws.world.playMode')).toBe(true);
   expect(await w('window.__bench.ws.world.attract().on')).toBe(false);
   await pollFrames(page, async () => (await loc('crate-3'))?.at, 600, 'the crate is taken onto the belt').toMatch(/in|shipped/);
@@ -696,9 +738,7 @@ test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end t
   await stroke(page, hand, line({ x: from.x, y: from.y + 3 }, { x: platen.x + 6, y: platen.y - 8 }, 16), 16);
   await pollFrames(page, () => setting(page, 'cord', 'jack')).toBe('jack-platen');
   await waitClear(page, 'crate-2', 'mouse');
-  const c2 = await partAt('crate-2');
-  const tray = await proj((await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[]);
-  await stroke(page, hand, line(c2, tray, 18), 18);
+  await carryTo(page, 'crate-2', (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[]);
   await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 900, 'the crate on the tray').toMatch(/"mouth":"platen"/);
 
   // the phone: "Make it blue." typed and sent; Patch does the job; the crate on the tray turns blue
