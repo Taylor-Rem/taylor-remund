@@ -267,6 +267,11 @@ export interface ReachInput {
   holding: boolean;
   dt: number;
   reducedMotion?: boolean;
+  /**
+   * Let go at once (knocked, picked up, a fumble: the simulation's hands jump to null): the tubes snap home
+   * and the reach lets the arms go in a tenth of a second, both together, instead of in turn. No pop.
+   */
+  drop?: boolean;
 }
 
 export interface ReachOutput {
@@ -347,8 +352,9 @@ export class ReachMotion {
     const going = sol !== null;
     // the claws first in, the tubes next: the arms and the body leave last
     const teleNow = this.stages.reduce((s, x) => s + Math.max(0, x.x), 0);
-    params(this.w, going ? 11 : 13, 1);
-    this.w.step(going ? 1 : teleNow > 0.012 ? this.w.x : 0, dt);
+    const drop = !going && i.drop === true;
+    params(this.w, going ? 11 : drop ? 34 : 13, 1);
+    this.w.step(going ? 1 : drop || teleNow <= 0.012 ? 0 : this.w.x, dt);
     const since = this.time - this.startAt;
     // the draw back: a hair back and down before it goes (not in reduced motion)
     const draw = going && !rm ? smoothstep(0, 0.06, since) * (1 - smoothstep(0.1, 0.2, since)) : 0;
@@ -373,7 +379,7 @@ export class ReachMotion {
     let nodKick = 0;
     for (let k = 0; k < 3; k++) {
       const sp = this.stages[k]!;
-      params(sp, going ? 30 : 38, going ? 0.42 : 0.8);
+      params(sp, going ? 30 : drop ? 60 : 38, going ? 0.42 : 0.8);
       sp.step(want[k]!, dt);
       // the stop: a hair past it (the brass ring takes the blow), then back; the first touch nods the head
       const max = TELE.out[k]!;
@@ -405,4 +411,28 @@ export class ReachMotion {
     const grip = gripOf(pose, tap, new Vector3());
     return { weight: clamp(this.w.x, 0, 1), pose, nod, short: sol?.short ?? 0, grip, tele: stagesNow[0] + stagesNow[1] + stagesNow[2] };
   }
+}
+
+// ───────────────────────── for a layout test ─────────────────────────
+
+export interface ReachFromOptions {
+  /** The crew's drawing scale on the bench (Fetch's units × scale = world units). Default 1.5 (view/bench CREW_SCALE). */
+  scale?: number;
+  /** Half-size (world units) of what both claws hold there, or null for a tap with one claw. Default: an S crate. */
+  half?: V3 | null;
+}
+
+/**
+ * Can the grip get to `point` (world) with Fetch standing at `stand` (world, its root: on the bench under its
+ * tyre; it turns to face the point, so its heading does not matter)? The solver's answer in world units: how
+ * far short it falls (0: it gets there), how far its tubes run out, and whether it needed them at all. For a
+ * layout test of the stack's top, the belt's drop and the tray's seat at their real heights (the reach is
+ * longest at the carrying height and shorter above and below it).
+ */
+export function reachFrom(stand: V3, point: V3, o: ReachFromOptions = {}): { short: number; tele: number; telescoped: boolean } {
+  const k = o.scale ?? 1.5;
+  const half = o.half === undefined ? [0.225, 0.22, 0.225] as V3 : o.half;
+  const target: V3 = [(point[0] - stand[0]) / k, (point[1] - stand[1]) / k, (point[2] - stand[2]) / k];
+  const r = reachPose(target, { half: half ? [half[0] / k, half[1] / k, half[2] / k] : null });
+  return { short: r.short * k, tele: r.tele * k, telescoped: r.tele > 1e-3 };
 }

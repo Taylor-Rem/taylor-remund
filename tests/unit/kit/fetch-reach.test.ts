@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TELE, TELE_MAX, handPoint, poseMatrices, teleStages } from '../../../src/workshop/view/kit/pieces/fetch-porter/rig.ts';
 import type { Arms } from '../../../src/workshop/view/kit/pieces/fetch-porter/rig.ts';
 import {
-  GREATEST_REACH, GRIP_POINT, NATURAL_REACH, REACH_HEIGHT, ReachMotion, S_CRATE_HALF, gripOf, reachLimits, reachPose,
+  GREATEST_REACH, GRIP_POINT, NATURAL_REACH, REACH_HEIGHT, ReachMotion, S_CRATE_HALF, gripOf, reachFrom, reachLimits, reachPose,
 } from '../../../src/workshop/view/kit/pieces/fetch-porter/reach.ts';
 import type { V3 } from '../../../src/workshop/view/kit/pieces/fetch-porter/reach.ts';
 
@@ -108,5 +108,25 @@ describe('fetch-porter reach (telescoping forearms)', () => {
       expect(t).toBeLessThan(1e-3);
       expect(w).toBeLessThan(0.05);
     }
+  });
+});
+
+describe('fetch-porter reach: for a layout test, and letting go at once', () => {
+  it('reachFrom answers in world units from a stand point, at any heading', () => {
+    const near = reachFrom([1, 0, 2], [1.6, 0.93, 2.3]);
+    expect(near.short).toBeLessThan(0.005);
+    expect(near.telescoped).toBe(false);
+    const far = reachFrom([0, 0, 0], [0, 0.93, GREATEST_REACH * 1.5 + 0.3]);
+    expect(far.short).toBeGreaterThan(0.25);
+    expect(far.tele).toBeCloseTo(TELE_MAX * 1.5, 3);
+  });
+
+  it('a drop lets the arms go within a few frames, tubes and all, without a pop', () => {
+    const m = new ReachMotion();
+    for (let f = 0; f < 60; f++) m.update({ target: [0, REACH_HEIGHT, GREATEST_REACH - 0.02], half: S_CRATE_HALF, holding: true, dt: 1 / 60 });
+    let o = m.update({ target: null, half: S_CRATE_HALF, holding: false, dt: 1 / 60, drop: true });
+    expect(o.weight).toBeGreaterThan(0.6);
+    for (let f = 0; f < 11; f++) o = m.update({ target: null, half: S_CRATE_HALF, holding: false, dt: 1 / 60, drop: true });
+    expect(o.weight).toBeLessThan(0.05);
   });
 });

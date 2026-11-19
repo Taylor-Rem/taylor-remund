@@ -869,8 +869,9 @@ export class FetchPerformer {
       const half: V3 | null = i.handsHalf ? [i.handsHalf[0] / k, i.handsHalf[1] / k, i.handsHalf[2] / k] : null;
       // knocked, picked up or fumbling, the hands are let go at once (the simulation's hands jump to null):
       // the reach is dropped on the spot, under the beat that takes over
-      if (act === 'knocked' || act === 'fumble' || act === 'held' || !grounded) this.reach.reset();
-      const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm });
+      const drop = act === 'knocked' || act === 'fumble' || act === 'held' || !grounded;
+      if (drop) target = null;
+      const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm, drop });
       if (ro.weight > 1e-3) {
         const w = ro.weight;
         const spinW = (ro.pose.spin ?? 0) * w;
@@ -1118,7 +1119,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         if (button) sights.push(button);
         // where its grip goes: the simulation's hands when it has them (S7); until then the view's own stand-in
         const k = opts.scale ?? 1;
-        const simHands = (member as CrewMember & { hands?: Vec3 | null }).hands;
+        const simHands = member.hands;
         let hands: Vec3 | null = null;
         let handsHalf: Vec3 | null = null;
         const st = member.stateTime;
