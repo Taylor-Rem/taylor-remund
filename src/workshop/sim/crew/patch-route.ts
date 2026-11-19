@@ -162,3 +162,15 @@ export function sphereMeets(o: Solid, x: number, y: number, z: number, r: number
   const d = distanceTo(o, x, z);
   return d * d + dy * dy < r * r;
 }
+
+/** The way off a body's top from (x, z): out by its nearer side (unit, world x and z). */
+export function offTop(o: Obstacle, x: number, z: number): Pt {
+  const dx = x - o.x, dz = z - o.z;
+  const c = Math.cos(o.yaw), sn = Math.sin(o.yaw);
+  const lx = c * dx - sn * dz, lz = sn * dx + c * dz;
+  // in the body's frame: along whichever of its axes is the nearer way out
+  const alongX = o.hx - Math.abs(lx) < o.hz - Math.abs(lz);
+  const l: Pt = alongX ? [lx >= 0 ? 1 : -1, 0] : [0, lz >= 0 ? 1 : -1];
+  // back to the world (the inverse of the turn above)
+  return [c * l[0] + sn * l[1], -sn * l[0] + c * l[1]];
+}

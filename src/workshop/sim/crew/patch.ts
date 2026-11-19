@@ -57,7 +57,7 @@ import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo, obstacles } from './fetch-knock.ts';
 import { bodiesOf, legClear } from './fetch-route.ts';
 import type { Pt } from './fetch-route.ts';
-import { PATCH_ROUTE, clearPoint, crossPoints, planWay, solidsOf, sphereMeets, stepClear } from './patch-route.ts';
+import { PATCH_ROUTE, clearPoint, crossPoints, offTop, planWay, solidsOf, sphereMeets, stepClear } from './patch-route.ts';
 import type { BeltCrossing, Solid, Way } from './patch-route.ts';
 
 /** Seconds, units, units per second. Tune here. */
@@ -322,7 +322,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   // ── R4: thrown ──
   const SOLIDS: Solid[] = solidsOf(ctx.scene);
   /** In the air: its velocity; past an open edge and going (out); coming back from the chute. */
-  let fly: { v: Vec3; out: boolean; chute: boolean } | null = null;
+  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number } | null = null;
   /** Landed: from where it came down to where the roll ends, and how fast it came in. */
   let landing: { from: Vec3; to: Vec3; speed: number } | null = null;
   /** Thrown from `p` (its middle, world) with the hand's velocity `v`. */
@@ -333,7 +333,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     // (never starting inside a body: above it)
     for (const o of SOLIDS) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
     at = q;
-    fly = { v: vv, out: false, chute: false };
+    fly = { v: vv, out: false, chute: false, tops: 0 };
     landing = null;
     lookAt = null;
     if (Math.hypot(vv[0], vv[2]) > 0.1) heading = Math.atan2(vv[0], vv[2]);
@@ -715,7 +715,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       }
       if (intent.end) {
         // R4: let go with the hand moving, it flies (a scripted arc: never a physics body)
-        const hv = handVelocity((intent as { velocity?: Vec3 }).velocity);
+        const hv = handVelocity(intent.velocity);
         if (length(hv) >= T.throwAt) {
           trail.length = 0;
           throwFrom([intent.target[0], intent.target[1] - T.hangBelow, intent.target[2]], hv);
@@ -1130,16 +1130,35 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           for (const o of SOLIDS) {
             if (!sphereMeets(o, np[0], np[1], np[2], T.bodyR)) continue;
             if (at[1] - T.bodyR >= o.y1 - 0.03) {
-              const ax = at[0] - o.x, az = at[2] - o.z;
-              const an = Math.hypot(ax, az) || 1;
-              f.v = [(ax / an) * 1.6, 1.4, (az / an) * 1.6];
+              // tipped off by the nearer side of its top (a long body, such as the belt: across it, not along);
+              // come down on tops a few times over (in among the ramp's steps), it slides off to where it can stand
+              f.tops += 1;
+              if (f.tops > 3) {
+                landAt(at, [0, 0, 0]);
+                break;
+              }
+              const d = offTop(o, at[0], at[2]);
+              f.v = [d[0] * 2.2, 1.4, d[1] * 2.2];
             } else f.v = [-f.v[0] * 0.12, Math.min(f.v[1], 0), -f.v[2] * 0.12];
             np = [at[0], at[1] + f.v[1] / HZ, at[2]];
-            if (SOLIDS.some((q) => sphereMeets(q, np[0], np[1], np[2], T.bodyR))) np = at;
+            // still meeting something (wedged by two): out sideways, away from what it meets, a little each step
+            const wedged = SOLIDS.find((q) => sphereMeets(q, np[0], np[1], np[2], T.bodyR));
+            if (wedged) {
+              const ax = at[0] - wedged.x, az = at[2] - wedged.z;
+              const an = Math.hypot(ax, az) || 1;
+              np = [at[0] + (ax / an) * 0.06, at[1] + Math.min(0, f.v[1]) / HZ, at[2] + (az / an) * 0.06];
+              if (SOLIDS.some((q) => sphereMeets(q, np[0], np[1], np[2], T.bodyR))) np = [at[0] + (ax / an) * 0.06, at[1], at[2] + (az / an) * 0.06];
+            }
             break;
           }
+          if (state !== 'fly') break; // (slid off the tops it kept coming down on)
           if (np[1] - T.bodyR <= top) {
             landAt(np, f.v);
+            break;
+          }
+          // (and never in the air for ever: a throw lasts a few seconds at most)
+          if (t > 4 && !f.chute) {
+            landAt(np, [0, 0, 0]);
             break;
           }
           if (Math.hypot(f.v[0], f.v[2]) > 0.3) heading = Math.atan2(f.v[0], f.v[2]);
@@ -1181,7 +1200,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           const tf = T.chuteFly;
           const v: Vec3 = [(land[0] - c.from[0]) / tf, (land[1] + T.bodyR - c.from[1]) / tf - 0.5 * g * tf, (land[2] - c.from[2]) / tf];
           at = c.from;
-          fly = { v, out: false, chute: true };
+          fly = { v, out: false, chute: true, tops: 0 };
           heading = Math.atan2(v[0], v[2]);
           enter('fly');
           break;
