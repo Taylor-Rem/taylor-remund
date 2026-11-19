@@ -863,14 +863,16 @@ export class Gestures {
     if (h.what === 'plug') {
       this.intent({ type: 'plug', cord: h.id, jack: this.jackAt(s.x, s.y, s.kind, h.id) }, s.t);
     } else {
-      this.intent({ type: 'release', velocity: h.what === 'unit' ? [0, 0, 0] : this.throwVelocity(s.t) }, s.t);
+      // (R4) a unit (Patch, the lamp's shade) is thrown like a part: what it does with the hand's velocity is its own
+      this.intent({ type: 'release', velocity: this.throwVelocity(s.t) }, s.t);
     }
     this.endHold(s.t);
   }
 
   /** The hand's velocity at release, with a little loft so a flick arcs. */
   throwVelocity(t: number): Vec3 {
-    const v = this.vel.velocity(t, this.tuning.velocityWindow);
+    // (R4) what the hand was doing when it threw, not the average of its last moments
+    const v = this.vel.throw(t);
     const hs = Math.hypot(v[0], v[2]);
     const up = Math.max(v[1], 0) + Math.min(this.tuning.loftMax, hs * this.tuning.loft);
     return [v[0], v[1] < 0 ? v[1] + up : up, v[2]];
