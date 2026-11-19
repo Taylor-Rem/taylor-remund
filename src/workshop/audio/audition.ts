@@ -94,6 +94,13 @@ export function busy(): Script {
   at(9.5, 'tell.tick', { pan: 0.2 });
   at(9.65, 'mailbox.flag', { pan: 0.1 });
   at(9.8, 'cover.snap', { pan: 0 });
+  // R1: the chute's delivery, Fetch startled and lifted, Patch lifted
+  at(3.7, 'chute.launch', { pan: -0.34 });
+  at(3.7, 'chute.flap', { pan: -0.34 });
+  at(4.9, 'hit.wood.M', { gain: 0.6, pan: -0.3, lowpass: 8000 });
+  at(5.0, 'fetch.chirp', { pan: 0.05 });
+  at(8.95, 'fetch.yelp', { pan: 0.05 });
+  at(10.2, 'patch.yelp', { pan: 0.15 });
   return {
     name: 'a busy ten seconds',
     seconds: 11,

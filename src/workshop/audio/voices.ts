@@ -429,7 +429,8 @@ const OTHERS: SoundDef[] = [
     length: [1.5, 2.8],
     pitch: BELL_HZ,
     kind: 'once',
-    variants: 1,
+    // (R1) two strikes, so a ring by hand on the heels of a shipment is not the same samples a moment apart (a comb, a flange)
+    variants: 2,
     draw: (sr, rnd) => bell(sr, rnd),
   },
   once({
@@ -558,6 +559,72 @@ const OTHERS: SoundDef[] = [
       partial(out, sr, { f: 392, amp: 1, tau: 0.08, glide: 0.66, glideTime: 0.13, attack: 0.004 });
       mixInto(out, burst(sr, 0.05, rnd, 'lowpass', 600, 0.7, ad(0.001, 0.01)), 0.5);
       return biquad(out, sr, 'lowpass', 2500, 0.7);
+    },
+  }),
+  // (R1) the crew's small voices: Fetch is a servo (its wheel whines on G4), Patch is felt
+  once({
+    id: 'fetch.chirp',
+    group: 'crew',
+    answers: 'rung.started with Fetch on the bench (startled: a quick servo chirp up)',
+    level: -9,
+    length: [0.06, 0.2],
+    variants: 2,
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.2);
+      // G4 up toward D5 in 60 ms: the servo's harmonics, a little buzz, gone
+      [1, 0.45, 0.25, 0.15].forEach((a, i) => partial(out, sr, { f: 392 * (i + 1), amp: a, tau: 0.035, glide: 1.5, glideTime: 0.06, attack: 0.004, phase: rnd() * 6.28 }));
+      biquad(out, sr, 'lowpass', 3200, 0.7);
+      return shape(out, sr, (t) => 0.8 + 0.2 * Math.sin(2 * Math.PI * 62 * t));
+    },
+  }),
+  once({
+    id: 'fetch.yelp',
+    group: 'crew',
+    answers: "crew.state held for Fetch (lifted: a servo squeak, up and back)",
+    level: -8,
+    length: [0.12, 0.3],
+    variants: 2,
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.3);
+      // two quick squeaks: up a fifth, then a higher one that drops; the gears' buzz under both
+      [1, 0.4, 0.22].forEach((a, i) => partial(out, sr, { f: 392 * (i + 1), amp: a, tau: 0.04, glide: 1.5, glideTime: 0.05, attack: 0.003, phase: rnd() * 6.28 }));
+      [1, 0.4, 0.22].forEach((a, i) => partial(out, sr, { f: 659.25 * (i + 1), amp: a * 0.8, tau: 0.05, delay: 0.075, glide: 0.8, glideTime: 0.08, attack: 0.003, phase: rnd() * 6.28 }));
+      biquad(out, sr, 'lowpass', 3500, 0.7);
+      return shape(out, sr, (t) => 0.75 + 0.25 * Math.sin(2 * Math.PI * 55 * t));
+    },
+  }),
+  once({
+    id: 'patch.yelp',
+    group: 'crew',
+    answers: 'crew.state held for Patch (lifted: a soft, small felt "mmp")',
+    level: -11,
+    length: [0.08, 0.3],
+    variants: 2,
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.3);
+      partial(out, sr, { f: 330, amp: 1, tau: 0.06, glide: 1.33, glideTime: 0.07, attack: 0.012 });
+      partial(out, sr, { f: 660, amp: 0.15, tau: 0.03, glide: 1.33, glideTime: 0.07, attack: 0.01 });
+      mixInto(out, burst(sr, 0.05, rnd, 'lowpass', 700, 0.7, ad(0.004, 0.01)), 0.3);
+      return biquad(out, sr, 'lowpass', 1800, 0.7);
+    },
+  }),
+  once({
+    id: 'chute.launch',
+    group: 'line',
+    answers: 'restock.launched (a fresh crate thrown out of the chute: a pneumatic thump and a whoosh)',
+    level: -6,
+    length: [0.25, 0.6],
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.6);
+      // the piston: a hollow low thump (the chute's own odd modes, shorter)
+      partial(out, sr, { f: 150, amp: 0.8, tau: 0.05, attack: 0.002 });
+      partial(out, sr, { f: 452, amp: 0.3, tau: 0.03, attack: 0.002 });
+      // the air: a band of noise that opens and falls away
+      const air = noise(Math.round(sr * 0.5), rnd);
+      sweep(air, sr, 'bandpass', (t) => 900 + 1800 * Math.exp(-t / 0.08), 1.1);
+      shape(air, sr, (t) => (t < 0.015 ? t / 0.015 : Math.exp(-(t - 0.015) / 0.09)));
+      mixInto(out, air, 0.7);
+      return out;
     },
   }),
   once({

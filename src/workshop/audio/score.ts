@@ -56,6 +56,13 @@ export const SCORE_TUNING = {
   hitRange: 22,
   /** The same part does not knock twice within this long (s): resting jitter is not a drum roll. */
   hitGap: 0.08,
+  /**
+   * (R1) A crate thrown out of the chute lands on the pad: its own note, as a knock this loud, once; the
+   * physics' own contacts for it are not heard for this long after (it is handed to physics still, a hair up).
+   */
+  padLanding: { gain: 0.6, quiet: 0.35 },
+  /** (R1) A crew member's yelp when lifted is not heard again within this long (s). */
+  yelpGap: 2,
   /** The same sound starts at most once in this long (s), unless it is a note. */
   sameGap: 0.03,
   /** (I1 R1) The bell rung by hand: its gain (a shipment's is 1), how much quieter each ring on the last one's heels, the window (s), the most at once. */
@@ -86,6 +93,12 @@ export function hitGain(speed: number): number {
 export class Score {
   private lastPlayed = new Map<string, number>();
   private lastHit = new Map<Id, number>();
+  /** (R1) Parts whose physics contacts are not heard until this time: a crate just set on the pad. */
+  private quietUntil = new Map<Id, number>();
+  /** (R1) Parts the chute has just thrown out (its flap kick is then the launch's, not a return's hollow thump). */
+  private launched = new Map<Id, number>();
+  /** (R1) When each crew member last yelped. */
+  private yelped = new Map<Id, number>();
   private speeds = new Map<Id, number>();
   private leverPhase: string | null = null;
   private crank: number | null = null;
@@ -136,6 +149,8 @@ export class Score {
         if (g <= 0) return;
         const last = this.lastHit.get(e.id);
         if (last !== undefined && now - last < T.hitGap && now >= last) return;
+        const quiet = this.quietUntil.get(e.id);
+        if (quiet !== undefined && now < quiet && now >= quiet - T.padLanding.quiet) return;
         this.lastHit.set(e.id, now);
         const k = Math.log10(g * 10 + 1e-9); // ~0 soft .. 1 hard
         this.play(`hit.${p.material}.${p.size}`, now, { gain: g, lowpass: 1800 + 10000 * clamp(k, 0, 1) }, this.posOf(w, e.id));
@@ -196,9 +211,24 @@ export class Score {
         return;
       case 'door':
         return this.play(e.open ? 'dock.open' : 'dock.close', now, {}, this.posOf(w, e.id));
+      case 'restock.launched':
+        // (R1) a fresh crate shot out of the chute: the pneumatic thump and whoosh (the flap's kick follows as its own event)
+        this.launched.set(e.part, now);
+        return this.play('chute.launch', now, {}, e.from);
+      case 'restocked': {
+        if (e.on !== 'pad') return; // on the stack: physics' own contact is its knock
+        // (R1) touchdown on the pad: one knock in the crate's own note, and its physics contacts quiet for a moment
+        const p = w.part(e.part);
+        if (!p) return;
+        this.quietUntil.set(e.part, now + T.padLanding.quiet);
+        this.lastHit.set(e.part, now);
+        return this.play(`hit.${p.material}.${p.size}`, now, { gain: T.padLanding.gain, lowpass: 8000 }, this.posOf(w, e.part));
+      }
       case 'flap': {
         const at = this.posOf(w, e.id);
-        if (e.part) this.play('chute.thump', now, {}, at);
+        const t = e.part ? this.launched.get(e.part) : undefined;
+        const launch = t !== undefined && now - t < 0.5 && now >= t;
+        if (e.part && !launch) this.play('chute.thump', now, {}, at);
         return this.play('chute.flap', now, {}, at);
       }
       case 'undone':
@@ -231,9 +261,27 @@ export class Score {
         return;
       case 'revert.sweep':
         return this.play('revert.sweep', now, {}, e.from.p);
-      case 'crew.state':
+      case 'crew.state': {
         if (e.id === this.revertBody(w) && e.state === 'rising') this.play('revert.hatch', now, {}, this.posOf(w, e.id));
+        // (R1) lifted into the visitor's hand: one yelp in its own voice, not again within two seconds
+        if (e.state === 'held' && e.from !== 'held') {
+          const voice = e.id === this.fetch ? 'fetch.yelp' : w.machine(e.id)?.kind === 'patch' ? 'patch.yelp' : null;
+          const last = this.yelped.get(e.id);
+          if (voice && (last === undefined || now - last >= T.yelpGap || now < last)) {
+            this.yelped.set(e.id, now);
+            this.play(voice, now, {}, this.posOf(w, e.id));
+          }
+        }
         return;
+      }
+      case 'rung.started': {
+        // (R1) the press frightens Fetch: one startled chirp, if it is on the bench and not in a hand; nothing more with reduced motion
+        if (w.reducedMotion || !this.fetch) return;
+        const f = w.crew(this.fetch);
+        const mode = w.mode(this.fetch);
+        if (!f || f.state === 'held' || mode === 'held' || mode === 'gone' || mode === 'chute') return;
+        return this.play('fetch.chirp', now, {}, [f.x, 0, f.z]);
+      }
       case 'tell':
         return this.play('tell.tick', now, {}, this.posOf(w, e.id));
       case 'misfire': {
