@@ -64,6 +64,8 @@ export interface SimContext {
   letGo(): void;
   /** Steps since the visitor's last intent of any kind. */
   idleSteps(): number;
+  /** R1: the interactable the visitor's pointer is over (the last `hover` intent), or null. Hover is not an action. */
+  hovered(): Id | null;
   /** § E5 rule 5: has the visitor touched or changed this part? */
   touched(id: Id): boolean;
 
