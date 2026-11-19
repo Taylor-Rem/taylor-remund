@@ -11,6 +11,7 @@ const MINUTES = 10;
 /** Settled: nothing held, no rung playing, nothing in the chute, every free part at rest. */
 function settled(w: World): boolean {
   if (w.holding() || w.bracketed) return false;
+  if (w.crew('fetch')?.state === 'jetpack') return false; // (S5: flying back onto the bench over the edge it went off)
   for (const p of w.parts()) {
     const mode = w.mode(p.id);
     if (mode === 'chute' || mode === 'held') return false;
