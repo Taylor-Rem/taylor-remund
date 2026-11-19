@@ -516,11 +516,25 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
   /** The oldest stray nobody has stirred for a while, if the bench is crowded. */
   function clutter(): Id | null {
+    return clutterList()[0] ?? null;
+  }
+  /** Every stray nobody has stirred for a while, oldest first, if the bench is crowded. */
+  function clutterList(): Id[] {
     const s = strays();
-    if (s.length < spec.crowded) return null;
-    const old = s.filter((id) => ctx.clock.step - stirred(id) >= steps(spec.aWhile));
-    if (old.length === 0) return null;
-    return old.reduce((a, b) => (stirred(b) < stirred(a) ? b : a));
+    if (s.length < spec.crowded) return [];
+    return s.filter((id) => ctx.clock.step - stirred(id) >= steps(spec.aWhile)).sort((a, b) => stirred(a) - stirred(b) || (a < b ? -1 : 1));
+  }
+  /**
+   * S7 round 2: the stray it will sweep next and where it stands to do it: the oldest that has a proper
+   * stand (its far side, facing the visitor, or the nearest that keeps its front or side to them). A stray
+   * with no clear stand is left for later; it is never swept from wherever Revert happens to be.
+   */
+  function nextSweep(): { readonly part: Id; readonly stand: NonNullable<ReturnType<typeof standFor>> } | null {
+    for (const part of clutterList()) {
+      const stand = standFor(part);
+      if (stand) return { part, stand };
+    }
+    return null;
   }
 
   /** Where a put-away crate goes: on top of the stack if it has room, else down the hatch (a spare). */
@@ -547,8 +561,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (!s) return;
     const p = ctx.part(s.part);
     const pose = ctx.pose(s.part);
-    // still where it was, still nobody's, still clutter: away it goes (rule 14); otherwise leave it be
-    if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || !ctx.settled(s.part) || stirred(s.part) !== s.stir) return;
+    // still on the bench, still nobody's (no hand on it since it was picked): into the dustpan and away it
+    // goes (rule 14), wherever the sweep left it; otherwise leave it be
+    if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || stirred(s.part) !== s.stir) return;
     const to = destination(s.part);
     ctx.emit({ type: 'revert.sweep', id: body, part: s.part, from: pose, to });
     ctx.putAway(s.part, to);
@@ -566,14 +581,14 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       return;
     }
     if (now >= nextAway) {
-      const c = clutter();
-      if (c !== null) {
-        sweeping = { part: c, stir: stirred(c), brushed: false };
-        const stand = standFor(c);
-        if (stand && !(near(stand.at, 0.05) && Math.abs(wrap(heading - stand.at.heading)) < 0.05)) goTo(stand.at, 'sweep', stand.via);
+      const n = nextSweep();
+      if (n !== null) {
+        sweeping = { part: n.part, stir: stirred(n.part), brushed: false };
+        if (!(near(n.stand.at, 0.05) && Math.abs(wrap(heading - n.stand.at.heading)) < 0.05)) goTo(n.stand.at, 'sweep', n.stand.via);
         else enter('sweep');
         return;
       }
+      if (clutter() !== null) nextAway = now + steps(spec.awayGap); // strays it cannot get at: it looks again later
     }
     // a job done away from its hatch: back home (and then down)
     if (state === 'idle' && away && ground < 0.05 && now - entered >= steps(T.righting)) {
@@ -647,9 +662,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
 
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
-        // what stirs a part: anything happening to it, except its own body brushing the part it sweeps
+        // what stirs a part: anything happening to it. The part it is out to sweep (from the moment it picks
+        // it, through the trip and the sweep) is stirred only by a hand: what its own body or the engine does
+        // to it on the way (woken as Revert passes, brushed as it turns, settled again) does not count.
         const sw = sweeping;
-        const own = (id: Id): boolean => sw !== null && sw.brushed && id === sw.part; // the wobble and rest after its own brush
+        const own = (id: Id): boolean => sw !== null && id === sw.part;
         switch (e.type) {
           case 'effect':
             if (!own(e.effect.target)) lastStir.set(e.effect.target, ctx.clock.step);
@@ -665,14 +682,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             lastStir.set(e.id, ctx.clock.step);
             break;
           case 'part.hit':
-            if (sw && ((e.id === sw.part && e.other === body) || (e.id === body && e.other === sw.part))) {
-              sw.brushed = true;
-              lastStir.set(body, ctx.clock.step);
-              break;
-            }
-            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = false;
-            lastStir.set(e.id, ctx.clock.step);
-            if (e.other) lastStir.set(e.other, ctx.clock.step);
+            if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = true;
+            if (!own(e.id)) lastStir.set(e.id, ctx.clock.step);
+            if (e.other && !own(e.other)) lastStir.set(e.other, ctx.clock.step);
             break;
           case 'taken-in':
           case 'shipped':
@@ -794,7 +806,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
             heading += step;
             turning = step / dt;
           }
-          // a part its own body brushed may still be wobbling: it waits for it to settle (a little while at most)
+          // a part something knocked may still be wobbling: it waits for it to settle (a little while at most)
           const wobbling = !!s && s.brushed && !ctx.settled(s.part) && inState() < steps(T.sweep + T.settle);
           if (inState() >= steps(T.sweep) && !wobbling) {
             turning = 0;
@@ -807,7 +819,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           turning = 0;
       }
       if (up()) think();
-      else if (state === 'below' && now >= nextAway && clutter() !== null) rise(); // it comes up to tidy
+      else if (state === 'below' && now >= nextAway && clutter() !== null) {
+        // it comes up to tidy only a stray it can get at
+        if (nextSweep() !== null) rise();
+        else nextAway = now + steps(spec.awayGap);
+      }
       place(false);
     },
 
