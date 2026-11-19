@@ -68,8 +68,16 @@ for (const query of ['', '?strict=0']) {
     const s0 = lost.step;
     await page.waitForTimeout(500);
     expect((await look(page)).step).toBe(s0); // the world has stopped, keeping its state
+    // a key pressed while it is lost does not queue up behind it
+    await page.keyboard.press('u');
+    const t0 = Date.now();
     await page.evaluate(() => (window as any).__lc.restoreContext());
     await page.waitForFunction(() => document.querySelector('.stage-root')!.classList.contains('live'), null, { timeout: 60_000 });
+    const took = (Date.now() - t0) / 1000;
+    test.info().annotations.push({ type: 'rebuild', description: `${mode}: restored to drawing in ${took.toFixed(1)} s` });
+    console.log(`REBUILD ${mode}: ${took.toFixed(1)} s`);
+    // the page's hooks follow the new workshop
+    expect(await page.evaluate(() => (window as any).__bench.ws === (window as any).__handoff.workshop)).toBe(true);
     await page.waitForTimeout(1000);
     const after = await look(page);
     expect(after.lost).toBe(false);
@@ -88,10 +96,20 @@ for (const query of ['', '?strict=0']) {
       w.stage.renderer.getContext().getExtension('WEBGL_lose_context').loseContext();
     });
     await page.waitForFunction(() => (window as any).__handoff.phase === 'failed', null, { timeout: 15_000 });
-    const s = await look(page);
+    const s = await page.evaluate(() => ({
+      failed: document.querySelector('.stage-root')!.classList.contains('stage-failed'),
+      live: document.querySelector('.stage-root')!.classList.contains('live'),
+      workshop: (window as any).__handoff.workshop,
+      lost: (window as any).__workshopFaults().contextLost as number,
+      canvasPointer: getComputedStyle(document.querySelector('canvas.stage')!).pointerEvents,
+      canvasOpacity: getComputedStyle(document.querySelector('canvas.stage')!).opacity,
+    }));
     expect(s.failed).toBe(true);
     expect(s.live).toBe(false);
-    expect(s.faults.contextLost).toBeGreaterThanOrEqual(1);
+    expect(s.workshop).toBeNull(); // disposed: no sound, no input
+    expect(s.canvasPointer).toBe('none'); // no glove, no picking over the picture
+    expect(s.canvasOpacity).toBe('0');
+    expect(s.lost).toBeGreaterThanOrEqual(1);
     await page.screenshot({ path: `shots/p2/s7-r2/context-not-restored-${mode}.png` });
   });
 }

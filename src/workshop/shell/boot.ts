@@ -248,6 +248,8 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       webdriver: typeof navigator !== 'undefined' && !!navigator.webdriver,
     });
   const worldRef: { w: World | null } = { w: null };
+  /** R2: the graphics context is lost: this workshop is stopped for good (a rebuild makes a new one). */
+  let contextGone = false;
   const guard = new FaultGuard({
     strict,
     step: () => worldRef.w?.step ?? -1,
@@ -435,6 +437,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   let dispatchedSinceStep = false;
   const driverRef: { d: Driver | null } = { d: null };
   const dispatch = (intent: Intent, t: number = performance.now()): void => {
+    if (contextGone) return; // R2: no input queues up behind a lost graphics context
     world.dispatch(intent);
     dispatchedSinceStep = true;
     guard.noteIntent(intent);
@@ -579,6 +582,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   // and let the caller show the picture and rebuild when the context comes back.
   const onContextLost = (e: Event): void => {
     e.preventDefault();
+    contextGone = true;
     try {
       loop.stop();
     } catch {

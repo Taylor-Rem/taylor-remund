@@ -306,8 +306,10 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
         giveUp('the graphics context was lost and did not come back');
       }, LOST_WAIT_MS);
     }
+    let rebuilding = false;
     const onRestored = (): void => {
-      if (lostTimer === null) return;
+      // only a context we are waiting for, and never a second rebuild on top of one under way
+      if (lostTimer === null || rebuilding) return;
       clearTimeout(lostTimer);
       lostTimer = null;
       void rebuild();
@@ -316,6 +318,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     async function rebuild(): Promise<void> {
       const old = ws;
       if (!old) return;
+      rebuilding = true;
       try {
         const world = old.disown();
         old.dispose();
@@ -331,13 +334,20 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
           },
         });
         state.workshop = ws;
+        o.onRebuilt?.(ws);
+        // lost again while it was being built (before the new workshop listened): wait for it again
+        if (ws.stage.renderer.getContext().isContextLost()) {
+          contextLost();
+          return;
+        }
         ws.loop.setManual(false);
         ws.loop.start();
         root.classList.add('live');
-        o.onRebuilt?.(ws);
       } catch (e) {
         console.error('workshop: the stage could not be rebuilt after a lost graphics context; the picture stays', e);
         giveUp('the stage could not be rebuilt after a lost graphics context');
+      } finally {
+        rebuilding = false;
       }
     }
     function giveUp(why: string): void {
@@ -345,11 +355,15 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       state.failed = why;
       root.classList.remove('live');
       root.classList.add('stage-failed');
+      // nothing live over a still picture: no sound, no input, no cursor (the canvas is hidden and takes no pointer)
       try {
         ws?.loop.stop();
+        ws?.dispose();
       } catch {
         /* best effort */
       }
+      ws = null;
+      state.workshop = null;
       bootOpts.onGiveUp?.();
     }
 
