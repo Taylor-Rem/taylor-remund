@@ -496,6 +496,7 @@ const PATCHLAMP_UNITS = [
     bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
     edge: { minX: AT.bench.minX, maxX: AT.bench.maxX, maxZ: AT.bench.maxZ }, // R1: the open edges it can hang from
     // R2: the belt it may cross on its way back: clear of the motor's housing (left) and of the striker's arm (right)
+    chute: { from: AT.chute.p, pad: AT.pad }, // R4: thrown off the bench, back up the chute by the pad
     belt: { id: 'belt', bed: 'belt-bed', safe: [AT.beltMotor.c[0] + AT.beltMotor.half[0] + 0.9, LINE.strikerX - 0.75] as const },
     runner: s6PatchRunner(), // S6
   }),
