@@ -87,7 +87,9 @@ export function createFocusView(): StationViewFactory {
       update(frame: Frame) {
         camera.updateMatrixWorld();
         let n = 0;
-        if (frame.focused !== null && mark(n, frame.focused, 0)) n++;
+        // while the keys carry the focused thing it is plainly in the hand: only where it is going is marked
+        const carried = frame.keyDest !== null && frame.focused === frame.held;
+        if (frame.focused !== null && !carried && mark(n, frame.focused, 0)) n++;
         if (frame.keyDest !== null && frame.keyDest !== frame.focused && mark(n, frame.keyDest, 1)) n++;
         // a quad is six indices
         mesh.geometry.setDrawRange(0, n * (FOCUS_MARK_VERTS / 4) * 6);
