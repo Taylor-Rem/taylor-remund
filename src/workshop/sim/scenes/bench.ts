@@ -128,9 +128,17 @@ export const AT = {
    * point of its path closer than that to a body is never clear); but its last 0.3, by the platen's plinth. Every place it
    * handles is within 1.0 of where it stands (`runner.stands`, `reach` 1.10).
    */
-  lane: { points: [[-2.6, 2.78], [1.16, 2.78], [1.16, 0.7], [2.2, 0.7]] as const },
-  /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
-  stands: { feed: [-2.2, 2.78] as const, phone: [1.16, 1.9] as const, stack: [1.16, 1.75] as const, tray: [2.2, 0.7] as const },
+  lane: { points: [[-2.9, 2.78], [1.16, 2.78], [1.16, 0.7], [2.2, 0.7]] as const },
+  /**
+   * Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on),
+   * and (S5 R1) the chute's pad: the tape's left end, the pad's crate in profile, Fetch facing -x.
+   */
+  stands: { feed: [-2.2, 2.78] as const, phone: [1.16, 1.9] as const, stack: [1.16, 1.75] as const, tray: [2.2, 0.7] as const, pad: [-2.9, 2.78] as const },
+  /**
+   * S5 R1: the chute's pad: where a fresh crate lands when a plain crate ships (the deflector row's third, last slot; A1 tapes it).
+   * One constant: the dock aims the chute's arc at it, Fetch's rounds take from it.
+   */
+  pad: [-3.91, 2.68] as const,
   /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
   offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
@@ -138,7 +146,7 @@ export const AT = {
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
   platenSeat: [3.19, 0.62, 0.7] as Vec3,
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands: on the front run, left of the phone. */
-  fetchStart: 0.12,
+  fetchStart: 0.159, // (S5 R1: the tape's left end moved 0.3 left; this keeps Fetch's first frame where it was, x -1.82)
   /**
    * A1 round 7: the stack is two high (its top within the arm's reach); today's third crate starts loose on the bench in
    * front of the Button's console, the first thing to pick up (clear of Fetch's front run and below the console's plate).
@@ -152,7 +160,10 @@ export const AT = {
    * in front of the lever, between the run and the lever.
    */
   fumbleX: -1.6,
-  fumble: { heading: -Math.PI / 2, linvel: [-0.4, 1.8, -1.3] as Vec3, angvel: [-5, 0, 0] as Vec3, offerHeading: 0 },
+  // S5 R1: the slip's throw a little more back and none to the left (was [-0.4, 1.8, -1.3], resting at (-3.10, 2.65): on the
+  // tape's new left end and against the pad): it now rests at about (-2.77, 1.85), between the run and the lever, 0.93
+  // behind the run (clear of Fetch's footprint), in reach from it (1.10), 1.4 from the pad. Measured stable for x 0.05..0.1, z -2.4..-2.6.
+  fumble: { heading: -Math.PI / 2, linvel: [0.08, 1.8, -2.5] as Vec3, angvel: [-5, 0, 0] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
