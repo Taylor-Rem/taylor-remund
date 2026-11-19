@@ -184,14 +184,14 @@ export const LAYOUT = {
     /** The phone on its easel: in front of the console's right end, beside Fetch's jog; Fetch taps it side-on from the jog. */
     phone: spot(0.12, 1.95, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
-    /** The crate stack (the ground point of its bottom crate): right of Fetch's jog, 1.05 from where it stands for it, between its front and back runs. */
-    stack: spot(2.13, 1.85, 0.8, 0.8, 1.85, { fill: 'piece' }),
+    /** The crate stack, two high (the ground point of its bottom crate): right of Fetch's jog, 1.05 from where it stands for it, between its front and back runs, left of the striker's hammer. */
+    stack: spot(2.13, 1.85, 0.8, 0.8, 1.4, { fill: 'piece' }),
     /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
     lane: laneSpot(),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
     belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
-    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.1, 2.0 from its far end: room for a run of notes played backwards. */
-    striker: real(2.575, 3.072, BOUNDS.striker),
+    /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.6, 1.5 from its far end (room for a run of notes played backwards), right of the stack so the stack is seen whole. */
+    striker: real(2.975, 3.072, BOUNDS.striker),
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */

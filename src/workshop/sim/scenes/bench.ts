@@ -114,7 +114,7 @@ export const AT = {
 
   // ── the front: the lane, the belt and its ends ──
   /**
-   * The crate stack: ground point (x, z) of its bottom crate; L, M, S upward, each a little off true. Between Fetch's
+   * The crate stack: ground point (x, z) of its bottom crate; L then M (two high, A1 round 7), a little off true. Between Fetch's
    * two runs, IN FRONT of the back run: Fetch takes from it facing the visitor, 0.95 from where it stands.
    */
   stack: [2.13, 1.85] as const,
@@ -124,17 +124,22 @@ export const AT = {
    * (side-on, arms out across its low left edge) with the phone and the stack in front of it. Every place it
    * handles is within 1.0 of where it stands (`runner.stands`, `reach` 1.10).
    */
-  lane: { points: [[-0.5, 2.93], [1.08, 2.93], [1.08, 0.7], [2.5, 0.7]] as const },
+  lane: { points: [[-2.6, 2.93], [1.08, 2.93], [1.08, 0.7], [2.5, 0.7]] as const },
   /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
-  stands: { feed: [0.63, 2.93] as const, phone: [1.08, 1.95] as const, stack: [1.08, 1.85] as const, tray: [2.5, 0.7] as const },
+  stands: { feed: [-2.2, 2.93] as const, phone: [1.08, 1.95] as const, stack: [1.08, 1.85] as const, tray: [2.5, 0.7] as const },
   /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
   offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
-  beltFeed: 0.63,
+  beltFeed: -2.2,
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
   platenSeat: [3.19, 0.62, 0.7] as Vec3,
-  /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
-  fetchStart: 0.12,
+  /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands: on the front run, left of the phone. */
+  fetchStart: 0.36,
+  /**
+   * A1 round 7: the stack is two high (its top within the arm's reach); today's third crate starts loose on the bench in
+   * front of the Button's console, the first thing to pick up (clear of Fetch's front run and below the console's plate).
+   */
+  firstCrate: [-1.0, 0.225, 2.0] as Vec3,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
   looseCrate: [0.0, 0.225, 2.2] as Vec3,
   /** Where on the lane Fetch fumbles (x, on its front run): right of the console's front; the crate tumbles back and left, to rest in front of the console. */
@@ -143,8 +148,8 @@ export const AT = {
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
-  /** The striker (real piece, origin (2.575, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.1 high (the post's foot: the arm above it, which parts on the belt pass under, is no body). */
-  striker: { c: [2.2, 0.55, 3.072], half: [0.55, 0.55, 0.13] } as Box,
+  /** The striker (real piece, origin (2.975, 3.072)): x is its HAMMER's (LINE.strikerX reads it), so the box is centred there and wide enough to hold the post (0.375 right of it); 1.1 high (the post's foot: the arm above it, which parts on the belt pass under, is no body). */
+  striker: { c: [2.6, 0.55, 3.072], half: [0.55, 0.55, 0.13] } as Box,
   /**
    * The dock (real piece, origin the door's middle at (5.92, 3.55), its ramp's straight run 0.5 longer than L1's so the platen's plate stands clear of its portal; its bay turned 40° toward the camera,
    * built in): its portal (2.08 tall; the lamp's cage stands above it) and bay as one box in the door's frame (yaw -50). The ramp from the belt is low and not a body here.
@@ -269,33 +274,32 @@ const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-$
 
 /**
  * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
- * its hatch (`AT.revert`); `button` (S7) is beside the console on its right, facing it, in profile to the
- * visitor (`REVERT_BESIDE_CONSOLE`); `park` is right of centre, behind the phone and the platen, where the
- * window's light falls across the bench. The track runs from the hatch back to `REVERT_BEHIND`, along
- * behind the lever and the console (far enough back that its 2.05-wide body, driving sideways to the
- * visitor, clears both), to a corner behind the Button spot (the spot is a short spur straight up from
- * it: a trip goes to the nearest waypoint, then straight to the place), and on to the park.
+ * its hatch (`AT.revert`); `button` (A1 round 7) is BEHIND the console, facing the visitor over it, its arm
+ * (front left, screen left) toward the guard parked open behind the cap (`REVERT_BEHIND_CONSOLE`); `park` is right of centre,
+ * behind the phone and the platen, where the window's light falls across the bench. The track runs from the
+ * hatch back to `REVERT_BEHIND`, along behind the lever and the console, to the Button spot (a corner of the
+ * track: it cannot back up, so it stands where it can turn on the spot to leave), and on to the park. Its 2.05 x 1.54 body sweeps a circle of radius 1.28 as it turns on the spot:
+ * at every corner of the track that circle clears the console, the lever, Fetch's runs, the platen and
+ * Patch's runner (tests/unit/sim/revert-stand.test.ts).
  */
-const REVERT_BEHIND = AT.console.c[2] - AT.console.half[2] - AT.revert.half[0] - 0.05;
+const REVERT_TURN = Math.hypot(AT.revert.half[0], AT.revert.half[2]);
+const REVERT_BEHIND = AT.console.c[2] - AT.console.half[2] - REVERT_TURN - 0.04;
 /**
- * Beside the console's right end, facing it (heading -pi/2): as far forward as it can come and still turn
- * on the spot between the console and the platen (its 2.05 x 1.54 body sweeps a circle of radius 1.28 as
- * it turns, and the gap is 2.4 wide), so it stands level with the console's back corner, in full view.
+ * Behind the console, facing the visitor over it (heading 0), on its track: as near as it can stand and still
+ * turn on the spot to leave (0.04 more than its turning circle off the console's back), and across so that its
+ * shoulder (0.64 left of its middle at the crew's scale) is in line with the Button's cap.
  */
-const REVERT_BESIDE_CONSOLE = {
-  x: AT.console.c[0] + AT.console.half[0] + AT.revert.half[0] + 0.05,
-  z: AT.console.c[2] - AT.console.half[2] - 0.74,
-} as const;
-const REVERT_PARK = { x: 1.8, z: -1.9 } as const;
+const REVERT_BEHIND_CONSOLE = { x: AT.buttonCap[0] + 0.64, z: REVERT_BEHIND } as const;
+const REVERT_PARK = { x: 1.9, z: -1.8 } as const;
 export const REVERT = {
   home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
-  button: { x: REVERT_BESIDE_CONSOLE.x, z: REVERT_BESIDE_CONSOLE.z, heading: -Math.PI / 2 },
+  button: { x: REVERT_BEHIND_CONSOLE.x, z: REVERT_BEHIND_CONSOLE.z, heading: 0 },
   park: { x: REVERT_PARK.x, z: REVERT_PARK.z, heading: -0.35 },
   path: [
     [AT.revert.c[0], AT.revert.c[2]],
     [AT.revert.c[0], REVERT_BEHIND],
     [-2.5, REVERT_BEHIND],
-    [REVERT_BESIDE_CONSOLE.x, REVERT_BEHIND], // the corner: `button` is a short spur straight up from here
+    [REVERT_BEHIND_CONSOLE.x, REVERT_BEHIND_CONSOLE.z], // the Button spot, a corner of the track
     [REVERT_PARK.x, REVERT_PARK.z],
   ] as readonly (readonly [number, number])[],
   /** S7: where the visitor is (Fetch's `outward`): it sweeps a part from its far side, facing them. */
@@ -339,7 +343,7 @@ const S4_UNITS = [
     park: REVERT.park,
     path: REVERT.path,
     outward: REVERT.outward,
-    stack: { at: AT.stack, radius: 0.6, max: 3 },
+    stack: { at: AT.stack, radius: 0.6, max: 2 },
     start: 'below',
     crowded: 4,
     aWhile: 90,
@@ -566,7 +570,7 @@ export const bench: SceneDesc = {
   parts: [
     { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx, e.L / 2, sz], 0.04) },
     { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
-    { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx - 0.03, e.L + e.M + e.S / 2, sz + 0.02], 0.13) },
+    { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose(AT.firstCrate, 0.13) },
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(AT.fetchStart)[0], FETCH_HALF[1], lanePoint(AT.fetchStart)[1]]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
@@ -578,7 +582,7 @@ export const bench: SceneDesc = {
     id: 'button',
     name: 'name.button',
     at: AT.buttonCap,
-    stack: ['crate-1', 'crate-2', 'crate-3'],
+    stack: ['crate-1', 'crate-2'],
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
@@ -611,7 +615,7 @@ export const bench: SceneDesc = {
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 3 }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2 }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
