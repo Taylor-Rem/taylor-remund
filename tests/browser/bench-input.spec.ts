@@ -1030,6 +1030,176 @@ test('R3: the first hover, the first grab and the first press of a visit are eac
   expect(g.snd.startedAfter, 'the first pick-up is heard').toBeGreaterThan(0);
 });
 
+/**
+ * R4 (Taylor: "When grabbing things, i want them to retain their momentum better after you let go, so you can throw
+ * boxes and Fetch and Patch and stuff. They should still always be able to recover."). By mouse at 1440x900 and by
+ * touch at 390x844, the loose crate: a firm flick carries it at least 4 units from where it was let go; a hard
+ * flick takes it off the bench's front edge and it comes back; a set-down stays where it is put.
+ */
+/** A hand whose samples reach the page further apart than this (ms, median) is not a person's: not measured. */
+const COARSE_MS = 25;
+
+async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const id = 'crate-3';
+  const pose = () => page.evaluate((id) => (window as any).__bench.ws.world.motion(id).pose.p as number[], id);
+  const at = (p: number[]) => page.evaluate((p) => (window as any).__bench.project(p) as XY, p);
+  const held = () => page.evaluate(() => (window as any).__bench.ws.world.holding()?.id ?? null);
+  const where = (id: string) => page.evaluate((id) => (window as any).__bench.ws.world.part(id).location.at as string, id);
+  await page.evaluate(() => {
+    const w = (window as any).__bench.ws.world;
+    const d0 = w.dispatch.bind(w);
+    w.dispatch = (i: any) => {
+      if (i.type === 'place' || i.type === 'grab') (window as any).__i1release = [i.type];
+      if (i.type === 'release') {
+        (window as any).__i1release = i.velocity;
+        // where it was let go from (the held part's body at that moment)
+        const h = w.holding();
+        (window as any).__i1from = h ? w.motion(h.id)?.pose.p : null;
+      }
+      d0(i);
+    };
+    // the hand's events as the page receives them: their own timestamps, coalesced ones included
+    (window as any).__i1moves = [] as number[];
+    addEventListener(
+      'pointermove',
+      (e: PointerEvent) => {
+        const list = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+        for (const c of list.length ? list : [e]) (window as any).__i1moves.push(c.timeStamp);
+      },
+      { capture: true },
+    );
+  });
+  const sent = () => page.evaluate(() => (window as any).__i1release as number[] | null);
+  const releasedFrom = () => page.evaluate(() => (window as any).__i1from as number[]);
+  /**
+   * A hand with a person's cadence: CDP mouse or touch events every `dt` ms (a tight timed loop), from the crate's
+   * top along a straight line to the world point `d` units away in direction `dir` (x, z), over `ms`; then up at
+   * once, or after `pauseMs` of stillness. Returns where it was let go, the velocity sent, the event intervals
+   * the page measured.
+   */
+  const hand = async (dir: [number, number], d: number, ms: number, pauseMs = 0, dt = 10): Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }> => {
+    await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
+    // on a phone the crate may have gone out of the frame: a finger pans it back in, as a visitor's would
+    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), id, 'touch');
+    await waitClear(page, id, kind);
+    const p = await pose();
+    const top = [p[0]!, p[1]! + 0.2, p[2]!];
+    // pressed where the crate is plainly what is under the point (nothing of the crew passing over it)
+    const s = await waitClear(page, id, kind, await at(top));
+    const e = await at([top[0]! + dir[0] * d, top[1]!, top[2]! + dir[1] * d]);
+    const mouse = (type: string, q: XY) => cdp.send('Input.dispatchMouseEvent', { type, x: q.x, y: q.y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 } as any);
+    const touch = (type: string, q: XY | null) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: q ? [{ x: q.x, y: q.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] : [] } as any);
+    if (kind === 'mouse') {
+      await page.mouse.move(s.x, s.y);
+      await frames(page, 2);
+      await mouse('mousePressed', s);
+    } else await touch('touchStart', s);
+    await pollFrames(page, held, 120).toBe(id);
+    await page.evaluate(() => ((window as any).__i1moves = []));
+    // each event sent on its own tick, not waiting for the one before to be acknowledged (the round trip is
+    // slower than a hand on a busy machine); the page reports the intervals it actually received them at
+    const n = Math.max(2, Math.round(ms / dt));
+    const sends: Promise<unknown>[] = [];
+    await new Promise<void>((done) => {
+      let k = 0;
+      const tick = setInterval(() => {
+        k++;
+        const q = { x: s.x + ((e.x - s.x) * k) / n, y: s.y + ((e.y - s.y) * k) / n };
+        if (k <= n) sends.push(kind === 'mouse' ? cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: q.x, y: q.y, button: 'left', buttons: 1 } as any) : touch('touchMove', q));
+        // a hand let go mid-flick: the release on the next tick, as a finger lifts while it moves
+        else if (!pauseMs) sends.push(kind === 'mouse' ? mouse('mouseReleased', e) : touch('touchEnd', null));
+        if (k > n) {
+          clearInterval(tick);
+          done();
+        }
+      }, dt);
+    });
+    await Promise.all(sends);
+    if (pauseMs) {
+      await page.waitForTimeout(pauseMs);
+      if (kind === 'mouse') await mouse('mouseReleased', e);
+      else await touch('touchEnd', null);
+    }
+    await frames(page, 2);
+    const moves = await page.evaluate(() => (window as any).__i1moves as number[]);
+    const gaps = moves.slice(1).map((t, k) => t - moves[k]!).sort((a, b) => a - b);
+    const med = gaps[Math.floor(gaps.length / 2)] ?? 0;
+    const load = (await import('node:os')).loadavg()[0]!.toFixed(1);
+    return { from: await releasedFrom(), v: await sent(), gaps: `${moves.length} events, intervals median ${med.toFixed(1)} ms, max ${(gaps.at(-1) ?? 0).toFixed(1)}, load ${load}`, median: med };
+  };
+  const fmt = (v: (number | string)[] | null) => JSON.stringify(v?.map((n) => (typeof n === "number" ? +n.toFixed(2) : n)));
+  // a set-down: carried a little way, held still, let go: it stays where it is put
+  {
+    const r = await hand([1, 0], 0.6, 300, 250);
+    await pollFrames(page, async () => (await where(id)) === 'rest', 600).toBe(true);
+    const q = await pose();
+    const d = Math.hypot(q[0]! - r.from[0]!, q[2]! - r.from[2]!);
+    out['set-down'] = `moved ${d.toFixed(2)} after letting go (velocity ${fmt(r.v)}; ${r.gaps})`;
+    console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
+    expect.soft(d, 'a set-down stays where it is put').toBeLessThan(0.4);
+  }
+  // a firm flick into open bench (toward -x, the way S5 measured clear of the stations): about 12 u/s
+  // (only believed when the page received the hand's samples at a person's rate: coarser than 25 ms is a hand nobody
+  // has, reported as not measured after one retry)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await hand([-1, 0], 1.2, 100);
+    await pollFrames(page, async () => (await where(id)) !== 'held', 120).toBe(true);
+    await frames(page, 240);
+    const q = await pose();
+    const d = Math.hypot(q[0]! - r.from[0]!, q[2]! - r.from[2]!);
+    const coarse = r.median > COARSE_MS;
+    out['firm flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}carried ${d.toFixed(2)} units (velocity ${fmt(r.v)}; ${r.gaps})`;
+    console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
+    if (coarse) continue;
+    expect.soft(d, 'a firm flick carries it at least 4 units').toBeGreaterThanOrEqual(4);
+    break;
+  }
+  // a hard flick off the front edge (+z): about 30 u/s; it leaves the bench and comes back
+  {
+    const returned = () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id);
+    let before = await returned();
+    let r = await hand([0, 1], 3, 100);
+    let left = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        before = await returned();
+        r = await hand([0, 1], 3, 100);
+      }
+      left = await pollFrames(page, async () => (await pose())[1]! < -0.2, 600, 'off the bench')
+        .toBe(true)
+        .then(() => true)
+        .catch(() => false);
+      const coarse = r.median > COARSE_MS;
+      out['hard flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}velocity ${fmt(r.v)}; left the bench: ${left} (${r.gaps})`;
+      console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
+      if (coarse && !left) continue;
+      if (!coarse) expect.soft(left, 'a hard flick takes it off the bench').toBe(true);
+      break;
+    }
+    if (left) {
+      await pollFrames(page, () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id), 2400, 'it comes back').toBe(before + 1);
+      await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'and comes to rest').toBe(true);
+    }
+  }
+  return out;
+}
+
+test('R4: throwing: a firm flick carries a crate, a hard one takes it off the bench and it comes back, a set-down stays; by mouse and by touch', async ({ page, browser }) => {
+  test.setTimeout(20 * 60_000);
+  await open(page, 1440, 900);
+  const mouse = await throwTests(page, 'mouse', await page.context().newCDPSession(page));
+  console.log(`[I1] R4 mouse: ${JSON.stringify(mouse)}`);
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const p2 = await ctx.newPage();
+  await open(p2, 390, 844);
+  const cdp = await ctx.newCDPSession(p2);
+  await bringIntoView(p2, fingerHand(cdp), 'crate-3', 'touch');
+  const touch = await throwTests(p2, 'touch', cdp);
+  console.log(`[I1] R4 touch: ${JSON.stringify(touch)}`);
+  await ctx.close();
+});
+
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
   await open(page, 1440, 900);
   await standIns(page);
