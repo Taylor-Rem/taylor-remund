@@ -702,7 +702,15 @@ export class FetchPerformer {
       }
       const cx = i.visitor[0] - P.x, cz = i.visitor[2] - P.z;
       const camYaw = Math.atan2(cx * side.x + cz * side.z, cx * fwd.x + cz * fwd.z);
-      fr = frightened({ ...i.rung, away, camYaw, reducedMotion: rm });
+      let buttonYaw = 0;
+      if (i.button) {
+        const bx = i.button[0] - P.x, bz = i.button[2] - P.z;
+        buttonYaw = Math.atan2(bx * side.x + bz * side.z, bx * fwd.x + bz * fwd.z);
+      }
+      // (bearings from the body as drawn: its heading plus the view's own turn of it)
+      const bt = this.bodyTurn.x, cb = Math.cos(bt), sb = Math.sin(bt);
+      away = [away[0] * cb + away[1] * sb, away[1] * cb - away[0] * sb];
+      fr = frightened({ ...i.rung, away, camYaw: camYaw - bt, buttonYaw: buttonYaw - bt, reducedMotion: rm });
     }
     if (frozen) {
       look = i.button ? new Vector3(...i.button) : this.lastLook ?? look;
@@ -1036,6 +1044,9 @@ export class FetchPerformer {
         pose.headYaw = clamp((pose.headYaw ?? 0) - spinW, -F.headYawMax, F.headYawMax);
         pose.headPitch = (pose.headPitch ?? 0) + ro.nod;
       }
+      // the fright's turn to the visitor (the whole body, the simulation's heading untouched), over any reach's
+      // own; before the grip is read, so a carried crate turns with the claws
+      if (fr && fr.weight > 1e-3) pose.spin = (pose.spin ?? 0) + (fr.pose.spin ?? 0) * fr.weight;
       this.reachOut = { weight: ro.weight, grip: gripOf(pose, half ? null : (target && target[0] >= 0 ? 'left' : 'right')), two: half !== null };
     }
     // the wheel and the pennant are the acting's own (they turn with the ground and the air)

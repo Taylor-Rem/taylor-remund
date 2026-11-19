@@ -34,8 +34,15 @@ export const HIDE: Arms = { left: { ...J(2.9, 0.75, 0, 0.15, -1.0, 0.2), tele: 0
 const PEEK_R: ArmJoints = { ...J(1.3, 0.7, 0, 1.3, -0.8, 0.5), tele: 0.03 };
 /** The startle: both arms flung straight up, the tubes run out, jaws wide. */
 const UP: Arms = { left: { ...J(2.9, 0.6, 0, 0.15, 0, 1), tele: 0.225 }, right: { ...J(2.9, 0.6, 0, 0.15, 0, 1), tele: 0.225 } };
-/** The turret's aim while hiding, toward the home camera: yaw (a share of the camera's bearing) and pitch. */
-export const HIDE_AIM = { yawShare: 0.67, pitch: -0.2 } as const;
+/**
+ * Hiding: the body turned so the camera is off its right at this bearing (radians, as headYaw), the turret
+ * turned toward it by `yaw` and dipped by `pitch`, the body leaning as solved. (Face on, neither claw can
+ * reach in front of the eye: they hang at its sides.)
+ */
+export const HIDE_AIM = { camAt: -1.5, yaw: -1.0, pitch: -0.2, lean: [-0.15, -0.24] as const } as const;
+/** The turret's pitch to meet the home camera's eye (it looks down on the bench from about 37 degrees). */
+const UP_TO_CAMERA = 0.42;
+const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 /** Claws over its head: cowering. */
 export const COWER: Arms = { left: J(2.2, 0.3, 0.6, 1.7, 0, 0.2), right: J(2.15, 0.32, 0.6, 1.75, 0, 0.2) };
 const REST_ARMS: Arms = { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.38, 0.18, -0.35, 0.9, -0.3, 0.25) };
@@ -52,8 +59,13 @@ export interface FrightOptions {
   presses: number;
   /** Unit [fore, side] in its root frame pointing away from the Button: it leans that way the whole rung. */
   away?: readonly [number, number];
-  /** The camera's bearing in its root frame (radians, as headYaw): rung 4 turns its hidden face toward it. */
+  /**
+   * The camera's bearing in its root frame (radians, as headYaw): the fright is played to the visitor, so the
+   * whole body turns to it in the air (the simulation's heading untouched), rung 4 to hide from it.
+   */
   camYaw?: number;
+  /** The Button's bearing in its root frame: the quick glances at it. */
+  buttonYaw?: number;
   reducedMotion?: boolean;
 }
 
@@ -93,12 +105,24 @@ export function frightened(o: FrightOptions): Fright {
   // the shiver (not in reduced motion)
   const tt = playing ? o.t : o.t + 50;
   const shiver = rm ? 0 : 1 - smoothstep(0, 0.8, playing ? 0 : o.t);
+  // the turn to the visitor: whipped round in the air (whole body), so the eye meets the camera
+  const S = wrap((o.camYaw ?? 0) - (hide ? HIDE_AIM.camAt : 0));
+  const turn = rm ? 1 : smoothstep(0.04, 0.3, t);
+  // away from the Button, in the turned frame (root [side x, fore z] turned by -S)
   const aw = o.away ?? [0, 0];
+  const cs = Math.cos(S), sn = Math.sin(S);
+  const awSide = aw[1] * cs - aw[0] * sn, awFore = aw[1] * sn + aw[0] * cs;
   const LEAN = 0.3; // 17 degrees away from the Button, the whole rung
+  const base: [number, number] = hide ? [HIDE_AIM.lean[0], HIDE_AIM.lean[1]] : [LEAN * awFore, LEAN * awSide];
   const lean: [number, number] = [
-    LEAN * aw[0] + (v === 1 ? -0.06 : 0) * crouch + 0.03 * shiver * Math.sin(tt * Math.PI * 2 * 9.5 + 1),
-    LEAN * aw[1] + 0.07 * shiver * Math.sin(tt * Math.PI * 2 * 12),
+    base[0] + (v === 1 ? -0.06 : 0) * crouch + 0.03 * shiver * Math.sin(tt * Math.PI * 2 * 9.5 + 1),
+    base[1] + 0.07 * shiver * Math.sin(tt * Math.PI * 2 * 12),
   ];
+  // the visitor's eye held most of the rung, with quick glances at the Button and back
+  const g1 = smoothstep(1.3, 1.42, t) * (1 - smoothstep(1.62, 1.75, t));
+  const g2 = v === 1 ? 0 : smoothstep(2.6, 2.72, t) * (1 - smoothstep(2.9, 3.02, t));
+  const glance = rm || hide || !playing ? 0 : Math.max(g1, g2);
+  const toButton = clamp(wrap((o.buttonYaw ?? 0) - S), -1.4, 1.4);
   const squash = (jump > 0 ? -0.5 : 0) + 0.95 * land + crouch * (v === 2 ? 0.5 : 0.32);
   const hidden = hide ? 1 - peek : 0;
   const pose: FetchPose = {
@@ -106,8 +130,9 @@ export function frightened(o: FrightOptions): Fright {
     squash: clamp(squash, -0.6, 1),
     lift: jump,
     headRoll: 0.1 * shiver * Math.sin(tt * Math.PI * 2 * 10),
-    headPitch: hide ? lerp(HIDE_AIM.pitch, 0.15, peek) : -0.05,
-    headYaw: hide ? HIDE_AIM.yawShare * (o.camYaw ?? 0) : 0,
+    headPitch: hide ? lerp(HIDE_AIM.pitch, 0.15, peek) : lerp(UP_TO_CAMERA, 0, glance),
+    headYaw: hide ? HIDE_AIM.yaw : toButton * glance,
+    spin: S * turn,
     brow: t < 0.5 ? -1 : -0.55 - 0.4 * peek,
     pupilSize: hide ? lerp(0.7, 0.6, peek) : t < 0.6 ? 0.55 : 0.7,
     // the eye: wide (the whole disc bigger), its brightest thing; hiding, the lids close behind the claw
@@ -116,10 +141,11 @@ export function frightened(o: FrightOptions): Fright {
     arms,
     aerial: [0.5 * shiver * Math.sin(tt * Math.PI * 2 * 6) + (jump > 0 ? -0.8 : 0), 0.4 * shiver * Math.sin(tt * Math.PI * 2 * 7.5)],
   };
-  if (playing) return { pose, weight: 1, toVisitor: 0, aim: hide ? 1 : 0 };
+  if (playing) return { pose, weight: 1, toVisitor: 0, aim: 1 };
   // the rewind: it unfolds cautiously (a little, a pause, the rest), and is itself before the card comes up
   const R = Math.max(0.5, o.rewind);
   const ur = clamp(o.t / R, 0, 1);
   const unfold = 0.35 * smoothstep(0.1, 0.3, ur) + 0.65 * smoothstep(0.45, 0.85, ur);
-  return { pose, weight: 1 - unfold, toVisitor: smoothstep(0.5, 0.8, ur), aim: hide ? 1 - smoothstep(0.1, 0.5, ur) : 0 };
+  // (the turn eases back with the weight: the body goes back to where the simulation has it facing)
+  return { pose, weight: 1 - unfold, toVisitor: smoothstep(0.5, 0.8, ur), aim: 1 - smoothstep(0.1, 0.5, ur) };
 }
