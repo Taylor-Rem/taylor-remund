@@ -356,7 +356,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await page.mouse.move(dial.x, dial.y);
     await frames(page, 2);
     expect(await hovered(page)).toBe('belt-dial');
-    expect(await cursor(page)).toBe('pointer');
+    expect(await cursor(page)).toMatch(/pointer$/); // the glove's one finger (its fallback names the system cursor)
     // taken on the knob's crown, a hand drags round it in a widening sweep (a real hand does not keep to the knob)
     const pts = arc(dial, 1, -95, -95 + 2 * 32 + 14, 14).map((p, i) => {
       const k = Math.max(8, dial.r * 0.4) + i * 2.5;
@@ -577,7 +577,7 @@ test('every pick target is at least 44 px on a touch screen at the phone framing
   // A 44 px fingertip round each target's centre: every point of its rim (and the centre) picks it on touch,
   // unless a neighbour's centre is nearer that point (two small things side by side split the space between them).
   // Things the home framing leaves off screen are panned to the middle first, at the home zoom.
-  const ids = ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'phone', 'button-cover', 'button', 'lamp', 'cord'];
+  const ids = ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'phone', 'button-cover', 'button', 'lamp', 'cord', 'dock-bell'];
   const out: Record<string, string> = {};
   for (const id of ids) {
     const centred = await page.evaluate((id) => {
@@ -631,7 +631,7 @@ test('every pick target is at least 44 px on a touch screen at the phone framing
     }, id);
   }
   console.log(`[I1] 44 px at 390×844 (home zoom): ${JSON.stringify(out)}`);
-  for (const id of ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'lamp', 'cord']) expect(out[id], id).toBe('ok');
+  for (const id of ['belt-dial', 'belt-lever', 'undo-lever', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'lamp', 'cord', 'dock-bell']) expect(out[id], id).toBe('ok');
   await ctx.close();
 });
 
@@ -657,6 +657,11 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   const undos = await logCount(page, 'undone');
   await page.keyboard.press('u');
   await pollFrames(page, () => logCount(page, 'undone')).toBe(undos + 1);
+  // the bell: a control in the list; Enter rings it
+  const rings = await page.evaluate(() => (window as any).__bench.log.filter((l: any) => l.e.type === 'handle.worked' && l.e.id === 'dock-bell').length);
+  await tabTo('dock-bell');
+  await page.keyboard.press('Enter');
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.log.filter((l: any) => l.e.type === 'handle.worked' && l.e.id === 'dock-bell').length)).toBe(rings + 1);
   // the plug by keys: Enter lifts it, Tab to the LAMP jack, Enter seats it
   await tabTo('cord');
   await page.keyboard.press('Enter');
@@ -769,6 +774,41 @@ test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end t
   await pollFrames(page, async () => (await events('undone')).length + (await events('undo.refused')).length, 300, 'UNDO answered').toBe(1);
   await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2')?.colour), 600, 'the paint taken back').toBe('bare');
   expect(errors).toEqual([]);
+});
+
+test('R1: the glove cursor over the stage (four poses as CSS images), and the bell rung by the mouse', async ({ page, browser }) => {
+  await open(page, 1440, 900);
+  const cur = () => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
+  // the pictures arrive once, at start-up: then every cursor of input's is a glove (image-set with a 2x picture)
+  await pollFrames(page, async () => /image-set\(/.test(await cur())).toBe(true);
+  const free = await page.evaluate(() => {
+    const ws = (window as any).__bench.ws;
+    for (let y = 840; y > 400; y -= 10) for (let x = 600; x < 900; x += 10) if (ws.surface.at(x, y, 'mouse', null).id === null) return { x, y };
+    return null;
+  });
+  await page.mouse.move(free!.x, free!.y);
+  await frames(page, 3);
+  expect(await cur(), 'resting over empty bench').toMatch(/, default$/);
+  const bell = await waitClear(page, 'dock-bell', 'mouse');
+  await page.mouse.move(bell.x, bell.y);
+  await frames(page, 3);
+  expect(await cur(), 'one finger over the bell').toMatch(/image-set\(.*, pointer$/);
+  const crate = await waitClear(page, 'crate-1', 'mouse');
+  await page.mouse.move(crate.x, crate.y);
+  await frames(page, 3);
+  expect(await cur(), 'open over a part').toMatch(/image-set\(.*, grab$/);
+  // the bell rung by a click: it swings and sounds (the world's handle.worked), ending attract mode
+  const b2 = await waitClear(page, 'dock-bell', 'mouse');
+  await stroke(page, mouseHand(page), [b2, b2]);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.log.filter((l: any) => l.e.type === 'handle.worked' && l.e.id === 'dock-bell').length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).__bench.ws.world.playMode)).toBe(true);
+  // a visitor who asks for reduced motion keeps the system's cursor
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const p2 = await ctx.newPage();
+  await open(p2, 1440, 900);
+  await frames(p2, 30);
+  expect(await p2.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor)).not.toMatch(/image-set/);
+  await ctx.close();
 });
 
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {

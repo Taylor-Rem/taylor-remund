@@ -144,9 +144,10 @@ describe('the footprints', () => {
    * lane's right end, which stops clear of its portal (the oriented test below); the chute's footprint box takes in the corner by
    * the belt's motor housing (its duct passes behind it); the stack stands at today's platen's front-left corner, over the
    * conduit that leaves its jack plate (the reshaped piece's footprint ends at its left foot, 0.1 right of the stack); the dock's
-   * turned footprint's box reaches back over today's platen's front-right corner (its portal is clear of it: the oriented test).
+   * turned footprint's box reaches back over today's platen's front-right corner (its portal is clear of it: the oriented test);
+   * the chute's landing pad is tape on the last slot of the deflector's row, which is the belt piece's (the slide's foot).
    */
-  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'chute|belt', 'platen|stack', 'platen|dock']);
+  const MEANT = new Set(['striker|belt', 'board|stool', 'hatch|revert', 'belt|dock', 'chute|belt', 'platen|stack', 'platen|dock', 'belt|pad']);
   /** The lane is a path of runs, not a box: its tape is held off every body, run by run, below. */
   const SKIP = new Set(['lane']);
   // the real pieces' footprints are their bounds (the platen's conduit, the storefront's jack box, the dock's ramp included)
@@ -611,7 +612,14 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
     const p = belt({ length: LAYOUT.beltLength, detail: 'low', line: true });
     const [bx0, bz0] = S.belt.at!;
     const off = new Vector3().setFromMatrixPosition(p.sockets!['off.back']!).add(new Vector3(bx0, 0, bz0));
-    const foot = new Box3(new Vector3(off.x - 0.4, 0, off.z - 0.4), new Vector3(off.x - 0.4 + 3 * 0.8, 0.8, off.z + 0.4));
+    // the row is the simulation's (LINE.belt.offBackRow: where parts guided off the back come to rest, side by side from
+    // its chute end); the slide drawn by the belt piece ends on it (its foot, the 'off.back' socket, inside the row)
+    const row = L.offBackRow;
+    expect(row.maxX - row.minX).toBeGreaterThanOrEqual(3 * 0.8 - 1e-9);
+    expect(off.x).toBeGreaterThan(row.minX);
+    expect(off.x).toBeLessThan(row.maxX);
+    expect(off.z).toBeCloseTo(L.offBack[2], 2);
+    const foot = new Box3(new Vector3(row.minX, 0, off.z - 0.4), new Vector3(row.maxX, 0.8, off.z + 0.4));
     for (const s of scene.statics) {
       if (s.id === 'bench' || s.id === 'back-wall') continue;
       expect(foot.intersectsBox(body(s.id)) ? `the foot under ${s.id}` : null).toBe(null);
@@ -636,6 +644,35 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
       const dx = Math.max(0, c.min.x - x, x - c.max.x), dz = Math.max(0, c.min.z - z, z - c.max.z);
       expect(Math.hypot(dx, dz)).toBeGreaterThanOrEqual(1.4);
     }
+  });
+});
+
+describe("the chute's landing pad (A1 R1)", () => {
+  const pad = S.pad;
+  const L = LINE.belt;
+  const row = L.offBackRow;
+  it("is the last slot of the deflector's row, in line with Fetch's tape, on clear bench", () => {
+    // the row's third crate's place (three 0.8 crates from its chute end), on the row's line
+    expect(pad.x).toBeCloseTo(row.minX + 2.5 * 0.8, 2);
+    expect(pad.z).toBeCloseTo(L.offBack[2], 2);
+    const box = new Box3(new Vector3(pad.x - 0.4, 0, pad.z - 0.4), new Vector3(pad.x + 0.4, 0.8, pad.z + 0.4)); // an L crate on it
+    for (const s of scene.statics) {
+      if (s.id === 'bench' || s.id === 'back-wall') continue;
+      expect(box.intersectsBox(body(s.id)) ? `an L crate on the pad meets ${s.id}` : null).toBe(null);
+    }
+    // Revert's hatch and its doors' swing; the chute's ordinary returns (they land about 0.7 in from its mouth)
+    expect(box.intersectsBox(spotBox(S.hatch))).toBe(false);
+    expect(pad.x - 0.4 - (AT.chute.p[0] + 0.7 + 0.4)).toBeGreaterThan(0.5);
+    // the lane's tape, drawn from the lane's points: clear of the pad's tape
+    const tape = laneOutline(AT.lane.points as readonly (readonly [number, number])[], LANE_TAPE.half, LANE_TAPE.past);
+    expect(Math.min(...tape.map((p) => p[0]))).toBeGreaterThan(pad.x + pad.w / 2);
+  });
+
+  // until the simulation moves the tape's left end to (-2.9, 2.78) (S5, R1), the pad is 1.31 from today's end
+  it.skipIf(AT.lane.points[0]![0] > -2.85)("is within the arm's reach of the tape's left end, ahead of it (in profile), clear of its body", () => {
+    const end = AT.lane.points[0]!;
+    expect(Math.hypot(pad.x - end[0], pad.z - end[1])).toBeLessThanOrEqual(1.1);
+    expect(end[0] - defaultHalfExtents('robot', 'M')[2] * CREW_SCALE - (pad.x + 0.4)).toBeGreaterThan(0.1); // its nose to an L crate's near face
   });
 });
 

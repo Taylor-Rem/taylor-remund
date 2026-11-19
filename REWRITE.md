@@ -595,8 +595,12 @@ Rules that protect this sequence:
 - **The centre cluster.** The Button, the loose crate, the phone and Patch
   sit inside the middle 40% of the bench, so a phone held upright shows all
   four without panning.
-- **Never nag.** If the fumbled crate is ignored for twelve seconds Fetch
-  picks it up, shrugs and carries on. The fumble repeats at most every
+- **Never nag.** If the fumbled crate is ignored for five seconds Fetch
+  picks it up, shrugs and carries on at once (twelve was the first
+  figure; Taylor, playing it on 2026-11-19: "He pauses for too long after
+  he drops it"). While the visitor's pointer rests on the crate the offer
+  holds, to twelve seconds at most, so the crate is never taken from under
+  a reaching hand. The fumble repeats at most every
   forty seconds and stops for good after the visitor's first action.
 - **Nothing is hidden behind the first action.** The strip's links work
   from the first paint.

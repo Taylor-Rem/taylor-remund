@@ -58,6 +58,8 @@ export const SCORE_TUNING = {
   hitGap: 0.08,
   /** The same sound starts at most once in this long (s), unless it is a note. */
   sameGap: 0.03,
+  /** (I1 R1) The bell rung by hand: its gain (a shipment's is 1), how much quieter each ring on the last one's heels, the window (s), the most at once. */
+  handBell: { gain: 0.72, fall: 0.8, window: 2.2, voices: 3 },
   /** The belt's middle speed (units/s): the hum's rate is 1 there. */
   beltNominal: 1.5,
   /** Revert's crank clicks once per this much turn (rad): an eighth of a turn. */
@@ -93,6 +95,8 @@ export class Score {
   private revert: Id | null | undefined = undefined;
   private fetch: Id | null | undefined = undefined;
   private cues: Cue[] = [];
+  private readonly bells = new Set<Id>();
+  private bellRings: number[] = [];
 
   /** Read one frame: its events (in order) and the world as it stands after them. */
   hear(world: WorldView, events: readonly SimEvent[]): Heard {
@@ -146,6 +150,7 @@ export class Score {
         return;
       }
       case 'handle.worked': {
+        if (this.bells.has(e.id)) return this.ringByHand(w, e.id, now);
         const at = this.posOf(w, e.id);
         if (e.id === w.undoId || e.id === this.lever) return this.play('undo.latch', now, {}, at);
         const b = w.button();
@@ -318,6 +323,22 @@ export class Score {
   // ───────────────────────── where things are ─────────────────────────
 
   /** Find the units the score follows, once: by kind, never by a name typed here. */
+  /**
+   * (I1 R1) The bell rung by hand: the shipment's bell, a touch softer. Rung fast it stays pleasant: each ring
+   * within the last one's length a little quieter, and never more than three sounding at once (a fourth is
+   * the swing alone).
+   */
+  private ringByHand(w: WorldView, id: Id, now: number): void {
+    const T = SCORE_TUNING.handBell;
+    this.bellRings = this.bellRings.filter((t) => now - t < T.window && now >= t);
+    if (this.bellRings.length >= T.voices) return;
+    const gain = T.gain * Math.pow(T.fall, this.bellRings.length);
+    this.bellRings.push(now);
+    this.lastPlayed.delete('dock.bell'); // a hand may ring it on the heels of a shipment
+    const dock = id.slice(0, -'-bell'.length);
+    this.play('dock.bell', now, { gain }, this.posOf(w, dock));
+  }
+
   private find(w: WorldView): void {
     if (this.belt !== undefined) return;
     this.bench = w.scene.bench;
@@ -329,6 +350,8 @@ export class Score {
       if (k === 'belt' && !this.belt) this.belt = it.id;
       if (k === 'revert' && !this.revert) this.revert = it.id;
       if (k === 'undo-lever' && !this.lever) this.lever = it.id;
+      // (I1 R1) a dock's hand bell: `<dock>-bell` (sim/machines/dock.ts `bellOf`)
+      if (k === 'dock' && w.interactable(`${it.id}-bell`)) this.bells.add(`${it.id}-bell`);
     }
     const fetch = w.crewViews().find((c) => c.kind === 'fetch');
     this.fetch = fetch ? fetch.id : null;
