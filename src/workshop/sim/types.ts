@@ -515,6 +515,8 @@ export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
  * brings it up (it may already be cranking). `sinking` (S7): its work done and back on its hatch, after a
  * deadpan pause the lift takes it down (`lift` 1 → 0 over the rise time; the doors stay open until it
  * is down, then shut after it), then `below`; called meanwhile, it rises again from where the lift is.
+ * `present` (R1): it has a card to show: it stops, turns to face the visitor if it is not already, raises
+ * the card (`card`) and holds still facing them for `card.read`; then it carries on (its trip, the cover).
  * `idle`: up, awake, flat-lidded. `trundle`: driving on its
  * treads (`speed`). `crank`: turning its crank while a change runs backwards. `fit`: screwing the
  * cover on the Button. `sweep`: putting a part away (`sweeping`). `park`: asleep in the window's light,
@@ -522,7 +524,7 @@ export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
  * in the visitor's hand, limp. `loose`: put down (or on the belt, or shipped): it waits to come to
  * rest, rights itself and carries on.
  */
-export type RevertState = 'below' | 'rising' | 'sinking' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
+export type RevertState = 'below' | 'rising' | 'sinking' | 'present' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
 
 /**
  * Revert's state, published as a machine view (`world.machine(<its unit id>)`, kind `revert`) because
@@ -554,7 +556,12 @@ export interface RevertView extends MachineViewBase {
   /** The face: flat-lidded (deadpan), open (working), glare (at the visitor), one (asleep, one eye open), rolled (limp). */
   readonly eyes: 'flat' | 'open' | 'glare' | 'one' | 'rolled';
   /** The card it holds up in its clip, and for how long it has held it. */
-  readonly card: { readonly content: string; readonly since: number } | null;
+  /**
+   * The card it holds up in its clip, and for how long it has held it. R1: `read` is how long it stays
+   * still and facing the visitor from when the card goes up (0 when it went up with nobody to turn: down
+   * its hatch, in a hand); nothing it does moves it before `since` reaches `read`.
+   */
+  readonly card: { readonly content: string; readonly since: number; readonly read: number } | null;
   /** The part it is putting away, while it sweeps. */
   readonly sweeping: Id | null;
   readonly drawn: boolean;
@@ -794,6 +801,12 @@ export interface ButtonView {
   readonly deck: { readonly left: readonly Id[]; readonly last: Id | null };
   /** Rungs are the card and the lamp dip only (§ B4, § B10). */
   readonly reducedMotion: boolean;
+  /**
+   * R1: the rung as a show, for the crew's performers: seconds since the press (through the play and the
+   * rewind; `script`'s beat times are on this clock) and its whole length (`script.play + script.rewind`).
+   * Null when no rung is playing.
+   */
+  readonly show: { readonly elapsed: number; readonly length: number } | null;
 }
 
 /** The switchboard cord (§ B2 X1). */
