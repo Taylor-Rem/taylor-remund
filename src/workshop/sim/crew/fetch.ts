@@ -406,6 +406,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let lastFumble: number | null = null;
   let fumbled: Id | null = null; // the crate it fumbled and is offering
   let frozenFrom: { state: FetchState; entered: number; at: number } | null = null;
+  /** R2: it went out through the dock while held; when it is down again it shakes itself off (a shrug) before it goes back. */
+  let shipped = false;
+  let shrugThenReturn = false;
   let lookAt: Vec3 | null = null;
 
   // ── S5 ──
@@ -1324,6 +1327,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       lastPlaced = -Infinity;
       purpose = 'lap';
       v = 0;
+      shrugThenReturn = false;
       if (state !== 'held' && state !== 'frozen') {
         if (ctx.mode(spec.id) === 'crew') {
           s = nearest(x, z);
@@ -1387,6 +1391,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           return;
         }
         heldLast = mode === 'free' && pNow ? pNow.p : null;
+        if (ctx.part(spec.id)?.location.at === 'shipped') shipped = true;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
         if (mode === 'free' && ctx.settled(spec.id)) {
           const p = ctx.pose(spec.id);
@@ -1398,7 +1403,11 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           ctx.attach(spec.id, spec.id);
           ctx.drive(spec.id, bodyPose(), true);
           s = nearest(x, z);
-          enter('return');
+          if (shipped) {
+            shipped = false;
+            shrugThenReturn = true;
+            enter('shrug');
+          } else enter('return');
         }
         return;
       }
@@ -1692,7 +1701,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           flyJet(now);
           break;
         case 'shrug':
-          if (inState() >= steps(T.shrug)) {
+          if (inState() >= steps(T.shrug) && shrugThenReturn) {
+            shrugThenReturn = false;
+            enter('return');
+          } else if (inState() >= steps(T.shrug)) {
             toIdle();
             // R1: crate back in hand, it gets straight back to work (no pause after the shrug)
             if (carrying) idleFor = 0;

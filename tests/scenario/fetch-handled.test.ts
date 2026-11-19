@@ -56,7 +56,8 @@ describe('picked up and put down', () => {
     expect(shipped).not.toBeNull();
     expect(w.mode('fetch')).toBe('gone');
     expect(w.crew('fetch')!.state).toBe('held');
-    const returned = t.until((e) => e.type === 'part.returned' && e.id === 'fetch', steps(14));
+    // (R2) refused at once: thrown back up the chute onto its stand by the pad, under two seconds after it went
+    const returned = t.until((e) => e.type === 'restock.launched' && e.part === 'fetch', steps(2));
     expect(returned).not.toBeNull();
     const hurry = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'return', steps(6));
     expect(hurry).not.toBeNull();
