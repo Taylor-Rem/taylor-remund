@@ -139,6 +139,8 @@ export const AT = {
    * One constant: the dock aims the chute's arc at it, Fetch's rounds take from it.
    */
   pad: [-3.91, 2.68] as const,
+  /** R2: where a robot the dock refuses is thrown back to (x, z): Fetch's stand at the pad, else the next free place along its tape. */
+  home: [[-2.9, 2.78], [-2.35, 2.78], [-1.8, 2.78], [-1.25, 2.78]] as const,
   /** S5 R1: the chute's throw onto the pad: the top of its arc (world y): a crate's bottom is 1.2 or more over the deflector row's slots 1 and 2 (x -5.9..-4.3) at every size; about 1.15 s in the air. */
   padApex: 3.6,
   /** S5 R1 (lead): the chute aims by the crate's near face: every size's face toward the stand lands at x -3.57 (an L centred at -3.97, an S at -3.80), 0.07 from Fetch's body at the stand. */
@@ -648,7 +650,7 @@ export const bench: SceneDesc = {
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear } }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear, home: AT.home } }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,

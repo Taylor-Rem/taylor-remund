@@ -61,8 +61,13 @@ export const DOCK_TUNING = {
   linger: 0.25,
   /** A plain crate is replaced on the stack this long after it ships. */
   restockAfter: 1.4,
-  /** A tool or a robot comes back up the chute this long after it ships. */
+  /**
+   * A tool or a robot comes back up the chute this long after it ships. (R2) A robot with a pad to land by is
+   * refused at once: the door shuts on it, a beat, and it is thrown back out (ten seconds of nothing read as gone).
+   */
   returnAfter: { tool: 6, robot: 10 } as Readonly<Record<Exclude<PartKind, 'crate'>, number>>,
+  /** R2: the beat between a robot going through the door and the chute throwing it back (s; under two with nothing of it on screen). */
+  refuseAfter: 1.5,
   /** A part taken in off the centre line eases onto it over this much of the ramp. */
   settleOn: 0.4,
   /** A misfire jumps the door open for this long (per level); an undo's return opens it for this long. */
@@ -104,6 +109,11 @@ export interface DockSpec {
     readonly apex: number;
     /** Aim by the crate's near face: every size lands with its face toward this point AT it (a big crate further in), not centred on `at`. */
     readonly near?: readonly [number, number];
+    /**
+     * R2: where a shipped robot is thrown back to (x, z), first choice first: by its stand at the pad; if that is taken,
+     * the next free one along its tape. None free: the first, and physics parts them.
+     */
+    readonly home?: readonly (readonly [number, number])[];
   };
 }
 
@@ -139,6 +149,8 @@ interface Flight {
   readonly yaw0: number;
   readonly spin: number;
   readonly axis: Vec3;
+  /** Whose rest it is on touchdown: the system's for a fresh crate, the crew's for a robot thrown home (R2). */
+  readonly cause: Cause;
   /** On the pad (driven there exactly): handed to physics at the next step. */
   down: boolean;
 }
@@ -228,7 +240,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: part.size });
       return;
     }
-    const at = ctx.clock.step + steps(T.returnAfter[part.kind]);
+    const at = ctx.clock.step + steps(part.kind === 'robot' && spec.pad?.home ? T.refuseAfter : T.returnAfter[part.kind]);
     if (part.kind === 'robot') returns.push({ id: s.id, at, job: null });
     else returns.push({ id: s.id, at, job: ctx.history.work(ctx.history.chargeMachine(s.id), spec.id, () => (returns = returns.filter((r) => r.id !== s.id))) });
   }
@@ -250,7 +262,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       ctx.commit([marks], 'crew');
       cause = 'crew';
     }
-    ctx.toChute(r.id, cause);
+    if (part.kind === 'robot' && spec.pad?.home) throwHome(r.id);
+    else ctx.toChute(r.id, cause);
     ctx.emit({ type: 'returned', id: spec.id, part: r.id, how: 'chute' });
   }
 
@@ -349,7 +362,12 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       const ext = half[0] * Math.abs(ux * Math.cos(a) - uz * Math.sin(a)) + half[2] * Math.abs(ux * Math.sin(a) + uz * Math.cos(a));
       [cx, cz] = [pad.near[0] + ux * ext, pad.near[1] + uz * ext];
     }
-    const to: Vec3 = [cx, ctx.scene.bench.top + half[1] + 0.005, cz];
+    throwTo(id, [cx, ctx.scene.bench.top + half[1] + 0.005, cz], yaw0, spin, 'system');
+  }
+  /** Out of the chute's mouth on an arc with its top at the pad's `apex`, tumbling by whole turns, to land square at `to`. */
+  function throwTo(id: Id, to: Vec3, yaw0: number, spin: number, cause: Cause): void {
+    const pad = spec.pad as NonNullable<DockSpec['pad']>;
+    const from = pad.from;
     const apex = Math.max(pad.apex, from[1] + 0.1, to[1] + 0.1);
     const vy = Math.sqrt(2 * g * (apex - from[1]));
     const time = vy / g + Math.sqrt((2 * (apex - to[1])) / g);
@@ -357,11 +375,32 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const dx = to[0] - from[0];
     const dz = to[2] - from[2];
     const l = Math.hypot(dx, dz) || 1;
-    const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], down: false };
-    ctx.launch(id, { p: from, q: qyaw(yaw0) }, [0, 0, 0], [0, 0, 0], 'system');
+    const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], down: false, cause };
+    ctx.launch(id, { p: from, q: qyaw(yaw0) }, [0, 0, 0], [0, 0, 0], cause);
     if (!ctx.take(id, spec.id)) return; // (never: it was just put into the world, free)
     flights.push(f);
     ctx.emit({ type: 'restock.launched', id: spec.id, part: id, from, to, flight: time });
+  }
+  /**
+   * R2: a robot the dock refused, thrown back up the chute to land on its wheels by its stand at the pad (or the next
+   * free place along its tape: never onto whatever stands there, nor where a crate is landing). The crew's.
+   */
+  function throwHome(id: Id): void {
+    const pad = spec.pad as NonNullable<DockSpec['pad']>;
+    const homes = pad.home as NonNullable<DockSpec['pad']>['home'] & object;
+    const half = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
+    const mine = Math.hypot(half[0], half[2]);
+    const free = ([hx, hz]: readonly [number, number]): boolean =>
+      ctx.parts().every((o) => {
+        if (o === id) return true;
+        const m = ctx.mode(o);
+        const p = ctx.pose(o)?.p;
+        if (!p || m === 'gone' || m === 'chute' || p[1] > 1.6) return true;
+        const h = ctx.halfExtents(o) ?? [0.3, 0.3, 0.3];
+        return Math.hypot(p[0] - hx, p[2] - hz) > mine + Math.hypot(h[0], h[2]) + 0.05;
+      }) && flights.every((f) => Math.hypot(f.to[0] - hx, f.to[2] - hz) > mine + 0.7);
+    const [hx, hz] = homes.find(free) ?? (homes[0] as readonly [number, number]);
+    throwTo(id, [hx, ctx.scene.bench.top + half[1] + 0.005, hz], rng.range(-0.08, 0.08), 0, 'crew');
   }
   function flightPose(f: Flight): Pose {
     const t = Math.min(f.time, f.age / HZ);
@@ -389,8 +428,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       // touch down: set where it lands (it is there: the last step drove it so), handed to physics still, to settle
       // (not with its run left: that slid it toward Fetch's stand); whatever stands on the pad by now, physics parts them
       flights = flights.filter((x) => x !== f);
-      ctx.release(f.id, [0, -0.5, 0], [0, 0, 0], 'system');
-      ctx.emit({ type: 'restocked', id: spec.id, part: f.id, on: 'pad' });
+      ctx.release(f.id, [0, -0.5, 0], [0, 0, 0], f.cause);
+      if (ctx.part(f.id)?.kind === 'crate') ctx.emit({ type: 'restocked', id: spec.id, part: f.id, on: 'pad' });
     }
   }
 
