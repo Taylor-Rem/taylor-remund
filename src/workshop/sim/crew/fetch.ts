@@ -99,11 +99,15 @@ export const FETCH_TUNING = {
   /** In the offer: looks at the crate this long, then out at the visitor. */
   offerLook: 0.9,
   /** Ignored this long, it fetches the crate back (§ B3: 12 s). */
-  ignoredFor: 12,
+  /** R1 (Taylor, 2026-11-19: "it just takes him too long to get back to things"): 5 s, was 12. */
+  ignoredFor: 5,
+  /** R1: while the visitor's pointer is on the offered crate the offer holds, to at most this long in all (the old 12 s). */
+  offerHeldFor: 12,
   /** How far from its lane it can reach for a part (beyond `handForward`). */
   reach: 1.15,
   pickup: 0.45,
-  shrug: 1.2,
+  /** R1: 1.0 s, was 1.2 (the view's shrug curve is over at 1.0: no still tail). */
+  shrug: 1.0,
   salute: 1.1,
   returnSpeed: 2.2,
   // ── S5 ──
@@ -390,6 +394,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let target = s;
   /** Direction of the current run along the lane, fixed when it starts (the overshoot is past the stop in this direction). */
   let rollDir = 1;
+  /** How far past this run's stop it overshoots (R1: less on a short hop). */
+  let runOvershoot: number = T.overshoot;
   let purpose: Purpose = 'lap';
   let idleFor = steps(rng.range(T.idle[0], T.idle[1]));
   let lastFumble: number | null = null;
@@ -603,6 +609,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   function rollTo(lanePos: number, why: Purpose): void {
     target = onPath(lanePos);
     rollDir = Math.sign(target - s) || 1;
+    // R1: a short hop overshoots in proportion (a full overshoot and skid back on a 0.1 shuffle is dead air)
+    runOvershoot = T.overshoot * Math.min(1, Math.abs(target - s) / (3 * T.overshoot));
     purpose = why;
     if (Math.abs(target - s) < 0.01) arrive();
     else enter('roll');
@@ -638,7 +646,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
   function roll(): void {
     const dt = 1 / HZ;
-    const aim = Math.min(laneLen, Math.max(0, target + rollDir * T.overshoot));
+    const aim = Math.min(laneLen, Math.max(0, target + rollDir * runOvershoot));
     const toAim = aim - s;
     const stopping = (v * v) / (2 * T.brake);
     if (Math.sign(toAim) === Math.sign(v) && Math.abs(toAim) <= stopping) {
@@ -1300,7 +1308,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             break;
           }
           lookAt = inState() < steps(T.offerLook) ? (ctx.pose(fumbled)?.p ?? null) : spec.outward;
-          if (inState() >= steps(T.ignoredFor) && ctx.settled(fumbled)) goFor(fumbled, 'retrieve');
+          // R1: never from under a hand reaching for it: the pointer on the crate holds the offer (to `offerHeldFor`)
+          const reachedFor = ctx.hovered() === fumbled && inState() < steps(T.offerHeldFor);
+          if (inState() >= steps(T.ignoredFor) && !reachedFor && ctx.settled(fumbled)) goFor(fumbled, 'retrieve');
           break;
         }
         case 'pickup': {
@@ -1454,7 +1464,11 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           knocked();
           break;
         case 'shrug':
-          if (inState() >= steps(T.shrug)) toIdle();
+          if (inState() >= steps(T.shrug)) {
+            toIdle();
+            // R1: crate back in hand, it gets straight back to work (no pause after the shrug)
+            if (carrying) idleFor = 0;
+          }
           break;
         case 'salute':
           if (inState() >= steps(T.salute)) toIdle();

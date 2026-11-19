@@ -66,6 +66,25 @@ describe('Fetch (§ B3, § B5)', () => {
     expect(world.touched('crate-4')).toBe(false);
   });
 
+  test('R1: the pointer on the offered crate holds the offer (to 12 s in all); hover is not an action', () => {
+    const offerLength = (hover: boolean): number => {
+      const { world } = stubWorld();
+      let i = 0;
+      while (world.crew('fetch')?.state !== 'offer' && i++ < steps(30)) run(world, 1);
+      const from = world.step;
+      if (hover) world.dispatch({ type: 'hover', id: 'crate-4' });
+      while (world.crew('fetch')?.state === 'offer' && i++ < steps(60)) {
+        // a reaching hand: the pointer stays on the crate (hover intents keep coming as it moves over it)
+        if (hover && (world.step - from) % 30 === 0) world.dispatch({ type: 'hover', id: 'crate-4' });
+        run(world, 1);
+      }
+      expect(world.playMode).toBe(false);
+      return (world.step - from) / 60;
+    };
+    expect(offerLength(false)).toBeCloseTo(FETCH_TUNING.ignoredFor, 1);
+    expect(offerLength(true)).toBeCloseTo(FETCH_TUNING.offerHeldFor, 1);
+  });
+
   test('the offer looks at the crate, then out at the visitor', () => {
     const { world } = stubWorld();
     let looks: string[] = [];
