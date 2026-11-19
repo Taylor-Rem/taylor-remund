@@ -1044,6 +1044,9 @@ export class FetchPerformer {
         pose.headYaw = clamp((pose.headYaw ?? 0) - spinW, -F.headYawMax, F.headYawMax);
         pose.headPitch = (pose.headPitch ?? 0) + ro.nod;
       }
+      // the fright's turn to the visitor (the whole body, the simulation's heading untouched), over any reach's
+      // own; before the grip is read, so a carried crate turns with the claws
+      if (fr && fr.weight > 1e-3) pose.spin = (pose.spin ?? 0) + (fr.pose.spin ?? 0) * fr.weight;
       this.reachOut = { weight: ro.weight, grip: gripOf(pose, half ? null : (target && target[0] >= 0 ? 'left' : 'right')), two: half !== null };
     }
     // the wheel and the pennant are the acting's own (they turn with the ground and the air)
