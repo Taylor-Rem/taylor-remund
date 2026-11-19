@@ -574,6 +574,15 @@ export interface RevertView extends MachineViewBase {
   readonly card: { readonly content: string; readonly since: number; readonly read: number } | null;
   /** The part it is putting away, while it sweeps. */
   readonly sweeping: Id | null;
+  /**
+   * R3: the crate in its dustpan, carried home to go down its hatch (it comes back up the chute onto the pad), or
+   * null. Draw it from `motion(id)` (it is driven in front of the body).
+   */
+  readonly carrying: Id | null;
+  /** R3: seconds since the visitor took a crate out of its pan (Infinity: never): it looks at the empty pan, then goes home. */
+  readonly emptyPan: number;
+  /** R3: Fetch has had nothing it may carry for a while: it is out to put crates back into circulation (its eyes: the belt, Fetch, the crate, the visitor). */
+  readonly starving: boolean;
   readonly drawn: boolean;
 }
 

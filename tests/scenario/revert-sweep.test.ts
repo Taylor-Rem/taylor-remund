@@ -10,7 +10,7 @@ import { REVERT } from '../../src/workshop/sim/scenes/bench.ts';
 import type { RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
 
 describe("Revert's sweep", () => {
-  test('crowded: it sweeps the oldest stray it can get at from a proper stand, and the stray goes onto the stack', async () => {
+  test('crowded: it sweeps the oldest stray it can get at from a proper stand, carries it home and down its hatch, and the chute gives it back', async () => {
     const w = await benchWorld('sweep');
     const t = tape(w);
     t.run(30);
@@ -18,9 +18,16 @@ describe("Revert's sweep", () => {
     const spots: [string, Vec3][] = [['crate-3', [-6.5, 0, -1.5]], ['crate-1', [4.5, 0, -1.8]], ['crate-2', [-1.5, 0, -3.3]], ['crate-4', [0.5, 0, 3.0]]];
     for (const [id, at] of spots) putOn(w, t, id, at);
     const sweeps: { part: string; from: Vec3; revert: RevertView }[] = [];
+    const dropped = new Set<string>();
+    const back = new Set<string>();
     let atSweep: RevertView | null = null;
     for (let i = 0; i < 130 * HZ; i++) {
-      for (const e of t.run(1)) if (e.type === 'revert.sweep') sweeps.push({ part: e.part, from: e.from.p, revert: atSweep! });
+      for (const e of t.run(1)) {
+        // R3: into the pan (`to` rest: the pan), carried home, and down the hatch (`to` shipped); up the chute again
+        if (e.type === 'revert.sweep' && e.to.at === 'rest') sweeps.push({ part: e.part, from: e.from.p, revert: atSweep! });
+        if (e.type === 'revert.sweep' && e.to.at === 'shipped') dropped.add(e.part);
+        if (e.type === 'restocked') back.add(e.part);
+      }
       const r = w.machine('revert-crew') as RevertView;
       if (r.state === 'sweep' && (!atSweep || atSweep.state !== 'sweep' || atSweep.sweeping !== r.sweeping)) atSweep = r;
       else if (r.state !== 'sweep') atSweep = null;
@@ -28,11 +35,15 @@ describe("Revert's sweep", () => {
     expect(sweeps.length).toBeGreaterThan(0);
     const hz = AT.revert.half[2];
     for (const s of sweeps) {
-      // into the dustpan, and on to the stack
-      const loc = w.part(s.part)!.location;
-      expect(loc.at, s.part).toBe('rest');
-      if (loc.at === 'rest') expect(Math.hypot(loc.pose.p[0] - AT.stack[0], loc.pose.p[2] - AT.stack[1]), s.part).toBeLessThan(0.6);
-      expect(w.writer(s.part, 'location')).toBe('system');
+      // R3: into the dustpan, carried home and down the hatch, and back up the chute onto the pad
+      expect(dropped.has(s.part), `${s.part} down the hatch`).toBe(true);
+      // back up the chute onto the pad, or owed until the pad is free (this bench has no rounds: nobody takes the pad's crate)
+      const padTaken = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'].some((id) => {
+        const q = w.motion(id)?.pose.p;
+        return w.mode(id) === 'free' && !!q && Math.hypot(q[0] - AT.pad[0], q[2] - AT.pad[1]) < 0.5;
+      });
+      expect(back.has(s.part) || padTaken, `${s.part} back up the chute (or owed: the pad is taken)`).toBe(true);
+      expect(w.touched(s.part)).toBe(false); // a fresh crate again
       // from a proper stand: close by, on the far side, its front or side to the visitor
       const r = s.revert;
       const toVisitor = Math.atan2(REVERT.outward[0] - s.from[0], REVERT.outward[2] - s.from[2]);

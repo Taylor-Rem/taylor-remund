@@ -177,7 +177,8 @@ describe('Revert stands where the work is seen', () => {
     const after = [] as SimEvent[];
     for (let i = 0; i < steps(20) && R(world).state !== 'below'; i++) after.push(...run(world, 1));
     const seq = after.flatMap((e) => (e.type === 'crew.state' && e.id === 'revert' ? [e.state] : []));
-    expect(seq).toEqual(expect.arrayContaining(['trundle', 'sinking', 'below']));
+    expect(seq).toEqual(expect.arrayContaining(['sinking', 'below'])); // (R3: the trip home, the crate in its pan, began in the sweep's own step)
+    expect(after.some((e) => e.type === 'revert.sweep' && e.to.at === 'shipped')).toBe(true); // and down the hatch
   });
 
   test('where the bench leaves no room behind a part, it takes the nearest stand that keeps its front or side to the visitor', () => {
