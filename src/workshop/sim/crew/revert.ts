@@ -190,6 +190,9 @@ interface Route {
 }
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+/** R3: Patch's states on its feet on the bench, and its footprint's radius there (Revert waits for it). */
+const PATCH_AFOOT = new Set(['walk', 'cross', 'look', 'stare', 'climb']);
+const PATCH_R = 0.4;
 
 export function revert(spec: RevertSpec): UnitFactory {
   return (ctx) => createRevert(ctx, spec);
@@ -346,6 +349,20 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       if (Math.abs(lx) >= hx + r || Math.abs(lz) >= hz + r) continue;
       if (from && Math.hypot(p[0] - from[0], p[2] - from[1]) < Math.hypot(dx, dz)) continue; // moving away from it
       out.push(id);
+    }
+    // R3: Patch on its feet on the bench (it is not a loose part): Revert waits for it as for anything in its way
+    const pv = ctx.crewView('patch');
+    if (pv && pv.kind === 'patch') {
+      const v = pv.view as { state: string; at: Vec3 };
+      if (PATCH_AFOOT.has(v.state) && v.at[1] < ground + 0.6) {
+        const dx = v.at[0] - px;
+        const dz = v.at[2] - pz;
+        const lx = dx * c - dz * s;
+        const lz = dx * s + dz * c;
+        const near = Math.abs(lx) < hx + PATCH_R && Math.abs(lz) < hz + PATCH_R;
+        const away = from && Math.hypot(v.at[0] - from[0], v.at[2] - from[1]) < Math.hypot(dx, dz);
+        if (near && !away) out.push('patch');
+      }
     }
     return out;
   }
