@@ -1198,6 +1198,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
     return s0;
   }
+  /** R4: nothing but `mine` stands within a crate's reach of the seat at `d` (the tray's). */
+  function seatClear(d: Vec3, mine: Id): boolean {
+    return !ctx.parts().some((id) => {
+      if (id === mine || id === spec.id) return false;
+      const m = ctx.mode(id);
+      const q = ctx.pose(id)?.p;
+      if (!q || m === 'gone' || m === 'chute' || m === 'held') return false;
+      return Math.hypot(q[0] - d[0], q[2] - d[2]) < 0.6 && q[1] < d[1] + 1.2;
+    });
+  }
   /** R4: the up axis's height (1 upright, 0 on its side, -1 on its back). */
   const upOf = (q: Quat): number => 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
   /** Its lowest point's height, lying as it lies. */
@@ -1734,6 +1744,14 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             placing = { to, above: { p: [d[0], d[1] + half[1] + T.placeLift, d[2]], q: to.q }, from: null, out: -1, let: false, dur: [T.place.out, T.place.lower] };
           }
           if (!placing) break;
+          // R4: a set-down on the tray (not the belt: the rounds check its drop) never onto something already there (a
+          // crate thrown onto it while Fetch reached out): it keeps the crate and its rounds find it another place
+          if (placeAt !== null && !placing.let && carrying && !seatClear(placeAt, carrying)) {
+            placing = null;
+            placeAt = null;
+            toIdle();
+            break;
+          }
           lookAt = placing.to.p;
           const t = inState();
           if (!placing.from) {

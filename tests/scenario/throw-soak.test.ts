@@ -61,7 +61,7 @@ function plan(seed: number, w: World): Throw {
   let what: string;
   const toward = (t: Vec3): Vec3 => [t[0] - from[0], 0, t[2] - from[2]];
   if (k < 2) {
-    const p = w.crewView('patch')?.view as { at?: Vec3 } | undefined;
+    const p = (w.crewView('patch') as { view?: { at?: Vec3 } } | undefined)?.view;
     dir = toward(p?.at ?? [3, 0, -2]);
     what = 'at Patch';
   } else if (k < 4) {
