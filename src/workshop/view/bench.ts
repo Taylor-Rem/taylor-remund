@@ -169,7 +169,7 @@ export const LAYOUT = {
     bayInspection: spot(-7.25, -3.6, 3.3, 1.9, 0, { fill: 'piece' }),
     bayNext: spot(-4.18, -3.55, 2.72, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
-    /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Right of Patch and forward, its column clear of Patch's tail; its tray 1.9 from the lane. */
+    /** The reshaped platen (real): its turntable on a round plinth at the front left, open on the left and the front; its left stand (PLATEN.stand.left, 0.99 from the seat) is the end of Fetch's path, so Fetch works it side-on. */
     platen: real(3.14, 0.8, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
     shipped: spot(7.88, -1.2, 2.24, 2.8, 1.2, { fill: 'zone' }),
@@ -181,10 +181,10 @@ export const LAYOUT = {
     /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
     undo: real(-2.5, 0.3, BOUNDS.undo),
     button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
-    /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
+    /** The phone on its easel: in front of the console's right end, beside Fetch's jog; Fetch taps it side-on from the jog. */
     phone: spot(0.12, 1.95, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
-    /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
+    /** The crate stack (the ground point of its bottom crate): right of Fetch's jog, 1.05 from where it stands for it, between its front and back runs. */
     stack: spot(2.13, 1.85, 0.8, 0.8, 1.85, { fill: 'piece' }),
     /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
     lane: laneSpot(),
@@ -196,7 +196,7 @@ export const LAYOUT = {
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
     mailbox: spot(8.25, 4.2, 0.42, 0.36, 1.3),
-    /** The return chute (real): up out of the dark at the front-left corner, its mouth looking along the bench at the stack's front. */
+    /** The return chute (real): up out of the dark near the front-left corner, its mouth looking along the bench; in from the corner so its duct is in frame. */
     chute: real(-7.8, 5, BOUNDS.chute),
   },
 } as const;

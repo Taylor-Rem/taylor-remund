@@ -34,6 +34,7 @@ import { JACKS, BOARD_WHOLE, STOOL_SEAT } from '../../../src/workshop/view/kit/p
 import { LINE } from '../../../src/workshop/sim/scenes/bench.ts';
 import { lanePath, laneOutline } from '../../../src/workshop/sim/path.ts';
 import { canRunLap, fetchStand } from '../../../src/workshop/sim/crew/fetch.ts';
+import { reachFrom, type V3 } from '../../../src/workshop/view/kit/pieces/fetch-porter/reach.ts';
 import type { Vec3 } from '../../../src/workshop/sim/types.ts';
 
 const S = LAYOUT.stations as Record<StationKey, Spot>;
@@ -570,6 +571,32 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
     expect(body('platen-plinth').min.x - t.at[0]).toBeCloseTo(0.4, 2);
     expect(Math.abs(tray.drop[0] - t.at[0] - 0.99)).toBeLessThan(0.02); // PLATEN.stand.left: 0.99 from the seat
     expect(tray.drop[2]).toBeCloseTo(t.at[1], 3);
+  });
+
+  it("gets its grip to each thing it handles from where it stands, by the arm's own solver at the thing's real height (short 0)", () => {
+    const S_HALF: V3 = [0.225, 0.225, 0.225];
+    // the stack two high (its middle crate: what it takes once the top is gone); the top crate of a full stack, 1.63 up,
+    // is out of the arm's reach from any stand its footprint allows (it needs 0.7 at that height): KNOWN, reported, held below
+    const top = scene.parts.find((p) => p.id === scene.button.stack[1])!;
+    const seat = platen({ detail: 'low' } as never).sockets!['seat']!;
+    const seatY = new Vector3().setFromMatrixPosition(seat).y;
+    const grips: Array<['stack' | 'tray' | 'phone' | 'feed', V3, V3 | null]> = [
+      ['stack', top.pose.p as unknown as V3, S_HALF],
+      ['tray', [tray.drop[0], seatY + S_HALF[1], tray.drop[2]], S_HALF],
+      ['phone', [lap.phone[0], lap.phone[1] + 0.14, lap.phone[2]], null], // the screen's middle
+      ['feed', [feed.drop[0], feed.drop[1] + S_HALF[1], feed.drop[2]], S_HALF],
+    ];
+    for (const [what, p, half] of grips) {
+      const st = fetchStand(scene, what, p[0], p[2]);
+      const r = reachFrom([st.at[0], 0, st.at[1]], p, { half });
+      if (process.env['BENCH_REPORT']) console.log(`GRIP ${what} short ${r.short.toFixed(3)} tele ${r.tele.toFixed(3)}`);
+      expect(r.short, what).toBeLessThanOrEqual(0.005); // the solver's own tolerance
+    }
+    // the full stack's top crate: short by this much today (A1 round 6, reported: the stack wants to be two high, or the
+    // arm to reach higher); this holds it from getting worse
+    const full = scene.parts.find((p) => p.id === scene.button.stack[2])!;
+    const st = fetchStand(scene, 'stack', full.pose.p[0], full.pose.p[2]);
+    expect(reachFrom([st.at[0], 0, st.at[1]], full.pose.p as unknown as V3, { half: S_HALF }).short).toBeLessThan(0.2);
   });
 
   it("feeds the belt in front of its front run, upstream of the striker and past the deflector's reach", () => {
