@@ -14,6 +14,7 @@ import * as PF from '../../../src/workshop/view/kit/pieces/patch-felt/perform.ts
 import { SIDE_ON } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import { JACKS } from '../../../src/workshop/view/kit/pieces/switchboard/labels.ts';
 import { PATCHLAMP } from '../../../src/workshop/sim/index.ts';
+import { defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
 
 /** The climb's foot in root space, as the view computes it (seatSpace of PatchView.foot). */
 function benchFoot(): PF.V3 {
@@ -37,6 +38,25 @@ function everything(): void {
   for (const foot of [benchFoot(), undefined]) for (const t of span(PF.CLIMB_LENGTH)) PF.climb(t, foot ? { foot } : {});
   for (const from of [[2, 1, 3], [-2, 1, 3]] as PF.V3[]) for (const t of span(PF.BONK_LENGTH)) PF.bonked(t, { from });
   for (const t of span(PF.CATCH_LENGTH)) PF.catchCrate(t);
+  // a caught part set on the shelf, from each stop of the stool, for each part a paw can catch
+  for (const shelf of benchShelves()) for (const t of span(PF.CATCH_LENGTH, 6)) PF.catchCrate(t, { shelf });
+}
+
+/** The shelf point (the part's centre on it) in root space, as the view computes it, for each stool stop and catchable part. */
+function benchShelves(): PF.V3[] {
+  const out: PF.V3[] = [];
+  const seat = PATCHLAMP.patch.seat, shelf = PATCHLAMP.patch.shelf;
+  for (const x of PF.STOOL_STOPS) {
+    const inv = new Matrix4().compose(new Vector3(seat[0] + (x - PF.REST_X), seat[1], seat[2]), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), SIDE_ON), new Vector3(PF.CREW, PF.CREW, PF.CREW)).invert();
+    for (const kind of ['crate', 'tool'] as const) {
+      for (const size of ['S', 'M'] as const) {
+        const h = defaultHalfExtents(kind, size)[1];
+        const p = new Vector3(shelf[0], shelf[1] + h + 0.01, shelf[2]).applyMatrix4(inv);
+        out.push([p.x, p.y, p.z]);
+      }
+    }
+  }
+  return out;
 }
 
 describe('patch reach table', () => {
@@ -60,7 +80,6 @@ ${rows.join('\n')}
   it.skipIf(process.env['PATCH_BAKE'] === '1')('answers every bench question from the table (no search in play)', () => {
     PF.clearPerformanceCaches();
     everything();
-    // the catch's set-down depends on the part and where the stool is: it is answered live, once
-    expect([...PF.REACH_MISSES].length).toBeLessThanOrEqual(1);
+    expect([...PF.REACH_MISSES]).toEqual([]);
   });
 });

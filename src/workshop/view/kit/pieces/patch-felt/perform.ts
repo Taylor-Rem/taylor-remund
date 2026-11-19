@@ -771,8 +771,9 @@ export { FACE };
 
 /** Sat at a jack, side-on along the runner, looking at the board (the start and end of the job). */
 export function atWork(T: JobTargets = DEFAULT_TARGETS): PatchPose {
-  const base = resolvePose({ ...SEATED, body: { rot: [0, WORK_SWIVEL, 0] }, lean: [0.04, -0.04], twist: -0.2 });
-  const lk = lookAt(base, T.lamp, 0.8);
+  // the shoulders a touch to the room; the head toward the lamp only so far as keeps a three-quarter face to the camera
+  const base = resolvePose({ ...SEATED, body: { rot: [0, WORK_SWIVEL, 0] }, lean: [0.04, -0.04], twist: 0.1 });
+  const lk = lookCheated(base, T.lamp, T.visitor, 0.8, 0.9);
   return toPose({ ...base, ...lk, ...FACE.flat, headTilt: 0.05, ears: [-0.1, -0.2], arms: resolveArms('rest') } as FullPose);
 }
 
@@ -1097,9 +1098,9 @@ function jobKeys(T: JobTargets): Array<{ t: number; pose: FullPose; ease: Ease }
     { t: r(0.75), set: { mouth: [0.6, 0.0] } },
     { t: r(1.0), set: { boom: 0, armL: REST_ARMS.left, ...FACE.smug, mouth: [0.7, -0.05] } },
     // shut (the view's follow-through): the folder back in its drawer, the drawer shoved home
-    { t: s(0.35), set: { body: { rot: [0, WORK_SWIVEL, 0] }, lean: inDrawer.lean, twist: inDrawer.twist, armR: inDrawer.arms.right, ...lkHandle, ...FACE.flat } },
+    { t: s(0.35), set: { body: { rot: [0, WORK_SWIVEL, 0] }, lean: inDrawer.lean, twist: clamp(inDrawer.twist + 0.25, -0.6, 0.6), armR: inDrawer.arms.right, ...lkHandle, ...FACE.flat } },
     { t: s(0.42), set: { folder: 0 } },
-    { t: s(0.58), set: { lean: pulled.lean, twist: pulled.twist, armR: pulled.arms.right } },
+    { t: s(0.58), set: { lean: pulled.lean, twist: clamp(pulled.twist + 0.2, -0.6, 0.6), armR: pulled.arms.right } },
     { t: s(0.78), set: { lean: onHandle.lean, twist: onHandle.twist, armR: onHandle.arms.right }, ease: inOutQuad },
     { t: s(1.0), set: { ...start } },
   ];
@@ -1489,7 +1490,10 @@ export function catchCrate(t: number, o: CatchOptions = {}): CatchFrame {
     const upArm = resolvePose(up.pose).arms.left;
     const give: V3 = [at[0] - 0.03, at[1] - 0.06, at[2] - 0.02];
     const giveArm = resolvePose(reach(give, 'left', face, { watch: false }).pose).arms.left;
-    const setR = reach([shelf[0], shelf[1] - CRATE_ON_PAW + 0.02, shelf[2]], 'left', face, { watch: false });
+    // the paw goes toward the shelf (the target on a 2 cm grid, so the bench's few shelves are in the reach table);
+    // the crate itself ends exactly on the shelf
+    const q = (v: number): number => Math.round(v / 0.02) * 0.02;
+    const setR = reach([q(shelf[0]), q(shelf[1] - CRATE_ON_PAW + 0.02), q(shelf[2])], 'left', face, { watch: false });
     const setArm = resolvePose(setR.pose).arms.left;
     return bake(face, [
       { t: 0, set: { ...face } },
