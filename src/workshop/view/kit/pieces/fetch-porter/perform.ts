@@ -104,6 +104,7 @@ export const REST: Readonly<Required<Omit<FetchPose, 'arms'>> & { arms: Arms }> 
   headRoll: 0,
   brow: 0,
   pupilSize: 1,
+  eyeScale: 1,
   gaze: [0, 0],
   lids: [0.12, 0.1],
   arms: PRESETS.rest,
@@ -168,6 +169,7 @@ export function blendPose(a: FetchPose, b: FetchPose, k: number): FetchPose {
     headRoll: lerp(ra.headRoll, rb.headRoll, t),
     brow: lerp(ra.brow, rb.brow, t),
     pupilSize: lerp(ra.pupilSize, rb.pupilSize, t),
+    eyeScale: lerp(ra.eyeScale, rb.eyeScale, t),
     gaze: l2(arr(ra.gaze, 2, [0, 0]), arr(rb.gaze, 2, [0, 0])),
     lids: l2(arr(ra.lids, 2, [0, 0]), arr(rb.lids, 2, [0, 0])),
     arms: mixArms(armsOf(a), armsOf(b), t),
@@ -385,22 +387,28 @@ export function held(t: number, o: HeldOptions = {}): FetchPose {
   const pad = (ph: number): number => Math.sin(TAU * 2.9 * tt + ph);
   const arms: Arms = {
     left: addArm(DANGLE.left, {
-      swing: -ap - clamp(0.12 * vz, -0.5, 0.5) + 0.75 * panic * pad(0) + (kickLeft ? 0.6 * kick : 0),
-      abduct: -as + clamp(-0.16 * vx, -0.5, 0.5) + bob + 0.3 * panic * pad(1.2),
-      elbow: 0.4 * panic * pad(2.1),
+      // each stroke goes from low at its side to up past its head (the tubes run out at the top)
+      swing: -ap - clamp(0.12 * vz, -0.5, 0.5) + panic * (1.1 + 1.1 * pad(0)) + (kickLeft ? 0.6 * kick : 0),
+      abduct: -as + clamp(-0.16 * vx, -0.5, 0.5) + bob - 1.0 * panic * Math.max(0, pad(0)) + 0.2 * panic * pad(1.2),
+      twist: 0.5 * panic * Math.max(0, pad(0)),
+      elbow: 0.25 * panic * pad(2.1) - 0.7 * Math.max(0, Math.sin(TAU * 2.9 * tt)) * smoothstep(0.2, 0.6, panic),
       grip: 0.1 * Math.sin(TAU * 1.1 * tt) + 0.45 * panic * Math.max(0, pad(0.5)),
     }),
     right: addArm(DANGLE.right, {
-      swing: -ap * 0.85 - clamp(0.12 * vz, -0.5, 0.5) + 0.75 * panic * pad(Math.PI) + (!kickLeft ? 0.6 * kick : 0),
-      abduct: as + clamp(0.16 * vx, -0.5, 0.5) + bob + 0.3 * panic * pad(Math.PI + 1.2),
-      elbow: 0.4 * panic * pad(Math.PI + 2.1),
+      swing: -ap * 0.85 - clamp(0.12 * vz, -0.5, 0.5) + panic * (1.1 + 1.1 * pad(Math.PI)) + (!kickLeft ? 0.6 * kick : 0),
+      abduct: as + clamp(0.16 * vx, -0.5, 0.5) + bob - 1.0 * panic * Math.max(0, pad(Math.PI)) + 0.2 * panic * pad(Math.PI + 1.2),
+      twist: 0.5 * panic * Math.max(0, pad(Math.PI)),
+      elbow: 0.25 * panic * pad(Math.PI + 2.1) - 0.7 * Math.max(0, Math.sin(TAU * 2.9 * tt + Math.PI)) * smoothstep(0.2, 0.6, panic),
       grip: 0.1 * Math.sin(TAU * 1.1 * tt + 1.3) + 0.45 * panic * Math.max(0, pad(Math.PI + 0.5)),
     }),
   };
+  arms.left.tele = 0.2 * panic * Math.max(0, pad(0));
+  arms.right.tele = 0.2 * panic * Math.max(0, pad(Math.PI));
   // the wheel kicks on its fork too while it panics
   hang[0] += 0.12 * panic * Math.sin(TAU * 2.2 * tt + 0.7);
   hang[1] += 0.1 * panic * Math.sin(TAU * 1.7 * tt);
-  const lean: [number, number] = [0, 0];
+  // the body rocks forward and back with the strokes (it reads from above), and twists side to side
+  const lean: [number, number] = [0.3 * panic * pad(0.5), 0.12 * panic * pad(2)];
   const aerial: [number, number] = [clamp(-0.18 * vz - 0.9 * ring(tt, 2.6, 0.12), -1.4, 1.4), clamp(-0.18 * vx, -1.2, 1.2)];
   const flag = 1.5 * tt + 0.4 * Math.hypot(vx, vy, vz) * tt;
 

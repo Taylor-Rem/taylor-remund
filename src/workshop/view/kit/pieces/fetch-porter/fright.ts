@@ -24,8 +24,18 @@ const mixArms = (a: Arms, b: Arms, k: number): Arms => ({ left: mixArm(a.left, b
 
 /** The claws pulled in tight in front of its chest, jaws shut. */
 export const GUARD: Arms = { left: J(1.55, -0.3, -0.4, 2.0, -0.6, 0.1), right: J(1.5, -0.28, -0.4, 2.05, -0.6, 0.12) };
-/** Both claws up and in front of its eye: hiding. */
-export const HIDE: Arms = { left: { ...J(1.9, 0.55, 0, 0.9, -1.0, 0.2), tele: 0.22 }, right: { ...J(1.92, 0.53, 0, 0.92, -1.0, 0.2), tele: 0.22 } };
+/**
+ * Hiding from the home camera (which sits off Fetch's right and above, the turret turned toward it):
+ * the right claw on its tubes square in front of the eye, the left up over its head. Solved offline
+ * against the home camera (shots/V/hide2.test.ts); the lids close behind the claw as well.
+ */
+export const HIDE: Arms = { left: { ...J(2.9, 0.75, 0, 0.15, -1.0, 0.2), tele: 0.22 }, right: { ...J(2.8, 0.35, 0.4, 0.15, -1.0, 0.2), tele: 0.22 } };
+/** The peek: the covering claw dropped well clear of the eye. */
+const PEEK_R: ArmJoints = { ...J(1.3, 0.7, 0, 1.3, -0.8, 0.5), tele: 0.03 };
+/** The startle: both arms flung straight up, the tubes run out, jaws wide. */
+const UP: Arms = { left: { ...J(2.9, 0.6, 0, 0.15, 0, 1), tele: 0.225 }, right: { ...J(2.9, 0.6, 0, 0.15, 0, 1), tele: 0.225 } };
+/** The turret's aim while hiding, toward the home camera: yaw (a share of the camera's bearing) and pitch. */
+export const HIDE_AIM = { yawShare: 0.67, pitch: -0.2 } as const;
 /** Claws over its head: cowering. */
 export const COWER: Arms = { left: J(2.2, 0.3, 0.6, 1.7, 0, 0.2), right: J(2.15, 0.32, 0.6, 1.75, 0, 0.2) };
 const REST_ARMS: Arms = { left: J(0.42, 0.2, -0.35, 0.95, -0.3, 0.3), right: J(0.38, 0.18, -0.35, 0.9, -0.3, 0.25) };
@@ -40,6 +50,10 @@ export interface FrightOptions {
   /** Which rung (1..4, then from the deck) and how many presses so far: what varies the reaction. */
   rung: number;
   presses: number;
+  /** Unit [fore, side] in its root frame pointing away from the Button: it leans that way the whole rung. */
+  away?: readonly [number, number];
+  /** The camera's bearing in its root frame (radians, as headYaw): rung 4 turns its hidden face toward it. */
+  camYaw?: number;
   reducedMotion?: boolean;
 }
 
@@ -49,6 +63,8 @@ export interface Fright {
   weight: number;
   /** 0..1: the head should go from the Button to the visitor (late in the rewind), then to the card. */
   toVisitor: number;
+  /** Rung 4: how much of the head's aim is the pose's own (headYaw/headPitch absolute), not the caller's. */
+  aim: number;
 }
 
 export function frightened(o: FrightOptions): Fright {
@@ -57,45 +73,53 @@ export function frightened(o: FrightOptions): Fright {
   const v = hide ? 3 : ((o.presses - 1) % 3 + 3) % 3;
   const playing = o.phase === 'playing';
   const t = playing ? o.t : 1e3;
-  // the startle: a hop up off the spring, then down into a crouch
-  const hop = rm ? 0 : (v === 1 ? 0.1 : 0.075) * Math.sin(Math.PI * clamp(t / 0.28, 0, 1)) * (t < 0.28 ? 1 : 0);
-  const crouch = smoothstep(0.15, 0.4, t);
-  // (the second press: one claw up over its head, the other guarding; the third: both over its head)
+  // the startle: a real jump (a third of its height clear of the bench), stretched in the air, squashed on landing
+  const AIR = 0.5;
+  const u = t / AIR;
+  const jump = rm ? 0 : u < 1 ? (v === 1 ? 0.5 : 0.45) * 4 * u * (1 - u) : 0;
+  const land = rm ? 0 : t >= AIR && t < AIR + 0.4 ? Math.sin(Math.PI * clamp((t - AIR) / 0.4, 0, 1)) * (1 - (t - AIR) / 0.4) : 0;
+  const crouch = smoothstep(AIR, AIR + 0.35, t);
+  // arms flung straight up for the first quarter second, then snapped in to the guard
   const arms0: Arms = hide ? HIDE : v === 2 ? COWER : v === 1 ? { left: GUARD.left, right: COWER.right } : GUARD;
-  const snap = rm ? 1 : smoothstep(0.02, 0.12, t);
-  let arms = mixArms(REST_ARMS, arms0, snap);
-  // rung 4: peeks between its claws, one claw drawn down for a moment every 1.3 s
+  const snap = rm ? 1 : smoothstep(0.25, 0.4, t);
+  let arms = rm ? arms0 : mixArms(mixArms(REST_ARMS, UP, smoothstep(0, 0.06, t)), arms0, snap);
+  // rung 4: peeks, the covering claw dropped right away from the eye for a beat every 1.3 s
   let peek = 0;
   if (hide && !rm && playing) {
-    const p = (t - 0.8) % 1.3;
-    peek = t > 0.8 ? smoothstep(0, 0.15, p) * (1 - smoothstep(0.45, 0.6, p)) : 0;
-    arms = { left: arms.left, right: mixArm(arms.right, { ...J(1.5, 0.5, 0, 0.9, -0.8, 0.5), tele: 0.06 }, peek) };
+    const p = (t - 1.0) % 1.3;
+    peek = t > 1.0 ? smoothstep(0, 0.12, p) * (1 - smoothstep(0.5, 0.62, p)) : 0;
+    arms = { left: arms.left, right: mixArm(arms.right, PEEK_R, peek) };
   }
   // the shiver (not in reduced motion)
-  const sh = rm ? 0 : 1;
   const tt = playing ? o.t : o.t + 50;
-  const shiver = sh * (1 - smoothstep(0, 0.8, playing ? 0 : o.t));
+  const shiver = rm ? 0 : 1 - smoothstep(0, 0.8, playing ? 0 : o.t);
+  const aw = o.away ?? [0, 0];
+  const LEAN = 0.3; // 17 degrees away from the Button, the whole rung
   const lean: [number, number] = [
-    lerp(0.02, v === 1 ? -0.14 : -0.06, crouch) + 0.014 * shiver * Math.sin(tt * Math.PI * 2 * 9.5 + 1),
-    0.035 * shiver * Math.sin(tt * Math.PI * 2 * 12),
+    LEAN * aw[0] + (v === 1 ? -0.06 : 0) * crouch + 0.03 * shiver * Math.sin(tt * Math.PI * 2 * 9.5 + 1),
+    LEAN * aw[1] + 0.07 * shiver * Math.sin(tt * Math.PI * 2 * 12),
   ];
-  const squash = (t < 0.12 && !rm ? -0.5 : 0) + crouch * (v === 2 ? 0.5 : 0.32);
+  const squash = (jump > 0 ? -0.5 : 0) + 0.95 * land + crouch * (v === 2 ? 0.5 : 0.32);
+  const hidden = hide ? 1 - peek : 0;
   const pose: FetchPose = {
     lean,
     squash: clamp(squash, -0.6, 1),
-    lift: hop,
-    headRoll: 0.05 * shiver * Math.sin(tt * Math.PI * 2 * 10),
-    headPitch: hide ? -0.15 + 0.12 * peek : -0.05,
-    brow: t < 0.4 ? -1 : -0.55 - 0.3 * peek,
-    pupilSize: t < 0.6 ? 0.55 : 0.7 + 0.25 * peek,
-    lids: [0, hide ? 0.15 : 0.05],
+    lift: jump,
+    headRoll: 0.1 * shiver * Math.sin(tt * Math.PI * 2 * 10),
+    headPitch: hide ? lerp(HIDE_AIM.pitch, 0.15, peek) : -0.05,
+    headYaw: hide ? HIDE_AIM.yawShare * (o.camYaw ?? 0) : 0,
+    brow: t < 0.5 ? -1 : -0.55 - 0.4 * peek,
+    pupilSize: hide ? lerp(0.7, 0.6, peek) : t < 0.6 ? 0.55 : 0.7,
+    // the eye: wide (the whole disc bigger), its brightest thing; hiding, the lids close behind the claw
+    eyeScale: hide ? lerp(1.0, 1.45, peek) : t < 0.6 ? 1.45 : 1.38,
+    lids: hide ? [0.62 * hidden, 0.45 * hidden] : [0, 0.05],
     arms,
-    aerial: [0.25 * shiver * Math.sin(tt * Math.PI * 2 * 6), 0.2 * shiver * Math.sin(tt * Math.PI * 2 * 7.5)],
+    aerial: [0.5 * shiver * Math.sin(tt * Math.PI * 2 * 6) + (jump > 0 ? -0.8 : 0), 0.4 * shiver * Math.sin(tt * Math.PI * 2 * 7.5)],
   };
-  if (playing) return { pose, weight: 1, toVisitor: 0 };
+  if (playing) return { pose, weight: 1, toVisitor: 0, aim: hide ? 1 : 0 };
   // the rewind: it unfolds cautiously (a little, a pause, the rest), and is itself before the card comes up
   const R = Math.max(0.5, o.rewind);
-  const u = clamp(o.t / R, 0, 1);
-  const unfold = 0.35 * smoothstep(0.1, 0.3, u) + 0.65 * smoothstep(0.45, 0.85, u);
-  return { pose, weight: 1 - unfold, toVisitor: smoothstep(0.5, 0.8, u) };
+  const ur = clamp(o.t / R, 0, 1);
+  const unfold = 0.35 * smoothstep(0.1, 0.3, ur) + 0.65 * smoothstep(0.45, 0.85, ur);
+  return { pose, weight: 1 - unfold, toVisitor: smoothstep(0.5, 0.8, ur), aim: hide ? 1 - smoothstep(0.1, 0.5, ur) : 0 };
 }
