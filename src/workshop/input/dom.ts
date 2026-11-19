@@ -62,6 +62,8 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
   canvas.style.outline = 'none';
   let shiftTab = false;
+  /** The canvas is taking focus from a press, not from Tab: no control is focused for it. */
+  let pointerFocus = false;
 
   const local = (e: PointerEvent | WheelEvent | MouseEvent): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
@@ -115,7 +117,11 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
     }
     e.preventDefault();
     // the stage takes keyboard focus from a press on it (preventDefault stops the browser doing so)
-    if (typeof document !== 'undefined' && document.activeElement !== canvas) canvas.focus({ preventScroll: true });
+    if (typeof document !== 'undefined' && document.activeElement !== canvas) {
+      pointerFocus = true;
+      canvas.focus({ preventScroll: true });
+      pointerFocus = false;
+    }
     gestures.down(sample(e, p.x, p.y));
     flush();
   };
@@ -170,12 +176,36 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   };
   const onFocus = (e: FocusEvent): void => {
     // arriving by Tab (not a press): the first control (the last, coming back with Shift+Tab) takes focus
-    if (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible')) return;
+    if (pointerFocus || (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible'))) return;
     if (gestures.focused === null) gestures.key('Tab', e.timeStamp, { shift: shiftTab });
     flush();
   };
   const onBlur = (e: FocusEvent): void => {
     gestures.blur(e.timeStamp);
+    flush();
+  };
+  /**
+   * A release must never be lost. The pointer is captured on press, so its `pointerup` comes to the canvas;
+   * but capture can be taken away mid-drag (a system gesture, a screenshot, a devtools pause), and then the
+   * up goes to whatever is under the pointer, or nowhere. So: an up or cancel anywhere in the window for a
+   * pointer the recogniser still holds is handled as the canvas's; and capture lost while the pointer is
+   * still down (no up came first) lets go where the pointer last was.
+   */
+  const onWindowUp = (e: PointerEvent): void => {
+    if (e.target === canvas || !gestures.hasPointer(e.pointerId)) return;
+    if (e.type === 'pointercancel') onCancel(e);
+    else onUp(e);
+  };
+  const onWindowMove = (e: PointerEvent): void => {
+    if (e.target !== canvas && gestures.hasPointer(e.pointerId)) onMove(e);
+  };
+  const onLostCapture = (e: PointerEvent): void => {
+    if (!gestures.hasPointer(e.pointerId)) return; // the usual order: the up came first
+    const r = canvas.getBoundingClientRect();
+    const last = pointer ?? { x: e.clientX - r.left, y: e.clientY - r.top };
+    // still pressed (the capture was taken, not the button let go): the gesture goes on outside the canvas
+    if ((e.buttons & 1) === 1 && e.pointerType === 'mouse') return;
+    gestures.up({ id: e.pointerId, kind: kindOf(e), x: last.x, y: last.y, t: e.timeStamp });
     flush();
   };
   const onContext = (e: Event): void => e.preventDefault();
@@ -192,6 +222,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', onContext);
+  canvas.addEventListener('lostpointercapture', onLostCapture);
+  window.addEventListener('pointerup', onWindowUp, true);
+  window.addEventListener('pointermove', onWindowMove, true);
+  window.addEventListener('pointercancel', onWindowUp, true);
   canvas.addEventListener('focus', onFocus);
   canvas.addEventListener('blur', onBlur);
   window.addEventListener('keydown', onKey);
@@ -213,6 +247,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', onContext);
+      canvas.removeEventListener('lostpointercapture', onLostCapture);
+      window.removeEventListener('pointerup', onWindowUp, true);
+      window.removeEventListener('pointermove', onWindowMove, true);
+      window.removeEventListener('pointercancel', onWindowUp, true);
       canvas.removeEventListener('focus', onFocus);
       canvas.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);

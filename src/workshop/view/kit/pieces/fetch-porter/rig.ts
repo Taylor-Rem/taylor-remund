@@ -21,8 +21,9 @@
  *          │        └ lidBottom
  *          ├ armL / armR      shoulders (L = Fetch's own left = +X, screen right)
  *          │  └ forearmL/R    elbows
- *          │     └ handL/R    wrists
- *          │        ├ pincerL0/L1, pincerR0/R1   the two jaws (open about the hand's Z)
+ *          │     └ teleL1 → teleL2 → teleL3   the telescope's tubes, each sliding out of the last along -Y
+ *          │        └ handL/R wrists (on the last tube)
+ *          │           ├ pincerL0/L1, pincerR0/R1   the two jaws (open about the hand's Z)
  *          └ aerial → aerial2 → aerial3 → flag → flagTip
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
@@ -82,6 +83,35 @@ export const BROW = { down: 0.45, up: 0.42 } as const;
 export const SHOULDER = { x: 0.315, y: 0.15, z: 0.03 } as const;
 export const UPPER_ARM = 0.13;
 export const FOREARM = 0.13;
+/**
+ * The telescoping forearm: three bright tubes nested in the painted forearm, each sliding out of the
+ * one before along the forearm's -Y. `len` is each tube's length, `out` how far it can run out (the rest
+ * stays inside its outer tube: the overlap that keeps it straight), `r` its radius. Stowed, all three sit
+ * inside the forearm with their ends at the wrist; fully out they add `TELE_MAX` to the arm.
+ */
+export const TELE = {
+  r: [0.027, 0.0205, 0.0148],
+  len: [0.092, 0.088, 0.084],
+  out: [0.08, 0.075, 0.07],
+  /** The wrist end of every stowed tube, in forearm space. */
+  end: -FOREARM + 0.003,
+} as const;
+export const TELE_MAX = TELE.out[0] + TELE.out[1] + TELE.out[2];
+/**
+ * How a total extension is shared among the stages (units each): the outer tube runs all the way out to its
+ * stop first, then the next, then the last, so a short reach shows one fat tube and a long one all three,
+ * and every stage but the last moving one sits on its stop.
+ */
+export function teleStages(total: number): [number, number, number] {
+  let e = Math.max(0, Math.min(TELE_MAX, total));
+  const out: [number, number, number] = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    out[i] = Math.min(e, TELE.out[i]!);
+    e -= out[i]!;
+  }
+  return out;
+}
+
 /** Aerial: base in body space, segment lengths. */
 export const AERIAL = { x: -0.205, y: 0.275, z: -0.12, segs: [0.17, 0.15, 0.13] } as const;
 
@@ -100,6 +130,8 @@ export interface ArmJoints {
   wrist: number;
   /** Pincers: 0 closed .. 1 wide open. */
   grip: number;
+  /** The telescope: how far the tubes run out of the forearm in all (units, 0 .. TELE_MAX), or each stage's own run. Default 0. */
+  tele?: number | readonly [number, number, number];
 }
 
 export type ArmPreset = 'rest' | 'carry' | 'offer' | 'salute' | 'shrug' | 'flail';
@@ -302,7 +334,7 @@ export function resolveArms(a: FetchPose['arms']): Arms {
   let total = 0;
   for (const k of ARM_PRESETS) total += Math.max(0, w[k] ?? 0);
   if (total <= 0) return PRESETS.rest;
-  const keys: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'];
+  const keys = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'grip'] as const;
   const side = (s: 'left' | 'right'): ArmJoints => {
     const o = J(0, 0, 0, 0, 0, 0);
     for (const k of ARM_PRESETS) {
@@ -316,9 +348,9 @@ export function resolveArms(a: FetchPose['arms']): Arms {
 }
 
 /** Arm joint limits (they keep the hands outside the body and the jaws inside their travel). */
-export const ARM_LIMITS: Record<keyof ArmJoints, [number, number]> = {
+export const ARM_LIMITS: Record<Exclude<keyof ArmJoints, 'tele'>, [number, number]> = {
   swing: [-0.6, 2.2],
-  abduct: [-0.3, 1.6],
+  abduct: [-0.55, 1.6],
   twist: [-1.6, 1.6],
   elbow: [0, 2.3],
   wrist: [-1.6, 1.6],
@@ -327,8 +359,16 @@ export const ARM_LIMITS: Record<keyof ArmJoints, [number, number]> = {
 
 function limitArm(a: ArmJoints): ArmJoints {
   const o = { ...a };
-  for (const k of Object.keys(ARM_LIMITS) as (keyof ArmJoints)[]) o[k] = clamp(o[k], ARM_LIMITS[k][0], ARM_LIMITS[k][1]);
+  for (const k of Object.keys(ARM_LIMITS) as (keyof typeof ARM_LIMITS)[]) o[k] = clamp(o[k], ARM_LIMITS[k][0], ARM_LIMITS[k][1]);
   return o;
+}
+
+/** Each stage's run for an arm (from its `tele`), clamped to the stages' travel. */
+export function stagesOf(a: ArmJoints): [number, number, number] {
+  const t = a.tele;
+  if (t === undefined) return [0, 0, 0];
+  if (typeof t === 'number') return teleStages(t);
+  return [clamp(t[0], 0, TELE.out[0]), clamp(t[1], 0, TELE.out[1]), clamp(t[2], 0, TELE.out[2])];
 }
 
 /** Jaw opening angle for a grip value. */
@@ -392,6 +432,11 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
     // s = +1 for the left arm (+X). Abduction raises outward: about Z by +a for the left, -a for the right.
     m[`arm${nm}`] = chain(T(s * SHOULDER.x, SHOULDER.y, SHOULDER.z), RZ(s * a.abduct), RX(-a.swing), RY(s * a.twist));
     m[`forearm${nm}`] = chain(T(0, -UPPER_ARM, 0), RX(-a.elbow));
+    // the telescope: each stage slides out of the one before along -Y; the hand rides the last
+    const st = stagesOf(a);
+    m[`tele${nm}1`] = T(0, -st[0], 0);
+    m[`tele${nm}2`] = T(0, -st[1], 0);
+    m[`tele${nm}3`] = T(0, -st[2], 0);
     m[`hand${nm}`] = chain(T(0, -FOREARM, 0), RY(s * a.wrist));
     const j = jawAngle(a.grip);
     m[`pincer${nm}0`] = chain(T(0.026, -0.058, 0), RZ(j));
@@ -419,6 +464,49 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
  * pose's slide and its lean. For a contact shadow that follows a skid.
  */
 export function contactPoint(pose: FetchPose = {}): [number, number] {
+  return contactOf(pose);
+}
+
+/**
+ * A point given in a hand's own space, in root space, for the body and one arm: the chain `poseMatrices`
+ * draws (lean with spin, slide and lift; spring; body; shoulder; elbow; telescope; wrist), without the
+ * rest of the rig. For a solver that calls it many times a frame. `hang` is not applied (the hands are
+ * not posed in the visitor's hand).
+ */
+export function handPoint(
+  body: { lean?: readonly [number, number]; squash?: number; spin?: number; slide?: readonly [number, number]; lift?: number },
+  side: 'L' | 'R',
+  a: ArmJoints,
+  local: readonly [number, number, number],
+  out = new Vector3(),
+): Vector3 {
+  const fore = clamp(body.lean?.[0] ?? 0, -0.45, 0.45), sd = clamp(body.lean?.[1] ?? 0, -0.35, 0.35);
+  const k = 1 - clamp(body.squash ?? 0, -0.6, 1) * SQUASH_TRAVEL;
+  const s = side === 'L' ? 1 : -1;
+  const j = limitArm(a);
+  const st = stagesOf(j);
+  // the same chain as poseMatrices, multiplied into scratch matrices (no allocation: a solver calls this a lot)
+  const m = HP.m.identity();
+  const mul = (t: Matrix4): void => void m.multiply(t);
+  mul(HP.t.makeTranslation(body.slide?.[0] ?? 0, WHEEL_R + Math.max(0, body.lift ?? 0), body.slide?.[1] ?? 0));
+  mul(HP.t.makeRotationY(body.spin ?? 0));
+  mul(HP.t.makeRotationZ(-sd));
+  mul(HP.t.makeRotationX(fore));
+  mul(HP.t.makeTranslation(0, CROWN_TOP + SPRING_L * k, 0));
+  mul(HP.t.makeRotationX(BODY_RAKE));
+  mul(HP.t.makeTranslation(s * SHOULDER.x, SHOULDER.y, SHOULDER.z));
+  mul(HP.t.makeRotationZ(s * j.abduct));
+  mul(HP.t.makeRotationX(-j.swing));
+  mul(HP.t.makeRotationY(s * j.twist));
+  mul(HP.t.makeTranslation(0, -UPPER_ARM, 0));
+  mul(HP.t.makeRotationX(-j.elbow));
+  mul(HP.t.makeTranslation(0, -(st[0] + st[1] + st[2]) - FOREARM, 0));
+  mul(HP.t.makeRotationY(s * j.wrist));
+  return out.set(local[0], local[1], local[2]).applyMatrix4(m);
+}
+const HP = { m: new Matrix4(), t: new Matrix4() };
+
+function contactOf(pose: FetchPose): [number, number] {
   const p = { ...NEUTRAL, ...pose };
   const fore = clamp(p.lean[0], -0.45, 0.45), side = clamp(p.lean[1], -0.35, 0.35);
   // the tyre rolls on its round: leaning the body one way puts the contact under the axle, a little toward the lean
