@@ -80,12 +80,20 @@ export type UnitFactory = (ctx: SimContext) => Unit;
  */
 export interface Lane {
   readonly points: readonly (readonly [number, number])[];
+  /**
+   * S5 round 3: how far in from each end of the path Fetch's own stops are (where it turns on a lap, the
+   * nearest point it returns to), world units; default `FETCH_TUNING.inset` (0.3). A stand point the scene
+   * gives (`FetchSpec.stands`) is taken exactly, at a path's very end included; Fetch's centre never runs
+   * past either end (it brakes to a stop there, no skid beyond).
+   */
+  readonly endInset?: number;
 }
 
 /**
  * Where on its path Fetch stands to handle something (S5 round 2): a fraction of the path's whole length
  * (0 at its first point, 1 at its last), or a ground point (x, z), taken to the nearest point of the path.
- * Without one, it stands at the point of its path nearest the thing.
+ * Taken exactly (round 3): a stand at a path's end is the end itself, not the inset stop. Without one, it
+ * stands at the point of its path nearest the thing (between its stops).
  */
 export type StandPoint = number | readonly [number, number];
 
