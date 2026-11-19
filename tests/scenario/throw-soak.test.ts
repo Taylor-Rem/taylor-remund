@@ -53,7 +53,8 @@ interface Throw {
 
 function plan(seed: number, w: World): Throw {
   const r = rng(`throw-soak-${seed}`);
-  const id = LOOSE[r.int(LOOSE.length)] as string;
+  const THROWN_IDS = [...LOOSE, 'patch'];
+  const id = THROWN_IDS[r.int(THROWN_IDS.length)] as string;
   const from: Vec3 = [r.range(-7.5, 7.5), r.range(1.0, 2.2), r.range(-3.8, 4.2)];
   const cap = LOOSE_TUNING.throwMax * 1.05; // a little over: the world clamps it
   const k = r.int(10);
@@ -112,7 +113,8 @@ async function session(seed: number): Promise<string[]> {
     run(steps(1));
     const th = plan(seed, w);
     const label = `seed ${seed}: ${th.id} from (${th.from.map((v) => v.toFixed(1)).join(', ')}) ${th.what}${th.rung ? ', Button pressed after' : ''}`;
-    const p0 = w.motion(th.id)?.pose.p;
+    const patchAt = (): Vec3 | undefined => (w.crewView('patch') as { view?: { at?: Vec3 } } | undefined)?.view?.at;
+    const p0 = th.id === 'patch' ? (() => { const a = patchAt(); return a ? ([a[0], a[1] + 0.5, a[2]] as Vec3) : undefined; })() : w.motion(th.id)?.pose.p;
     if (!p0) return [];
     w.dispatch({ type: 'grab', id: th.id, grip: p0 });
     run(1);
@@ -163,6 +165,14 @@ async function session(seed: number): Promise<string[]> {
         if (!om || om.mode === 'gone' || om.mode === 'chute') continue;
         if (insideBox(p, om.pose, w.halfExtents(o)!, 0.02)) fails.push(`${label}: ${id} inside ${o}`);
       }
+    }
+    // Patch (its own recovery, the Patch builder's: reported here): back on its stool within a further 30 s, never NaN
+    if (th.id === 'patch') {
+      const pv = (): { state: string; at: Vec3 } => (w.crewView('patch') as unknown as { view: { state: string; at: Vec3 } }).view;
+      for (let i = 0; i < 30 * HZ && pv().state !== 'seated'; i++) run(1);
+      const v = pv();
+      if (!v.at.every(Number.isFinite)) fails.push(`${label}: Patch NaN`);
+      else if (v.state !== 'seated') fails.push(`${label}: Patch not back on its stool after ${SETTLE + 30} s (${v.state} at ${v.at.map((x) => x.toFixed(2)).join(', ')})`);
     }
     // Fetch: upright and back at work
     const f = w.motion('fetch')!;
