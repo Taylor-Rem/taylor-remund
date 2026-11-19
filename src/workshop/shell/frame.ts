@@ -16,6 +16,7 @@ import { HZ } from '../sim/index.ts';
 import type { Frame, StationView } from '../view/types.ts';
 import type { RenderInfo } from '../view/stage/loop.ts';
 import { LatencyMeter } from './latency.ts';
+import type { FaultGuard } from './guard.ts';
 
 export interface FrameInputs {
   /** Before the frame's steps (step 1 above); `now` in ms. */
@@ -41,6 +42,12 @@ export interface DriverOptions {
   /** Called with every frame after the views have been updated (overlays, tests). */
   onFrame?(frame: Frame): void;
   latency?: LatencyMeter;
+  /**
+   * R2: the guard (shell/guard.ts). Without it, or strict, every error is thrown as before. Lenient: each
+   * view, the input, the frame hooks and the stage's render run as units of their own, and the world's step
+   * faults are put right after the step.
+   */
+  guard?: FaultGuard;
 }
 
 /** The simulation time to draw: interpolated between the last two steps. */
@@ -91,17 +98,25 @@ export class Driver {
     this.latency = o.latency ?? new LatencyMeter();
   }
 
+  private unit(name: string, f: () => void): void {
+    if (this.o.guard) this.o.guard.run(name, f);
+    else f();
+  }
+
   private before(): void {
     if (this.ticked) return;
     this.ticked = true;
-    this.o.input?.tick(this.now());
+    this.unit('input', () => this.o.input?.tick(this.now()));
   }
 
   /** One fixed step (the loop's `step`). */
   step(): void {
     this.before();
     this.o.world.advance();
-    for (const e of this.o.world.drainEvents()) this.events.push(e);
+    const ev = this.o.world.drainEvents();
+    for (const e of ev) this.events.push(e);
+    this.o.guard?.noteEvents(ev);
+    this.o.guard?.afterStep();
     this.steps++;
     this.latency.step(this.now());
   }
@@ -109,7 +124,7 @@ export class Driver {
   /** Assemble the frame, update the views, render (the loop's `render`). */
   render(info: Pick<RenderInfo, 'alpha' | 'dt'>): Frame {
     this.before();
-    this.o.input?.settle?.();
+    this.unit('input', () => this.o.input?.settle?.());
     const i = this.o.input;
     const frame = assembleFrame(this.o.world, this.events, info.alpha, info.dt, i?.pointer() ?? null, i?.hovered() ?? this.o.world.hovered, {
       focused: i?.focused?.() ?? null,
@@ -117,9 +132,14 @@ export class Driver {
       working: i?.working?.() ?? null,
     });
     this.events = [];
-    for (const v of this.o.views) v.update(frame);
-    this.o.onFrame?.(frame);
-    this.o.render(frame.dt);
+    const views = this.o.views;
+    for (let k = 0; k < views.length; k++) {
+      const v = views[k]!;
+      if (this.o.guard) this.o.guard.run(`view:${v.root.name || k}`, () => v.update(frame));
+      else v.update(frame);
+    }
+    this.unit('ui', () => this.o.onFrame?.(frame));
+    this.unit('stage', () => this.o.render(frame.dt));
     this.latency.rendered(this.now());
     this.ticked = false;
     this.frames++;

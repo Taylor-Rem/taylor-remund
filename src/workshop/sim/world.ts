@@ -118,6 +118,11 @@ export interface World extends WorldView {
   durable(): { target: Id; field: string; value: Value; writer: Writer }[];
   /** The undo stack, oldest first (§ E5): tests, and anything that shows whether the lever has something to take. */
   undoStack(): readonly TransactionView[];
+  /**
+   * R2: put the bench back to its opening state after a fault, whatever it was doing: an open Button bracket
+   * is closed (the bench restored exactly), whatever is held is let go, then "Reset the workshop".
+   */
+  recover(): void;
   dispose(): void;
 }
 
@@ -132,6 +137,24 @@ export interface WorldOptions {
   readonly runner?: Partial<typeof FETCH_TUNING>;
   /** What a visit remembers of the Button (§ B4): its rung, presses, cover, deck, what was used, reduced motion. */
   readonly button?: ButtonSaved;
+  /**
+   * R2: lenient mode (the production page only). Without it (development, every test) an error in a step is
+   * thrown as it always was. With it, an error thrown by one unit in one phase of a step (`pre`, `post`,
+   * `heard`, an intent, or the world's own physics and rests, unit `world`) is handed here, that unit is
+   * skipped for the rest of the step, and the step carries on. The caller decides whether to `recover()`.
+   */
+  readonly onFault?: (fault: StepFault) => void;
+}
+
+/** R2: one error caught in a step (lenient mode). */
+export interface StepFault {
+  /** The unit that threw (a machine or crew id), `world` for the world's own phases, `intent` for an intent. */
+  readonly unit: Id;
+  readonly phase: 'intent' | 'pre' | 'step' | 'post' | 'heard';
+  readonly error: unknown;
+  readonly step: number;
+  /** For an intent: which. */
+  readonly intent?: Intent;
 }
 
 interface Loose {
@@ -1151,26 +1174,48 @@ export function createWorld(opts: WorldOptions): World {
       clock.tick();
       const pending = queue;
       queue = [];
+      // R2: in lenient mode each unit's part of the step is guarded (see WorldOptions.onFault); strict, as before
+      const skip = new Set<Id>();
+      const guard = (unit: Id, phase: StepFault['phase'], f: () => void, intent?: Intent): void => {
+        if (!opts.onFault) return f();
+        if (skip.has(unit)) return;
+        try {
+          f();
+        } catch (error) {
+          skip.add(unit);
+          opts.onFault({ unit, phase, error, step: clock.step, ...(intent ? { intent } : {}) });
+        }
+      };
       for (const intent of pending) {
-        if (handle(intent) && intent.type !== 'hover' && intent.type !== 'carry') playMode = true;
+        guard('intent', 'intent', () => {
+          if (handle(intent) && intent.type !== 'hover' && intent.type !== 'carry') playMode = true;
+        }, intent);
       }
-      for (const u of units) u.pre?.();
-      if (bracket?.phase === 'rewind') {
-        readMotion(playback());
-      } else {
-        driveHeld();
-        const contacts = physics.step();
-        readMotion();
-        hits(contacts);
-        if (!bracket) {
-          edgeAndChute();
-          rests();
-        } else bracket.frames.push(framePoses());
-      }
-      for (const u of units) u.post?.();
-      history.endStep(clock.step);
+      for (const u of units) if (u.pre) guard(u.id, 'pre', () => u.pre!());
+      guard('world', 'step', () => {
+        if (bracket?.phase === 'rewind') {
+          readMotion(playback());
+        } else {
+          driveHeld();
+          const contacts = physics.step();
+          readMotion();
+          hits(contacts);
+          if (!bracket) {
+            edgeAndChute();
+            rests();
+          } else bracket.frames.push(framePoses());
+        }
+      });
+      for (const u of units) if (u.post) guard(u.id, 'post', () => u.post!());
+      guard('world', 'step', () => history.endStep(clock.step));
       const heard = events.slice(from);
-      for (const u of units) u.heard?.(heard);
+      for (const u of units) if (u.heard) guard(u.id, 'heard', () => u.heard!(heard));
+    },
+
+    recover() {
+      if (bracket) ctx.endBracket();
+      queue = [];
+      reset();
     },
 
     drainEvents() {
