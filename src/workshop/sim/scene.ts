@@ -84,9 +84,9 @@ export interface Lane {
    * S5 round 3: how far in from each end of the path Fetch's own stops are (where it turns on a lap, the
    * nearest point it returns to), world units; default `FETCH_TUNING.inset` (0.3). A stand point the scene
    * gives (`FetchSpec.stands`) is taken exactly, at a path's very end included; Fetch's centre never runs
-   * past either end (it brakes to a stop there, no skid beyond).
+   * past either end (it brakes to a stop there, no skid beyond). One number for both ends, or [first end, last end].
    */
-  readonly endInset?: number;
+  readonly endInset?: number | readonly [first: number, last: number];
 }
 
 /**
@@ -115,7 +115,7 @@ export interface FetchSpec {
    */
   readonly reach?: number;
   /** S5 round 2: where on its path it stands for each thing it handles (`StandPoint`); each optional. */
-  readonly stands?: { readonly stack?: StandPoint; readonly tray?: StandPoint; readonly phone?: StandPoint; readonly feed?: StandPoint };
+  readonly stands?: { readonly stack?: StandPoint; readonly tray?: StandPoint; readonly phone?: StandPoint; readonly feed?: StandPoint; /** S5 R1: the chute's pad. */ readonly pad?: StandPoint };
   /** The heading it turns to while winding up the fumble (radians about +Y; 0 faces +Z, the camera). */
   readonly fumbleHeading: number;
   /** The heading it turns to after letting go, for the offer (0 faces +Z, the camera). */
@@ -167,6 +167,13 @@ export interface FetchRounds {
   readonly cap: number;
   /** At least this many seconds between two crates set down. */
   readonly every: number;
+  /**
+   * S5 R1: the chute's pad (x, z), where a shipped crate's replacement lands (the dock's `pad`), and how far from it a crate
+   * counts as on it. With one: whenever the stack is below its starting count and the pad holds a fresh crate, Fetch carries
+   * that crate to the stack (in both modes); otherwise its rounds feed the belt from the pad first, the stack after.
+   */
+  readonly pad?: readonly [number, number];
+  readonly padRadius?: number;
   /** It sets a crate down only while every one of these settings has this value (the belt running forward). */
   readonly feedWhen: readonly { readonly target: Id; readonly field: string; readonly is: string | number | boolean }[];
 }

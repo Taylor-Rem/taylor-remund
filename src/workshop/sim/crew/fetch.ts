@@ -199,7 +199,7 @@ export const ATTRACT_TIMELINE: readonly { readonly beat: AttractBeat; readonly n
   { beat: 'ride', nominal: 9, follow: 'line' },
 ];
 /** After the lap's crate ships, the lap waits this long (seconds) for the stack's fresh crate before it ends anyway (the dock's restock comes 1.4 s after). */
-const LAP_RESTOCK_WAIT = 2;
+const LAP_RESTOCK_WAIT = 3.4; // S5 R1: the restock 1.4 s after, then the chute's throw (about 1.2 s) onto the pad
 /** Fetch's tap on the phone: it reaches out, taps (the text goes at `at`), and draws back. Seconds. */
 export const TAP = { at: 0.45, length: 0.9 } as const;
 
@@ -226,12 +226,13 @@ export function fetchReach(scene: SceneDesc, tuning: Partial<typeof FETCH_TUNING
 }
 
 /** S5 round 2: where on its path Fetch stands to handle `what` at (px, pz), and how far that is from it. */
-export function fetchStand(scene: SceneDesc, what: 'stack' | 'tray' | 'phone' | 'feed', px: number, pz: number, tuning: Partial<typeof FETCH_TUNING> = {}): { s: number; at: [number, number]; d: number } {
+export function fetchStand(scene: SceneDesc, what: 'stack' | 'tray' | 'phone' | 'feed' | 'pad', px: number, pz: number, tuning: Partial<typeof FETCH_TUNING> = {}): { s: number; at: [number, number]; d: number } {
   const T = scaled({ ...FETCH_TUNING, ...tuning }, scene.crewScale ?? 1);
   const path = lanePath(scene.runner.lane.points, T.cornerRadius);
-  const inset = scene.runner.lane.endInset ?? T.inset;
-  const lo = Math.min(inset, path.length / 2);
-  const hi = Math.max(path.length - inset, path.length / 2);
+  const ins = scene.runner.lane.endInset ?? T.inset;
+  const [inA, inB] = typeof ins === 'number' ? [ins, ins] : ins;
+  const lo = Math.min(inA, path.length / 2);
+  const hi = Math.max(path.length - inB, path.length / 2);
   const clampS = (v: number): number => Math.min(hi, Math.max(lo, v));
   const onPath = (v: number): number => Math.min(path.length, Math.max(0, v));
   const st = scene.runner.stands?.[what];
@@ -258,11 +259,12 @@ export function canRunLap(scene: SceneDesc, tuning: Partial<typeof FETCH_TUNING>
   if (!tray) return { ok: false, why: `no mouth "${lap.tray}" for the tray` };
   if (!feed) return { ok: false, why: `no mouth "${rounds.mouth}" for the belt's feed` };
   const R = fetchReach(scene, tuning);
-  const places: ['stack' | 'tray' | 'phone' | 'feed', number, number][] = [
+  const places: ['stack' | 'tray' | 'phone' | 'feed' | 'pad', number, number][] = [
     ['stack', rounds.stack[0], rounds.stack[1]],
     ['tray', tray.drop[0], tray.drop[2]],
     ['phone', lap.phone[0], lap.phone[2]],
     ['feed', feed.drop[0], feed.drop[2]],
+    ...(rounds.pad ? [['pad', rounds.pad[0], rounds.pad[1]] as ['pad', number, number]] : []),
   ];
   for (const [what, px, pz] of places) {
     const st = fetchStand(scene, what, px, pz, tuning);
@@ -283,8 +285,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const PATH = lanePath(spec.lane.points, T.cornerRadius);
   const laneLen = PATH.length;
   const endInset = spec.lane.endInset ?? T.inset;
-  const stopA = Math.min(endInset, laneLen / 2);
-  const stopB = Math.max(laneLen - endInset, laneLen / 2);
+  const [insetA, insetB] = typeof endInset === 'number' ? [endInset, endInset] : endInset;
+  const stopA = Math.min(insetA, laneLen / 2);
+  const stopB = Math.max(laneLen - insetB, laneLen / 2);
   /** A point of the path itself: never past either end. */
   const onPath = (s: number): number => Math.min(laneLen, Math.max(0, s));
   const clampLane = (s: number): number => Math.min(stopB, Math.max(stopA, s));
@@ -728,6 +731,72 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
     return best;
   }
+  // ── S5 R1: the chute's pad, and the stack kept stocked from it ──
+
+  /** How many crates stood on the stack at the start (what it is restocked to). */
+  const stackStart = rounds ? ctx.scene.parts.filter((p) => p.kind === 'crate' && !p.shipped && Math.hypot(p.pose.p[0] - rounds.stack[0], p.pose.p[2] - rounds.stack[1]) <= rounds.stackRadius).length : 0;
+  /** Crates standing on the stack now (lying there or in the visitor's hand over it; not the one in Fetch's). */
+  function stackCount(): number {
+    if (!rounds) return 0;
+    return ctx.parts().filter((id) => {
+      const m = ctx.mode(id);
+      const p = ctx.pose(id)?.p;
+      return ctx.part(id)?.kind === 'crate' && (m === 'free' || m === 'held') && !!p && horizontal(p, rounds.stack[0], rounds.stack[1]) <= rounds.stackRadius;
+    }).length;
+  }
+  /** A fresh crate lying still on the pad, if any. */
+  function padCrate(): Id | null {
+    const pad = rounds?.pad;
+    if (!pad) return null;
+    for (const id of ctx.parts()) {
+      const p = ctx.pose(id);
+      if (fresh(id) && p && horizontal(p.p, pad[0], pad[1]) <= (rounds?.padRadius ?? 0.45)) return id;
+    }
+    return null;
+  }
+  /** A crate on the pad still coming to rest (the chute's just landed): wait for it rather than go to the stack. */
+  function padSettling(): boolean {
+    const pad = rounds?.pad;
+    if (!pad) return false;
+    return ctx.parts().some((id) => {
+      const p = ctx.pose(id)?.p;
+      const m = ctx.mode(id);
+      return !!p && (m === 'machine' || (m === 'free' && !ctx.settled(id))) && ctx.part(id)?.kind === 'crate' && horizontal(p, pad[0], pad[1]) <= (rounds?.padRadius ?? 0.45) + 0.3;
+    });
+  }
+  /** S5 R1: a plain crate shipped: its replacement is on its way to the pad until about this step. */
+  let replacementDue = -Infinity;
+  /** The stack comes first (both modes: the Button's rungs and the visitor's platen need it stocked): below its starting count, with a crate on the pad. */
+  const restockDue = (): boolean => !!rounds?.pad && stackCount() < stackStart && padCrate() !== null;
+  /** Where the crate it is fetching goes: the belt (its rounds, the lap), or the stack (restocking it from the pad). */
+  let carryTo: 'belt' | 'stack' = 'belt';
+  /** Set the crate in its hands on top of the stack. */
+  function toStack(): void {
+    if (!rounds) return;
+    const [sx, sz] = rounds.stack;
+    let top = ctx.scene.bench.top;
+    for (const id of ctx.parts()) {
+      const m = ctx.mode(id);
+      const p = ctx.pose(id)?.p;
+      if (id === carrying || !p || (m !== 'free' && m !== 'held') || horizontal(p, sx, sz) > rounds.stackRadius) continue;
+      top = Math.max(top, p[1] + (ctx.halfExtents(id)?.[1] ?? 0.3));
+    }
+    placeAt = [sx, top, sz];
+    rollTo(standS('stack', sx, sz), 'place');
+  }
+  /** Go for a crate to restock the stack with, or to feed the belt from: the pad's. */
+  function takeFromPad(to: 'belt' | 'stack'): boolean {
+    const c = padCrate();
+    if (!c) return false;
+    // out of reach and given up on a moment ago: never nag
+    const p = ctx.pose(c) as Pose;
+    const [lx, lz] = at(standS('pad', p.p[0], p.p[2]));
+    if (Math.hypot(p.p[0] - lx, p.p[2] - lz) > R && ctx.clock.step < giveUpUntil) return false;
+    carryTo = to;
+    goFor(c, 'take');
+    return true;
+  }
+
   /** Crates in play: riding or being shipped, the one in its hands, and the one it has just let go of. */
   function inPlay(): number {
     if (!rounds) return 0;
@@ -765,7 +834,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     goalWhy = why;
     // where it stands: the scene's stand point for the stack (a crate on it) or the tray, else the nearest point
     const onStack = rounds !== null && Math.hypot(p.p[0] - rounds.stack[0], p.p[2] - rounds.stack[1]) <= rounds.stackRadius;
-    const sl = why === 'collect' ? standS('tray', p.p[0], p.p[2]) : why === 'take' && onStack ? standS('stack', p.p[0], p.p[2]) : nearest(p.p[0], p.p[2]);
+    const onPad = !!rounds?.pad && Math.hypot(p.p[0] - rounds.pad[0], p.p[2] - rounds.pad[1]) <= (rounds.padRadius ?? 0.45);
+    const sl = why === 'collect' ? standS('tray', p.p[0], p.p[2]) : why === 'take' && onStack ? standS('stack', p.p[0], p.p[2]) : why === 'take' && onPad ? standS('pad', p.p[0], p.p[2]) : nearest(p.p[0], p.p[2]);
     const [lx, lz] = at(sl);
     rollTo(sl, Math.hypot(p.p[0] - lx, p.p[2] - lz) <= R ? why : 'stretch');
   }
@@ -823,13 +893,22 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     if (!tray) return false;
     switch (beat) {
       case 'fetch-crate': {
+        if (carrying && carryTo === 'stack') {
+          // S5 R1: restocking the stack from the pad comes first
+          if (gather) return false;
+          toStack();
+          return true;
+        }
         if (carrying) {
           lapCrate = carrying;
           setBeat('to-tray');
           return lapStep();
         }
-        if (landing(lapCrate)) return false;
-        const top = lapCrate && fresh(lapCrate) ? lapCrate : stackTop();
+        if (landing(lapCrate) || padSettling()) return false;
+        if (restockDue() && takeFromPad('stack')) return true;
+        carryTo = 'belt';
+        // S5 R1: the lap's crate is the one the chute brought (the pad's); the stack's only when the pad is empty
+        const top = lapCrate && fresh(lapCrate) ? lapCrate : (padCrate() ?? stackTop());
         if (!top) return false;
         // gave up on it a moment ago (out of reach): never nag
         const tp = ctx.pose(top);
@@ -905,6 +984,11 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       return true;
     }
     if (carrying) {
+      if (carryTo === 'stack') {
+        if (gather) return false;
+        toStack();
+        return true;
+      }
       if (!gather && feeding() && now - lastPlaced >= steps(rounds.every) && inPlay() <= rounds.cap && dropClear()) {
         const d = drop() as Vec3;
         rollTo(standS('feed', d[0], d[2]), 'place');
@@ -918,7 +1002,14 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       return true;
     }
     fumbled = null;
+    // S5 R1: the stack first, from the pad; then the belt, from the pad, and from the stack only when the pad is empty
+    if (restockDue() && takeFromPad('stack')) return true;
     if (inPlay() >= rounds.cap) return false;
+    if (takeFromPad('belt')) return true;
+    // the stack only when the pad's chain is broken: nothing coming (a crate riding or shipped brings its replacement to the
+    // pad), so it does not empty the visitor's stock only to fill it again from the pad a moment later
+    if (rounds.pad && (padSettling() || inPlay() > 0 || now < replacementDue)) return false;
+    carryTo = 'belt';
     const top = stackTop();
     if (!top) return false;
     const p = ctx.pose(top) as Pose;
@@ -1155,6 +1246,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         // the visitor did its job for it: a crate of theirs taken in by the belt while it is empty-handed
         if (e.type === 'taken-in' && e.mouth === rounds.mouth && e.part !== justPlaced && ctx.touched(e.part)) saluteDue = true;
         if (e.type === 'taken-in' && e.part === justPlaced) justPlaced = null;
+        // S5 R1: a crate shipped: the chute will throw its replacement onto the pad (the restock, then the flight)
+        if (e.type === 'shipped' && ctx.part(e.part)?.kind === 'crate' && rounds.pad) replacementDue = ctx.clock.step + steps(5);
+        if (e.type === 'restocked') replacementDue = -Infinity;
       }
     },
 
@@ -1241,10 +1335,25 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             break;
           }
           if (rounds && ctx.playMode) {
-            // its rounds: a job if there is one; otherwise it waits where it is, facing the belt with its load
+            // its rounds: a job if there is one; otherwise it waits where it is, facing the belt with its load: but not
+            // near the stack (S5 R1: at the tray's stand that turn swung the crate in its hands through the stack)
             if (inState() >= Math.min(idleFor, steps(0.4)) && nextJob()) break;
             const d = drop();
-            if (carrying && d) turnToward(yawTo(d));
+            const nearStack = Math.hypot(x - rounds.stack[0], z - rounds.stack[1]) < R + 1;
+            if (carrying && d && !nearStack) turnToward(yawTo(d));
+            else if (carrying) turnToward(alongPath());
+            else if (rounds.pad && inState() >= Math.min(idleFor, steps(0.4))) {
+              // S5 R1: empty-handed with nothing to do, it waits at the pad's stand (the tape's left end), facing the pad
+              // where its next crate lands: not at the feed, where from the camera it stands in front of the UNDO plate
+              const pad = rounds.pad;
+              const home = standS('pad', pad[0], pad[1]);
+              if (Math.abs(s - home) > 0.02) {
+                rollTo(home, 'lap');
+                break;
+              }
+              lookAt = [pad[0], T.handHeight, pad[1]];
+              turnToward(Math.atan2(pad[0] - x, pad[1] - z));
+            }
             break;
           }
           if (lapOn()) {
@@ -1457,6 +1566,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             placing = null;
             placeAt = null;
             toIdle();
+            // S5 R1: on its rounds it leaves the feed at once (back to the pad's stand to wait, or on to the next job)
+            if (ctx.playMode && rounds.pad) idleFor = 0;
           }
           break;
         }

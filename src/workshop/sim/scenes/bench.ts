@@ -128,9 +128,21 @@ export const AT = {
    * point of its path closer than that to a body is never clear); but its last 0.3, by the platen's plinth. Every place it
    * handles is within 1.0 of where it stands (`runner.stands`, `reach` 1.10).
    */
-  lane: { points: [[-2.6, 2.78], [1.16, 2.78], [1.16, 0.7], [2.2, 0.7]] as const },
-  /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
-  stands: { feed: [-2.2, 2.78] as const, phone: [1.16, 1.9] as const, stack: [1.16, 1.75] as const, tray: [2.2, 0.7] as const },
+  lane: { points: [[-2.9, 2.78], [1.16, 2.78], [1.16, 0.7], [2.2, 0.7]] as const, endInset: [0.6, 0.3] as const },
+  /**
+   * Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on),
+   * and (S5 R1) the chute's pad: the tape's left end, the pad's crate in profile, Fetch facing -x.
+   */
+  stands: { feed: [-2.2, 2.78] as const, phone: [1.16, 1.9] as const, stack: [1.16, 1.75] as const, tray: [2.2, 0.7] as const, pad: [-2.9, 2.78] as const },
+  /**
+   * S5 R1: the chute's pad: where a fresh crate lands when a plain crate ships (the deflector row's third, last slot; A1 tapes it).
+   * One constant: the dock aims the chute's arc at it, Fetch's rounds take from it.
+   */
+  pad: [-3.91, 2.68] as const,
+  /** S5 R1: the chute's throw onto the pad: the top of its arc (world y): a crate's bottom is 1.2 or more over the deflector row's slots 1 and 2 (x -5.9..-4.3) at every size; about 1.15 s in the air. */
+  padApex: 3.6,
+  /** S5 R1 (lead): the chute aims by the crate's near face: every size's face toward the stand lands at x -3.57 (an L centred at -3.97, an S at -3.80), 0.07 from Fetch's body at the stand. */
+  padNear: [-3.57, 2.68] as const,
   /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
   offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
@@ -138,7 +150,8 @@ export const AT = {
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
   platenSeat: [3.19, 0.62, 0.7] as Vec3,
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands: on the front run, left of the phone. */
-  fetchStart: 0.12,
+  /** S5 R1: where on its front run Fetch starts (x): exactly where it started before the tape's left end moved 0.3 left for the pad (0.12 of the old path), so the first frame does not change. */
+  fetchStartX: -1.8207539967061512,
   /**
    * A1 round 7: the stack is two high (its top within the arm's reach); today's third crate starts loose on the bench in
    * front of the Button's console, the first thing to pick up (clear of Fetch's front run and below the console's plate).
@@ -152,7 +165,10 @@ export const AT = {
    * in front of the lever, between the run and the lever.
    */
   fumbleX: -1.6,
-  fumble: { heading: -Math.PI / 2, linvel: [-0.4, 1.8, -1.3] as Vec3, angvel: [-5, 0, 0] as Vec3, offerHeading: 0 },
+  // S5 R1: the slip's throw a little more back and none to the left (was [-0.4, 1.8, -1.3], resting at (-3.10, 2.65): on the
+  // tape's new left end and against the pad): it now rests at about (-2.77, 1.85), between the run and the lever, 0.93
+  // behind the run (clear of Fetch's footprint), in reach from it (1.10), 1.4 from the pad. Measured stable for x 0.05..0.1, z -2.4..-2.6.
+  fumble: { heading: -Math.PI / 2, linvel: [0.08, 1.8, -2.5] as Vec3, angvel: [-5, 0, 0] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
@@ -380,6 +396,8 @@ const S4_UNITS = [
 const FETCH_ROUNDS: FetchRounds = {
   stack: AT.stack,
   stackRadius: 0.55,
+  pad: AT.pad,
+  padRadius: 0.45,
   mouth: 'belt',
   inPlay: ['belt', 'dock'],
   cap: 3,
@@ -505,11 +523,12 @@ function s6PatchRunner(): { rest: number; jacks: Record<string, number>; quiet: 
 }
 
 /**
- * Fetch's lane as the bench its wheel and body cover (S6): each run of tape between its stops, widened by its
- * footprint (one box per run, S5 round 2). Nothing is set down there by a machine (the belt's deflector skips a place inside it).
+ * Fetch's lane as the bench its wheel and body cover (S6): each run of tape, widened by its footprint (one box per
+ * run, S5 round 2). Nothing is set down there by a machine (the belt's deflector skips a place inside it). S5 R1: to
+ * the path's true ends: a stand at an end is taken exactly (the pad's, the tray's), so its body reaches there.
  */
 function s6LaneBands(): { minX: number; maxX: number; minZ: number; maxZ: number }[] {
-  const inset = FETCH_TUNING.inset * CREW_SCALE;
+  const inset = 0;
   const r = Math.hypot(FETCH_HALF[0], FETCH_HALF[2]);
   const pts = AT.lane.points;
   return pts.slice(1).map((b, i) => {
@@ -585,7 +604,7 @@ export const bench: SceneDesc = {
     { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
     { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose(AT.firstCrate, 0.13) },
     { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
-    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(AT.fetchStart)[0], FETCH_HALF[1], lanePoint(AT.fetchStart)[1]]), half: FETCH_HALF, mass: 0.9 },
+    { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(laneT(AT.fetchStartX))[0], FETCH_HALF[1], lanePoint(laneT(AT.fetchStartX))[1]]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
     ...S4_PARTS,
   ],
@@ -609,11 +628,11 @@ export const bench: SceneDesc = {
   },
   runner: {
     id: 'fetch',
-    lane: { points: AT.lane.points },
+    lane: { points: AT.lane.points, endInset: AT.lane.endInset }, // (S5 R1: the left end 0.6 in: its laps turn where they did before the tape grew 0.3 for the pad)
     // A1 round 6: its telescoping arms' honest reach at carrying height (fetch-porter reach.ts), and where it stands for each thing
     reach: 1.1,
     stands: AT.stands,
-    start: AT.fetchStart,
+    start: laneT(AT.fetchStartX),
     carrying: 'crate-4',
     fumbleAt: laneT(AT.fumbleX),
     fumbleHeading: AT.fumble.heading,
@@ -628,7 +647,7 @@ export const bench: SceneDesc = {
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2 }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear } }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,

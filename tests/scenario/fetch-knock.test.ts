@@ -125,9 +125,10 @@ describe('knocked', () => {
     runWhile(w, () => w.crew('fetch')!.carrying !== null, steps(15));
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     runWhile(w, () => !(w.crew('fetch')!.state === 'idle' && w.crew('fetch')!.stateTime > 1), steps(20));
-    // (A1 round 6: it waits at the stack's stand, the stack beside it and the console behind it)
+    // (S5 R1: empty-handed it waits at the pad's stand, the tape's left end, facing the chute's pad, the motor housing and
+    // the deflector's row beside it; A1 round 6 had it wait at the stack's stand)
     void lane;
-    expect(Math.hypot(w.crew('fetch')!.x - (w.scene.runner.stands!.stack as readonly [number, number])[0], w.crew('fetch')!.z - (w.scene.runner.stands!.stack as readonly [number, number])[1])).toBeLessThan(0.6);
+    expect(Math.hypot(w.crew('fetch')!.x - (w.scene.runner.stands!.pad as readonly [number, number])[0], w.crew('fetch')!.z - (w.scene.runner.stands!.pad as readonly [number, number])[1])).toBeLessThan(0.05);
     const ev = throwAndSee(w, 'crate-1', { yaw: Math.PI / 2 + 0.4, speed: 7 });
     const r = watchKnock(w, steps(8));
     const k = knocks([...ev, ...r.ev]);
