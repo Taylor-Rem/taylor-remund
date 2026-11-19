@@ -80,6 +80,7 @@ export interface FullPose {
   arms: Arms;
   tail: [number, number];
   tailLift: number;
+  armScale: [number, number];
 }
 
 const ARM_KEYS: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow', 'wrist', 'roll'];
@@ -120,6 +121,7 @@ export function resolvePose(p: PatchPose = {}): FullPose {
     arms: { left: { ...arms.left }, right: { ...arms.right } },
     tail: [...q.tail],
     tailLift: q.tailLift,
+    armScale: [...q.armScale],
   };
 }
 
@@ -141,7 +143,7 @@ const CHANNEL_FIELDS: Record<Channel, (keyof FullPose)[]> = {
   ears: ['ears'],
   arms: ['arms'],
   tail: ['tail', 'tailLift'],
-  props: ['headset', 'folder', 'folderOpen', 'boom'],
+  props: ['headset', 'folder', 'folderOpen', 'boom', 'armScale'],
 };
 
 /** Mix two resolved poses (w = 0: a, 1: b). The folder is a switch: it follows whichever side w is nearer. */
@@ -168,6 +170,7 @@ export function mixPose(a: FullPose, b: FullPose, w: number): FullPose {
     arms: { left: mixJ(ARM_KEYS, a.arms.left, b.arms.left, w), right: mixJ(ARM_KEYS, a.arms.right, b.arms.right, w) },
     tail: l2(a.tail, b.tail, w),
     tailLift: lerp(a.tailLift, b.tailLift, w),
+    armScale: l2(a.armScale, b.armScale, w),
   };
 }
 
@@ -375,7 +378,7 @@ function solveArmAnalytic(side: 'left' | 'right', targetSpine: Vector3, base: Ar
   const short = Math.max(0, dRaw - (a + b));
   const dh = D.clone().normalize();
   // the elbow goes out and down and a little back (toward the pole)
-  const pole = new Vector3(s * 0.8, -0.5, -0.35);
+  const pole = armPole ? new Vector3(s * armPole[0], armPole[1], armPole[2]) : new Vector3(s * 0.8, -0.5, -0.35);
   const perp = pole.clone().addScaledVector(dh, -pole.dot(dh));
   if (perp.lengthSq() < 1e-8) perp.set(s, 0, 0);
   perp.normalize();
@@ -502,7 +505,7 @@ export interface Reach {
  * A paw to a root-space point: the body swivels and leans (fore up to 0.42, side up to 0.3) only as much
  * as the arm needs, the paw goes there, the head watches it. `base` is the rest of the pose.
  */
-export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPRESSIONS.unimpressed, o: { swivel?: number; watch?: boolean } = {}): Reach {
+export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPRESSIONS.unimpressed, o: { swivel?: number; watch?: boolean; pole?: V3 } = {}): Reach {
   // the same question gets the same answer; the questions the performances ask on the bench were answered
   // when the piece was built (reach-table.ts, made by the exact search offline), so play never searches
   const key = reachKey(target, side, base, o);
@@ -512,7 +515,12 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
   const baked = bakeMode ? undefined : REACH_TABLE[key];
   if (baked) r = fromBaked(baked, target, side, base, o);
   else {
-    r = reachUncached(target, side, base, o, bakeMode !== null);
+    armPole = o.pole ?? null;
+    try {
+      r = reachUncached(target, side, base, o, bakeMode !== null);
+    } finally {
+      armPole = null;
+    }
     if (bakeMode) bakeMode.set(key, toBaked(r, side));
     else REACH_MISSES.add(key);
   }
@@ -521,13 +529,15 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
   return r;
 }
 const reachCache = new Map<string, Reach>();
+/** The elbow's pole for the reach being solved (x mirrored by side), or null for the usual out-and-down. */
+let armPole: V3 | null = null;
 
 /** Questions answered live (not in the table): a test holds the bench's to none. */
 export const REACH_MISSES = new Set<string>();
 
 /** The question's key: its numbers to 1e-4, hashed (FNV-1a, 52 bits) to keep the table small. */
-function reachKey(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean }): string {
-  const str = JSON.stringify([target, side, base, o.swivel ?? null, o.watch ?? true], round4);
+function reachKey(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean; pole?: V3 }): string {
+  const str = JSON.stringify([target, side, base, o.swivel ?? null, o.watch ?? true, ...(o.pole ? [o.pole] : [])], round4);
   let h1 = 0x811c9dc5, h2 = 0x01000193;
   for (let i = 0; i < str.length; i++) {
     const c = str.charCodeAt(i);
@@ -1238,31 +1248,29 @@ export type FacepalmVariant = 'one' | 'both' | 'drag';
 function facepalmKeys(k: Key[], t0: number, L: number, variant: FacepalmVariant, sit: FullPose, vis: V3, peek: readonly V3[]): void {
   const swv = Math.abs(sit.body.rot[1] - WORK_SWIVEL) < 0.3 ? WORK_SWIVEL : 0;
   const lkVis = lookAt(resolvePose({ ...SEATED, body: { rot: [0, swv, 0] } }), vis, 0.6);
-  const palmBase: PatchPose = { ...SEATED, body: { rot: [0, swv, 0] }, lean: [0.12, 0.04], twist: 0, headYaw: clamp(lkVis.headYaw, -0.9, 0.9), headPitch: -0.34, headTilt: 0.16 };
-  const headM = nodeMatrix(palmBase, ['body', 'spine', 'head']);
-  const at = (dx: number, dy: number, dz: number): V3 => {
-    const p = new Vector3(HC[0] + dx, HC[1] + dy, HC[2] + dz).applyMatrix4(headM);
-    return [p.x, p.y, p.z];
-  };
-  const armTo = (p: V3, side: 'left' | 'right'): ArmJoints => resolvePose(reach(p, side, palmBase, { watch: false }).pose).arms[side];
+  // a toy's arm is shorter than its head is far: the arm stretches a little (armScale) and the head bows hard
+  // to meet the paw. Found by a search over the rig (paw on the face, the elbow as far out as that allows).
+  // the body swivels half round to the visitor on the stool, so the paw and the bowed head face the camera
+  const swPalm = swv + 0.5;
+  const palmBase: PatchPose = { ...SEATED, body: { rot: [0, swPalm, 0] }, lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28 };
   // out at the side, elbow high: the silhouette reads the move before the paw arrives
-  const lift: ArmJoints = J(1.1, 0.75, -0.6, 1.55, 0.3, 0.9);
-  const palmL = armTo(at(0.05, 0.11, 0.2), 'left');
-  const palmR = variant === 'both' ? armTo(at(-0.06, 0.09, 0.2), 'right') : null;
-  const chin = variant === 'drag' ? armTo(at(0.02, -0.06, 0.2), 'left') : null;
+  const lift: ArmJoints = J(1.2, 1.0, -0.4, 1.7, 0.3, 0.9);
+  const palmL: ArmJoints = J(1.5, 0.7, 0.3, 1.25, 0.3, 1.2);
+  const palmR: ArmJoints | null = variant === 'both' ? J(1.5, 0.6, 0.3, 1.3, 0.3, 1.2) : null;
+  const chin: ArmJoints | null = variant === 'drag' ? J(1.15, 0.45, 0, 0.95, 0.4, 1.2) : null;
   const lkPeek = peek.map((p) => lookAt(resolvePose(palmBase), p, 0));
   const tt = (u: number): number => t0 + L * u;
   k.push(
     // the paw comes up, slowly, out to the side first
-    { t: tt(0.22), set: { armL: lift, ...(palmR ? { armR: { ...lift, abduct: lift.abduct * 0.9 } } : {}), ...FACE.flat, lids: [0.4, 0.42], brows: [-0.3, -0.2] }, ease: inOutQuad },
+    { t: tt(0.22), set: { armL: lift, ...(palmR ? { armR: { ...lift, abduct: lift.abduct * 0.9 } } : {}), armScale: [1.55, palmR ? 1.55 : 1], body: { rot: [0, swPalm, 0] }, ...FACE.flat, lids: [0.4, 0.42], brows: [-0.3, -0.2] }, ease: inOutQuad },
     // the head drops into it
-    { t: tt(0.45), set: { armL: palmL, ...(palmR ? { armR: palmR } : {}), lean: [0.12, 0.04], twist: 0, headYaw: palmBase.headYaw, headPitch: -0.34, headTilt: 0.16, lids: [1, 1], lidsLow: [0.5, 0.5], brows: [-0.65, -0.6], browTilt: [0.35, 0.3], mouth: [-0.25, -0.2], ears: [0.6, 0.5], tail: [-0.2, 0] }, ease: inOutCubic },
+    { t: tt(0.45), set: { armL: palmL, ...(palmR ? { armR: palmR } : {}), lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28, lids: [1, 1], lidsLow: [0.5, 0.5], brows: [-0.65, -0.6], browTilt: [0.35, 0.3], mouth: [-0.25, -0.2], ears: [0.6, 0.5], tail: [-0.2, 0] }, ease: inOutCubic },
     // the held beat
-    { t: tt(0.66), set: { headPitch: -0.38, ears: [0.75, 0.65] } },
+    { t: tt(0.66), set: { headPitch: -0.36, ears: [0.8, 0.7] } },
   );
   if (variant === 'drag' && chin) {
     k.push(
-      { t: tt(0.86), set: { armL: chin, headPitch: -0.12, headYaw: lkVis.headYaw, gaze: [0.2, 0.3], lids: [0.48, 0.52], lidsLow: [0.35, 0.35], brows: [-0.6, -0.3], mouth: [-0.4, -0.35] }, ease: inOutQuad },
+      { t: tt(0.86), set: { armL: chin, lean: [0.12, 0.08], twist: -0.1, headPitch: -0.12, headYaw: lkVis.headYaw, gaze: [0.2, 0.3], lids: [0.48, 0.52], lidsLow: [0.35, 0.35], brows: [-0.6, -0.3], mouth: [-0.4, -0.35] }, ease: inOutQuad },
       { t: tt(1), set: { mouth: [-0.3, -0.3] } },
     );
   } else {
@@ -1305,7 +1313,7 @@ export function facepalm(t: number, o: FacepalmOptions = {}): PatchPose {
     }
     facepalmKeys(k, glance ? 0.45 : 0.1, L - (glance ? 0.45 : 0.1) - 0.45, variant, sit, vis, glance ? [glance, vis] : [vis]);
     // the paw comes down; the look at the visitor stays
-    k.push({ t: L, set: { arms: 'rest', lean: [0.02, 0], ...lookAt(resolvePose(SEATED), vis, 0.85), ...FACE.deadpan, ears: [0.3, 0.2], tail: [0.3, 0] }, ease: inOutQuad });
+    k.push({ t: L, set: { arms: 'rest', armScale: [1, 1], lean: [0.02, 0], ...lookAt(resolvePose(SEATED), vis, 0.85), ...FACE.deadpan, ears: [0.3, 0.2], tail: [0.3, 0] }, ease: inOutQuad });
     return bake(from, k);
   });
   return toPose(sampleOverlap(keys, t, { eyes: 0.03, ears: -0.05, tail: -0.12, body: -0.02 }));
@@ -1389,8 +1397,9 @@ export function rungReaction(rung: number, t: number, o: RungOptions): PatchPose
       );
     } else {
       // rung 4: down behind its knees, arms over its head; a peek over them; up as the bench runs back
-      const down: Partial<PatchPose> = { body: { at: [0, -0.04, 0.02], rot: [0.15, 0, 0] }, lean: [0.45, 0], twist: 0, headYaw: 0.35, headPitch: -0.45, headTilt: 0.1, gaze: [0, -0.2], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [1, 0.3], tailLift: 0.4, boom: 0.2 };
-      const peek: Partial<PatchPose> = { body: { at: [0, -0.03, 0.02], rot: [0.12, 0, 0] }, lean: [0.38, 0], headYaw: lkVis.headYaw * 0.7, headPitch: 0.15, gaze: [0.4, 0.5], lids: [0.2, 0.22], lidsLow: [0, 0], brows: [0.7, 0.6], browTilt: [0.2, 0.2], ears: [-0.2, 0.3], mouth: [-0.25, -0.2] };
+      const crouch: [LegJoints, LegJoints] = [{ lift: 0.7, splay: 0.25, knee: 1.35 }, { lift: 0.7, splay: 0.25, knee: 1.35 }];
+      const down: Partial<PatchPose> = { body: { at: [0.06, -0.42, 0.22], rot: [0.35, 0, 0] }, legs: crouch, lean: [0.45, 0], twist: 0, headYaw: 0.35, headPitch: -0.5, headTilt: 0.1, gaze: [0, -0.2], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [1, 0.3], tailLift: 0.4, boom: 0.2 };
+      const peek: Partial<PatchPose> = { body: { at: [0.06, -0.28, 0.22], rot: [0.2, 0, 0] }, legs: crouch, lean: [0.3, 0], headYaw: lkVis.headYaw * 0.7, headPitch: 0.15, gaze: [0.4, 0.5], lids: [0.2, 0.22], lidsLow: [0, 0], brows: [0.7, 0.6], browTilt: [0.2, 0.2], ears: [-0.2, 0.3], mouth: [-0.25, -0.2] };
       k.push(
         { t: 0.15, set: { ...down }, ease: outCubic },
         { t: 1.3, set: { ...peek }, ease: inOutQuad },
@@ -1399,7 +1408,7 @@ export function rungReaction(rung: number, t: number, o: RungOptions): PatchPose
         { t: 3.6, set: { ...peek, headYaw: lkVis.headYaw * 0.9, gaze: [0.6, 0.5] }, ease: inOutQuad },
         { t: P, set: { headPitch: 0.1 } },
         // up, as the bench runs back; straightens; the look
-        { t: P + RW * 0.7, set: { body: {}, lean: [0.04, 0], ...lkVis, ...FACE.deadpan, ears: [0.3, 0.2], arms: 'rest', tail: [0.3, 0], tailLift: 0, boom: 0, headset: [0.06, 0] }, ease: inOutCubic },
+        { t: P + RW * 0.7, set: { body: {}, legs: [LEG_REST, LEG_REST], lean: [0.04, 0], ...lkVis, ...FACE.deadpan, ears: [0.3, 0.2], arms: 'rest', tail: [0.3, 0], tailLift: 0, boom: 0, headset: [0.06, 0] }, ease: inOutCubic },
         { t: END - 0.1, set: { headset: [0, 0] } },
       );
     }
@@ -1489,8 +1498,8 @@ function flail(f: FullPose, t: number, A: number): FullPose {
   if (A <= 1e-3) return f;
   const s = (w: number, ph: number): number => Math.sin(t * w + ph) * A;
   // out to the sides (the silhouette at home framing), paddling: windmilling arms, kicking legs
-  const arm = (a: ArmJoints, ph: number): ArmJoints => ({ ...a, swing: a.swing + 0.45 * A + s(10, ph) * 0.8, abduct: a.abduct + 0.85 * A + s(8, ph + 1) * 0.55, elbow: a.elbow + 0.5 * A + s(13, ph + 2) * 0.55, wrist: a.wrist + s(15, ph) * 0.5 });
-  const leg = (l: LegJoints, ph: number): LegJoints => ({ ...l, lift: l.lift + 0.45 * A + s(12, ph) * 0.8, knee: l.knee + 0.5 * A + s(12, ph + 1.3) * 0.7, splay: l.splay + 0.35 * A + s(9, ph + 0.7) * 0.3 });
+  const arm = (a: ArmJoints, ph: number): ArmJoints => ({ ...a, swing: a.swing + 0.5 * A + s(10, ph) * 0.9, abduct: a.abduct + 1.05 * A + s(8, ph + 1) * 0.3, elbow: a.elbow + 0.4 * A + s(13, ph + 2) * 0.6, wrist: a.wrist + s(15, ph) * 0.5 });
+  const leg = (l: LegJoints, ph: number): LegJoints => ({ ...l, lift: l.lift + 0.55 * A + s(12, ph) * 0.8, knee: l.knee + 0.4 * A + s(12, ph + 1.3) * 0.7, splay: l.splay + 0.6 * A + s(9, ph + 0.7) * 0.3 });
   return {
     ...f,
     arms: { left: arm(f.arms.left, 0), right: arm(f.arms.right, Math.PI) },

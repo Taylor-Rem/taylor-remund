@@ -183,6 +183,8 @@ export interface PatchPose {
   tail?: [number, number];
   /** The tail's root: + lifts it, - lets it hang (-1.2 is straight down, as when Patch is held up). */
   tailLift?: number;
+  /** Each arm's size [left, right] (1 as built): a toy's arm stretches a little to reach its own face (the facepalm). */
+  armScale?: [number, number];
 }
 
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, roll: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, roll });
@@ -228,6 +230,7 @@ export const NEUTRAL: Required<Omit<PatchPose, 'arms' | 'body'>> & { arms: ArmPr
   arms: 'rest',
   tail: [0, 0],
   tailLift: 0,
+  armScale: [1, 1],
 };
 
 /**
@@ -490,7 +493,8 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
 
   const arms = resolveArms(p.arms);
   const arm = (s: 1 | -1, a: ArmJoints, nm: 'L' | 'R'): void => {
-    m[`arm${nm}`] = chain(T(s * SHOULDER.x, SHOULDER.y, SHOULDER.z), RZ(s * a.abduct), RX(-a.swing), RY(s * a.twist));
+    const k = clamp(p.armScale[s > 0 ? 0 : 1], 0.8, 1.6);
+    m[`arm${nm}`] = chain(T(s * SHOULDER.x, SHOULDER.y, SHOULDER.z), RZ(s * a.abduct), RX(-a.swing), RY(s * a.twist), new Matrix4().makeScale(k, k, k));
     m[`forearm${nm}`] = chain(T(0, -UPPER_ARM, 0), RX(-a.elbow));
     m[`paw${nm}`] = chain(T(0, -FOREARM, 0), RY(s * a.roll), RX(-a.wrist));
   };
