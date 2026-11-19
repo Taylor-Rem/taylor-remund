@@ -469,14 +469,14 @@ Machines and their verbs in release 1:
 | Patchlamp platen | the tray under the nozzle | changes it by text | the instruction | colour, label |
 | The belt | its whole surface | carries it, at the speed and direction set | size | where it is |
 | The striker | under the arm at the end of the belt | strikes it; it sounds | size, material | nothing |
-| The dock | the roll-up door | ships it: out, with a bell | nothing | marks; where it is |
+| The dock | the roll-up door | ships it: out, with a bell (the bell also rings when the visitor presses it; that changes nothing) | nothing | marks; where it is |
 | The bench edge | anything that falls off | sends it back up the return chute | nothing | where it is |
 
 **The feedback grammar**, the same everywhere:
 
 | event | what happens |
 |---|---|
-| pointer over something usable | it lifts a hair and the cursor becomes a hand |
+| pointer over something usable | it lifts a hair and the cursor becomes a hand: over the stage the cursor is a small work glove (resting, open, closed while holding, one finger on a button or handle); the paper pages, links, and visitors who ask for more contrast or reduced motion keep the system cursor |
 | picked up | it rises, its shadow separates, it sounds its own note |
 | handle worked | visible travel, a click, the consequence inside 100 ms |
 | verb done | a bell |
@@ -587,6 +587,8 @@ what a text looks like. Anything can be taken out of a robot's hands.
 **Play mode.** At the visitor's first action, attract mode ends for the
 visit. From then on the crew never works a handle or changes a setting:
 those are the visitor's. Fetch goes on carrying fresh crates down the belt
+(each one arrives up the return chute onto a taped pad at the left end of
+its tape, § D 7, and it waits there for the next)
 and Patch waits for texts. This is a rule of the history model (§ E5) as
 much as of manners.
 
@@ -614,7 +616,7 @@ visitor has not found.
 
 | rung | what happens | Revert's card |
 |---|---|---|
-| 1. The flinch (3 s) | The lamp dips, the belt lurches back, one crate slides off the stack, Fetch freezes mid-roll. Revert trundles out and puts the crate back. | WELL, THAT WAS UNNECESSARY. |
+| 1. The flinch (3 s) | The lamp dips, the belt lurches back, one crate slides off the stack, Fetch takes fright and Patch facepalms. Revert comes up and winds it back. | WELL, THAT WAS UNNECESSARY. |
 | 2. The hiccup (4 s) | As rung 1, and the nearest station the visitor has not used misfires once: one beat of its verb. | AGAIN. |
 | 3. The cover | A different unused station misfires. Then Revert screws a flip-up cover over the button. | IT SAYS DO NOT. |
 | 4. The works (7 s) | Every station the visitor *has already used* misfires together: sparks, a turning warning lamp, the crate stack comes down. Then the whole bench runs backwards to how it was. | I JUST CLEANED THAT. |
@@ -629,6 +631,16 @@ Constraints on every rung:
   (§ E5, "The Button is bracketed").
 - A rung is short. While it plays, the camera can still be moved but parts
   and handles do not respond.
+- A rung is a show and the crew are its audience: for its whole length
+  Fetch is frightened and Patch reacts (the facepalm is Patch's; it also
+  facepalms when Fetch fumbles its crate), a different reaction each
+  press, and nobody on the bench is a statue. The reactions are
+  performances only: the bracket is unchanged (Taylor, 2026-11-19: "make
+  the robot look scared and make patch facepalm or something rather than
+  just freeze everything in place").
+- Revert's card is read before anything else happens: Revert faces the
+  visitor, raises the card and holds still for the time it takes to read
+  it, and only then turns, moves or works.
 - No flashing faster than three times a second, and no full-screen flash.
   With reduced motion, a rung is the card and the lamp dip only.
 - The camera does not move by itself beyond a small shake, and not at all
@@ -913,8 +925,10 @@ is the room's clock; changing it changes everything downstream.
 arrangement of objects becomes a tune with no instruction.
 
 **7. The dock.** *Input:* anything reaching the door. *Behaviour:* the
-door rolls up, the part leaves, a bell rings. Plain crates are replaced
-from the stack; a tool or a robot comes back up the chute with a RETURN TO
+door rolls up, the part leaves, a bell rings. A plain crate's replacement
+is thrown up the return chute onto the pad by the belt's feed (Taylor,
+2026-11-19: "We could have the boxes shoot out of the chute"); Fetch keeps
+the stack stocked from the pad and otherwise feeds the belt from it; a tool or a robot comes back up the chute with a RETURN TO
 SENDER mark. *Reset:* UNDO brings a shipment back through the door. *Why:*
 things have somewhere to go, and coming back is funnier than leaving.
 
