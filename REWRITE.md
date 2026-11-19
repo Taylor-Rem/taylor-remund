@@ -950,7 +950,7 @@ SENDER mark. A crate Revert drops down its hatch (§ B5) comes back the
 same way, the same crate. The dock's last resort: where Revert cannot
 stand by a crate, or cannot come up, and Fetch has had nothing to carry
 for a minute, the dock sends one spare up the chute, never to more than
-five loose crates on the bench. *Reset:* UNDO brings a shipment back through the door. *Why:*
+six loose crates on the bench (crates it already owes back count). *Reset:* UNDO brings a shipment back through the door. *Why:*
 things have somewhere to go, and coming back is funnier than leaving.
 
 **8. UNDO.** X3. *Input:* pull the lever; or text "undo that". *Why:*
