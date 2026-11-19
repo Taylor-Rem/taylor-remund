@@ -116,6 +116,8 @@ export const REST: Readonly<Required<Omit<FetchPose, 'arms'>> & { arms: Arms }> 
   hang: [0, 0],
   jet: [0, 0],
   puff: 0,
+  puffLeft: 0,
+  puffLeftAt: [0, 0, 0],
 };
 
 /** Named strengths for `knocked`. */
@@ -183,6 +185,8 @@ export function blendPose(a: FetchPose, b: FetchPose, k: number): FetchPose {
     hang: l2(arr(ra.hang, 2, [0, 0]), arr(rb.hang, 2, [0, 0])),
     jet: l2(arr(ra.jet, 2, [0, 0]), arr(rb.jet, 2, [0, 0])),
     puff: lerp(ra.puff, rb.puff, t),
+    puffLeft: lerp(ra.puffLeft, rb.puffLeft, t),
+    puffLeftAt: t < 0.5 ? [...ra.puffLeftAt] : [...rb.puffLeftAt],
   };
 }
 
@@ -748,7 +752,8 @@ export function jetpack(o: JetpackOptions): FetchPose {
   const jet: [number, number] = [fl(0), fl(1.7)];
   // the puff: at ignition and at the cut, swelling then thinning away
   const pf = (s: number | undefined): number => (s === undefined || s < 0 ? 0 : smoothstep(0, 0.08, s) * (1 - smoothstep(0.18, 0.55, s)));
-  const puff = Math.max(pf(o.sinceIgnite), pf(o.sinceCut));
+  // (the ignition's is the bigger: it is the moment the visitor learns what is happening)
+  const puff = Math.max(1.8 * pf(o.sinceIgnite), pf(o.sinceCut));
   if (o.phase === 'fall') {
     // before the jets catch: the flail (held's, a picked-up Mii), eye wide
     const f = held(rm ? 2.6 : 0.2 + t);

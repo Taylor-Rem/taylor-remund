@@ -118,8 +118,12 @@ export function teleStages(total: number): [number, number, number] {
  * two brass nozzles pointing down. Body space. `flameY` is where the flames leave the nozzles.
  */
 export const PACK = { y: 0.135, z: -0.19 - 0.04, w: 0.2, h: 0.15, d: 0.075, nozzleX: 0.06, flameY: 0.135 - 0.075 - 0.048 } as const;
-/** A flame's drawn size at `jet` 1 (its node scales it): length and radius. */
-export const FLAME = { len: 0.26, r: 0.034 } as const;
+/**
+ * A flame's drawn size at `jet` 1 (its node scales it): a small blowtorch, about a third of Fetch's height.
+ * The nozzles (and their flames) splay outward by `splay` and back by `back` (radians), so a flame shows on
+ * each side below the body from the front.
+ */
+export const FLAME = { len: 0.4, r: 0.045, splay: 25 * (Math.PI / 180), back: 0.2 } as const;
 
 export const AERIAL = { x: -0.205, y: 0.275, z: -0.12, segs: [0.17, 0.15, 0.13] } as const;
 
@@ -190,8 +194,11 @@ export interface FetchPose {
   lift?: number;
   /** The jetpack's flames, [left, right]: 0 out .. 1 full (the rise) .. 1.3 a flicker's peak. */
   jet?: [number, number];
-  /** The puff of smoke under the nozzles (at ignition and the cut): 0 none .. 1 full. */
+  /** The puff of smoke under the nozzles (at ignition and the cut): 0 none .. 1 full .. 1.8 the ignition's. */
   puff?: number;
+  /** One puff ball left behind where the jets lit: its size (0 none), and where it is in root space. */
+  puffLeft?: number;
+  puffLeftAt?: [number, number, number];
   /**
    * [fore, side] radians: the wheel, fork and spring swinging under the torso about the torso's
    * mounting cup, the torso staying where it is (held in a hand: a pendulum). Signs as `lean`'s,
@@ -242,6 +249,8 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
   hang: [0, 0],
   jet: [0, 0],
   puff: 0,
+  puffLeft: 0,
+  puffLeftAt: [0, 0, 0],
 };
 
 /**
@@ -469,10 +478,12 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
     const w = j > 0.01 ? 0.75 + 0.25 * Math.min(1, j) : 1e-3;
     return S(w, l, w);
   };
-  m.flameL = chain(T(PACK.nozzleX, PACK.flameY, PACK.z), flame(p.jet[0]));
-  m.flameR = chain(T(-PACK.nozzleX, PACK.flameY, PACK.z), flame(p.jet[1]));
-  const pf = p.puff > 0.01 ? Math.min(1.2, p.puff) : 1e-3;
+  m.flameL = chain(T(PACK.nozzleX, PACK.flameY, PACK.z), RZ(FLAME.splay), RX(FLAME.back), flame(p.jet[0]));
+  m.flameR = chain(T(-PACK.nozzleX, PACK.flameY, PACK.z), RZ(-FLAME.splay), RX(FLAME.back), flame(p.jet[1]));
+  const pf = p.puff > 0.01 ? Math.min(2, p.puff) : 1e-3;
   m.puff = chain(T(0, PACK.flameY - 0.02, PACK.z), S(pf, pf, pf));
+  const pl = p.puffLeft > 0.01 ? Math.min(2, p.puffLeft) : 1e-3;
+  m.puffLeft = chain(T(p.puffLeftAt[0], p.puffLeftAt[1], p.puffLeftAt[2]), S(pl, pl, pl));
 
   const [bx, bz] = p.aerial;
   const wts = [0.25, 0.35, 0.4];

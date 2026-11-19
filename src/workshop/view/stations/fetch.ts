@@ -272,7 +272,10 @@ export class FetchPerformer {
     for (const e of i.events) {
       if (e.type === 'crew.state' && e.id === m.id) this.transition(e.from as FetchState, e.state as FetchState, i.time);
       if (e.type === 'part.hit' && (e.id === m.id || e.other === m.id) && i.mode === 'free') this.squash.kick(Math.min(6, e.strength * 1.4));
-      if (e.type === 'jet.ignited' && e.id === m.id) this.ignitedAt = i.time;
+      if (e.type === 'jet.ignited' && e.id === m.id) {
+        this.ignitedAt = i.time;
+        this.ignitedP = [i.pose.p[0], i.pose.p[1] - 0.3, i.pose.p[2]];
+      }
       if (e.type === 'jet.cut' && e.id === m.id) this.cutAt = i.time;
       if (e.type === 'restock.launched') {
         this.toss = { part: e.part, from: e.from, to: e.to, flight: e.flight, at: i.time };
@@ -997,6 +1000,15 @@ export class FetchPerformer {
     if (jet) {
       const jp = jetpackBeat({ phase: jet.phase, phaseTime: jet.phaseTime, phaseLength: jet.phaseLength, thrust: jet.thrust, sinceIgnite: i.time - this.ignitedAt, sinceCut: i.time - this.cutAt, t: st, reducedMotion: rm });
       pose = { ...pose, ...jp, headYaw: pose.headYaw ?? 0, headPitch: pose.headPitch ?? 0, headRoll: pose.headRoll ?? 0, gaze: pose.gaze ?? [0, 0], wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 };
+      // one puff ball left behind in the air where the jets lit, for its half second (pinned in the world:
+      // the root's frame is the body's, so the point is taken into it each frame)
+      const si = i.time - this.ignitedAt;
+      if (si >= 0 && si < 0.7 && this.ignitedP) {
+        const k = i.scale ?? 1, a = yaw + this.bodyTurn.x;
+        const dx = this.ignitedP[0] - P.x, dy = this.ignitedP[1] - (P.y - i.half[1]), dz = this.ignitedP[2] - P.z;
+        pose.puffLeftAt = [(dx * Math.cos(a) - dz * Math.sin(a)) / k, dy / k, (dx * Math.sin(a) + dz * Math.cos(a)) / k];
+        pose.puffLeft = rm ? 0 : 1.6 * smoothstep(0, 0.1, si) * (1 - smoothstep(0.3, 0.7, si)) + 0.4 * smoothstep(0.1, 0.6, si) * (1 - smoothstep(0.45, 0.7, si));
+      }
     } else if (i.time - this.cutAt < 0.6) {
       // the cut's puff thins away after it has landed
       const s = i.time - this.cutAt;
@@ -1190,6 +1202,7 @@ export class FetchPerformer {
   /** The jetpack's ignition and cut (events): the puffs, and the proud look after it lands. */
   private ignitedAt = -Infinity;
   private cutAt = -Infinity;
+  private ignitedP: [number, number, number] | null = null;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
