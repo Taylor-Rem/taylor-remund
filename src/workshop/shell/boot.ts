@@ -689,11 +689,14 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       // not made yet (a press before any idle time): after the frame that answers the press, not inside it
       else requestAnimationFrame(() => setTimeout(prepare, 0));
     };
-    const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    // bound: called bare, the browser's requestIdleCallback throws "Illegal invocation"
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    const idle = ric ? ric.bind(globalThis) : null;
     let asked = false;
     /** Once the loop runs on the wall clock: ask for the first idle time. */
     const ask = (): void => {
-      if (asked || !loop.running || loop.manual) return;
+      // (`loop.running` is false inside a frame: the next one is asked for after it; manual is the test)
+      if (asked || loop.manual) return;
       asked = true;
       if (idle) idle(prepare, { timeout: 1000 });
       else soon = setTimeout(prepare, 200);

@@ -33,6 +33,13 @@ export class Bank {
     return b;
   }
 
+  /** (I1 R3) Is the buffer `get` would hand out next already made (so asking for it costs nothing)? */
+  has(id: string, param?: number): boolean {
+    const def = soundDef(id);
+    const v = (this.turn.get(id) ?? 0) % def.variants;
+    return this.cache.has(`${id}#${v}@${paramOf(def, param)}`);
+  }
+
   private next(id: string, n: number): number {
     const k = this.turn.get(id) ?? 0;
     this.turn.set(id, k + 1);
@@ -44,7 +51,10 @@ export class Bank {
     if (this.warming) return;
     this.warming = true;
     const todo: { id: string; v: number }[] = [];
-    for (const d of SOUNDS) for (let v = 0; v < d.variants; v++) todo.push({ id: d.id, v });
+    // (I1 R3) what a visitor's first touch is likeliest to need comes first: the loops that start when sound starts,
+    // a pick-up, a handle, the Button; then the rest
+    const first = (id: string): number => (/^(loop\.|belt\.|hum)/.test(id) || id.startsWith('pick.') ? 0 : /^(handle\.|button\.|undo\.|cover\.|hit\.)/.test(id) ? 1 : 2);
+    for (const d of [...SOUNDS].sort((a, b) => first(a.id) - first(b.id))) for (let v = 0; v < d.variants; v++) todo.push({ id: d.id, v });
     type Idle = (cb: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => number;
     const ric = (globalThis as { requestIdleCallback?: Idle }).requestIdleCallback;
     const later = (f: (d: { timeRemaining(): number }) => void): void => {

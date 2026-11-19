@@ -36,6 +36,8 @@ export function createSound(context: AudioContext, o: { prewarm?: boolean } = {}
   const bank = new Bank(context);
   const score = new Score();
   const loops = new Map<string, LoopVoice>();
+  /** Loops being rendered just after a frame (I1 R3). */
+  const pending = new Set<string>();
   let disposed = false;
 
   // silent and asleep while muted or hidden (§ AU1 3: with the tab hidden everything stops)
@@ -66,10 +68,27 @@ export function createSound(context: AudioContext, o: { prewarm?: boolean } = {}
       const heard = score.hear(frame.world, frame.events);
       // nothing is queued while nothing can be heard: a muted or hidden workshop does not pile up sounds for later
       if (isMuted() || hidden() || context.state === 'closed') return;
-      for (const c of heard.cues) cue(c);
+      // (I1 R3) a sound not rendered yet (the idle prewarm has not reached it: a visitor's first touch, early) is
+      // rendered just after this frame and played then, never inside the frame that shows the touch
+      for (const c of heard.cues) {
+        if (bank.has(c.id, c.param)) cue(c);
+        else setTimeout(() => !disposed && cue(c), 0);
+      }
       for (const l of heard.loops) {
         let v = loops.get(l.id);
-        if (!v && l.gain > 0) loops.set(l.id, (v = mixer.loop(bank.get(l.id))));
+        if (!v && l.gain > 0) {
+          if (!bank.has(l.id)) {
+            if (!pending.has(l.id)) {
+              pending.add(l.id);
+              setTimeout(() => {
+                pending.delete(l.id);
+                if (!disposed && !loops.has(l.id)) loops.set(l.id, mixer.loop(bank.get(l.id)));
+              }, 0);
+            }
+            continue;
+          }
+          loops.set(l.id, (v = mixer.loop(bank.get(l.id))));
+        }
         v?.set(l.gain, l.rate, l.pan);
       }
     },
