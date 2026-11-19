@@ -359,6 +359,7 @@ export function held(t: number, o: HeldOptions = {}): FetchPose {
   const tt = Math.max(0, t);
   const [vx, vy, vz] = o.carry ?? [0, 0, 0];
   const w0 = o.spin ?? 26;
+  // (the wheel spins freely; it whirs up again in a panic, below)
   // the wheel runs down on its bearing
   const tau = 1.8;
   const wheel = w0 * tau * (1 - Math.exp(-tt / tau));
@@ -374,10 +375,31 @@ export function held(t: number, o: HeldOptions = {}): FetchPose {
   const ap = 0.3 * ring(tt - 0.1, 1.5, 0.12) + 0.05 * sway;
   const as = 0.28 * ring(tt - 0.16, 1.35, 0.12);
   const bob = clamp(-0.06 * vy, -0.4, 0.4); // a hand lifting fast leaves them low; dropping, they float
+  // the flail (a picked-up Mii): arms paddling out of step, jaws snapping, for about two seconds after the lift
+  // and in a burst whenever the hand shakes or swings it; then a resigned dangle with the odd kick
+  const speed = Math.hypot(vx, vy, vz);
+  const panic = Math.max(Math.exp(-tt / 1.1), smoothstep(0.8, 2.6, speed));
+  const kickAt = tt > 2 ? (tt - 2) % 1.9 : -1;
+  const kick = kickAt >= 0 ? Math.sin(Math.PI * clamp(kickAt / 0.28, 0, 1)) * (kickAt < 0.28 ? 1 : 0) : 0;
+  const kickLeft = Math.floor((tt - 2) / 1.9) % 2 === 0;
+  const pad = (ph: number): number => Math.sin(TAU * 2.9 * tt + ph);
   const arms: Arms = {
-    left: addArm(DANGLE.left, { swing: -ap - clamp(0.12 * vz, -0.5, 0.5), abduct: -as + clamp(-0.16 * vx, -0.5, 0.5) + bob, grip: 0.1 * Math.sin(TAU * 1.1 * tt) }),
-    right: addArm(DANGLE.right, { swing: -ap * 0.85 - clamp(0.12 * vz, -0.5, 0.5), abduct: as + clamp(0.16 * vx, -0.5, 0.5) + bob, grip: 0.1 * Math.sin(TAU * 1.1 * tt + 1.3) }),
+    left: addArm(DANGLE.left, {
+      swing: -ap - clamp(0.12 * vz, -0.5, 0.5) + 0.75 * panic * pad(0) + (kickLeft ? 0.6 * kick : 0),
+      abduct: -as + clamp(-0.16 * vx, -0.5, 0.5) + bob + 0.3 * panic * pad(1.2),
+      elbow: 0.4 * panic * pad(2.1),
+      grip: 0.1 * Math.sin(TAU * 1.1 * tt) + 0.45 * panic * Math.max(0, pad(0.5)),
+    }),
+    right: addArm(DANGLE.right, {
+      swing: -ap * 0.85 - clamp(0.12 * vz, -0.5, 0.5) + 0.75 * panic * pad(Math.PI) + (!kickLeft ? 0.6 * kick : 0),
+      abduct: as + clamp(0.16 * vx, -0.5, 0.5) + bob + 0.3 * panic * pad(Math.PI + 1.2),
+      elbow: 0.4 * panic * pad(Math.PI + 2.1),
+      grip: 0.1 * Math.sin(TAU * 1.1 * tt + 1.3) + 0.45 * panic * Math.max(0, pad(Math.PI + 0.5)),
+    }),
   };
+  // the wheel kicks on its fork too while it panics
+  hang[0] += 0.12 * panic * Math.sin(TAU * 2.2 * tt + 0.7);
+  hang[1] += 0.1 * panic * Math.sin(TAU * 1.7 * tt);
   const lean: [number, number] = [0, 0];
   const aerial: [number, number] = [clamp(-0.18 * vz - 0.9 * ring(tt, 2.6, 0.12), -1.4, 1.4), clamp(-0.18 * vx, -1.2, 1.2)];
   const flag = 1.5 * tt + 0.4 * Math.hypot(vx, vy, vz) * tt;
