@@ -336,7 +336,10 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
     id,
     station: spec.station,
     name: spec.name,
-    affordances: [],
+    // (I1) the phone on the bench stands for the line: picking it up is a press on the line (the texting
+    // panel is the page's). Taken, nothing changes and nothing commits, but it is the visitor's action, so
+    // it ends attract mode like any other first action (§ B3).
+    affordances: ['open'],
     tell() {
       lamp.tell();
       ctx.emit({ type: 'tell', id });
@@ -347,6 +350,7 @@ export function createLine(ctx: SimContext, spec: LineSpec): LineUnit {
     },
 
     intent(intent: Intent): boolean {
+      if (intent.type === 'press' && intent.id === id) return !ctx.bracketed;
       if (intent.type !== 'text' || ctx.bracketed || lifted()) return false;
       const jack = cordJack();
       const ln = lineOf(jack);

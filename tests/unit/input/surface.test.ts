@@ -36,7 +36,7 @@ describe('surface: roles from affordances', () => {
       'jack-lamp': 'jack',
       'jack-reserved-1': 'jack',
       phone: 'handle', // the phone: it opens a panel of the page's
-      line: 'none', // the line itself: nothing to put a hand on
+      line: 'handle', // the line declares open (the phone stands for it; left out of the controls list by the shell)
       belt: 'mouth',
       striker: 'none',
     });
