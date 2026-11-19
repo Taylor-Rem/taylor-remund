@@ -22,7 +22,7 @@
  *
  * The shell knows no station: it takes the list (`check-layers`).
  */
-import { Box3, Ray, Vector3, type Object3D } from 'three';
+import { Box3, Ray, Raycaster, Vector3, type Intersection, type Mesh, type Object3D } from 'three';
 import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, Vec3, World, WorldView } from '../sim/index.ts';
@@ -264,6 +264,23 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const filters = { none: pickFilter(null), part: pickFilter('part'), unit: pickFilter('unit'), plug: pickFilter('plug') };
   const box3 = new Box3();
   const box3b = new Box3();
+  const raycaster = new Raycaster();
+  const skipped = new Set<Id>();
+  const drawnHits: Intersection[] = [];
+  /** Does the pick ray miss every visible mesh drawn under `id`'s pick object? False when it has none to test. */
+  const missesDrawn = (id: Id): boolean => {
+    const o = picking.objectOf(id);
+    if (!o) return false;
+    let meshes = 0;
+    o.traverse((c) => {
+      if ((c as Mesh).isMesh) meshes++;
+    });
+    if (meshes === 0) return false;
+    raycaster.ray.copy(pickRay);
+    drawnHits.length = 0;
+    raycaster.intersectObject(o, true, drawnHits);
+    return !drawnHits.some((h) => isShown(h.object));
+  };
   const corner = new Vector3();
   /** A pick target's proxy on screen (CSS px): centre and half of its larger side. */
   const screenOf = (id: Id): { x: number; y: number; r: number } | null => {
@@ -295,6 +312,20 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       if (hit.grown) return first;
       // a small thing inside a big thing's proxy wins (the plug under the lamp's arm, the phone by the Button's console):
       // the next true hit along the ray, if it lies within the first's box and is much smaller
+      // a box is coarser than what it stands for: when the ray passes through a robot's box but misses the robot
+      // itself (beside its arm, over its head) and something behind is truly under the point, that is what the
+      // visitor sees and presses (the phone beside Fetch rolling past). Tested against the drawn meshes, only
+      // when two proxies overlap on the ray.
+      // (up to three deep: Fetch carrying a crate, both in front of the phone)
+      skipped.clear();
+      let front: { id: Id; point: Vec3 } = first;
+      for (let depth = 0; depth < 3; depth++) {
+        skipped.add(front.id);
+        const behind = picking.pick(pickRay, { exclude, filter: (id) => !skipped.has(id) && filter(id) });
+        if (!behind || behind.grown || !missesDrawn(front.id)) break;
+        front = { id: behind.id, point: [behind.point.x, behind.point.y, behind.point.z] };
+      }
+      if (front !== first) return front;
       const big = picking.worldBox(first.id, box3);
       if (!big) return first;
       const bigSize = big.getSize(corner).length();
@@ -589,6 +620,15 @@ async function compileShaders(stage: Stage): Promise<void> {
   } catch {
     /* the first frame compiles whatever is left */
   }
+}
+
+/** Drawn, as far as a pick is concerned: visible all the way up, and not scaled away (the kit's way of hiding a node). */
+function isShown(o: Object3D): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) {
+    if (!p.visible) return false;
+    if (Math.min(Math.abs(p.scale.x), Math.abs(p.scale.y), Math.abs(p.scale.z)) < 1e-3) return false;
+  }
+  return true;
 }
 
 /** The default framing: the bench's box from the scene, home at zoom 0. */
