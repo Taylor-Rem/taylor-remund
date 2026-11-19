@@ -361,7 +361,7 @@ describe('Revert between jobs', () => {
     expect(R(world).state).toBe('below');
   });
 
-  test('a crowded bench: after a while it comes up and puts away the oldest crate nobody has stirred, onto the stack', () => {
+  test('a crowded bench: after a while it comes up, sweeps the oldest crate nobody has stirred into its pan, and drops it down its hatch (R3)', () => {
     const { world, physics } = quietStub();
     run(world, 5);
     // the visitor scatters the stack and takes the loose crate out of Fetch's hands: four strays
@@ -374,18 +374,18 @@ describe('Revert between jobs', () => {
     expect(R(world).state).toBe('below');
     const ev: { step: number; e: SimEvent }[] = [];
     for (let i = 0; i < steps(100); i++) for (const e of run(world, 1)) ev.push({ step: world.step, e });
-    const sweeps = ev.filter((x) => x.e.type === 'revert.sweep');
+    const sweeps = ev.filter((x) => x.e.type === 'revert.sweep' && x.e.to.at === 'rest'); // into the pan
     expect(sweeps).toHaveLength(1); // four strays: one put away, and the bench is no longer crowded
+    expect(ev.some((x) => x.e.type === 'revert.sweep' && x.e.to.at === 'shipped' && x.e.part === 'crate-3')).toBe(true); // down the hatch
     const s = sweeps[0]!;
     // the oldest stirred (crate-3), once nothing has stirred it for the while; Revert came up for it
     expect(s.e.type === 'revert.sweep' && s.e.part).toBe('crate-3');
     expect(s.step - first).toBeGreaterThanOrEqual(steps(A_WHILE));
     expect(ev.some((x) => x.e.type === 'crew.state' && x.e.id === 'revert' && x.e.state === 'rising')).toBe(true);
     expect(ev.some((x) => x.e.type === 'put-away' && x.e.id === 'crate-3')).toBe(true);
-    const loc = world.part('crate-3')!.location;
-    expect(loc.at).toBe('rest');
-    if (loc.at === 'rest') expect(Math.hypot(loc.pose.p[0] - AT.stack[0], loc.pose.p[2] - AT.stack[1])).toBeLessThan(0.05);
-    expect(world.writer('crate-3', 'location')).toBe('system');
+    // down the hatch, then (the stub's chute) back up onto the pad: either way nobody's transaction
+    expect(['shipped', 'rest']).toContain(world.part('crate-3')!.location.at);
+    expect(['system', 'crew', 'settled']).toContain(world.writer('crate-3', 'location'));
     expect(world.touched('crate-3')).toBe(false);
     expect(world.undoStack().flatMap((t) => t.entries).some((e) => e.target === 'crate-3')).toBe(false);
     // what the visitor touched later was left alone
@@ -450,7 +450,7 @@ describe('Revert between jobs', () => {
   });
 
   test('it never puts away what the visitor touched within the while', () => {
-    const { world, physics } = benchStub();
+    const { world, physics } = quietStub(); // (the crowded rule; with Fetch's rounds the healing rule's own while is 30 s: bench-runs-dry.test.ts)
     run(world, 5);
     setDown(world, physics, 'crate-4', 1.5, -3.2);
     setDown(world, physics, 'crate-3', -6, -3);

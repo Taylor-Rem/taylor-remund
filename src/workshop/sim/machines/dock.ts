@@ -27,7 +27,7 @@
  * location and puts the body back; `restored` here opens the door and says
  * `returned` (how: `door`), and cancels a pending return to sender.
  */
-import type { Cause, DockView, Id, Intent, Location, Outcome, Part, PartKind, Pose, Restore, StationId, Vec3 } from '../types.ts';
+import type { Cause, DockView, Id, Intent, Location, Outcome, Part, PartKind, Pose, Restore, SimEvent, StationId, Vec3 } from '../types.ts';
 import type { Job } from '../history.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
@@ -61,6 +61,14 @@ export const DOCK_TUNING = {
   linger: 0.25,
   /** A plain crate is replaced on the stack this long after it ships. */
   restockAfter: 1.4,
+  /**
+   * R3: the bench never holds more loose crates than this (on it, in hands, riding, flying): a crate Revert drops
+   * down its hatch comes back up the chute onto the pad only below it (else it stays a spare), and so does the
+   * last resort's spare.
+   */
+  looseMax: 5,
+  /** R3: the last resort: Fetch has had nothing it may carry for this long and Revert has put nothing away meanwhile: one spare up the chute. */
+  lastResort: 60,
   /**
    * A tool or a robot comes back up the chute this long after it ships. (R2) A robot with a pad to land by is
    * refused at once: the door shuts on it, a beat, and it is thrown back out (ten seconds of nothing read as gone).
@@ -173,7 +181,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   const rng = ctx.rng(`dock:${spec.id}`);
   const queue: Shipment[] = [];
   let returns: Return[] = [];
-  let restocks: { at: number; size: Part['size'] }[] = [];
+  let restocks: { at: number; size: Part['size']; part?: Id }[] = [];
   /** S5 R1: replacements in the air from the chute to the pad (the dock's custody, kinematic, until they touch down). */
   let flights: Flight[] = [];
   /** Crates in the order they shipped (oldest first): restocking takes from the front. */
@@ -245,6 +253,47 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     else returns.push({ id: s.id, at, job: ctx.history.work(ctx.history.chargeMachine(s.id), spec.id, () => (returns = returns.filter((r) => r.id !== s.id))) });
   }
 
+  // ── R3: the bench never runs dry ──
+  let starvedSince = -1;
+  let lastPutAway = -Infinity;
+  /** Crates in the world (not shipped behind the door or down Revert's hatch). */
+  function looseCrates(): number {
+    return ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at !== 'shipped').length;
+  }
+  /** A crate Fetch may carry now (nobody has touched it, lying still on the pad or the stack), or one already in someone's hands or a machine. */
+  function fetchHasWork(): boolean {
+    const [sx, sz] = spec.stack;
+    return ctx.parts().some((id) => {
+      const p = ctx.part(id);
+      if (!p || p.kind !== 'crate') return false;
+      const m = ctx.mode(id);
+      if (m === 'crew' || m === 'chute' || (m === 'machine' && p.location.at === 'in' && (p.location.mouth === 'belt' || p.location.mouth === 'dock'))) return true;
+      if (ctx.touched(id) || m !== 'free' || p.location.at !== 'rest') return false;
+      const q = ctx.pose(id)?.p;
+      if (!q) return false;
+      if (Math.hypot(q[0] - sx, q[2] - sz) <= 0.55) return true;
+      return !!spec.pad && Math.hypot(q[0] - spec.pad.at[0], q[2] - spec.pad.at[1]) <= spec.pad.radius;
+    }) || flights.length > 0;
+  }
+  /**
+   * R3, the last resort ("never stuck" even when Revert cannot help: its hatch covered, its way shut, the handled
+   * crates where it cannot stand): Fetch has had nothing it may carry for `lastResort` seconds in play mode and
+   * nothing has been put away meanwhile: one spare up the chute onto the pad, as `system`, if the bench holds fewer
+   * than `looseMax` crates. Then it waits as long again.
+   */
+  function lastResort(now: number): void {
+    if (!spec.pad || !ctx.playMode || fetchHasWork() || restocks.length > 0) {
+      starvedSince = -1;
+      return;
+    }
+    if (starvedSince < 0) starvedSince = now;
+    if (now - starvedSince < steps(T.lastResort) || now - lastPutAway < steps(T.lastResort)) return;
+    starvedSince = now;
+    if (looseCrates() >= T.looseMax) return;
+    const spare = ctx.parts().find((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at === 'shipped' && ctx.mode(id) === 'gone');
+    if (spare) restocks.push({ at: now, size: (ctx.part(spare) as Part).size });
+  }
+
   /** RETURN TO SENDER: the mark, then up the chute; its rest is the same cause's. */
   function sendBack(r: Return): void {
     const part = ctx.part(r.id);
@@ -274,7 +323,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
    * measured (a crate in the crew's hands is neither free nor held), and a crate set down then lands
    * inside the one being lifted.
    */
-  function restock(size: Part['size']): boolean {
+  function restock(size: Part['size'], want?: Id): boolean {
     if (spec.pad && padTaken()) return false; // S5 R1: owed until the pad is free
     if (!spec.pad) {
       const [sx, sz] = spec.stack;
@@ -297,7 +346,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const free = crates.filter((id) => !isTxn(ctx.writer(id, 'location')));
     // (S5 round 2) the same size first, a spare or else the longest shipped, so the stack is put back as it was
     const sameSize = (id: Id): boolean => ctx.part(id)?.size === size;
-    const spare = free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
+    // (R3) the very crate Revert dropped down its hatch, when it is owed back: the visitor sees the same crate return
+    const spare = (want !== undefined && free.includes(want) ? want : undefined) ?? free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
     if (spare === undefined) return true;
     shippedOrder = shippedOrder.filter((x) => x !== spare);
     const p = ctx.part(spare) as Part;
@@ -514,6 +564,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     },
 
     reset() {
+      starvedSince = -1;
+      lastPutAway = -Infinity;
       for (const s of [...queue]) s.job.done();
       queue.length = 0;
       for (const r of returns) r.job?.done();
@@ -524,6 +576,16 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       openUntil = -1;
       lamp.reset();
       beat.reset();
+    },
+
+    heard(events: readonly SimEvent[]) {
+      for (const e of events) {
+        if (e.type === 'revert.sweep' || e.type === 'put-away') lastPutAway = ctx.clock.step;
+        // R3: a crate Revert dropped down its hatch comes back up the chute onto the pad (bounded: `looseMax`)
+        if (e.type === 'revert.sweep' && e.to.at === 'shipped' && ctx.part(e.part)?.kind === 'crate' && looseCrates() < T.looseMax) {
+          restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: (ctx.part(e.part) as Part).size, part: e.part });
+        }
+      }
     },
 
     pre() {
@@ -566,8 +628,9 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       }
       for (const r of restocks.filter((x) => x.at <= now)) {
         // not while the crew's hands are in the stack: it stays owed and is tried again next step
-        if (restock(r.size)) restocks = restocks.filter((x) => x !== r);
+        if (restock(r.size, r.part)) restocks = restocks.filter((x) => x !== r);
       }
+      lastResort(now);
     },
 
     view(): DockView {
