@@ -198,6 +198,12 @@ export const LAYOUT = {
     mailbox: spot(8.25, 4.2, 0.42, 0.36, 1.3),
     /** The return chute (real): up out of the dark near the front-left corner, its mouth looking along the bench; in from the corner so its duct is in frame. */
     chute: real(-7.8, 5, BOUNDS.chute),
+    /**
+     * The chute's landing pad (A1 R1): a square of tape on the last slot of the deflector's row, at the slide's foot,
+     * in line with Fetch's tape: a fresh crate is shot out of the chute onto it, and Fetch takes it from its tape's
+     * left end facing -X, in profile. Flat (tape only).
+     */
+    pad: spot(-3.91, 2.68, 0.9, 0.9, 0, { fill: 'piece' }),
   },
 } as const;
 
