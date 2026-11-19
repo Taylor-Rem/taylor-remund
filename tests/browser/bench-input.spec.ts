@@ -15,7 +15,10 @@ import { startDevServer, type DevServer } from '../../scripts/capture.ts';
 
 test.use({ channel: 'chrome', launchOptions: { args: gpuArgs } });
 test.describe.configure({ mode: 'serial' });
-test.setTimeout(240_000);
+// Limits are counted in rendered frames and simulation steps (`pollFrames`, `frames`), never in wall-clock
+// seconds: on a shared, loaded laptop a frame can take a second, and a wait in ms then fails a correct page.
+// The test timeout below only catches a page that has stopped altogether.
+test.setTimeout(20 * 60_000);
 
 let server: DevServer | null = null;
 let origin = process.env.I1_ORIGIN ?? '';
@@ -42,7 +45,7 @@ function watchErrors(page: Page): string[] {
 async function open(page: Page, w: number, h: number): Promise<void> {
   await page.setViewportSize({ width: w, height: h });
   await page.goto(`${origin}/dev/bench/?hud=0`);
-  await page.waitForFunction('window.__ready === true', null, { timeout: 120_000 });
+  await page.waitForFunction('window.__ready === true', null, { timeout: 0 });
   await page.waitForTimeout(300);
 }
 
@@ -101,7 +104,39 @@ const logCount = (page: Page, type: string) => page.evaluate((type) => (window a
 const lastOf = (page: Page, type: string) => page.evaluate((type) => (window as any).__bench.log.filter((l: any) => l.e.type === type).at(-1)?.e ?? null, type);
 const cursor = (page: Page) => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
 const hovered = (page: Page) => page.evaluate(() => (window as any).__bench.ws.gestures.hover);
-const frames = (page: Page, n = 6) => page.waitForTimeout(n * 17);
+/** Rendered frames so far (the driver's count). */
+const frameNo = (page: Page): Promise<number> => page.evaluate(() => (window as any).__bench.ws.driver.frames as number);
+/** Wait for n more frames to be rendered, however long they take. */
+async function frames(page: Page, n = 6): Promise<void> {
+  const f0 = await frameNo(page);
+  await page.waitForFunction((f) => (window as any).__bench.ws.driver.frames >= f, f0 + n, { timeout: 0, polling: 50 });
+}
+/**
+ * `expect.poll` counted in frames: re-reads `fn` until the matcher passes, failing only once `limit` frames
+ * have been rendered without it (default 240: four seconds of a healthy page).
+ */
+function pollFrames<T>(page: Page, fn: () => Promise<T>, limit = 240, message = '') {
+  const run = async (check: (v: unknown) => void): Promise<void> => {
+    const f0 = await frameNo(page);
+    for (;;) {
+      const v = await fn();
+      try {
+        check(v);
+        return;
+      } catch (e) {
+        if ((await frameNo(page)) - f0 > limit) throw new Error(`${message ? `${message}: ` : ''}not within ${limit} frames: ${String(e)}`);
+      }
+      await page.waitForTimeout(30);
+    }
+  };
+  return {
+    toBe: (x: unknown) => run((v) => expect(v).toBe(x)),
+    toEqual: (x: unknown) => run((v) => expect(v).toEqual(x)),
+    toMatchObject: (x: Record<string, unknown>) => run((v) => expect(v).toMatchObject(x)),
+    toMatch: (x: RegExp) => run((v) => expect(v).toMatch(x)),
+    toBeNull: () => run((v) => expect(v).toBeNull()),
+  };
+}
 
 // ── the hand: a real mouse, or a finger through CDP ──
 interface Hand {
@@ -265,68 +300,26 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     const y = dial.y + dial.r * 0.5; // taken low on the knob: it drags along
     await use(page, hand, line({ x: dial.x, y }, { x: dial.x + 26 * 2 + 10, y }, 10), 20);
   }
-  await expect.poll(async () => (await belt(page)).speed, { timeout: 10_000 }).toBe(5);
+  await pollFrames(page, async () => (await belt(page)).speed).toBe(5);
 
   // 2. the lever: thrown to reverse (two notches left)
   const lever = await bringIntoView(page, hand, 'belt-lever', kind);
   const notch = Math.max(22, lever.r * 0.55);
   await use(page, hand, line(lever, { x: lever.x - notch * 2 - 8, y: lever.y + 2 }, 10), 20);
-  await expect.poll(async () => belt(page), { timeout: 10_000 }).toMatchObject({ running: true, direction: 'backward' });
+  await pollFrames(page, async () => belt(page)).toMatchObject({ running: true, direction: 'backward' });
 
   // 3. UNDO: a pull takes back the lever
   const undos = await logCount(page, 'undone');
   const undo = await bringIntoView(page, hand, 'undo-lever', kind);
   if (kind === 'mouse') await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.4 }, { x: undo.x + 4, y: undo.y + undo.r * 0.4 }, 6));
   else await use(page, hand, line({ x: undo.x, y: undo.y - undo.r * 0.3 }, { x: undo.x, y: undo.y + undo.r * 0.5 }, 6)); // pulled down its arc
-  await expect.poll(() => logCount(page, 'undone'), { timeout: 10_000 }).toBe(undos + 1);
-  await expect.poll(async () => (await belt(page)).direction).toBe('forward');
+  await pollFrames(page, () => logCount(page, 'undone')).toBe(undos + 1);
+  await pollFrames(page, async () => (await belt(page)).direction).toBe('forward');
 
-  // 4. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
-  expect(await setting(page, 'cord', 'jack')).toBe('jack-storefront');
-  await bringIntoView(page, hand, 'cord', kind, 0.25); // (not to the middle: the LAMP jack must stay in the frame too)
-  const from = await jackAt(page, 'jack-storefront');
-  const lampJack = await jackAt(page, 'jack-lamp');
-  const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
-  const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
-  await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
-  await expect
-    .poll(() => setting(page, 'cord', 'jack'), { timeout: 10_000 })
-    .toBe('jack-lamp')
-    .catch(async (e) => {
-      throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
-    });
-
-  // 5. the phone: opened from the bench, a ready-made text sent down the line
-  const phone = await bringIntoView(page, hand, 'phone', kind);
-  await use(page, hand, [phone, phone]);
-  const panel = page.getByRole('dialog');
-  await expect(panel).toBeVisible();
-  await shoot(page, `${tag}-phone-open`);
-  const sent = await page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length);
-  const key = panel.locator('.ph-key').first();
-  if (kind === 'mouse') await key.click();
-  else await key.tap();
-  await expect.poll(() => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length), { timeout: 10_000 }).toBe(sent + 1);
-  const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
-  await page.keyboard.press('Escape');
-  await expect(panel, JSON.stringify(diag2)).toBeHidden();
-
-  // (the lamp and Patch last: the lamp view's pick box rides the shade, and aimed forward it floats in front of the
-  // switchboard and takes presses meant for the plug; reported in the I1 hand-in)
-  // 6. the lamp: the arm dragged by its shade toward the front right
+  // 4. the lamp: the arm dragged by its shade toward the front right
   await bringIntoView(page, hand, 'lamp', kind);
-  // taken by its shade (the bulb), which is where a hand goes: the middle of its pick box may lie over something else
-  const lamp = await page.evaluate((kind) => {
-    const B = (window as any).__bench;
-    const b = B.project(B.ws.world.machine('lamp') && B.bench.bulb.at) as XY;
-    // the shade, or the nearest point round it that is the lamp's (Fetch or Patch may be passing in front)
-    for (let r = 0; r <= 48; r += 8)
-      for (let a = 0; a < 360; a += r ? 30 : 360) {
-        const x = b.x + Math.cos((a * Math.PI) / 180) * r, y = b.y + Math.sin((a * Math.PI) / 180) * r;
-        if (B.ws.surface.at(x, y, kind, null).id === 'lamp') return { x, y };
-      }
-    return B.ws.surface.screen('lamp') as XY;
-  }, kind);
+  // its pick target is its shade (the view's SHADE_BOX): taken there, as a hand would
+  const lamp = (await screenOf(page, 'lamp'))!;
   const camL = await camPos(page);
   const x0 = (await setting(page, 'lamp', 'x')) as number;
   const z0 = (await setting(page, 'lamp', 'z')) as number;
@@ -343,15 +336,15 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await hand.move(p);
     await page.waitForTimeout(16);
     if (i === 8) {
-      await expect.poll(() => holding(page), { timeout: 10_000 }).toEqual({ kind: 'unit', id: 'lamp' });
+      await pollFrames(page, () => holding(page)).toEqual({ kind: 'unit', id: 'lamp' });
       await shoot(page, `${tag}-lamp-mid`);
     }
   }
   await page.waitForTimeout(250);
   await hand.up(to);
   const diagL = async () => JSON.stringify(await page.evaluate(() => { const ws = (window as any).__bench.ws; return { held: ws.gestures.held, state: ws.gestures.state, w: ws.world.holding(), ints: (window as any).__ints?.slice(-6) }; }));
-  await expect.poll(() => holding(page), { timeout: 10_000, message: 'lamp let go' }).toBeNull().catch(async (e) => { throw new Error(`${e}\n${await diagL()}`); });
-  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.machine('lamp').dragging), { timeout: 10_000 }).toBe(false);
+  await pollFrames(page, () => holding(page), 240, 'lamp let go').toBeNull().catch(async (e) => { throw new Error(`${e}\n${await diagL()}`); });
+  await pollFrames(page, async () => page.evaluate(() => (window as any).__bench.ws.world.machine('lamp').dragging)).toBe(false);
   await shoot(page, `${tag}-lamp-after`);
   expect(Math.max(...(await camPos(page)).map((v: number, i: number) => Math.abs(v - camL[i])))).toBeLessThan(0.01);
   const x1 = (await setting(page, 'lamp', 'x')) as number;
@@ -383,7 +376,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
   }, [under[0]!, under[2]!] as const);
   expect(Math.hypot(x1 - want[0]!, z1 - want[1]!), `aim ${x1},${z1} vs the light moved with the hand ${want[0]},${want[1]}`).toBeLessThan(0.35);
 
-  // 7. Patch: lifted off its stool and set down on the bench in front of it
+  // 5. Patch: lifted off its stool and set down on the bench in front of it
   const patch = await bringIntoView(page, hand, 'patch', kind);
   const toP = { x: patch.x - vp.width * 0.06, y: Math.min(vp.height - 30, patch.y + vp.height * 0.12) };
   await hand.down(patch);
@@ -392,7 +385,7 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await hand.move(p);
     await page.waitForTimeout(16);
   }
-  await expect.poll(() => holding(page), { timeout: 10_000 }).toEqual({ kind: 'unit', id: 'patch' });
+  await pollFrames(page, () => holding(page)).toEqual({ kind: 'unit', id: 'patch' });
   await shoot(page, `${tag}-patch-held`, toP, 200);
   await hand.up(toP);
   await frames(page, 4);
@@ -400,8 +393,38 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     const ws = (window as any).__bench.ws;
     return { held: ws.gestures.held, state: ws.gestures.state, bracketed: ws.world.bracketed, log: (window as any).__bench.log.slice(-8).map((l: any) => l.e.type + ':' + (l.e.state ?? l.e.id ?? '')) };
   });
-  await expect.poll(() => holding(page), { message: JSON.stringify(diag), timeout: 10_000 }).toBeNull();
-  await expect.poll(async () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), { timeout: 10_000 }).toMatch(/walk|climb|seated|look|roll/);
+  await pollFrames(page, () => holding(page), 240, JSON.stringify(diag)).toBeNull();
+  await pollFrames(page, async () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state)).toMatch(/walk|climb|seated|look|roll/);
+
+  // 6. the plug: out of STOREFRONT, let go NEAR the LAMP jack (above and to its right, not on it)
+  expect(await setting(page, 'cord', 'jack')).toBe('jack-storefront');
+  await bringIntoView(page, hand, 'cord', kind, 0.25); // (not to the middle: the LAMP jack must stay in the frame too)
+  const from = await jackAt(page, 'jack-storefront');
+  const lampJack = await jackAt(page, 'jack-lamp');
+  const near = { x: lampJack.x + 9, y: lampJack.y - 11 };
+  const at0 = await page.evaluate(([x, y]) => (window as any).__bench.ws.surface.at(x, y, 'touch', null).id, [from.x, from.y + 3] as const);
+  await use(page, hand, line({ x: from.x, y: from.y + 3 }, near, 18), 16);
+  await expect
+    .poll(() => setting(page, 'cord', 'jack'))
+    .toBe('jack-lamp')
+    .catch(async (e) => {
+      throw new Error(`${e}\nfrom ${JSON.stringify(from)} near ${JSON.stringify(near)} under ${at0} ints ${JSON.stringify(await page.evaluate(() => (window as any).__ints?.slice(-6)))}`);
+    });
+
+  // 7. the phone: opened from the bench, a ready-made text sent down the line
+  const phone = await bringIntoView(page, hand, 'phone', kind);
+  await use(page, hand, [phone, phone]);
+  const panel = page.getByRole('dialog');
+  await expect(panel).toBeVisible();
+  await shoot(page, `${tag}-phone-open`);
+  const sent = await page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length);
+  const key = panel.locator('.ph-key').first();
+  if (kind === 'mouse') await key.click();
+  else await key.tap();
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('line').log.filter((e: any) => e.kind === 'sent').length)).toBe(sent + 1);
+  const diag2 = await page.evaluate(() => ({ active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, held: (window as any).__bench.ws.gestures.held, focus: (window as any).__bench.ws.focused, w: (window as any).__bench.ws.world.holding() }));
+  await page.keyboard.press('Escape');
+  await expect(panel, JSON.stringify(diag2)).toBeHidden();
 }
 
 test('a mouse works the whole bench: dial, lever, UNDO, lamp, Patch, the plug near LAMP, the phone', async ({ page }) => {
@@ -550,21 +573,21 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   await tabTo('belt-dial');
   expect(await hovered(page), 'focus lifts like a hover').toBe('belt-dial');
   await page.keyboard.press('ArrowRight');
-  await expect.poll(async () => (await belt(page)).speed).toBe(4);
+  await pollFrames(page, async () => (await belt(page)).speed).toBe(4);
   await page.keyboard.press('Enter');
-  await expect.poll(async () => (await belt(page)).speed).toBe(5);
+  await pollFrames(page, async () => (await belt(page)).speed).toBe(5);
   await tabTo('belt-lever');
   await page.keyboard.press('ArrowLeft');
-  await expect.poll(async () => belt(page)).toMatchObject({ running: false });
+  await pollFrames(page, async () => belt(page)).toMatchObject({ running: false });
   const undos = await logCount(page, 'undone');
   await page.keyboard.press('u');
-  await expect.poll(() => logCount(page, 'undone')).toBe(undos + 1);
+  await pollFrames(page, () => logCount(page, 'undone')).toBe(undos + 1);
   // the plug by keys: Enter lifts it, Tab to the LAMP jack, Enter seats it
   await tabTo('cord');
   await page.keyboard.press('Enter');
   for (let i = 0; i < 8 && (await page.evaluate(() => (window as any).__bench.ws.gestures.keyHold?.dest)) !== 'jack-lamp'; i++) await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
-  await expect.poll(() => setting(page, 'cord', 'jack')).toBe('jack-lamp');
+  await pollFrames(page, () => setting(page, 'cord', 'jack')).toBe('jack-lamp');
   // the phone: Enter opens it, and its keys stay its own
   await tabTo('phone');
   await page.keyboard.press('Enter');
@@ -606,7 +629,8 @@ test('latency on the bench (§ E0): hover answers in the next frame, a grab with
     const f = ((window as any).__bench.ws.loop.frameTimes() as number[]).slice(-240).sort((a, b) => a - b);
     return { median: f[Math.floor(f.length / 2)] ?? 0, p95: f[Math.floor(f.length * 0.95)] ?? 0 };
   });
-  const row = (k: string) => lat.frame[k] && { n: lat.frame[k].n, median: Math.round(lat.frame[k].median), p95: Math.round(lat.frame[k].p95), max: Math.round(lat.frame[k].max) };
+  const row = (k: string) =>
+    lat.frame[k] && { n: lat.frame[k].n, median: Math.round(lat.frame[k].median), p95: Math.round(lat.frame[k].p95), max: Math.round(lat.frame[k].max), toStep: Math.round(lat.step[k]?.median ?? -1) };
   const loadavg = await import('node:os').then((os) => os.loadavg().map((v) => v.toFixed(2)).join(' '));
   console.log(`[I1] latency on the bench (ms, DOM event → end of the first frame after the step that handled it), load average ${loadavg}, frame time median ${ft.median.toFixed(1)} p95 ${ft.p95.toFixed(1)}: hover ${JSON.stringify(row('hover'))} grab ${JSON.stringify(row('grab'))} press ${JSON.stringify(row('press'))}`);
   // a hover answers in the next frame: within one frame time (and the step that waits for it)
