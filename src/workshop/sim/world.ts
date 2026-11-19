@@ -819,6 +819,7 @@ export function createWorld(opts: WorldOptions): World {
       held = null;
     },
     idleSteps: () => clock.step - lastInput,
+    hovered: () => hovered,
     touched: (id) => touchedSet.has(id),
     halfExtents: (id) => loose.get(id)?.half,
     mode: (id) => loose.get(id)?.mode,

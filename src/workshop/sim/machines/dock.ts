@@ -27,7 +27,7 @@
  * location and puts the body back; `restored` here opens the door and says
  * `returned` (how: `door`), and cancels a pending return to sender.
  */
-import type { Cause, DockView, Id, Location, Outcome, Part, PartKind, Pose, Restore, StationId, Vec3 } from '../types.ts';
+import type { Cause, DockView, Id, Intent, Location, Outcome, Part, PartKind, Pose, Restore, StationId, Vec3 } from '../types.ts';
 import type { Job } from '../history.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
@@ -38,6 +38,9 @@ import type { RampSpec } from '../ramp.ts';
 import { Beat, CHANGED_SINCE, Lamp, OK } from '../machine.ts';
 
 /** Content ids of the marks it writes (the words are in src/content/line.json). */
+/** (I1 R1) The id of a dock's hand bell, from the dock's id. */
+export const bellOf = (dock: Id): Id => `${dock}-bell`;
+
 export const MARK_SHIPPED = 'mark.shipped';
 export const MARK_RETURN = 'mark.return';
 
@@ -272,11 +275,29 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     return true;
   }
 
+  // (I1 R1) the brass bell over the door can be rung by hand: a press swings and sounds it. It is the visitor's
+  // action (it ends attract mode) and changes nothing durable; the view swings it and the score rings it on the
+  // `handle.worked` this emits.
+  const bellId = bellOf(spec.id);
+  ctx.register({
+    id: bellId,
+    station: spec.station,
+    name: `${spec.name}.bell`,
+    affordances: ['press'],
+    tell: () => ctx.emit({ type: 'tell', id: bellId }),
+    misfire: (level) => ctx.emit({ type: 'misfire', id: bellId, level }),
+  });
+
   const unit: DockUnit = {
     id: spec.id,
     station: spec.station,
     name: spec.name,
     affordances: [],
+    intent(intent: Intent): boolean {
+      if (intent.type !== 'press' || intent.id !== bellId || ctx.bracketed) return false;
+      ctx.emit({ type: 'handle.worked', id: bellId });
+      return true;
+    },
     tell() {
       lamp.tell();
       ctx.emit({ type: 'tell', id: spec.id });

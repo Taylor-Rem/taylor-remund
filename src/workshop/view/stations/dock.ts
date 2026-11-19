@@ -23,7 +23,7 @@
  * With reduced motion the shutter follows the simulation exactly and
  * nothing swings or spins.
  */
-import { Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 import type { Id } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import { dock as dockPiece, DOCK, DOOR_TRAVEL, HIDDEN, LIP_Y, rampAt, rampGeom, rampRollers, slats } from '../kit/pieces/dock/index.ts';
@@ -47,6 +47,9 @@ export const DOCK_FEEL = {
   bellOmega: 11.5,
   bellZeta: 0.065,
   bellKick: 260,
+  /** (I1 R1) Rung by hand: this share of a shipment's kick; and the stir as the pointer comes over it (deg/s). */
+  bellHand: 0.7,
+  bellStir: 45,
   bellJostle: 40,
   /** The clapper: its own pendulum, and the rim it knocks against (deg either side of the bell). */
   clapOmega: 15,
@@ -115,6 +118,11 @@ export function createDockView(o: DockViewOptions): StationViewFactory {
     const slatInfo = slats();
     const slatNodes = slatInfo.map((s) => node(s.name));
     const bell = node('bell'), clapper = node('bell.clapper'), flap = node('flap');
+    // (I1 R1) the bell is a handle of its own: the dock's `<id>-bell` (sim/machines/dock.ts `bellOf`), pressed to ring it.
+    // Its target is a box round the bell's shell (it hangs below its node), padded so a finger finds it on a phone.
+    const bellId = `${id}-bell`;
+    if (bell) ctx.pickable(bellId, bell.o, { box: new Box3(new Vector3(-0.2, -0.27, -0.2), new Vector3(0.2, 0.05, 0.2)), pad: 0.06 });
+    let bellOver = false;
     const lit = obj.getObjectByName('lamp.lit') ?? null, unlit = obj.getObjectByName('lamp.unlit') ?? null;
 
     // the ramp in world space: each roller's distance along it, a table of the centre line for nearest lookups
@@ -181,7 +189,13 @@ export function createDockView(o: DockViewOptions): StationViewFactory {
         const reduced = w.reducedMotion;
         for (const e of frame.events) {
           if (e.type === 'shipped' && e.id === id && !reduced) bellS.v += F.bellKick;
+          // (I1 R1) rung by hand: a touch softer than a shipment (with reduced motion: a small sway, it still sounds)
+          if (e.type === 'handle.worked' && e.id === bellId) bellS.v += F.bellKick * (reduced ? 0.25 : F.bellHand);
         }
+        // pointed at: the bell stirs (once, as the pointer arrives), so it says it can be rung
+        const over = frame.hovered === bellId || frame.focused === bellId;
+        if (over && !bellOver && !reduced) bellS.v += F.bellStir;
+        bellOver = over;
 
         // ── the shutter ──
         if (reduced) {
