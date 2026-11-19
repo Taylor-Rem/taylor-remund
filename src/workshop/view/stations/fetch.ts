@@ -27,6 +27,8 @@ import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts'
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
 import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { ReachMotion, gripOf, type V3 } from '../kit/pieces/fetch-porter/reach.ts';
+import { fetchStand } from '../../sim/index.ts';
+import type { SceneDesc } from '../../sim/index.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
 import { partShows, partsHooks, paintToken, unhook, type PartWork, type PartsOverlay } from './parts.ts';
@@ -874,11 +876,21 @@ export class FetchPerformer {
       // the reach is dropped on the spot, under the beat that takes over
       const drop = act === 'knocked' || act === 'fumble' || act === 'held' || !grounded;
       if (drop) target = null;
-      const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm, drop });
+      // a tap is made with the claw the visitor sees: once it has turned to the target, the side toward them
+      let hand: 'left' | 'right' | undefined;
+      if (target && !half) {
+        const phi = Math.atan2(target[0], target[2]);
+        const [vx, vz] = own(visitor.x - P.x, visitor.z - P.z);
+        hand = Math.cos(phi) * vx - Math.sin(phi) * vz >= 0 ? 'left' : 'right';
+      }
+      const ro = this.reach.update({ target, half, holding: carrying, dt: db, reducedMotion: rm, drop, ...(hand ? { hand } : {}) });
       if (ro.weight > 1e-3) {
         const w = ro.weight;
         const spinW = (ro.pose.spin ?? 0) * w;
+        const leanWas = pose.lean?.[0] ?? 0;
         pose = blendPose(pose, { ...pose, lean: ro.pose.lean!, squash: ro.pose.squash!, arms: ro.pose.arms! }, w);
+        // the head stays nearer level as the reach leans the body (the turret takes most of the lean back out)
+        pose.headPitch = (pose.headPitch ?? 0) + 0.8 * ((pose.lean?.[0] ?? 0) - leanWas);
         pose.spin = spinW;
         // the head was aimed for a body that had not turned: take the turn back out of it, and the nod
         pose.headYaw = clamp((pose.headYaw ?? 0) - spinW, -F.headYawMax, F.headYawMax);
@@ -929,6 +941,50 @@ export class FetchPerformer {
   private wasCarrying: Id | null = null;
   private letGoAt = -Infinity;
   private readonly reach = new ReachMotion();
+
+  /**
+   * Prime the reach solver while the loading picture is up (a handful of reaches at the bench's distances and
+   * heights): the first solves of a page are slow while the script engine compiles them, and that cost must
+   * not land in a frame of play. Returns the milliseconds it took.
+   */
+  prime(): number {
+    const S: V3 = [0.15, 0.147, 0.15];
+    const list: Array<{ target: V3; half: V3 | null }> = [];
+    for (const d of [0.45, 0.6, 0.7]) for (const y of [0.25, 0.5, 0.75]) list.push({ target: [0, y, d], half: S });
+    list.push({ target: [0.2, 0.3, 0.6], half: null }, { target: [-0.2, 0.3, 0.6], half: null });
+    return this.reach.warmUp(list);
+  }
+
+  /**
+   * Solve the places the scene has it reach for (the stack's crates, the tray, the phone, the belt's feed)
+   * from where it stands for each, so every reach in play starts warm. Call once, when the view is built.
+   * Returns the milliseconds it took.
+   */
+  warmUp(scene: SceneDesc, parts: (id: Id) => { p: Vec3; half: Vec3 } | null, scale = 1): number {
+    const spec = scene.runner;
+    const places: Array<{ what: 'stack' | 'tray' | 'phone' | 'feed'; p: Vec3; half: Vec3 | null }> = [];
+    for (const id of scene.button.stack) {
+      const q = parts(id);
+      if (q) places.push({ what: 'stack', p: q.p, half: q.half });
+    }
+    const S: Vec3 = [0.225, 0.22, 0.225];
+    const mouth = (id: Id | undefined): Vec3 | null => {
+      const m = id ? scene.mouths?.find((x) => x.id === id) : undefined;
+      return m ? m.drop : null;
+    };
+    const feed = mouth(spec.rounds?.mouth);
+    if (feed) places.push({ what: 'feed', p: [feed[0], feed[1] + S[1], feed[2]], half: S });
+    const tray = mouth(spec.attract?.tray);
+    if (tray) places.push({ what: 'tray', p: [tray[0], tray[1] + S[1], tray[2]], half: S });
+    const ph = spec.attract?.phone;
+    if (ph) places.push({ what: 'phone', p: [ph[0], ph[1] + 0.14, ph[2]], half: null });
+    const list = places.map((pl) => {
+      const st = fetchStand(scene, pl.what, pl.p[0], pl.p[2]).at;
+      const target: V3 = [(pl.p[0] - st[0]) / scale, pl.p[1] / scale, (pl.p[2] - st[1]) / scale];
+      return { target, half: pl.half ? ([pl.half[0] / scale, pl.half[1] / scale, pl.half[2] / scale] as V3) : null };
+    });
+    return this.reach.warmUp(list);
+  }
   private reachOut: { weight: number; grip: Vector3; two: boolean } = { weight: 0, grip: new Vector3(), two: true };
   private downAt = -Infinity;
   private lastBeat: FetchPose | null = null;
@@ -1042,6 +1098,9 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     const shadows = opacity > 0 ? new BlobShadows(ctx.materials.decal(), 1, opacity).addTo(root) : null;
     const blob: Blob = { x: 0, z: 0, rx: 0.2, rz: 0.2, strength: 0 };
     const perf = new FetchPerformer(seed, opts.feel);
+    // the solver compiled and warm before play (during the loading picture: views are built at boot)
+    perf.prime();
+    let warmed = false;
     let registered: Id | null = null;
     const pa = new Vector3();
     const pb = new Vector3();
@@ -1139,6 +1198,15 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
         if (registered !== id) {
           ctx.pickable(id, body);
           registered = id;
+        }
+        if (!warmed) {
+          // the reaches the scene will ask for, solved now (a few milliseconds, once) so play only takes warm steps
+          warmed = true;
+          perf.warmUp(w.scene, (pid) => {
+            const mp = w.motion(pid)?.pose.p;
+            const he = w.halfExtents(pid);
+            return mp && he ? { p: mp, half: he } : null;
+          }, opts.scale ?? 1);
         }
         const member = w.crew(id);
         const motion = w.motion(id);
