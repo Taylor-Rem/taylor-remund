@@ -60,10 +60,10 @@ import type { SimContext, Unit } from '../context.ts';
 import { HZ, steps } from '../clock.ts';
 import { qnormalize, qyaw, yawOf } from '../math.ts';
 import { MATERIAL, massOf } from '../parts.ts';
-import { KNOCK_TUNING, classify, clearRun, obstacles, toyBounce } from './fetch-knock.ts';
+import { KNOCK_TUNING, classify, clearRun, distanceTo, obstacles, toyBounce } from './fetch-knock.ts';
 import { lanePath } from '../path.ts';
 import { bodiesOf, route } from './fetch-route.ts';
-import { jetAt, planJet } from './fetch-jet.ts';
+import { jetAt, planHop, planJet } from './fetch-jet.ts';
 import type { JetPhase, JetPlan, TallBody } from './fetch-jet.ts';
 import type { Pt } from './fetch-route.ts';
 import type { SceneDesc, StandPoint } from '../scene.ts';
@@ -110,6 +110,15 @@ export const FETCH_TUNING = {
   pickup: 0.45,
   /** R1: 1.0 s, was 1.2 (the view's shrug curve is over at 1.0: no still tail). */
   shrug: 1.0,
+  /** R4: thrown faster than this (units/s) it shakes itself off when it comes down, before it goes back. */
+  shakeAfter: 3,
+  /** R4: loose this long below this speed without the world calling it at rest (wedged and rocking), it gets up anyway. */
+  stuckAfter: 2.5,
+  stuckSpeed: 0.4,
+  /** R4: come to rest with its lowest point more than this over the bench top, it is up on something: it hops down. */
+  standOn: 0.08,
+  /** R4: how far into a body its footprint circle may reach where it comes down and still stand there (its box is smaller than the circle). */
+  standSlack: 0.08,
   salute: 1.1,
   returnSpeed: 2.2,
   // ── S5 ──
@@ -408,6 +417,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let frozenFrom: { state: FetchState; entered: number; at: number } | null = null;
   /** R2: it went out through the dock while held; when it is down again it shakes itself off (a shrug) before it goes back. */
   let shipped = false;
+  /** R4: the fastest it moved (horizontally, units/s) since it was let go: thrown, not set down. */
+  let flung = 0;
+  /** R4: steps loose and slow without settling. */
+  let slowFor = 0;
   let shrugThenReturn = false;
   let lookAt: Vec3 | null = null;
 
@@ -1185,6 +1198,53 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
     return s0;
   }
+  /** R4: the up axis's height (1 upright, 0 on its side, -1 on its back). */
+  const upOf = (q: Quat): number => 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
+  /** Its lowest point's height, lying as it lies. */
+  function bottomOf(p: Pose): number {
+    const [qx, qy, qz, qw] = p.q;
+    const r10 = 2 * (qx * qy + qz * qw);
+    const r11 = 1 - 2 * (qx * qx + qz * qz);
+    const r12 = 2 * (qy * qz - qx * qw);
+    return p.p[1] - (Math.abs(r10) * selfHalf[0] + Math.abs(r11) * selfHalf[1] + Math.abs(r12) * selfHalf[2]);
+  }
+  /**
+   * R4: can it stand up where it came to rest? On the bench top (not up on something), its footprint clear of
+   * every fixed body, of the other robots and of anything loose.
+   */
+  function standable(p: Pose): boolean {
+    const b = ctx.scene.bench;
+    if (bottomOf(p) > b.top + T.standOn) return false;
+    const [px, , pz] = p.p;
+    const r = Math.hypot(selfHalf[0], selfHalf[2]) - T.standSlack;
+    if (px - r < b.minX || px + r > b.maxX || pz - r < b.minZ || pz + r > b.maxZ) return false;
+    if ([...BODIES, ...robotObstacles()].some((o) => distanceTo(o, px, pz) < r)) return false;
+    return !ctx.parts().some((id) => {
+      if (id === spec.id) return false;
+      const m = ctx.mode(id);
+      const q = ctx.pose(id)?.p;
+      if (!q || m === 'gone' || m === 'chute' || q[1] > b.top + 2) return false;
+      const h = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
+      return Math.hypot(q[0] - px, q[2] - pz) < r + Math.min(h[0], h[2]);
+    });
+  }
+  /** R4: up off whatever it came to rest on (or out from where it is wedged), on its jets, to the nearest free point of its tape. */
+  function startHop(p: Pose): void {
+    ctx.attach(spec.id, spec.id);
+    letGo([0, 0, 0], [0, 0, 0], null);
+    const landS = freeLanding(p.p[0], p.p[2]);
+    const [lx, lz] = at(landS);
+    const plan = planHop({ p0: p.p, v0: [0, 0, 0], land: [lx, lz], half: T.bodyHalfHeight, radius: Math.hypot(selfHalf[0], selfHalf[2]), bench: ctx.scene.bench, bodies: TALL, g: Math.abs(ctx.scene.gravity) });
+    jet = { plan, q0: p.q, landS, phase: 'fall', cut: false };
+    x = p.p[0];
+    z = p.p[2];
+    jetY = plan.stand;
+    heading = yawOf(p.q);
+    v = 0;
+    shipped = false;
+    flung = 0;
+    enter('jetpack');
+  }
   function startJet(p: Pose, last: Vec3 | null): void {
     const v0: Vec3 = last ? [(p.p[0] - last[0]) * HZ, (p.p[1] - last[1]) * HZ, (p.p[2] - last[2]) * HZ] : [0, 0, 0];
     ctx.attach(spec.id, spec.id); // out of physics: a scripted path from here (never carried by physics while it flies)
@@ -1390,11 +1450,24 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           heldLast = null;
           return;
         }
+        const speedNow = mode === 'free' && pNow && heldLast ? Math.hypot(pNow.p[0] - heldLast[0], pNow.p[1] - heldLast[1], pNow.p[2] - heldLast[2]) * HZ : Infinity;
+        if (mode === 'free' && pNow && heldLast) flung = Math.max(flung, Math.hypot(pNow.p[0] - heldLast[0], pNow.p[2] - heldLast[2]) * HZ);
+        if (mode !== 'free') flung = 0;
+        // R4: never settled (rocking where it is wedged, creeping): after `stuckAfter` loose and slow, it gets up anyway
+        slowFor = mode === 'free' && speedNow < T.stuckSpeed ? slowFor + 1 : 0;
         heldLast = mode === 'free' && pNow ? pNow.p : null;
         if (ctx.part(spec.id)?.location.at === 'shipped') shipped = true;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
-        if (mode === 'free' && ctx.settled(spec.id)) {
+        if (mode === 'free' && (ctx.settled(spec.id) || slowFor >= steps(T.stuckAfter))) {
+          slowFor = 0;
           const p = ctx.pose(spec.id);
+          // R4: where it came down it cannot stand (up on a crate, the stack or the tray; against a body): it hops
+          // off on its jets to the nearest free point of its tape (not while a rung plays: it waits)
+          if (p && !standable(p)) {
+            if (!ctx.bracketed) startHop(p);
+            return;
+          }
+          const tipped = !!p && upOf(p.q) < 0.9;
           if (p) {
             x = p.p[0];
             z = p.p[2];
@@ -1403,8 +1476,11 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           ctx.attach(spec.id, spec.id);
           ctx.drive(spec.id, bodyPose(), true);
           s = nearest(x, z);
-          if (shipped) {
-            shipped = false;
+          // shipped and thrown home, on its back or side, or thrown hard: it shakes itself off first (R2, R4)
+          const shake = shipped || tipped || flung > T.shakeAfter;
+          shipped = false;
+          flung = 0;
+          if (shake) {
             shrugThenReturn = true;
             enter('shrug');
           } else enter('return');
