@@ -255,7 +255,6 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     }
 
     // the jacks answer the pointer as themselves (a proxy box round each seat)
-    const picking = (ctx as unknown as { picking?: { add(id: Id, o: Object3D, opts?: { box?: Box3; pad?: number }): void } }).picking;
     const jackAt = new Map<Id, Vector3>();
     for (const [id, key] of Object.entries(jackKey)) {
       const p = new Vector3(...fit.board.jacks[key]);
@@ -265,8 +264,7 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
       g.position.copy(p);
       root.add(g);
       const bx = new Box3(new Vector3(-0.17, -0.17, -0.08), new Vector3(0.17, 0.17, 0.12));
-      if (picking) picking.add(id, g, { box: bx, pad: 0.02 });
-      else ctx.pickable(id, g);
+      ctx.pickable(id, g, { box: bx, pad: 0.02 });
     }
 
     // ── the plug ──
@@ -279,8 +277,7 @@ export function createCordView(o: CordViewOptions): StationViewFactory {
     plug.add(plugInner);
     root.add(plug);
     const cordSocket = plugPiece.sockets?.['cord'] ? new Vector3().setFromMatrixPosition(plugPiece.sockets['cord']) : new Vector3(0, 0, 0.43);
-    if (picking) picking.add('cord', plug, { pad: 0.05 });
-    else ctx.pickable('cord', plug);
+    ctx.pickable('cord', plug, { pad: 0.05 });
 
     // ── the rope: the switchboard's braided cord when it is there, else a plain tube ──
     type CordGeometry = (pts: readonly (readonly [number, number, number])[]) => BufferGeometry;

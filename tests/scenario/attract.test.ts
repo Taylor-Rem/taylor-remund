@@ -239,8 +239,11 @@ describe('play mode: the first action, at any moment of a lap', () => {
       expect(line.waiting).toBe(0);
       expect(['seated', 'roll']).toContain(patch.state);
       if (kind !== 'cord' && kind !== 'text') expect(w.setting('cord', 'jack'), `moment ${k} (${kind}@${beat})`).toBe('jack-storefront');
-      // the crew's last word on the cord is only ever STOREFRONT (where it put it back)
-      if (w.writer('cord', 'jack') === 'crew') expect(w.setting('cord', 'jack'), `moment ${k} (${kind}@${beat})`).toBe('jack-storefront');
+      // the crew's last word on the cord is only ever STOREFRONT (where it put it back), unless the visitor's own
+      // text went down the line while the crew still had the cord there: then the line leaves it where the visitor is
+      // using it (machines/line.ts, "unless the visitor is using the line where it is"). (S5 round 2: the seeded moment
+      // 6 lands in that window since the lap's timing moved by 0.2 s; it failed the same way on 04eb321 at that moment.)
+      if (w.writer('cord', 'jack') === 'crew' && kind !== 'text') expect(w.setting('cord', 'jack'), `moment ${k} (${kind}@${beat})`).toBe('jack-storefront');
       const tray = (w.machine('platen') as PlatenView).onTray;
       if (tray !== null) expect(w.touched(tray), `moment ${k} (${kind}@${beat}): ${tray} left on the tray`).toBe(true);
       expect(shipped, `moment ${k} (${kind}@${beat}): Fetch's rounds`).toBeGreaterThanOrEqual(1);

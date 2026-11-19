@@ -125,7 +125,7 @@ describe('knocked (stub physics: scripted contacts)', () => {
     }
     states = states.filter((s, i) => states[i - 1] !== s);
     expect(states.slice(0, 3)).toEqual(['knocked', 'return', 'idle']);
-    expect(world.crew('fetch')!.z).toBeCloseTo(vignette.runner.lane.a[1], 9);
+    expect(world.crew('fetch')!.z).toBeCloseTo(vignette.runner.lane.points[0]![1], 9);
     expect(kn.distance).toBeLessThanOrEqual((KNOCK_TUNING.distance[2] as number) * (vignette.crewScale ?? 1) + 1e-9);
     expect(before.state).not.toBe('knocked');
   });

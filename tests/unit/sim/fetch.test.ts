@@ -34,9 +34,9 @@ describe('Fetch (§ B3, § B5)', () => {
       if (m?.state === 'skid' && m.speed < 0) sawBackward = true;
       maxSpeed = Math.max(maxSpeed, m?.speed ?? 0);
       // never off its lane
-      expect(m?.z).toBeCloseTo(w2.scene.runner.lane.a[1], 9);
-      expect(m!.x).toBeGreaterThanOrEqual(w2.scene.runner.lane.a[0]);
-      expect(m!.x).toBeLessThanOrEqual(w2.scene.runner.lane.b[0]);
+      expect(m?.z).toBeCloseTo(w2.scene.runner.lane.points[0]![1], 9);
+      expect(m!.x).toBeGreaterThanOrEqual(w2.scene.runner.lane.points[0]![0]);
+      expect(m!.x).toBeLessThanOrEqual(w2.scene.runner.lane.points[w2.scene.runner.lane.points.length - 1]![0]);
     }
     expect(sawBackward).toBe(true);
     expect(maxSpeed).toBeGreaterThan(FETCH_TUNING.maxSpeed * 0.9);
@@ -151,7 +151,7 @@ describe('Fetch (§ B3, § B5)', () => {
     const t = trace(world, steps(5));
     expect(t.map((s) => s.state).slice(0, 2)).toEqual(['return', 'idle']);
     const m = world.crew('fetch')!;
-    expect(m.z).toBeCloseTo(world.scene.runner.lane.a[1], 9);
+    expect(m.z).toBeCloseTo(world.scene.runner.lane.points[0]![1], 9);
     expect(world.mode('fetch')).toBe('crew');
   });
 

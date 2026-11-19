@@ -25,6 +25,8 @@ export interface CrewHandle {
   grabbed(): void;
   /** The visitor took `part` out of its hands. */
   taken(part: Id): void;
+  /** S5 round 2: while the visitor holds the crew member itself, the yaw it turns to (eased by the hand's levelling), or null for the yaw it was picked up with. */
+  heldYaw?(): number | null;
 }
 
 export interface SimContext {

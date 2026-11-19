@@ -72,7 +72,7 @@
             if (lane) return;
             lane = true;
             const l = frame.world.scene.runner.lane;
-            for (const dz of [-0.4, 0.4]) put(ctx.realize(laneTape({ points: [[l.a[0] - 0.4, l.a[1] + dz], [l.b[0] + 0.4, l.b[1] + dz]], seed: dz > 0 ? 3 : 4, detail })), 0, 0, 0);
+            for (const dz of [-0.4, 0.4]) put(ctx.realize(laneTape({ points: [[l.points[0]![0] - 0.4, l.points[0]![1] + dz], [l.points[l.points.length - 1]![0] + 0.4, l.points[l.points.length - 1]![1] + dz]], seed: dz > 0 ? 3 : 4, detail })), 0, 0, 0);
           },
           dispose() { root.removeFromParent(); },
         };

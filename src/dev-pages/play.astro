@@ -92,12 +92,12 @@
           }
           // lane tape for Fetch
           const lane = w.scene.runner.lane;
-          const len = Math.hypot(lane.b[0] - lane.a[0], lane.b[1] - lane.a[1]) + 0.9;
+          const len = Math.hypot(lane.points[lane.points.length - 1]![0] - lane.points[0]![0], lane.points[lane.points.length - 1]![1] - lane.points[0]![1]) + 0.9;
           for (const dz of [-0.36, 0.36]) {
             const t = K.piece('lane-tape', { ao: false });
             t.add(K.part('tape', K.roundedBox({ w: len, h: 0.008, d: 0.07, r: 0.003, segs: 1 }), 'tape-yellow'));
             const o = ctx.realize(t.build());
-            o.position.set((lane.a[0] + lane.b[0]) / 2, 0, (lane.a[1] + lane.b[1]) / 2 + dz);
+            o.position.set((lane.points[0]![0] + lane.points[lane.points.length - 1]![0]) / 2, 0, (lane.points[0]![1] + lane.points[lane.points.length - 1]![1]) / 2 + dz);
             root.add(o);
           }
         };

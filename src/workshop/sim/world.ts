@@ -495,8 +495,8 @@ export function createWorld(opts: WorldOptions): World {
       goal = qmul(qaxis(axis, Math.min(T.leanMax, hs * T.lean)), level);
     }
     const err = rotationVector(qmul(goal, qconj(st.pose.q)));
-    // and back toward the yaw it had when picked up, gently
-    let dyaw = l.grabYaw - yawOf(st.pose.q);
+    // and back toward the yaw it had when picked up, gently (a crew member held turns to the way it wants to face: Fetch to the visitor)
+    let dyaw = (crewHandles.get(l.id)?.heldYaw?.() ?? l.grabYaw) - yawOf(st.pose.q);
     dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
     const wGoal = clampLength(add(scale(err, T.levelRate), [0, dyaw * T.levelRate * T.yawHold, 0]), T.levelSpeed);
     const w = add(scale(st.angvel, T.sway), scale(wGoal, 1 - T.sway));
@@ -976,13 +976,18 @@ export function createWorld(opts: WorldOptions): World {
     },
   };
 
-  /** One step of the rung's rewind: put every body at its recorded pose. Returns the frame shown. */
+  /**
+   * One step of the rung's rewind: put every body at its recorded pose. Returns the frame shown. The
+   * recording plays back eased in and out (smoothstep), so parts gather speed and settle rather than
+   * stopping dead; the last step shows the first recorded frame exactly.
+   */
   function playback(): ReadonlyMap<Id, Pose> | undefined {
     const b = bracket;
     if (!b) return undefined;
     b.rewound += 1;
     const f = Math.min(1, b.rewound / b.rewindSteps);
-    const idx = Math.round((1 - f) * (b.frames.length - 1));
+    const e = f * f * (3 - 2 * f);
+    const idx = Math.round((1 - e) * (b.frames.length - 1));
     const frame = b.frames[idx];
     if (!frame) return undefined;
     for (const [id, p] of frame) {

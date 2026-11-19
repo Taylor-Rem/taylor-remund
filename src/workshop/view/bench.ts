@@ -41,6 +41,7 @@ import { fitPieces, measured, measureEntry, socketsPiece, type Fit, type Measure
 import { loadBakeTable, measured as tableMeasured, measureOnly } from './kit/bake.ts';
 import { site } from '../../content/site.ts';
 import type { BenchKit, BenchStation } from './bench/station.ts';
+import { BENCH_LAYOUT } from '../sim/index.ts';
 
 export { clayBlock } from './bench/clay.ts';
 export type { BenchKit, BenchStation } from './bench/station.ts';
@@ -121,6 +122,14 @@ const DOOR: readonly [number, number] = [BED_END[0] + 0.12 - DOCK_REACH[0], BED_
 
 /** Fetch's lane tape: half its width round the lane, and how far past each end it runs (P1: 0.52 and 0.55 at 1×; widened for the bigger Fetch). */
 export const LANE_TAPE = { half: 0.3 * CREW_SCALE + 0.23, past: 0.3 * CREW_SCALE + 0.1 } as const;
+/** The lane's footprint: the box round every run of the scene's path, the tape's half width either side and its overrun past the ends (for a lane of two points along X, the old rectangle exactly). */
+function laneSpot(): Spot {
+  const pts = BENCH_LAYOUT.lane.points as readonly (readonly [number, number])[];
+  const xs = pts.map((p) => p[0]);
+  const zs = pts.map((p) => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  return spot((minX + maxX) / 2, (minZ + maxZ) / 2, maxX - minX + 2 * LANE_TAPE.past, maxZ - minZ + 2 * LANE_TAPE.half, 0, { fill: 'tape' });
+}
 
 /** The sign's capitals (units): TAYLOR REMUND on one line. The 12 px rule at the 1440×900 home is met with room to spare (see check-bench). */
 export const SIGN_CAP_BENCH = 0.5;
@@ -177,7 +186,8 @@ export const LAYOUT = {
     // ── the front ──
     /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
     stack: spot(-6.0, 1.75, 0.8, 0.8, 1.85, { fill: 'piece' }),
-    lane: spot(-0.075, 2.05, 8.75 + 2 * LANE_TAPE.past, 2 * LANE_TAPE.half, 0, { fill: 'tape' }),
+    /** Fetch's lane: the box round every run of its path (S5 round 2: a path of runs; the scene's points), the tape's width and overrun included. */
+    lane: laneSpot(),
     /** The belt (`line: true`) at length 10, the bed x -5.9..4.1: its control housing with the dial, the lever and its lamp at the left end, the deflector's slide off the back beside it, the open tail at the dock's ramp. The whole piece's footprint. */
     belt: spot(-1.575, 3.905, 11.53, 1.98, 1.23, { fill: 'piece', at: [-0.9, 4.0] }),
     /** The striker (real): its post between the lane and the belt's far rail, its hammer over the belt at x 2.1, 2.0 from its far end: room for a run of notes played backwards. */

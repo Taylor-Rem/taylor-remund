@@ -24,8 +24,12 @@
  * forward it is set down still on the dock's ramp head past the far end
  * (its rest is charged to the same placer, and the dock takes it in that
  * step); running backward it reaches the motor housing and the deflector
- * guides it off the BACK of the belt and sets it down still at the scene's
- * `offBack` spot (or the next free place beside it, away from the belt). Undone mid-ride, the ride
+ * guides it off the BACK of the belt and sets it down still at the slide's
+ * foot: the scene's `offBack` spot, or (S7) the farthest free place along
+ * the foot's row (`offBackRow`) it can reach without passing through or
+ * landing on anything; with the foot full it waits at the deflector (the
+ * belt running under it) and the belt tells, and goes as soon as a place is
+ * free. Nothing it sets down is ever set on another part. Undone mid-ride, the ride
  * is cancelled and the part goes back where it was before; it never stops
  * halfway.
  *
@@ -98,6 +102,13 @@ export interface BeltSpec {
    * wheel goes (a part set down there would be shoved by the next pass). The foot's places inside one are taken.
    */
   readonly keepClear?: readonly { readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number }[];
+  /**
+   * S7: the slide's foot as a row along X at `offBack`'s z, between these world x (the faces of the parts
+   * set down in it). Parts guided off the back go to the farthest free place along it (left first, then
+   * right, then the spot itself), so a later one never has to pass over or through an earlier one. Without
+   * it, the foot is the one spot.
+   */
+  readonly offBackRow?: { readonly minX: number; readonly maxX: number };
 }
 
 export interface BeltUnit extends MachineUnit {
@@ -114,8 +125,8 @@ interface Ride {
   /** Half its extent along X and Z (its box, turned as it lies). */
   readonly ex: number;
   readonly ez: number;
-  /** Being guided off the back at the motor end: seconds into it, from where, to where. */
-  guide: { t: number; readonly a: Vec3; readonly b: Vec3 } | null;
+  /** Being guided off the back at the motor end: seconds into it, from where, to where, and how (`guided`). */
+  guide: { t: number; readonly a: Vec3; readonly b: Vec3; readonly over: boolean } | null;
 }
 
 const isDetent = (n: number) => (v: Value) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= n;
@@ -148,6 +159,8 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
   let surface = wanted();
   let phase = 0;
   let lurchUntil = -1;
+  /** S7: the part held at the deflector because the foot is full (it told once when it began to wait). */
+  let waiting: Id | null = null;
 
   const handle = (hid: Id, name: string, affordance: 'turn' | 'slide') =>
     ctx.register({
@@ -245,36 +258,72 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
   }
 
   /**
-   * Where a part guided off the back is set down: the scene's spot (the slide's foot), or, if something
-   * lies there, the next free place a part's width along the foot (+X, up to three); failing those, on top.
-   * (S6) A place whose footprint reaches into a `keepClear` area (Fetch's lane) is taken.
+   * Where a guided part is along its way off the back, `u` 0..1: off the back first (toward -Z), then down
+   * the slide to its place, descending as it goes; or (`over`, when that way would touch a part already at
+   * the foot) along the foot at the slide's height past what is there, and only then down into its place.
    */
-  function offBackFor(r: Ride): Vec3 {
+  function guided(a: Vec3, b: Vec3, u: number, over: boolean): Vec3 {
+    const ease = (v: number): number => v * v * (3 - 2 * v);
+    const span = (u0: number, u1: number): number => ease(Math.min(1, Math.max(0, (u - u0) / (u1 - u0))));
+    const zu = over ? span(0, 0.4) : span(0, 0.5);
+    const xu = over ? span(0.35, 0.75) : span(0.5, 1);
+    const yu = over ? span(0.75, 1) : xu;
+    return [a[0] + (b[0] - a[0]) * xu, a[1] + (b[1] - a[1]) * yu, a[2] + (b[2] - a[2]) * zu];
+  }
+
+  /**
+   * Where a part guided off the back is set down (S7): the farthest free place along the slide's foot it
+   * can reach (the row's left end first, then its right end, then the scene's spot), its whole way there
+   * clear of every other part and of `keepClear` (Fetch's lane); null when there is none (the foot is
+   * full: it waits at the deflector).
+   */
+  function offBackFor(r: Ride): { readonly b: Vec3; readonly over: boolean } | null {
     const [x0, y0, z0] = spec.offBack;
     const h = r.y - spec.top;
-    const near = (x: number, z: number): { top: number; taken: boolean } => {
-      let top = y0;
-      let taken = false;
-      for (const other of ctx.parts()) {
-        if (other === r.id) continue;
-        const m = ctx.mode(other);
-        const p = ctx.pose(other);
-        if (!p || (m !== 'free' && m !== 'held' && m !== 'crew')) continue;
-        if (Math.hypot(p.p[0] - x, p.p[2] - z) > radius(other) + Math.max(r.ex, r.ez) + T.gap) continue;
-        taken = true;
-        top = Math.max(top, p.p[1] + (ctx.halfExtents(other)?.[1] ?? 0.3));
-      }
-      const ex = r.ex + T.gap;
-      const ez = r.ez + T.gap;
-      if (spec.keepClear?.some((k) => x + ex > k.minX && x - ex < k.maxX && z + ez > k.minZ && z - ez < k.maxZ)) taken = true;
-      return { top, taken };
-    };
-    const step = 2 * Math.max(r.ex, r.ez) + 0.1;
-    for (let k = 0; k < 4; k++) {
-      const x = x0 + k * step;
-      if (!near(x, z0).taken) return [x, y0 + h + 0.005, z0];
+    const restY = y0 + h + 0.005;
+    const a: Vec3 = [spec.deflectAt + r.ex, r.y, r.z];
+    const g = T.gap / 2;
+    // everything it could meet: other parts in the world (not this one), as boxes
+    const others: { x: number; y: number; z: number; ex: number; ey: number; ez: number }[] = [];
+    for (const other of ctx.parts()) {
+      if (other === r.id || rides.some((x) => x.id === other && !x.guide)) continue; // the belt's own queue keeps its gaps
+      const m = ctx.mode(other);
+      const p = ctx.pose(other);
+      const e = ctx.halfExtents(other);
+      if (!p || !e || m === 'gone' || m === 'chute' || m === undefined) continue;
+      const rr = radius(other);
+      others.push({ x: p.p[0], y: p.p[1], z: p.p[2], ex: rr, ey: e[1], ez: rr });
     }
-    return [x0, near(x0, z0).top + h + 0.005, z0];
+    const clearAt = (p: Vec3): boolean =>
+      others.every((o) => Math.abs(p[0] - o.x) >= r.ex + o.ex + g || Math.abs(p[2] - o.z) >= r.ez + o.ez + g || Math.abs(p[1] - o.y) >= h + o.ey + 0.01) &&
+      !(spec.keepClear ?? []).some((k) => p[1] - h < 0.05 && p[0] + r.ex + g > k.minX && p[0] - r.ex - g < k.maxX && p[2] + r.ez + g > k.minZ && p[2] - r.ez - g < k.maxZ);
+    const clearWay = (b: Vec3, over: boolean): boolean => {
+      for (let k = 1; k <= 32; k++) if (!clearAt(guided(a, b, k / 32, over))) return false;
+      return true;
+    };
+    // the row's ends for this part, and how far it can slide each way before it meets something resting in the row
+    const row = spec.offBackRow ?? { minX: x0 - r.ex, maxX: x0 + r.ex };
+    let lo = row.minX + r.ex;
+    let hi = row.maxX - r.ex;
+    // the row ends where it meets a keep-clear band (Fetch's lane)
+    for (const k of spec.keepClear ?? []) {
+      if (z0 + r.ez + g <= k.minZ || z0 - r.ez - g >= k.maxZ) continue;
+      if (k.minX >= a[0]) hi = Math.min(hi, k.minX - T.gap - r.ex);
+      else if (k.maxX <= a[0]) lo = Math.max(lo, k.maxX + T.gap + r.ex);
+    }
+    for (const o of others) {
+      if (Math.abs(o.z - z0) >= r.ez + o.ez + g || o.y - o.ey > restY + h) continue;
+      // set down a whole gap from its neighbour; the way there need only clear things by half of one
+      if (o.x <= a[0]) lo = Math.max(lo, Math.min(o.x + o.ex + T.gap + r.ex, a[0]));
+      else hi = Math.min(hi, Math.max(o.x - o.ex - T.gap - r.ex, a[0]));
+    }
+    const places = [lo, hi, x0].filter((x, i, all) => x >= lo - 1e-9 && x <= hi + 1e-9 && all.indexOf(x) === i);
+    for (const x of places) {
+      const b: Vec3 = [x, restY, z0];
+      if (clearWay(b, false)) return { b, over: false };
+      if (clearWay(b, true)) return { b, over: true };
+    }
+    return null;
   }
 
   /** One step of carrying: in the order they lie along the way they go, each keeps its gap to the one ahead. */
@@ -301,9 +350,17 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         continue;
       }
       if (!fwd && !ahead && !guiding && next - r.ex <= spec.deflectAt) {
-        // the motor end: the deflector guides it off the back of the belt, down the slide
+        // the motor end: the deflector guides it off the back of the belt, down the slide, to a free place
+        // at the foot; with the foot full it waits here (the belt runs on under it) and the belt tells, once
         next = spec.deflectAt + r.ex;
-        r.guide = { t: 0, a: [next, r.y, r.z], b: offBackFor(r) };
+        const to = offBackFor(r);
+        if (to) {
+          r.guide = { t: 0, a: [next, r.y, r.z], b: to.b, over: to.over };
+          if (waiting === r.id) waiting = null;
+        } else if (waiting !== r.id) {
+          waiting = r.id;
+          unit.tell();
+        }
       }
       r.x = next;
       ctx.drive(r.id, { p: [r.x, r.y, r.z], q: r.q });
@@ -318,12 +375,8 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         continue;
       }
       g.t = Math.min(T.guide, g.t + dt);
-      const u = g.t / T.guide;
-      const ease = (v: number): number => v * v * (3 - 2 * v);
-      // along the deflector off the back first (toward -Z), then down the slide to the spot
-      const zu = ease(Math.min(1, u * 2));
-      const xu = ease(Math.max(0, u * 2 - 1));
-      const p: Vec3 = [g.a[0] + (g.b[0] - g.a[0]) * xu, g.a[1] + (g.b[1] - g.a[1]) * xu, g.a[2] + (g.b[2] - g.a[2]) * zu];
+      // along the deflector off the back first (toward -Z), then down the slide and along the foot to its place
+      const p = guided(g.a, g.b, g.t / T.guide, g.over);
       r.x = p[0];
       r.z = p[2];
       ctx.drive(r.id, { p, q: r.q });
@@ -441,6 +494,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
       lamp.reset();
       beat.reset();
       lurchUntil = -1;
+      waiting = null;
     },
 
     pre() {
@@ -466,6 +520,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
         surface: ctx.clock.step < lurchUntil ? T.lurch.speed * (beat.view()?.level ?? 1) : surface,
         phase,
         riding: [...rides].sort((a, b) => a.x - b.x).map((r) => r.id),
+        waiting: waiting !== null && rides.some((r) => r.id === waiting && !r.guide) ? waiting : null,
       };
     },
   };
