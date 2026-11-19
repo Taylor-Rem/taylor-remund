@@ -83,9 +83,9 @@ export interface Stage {
   /**
    * Compile every program the scene can ask for, before it is shown (T1 round 3): every
    * object made visible and unculled for the moment, the scene's materials compiled in
-   * parallel (compileAsync), then one frame drawn, which links what compile cannot reach:
-   * the shadow pass's depth programs (one per caster's attributes and skinning) and the post
-   * chain's. Everything is put back as it was. Meant for the boot's compile step, behind the
+   * parallel (compileAsync), then the shadow pass alone, once per kind of caster, which links
+   * what compile cannot reach: the depth programs (a full frame here cost 0.6 s; the post
+   * chain links its own on the first frame, as before). Everything is put back as it was. For the boot's compile step, behind the
    * loading picture. Returns the programs it linked.
    */
   warm(): Promise<number>;
@@ -108,6 +108,10 @@ const TONE: Record<ToneMap, ToneMapping> = {
   aces: ACESFilmicToneMapping,
   neutral: NeutralToneMapping,
 };
+
+/** What the last warm() spent (ms) and how many kinds of shadow caster it drew alone. */
+export const warmTimes = { compileAsync: 0, frame: 0, shadowPasses: 0, kinds: 0 };
+(globalThis as { __warmTimes?: typeof warmTimes }).__warmTimes = warmTimes;
 
 export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stage {
   const tier = opts.tier;
@@ -243,8 +247,13 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
       });
       try {
         scene.updateMatrixWorld(true);
+        const t0 = performance.now();
         await renderer.compileAsync(scene, camera.camera);
-        stage.render({ dt: 0 });
+        const t1 = performance.now();
+        // (no full frame here: the post chain links its own on the first frame, cheaply, as before)
+        const t2 = performance.now();
+        warmTimes.compileAsync = t1 - t0;
+        warmTimes.frame = t2 - t1;
         // The shadow pass shares one depth material among its casters, and three picks that
         // material's program again only when something it tracks changes (skinning, among
         // others): which caster's attributes the program is made for then depends on the order
@@ -270,14 +279,34 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
           for (const k of keep) for (let a: import('three').Object3D | null = k; a; a = a.parent) show.add(a);
           for (const [o] of saved) if (o !== scene) o.visible = show.has(o) || !(o as { isMesh?: boolean }).isMesh;
         };
-        for (const rep of reps.values()) {
-          const other = (rep as { isSkinnedMesh?: boolean }).isSkinnedMesh ? plain : skinned;
-          if (other) {
-            only([other]);
-            stage.render({ dt: 0 });
+        // only the shadow pass draws (the camera looks at a layer nothing is on): no post chain,
+        // and no main-pass program for the canvas's own output
+        const layers = camera.camera.layers.mask;
+        camera.camera.layers.set(31);
+        // the lights must still be seen by the camera, or there is no shadow pass at all
+        const lit: Array<[import('three').Object3D, number]> = [];
+        scene.traverse((o) => {
+          if ((o as { isLight?: boolean }).isLight) {
+            lit.push([o, o.layers.mask]);
+            o.layers.enable(31);
           }
-          only([rep]);
-          stage.render({ dt: 0 });
+        });
+        const t3 = performance.now();
+        try {
+          for (const rep of reps.values()) {
+            const other = (rep as { isSkinnedMesh?: boolean }).isSkinnedMesh ? plain : skinned;
+            if (other) {
+              only([other]);
+              renderer.render(scene, camera.camera);
+            }
+            only([rep]);
+            renderer.render(scene, camera.camera);
+          }
+        } finally {
+          camera.camera.layers.mask = layers;
+          for (const [o, m] of lit) o.layers.mask = m;
+          warmTimes.kinds = reps.size;
+          warmTimes.shadowPasses = performance.now() - t3;
         }
       } catch {
         /* the first frame compiles whatever is left */
