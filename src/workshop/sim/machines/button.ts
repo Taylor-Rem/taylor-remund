@@ -226,12 +226,32 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
   // ── what the beats do (the ones that move things; the view performs the rest) ──
   const misfire = (id: Id, level: 1 | 2): void => ctx.interactable(id)?.misfire(level);
 
-  /** The top crate that is still free slides off the stack (rung 1, as built in P1). */
+  /**
+   * The stack (S7 round 2): its ground point and radius. With a ladder, the scene's; without (the vignette),
+   * where the first of `spec.stack` began. What is ON the stack is whatever free crate stands within the
+   * radius at the moment, whatever its id: a crate of the list lying elsewhere on the bench is not the stack.
+   */
+  const stackAt: readonly [number, number] =
+    ladder?.stackAt ??
+    ((): [number, number] => {
+      const p = ctx.scene.parts.find((x) => x.id === spec.stack[0])?.pose.p;
+      return p ? [p[0], p[2]] : [0, 0];
+    })();
+  const stackRadius = ladder?.stackRadius ?? 0.6;
+  function onStack(): Id[] {
+    const [sx, sz] = stackAt;
+    return ctx.parts().filter((id) => {
+      if (ctx.mode(id) !== 'free' || ctx.part(id)?.kind !== 'crate') return false;
+      const p = ctx.pose(id)?.p;
+      return !!p && Math.hypot(p[0] - sx, p[2] - sz) <= stackRadius;
+    });
+  }
+
+  /** Rungs 1 and 2: the top crate on the stack slides off it (nothing, if nothing stands there). */
   function shoveTop(): Id[] {
     let top: Id | null = null;
     let topY = -Infinity;
-    for (const id of spec.stack) {
-      if (ctx.mode(id) !== 'free') continue;
+    for (const id of onStack()) {
       const y = ctx.pose(id)?.p[1] ?? -Infinity;
       if (y > topY) [top, topY] = [id, y];
     }
@@ -241,18 +261,14 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
     return [top];
   }
 
-  /** Rung 4: every free crate standing on the stack comes down, outward and toward the visitor. */
+  /**
+   * Rung 4: every free crate standing on the stack comes down, outward and toward the visitor. A loose
+   * crate near the stack but not on it is not thrown (the falling ones may knock it: that is physics).
+   */
   function stackDown(): Id[] {
     const T = BUTTON_TUNING;
-    const [sx, sz] = ladder?.stackAt ?? [ctx.pose(spec.stack[0] ?? '')?.p[0] ?? 0, ctx.pose(spec.stack[0] ?? '')?.p[2] ?? 0];
-    const radius = ladder?.stackRadius ?? 0.6;
-    const out: Id[] = [];
-    for (const id of ctx.parts()) {
-      if (ctx.mode(id) !== 'free' || ctx.part(id)?.kind !== 'crate') continue;
-      const p = ctx.pose(id)?.p;
-      if (!p || Math.hypot(p[0] - sx, p[2] - sz) > radius) continue;
-      out.push(id);
-    }
+    const [sx, sz] = stackAt;
+    const out = onStack();
     out.sort((a, b) => (ctx.pose(b)?.p[1] ?? 0) - (ctx.pose(a)?.p[1] ?? 0));
     // it topples onto the bench, never off it: toward the bench's middle, fanned, and a little toward the visitor
     const b = ctx.scene.bench;
