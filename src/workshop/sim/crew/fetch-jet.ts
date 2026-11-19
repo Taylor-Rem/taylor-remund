@@ -189,3 +189,27 @@ export function jetAt(plan: JetPlan, t: number): JetAt {
   }
   return { p: plan.land, phase: 'land', phaseTime: L.land, phaseLength: L.land, thrust: 0, cut: true, done: true };
 }
+
+/**
+ * R4: a hop on its jets from where it came to rest on the bench but cannot stay (on a crate, the stack, the tray, or
+ * wedged against something): no fall; the jets catch where it stands, it rises, flies the short arc to `land` and
+ * comes down as from any flight. The same phases and the same `jetAt`.
+ */
+export function planHop(o: Parameters<typeof planJet>[0]): JetPlan {
+  const base = planJet({ ...o, v0: [0, 0, 0] });
+  const stand = Math.max(o.p0[1], o.bench.top + o.half);
+  const T = JET_TUNING;
+  const lengths = { ...base.lengths, fall: 0, cruise: Math.min(T.cruiseMax, Math.max(T.cruiseMin, Math.hypot(o.land[0] - o.p0[0], o.land[1] - o.p0[2]) / T.cruiseSpeed)) };
+  const total = Object.values(lengths).reduce((a, c) => a + c, 0);
+  // rise clear of anything it stands among: at least `bottomAt` over the bench, over where it stands now, and over
+  // anything taller within its footprint of the straight line to `land`
+  const r = o.radius + JET_TUNING.clear;
+  let high = Math.max(o.bench.top + T.bottomAt + o.half, stand + JET_TUNING.clear + 0.4);
+  for (let i = 0; i <= 32; i++) {
+    const f = i / 32;
+    const px = lerp(o.p0[0], o.land[0], f);
+    const pz = lerp(o.p0[2], o.land[1], f);
+    for (const t of o.bodies) if (distanceTo(t.o, px, pz) < r) high = Math.max(high, t.top + o.half + JET_TUNING.clear);
+  }
+  return { ...base, p0: [o.p0[0], stand, o.p0[2]], v0: [0, 0, 0], out: [o.p0[0], o.p0[2]], deep: stand, high, tOut: 1e-6, yOut: stand, vOut: 0, stand, lengths, total };
+}
