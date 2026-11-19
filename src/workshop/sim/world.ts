@@ -123,6 +123,8 @@ export interface World extends WorldView {
    * is closed (the bench restored exactly), whatever is held is let go, then "Reset the workshop".
    */
   recover(): void;
+  /** R2: who hears the step's faults from now on (a stage rebuilt on the same world brings a new guard); null: strict. */
+  setOnFault(f: ((fault: StepFault) => void) | null): void;
   dispose(): void;
 }
 
@@ -241,6 +243,7 @@ const PART_VALIDATORS: Readonly<Record<(typeof PART_FIELDS)[number], (v: Value) 
 export function createWorld(opts: WorldOptions): World {
   const scene = opts.scene ?? vignette;
   const physics = opts.physics;
+  let onFault = opts.onFault;
   const history = opts.history ?? createHistory();
   const clock = createClock();
   const root = makeRng(opts.seed);
@@ -1177,13 +1180,13 @@ export function createWorld(opts: WorldOptions): World {
       // R2: in lenient mode each unit's part of the step is guarded (see WorldOptions.onFault); strict, as before
       const skip = new Set<Id>();
       const guard = (unit: Id, phase: StepFault['phase'], f: () => void, intent?: Intent): void => {
-        if (!opts.onFault) return f();
+        if (!onFault) return f();
         if (skip.has(unit)) return;
         try {
           f();
         } catch (error) {
           skip.add(unit);
-          opts.onFault({ unit, phase, error, step: clock.step, ...(intent ? { intent } : {}) });
+          onFault({ unit, phase, error, step: clock.step, ...(intent ? { intent } : {}) });
         }
       };
       for (const intent of pending) {
@@ -1210,6 +1213,10 @@ export function createWorld(opts: WorldOptions): World {
       guard('world', 'step', () => history.endStep(clock.step));
       const heard = events.slice(from);
       for (const u of units) if (u.heard) guard(u.id, 'heard', () => u.heard!(heard));
+    },
+
+    setOnFault(f) {
+      onFault = f ?? undefined;
     },
 
     recover() {

@@ -55,6 +55,8 @@ export interface FaultCounts {
   /** Every fault caught, since the page started. */
   readonly count: number;
   readonly resets: number;
+  /** Graphics contexts lost since the page started (not an error of ours; counted for scripted sessions). */
+  readonly contextLost: number;
   /** The last report, or null. */
   readonly last: FaultReport | null;
 }
@@ -79,6 +81,9 @@ export function strictMode(env: { dev: boolean; search: string; webdriver: boole
   return env.dev || env.webdriver;
 }
 
+/** Lost graphics contexts this page (module-wide: a stage rebuilt after one brings a new guard). */
+let contextLost = 0;
+
 export class FaultGuard {
   readonly strict: boolean;
   private readonly o: GuardOptions;
@@ -102,7 +107,13 @@ export class FaultGuard {
 
   /** What a script can read: how many faults, how many resets, the last report. */
   faults(): FaultCounts {
-    return { count: this.n, resets: this.resetsDone, last: this.lastReport };
+    return { count: this.n, resets: this.resetsDone, contextLost, last: this.lastReport };
+  }
+
+  /** The graphics context was lost (counted across rebuilds; reported once to the console as a warning). */
+  contextLost(): void {
+    contextLost++;
+    console.warn(`workshop: the graphics context was lost (${contextLost} so far this visit); the bench stops and the picture shows until it comes back`);
   }
 
   /** Remember an intent (the report carries the last few). */

@@ -105,6 +105,8 @@ export interface StageLoadOptions {
   hold?: boolean;
   /** Called once the stage is live. */
   onLive?(ws: Workshop): void;
+  /** R2: the stage was built again on the same world after a lost graphics context (a page's hooks may want the new workshop). */
+  onRebuilt?(ws: Workshop): void;
   /**
    * The poster script's mode: render this band's picture (no picture is
    * adopted; the camera is `bandView` at the stage's aspect, made valid down
@@ -133,6 +135,8 @@ export interface HandoffState {
 }
 
 const now = (): number => performance.now();
+/** R2: how long a lost graphics context may take to come back before the picture stays for good. */
+export const LOST_WAIT_MS = 5000;
 
 /** The rig's view as a poster view (focus and distance). */
 export function viewOf(stage: Stage): PosterView {
@@ -239,6 +243,8 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
   };
 
   let ws: Workshop | null = null;
+  /** R2: waiting for a lost graphics context to come back (declared before the boot, which may lose it). */
+  let lostTimer: ReturnType<typeof setTimeout> | null = null;
   try {
     for (const f of o.early ?? []) void f().catch(() => {});
     const opts = await o.prepare((f) => report('modules', f));
@@ -267,13 +273,9 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       ...opts,
       manual: true,
       // R2: the bench could not be kept going (shell/guard.ts): the picture stays, warm, as when the stage fails to start
-      onGiveUp: () => {
-        state.phase = 'failed';
-        state.failed = 'gave up after repeated faults';
-        root.classList.remove('live');
-        root.classList.add('stage-failed');
-        opts.onGiveUp?.();
-      },
+      onGiveUp: () => giveUp('gave up after repeated faults'),
+      // R2: a lost graphics context: the picture, and a rebuild on the same world if it comes back in time
+      onContextLost: () => contextLost(),
       onProgress: (phase, done, total) => {
         report(phase, done, total);
         // the scene is built and its programs compiled: only the first frame is left. The picture comes up to
@@ -290,6 +292,66 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       },
     });
     state.workshop = ws;
+    const bootOpts = opts;
+
+    // R2: a lost graphics context (§ E7 "A lost graphics context shows the picture"). The workshop has stopped
+    // and kept its world. The picture shows at once; if the context comes back within `LOST_WAIT_MS` the stage
+    // and the views are built again on the same world (the visitor's bench survives: sealed label pages and
+    // baked buffers have no CPU copies, so three's own restore is not trusted); if not, the picture stays.
+    function contextLost(): void {
+      root.classList.remove('live');
+      if (lostTimer !== null) clearTimeout(lostTimer);
+      lostTimer = setTimeout(() => {
+        lostTimer = null;
+        giveUp('the graphics context was lost and did not come back');
+      }, LOST_WAIT_MS);
+    }
+    const onRestored = (): void => {
+      if (lostTimer === null) return;
+      clearTimeout(lostTimer);
+      lostTimer = null;
+      void rebuild();
+    };
+    o.canvas.addEventListener('webglcontextrestored', onRestored);
+    async function rebuild(): Promise<void> {
+      const old = ws;
+      if (!old) return;
+      try {
+        const world = old.disown();
+        old.dispose();
+        ws = await bootWorkshop(o.canvas, {
+          ...bootOpts,
+          world,
+          manual: true,
+          onGiveUp: () => giveUp('gave up after repeated faults'),
+          onContextLost: () => contextLost(),
+          onProgress: () => {},
+          frameCamera(stage: Stage, scene: SceneDesc) {
+            (framing ?? defaultFraming)(stage, scene);
+          },
+        });
+        state.workshop = ws;
+        ws.loop.setManual(false);
+        ws.loop.start();
+        root.classList.add('live');
+        o.onRebuilt?.(ws);
+      } catch (e) {
+        console.error('workshop: the stage could not be rebuilt after a lost graphics context; the picture stays', e);
+        giveUp('the stage could not be rebuilt after a lost graphics context');
+      }
+    }
+    function giveUp(why: string): void {
+      state.phase = 'failed';
+      state.failed = why;
+      root.classList.remove('live');
+      root.classList.add('stage-failed');
+      try {
+        ws?.loop.stop();
+      } catch {
+        /* best effort */
+      }
+      bootOpts.onGiveUp?.();
+    }
 
     // the picture's state, then frames until they are settled and short
     state.phase = 'settling';
