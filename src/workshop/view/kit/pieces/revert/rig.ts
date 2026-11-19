@@ -405,14 +405,14 @@ interface Posable {
  * the size of the card it was built with (default: the clay estimate).
  */
 export function poseRevert(root: Posable, pose: RevertPose = {}, card: { w: number; h: number } = CARD_ESTIMATE): void {
-  const ms = poseMatrices(pose);
-  const c = { ...NEUTRAL.card, ...(pose.card ?? {}) };
-  ms.card = cardMatrix(c.lift, c.open, c.wobble, card.w, card.h);
-  for (const [name, mat] of Object.entries(ms)) {
-    const o = root.getObjectByName(name);
-    if (o) mat.decompose(o.position, o.quaternion, o.scale);
+  let s = SCRATCHES.get(root);
+  if (!s) {
+    s = revertScratch();
+    SCRATCHES.set(root, s);
   }
+  poseRevertInto(root, pose, card, s);
 }
+const SCRATCHES = new WeakMap<Posable, RevertScratch>();
 
 /** The pose matrices with the card laid out for a real card size. */
 export function poseMatricesFor(pose: RevertPose, card: { w: number; h: number }): Record<string, Matrix4> {
@@ -420,4 +420,247 @@ export function poseMatricesFor(pose: RevertPose, card: { w: number; h: number }
   const c = { ...NEUTRAL.card, ...(pose.card ?? {}) };
   ms.card = cardMatrix(c.lift, c.open, c.wobble, card.w, card.h);
   return ms;
+}
+
+// ---- the same, without allocating (for a view that poses every frame) -----------------------
+
+/** Everything `poseRevertInto` works in: one per realised Revert, made once with `revertScratch()`. */
+export interface RevertScratch {
+  /** The realised nodes, found on the first call: [matrix, node] pairs. */
+  nodes: Array<[Matrix4, { position: Vector3; quaternion: Quaternion; scale: Vector3 }]> | null;
+  /** The posing root the nodes were found under. */
+  root: Posable | null;
+  /** One matrix per moving node (the result). */
+  m: Record<string, Matrix4>;
+  t0: Matrix4;
+  t1: Matrix4;
+  v0: Vector3;
+  v1: Vector3;
+  v2: Vector3;
+  q0: Quaternion;
+  q1: Quaternion;
+  loop: { y: number; z: number; phi: number };
+  reach: { yaw: number; swing: number; elbow: number };
+  joints: ArmJoints;
+}
+
+const SIDE = [['L', 1, 0], ['R', -1, 1]] as const;
+const ENDS = [['F', TRACK.axleZ], ['B', -TRACK.axleZ]] as const;
+/** Every moving node's name, in the order they are posed. */
+export const MOVING_NODES: readonly string[] = (() => {
+  const n: string[] = ['chassis'];
+  for (const [s] of SIDE) {
+    for (const [e] of ENDS) n.push(`wheel${s}${e}`);
+    for (let i = 0; i < TRACK.n; i++) n.push(`shoe${s}${i}`);
+  }
+  n.push('body', 'brow', 'eyeL', 'lampL', 'lidL', 'eyeR', 'lampR', 'lidR', 'crank', 'card', 'cardL', 'broom', 'arm', 'forearm', 'hand', 'jaw0', 'jaw1');
+  return n;
+})();
+
+/** The node names posed in loops, made once (no strings built per frame). */
+const WHEELS = SIDE.map(([s]) => ENDS.map(([e]) => `wheel${s}${e}`));
+const SHOES = SIDE.map(([s]) => Array.from({ length: TRACK.n }, (_, i) => `shoe${s}${i}`));
+const EYES = SIDE.map(([s]) => [`eye${s}`, `lamp${s}`, `lid${s}`] as const);
+
+/** The broom's two end orientations and its stowed place (constants of `broomMatrix`). */
+const BROOM_STOW_Q = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(new Vector3(1, 0, 0), new Vector3(0, -Math.sin(0.6), Math.cos(0.6)), new Vector3(0, -Math.cos(0.6), -Math.sin(0.6))));
+const BROOM_OUT_Q = new Quaternion().setFromRotationMatrix(new Matrix4().makeRotationY(-0.35).multiply(new Matrix4().makeRotationX(-(Math.PI / 2 - 0.55))));
+const BROOM_STOW_P = new Vector3(-HULL.w / 2 - 0.04, 1.0 - BODY_Y, -0.56);
+const ONE = new Vector3(1, 1, 1);
+const UP = new Vector3(0, 1, 0);
+const XAXIS = new Vector3(1, 0, 0);
+
+export function revertScratch(): RevertScratch {
+  const m: Record<string, Matrix4> = {};
+  for (const n of MOVING_NODES) m[n] = new Matrix4();
+  return {
+    nodes: null,
+    root: null,
+    m,
+    t0: new Matrix4(),
+    t1: new Matrix4(),
+    v0: new Vector3(),
+    v1: new Vector3(),
+    v2: new Vector3(),
+    q0: new Quaternion(),
+    q1: new Quaternion(),
+    loop: { y: 0, z: 0, phi: 0 },
+    reach: { yaw: 0, swing: 0, elbow: 0 },
+    joints: { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 },
+  };
+}
+
+/** `loopPoint` into `out`. */
+function loopPointInto(s: number, sag: number, out: { y: number; z: number; phi: number }): void {
+  const a = TRACK.axleZ;
+  const arc = Math.PI * RM;
+  let u = s % LOOP;
+  if (u < 0) u += LOOP;
+  if (u < 2 * a) {
+    out.y = AXLE_Y + RM;
+    out.z = -a + u;
+    out.phi = 0;
+    return;
+  }
+  u -= 2 * a;
+  if (u < arc) {
+    const p = u / RM;
+    out.y = AXLE_Y + RM * Math.cos(p);
+    out.z = a + RM * Math.sin(p);
+    out.phi = p;
+    return;
+  }
+  u -= arc;
+  if (u < 2 * a) {
+    const k = u / (2 * a);
+    out.y = AXLE_Y - RM - sag * 0.07 * Math.sin(Math.PI * k);
+    out.z = a - u;
+    out.phi = Math.PI - sag * 0.25 * Math.cos(Math.PI * k);
+    return;
+  }
+  u -= 2 * a;
+  const p = Math.PI + u / RM;
+  out.y = AXLE_Y + RM * Math.cos(p);
+  out.z = -a + RM * Math.sin(p);
+  out.phi = p;
+}
+
+/** `armReach` into `out`. */
+function armReachInto(p: Vector3, out: { yaw: number; swing: number; elbow: number }): void {
+  const L1 = UPPER, L2 = FORE + GRIP;
+  const h = Math.hypot(p.x, p.z), v = -p.y;
+  const D = clamp(Math.hypot(h, v), Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+  out.yaw = Math.atan2(p.x, p.z);
+  out.swing = Math.atan2(h, v) + Math.acos(clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
+  out.elbow = -(Math.PI - Math.acos(clamp((L1 * L1 + L2 * L2 - D * D) / (2 * L1 * L2), -1, 1)));
+}
+
+/** `broomMatrix` into `out`. */
+export function broomMatrixInto(broom: number, stroke: number, out: Matrix4, s: RevertScratch): Matrix4 {
+  const k = clamp(broom, 0, 1);
+  const p = s.v0.copy(BROOM_STOW_P).lerp(s.v1.set(-0.78, -BODY_Y + 0.004, 0.92 + 0.08 * clamp(stroke, -1, 1)), smooth(0, 1, k));
+  p.y += Math.sin(Math.PI * k) * 0.22;
+  p.x -= Math.sin(Math.PI * k) * 0.12;
+  const q = s.q0.copy(BROOM_STOW_Q).slerp(BROOM_OUT_Q, smooth(0.1, 0.9, k));
+  return out.compose(p, q, ONE);
+}
+
+/** `cardMatrix` into `out`. */
+export function cardMatrixInto(lift: number, open: number, wobble: number, cardW: number, cardH: number, out: Matrix4, s: RevertScratch): Matrix4 {
+  const l = clamp(lift, 0, 1.15);
+  const x = -(cardW / 4) * (1 - clamp(open, 0, 1));
+  if (l < 0.015) return out.makeScale(HIDDEN, HIDDEN, HIDDEN).setPosition(x, SLOT.y - BODY_Y - 0.03, SLOT.z);
+  const travel = cardH + CARD_STICK + 0.06;
+  const lean = (CARD_LEAN + wobble) * smooth(0.82, 1, l) * (Math.PI / 180);
+  out.makeRotationX(-lean).multiply(s.t0.makeTranslation(0, (l - 1) * travel, 0));
+  return out.premultiply(s.t0.makeTranslation(x, SLOT.y - BODY_Y, SLOT.z));
+}
+
+/** A rotation (made by `rot`) with a translation in front of it: T(x, y, z) · R. */
+const at = (m: Matrix4, x: number, y: number, z: number): Matrix4 => m.setPosition(x, y, z);
+
+/**
+ * `poseRevert` without allocating: every moving node's local transform for a pose, into the
+ * realised nodes under `root`. The scratch (`revertScratch()`) belongs to that one Revert.
+ */
+export function poseRevertInto(root: Posable, pose: RevertPose, card: { w: number; h: number }, s: RevertScratch): void {
+  const m = s.m;
+  const N = NEUTRAL;
+  const tv = pose.travel ?? N.travel;
+  const tl = typeof tv === 'number' ? tv : tv[0];
+  const tr = typeof tv === 'number' ? tv : tv[1];
+  const sag = clamp(pose.sag ?? N.sag, 0, 1);
+
+  // ---- treads ----
+  m.chassis!.identity();
+  for (let si = 0; si < 2; si++) {
+    const sx = si === 0 ? 1 : -1;
+    const t = si === 0 ? tl : tr;
+    for (let e = 0; e < 2; e++) at(m[WHEELS[si]![e]!]!.makeRotationX(t / RM), sx * TRACK.x, AXLE_Y, e === 0 ? TRACK.axleZ : -TRACK.axleZ);
+    const shoes = SHOES[si]!;
+    for (let i = 0; i < TRACK.n; i++) {
+      loopPointInto((i * LOOP) / TRACK.n + t, sag, s.loop);
+      at(m[shoes[i]!]!.makeRotationX(s.loop.phi), sx * TRACK.x, s.loop.y, s.loop.z);
+    }
+  }
+
+  // ---- body ----
+  const body = m.body!.makeRotationX(clamp(pose.pitch ?? N.pitch, -0.25, 0.25)).multiply(s.t0.makeRotationZ(-clamp(pose.roll ?? N.roll, -0.2, 0.2)));
+  at(body, 0, BODY_Y + clamp(pose.bob ?? N.bob, -0.05, 0.08), 0);
+  const b = clamp(pose.brow ?? N.brow, -1, 1);
+  at(m.brow!.makeRotationX(b > 0 ? b * BROW.down : b * BROW.up).multiply(s.t0.makeRotationZ(-clamp(pose.browRoll ?? N.browRoll, -0.2, 0.2))), 0, BROW.hingeY - BODY_Y, BROW.hingeZ);
+
+  // ---- eyes ----
+  const gz = pose.gaze ?? N.gaze;
+  let gx = gz[0], gy = gz[1];
+  const gl = Math.hypot(gx, gy);
+  if (gl > 1) {
+    gx /= gl;
+    gy /= gl;
+  }
+  const lamps = pose.lamps ?? N.lamps;
+  const lids = pose.lids ?? N.lids;
+  const slant = pose.slant ?? N.slant;
+  for (let k = 0; k < 2; k++) {
+    const sx = k === 0 ? 1 : -1;
+    const [eyeN, lampN, lidN] = EYES[k]!;
+    at(m[eyeN]!.makeRotationX(-FACE.rake), sx * EYE.x, EYE.y - BODY_Y, faceZ(EYE.y));
+    const on = lamps[k] ? 1 : HIDDEN;
+    at(m[lampN]!.makeRotationY(gx * GAZE_MAX).multiply(s.t0.makeRotationX(-gy * GAZE_MAX)).scale(s.v0.set(on, on, on)), 0, 0, EYE_C);
+    const lip = LID.open + (LID.closed - LID.open) * clamp(lids[k]!, 0, 1);
+    at(m[lidN]!.makeRotationZ(sx * clamp(slant[k]!, -0.5, 0.5)).multiply(s.t0.makeRotationX(-lip)), 0, 0, EYE_C);
+  }
+
+  // ---- crank ----
+  at(m.crank!.makeRotationX(pose.crank ?? N.crank), CRANK.x, CRANK.y - BODY_Y, CRANK.z);
+
+  // ---- the card ----
+  const c = pose.card;
+  const open = clamp(c?.open ?? N.card.open, 0, 1);
+  cardMatrixInto(c?.lift ?? N.card.lift, open, c?.wobble ?? N.card.wobble, card.w, card.h, m.card!, s);
+  m.cardL!.makeRotationY(-Math.PI * (1 - open));
+
+  // ---- the arm and the broom ----
+  const broomV = pose.broom ?? N.broom;
+  const broomM = broomMatrixInto(broomV, pose.stroke ?? N.stroke, m.broom!, s);
+  const arm = pose.arm ?? N.arm;
+  let j: ArmJoints;
+  if (typeof arm === 'object') j = arm;
+  else if (arm !== 'broom') j = ARMS[arm];
+  else {
+    const grip = s.v1.set(0, broomGrip(broomV), 0).applyMatrix4(broomM).sub(s.v2.set(SHOULDER.x, SHOULDER.y - BODY_Y, SHOULDER.z));
+    armReachInto(grip, s.reach);
+    j = s.joints;
+    j.yaw = s.reach.yaw;
+    j.swing = s.reach.swing;
+    j.elbow = s.reach.elbow;
+    j.wrist = 0;
+    j.grip = 0.1;
+  }
+  at(m.arm!.makeRotationY(j.yaw).multiply(s.t0.makeRotationX(-j.swing)), SHOULDER.x, SHOULDER.y - BODY_Y, SHOULDER.z);
+  at(m.forearm!.makeRotationX(-j.elbow), 0, -UPPER, 0);
+  if (arm === 'broom') {
+    // the hand turns to close round the handle: its jaw axis (+X in hand space) along the handle
+    const handW = s.t0.copy(body).multiply(m.arm!).multiply(m.forearm!).multiply(s.t1.makeTranslation(0, -FORE, 0));
+    const dir = s.v1.copy(UP).transformDirection(s.t1.copy(body).multiply(broomM));
+    const inv = s.t1.extractRotation(handW).invert();
+    dir.transformDirection(inv);
+    s.q1.setFromUnitVectors(XAXIS, dir);
+    m.hand!.compose(s.v2.set(0, -FORE, 0), s.q1, ONE);
+  } else at(m.hand!.makeRotationX(-j.wrist), 0, -FORE, 0);
+  const jaw = 0.08 + clamp(j.grip, 0, 1) * 0.55;
+  at(m.jaw0!.makeRotationX(-jaw), 0, -0.035, 0.022);
+  at(m.jaw1!.makeRotationX(jaw), 0, -0.035, -0.022);
+
+  // ---- into the nodes ----
+  if (s.root !== root || !s.nodes) {
+    s.root = root;
+    s.nodes = [];
+    for (const n of MOVING_NODES) {
+      const o = root.getObjectByName(n);
+      if (o) s.nodes.push([m[n]!, o]);
+    }
+  }
+  const nodes = s.nodes;
+  for (let i = 0; i < nodes.length; i++) nodes[i]![0].decompose(nodes[i]![1].position, nodes[i]![1].quaternion, nodes[i]![1].scale);
 }

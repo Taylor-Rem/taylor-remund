@@ -96,6 +96,7 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
     let atStop = false;
     const hops: PartHops = createHops(ctx.scene);
     const pose: UndoPose = { pull: 0, latch: 0, lamp: false };
+    const posed = { pull: NaN, latch: NaN, lamp: false as boolean };
     const state: UndoViewState = { pull: 0, latch: 0, lamp: false, hops: 0 };
 
     const place = (w: WorldView): void => {
@@ -171,10 +172,17 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
         state.pull = pose.pull ?? 0;
         state.latch = pose.latch ?? 0;
         state.lamp = pose.lamp ?? false;
-        poseUndoLever(obj, pose);
+        // posed only when something moved (poseUndoLever makes matrices)
+        if (pose.pull !== posed.pull || pose.latch !== posed.latch || pose.lamp !== posed.lamp) {
+          posed.pull = pose.pull ?? 0;
+          posed.latch = pose.latch ?? 0;
+          posed.lamp = pose.lamp ?? false;
+          poseUndoLever(obj, pose);
+        }
         hops.update(now, (pid) => w.motion(pid)?.pose);
       },
       dispose() {
+        hops.dispose();
         root.removeFromParent();
       },
     };

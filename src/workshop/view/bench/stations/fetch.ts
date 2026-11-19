@@ -28,7 +28,8 @@ function scaledFetch(inner: StationViewFactory, s: number): StationViewFactory {
 
 export const station: BenchStation = {
   name: 'fetch',
-  order: ORDER.crew + 2,
+  // before the parts: it hands the parts view the crate in its hands through an overlay, so the crate's shadow goes with it
+  order: ORDER.parts - 1,
   make(k) {
     return scaledFetch(createFetchView({ seed: 7, scale: k.crewScale }), k.crewScale);
   },

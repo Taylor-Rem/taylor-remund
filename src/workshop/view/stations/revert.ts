@@ -35,7 +35,7 @@ import { Group, Matrix4, Quaternion, Vector3, type Object3D, type Texture } from
 import type { Id, Pose, RevertView, SimEvent, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { contentById } from '../labels/content.ts';
-import { revert as revertPiece, revertCard, poseRevert, cardMatrix, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL } from '../kit/pieces/revert/index.ts';
+import { revert as revertPiece, revertCard, poseRevertInto, revertScratch, cardMatrixInto, POSES, ARMS, CARD_CAP, SHOULDER, BODY_Y, armReach, broomMatrix, HULL } from '../kit/pieces/revert/index.ts';
 import type { ArmJoints, RevertPose } from '../kit/pieces/revert/index.ts';
 import { broomGrip } from '../kit/pieces/revert/rig.ts';
 import { revertHatch, poseHatch, liftHeight } from '../kit/pieces/revert-hatch/index.ts';
@@ -78,6 +78,8 @@ export const REVERT_FEEL = {
   glare: { wait: 0.25, on: 0.55, hold: 0.4, off: 0.3 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
+  /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
+  copyRows: 10,
   /** Before it rises: the card's top peeks out of the slot this far (fraction of its rise) and waits this long. */
   peek: 0.09,
   peekHold: 0.3,
@@ -106,7 +108,32 @@ export const REVERT_FEEL = {
   swingOmega: 7,
   swingDamping: 0.18,
   swingGain: 0.06,
+  /** Held: how far the treads hang away from the body (the rig's bob), and how hard the hand's moves swing them. */
+  heldDrop: 0.07,
+  heldSwing: 0.035,
+  /** Put down any way but upright: it rights itself over this long (on its back or side; tipped a little). */
+  rightBig: 1.5,
+  rightSmall: 0.35,
 } as const;
+
+/**
+ * Righting itself: progress 0..1 from how it lay to upright. Tipped a little it just settles;
+ * on its back it rocks, falls back, rocks harder, falls back less, and goes over with a lurch.
+ */
+function rightCurve(u: number, big: boolean): number {
+  const x = Math.min(1, Math.max(0, u));
+  if (!big) return x * x * (3 - 2 * x);
+  const keys = [[0, 0], [0.16, 0.2], [0.3, 0.04], [0.5, 0.36], [0.62, 0.16], [0.86, 1.06], [1, 1]] as const;
+  for (let i = 1; i < keys.length; i++) {
+    const [t1, v1] = keys[i]!;
+    if (x <= t1) {
+      const [t0, v0] = keys[i - 1]!;
+      const k = (x - t0) / (t1 - t0);
+      return v0 + (v1 - v0) * k * k * (3 - 2 * k);
+    }
+  }
+  return 1;
+}
 
 export interface RevertViewOptions {
   /** The hatch's origin on the bench (x, z) and the scale both are drawn at. */
@@ -141,6 +168,9 @@ const tmpV3 = new Vector3();
 const tmpQ = new Quaternion();
 const tmpQ2 = new Quaternion();
 const Y = new Vector3(0, 1, 0);
+
+/** Every card Revert may hold up (content ids): the rungs, the deck, and its own two. */
+const REVERT_CARDS = ['card.rung1', 'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing'];
 
 /** Where the dustpan's mouth is, in Revert's root (piece) space. */
 const DUSTPAN = new Vector3(HULL.w / 2 + 0.11, 0.5, 0.06);
@@ -240,6 +270,17 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     const lastPose = new Vector3();
     const lastVel = new Vector3();
     const hops: PartHops = createHops(ctx.scene);
+    const scratch = revertScratch();
+    const jointsTmp = [0, 0, 0, 0, 0];
+    const goal2 = [0, 0];
+    const hatchPosed = [NaN, NaN];
+    const heldVel = [0, 0];
+    const rightQ = new Quaternion();
+    const rightP = new Vector3();
+    const rightV = new Vector3();
+    let rightAt = -Infinity;
+    let rightFor = 0;
+    let rightBig = false;
     const pose: RevertPose = { travel: [0, 0], lids: [0.6, 0.6], slant: [0, 0], gaze: [0, 0], brow: 0, browRoll: 0, lamps: [true, true], card: { lift: 0, open: 0, wobble: 0 }, arm: { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 }, broom: 0, stroke: 0, crank: 0, bob: 0, pitch: 0, roll: 0, sag: 0 };
     const state: RevertViewState = { lift: 0, doors: 0, crank: 0, card: { content: null, lift: 0, open: 0 }, eyes: null };
 
@@ -254,16 +295,56 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     };
 
     /** Switch the card's words (only ever while it is stowed in the slot). */
-    const useCard = (content: string): void => {
-      cardContent = content;
-      const key = ctx.labels.card(contentById(content).text, { capHeight: CARD_CAP });
-      const sz = ctx.labels.size(key);
-      copyLabel(ctx.labels.texture(key), region.px.w, region.px.h, regionPx);
+    // every card Revert may hold, painted now (at start-up) rather than on the frame it is wanted
+    const keyOf = new Map<string, string>();
+    const cardKey = (content: string): string => {
+      let k = keyOf.get(content);
+      if (!k) {
+        k = ctx.labels.card(contentById(content).text, { capHeight: CARD_CAP });
+        keyOf.set(content, k);
+      }
+      return k;
+    };
+    for (const id of REVERT_CARDS) {
+      try {
+        cardKey(id);
+      } catch {
+        /* a card the content does not have (yet): painted when asked for */
+      }
+    }
+    /**
+     * The next card's label, copied into a buffer a band of rows a frame, from as soon as the card is
+     * known (the Button says which card a rung ends with when it is pressed, seconds before the card is
+     * wanted), and put into the region (uploaded) once the card is stowed in its slot.
+     */
+    let copying: { content: string; key: string; row: number } | null = null;
+    let regionHolds: string | null = null;
+    const startCard = (content: string): void => {
+      if (copying?.content === content || (regionHolds === content && !copying)) return;
+      copying = { content, key: cardKey(content), row: 0 };
+    };
+    /** One band (no more than `copyRows` rows a frame, whatever else is asked). */
+    const copyBand = (): void => {
+      const c = copying;
+      if (!c || c.row >= region.px.h) return;
+      const j1 = Math.min(region.px.h, c.row + F.copyRows);
+      copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
+      c.row = j1;
+    };
+    /** Once copied and with the card in its slot: into the region. True when the region holds `content`. */
+    const settleCard = (content: string): boolean => {
+      if (regionHolds === content && (!copying || copying.content !== content)) return true;
+      const c = copying;
+      if (!c || c.content !== content || c.row < region.px.h || cardPhase !== 'stowed') return false;
       region.put(regionPx);
+      const sz = ctx.labels.size(c.key);
+      regionHolds = c.content;
       cardSize.w = sz.w;
       cardSize.h = sz.h;
       cardScale.x = sz.w / card0.w;
       cardScale.y = sz.h / card0.h;
+      copying = null;
+      return true;
     };
 
     /** The direction to the camera in Revert's own frame, as a gaze (-1..1). */
@@ -309,12 +390,16 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           lastStep = w.step;
         }
         const a = clamp01(frame.alpha);
-        const px = lerp(prev.x, cur.x, a);
-        const pz = lerp(prev.z, cur.z, a);
-        const ph = prev.h + Math.atan2(Math.sin(cur.h - prev.h), Math.cos(cur.h - prev.h)) * a;
+        let px = lerp(prev.x, cur.x, a);
+        let pz = lerp(prev.z, cur.z, a);
+        let ph = prev.h + Math.atan2(Math.sin(cur.h - prev.h), Math.cos(cur.h - prev.h)) * a;
 
         // ── events ──
         for (const e of frame.events) onEvent(e, rv, now);
+        // the card a rung will end with is known at the press: start copying it now, a band a frame
+        const coming = w.button().card;
+        if (coming && w.button().phase !== 'idle' && !copying && regionHolds !== coming) startCard(coming);
+        copyBand();
 
         // ── the hatch ──
         const doorGoal = rv.hatch;
@@ -352,7 +437,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         wasLift = lift.x;
         state.lift = lift.x;
         state.doors = doors.x;
-        poseHatch(hatchObj, { doors: doors.x, lift: Math.min(1.03, lift.x) });
+        // posed only when it moved (poseHatch makes matrices)
+        if (doors.x !== hatchPosed[0] || lift.x !== hatchPosed[1]) {
+          hatchPosed[0] = doors.x;
+          hatchPosed[1] = lift.x;
+          poseHatch(hatchObj, { doors: doors.x, lift: Math.min(1.03, lift.x) });
+        }
 
         // ── Revert ──
         const drawn = rv.drawn;
@@ -365,6 +455,23 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           return;
         }
 
+        if (drawn && !wasDrawn) {
+          // put down: it lands on its treads (righting itself first if it lay any other way up)
+          bob.kick(F.landKick * 1.4);
+          lastVel.set(0, 0, 0);
+          heldVel[0] = heldVel[1] = 0;
+          const up = tmpV3.set(0, 1, 0).applyQuaternion(rightQ).y;
+          rightBig = up < 0.5;
+          rightFor = up > 0.97 ? 0 : rightBig ? F.rightBig : F.rightSmall;
+          rightAt = now;
+          // it is where it was set down, not where it last drove from
+          prev.x = cur.x;
+          prev.z = cur.z;
+          prev.h = cur.h;
+          px = lastX = cur.x;
+          pz = lastZ = cur.z;
+          ph = lastH = cur.h;
+        }
         // where it is
         let heading = ph;
         if (drawn) {
@@ -376,7 +483,16 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           const oz = -opts.centre[0] * s + opts.centre[1] * c;
           tmpV.set(px - ox, y, pz - oz);
           tmpQ.setFromAxisAngle(Y, heading);
-          body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
+          // set down on its back or its side: it rights itself, with effort (two goes that fall back, then over)
+          const rt = now - rightAt;
+          if (rightFor > 0 && rt < rightFor && !R) {
+            const e = rightCurve(rt / rightFor, rightBig);
+            tmpQ2.copy(rightQ).slerp(tmpQ, e);
+            const lift = Math.sin(Math.PI * Math.min(1, e)) * 0.25 * (rightBig ? 1 : 0.3);
+            rightV.lerpVectors(rightP, tmpV, Math.min(1, e));
+            rightV.y += lift;
+            body.matrix.compose(rightV, tmpQ2, tmpV2.set(1, 1, 1));
+          } else body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
         } else if (m) {
           // in someone's hand, or falling: drawn from its body
           const P = frame.alpha >= 1 || m.prev === m.pose ? m.pose : m.prev;
@@ -398,17 +514,24 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
             }
           }
           lastPose.copy(tmpV);
+          // held: the treads hang from the body and swing as a pendulum (the body node against the chassis)
+          if (!R && dt > 0 && rv.state === 'held') {
+            const c = Math.cos(heading), s2 = Math.sin(heading);
+            const ax = (tmpV2.x * c - tmpV2.z * s2) - heldVel[0]!;
+            const az = (tmpV2.x * s2 + tmpV2.z * c) - heldVel[1]!;
+            heldVel[0]! += ax;
+            heldVel[1]! += az;
+            pitch.kick(clamp(az / dt, -40, 40) * F.heldSwing);
+            roll.kick(clamp(-ax / dt, -40, 40) * F.heldSwing);
+          }
           tmpV2.set(opts.centre[0], hy, opts.centre[1]).applyQuaternion(tmpQ);
           tmpV.sub(tmpV2);
           body.matrix.compose(tmpV, tmpQ, tmpV2.set(1, 1, 1));
+          rightQ.copy(tmpQ);
+          rightP.copy(tmpV);
           heading = 2 * Math.atan2(tmpQ.y, tmpQ.w);
         }
         body.matrixWorldNeedsUpdate = true;
-        if (drawn && !wasDrawn) {
-          // put down: it lands on its treads
-          bob.kick(F.landKick * 1.4);
-          lastVel.set(0, 0, 0);
-        }
         wasDrawn = drawn;
 
         // the treads: by the distance covered, each side its own
@@ -433,9 +556,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           const chatter = moving && !R ? F.chatter * noise1(now * 14, seed) : 0;
           pose.bob = bob.x + chatter;
         } else {
+          // held or falling: the treads hang a little away from the body and swing
           pitch.step(0, dt);
           roll.step(0, dt);
-          bob.step(0, dt);
+          bob.step(R ? 0 : F.heldDrop, dt);
           pose.bob = bob.x;
         }
         lastX = px; lastZ = pz; lastH = ph;
@@ -472,15 +596,16 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         swing.step(0, dt);
         pose.sag = clamp(sag.x, 0, 1.2);
 
-        poseRevert(obj, pose, cardSize);
+        poseRevertInto(obj, pose, cardSize, scratch);
         if (cardNode && cardPhase !== 'stowed') {
           const c = pose.card!;
-          tmpM.copy(cardMatrix(c.lift ?? 0, c.open ?? 0, c.wobble ?? 0, cardSize.w, cardSize.h)).multiply(tmpS.makeScale(cardScale.x, cardScale.y, 1));
+          cardMatrixInto(c.lift ?? 0, c.open ?? 0, c.wobble ?? 0, cardSize.w, cardSize.h, tmpM, scratch).multiply(tmpS.makeScale(cardScale.x, cardScale.y, 1));
           tmpM.decompose(cardNode.position, cardNode.quaternion, cardNode.scale);
         }
         hops.update(now, (id) => w.motion(id)?.pose);
       },
       dispose() {
+        hops.dispose();
         root.removeFromParent();
       },
     };
@@ -526,6 +651,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       let bw = goal.brow ?? 0;
       const browRoll = goal.browRoll ?? 0;
       let gx = goal.gaze?.[0] ?? 0, gy = goal.gaze?.[1] ?? 0;
+      if (rv.state === 'sinking') {
+        // going down: the lids sag shut as it goes, the eyes on the visitor to the last
+        const k = Math.min(1, rv.stateTime / 0.6);
+        l0 = l1 = 0.62 + 0.3 * k;
+        bw = 0.4;
+      }
       b.updateWorldMatrix(true, false);
       tmpV2.set(0, 0.6, 0).applyMatrix4(b.matrixWorld);
       if (eyes === 'glare' || eyes === 'flat' || eyes === 'open') {
@@ -570,16 +701,30 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         lids.x[0] = Math.max(lids.x[0]!, l0);
         lids.x[1] = Math.max(lids.x[1]!, l1);
       }
-      lids.step([l0, l1], dt);
-      slant.step([s0, s1], dt);
-      brow.step([bw, browRoll], dt);
-      gaze.step([gx, gy], dt);
-      pose.lids = [clamp01(lids.x[0]!), clamp01(lids.x[1]!)];
-      pose.slant = [slant.x[0]!, slant.x[1]!];
+      const g2 = goal2;
+      g2[0] = l0;
+      g2[1] = l1;
+      lids.step(g2, dt);
+      g2[0] = s0;
+      g2[1] = s1;
+      slant.step(g2, dt);
+      g2[0] = bw;
+      g2[1] = browRoll;
+      brow.step(g2, dt);
+      g2[0] = gx;
+      g2[1] = gy;
+      gaze.step(g2, dt);
+      const pl = pose.lids!, ps = pose.slant!, pg = pose.gaze!, pm = pose.lamps!;
+      pl[0] = clamp01(lids.x[0]!);
+      pl[1] = clamp01(lids.x[1]!);
+      ps[0] = slant.x[0]!;
+      ps[1] = slant.x[1]!;
       pose.brow = brow.x[0]!;
       pose.browRoll = brow.x[1]!;
-      pose.gaze = [gaze.x[0]!, gaze.x[1]!];
-      pose.lamps = eyes === 'one' ? [false, true] : [true, true];
+      pg[0] = gaze.x[0]!;
+      pg[1] = gaze.x[1]!;
+      pm[0] = eyes !== 'one';
+      pm[1] = true;
     }
 
     function cardFor(rv: RevertView, now: number, dt: number): void {
@@ -588,8 +733,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       const s = now - cardAt;
       switch (cardPhase) {
         case 'stowed':
-          if (want && rv.drawn && lift.x > 0.9) {
-            useCard(want);
+          if (want) startCard(want);
+          if (want && rv.drawn && lift.x > 0.9 && settleCard(want)) {
+            cardContent = want;
             cardPhase = 'up';
             cardAt = now;
             cardLift.set(0);
@@ -682,7 +828,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       broom = 0;
       pose.broom = 0;
       pose.stroke = 0;
-      arm.step(jointsOf(goal), dt);
+      arm.step(jointsInto(goal, jointsTmp), dt);
       if (typeof pose.arm !== 'object') pose.arm = { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 };
       const aj = pose.arm as ArmJoints;
       aj.yaw = arm.x[0]!;
@@ -701,30 +847,53 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
  * A label's pixels (its region of an atlas page, or a texture of its own), resampled bilinearly to
  * `w` × `h` texels, rows top-down, into `out` (RGBA): what `LabelRegion.put` takes.
  */
-function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array): void {
-  const img = tex.image as { data?: ArrayLike<number>; width: number; height: number } | undefined;
+function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array, j0 = 0, j1 = h): void {
+  const img = tex.image as { data?: Uint8Array | Uint8ClampedArray; width: number; height: number } | undefined;
   const data = img?.data;
   if (!img || !data) return;
   const W = img.width, H = img.height;
   const u0 = tex.offset.x, v0 = tex.offset.y, du = tex.repeat.x, dv = tex.repeat.y;
-  for (let j = 0; j < h; j++) {
-    // rows top-down out; the page's rows run bottom-up (v up)
-    const v = 1 - (j + 0.5) / h;
-    const fy = Math.min(H - 1, Math.max(0, (v0 + v * dv) * H - 0.5));
-    const y0 = Math.floor(fy), y1 = Math.min(H - 1, y0 + 1), ty = fy - y0;
+  // the columns' source texels and weights, once per call (the same for every row)
+  if (COLS.w !== w || COLS.tex !== tex) {
+    COLS.a = new Int32Array(w);
+    COLS.b = new Int32Array(w);
+    COLS.t = new Float32Array(w);
     for (let i = 0; i < w; i++) {
-      const u = (i + 0.5) / w;
-      const fx = Math.min(W - 1, Math.max(0, (u0 + u * du) * W - 0.5));
-      const x0 = Math.floor(fx), x1 = Math.min(W - 1, x0 + 1), tx = fx - x0;
-      const a = (y0 * W + x0) * 4, b = (y0 * W + x1) * 4, c = (y1 * W + x0) * 4, d = (y1 * W + x1) * 4;
-      const o = (j * w + i) * 4;
+      const fx = Math.min(W - 1, Math.max(0, (u0 + ((i + 0.5) / w) * du) * W - 0.5));
+      const x0 = Math.floor(fx);
+      COLS.a[i] = x0 * 4;
+      COLS.b[i] = Math.min(W - 1, x0 + 1) * 4;
+      COLS.t[i] = fx - x0;
+    }
+    COLS.w = w;
+    COLS.tex = tex;
+  }
+  const ca = COLS.a!, cb = COLS.b!, ct = COLS.t!;
+  for (let j = j0; j < j1; j++) {
+    // rows top-down out; the page's rows run bottom-up (v up)
+    const fy = Math.min(H - 1, Math.max(0, (v0 + (1 - (j + 0.5) / h) * dv) * H - 0.5));
+    const y0 = Math.floor(fy), ty = fy - y0;
+    const r0 = y0 * W * 4, r1 = Math.min(H - 1, y0 + 1) * W * 4;
+    let o = j * w * 4;
+    for (let i = 0; i < w; i++) {
+      const a = r0 + ca[i]!, b = r0 + cb[i]!, c = r1 + ca[i]!, d = r1 + cb[i]!, tx = ct[i]!;
       for (let k = 0; k < 4; k++) {
         const top = data[a + k]! + (data[b + k]! - data[a + k]!) * tx;
         const bot = data[c + k]! + (data[d + k]! - data[c + k]!) * tx;
-        out[o + k] = top + (bot - top) * ty;
+        out[o++] = top + (bot - top) * ty;
       }
     }
   }
+}
+const COLS: { w: number; tex: Texture | null; a: Int32Array | null; b: Int32Array | null; t: Float32Array | null } = { w: 0, tex: null, a: null, b: null, t: null };
+
+function jointsInto(j: ArmJoints, out: number[]): number[] {
+  out[0] = j.yaw;
+  out[1] = j.swing;
+  out[2] = j.elbow;
+  out[3] = j.wrist;
+  out[4] = j.grip;
+  return out;
 }
 
 function jointsOf(j: ArmJoints): number[] {

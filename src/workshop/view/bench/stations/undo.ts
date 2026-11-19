@@ -4,12 +4,13 @@
  */
 import { LAYOUT, origin } from '../../bench.ts';
 import { createUndoView } from '../../stations/undo.ts';
+import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'undo',
   order: ORDER.crew + 4,
   make(k) {
-    return createUndoView({ at: origin(LAYOUT.stations.undo), seed: k.seed });
+    return timed('undo', createUndoView({ at: origin(LAYOUT.stations.undo), seed: k.seed }));
   },
 };

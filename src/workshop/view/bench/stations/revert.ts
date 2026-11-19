@@ -5,6 +5,7 @@
  */
 import { LAYOUT, REVERT_SCALE, origin } from '../../bench.ts';
 import { createRevertView } from '../../stations/revert.ts';
+import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
@@ -17,6 +18,6 @@ export const station: BenchStation = {
     const [ox, oz] = origin(sp);
     // the footprint's centre from the piece's origin, at this crew scale (the layout's is at the bench's)
     const f = rk / REVERT_SCALE;
-    return createRevertView({ hatch, scale: rk, centre: [(sp.x - ox) * f, (sp.z - oz) * f], seed: k.seed });
+    return timed('revert', createRevertView({ hatch, scale: rk, centre: [(sp.x - ox) * f, (sp.z - oz) * f], seed: k.seed }));
   },
 };
