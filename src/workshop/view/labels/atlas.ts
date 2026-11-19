@@ -354,9 +354,11 @@ class PageMap {
     st.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     st.pixelStorei(gl.UNPACK_ROW_LENGTH, this.w);
     let sent = 0;
-    while (this.queue.length && sent < budget) {
+    while (this.queue.length) {
       const q = this.queue[0]!;
       const n = Math.min(q.h, Math.max(1, Math.floor(up.bandBytes / (q.w * 4))));
+      // never past the frame's budget (one band always goes, so a queue always moves)
+      if (sent > 0 && sent + n * q.w * 4 > budget) break;
       const t0 = performance.now();
       st.pixelStorei(gl.UNPACK_SKIP_PIXELS, q.x);
       st.pixelStorei(gl.UNPACK_SKIP_ROWS, q.y);
@@ -390,6 +392,10 @@ class PageMap {
   /** GPU bytes (RGBA8 + mips) of what the texture holds now. */
   bytes(): number {
     return this.rows ? textureBytes(this.w, this.rows) : 0;
+  }
+  /** GPU bytes actually allocated: a page nothing has drawn yet was never uploaded. */
+  gpuBytes(): number {
+    return this.live ? this.bytes() : 0;
   }
   /** CPU bytes kept. */
   cpuBytes(): number {
@@ -542,6 +548,9 @@ export class Page {
   cpuBytes(): number {
     return this.maps().reduce((s, m) => s + m.cpuBytes(), 0);
   }
+  gpuBytes(): number {
+    return this.maps().reduce((s, m) => s + m.gpuBytes(), 0);
+  }
   dispose(): void {
     for (const m of this.maps()) m.dispose();
   }
@@ -615,6 +624,9 @@ export class Atlas {
   }
   cpuBytes(): number {
     return this.pages.reduce((s, p) => s + p.cpuBytes(), 0);
+  }
+  gpuBytes(): number {
+    return this.pages.reduce((s, p) => s + p.gpuBytes(), 0);
   }
   /** Start-up is over: the pages made so far take no more labels. */
   seal(): void {

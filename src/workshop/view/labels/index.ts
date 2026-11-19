@@ -175,6 +175,14 @@ export interface WorkshopLabels extends Labels {
   entry(key: string): LabelEntry;
   /** A region redrawn at run time (see the header). The same name returns the same region. */
   region(name: string, size: { w: number; h: number }, opts?: RegionOptions): LabelRegion;
+  /**
+   * Make room now for a region a view will draw later (T1 round 3). A region made after
+   * `ready()` goes on a page of its own: its quads cannot merge with the start-up page's, so it
+   * costs a draw call, and that page keeps a CPU copy. Reserved before `ready()`, it sits on the
+   * start-up page; `region(name, …)` later returns it (the same size and options must be asked).
+   * Blank until drawn; costs its texels on the page whether or not it is ever drawn.
+   */
+  reserve(name: string, size: { w: number; h: number }, opts?: RegionOptions): void;
   /** Resolves when every label asked for so far has its pixels (immediately without workers). */
   ready(): Promise<void>;
   /** Send later uploads through this renderer (see LabelsOptions.renderer). */
@@ -182,7 +190,7 @@ export interface WorkshopLabels extends Labels {
   /** Band uploads so far: count, bytes, main-thread ms (total and the longest band), mip rebuilds. */
   uploads(): { bands: number; bytes: number; ms: number; maxMs: number; mips: number; mipMs: number; queued: number };
   /** Every label made so far, and the GPU memory their textures take (RGBA8 + mips; atlas pages counted whole). */
-  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number; perPage: Array<{ key: string; w: number; rows: number; labelTexels: number }> };
+  memory(): { labels: number; textures: number; bytes: number; pages: number; pageBytes: number; cpuBytes: number; perPage: Array<{ key: string; w: number; rows: number; labelTexels: number; uploaded: boolean }>; uploadedBytes: number };
   entries(): readonly LabelEntry[];
   dispose(): void;
 }
@@ -519,6 +527,9 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
       regions.set(key, region);
       return region;
     },
+    reserve(name, size, o) {
+      labels.region(name, size, o);
+    },
     attach(renderer) {
       atlas.attach(renderer);
     },
@@ -548,8 +559,9 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
         w: p.w,
         rows: p.color.rows,
         labelTexels: [...made.values()].filter((e) => e.atlas && atlas.byKey(e.atlas.page)?.page === p).reduce((n, e) => n + e.px.w * e.px.h, 0),
+        uploaded: p.gpuBytes() > 0,
       }));
-      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes, cpuBytes: atlas.cpuBytes(), perPage };
+      return { labels: made.size, textures, bytes: bytes + pageBytes, pages: atlas.pages.length, pageBytes, cpuBytes: atlas.cpuBytes(), perPage, uploadedBytes: bytes + atlas.gpuBytes() };
     },
     dispose() {
       pool?.dispose();
