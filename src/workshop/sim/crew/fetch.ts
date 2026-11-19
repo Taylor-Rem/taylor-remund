@@ -116,8 +116,8 @@ export const FETCH_TUNING = {
   stuckAfter: 2.5,
   /** R4: thrown into a machine's hands and held there this long without moving (the platen's tray, a stopped belt), it hops off on its jets. */
   leaveMachine: 2.5,
-  /** ...but set there on purpose (on the platen's tray, to be painted), it waits this long first. */
-  leaveMachineSet: 45,
+  /** ...but set there on purpose (on the platen's tray, to be painted: time to plug the cord and send a text), it waits this long first. */
+  leaveMachineSet: 20,
   stuckSpeed: 0.4,
   /** R4: come to rest with its lowest point more than this over the bench top, it is up on something: it hops down. */
   standOn: 0.08,
@@ -1546,7 +1546,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
       if (saluteDue) {
         saluteDue = false;
-        const busy = carrying !== null || state === 'knocked' || state === 'return' || state === 'fumble' || state === 'offer' || state === 'place' || state === 'reach';
+        // (R4) and never mid-flight or mid-shake: a salute out of the jetpack left it standing where the flight was
+        const busy = carrying !== null || state === 'knocked' || state === 'return' || state === 'fumble' || state === 'offer' || state === 'place' || state === 'reach' || state === 'jetpack' || state === 'shrug';
         if (!busy && ctx.playMode) {
           goal = null;
           purpose = 'lap';

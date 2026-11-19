@@ -18,6 +18,7 @@ import { benchWorld, FULL_BENCH } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Pose, Vec3 } from '../../src/workshop/sim/types.ts';
 
@@ -174,6 +175,10 @@ async function session(seed: number): Promise<string[]> {
       if (!v.at.every(Number.isFinite)) fails.push(`${label}: Patch NaN`);
       else if (v.state !== 'seated') fails.push(`${label}: Patch not back on its stool after ${SETTLE + 30} s (${v.state} at ${v.at.map((x) => x.toFixed(2)).join(', ')})`);
     }
+    // Fetch set (not flung) into a machine that holds it still (the platen's tray) waits there FETCH_TUNING.leaveMachineSet
+    // seconds to be painted before it hops off: give it that
+    for (let i = 0; i < (FETCH_TUNING.leaveMachineSet + 6) * HZ && w.motion('fetch')!.mode === 'machine' && w.part('fetch')!.location.at === 'in' && (w.part('fetch')!.location as { mouth: string }).mouth === 'platen'; i++) run(1);
+    if (w.crew('fetch')!.state === 'jetpack' || w.crew('fetch')!.state === 'shrug') run(steps(4));
     // Fetch: upright and back at work
     const f = w.motion('fetch')!;
     const fs = w.crew('fetch')!.state;
