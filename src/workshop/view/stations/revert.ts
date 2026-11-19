@@ -605,6 +605,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         hops.update(now, (id) => w.motion(id)?.pose);
       },
       dispose() {
+        hops.dispose();
         root.removeFromParent();
       },
     };

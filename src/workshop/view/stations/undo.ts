@@ -182,6 +182,7 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
         hops.update(now, (pid) => w.motion(pid)?.pose);
       },
       dispose() {
+        hops.dispose();
         root.removeFromParent();
       },
     };
