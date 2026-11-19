@@ -1,7 +1,14 @@
 /**
  * The throw: the hand's world-space velocity at the moment of release,
- * estimated from the last ~80 ms of where the hand was, not from the last
+ * estimated from where the hand was over its last moments, not from the last
  * event (one event can be 1 ms or 30 ms after the one before it).
+ *
+ * (R4) `throw()` is what the hand was doing when it threw: the strongest
+ * stretch of its last ~140 ms (short windows slid across it), measured along
+ * the way it was going at the end. A flick that eases off in its last frames
+ * still throws at the speed it had; a hand that has come to rest sets down.
+ * `velocity()` is the plain average over a window (kept for the carry's own use
+ * and for comparison).
  *
  * The hand's path is piecewise linear through the samples and holds still
  * after the last one, so a pointer that stopped before letting go throws
@@ -64,6 +71,16 @@ export class VelocityTracker {
     return set(out, this.x[first]!, this.y[first]!, this.z[first]!);
   }
 
+  /** The oldest sample's time, or null. */
+  oldest(): number | null {
+    return this.n > 0 ? this.t[this.at(0)]! : null;
+  }
+
+  /** What the hand was doing when it let go (R4): see `throwOf`. */
+  throw(now: number, o: Partial<ThrowTuning> = {}): Vec3 {
+    return throwOf(this, now, o);
+  }
+
   /**
    * Average velocity (units per second) over the `windowMs` ending at `now`
    * (ms). With less history than the window, over what there is.
@@ -79,6 +96,52 @@ export class VelocityTracker {
     const k = 1000 / span;
     return [(b[0] - a[0]) * k, (b[1] - a[1]) * k, (b[2] - a[2]) * k];
   }
+}
+
+/** Tune here (ms, units per second). */
+export const THROW_TUNING = {
+  /** How far back the throw is looked for. */
+  span: 140,
+  /** The width of each window slid across it, and its step. Wide enough that one late or doubled event cannot spike it. */
+  window: 48,
+  step: 6,
+  /** The hand's way at the end: its velocity over this last stretch. */
+  end: 40,
+  /** Slower than this over the last stretch, the hand has come to rest: a set-down, not a throw. */
+  rest: 0.6,
+  /** The throw is never more than this many times the hand's speed over the last stretch (a flick that stops dead is a set-down). */
+  overEnd: 4,
+} as const;
+
+export type ThrowTuning = { -readonly [K in keyof typeof THROW_TUNING]: number };
+
+/** A tracker's samples, for the throw estimate (pure, so recorded flicks can be replayed in tests). */
+export interface Path {
+  velocity(now: number, windowMs: number): Vec3;
+  oldest(): number | null;
+}
+
+/**
+ * What the hand was doing when it let go (R4): the strongest windowed velocity over the last `span` ms, projected
+ * on the hand's final direction (only forward motion counts), at least the final velocity itself. A hand at rest
+ * at the end throws nothing; a throw is never more than `overEnd` times the end speed (a hand that stopped dead
+ * after a flick sets the thing down, it does not throw it).
+ */
+export function throwOf(path: Path, now: number, o: Partial<ThrowTuning> = {}): Vec3 {
+  const T = { ...THROW_TUNING, ...o };
+  const end = path.velocity(now, T.end);
+  const es = Math.hypot(end[0], end[1], end[2]);
+  if (es < T.rest) return end;
+  const d: Vec3 = [end[0] / es, end[1] / es, end[2] / es];
+  const oldest = path.oldest() ?? now;
+  let best = es;
+  for (let t = now; t >= Math.max(oldest + T.window, now - T.span + T.window); t -= T.step) {
+    const v = path.velocity(t, T.window);
+    const along = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+    if (along > best) best = along;
+  }
+  const speed = Math.min(best, es * T.overEnd);
+  return [d[0] * speed, d[1] * speed, d[2] * speed];
 }
 
 const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
