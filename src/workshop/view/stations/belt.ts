@@ -47,6 +47,9 @@ export const BELT_FEEL = {
   handleOmega: 30,
   handleZeta: 0.42,
   click: 2.2,
+  /** (I1) While the hand drags a handle: the share of the way to the nearest detent it is pulled (the notches felt), and the click's share (the hand damps it). */
+  detentPull: 0.3,
+  handClick: 0.5,
 } as const;
 
 export interface BeltViewOptions {
@@ -121,13 +124,19 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
     const dialH = handle('dial.grip', o.dialId ?? 'belt-dial', 'dial');
     const leverH = handle('lever.grip', o.leverId ?? 'belt-lever', 'lever');
     const up = new Vector3();
-    /** The handle follows its setting through a spring (a detent's click: a kick past it and back) and lifts a hair on hover. */
-    const follow = (h: NonNullable<typeof dialH>, value: number, frame: Frame, live: boolean, dt: number, reduced: boolean): number => {
-      if (Number.isNaN(h.x)) h.x = h.last = value;
-      if (value !== h.last) {
-        if (!reduced) h.v += Math.sign(value - h.last) * BELT_FEEL.click;
-        h.last = value;
+    /**
+     * The handle follows its setting through a spring (a detent's click: a kick past it and back) and lifts a
+     * hair on hover. (I1) While the hand drags it (`hand`: where the hand has it, in the same units), it follows
+     * the hand instead, pulled a little toward the nearest detent so the notches are felt, and when the hand
+     * lets go it falls into the detent the world has set.
+     */
+    const follow = (h: NonNullable<typeof dialH>, setting: number, hand: number | null, frame: Frame, live: boolean, dt: number, reduced: boolean): number => {
+      if (Number.isNaN(h.x)) h.x = h.last = setting;
+      if (setting !== h.last) {
+        if (!reduced) h.v += Math.sign(setting - h.last) * BELT_FEEL.click * (hand === null ? 1 : BELT_FEEL.handClick);
+        h.last = setting;
       }
+      const value = hand === null ? setting : hand + (Math.round(hand) - hand) * BELT_FEEL.detentPull;
       let left = dt;
       const w = BELT_FEEL.handleOmega, z = reduced ? 1 : BELT_FEEL.handleZeta;
       while (left > 1e-6) {
@@ -189,8 +198,12 @@ export function createBeltView(o: BeltViewOptions): StationViewFactory {
           const lever = m.running ? (m.direction === 'forward' ? 1 : -1) : 0;
           const live = !frame.world.bracketed;
           const reduced = frame.world.reducedMotion;
-          const dial = dialH ? follow(dialH, m.speed, frame, live, dt, reduced) : m.speed;
-          const lev = leverH ? follow(leverH, lever, frame, live, dt, reduced) : lever;
+          // the hand on a handle (Frame.working, 0..1 over its travel): in detent units (1..n), lever units (-1..1)
+          const w = live ? frame.working : null;
+          const dialHand = w && dialH && w.id === dialH.id ? 1 + w.value * (m.detents - 1) : null;
+          const leverHand = w && leverH && w.id === leverH.id ? w.value * 2 - 1 : null;
+          const dial = dialH ? follow(dialH, m.speed, dialHand, frame, live, dt, reduced) : m.speed;
+          const lev = leverH ? follow(leverH, lever, leverHand, frame, live, dt, reduced) : lever;
           if (poseBelt && rollerInfo) poseBelt(obj, length, rollerInfo, { travel: phase, dial: Math.max(0.6, Math.min(m.detents + 0.4, dial)), lever: lev, lamp: lampOn(m.lamp, frame.time) });
           else for (let i = 0; i < rollers.length; i++) rollers[i]!.quaternion.copy(rest[i]!).multiply(spin.setFromAxisAngle(Z, angle));
           lifted(dialH);

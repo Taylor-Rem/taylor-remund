@@ -84,6 +84,8 @@ function fakeWorld(things = THINGS) {
       return t ? [t.x / 100, 0.2, t.y / 100] : null;
     },
     role: (id: Id): Role => things.find((k) => k.id === id)?.role ?? 'none',
+    // the lamp is an arm that aims: it is taken where it points
+    gripFor: (id: Id, _what: HeldKind, point: Vec3): Vec3 => (id === 'lamp' ? [9, 0, 9] : point),
   } satisfies GestureWorld & Record<string, unknown>;
   return w;
 }
@@ -310,7 +312,7 @@ describe('holding units, and the plug into the nearest jack', () => {
       [460, 160],
     ]);
     expect(acts(out)).toEqual([
-      { type: 'grab', id: 'lamp', grip: [3, 0.3, 1] },
+      { type: 'grab', id: 'lamp', grip: [9, 0, 9] }, // where it points (gripFor), not where the hand took it
       { type: 'release', velocity: [0, 0, 0] },
     ]);
     expect(intents(out).filter((i) => i.type === 'carry').length).toBeGreaterThanOrEqual(3);
@@ -472,6 +474,18 @@ describe('the keyboard (§ B6: Tab, Enter or Space, arrows, U, Esc)', () => {
       { type: 'unplug', cord: 'cord' },
       { type: 'plug', cord: 'cord', jack: null },
     ]);
+  });
+
+  it('Enter on the lamp takes it where it points (as the pointer does): the light does not jump', () => {
+    const { g, acts, intents } = setup();
+    for (let i = 0; i < 5; i++) g.key('Tab', i);
+    expect(g.focused).toBe('lamp');
+    g.drain();
+    g.key('Enter', 10);
+    const out = g.drain();
+    expect(acts(out)).toEqual([{ type: 'grab', id: 'lamp', grip: [9, 0, 9] }]);
+    const c = intents(out).find((i) => i.type === 'carry') as { target: Vec3 };
+    expect([c.target[0], c.target[2]]).toEqual([9, 9]);
   });
 
   it('Esc with nothing held clears the focus and backs out; U asks for undo', () => {

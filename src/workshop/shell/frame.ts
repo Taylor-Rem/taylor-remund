@@ -26,6 +26,10 @@ export interface FrameInputs {
   hovered(): Id | null;
   /** After the steps: reconcile with what the world says is held. */
   settle?(): void;
+  /** Keyboard focus, the keys' chosen destination, and a dial or lever being dragged (Frame fields of the same names). */
+  focused?(): Id | null;
+  keyDest?(): Id | null;
+  working?(): { id: Id; value: number } | null;
 }
 
 export interface DriverOptions {
@@ -44,7 +48,15 @@ export function frameTime(step: number, alpha: number): number {
   return Math.max(0, (step - 1 + alpha) / HZ);
 }
 
-export function assembleFrame(world: World, events: readonly SimEvent[], alpha: number, dt: number, pointer: Vec3 | null, hovered: Id | null): Frame {
+export function assembleFrame(
+  world: World,
+  events: readonly SimEvent[],
+  alpha: number,
+  dt: number,
+  pointer: Vec3 | null,
+  hovered: Id | null,
+  keys: { focused: Id | null; keyDest: Id | null; working: { id: Id; value: number } | null } = { focused: null, keyDest: null, working: null },
+): Frame {
   const h = world.holding();
   return {
     world,
@@ -55,6 +67,9 @@ export function assembleFrame(world: World, events: readonly SimEvent[], alpha: 
     pointer,
     hovered,
     held: h ? h.id : null,
+    focused: keys.focused,
+    keyDest: keys.keyDest,
+    working: keys.working,
   };
 }
 
@@ -95,7 +110,12 @@ export class Driver {
   render(info: Pick<RenderInfo, 'alpha' | 'dt'>): Frame {
     this.before();
     this.o.input?.settle?.();
-    const frame = assembleFrame(this.o.world, this.events, info.alpha, info.dt, this.o.input?.pointer() ?? null, this.o.input?.hovered() ?? this.o.world.hovered);
+    const i = this.o.input;
+    const frame = assembleFrame(this.o.world, this.events, info.alpha, info.dt, i?.pointer() ?? null, i?.hovered() ?? this.o.world.hovered, {
+      focused: i?.focused?.() ?? null,
+      keyDest: i?.keyDest?.() ?? null,
+      working: i?.working?.() ?? null,
+    });
     this.events = [];
     for (const v of this.o.views) v.update(frame);
     this.o.onFrame?.(frame);
