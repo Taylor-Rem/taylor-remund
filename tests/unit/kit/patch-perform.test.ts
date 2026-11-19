@@ -164,3 +164,31 @@ describe('patch-felt performances (pure functions of time)', () => {
     expect(close(PF.toPose(PF.resolvePose(NEUTRAL)), NEUTRAL)).toBe(true);
   });
 });
+
+describe('the facepalm', () => {
+  const forearmMid = (p: PatchPose, nm: 'L' | 'R'): Vector3 => new Vector3(0, -0.06, 0.03).applyMatrix4(PF.nodeMatrix(p, ['body', 'spine', `arm${nm}`, `forearm${nm}`]));
+  const muzzle = (p: PatchPose): Vector3 => new Vector3(HC[0], HC[1] - 0.06, HC[2] + 0.3).applyMatrix4(PF.nodeMatrix(p, ['body', 'spine', 'head']));
+  it('held: the sleeve lies across the muzzle, the ears are flat, the body has sunk and the tail droops', () => {
+    for (const variant of ['one', 'both'] as const) {
+      const p = PF.resolvePose(PF.facepalm(1.9, { variant }));
+      expect(forearmMid(p, 'L').distanceTo(muzzle(p))).toBeLessThan(0.16);
+      if (variant === 'both') expect(forearmMid(p, 'R').distanceTo(muzzle(p))).toBeLessThan(0.2);
+      expect(Math.min(...p.ears)).toBeGreaterThan(0.9);
+      expect(p.body.at?.[1] ?? 0).toBeLessThan(-0.03);
+      expect(p.tailLift).toBeLessThan(-0.5);
+    }
+  });
+  it('the sigh: the body rises and sinks again while it is held', () => {
+    // (no glance: the facepalm runs 0.1..2.55 s; slumped at 1.2, the sigh's top at 1.47, lower again at 1.82)
+    const ys = [1.2, 1.47, 1.82].map((t) => PF.resolvePose(PF.facepalm(t)).body.at?.[1] ?? 0);
+    expect(ys[1]!).toBeGreaterThan(ys[0]! + 0.01);
+    expect(ys[2]!).toBeLessThan(ys[1]! - 0.01);
+  });
+  it('the ears come up one at a time on the peek, and everything is back on the stool at the end', () => {
+    const peek = PF.resolvePose(PF.facepalm(2.1));
+    expect(Math.abs(peek.ears[0] - peek.ears[1])).toBeGreaterThan(0.3);
+    const end = PF.resolvePose(PF.facepalm(3));
+    expect(Math.abs(end.body.at?.[1] ?? 0)).toBeLessThan(2e-3);
+    expect(end.armScale).toEqual([1, 1]);
+  });
+});

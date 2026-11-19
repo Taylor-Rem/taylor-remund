@@ -92,3 +92,44 @@ describe('the scripts the audition page plays', () => {
     expect(span(run(5, false))).toBeLessThan(span(run(1, false)));
   });
 });
+
+describe('R1: the new beats', () => {
+  const R1 = ['chute.launch', 'fetch.chirp', 'fetch.yelp', 'patch.yelp'];
+
+  test('none is louder than a part note, and each sits in the foreground band like the rest', () => {
+    const note = SOUNDS.find((d) => d.id === 'note.wood.L')!.level;
+    for (const id of R1) {
+      const d = SOUNDS.find((s) => s.id === id)!;
+      expect(d.level, id).toBeLessThanOrEqual(note);
+      expect(d.level, id).toBeGreaterThanOrEqual(-12);
+      expect(gainToDb(peakOf(render(id, SR))), id).toBeLessThanOrEqual(-14);
+    }
+  });
+
+  test('the worst pile-up: a shipment\'s bell, three hand rings on its heels, the launch, a chirp, both yelps and the landing stay on the straight part of the ceiling', () => {
+    const at = (s: number, id: string, gain = 1) => ({ at: s, cue: { id, gain, pan: 0.3 } });
+    const T = SCORE_TUNING.handBell;
+    const m = mixdown(
+      {
+        name: 'r1 pile-up',
+        seconds: 4,
+        cues: [
+          at(0, 'dock.bell'),
+          at(0.05, 'dock.bell', T.gain),
+          at(0.1, 'dock.bell', T.gain * T.fall),
+          at(0.15, 'dock.bell', T.gain * T.fall * T.fall),
+          at(0.1, 'chute.launch'),
+          at(0.1, 'chute.flap'),
+          at(0.12, 'fetch.chirp'),
+          at(0.14, 'fetch.yelp'),
+          at(0.16, 'patch.yelp'),
+          at(1.3, 'hit.wood.L', SCORE_TUNING.padLanding.gain),
+        ],
+        loops: [{ from: 0, to: 4, loop: { id: 'loop.hum', gain: 1, rate: 1, pan: 0 } }],
+      },
+      SR,
+    );
+    console.log(`R1 pile-up: peak before the ceiling ${gainToDb(m.prePeak).toFixed(1)} dBFS, ${m.inKnee} samples in the knee`);
+    expect(m.prePeak).toBeLessThanOrEqual(KNEE);
+  });
+});
