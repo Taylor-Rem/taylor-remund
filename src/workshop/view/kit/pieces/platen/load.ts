@@ -15,7 +15,7 @@ import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
 import { crate } from '../crate/index.ts';
 
-export type Load = 'crate' | 'robot';
+export type Load = 'crate' | 'crate-s' | 'robot';
 
 /** The stand-in robot's size: the crew may be drawn up to 1.5x this phase (the lead, 2026-11-18): 1.6 tall, 1.25 wide. */
 export const ROBOT_H = 1.6;
@@ -23,8 +23,8 @@ export const ROBOT_W = 1.25;
 
 /** The parts of a load, standing on y = 0 at the seat. */
 export function loadParts(load: Load, o: { seed: number; stencil?: boolean; paint?: Token | null }): KitPart[] {
-  if (load === 'crate') {
-    const c = crate({ size: 'L', seed: o.seed + 7, stencil: o.stencil ?? false, paint: o.paint ?? null });
+  if (load === 'crate' || load === 'crate-s') {
+    const c = crate({ size: load === 'crate' ? 'L' : 'S', seed: o.seed + 7, stencil: o.stencil ?? false, paint: o.paint ?? null });
     const out: KitPart[] = [];
     const walk = (n: PieceNode, parent: Matrix4): void => {
       const w = parent.clone().multiply(n.transform ?? new Matrix4());
