@@ -394,6 +394,13 @@ export type SimEvent =
   | { readonly type: 'jack.answered'; readonly jack: Id; readonly station: Id }
   /** A part thrown at Patch got one of three answers (§ B5): it ducked, caught it (and set it on the keyshelf), or took it on the head. */
   | { readonly type: 'patch.reacted'; readonly part: Id; readonly answer: PatchAnswer }
+  /**
+   * R4: Patch thrown, for sound (and for crew that may answer it): `thrown` as it leaves the hand; `hit` when it
+   * meets something in the air (`what`: a fixed body's id, a robot's body, or a loose part it knocked; `wall`: it
+   * met a wall flat and sticks to it); `landed` on the bench; `gone` over an edge well clear; `chute` back up the
+   * chute. `speed`: units/s at that moment.
+   */
+  | { readonly type: 'patch.throw'; readonly phase: 'thrown' | 'hit' | 'landed' | 'gone' | 'chute'; readonly speed: number; readonly what?: Id; readonly wall?: boolean }
   // ── S6: attract mode ──
   /** Attract mode's lap moved on to `beat` (lap `lap`, from 1). `AttractView` has the rest. */
   | { readonly type: 'attract.beat'; readonly lap: number; readonly beat: AttractBeat };
@@ -735,7 +742,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross' | 'fly' | 'land' | 'shake' | 'away';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross' | 'fly' | 'land' | 'shake' | 'away' | 'wall';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -805,6 +812,12 @@ export interface PatchView extends MachineViewBase {
    * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
    */
   readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean } | null;
+  /**
+   * R4: met a wall flat (state `wall`): `out` the wall's outward direction where it met it (unit, horizontal;
+   * Patch faces it, spread), `stick` seconds stuck there, then it slides down it (`at`, its middle, moving down)
+   * to the bench, where it lands and sits. Null otherwise.
+   */
+  readonly wall: { readonly out: Vec3; readonly stick: number } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

@@ -36,7 +36,7 @@ import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, LAND_LENGTH, SHAKE_LENGTH,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, LAND_LENGTH, SHAKE_LENGTH,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -75,7 +75,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'cross' | 'fly' | 'land' | 'shake' | 'away' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'cross' | 'fly' | 'land' | 'shake' | 'away' | 'wall' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
 
 /** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
 const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
@@ -394,8 +394,10 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               blendDur = F.blendReact;
               break;
             case 'land':
-              landSpin = flySpin;
-              landYaw = flyYaw;
+              if (prev !== 'wall') {
+                landSpin = flySpin;
+                landYaw = flyYaw;
+              }
               enter('land', t, true);
               blendFrom = null;
               break;
@@ -406,6 +408,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             case 'away':
               enter('away', t, true);
               blendFrom = null;
+              break;
+            case 'wall':
+              enter('wall', t, true);
+              blendDur = F.blendReact;
+              if (v.wall) landYaw = Math.atan2(v.wall.out[0], v.wall.out[2]) - SIDE_ON;
+              landSpin = 0;
               break;
             case 'ledge':
             case 'haul':
@@ -566,6 +574,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           case 'away':
             pose = last;
+            break;
+          case 'wall':
+            pose = splat(reduced ? 1 : v.stateTime, seatSpace(v.at), landYaw, v.wall?.stick ?? 0.25);
             break;
           case 'ledge':
             pose = ledgeO && (st === 'ledge' || st === 'haul' || st === 'dust') ? overTheEdge(st, sT, ledgeO) : last;
