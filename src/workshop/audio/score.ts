@@ -116,6 +116,8 @@ export class Score {
     this.cues = [];
     this.find(world);
     const now = world.time;
+    // (R1) a crate set on the pad this frame: its physics contacts are quiet whatever their order in the step
+    for (const e of events) if (e.type === 'restocked' && e.on === 'pad') this.quietUntil.set(e.part, now + SCORE_TUNING.padLanding.quiet);
     for (const e of events) this.event(world, e, now);
     this.states(world, now);
     this.track(world);

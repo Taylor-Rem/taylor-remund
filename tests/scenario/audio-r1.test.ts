@@ -68,6 +68,33 @@ describe('R1 sounds', () => {
     w.dispose();
   }, 120_000);
 
+  test('the landing knock is heard once even when the physics contact comes first in the same step', async () => {
+    const w = await benchWorld('audio-r1-order');
+    const score = new Score();
+    const { t } = heardTape(w, score);
+    t.run(30);
+    putOn(w, t, 'crate-3', onBelt(0.3));
+    const launched = t.until((e) => e.type === 'restock.launched', steps(25));
+    const part = (launched!.e as Extract<SimEvent, { type: 'restock.launched' }>).part;
+    // fly the crate by hand, step by step, up to the step it lands; the score hears each step (it knows the crate's speed)
+    for (let i = 0; i < steps(3); i++) {
+      w.advance();
+      const ev = w.drainEvents();
+      const landed = ev.find((e) => e.type === 'restocked' && e.part === part);
+      if (!landed) {
+        score.hear(w, ev);
+        continue;
+      }
+      // the same step, the contact put first: one knock, the landing's, at the landing's gain
+      const cues = score.hear(w, [{ type: 'part.hit', id: part, other: null, strength: 0.5 }, ...ev.filter((e) => e.type !== 'part.hit')]).cues.filter((c) => c.id.startsWith('hit.'));
+      expect(cues.length).toBe(1);
+      expect(cues[0]!.gain).toBeCloseTo(0.6, 6);
+      w.dispose();
+      return;
+    }
+    throw new Error('never landed');
+  }, 120_000);
+
   test('a Button press startles Fetch: one chirp at the press; none with reduced motion', async () => {
     for (const reduced of [false, true]) {
       const w = await benchWorld('audio-r1-button');
