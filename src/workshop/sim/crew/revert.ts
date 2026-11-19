@@ -88,6 +88,8 @@ export const REVERT_TUNING = {
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
   righting: 0.6,
+  /** Set down off its hatch by the visitor: let alone this long, it heads home. */
+  alone: 3,
   /** Something in its way: it waits this long, then gives up the trip. */
   blockedFor: 3,
   /** A misfire: a jolt, a glare. */
@@ -196,6 +198,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let sweeping: { part: Id; stir: number; brushed: boolean } | null = null;
   /** Out on a job (a sweep, the cover) and owed the trip home afterwards. */
   let away = false;
+  /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
+  let homeShutAt = -Infinity;
   /** Its body is out of the world because it is down in its hatch (not because the dock shipped it). */
   let stowed = false;
   let resetting = false;
@@ -291,10 +295,15 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     return null;
   }
 
-  const nearestOnPath = (px: number, pz: number): number => {
+  /**
+   * The waypoint nearest (px, pz). The hatch (the track's first point) is only ever a destination: for any
+   * trip but the one home it is skipped, so a trip elsewhere never heads for its hatch first (it may be covered).
+   */
+  const nearestOnPath = (px: number, pz: number, home = true): number => {
     let best = 0;
     let bd = Infinity;
     spec.path.forEach(([wx, wz], i) => {
+      if (i === 0 && !home && spec.path.length > 1) return;
       const d = Math.hypot(wx - px, wz - pz);
       if (d < bd) [best, bd] = [i, d];
     });
@@ -306,10 +315,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const pts: (readonly [number, number])[] = [];
     const leave = via[0] ?? [to.x, to.z];
     if (spec.path.length > 0) {
-      const ci = nearestOnPath(x, z);
-      const ti = nearestOnPath(leave[0], leave[1]);
+      const ci = nearestOnPath(x, z, purpose === 'home');
+      const ti = nearestOnPath(leave[0], leave[1], purpose === 'home');
       const c = spec.path[ci] as readonly [number, number];
-      if (ci !== ti && Math.hypot(c[0] - x, c[1] - z) > 0.05) pts.push(c);
+      // onto the track first (unless it is there, or the track's point is where it is going anyway)
+      if (Math.hypot(c[0] - x, c[1] - z) > 0.05 && Math.hypot(c[0] - leave[0], c[1] - leave[1]) > 0.05) pts.push(c);
       const dir = Math.sign(ti - ci);
       for (let i = ci + dir; dir !== 0 && i !== ti; i += dir) pts.push(spec.path[i] as readonly [number, number]);
       // the waypoint it leaves the track from, when the place is off it (a spur, a stand by a part)
@@ -325,6 +335,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   const near = (s: RevertSpot, d = 0.08): boolean => Math.hypot(x - s.x, z - s.z) < d;
   /** Standing on its hatch (on the bench top, over the doors). */
   const onHatch = (): boolean => Math.hypot(x - spec.home.x, z - spec.home.z) < Math.max(hx, hz) && ground < 0.05;
+  /** Standing squarely on its hatch, where the lift is: the only place it goes down from. */
+  const atHome = (): boolean => near(spec.home, 0.08) && ground < 0.05;
 
   // ── where it stands to sweep (S7) ──
   /** The fixed things it could run into, as boxes on the bench top (x, z, half x, half z, yaw); flat things are left out. */
@@ -405,7 +417,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const qx = sx - Math.sin(h) * APPROACH;
       const qz = sz - Math.cos(h) * APPROACH;
       if (!room(sx, sz, h) || !room(qx, qz, h)) continue;
-      const w = spec.path.length > 0 ? (spec.path[nearestOnPath(qx, qz)] as readonly [number, number]) : ([x, z] as const);
+      const w = spec.path.length > 0 ? (spec.path[nearestOnPath(qx, qz, false)] as readonly [number, number]) : ([x, z] as const);
       if (!clearRun(w[0], w[1], qx, qz) || !clearTurn(qx, qz, Math.atan2(qx - w[0], qz - w[1]), h)) continue;
       return { at: { x: sx, z: sz, heading: h }, via: [[qx, qz]] };
     }
@@ -459,6 +471,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       r.blocked += 1;
       if (r.blocked >= steps(T.blockedFor)) {
         route = null;
+        if (r.purpose === 'home') homeShutAt = ctx.clock.step; // its way home is shut: it parks instead
         enter('idle');
       }
       return false;
@@ -590,14 +603,24 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       }
       if (clutter() !== null) nextAway = now + steps(spec.awayGap); // strays it cannot get at: it looks again later
     }
-    // a job done away from its hatch: back home (and then down)
-    if (state === 'idle' && away && ground < 0.05 && now - entered >= steps(T.righting)) {
+    // away from its hatch: after a job, at once; set down by the visitor, once it has been let alone a few
+    // seconds. Back home by its track (and then down). With its way home shut, it parks in the window's
+    // light instead, and tries the way home again after a while.
+    const shut = now - homeShutAt < steps(T.stuckRetry);
+    if (state === 'idle' && !atHome() && ground < 0.05 && now - entered >= steps(away ? T.righting : T.alone)) {
+      if (!shut) goTo(spec.home, 'home');
+      else if (!near(spec.park)) goTo(spec.park, 'park');
+      else enter('park');
+      return;
+    }
+    if (state === 'park' && !shut && homeShutAt > -Infinity && now - entered >= steps(T.stuckRetry)) {
+      homeShutAt = -Infinity;
       goTo(spec.home, 'home');
       return;
     }
     // home on its hatch with nothing to do: a deadpan pause, then down it goes
     const pause = steps(T.homePause);
-    if (state === 'idle' && onHatch() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
+    if (state === 'idle' && atHome() && !card && now - entered >= pause && now - cardDown >= pause && now >= crankUntil) {
       enter('sinking');
       return;
     }
@@ -638,7 +661,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     else if (r.purpose === 'sweep' && sweeping) enter('sweep');
     else if (r.purpose === 'park') enter('park');
     else {
-      if (r.purpose === 'home') away = false;
+      if (r.purpose === 'home') {
+        away = false;
+        homeShutAt = -Infinity;
+      }
       enter('idle');
     }
   }
@@ -846,6 +872,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       nextAway = -Infinity;
       glareUntil = -1;
       away = false;
+      homeShutAt = -Infinity;
       beat.reset();
       enter(spec.start === 'up' ? 'idle' : 'below');
       resetting = true;
