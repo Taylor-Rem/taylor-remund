@@ -323,12 +323,46 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       if (copying?.content === content || (regionHolds === content && !copying)) return;
       copying = { content, key: cardKey(content), row: 0 };
     };
+    /**
+     * R1: every card's pixels, resampled to the region, kept from start-up. The label pages are sealed after
+     * start-up and let their CPU copies go once uploaded, so a card first wanted later (or, with the label
+     * workers, one copied before its label had landed) came up black. All are copied once, the moment the
+     * start-up labels have landed (`labels.ready()`, before the first frame uploads and seals the pages);
+     * until then nothing is copied, and a card waits in its slot rather than go up blank.
+     */
+    const cardPixels = new Map<string, Uint8Array>();
+    const cachePending = [...REVERT_CARDS];
+    const cacheCard = (content: string): boolean => {
+      if (cardPixels.has(content)) return true;
+      let tex: Texture;
+      try {
+        tex = ctx.labels.texture(cardKey(content));
+      } catch {
+        return false;
+      }
+      const img = tex.image as { data?: Uint8Array | Uint8ClampedArray | null } | undefined;
+      if (!img?.data) return false;
+      const buf = new Uint8Array(region.px.w * region.px.h * 4);
+      copyLabel(tex, region.px.w, region.px.h, buf, 0, region.px.h);
+      cardPixels.set(content, buf);
+      return true;
+    };
+    let labelsLanded = false;
+    void ctx.labels.ready().then(() => {
+      labelsLanded = true;
+      for (let i = cachePending.length - 1; i >= 0; i--) if (cacheCard(cachePending[i]!)) cachePending.splice(i, 1);
+    });
     /** One band (no more than `copyRows` rows a frame, whatever else is asked). */
     const copyBand = (): void => {
+      if (!labelsLanded) return;
+      // a card painted after start-up (none today): kept the first frame it is asked for
+      if (cachePending.length > 0 && cacheCard(cachePending[0]!)) cachePending.shift();
       const c = copying;
       if (!c || c.row >= region.px.h) return;
       const j1 = Math.min(region.px.h, c.row + F.copyRows);
-      copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
+      const kept = cardPixels.get(c.content);
+      if (kept) regionPx.set(kept.subarray(c.row * region.px.w * 4, j1 * region.px.w * 4), c.row * region.px.w * 4);
+      else copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
       c.row = j1;
     };
     /** Once copied and with the card in its slot: into the region. True when the region holds `content`. */
