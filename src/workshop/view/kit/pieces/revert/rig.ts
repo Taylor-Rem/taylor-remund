@@ -155,7 +155,7 @@ export interface RevertPose {
  * its inner edge's centre on its floor, its askew yaw and tilt when stowed, and the lip it keeps round a crate
  * when opened out. The simulation holds a carried crate centred `x + lip + edge / 2` out, its floor at `y`.
  */
-export const PAN = { W: 0.3, D: 0.22, H: 0.1, cx: HULL.w / 2 + 0.11, x: HULL.w / 2 + 0.11 - 0.15, y: 0.43, z: -0.04, zOpen: -0.064, yaw: -0.12, tilt: 0.12, lip: 0.06, rim: 2.2 } as const;
+export const PAN = { W: 0.3, D: 0.22, H: 0.1, cx: HULL.w / 2 + 0.11, x: HULL.w / 2 + 0.11 - 0.15, y: 0.43, z: -0.04, zOpen: -0.064, yaw: -0.12, tilt: 0.12, lip: 0.06, rim: 3.4 } as const;
 /** The pan's transform (body space) for an opening, a crate size and a tip. */
 export function panMatrixInto(open: number, fit: number, tip: number, out: Matrix4, s: { t0: Matrix4; v0: Vector3; q0: Quaternion }): Matrix4 {
   const k = smooth(0, 1, clamp(open, 0, 1));

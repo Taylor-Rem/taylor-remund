@@ -103,10 +103,10 @@ export const REVERT_TUNING = {
    * R3: carrying a crate in its pan home to drop it down the hatch: the pan opens out round it from its inner edge
    * on the bracket, so the crate's inner face is this far out from Revert's centre line, its bottom this high on
    * the pan's floor (the view's `PAN` at Revert's drawn scale, 1.2: inner edge 0.56 plus a 0.06 lip, from a
-   * footprint centred 0.015 off the piece's origin; floor 0.43 plus the sheet).
+   * footprint centred 0.015 off the piece's origin; floor 0.43 plus the sheet, 0.034 opened out).
    */
   pan: 0.762,
-  panHeight: 0.542,
+  panHeight: 0.557,
   /** R3: out to heal a dry bench, it first takes in the scene this long (the empty belt, Fetch waiting, the crate, the visitor). */
   survey: 2.4,
   /** At the Button, screwing the cover on. */

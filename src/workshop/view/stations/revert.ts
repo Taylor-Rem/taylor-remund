@@ -87,7 +87,7 @@ export const REVERT_FEEL = {
    * the empty belt, Fetch waiting, the crate, the visitor (a weary nod). The simulation stands it still for
    * `REVERT_TUNING.survey` (2.4 s): four looks.
    */
-  heal: { look: 0.6, nod: 0.7 },
+  heal: { look: 0.6, nod: 0.7, turn: 0.75 },
   /** R3: the pan: how fast it opens out round a crate and folds back; the tip at the hatch (up, held, back; radians). */
   panOmega: 9,
   panDamping: 0.75,
@@ -96,7 +96,7 @@ export const REVERT_FEEL = {
   dropAfter: 0.2,
   panDropTime: 0.55,
   /** R3: the visitor took the crate out of its pan: a look at the empty pan, then at the visitor (seconds). */
-  emptyPan: { pan: 1.1, visitor: 1.6, open: 1.3 },
+  emptyPan: { pan: 1.1, visitor: 1.6, open: 1.3, turn: 0.5, dip: 1.6 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
   /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
@@ -277,6 +277,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     let tipAt = -Infinity;
     let healFrom = -Infinity;
     let healStep = -1;
+    // R3: its whole body turns on its treads toward what it looks at (the survey, the empty pan): eyes alone do not
+    // read at the size it is drawn; the simulation's heading is untouched (a turn in place, back to it after)
+    const turn = reg(new Spring(0, { omega: 5, zeta: z(0.85) }), 0.85);
+    let turnGoal = 0;
+    let emptyKicked = false;
     // the card
     let cardPhase: CardPhase = 'stowed';
     let cardAt = 0;
@@ -544,6 +549,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         // where it is
         let heading = ph;
         if (drawn) {
+          if (R) turn.set(0);
+          else turn.step(turnGoal, dt);
+          heading = ph + turn.x;
           let y = top + liftHeight(Math.min(1.03, lift.x)) * S;
           if (rv.lift >= 1 && m && m.mode === 'crew' && !w.bracketed && lift.x >= 0.999) y = m.pose.p[1] - hy;
           // the piece's origin from its body's centre
@@ -784,6 +792,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         healFrom = now;
         healStep = -1;
       } else if (!rv.surveying) healFrom = -Infinity;
+      turnGoal = 0;
       const H = F.heal;
       if (rv.surveying && worldNow && healFrom > -Infinity) {
         const k = Math.min(3, Math.floor((now - healFrom) / H.look));
@@ -791,8 +800,10 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         if (k === 0) target = worldNow.scene.mouths?.find((mo) => mo.id === 'belt')?.drop ?? null;
         else if (k === 1) target = worldNow.motion('fetch')?.pose.p ?? null;
         else if (k === 2 && rv.bound) target = worldNow.motion(rv.bound)?.pose.p ?? null;
-        if (target) gazeAt(look, heading, tmpV2, tmpV.set(target[0]!, target[1]!, target[2]!));
-        else gazeAtCamera(look, heading, tmpV2);
+        if (target) {
+          gazeAt(look, heading, tmpV2, tmpV.set(target[0]!, target[1]!, target[2]!));
+          turnGoal = clamp(Math.atan2(Math.sin(Math.atan2(target[0]! - tmpV2.x, target[2]! - tmpV2.z) - (heading - turn.x)), Math.cos(Math.atan2(target[0]! - tmpV2.x, target[2]! - tmpV2.z) - (heading - turn.x))), -H.turn, H.turn);
+        } else gazeAtCamera(look, heading, tmpV2);
         gx = look[0];
         gy = look[1];
         // the belt: flat; Fetch: the brow up a little; the crate: narrowed; the visitor: heavy-lidded, low brow, a nod
@@ -818,8 +829,13 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       }
       // R3: the visitor took the crate out of its pan: a look down at the empty pan, then at the visitor
       const EP = F.emptyPan;
+      if (rv.emptyPan > EP.pan + EP.visitor) emptyKicked = false;
       if (rv.drawn && rv.emptyPan < EP.pan + EP.visitor) {
         if (rv.emptyPan < EP.pan) {
+          // a turn toward its pan and a dip: it looks down into it
+          turnGoal = EP.turn;
+          if (!emptyKicked && !R) pitch.kick(EP.dip);
+          emptyKicked = true;
           gazeAt(look, heading, tmpV2, panMiddle(tmpV, panFit, 0).applyMatrix4(obj.matrixWorld));
           l0 = l1 = 0.38;
           bw = -0.5;
