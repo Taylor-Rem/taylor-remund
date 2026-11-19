@@ -31,6 +31,8 @@ export interface InputSink {
   focus?(id: Id | null): void;
   back(): void;
   undo(): void;
+  /** The CSS cursor for one of input's cursors (the bench's glove), or null for the system's. */
+  cursor?(c: Cursor): string | null;
 }
 
 export interface DomInput {
@@ -38,6 +40,8 @@ export interface DomInput {
   readonly pointer: { x: number; y: number; kind: PointerKind } | null;
   /** Once per frame before the steps: re-reads hover, re-aims the carried thing. */
   tick(t: number): void;
+  /** Set the canvas's cursor again (the glove's pictures have arrived, or the visitor's preferences changed). */
+  refreshCursor(): void;
   dispose(): void;
 }
 
@@ -55,6 +59,10 @@ function stageKeyTarget(target: EventTarget | null, canvas: HTMLElement): boolea
 
 export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: InputSink): DomInput {
   let pointer: { x: number; y: number; kind: PointerKind } | null = null;
+  let current: Cursor = 'default';
+  const applyCursor = (): void => {
+    canvas.style.cursor = sink.cursor?.(current) ?? CSS_CURSOR[current];
+  };
   canvas.style.touchAction = 'none';
   canvas.style.userSelect = 'none';
   (canvas.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = 'none';
@@ -101,7 +109,8 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
         sink.undo();
         return;
       case 'cursor':
-        canvas.style.cursor = CSS_CURSOR[c.cursor];
+        current = c.cursor;
+        applyCursor();
         return;
     }
   };
@@ -239,6 +248,7 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       gestures.tick(t);
       flush();
     },
+    refreshCursor: applyCursor,
     dispose() {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);

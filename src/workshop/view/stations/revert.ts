@@ -76,6 +76,12 @@ export const REVERT_FEEL = {
   blinkOpen: 0.13,
   /** The glare after a press: waits, comes on slowly, holds, goes (≤ 1.5 s in all, § B5). */
   glare: { wait: 0.25, on: 0.55, hold: 0.4, off: 0.3 },
+  /**
+   * R1: while a rung plays, after the glare, it surveys the damage: its eyes go to what the rung moved (the
+   * shoved or fallen crates), to the Button, and back to the visitor with a weary little nod, round and
+   * round (`look` seconds each), so the quiet seconds of a rung are never a still picture.
+   */
+  survey: { start: 1.5, look: 0.85, nod: 0.9 },
   /** The card: the stick's rise, the flip open, and the fold down. */
   cardOmega: 11,
   /** A new card's label is copied into Revert's card a band of this many texel rows a frame (no hitch). */
@@ -243,6 +249,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     const blinks = new Cadence(F.blink[0], F.blink[1], seed + 11);
     let blinkAt = -Infinity;
     let glareAt = -Infinity;
+    /** R1: what the rung in hand moved (crate ids), to look at while it plays; the Button's cap. */
+    let rungParts: string[] = [];
+    let surveyFrom = -Infinity;
+    let surveyStep = -1;
+    let worldNow: { bracketed: boolean; motion(id: string): { pose: Pose } | undefined; scene: { button: { at: readonly number[] } } } | null = null;
     // the card
     let cardPhase: CardPhase = 'stowed';
     let cardAt = 0;
@@ -323,12 +334,46 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       if (copying?.content === content || (regionHolds === content && !copying)) return;
       copying = { content, key: cardKey(content), row: 0 };
     };
+    /**
+     * R1: every card's pixels, resampled to the region, kept from start-up. The label pages are sealed after
+     * start-up and let their CPU copies go once uploaded, so a card first wanted later (or, with the label
+     * workers, one copied before its label had landed) came up black. All are copied once, the moment the
+     * start-up labels have landed (`labels.ready()`, before the first frame uploads and seals the pages);
+     * until then nothing is copied, and a card waits in its slot rather than go up blank.
+     */
+    const cardPixels = new Map<string, Uint8Array>();
+    const cachePending = [...REVERT_CARDS];
+    const cacheCard = (content: string): boolean => {
+      if (cardPixels.has(content)) return true;
+      let tex: Texture;
+      try {
+        tex = ctx.labels.texture(cardKey(content));
+      } catch {
+        return false;
+      }
+      const img = tex.image as { data?: Uint8Array | Uint8ClampedArray | null } | undefined;
+      if (!img?.data) return false;
+      const buf = new Uint8Array(region.px.w * region.px.h * 4);
+      copyLabel(tex, region.px.w, region.px.h, buf, 0, region.px.h);
+      cardPixels.set(content, buf);
+      return true;
+    };
+    let labelsLanded = false;
+    void ctx.labels.ready().then(() => {
+      labelsLanded = true;
+      for (let i = cachePending.length - 1; i >= 0; i--) if (cacheCard(cachePending[i]!)) cachePending.splice(i, 1);
+    });
     /** One band (no more than `copyRows` rows a frame, whatever else is asked). */
     const copyBand = (): void => {
+      if (!labelsLanded) return;
+      // a card painted after start-up (none today): kept the first frame it is asked for
+      if (cachePending.length > 0 && cacheCard(cachePending[0]!)) cachePending.shift();
       const c = copying;
       if (!c || c.row >= region.px.h) return;
       const j1 = Math.min(region.px.h, c.row + F.copyRows);
-      copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
+      const kept = cardPixels.get(c.content);
+      if (kept) regionPx.set(kept.subarray(c.row * region.px.w * 4, j1 * region.px.w * 4), c.row * region.px.w * 4);
+      else copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
       c.row = j1;
     };
     /** Once copied and with the card in its slot: into the region. True when the region holds `content`. */
@@ -369,6 +414,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       state,
       update(frame: Frame) {
         const w = frame.world;
+        worldNow = w;
         if (!placed) place(w);
         const rv = w.machine(unitId);
         if (!rv || rv.kind !== 'revert') return;
@@ -613,6 +659,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     function onEvent(e: SimEvent, rv: RevertView, now: number): void {
       if (e.type === 'card' && e.by === bodyId) cardWant = e.content;
       else if (e.type === 'button.pressed' && rv.state !== 'below' && rv.state !== 'rising' && !R) glareAt = now;
+      if (e.type === 'button.pressed') {
+        rungParts = [];
+        surveyFrom = now;
+        surveyStep = -1;
+      } else if (e.type === 'rung.beat' && (e.beat === 'shove' || e.beat === 'stack')) rungParts = [...e.ids];
       else if (e.type === 'misfire' && e.id === unitId && !R) {
         bob.kick(-0.5);
         pitch.kick(1.2);
@@ -690,6 +741,37 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         bw = lerp(bw, 1, k);
         gx = lerp(gx, look[0], k);
         gy = lerp(gy, look[1], k);
+      }
+      // R1: a rung playing, the glare over: it surveys the damage, then the Button, then the visitor (a nod)
+      const S = F.survey;
+      const st = now - surveyFrom - S.start;
+      if (!R && worldNow?.bracketed && st >= 0 && (eyes === 'flat' || eyes === 'open') && !rv.cranking && rv.drawn) {
+        const k = Math.floor(st / S.look);
+        const what = k % 3;
+        if (what === 0 && rungParts.length > 0) {
+          const m = worldNow.motion(rungParts[Math.floor(k / 3) % rungParts.length]!);
+          if (m) {
+            gazeAt(look, heading, tmpV2, tmpV.set(m.pose.p[0], m.pose.p[1], m.pose.p[2]));
+            gx = look[0];
+            gy = look[1];
+            l0 = l1 = 0.5;
+          }
+        } else if (what === 1 || (what === 0 && rungParts.length === 0)) {
+          const at = worldNow.scene.button.at;
+          gazeAt(look, heading, tmpV2, tmpV.set(at[0]!, at[1]!, at[2]!));
+          gx = look[0];
+          gy = look[1];
+        } else {
+          gazeAtCamera(look, heading, tmpV2);
+          gx = look[0];
+          gy = look[1];
+          l0 = l1 = 0.66;
+          bw = 0.6;
+          if (k !== surveyStep) {
+            surveyStep = k;
+            pitch.kick(S.nod); // a weary little nod at the visitor
+          }
+        }
       }
       // a slow blink now and then (awake only)
       if (!R && (eyes === 'flat' || eyes === 'open') && blinks.due(now)) blinkAt = now;

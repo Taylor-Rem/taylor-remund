@@ -27,7 +27,8 @@ import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts'
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
 import { blendPose, handsUp as handsUpBeat, held as heldBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { ReachMotion, gripOf, type V3 } from '../kit/pieces/fetch-porter/reach.ts';
-import { fetchStand } from '../../sim/index.ts';
+import { frightened } from '../kit/pieces/fetch-porter/fright.ts';
+import { FETCH_TUNING, fetchStand } from '../../sim/index.ts';
 import type { SceneDesc } from '../../sim/index.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
@@ -112,6 +113,12 @@ export interface FetchInput {
   nearHeld: Vec3 | null;
   /** Things worth a glance when nothing else is going on. */
   sights: readonly Vec3[];
+  /** Where it would put a crate on the belt (the feed's drop), for a glance at it while it offers. */
+  feed?: Vec3 | null;
+  /** A Button rung under way (it is `frozen` for the whole of it): the phase and its clock, the rewind's length, which rung and press. */
+  rung?: { phase: 'playing' | 'rewinding'; t: number; rewind: number; rung: number; presses: number } | null;
+  /** Where Revert is (its card comes up at the end of a rung: the eye goes there). */
+  revertAt?: Vec3 | null;
   /**
    * Where its grip should be (world): the simulation's `CrewMember.hands` when it has it, or the view's own
    * stand-in until then (the crate it sets down, the crate it goes for, the phone it taps). Null: no reach.
@@ -457,8 +464,10 @@ export class FetchPerformer {
           turnOk = true;
           blinkOk = st > 0.3 && st < 0.6;
         } else {
-          // then up and out at the visitor: eye first, turret, body, and the hands a beat later
+          // then up and out at the visitor, embarrassed: eye first, turret, body, and the hands a beat later.
+          // The whole offer lasts the simulation's `ignoredFor` (5 s): every beat below ends inside it.
           const u = st - OFFER_LOOK;
+          const span = Math.max(1, FETCH_TUNING.ignoredFor - OFFER_LOOK);
           look = visitor;
           const hands = smoothstep(0.22, 0.45, u);
           arms = mixArms(PRESETS.rest, PRESETS.offer, hands);
@@ -466,10 +475,24 @@ export class FetchPerformer {
           lids = [0.06, lerp(0.15, 0.55, smoothstep(0.3, 0.8, u))];
           brow = -0.15 - 0.25 * smoothstep(0, 0.25, u) * (1 - smoothstep(0.6, 1.2, u));
           pupil = 1.25;
-          // a cock of the head on the ask, and once more ("well?") a little later, then still
-          roll = 0.22 - 0.3 * smoothstep(3.2, 3.5, u) * (1 - smoothstep(4.3, 4.7, u));
+          roll = 0.22;
           squash = -0.22;
           fore = 0.08;
+          // never a statue: once the look has settled, a sheepish shift on its wheel (two small rocks), then a
+          // glance at the belt and back to the visitor; again every few seconds if the offer runs longer
+          const p = (u - 1.3) % 2.8;
+          if (u > 1.3) {
+            const rock = p < 0.8 ? Math.sin((p / 0.8) * Math.PI * 2) * (1 - p / 0.8) : 0;
+            sideLean = 0.08 * rock;
+            roll = 0.22 - 0.12 * rock;
+            squash += 0.06 * Math.abs(rock);
+            const glance = smoothstep(1.0, 1.15, p) * (1 - smoothstep(1.55, 1.75, p));
+            if (glance > 0 && i.feed) look = new Vector3(...i.feed).lerp(visitor, 1 - glance);
+            lids = [lids[0] + 0.1 * glance, lids[1]];
+          }
+          // a last cock of the head ("well?") that is over a beat before the offer ends
+          const cockAt = Math.min(3.1, span - 0.9);
+          if (cockAt > 1.2) roll -= 0.3 * smoothstep(cockAt, cockAt + 0.3, u) * (1 - smoothstep(cockAt + 0.5, cockAt + 0.8, u));
           turnOk = true;
           present = u > 0.08;
           blinkOk = u > 1.6;
@@ -478,6 +501,29 @@ export class FetchPerformer {
           if (handsUpNow && gazeAt) {
             look = gazeAt;
             pointerOk = false;
+          }
+          // the pointer onto or beside the dropped crate: hopeful, up on its spring, claws higher, a little bounce;
+          // when it goes again, a small sag
+          const near = pointer && lookAt ? Math.hypot(pointer.x - lookAt.x, pointer.z - lookAt.z) < 0.85 : false;
+          if (near && !this.offerNear) this.offerNearAt = i.time;
+          if (!near && this.offerNear) this.offerLeftAt = i.time;
+          this.offerNear = near;
+          const hope = this.hope.step(near ? 1 : 0, dt);
+          if (hope > 0.01) {
+            squash -= 0.34 * hope + (rm ? 0 : 0.14 * hope * Math.abs(Math.sin((i.time - this.offerNearAt) * Math.PI * 2.4)));
+            brow = Math.min(brow, -0.65 * hope);
+            pupil = lerp(pupil, 1.35, hope);
+            lids = [lids[0] * (1 - hope), lerp(lids[1], 0.35, hope)];
+            arms = mixArms(arms, { left: add(PRESETS.offer.left, { swing: 0.6, abduct: 0.1 }), right: add(PRESETS.offer.right, { swing: 0.6, abduct: 0.1 }) }, hope);
+            sideLean *= 1 - hope;
+            if (pointer) look = lookAt ? lookAt.clone().lerp(pointer, 0.4) : pointer;
+          }
+          const sag = !near ? smoothstep(0, 0.15, i.time - this.offerLeftAt) * (1 - smoothstep(0.6, 1.1, i.time - this.offerLeftAt)) : 0;
+          if (sag > 0) {
+            squash += 0.14 * sag;
+            lids = [lids[0] + 0.25 * sag, lids[1]];
+            brow += 0.35 * sag;
+            fore -= 0.05 * sag;
           }
         }
         break;
@@ -625,8 +671,14 @@ export class FetchPerformer {
     }
 
     // ── the freeze: a held breath; only the eye slides to the Button ──
+    const fr = frozen && i.rung ? frightened({ ...i.rung, reducedMotion: rm }) : null;
     if (frozen) {
       look = i.button ? new Vector3(...i.button) : this.lastLook ?? look;
+      if (fr && fr.toVisitor > 0) {
+        // late in the rewind: out at the visitor ("was that you?"), then at Revert, whose card is coming up
+        look = look.clone().lerp(visitor, fr.toVisitor);
+        if (i.revertAt && fr.weight < 0.1) look = new Vector3(...i.revertAt);
+      }
       pointerOk = false;
       blinkOk = false;
     }
@@ -826,6 +878,11 @@ export class FetchPerformer {
       }
     }
     if (beat && bw > 0) pose = blendPose(pose, beat, bw);
+    // a Button rung frightens it (frozen: the simulation holds its body; this is the view's own show)
+    if (fr && fr.weight > 1e-3) {
+      const hp = pose.headPitch ?? 0, hy = pose.headYaw ?? 0, gz = pose.gaze ?? [0, 0];
+      pose = blendPose(pose, { ...pose, ...fr.pose, headPitch: hp + (fr.pose.headPitch ?? 0), headYaw: hy, gaze: gz, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, fr.weight);
+    }
     // set down: the spring takes it, it steadies (from the moment it is back on its wheel)
     const sinceDown = i.time - this.downAt;
     if (grounded && sinceDown >= 0 && sinceDown < LENGTHS.setDown && !rm) {
@@ -842,7 +899,8 @@ export class FetchPerformer {
         hv.y += ((this.lastY === null ? 0 : (P.y - this.lastY) * inv) - hv.y) * k;
         hv.z += (moved.z * inv - hv.z) * k;
         const [lx, lz] = own(hv.x, hv.z);
-        this.lastHeld = heldBeat(st, { carry: [lx, hv.y, lz], spin: 0 });
+        // reduced motion: the resigned dangle, held still (a pose); else the flail, the bursts and the dangle
+        this.lastHeld = rm ? heldBeat(2.6, { spin: 0 }) : heldBeat(st, { carry: [lx, hv.y, lz], spin: 0 });
       }
       if (this.lastHeld) pose = blendPose(pose, this.lastHeld, clamp(this.heldW.x, 0, 1));
     }
@@ -999,6 +1057,10 @@ export class FetchPerformer {
   private huWas = false;
   private huAt = -Infinity;
   private readonly huW = new Spring(0, { omega: 16, zeta: 1 });
+  private readonly hope = new Spring(0, { omega: 9, zeta: 0.9 });
+  private offerNear = false;
+  private offerNearAt = -Infinity;
+  private offerLeftAt = -Infinity;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
@@ -1286,6 +1348,9 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           events: frame.events,
           reducedMotion: ctx.reducedMotion || w.reducedMotion === true,
           hands,
+          feed: w.scene.mouths?.find((x) => x.id === w.scene.runner.rounds?.mouth)?.drop ?? null,
+          rung: rungOf(w),
+          revertAt: w.bracketed ? revertOf(w) : null,
           handsHalf,
           scale: k,
         });
@@ -1378,4 +1443,19 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     };
     return view;
   };
+}
+
+/** A Button rung under way, as the fright reads it (null outside one). */
+function rungOf(w: Frame['world']): FetchInput['rung'] {
+  if (!w.bracketed) return null;
+  const b = w.button();
+  if (b.phase === 'idle' || !b.script) return null;
+  return { phase: b.phase, t: b.phaseTime, rewind: b.script.rewind, rung: b.rung, presses: b.presses };
+}
+
+/** Where Revert is (its body, a little up), if it is on the bench: its card comes up there. */
+function revertOf(w: Frame['world']): Vec3 | null {
+  const r = w.crewViews().find((c) => c.kind === 'revert');
+  const p = r?.body ? w.motion(r.body)?.pose.p : undefined;
+  return p ? [p[0], p[1] + 0.4, p[2]] : null;
 }

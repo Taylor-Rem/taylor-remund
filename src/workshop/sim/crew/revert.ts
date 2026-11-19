@@ -84,8 +84,17 @@ export const REVERT_TUNING = {
   crankRate: 9,
   /** An undo's crank: this long, plus this much per field put back, at most this long. */
   undoCrank: { base: 0.9, per: 0.12, max: 2.4 },
-  /** A card stays up this long. */
-  card: 3.5,
+  /**
+   * R1: a card is read before anything else happens. It goes up only once Revert stands still facing the
+   * visitor (turning to them first if it is more than `faceSlack` off), and it stays still and facing them
+   * for `cardRead` seconds from then: the view's rise and flip (about `cardRise`) and the longest card's
+   * read time, max(2.0 s, 1 s + 0.35 s a word) (tests/unit/sim/revert-card.test.ts holds every card to it).
+   */
+  cardRead: 3.9,
+  cardRise: 0.7,
+  faceSlack: 0.3,
+  /** A card stays up this long (from when it goes up). */
+  card: 4.4,
   /** Putting a part away takes this long (it turns to face it and sweeps). */
   sweep: 1.2,
   /** A part its own body brushed while sweeping: it waits at most this much longer for it to settle. */
@@ -199,6 +208,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let speed = 0;
   let turning = 0;
   let card: { content: string; at: number } | null = null;
+  /** R1: a card waiting to go up until Revert stands still facing the visitor; and when the one up has been read. */
+  let pendingCard: string | null = null;
+  let readUntil = -1;
   /** The step its last card came down (it sinks only a pause after that). */
   let cardDown = -Infinity;
   let route: Route | null = null;
@@ -385,7 +397,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (spec.path.length === 0 && !legClear(x, z, pts[0]![0], pts[0]![1])) return false;
     route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse };
     if (purpose === 'cover' || purpose === 'sweep') away = true;
-    enter('trundle');
+    if (state !== 'present') enter('trundle'); // presenting a card: it sets off once the card has been read
     return true;
   }
 
@@ -662,8 +674,51 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     else if (state === 'sweep') enter('idle');
   }
 
+  /**
+   * A card for Revert to hold up (R1). Up on the bench it is shown by presenting (state `present`): it
+   * stops, faces the visitor, raises the card, and holds still for the read. Down its hatch, in a hand or
+   * falling, there is nobody to turn: the card goes up at once.
+   */
   function showCard(content: string): void {
-    card = { content, at: ctx.clock.step };
+    if (state === 'below' || state === 'sinking' || state === 'stuck' || state === 'held' || state === 'loose') {
+      card = { content, at: ctx.clock.step };
+      readUntil = ctx.clock.step;
+      pendingCard = null;
+      return;
+    }
+    pendingCard = content;
+  }
+  /** The heading that faces the visitor from where it stands. */
+  const facing = (): number => {
+    const o = spec.outward ?? [x, 0, z + 10];
+    return Math.atan2(o[0] - x, o[2] - z);
+  };
+  /** One step of presenting a card: face the visitor, raise it, hold still for the read, then carry on. */
+  function present(): void {
+    speed = 0;
+    turning = 0;
+    const now = ctx.clock.step;
+    if (pendingCard !== null) {
+      const d = wrap(facing() - heading);
+      if (Math.abs(d) > T.faceSlack * 0.5 && inState() < steps(T.cardRise + 1.5)) {
+        const step = Math.sign(d) * Math.min(Math.abs(d), T.turn * dt);
+        if (canTurn(heading + step)) {
+          heading += step;
+          turning = step / dt;
+          return;
+        }
+        if (Math.abs(d) > T.faceSlack) return; // no room to turn yet: it waits (a little while at most)
+      }
+      card = { content: pendingCard, at: now };
+      readUntil = now + steps(T.cardRead);
+      pendingCard = null;
+      return;
+    }
+    if (now < readUntil) return;
+    // read: back to what it was doing
+    if (route) enter('trundle');
+    else if (coverPending && near(spec.button)) enter('fit');
+    else enter('idle');
   }
 
   /** Crates resting off the stack: the clutter. */
@@ -940,6 +995,18 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
+      // ── R1: a card is read before anything else happens (it waits for a crank to finish, then presents) ──
+      if (pendingCard !== null && !cranking && state !== 'present' && state !== 'rising' && up()) {
+        if (state === 'sweep') sweeping = null;
+        if (state === 'crank') doneCranking();
+        enter('present');
+      }
+      if (state === 'present') {
+        present();
+        if (!ctx.bracketed) place(false);
+        return;
+      }
+
       if (ctx.bracketed) {
         // a rung plays: its body stays put (the world is recorded and rewound); it only cranks, rises and sinks
         speed = 0;
@@ -1010,6 +1077,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       coverPending = false;
       card = null;
       cardDown = -Infinity;
+      pendingCard = null;
+      readUntil = -1;
       crankUntil = -1;
       speed = 0;
       turning = 0;
@@ -1069,7 +1138,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         speed,
         turning,
         eyes,
-        card: card ? { content: card.content, since: (now - card.at) / HZ } : null,
+        card: card ? { content: card.content, since: (now - card.at) / HZ, read: Math.max(0, readUntil - card.at) / HZ } : null,
         sweeping: state === 'sweep' ? (sweeping?.part ?? null) : null,
         drawn: state !== 'held' && state !== 'loose',
       };

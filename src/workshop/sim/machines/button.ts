@@ -444,6 +444,10 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
       used: used.list(),
       deck: { left: [...deckLeft], last: deckLast },
       reducedMotion: reduced,
+      show:
+        phase === 'idle' || !script
+          ? null
+          : { elapsed: (phase === 'rewinding' ? script.play : 0) + (ctx.clock.step - phaseStart) / HZ, length: script.play + script.rewind },
     }),
   };
 }
