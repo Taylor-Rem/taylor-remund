@@ -1,0 +1,149 @@
+{
+  "scene": "bench (src/dev-pages/bench.astro)",
+  "step": 12,
+  "settle": 2,
+  "narrowest": 0.42,
+  "hash": "",
+  "renderer": "",
+  "rendered": "",
+  "fallback": "",
+  "posters": [
+    {
+      "minAspect": 0,
+      "aspect": 0.475,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.475,
+      "aspect": 0.538,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.538,
+      "aspect": 0.609,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.609,
+      "aspect": 0.69,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.69,
+      "aspect": 0.78,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.78,
+      "aspect": 0.883,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 0.883,
+      "aspect": 0.999,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1,
+      "aspect": 1.112,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1.112,
+      "aspect": 1.236,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1.236,
+      "aspect": 1.375,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1.375,
+      "aspect": 1.529,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1.529,
+      "aspect": 1.699,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    },
+    {
+      "minAspect": 1.701,
+      "aspect": 2.4,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": null,
+      "files": []
+    }
+  ]
+}

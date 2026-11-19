@@ -1,0 +1,56 @@
+---
+// The head of a page that starts picture first (B1; REWRITE.md § B3 "before
+// JavaScript" / "loading", § E6). Put it in <head>, before anything else that
+// loads. It gives:
+//
+//  - the inline script that dims the picture only when a script will warm it
+//    up (`warming` on <html>): with no JavaScript the picture is at full
+//    brightness; with reduced motion there is no warm-up; with `?band=` (the
+//    poster script's mode) the picture is hidden and the canvas shown at once;
+//    if the loader has not started within 8 s the picture comes up to full;
+//  - the CSS of the stage root (shell/loader.ts: `.stage-root`, `.poster`,
+//    `.live`, `.warm-done`);
+//  - preload links for what the stage needs that the browser would otherwise
+//    find only after its code has run (§ E6 "in parallel"): the physics wasm,
+//    the fonts, the label worker, the bake table. They match the requests the
+//    code makes later (fetch(), so `as="fetch"` with `crossorigin`).
+//
+// The page sets the stage root's background colour (no colour is typed here).
+export interface Preload {
+  href: string;
+  /** Default fetch (what the stage's code does with it: fetch()). */
+  as?: 'fetch' | 'script' | 'font' | 'image';
+  type?: string;
+  priority?: 'high' | 'low' | 'auto';
+}
+interface Props {
+  preload?: Preload[];
+}
+const { preload = [] } = Astro.props;
+---
+<script is:inline>
+  (function () {
+    var d = document.documentElement;
+    d.classList.add('js');
+    var q = new URLSearchParams(location.search);
+    if (q.has('band')) d.classList.add('poster-mode');
+    else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) d.classList.add('warming');
+    setTimeout(function () {
+      if (!window.__handoff) d.classList.remove('warming');
+    }, 8000);
+  })();
+</script>
+{preload.map((p) => <link rel="preload" href={p.href} as={p.as ?? 'fetch'} type={p.type} crossorigin="anonymous" fetchpriority={p.priority ?? 'auto'} />)}
+<style is:global>
+  .stage-root { position: fixed; inset: 0; overflow: hidden; --warm: 0.42; }
+  .stage-root picture, .stage-root img.poster, .stage-root canvas.stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .stage-root img.poster { object-fit: cover; object-position: 50% 50%; }
+  html.warming .stage-root img.poster { filter: brightness(var(--warm)) saturate(calc(0.55 + 0.45 * var(--warm))); transition: filter 0.45s ease-out; }
+  html.warming .stage-root.warm-done img.poster { transition-duration: 0.15s; }
+  .stage-root canvas.stage { opacity: 0; pointer-events: none; touch-action: none; transition: opacity 0.15s linear; }
+  .stage-root.live canvas.stage, html.poster-mode .stage-root canvas.stage, .stage-root.direct canvas.stage { opacity: 1; pointer-events: auto; }
+  html.poster-mode .stage-root picture { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .stage-root img.poster, .stage-root canvas.stage { transition: none !important; }
+  }
+</style>
