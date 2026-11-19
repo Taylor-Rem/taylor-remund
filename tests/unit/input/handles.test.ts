@@ -313,8 +313,10 @@ describe('holding units, and the plug into the nearest jack', () => {
     ]);
     const a = acts(out);
     expect(a[0]).toEqual({ type: 'grab', id: 'lamp', grip: [9, 0, 9] }); // where it points (gripFor), not where the hand took it
-    expect(a[1]!.type).toBe('release');
-    const v = (a[1] as { velocity: number[] }).velocity;
+    const rel = a[1];
+    expect(rel?.type).toBe('release');
+    if (rel?.type !== 'release') return;
+    const v = rel.velocity;
     expect(v[0]).toBeGreaterThan(1); // moving right (x px / 100 = world x), down the screen (+z)
     expect(v[2]).toBeGreaterThan(0.3);
     expect(intents(out).filter((i) => i.type === 'carry').length).toBeGreaterThanOrEqual(3);
