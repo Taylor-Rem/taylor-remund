@@ -217,28 +217,8 @@ async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' |
       // and pressed only once nothing is in front of it
       return waitClear(page, id, kind);
     }
-    // somewhere on empty bench to drag from
-    const spot = await page.evaluate(
-      ([kind, W, H]) => {
-        const ws = (window as any).__bench.ws;
-        // the bench nearest the middle of the screen's lower half that nothing usable covers
-        let best: { x: number; y: number } | null = null;
-        let bd = Infinity;
-        for (let fy = 0.3; fy <= 0.95; fy += 0.05)
-          for (let fx = 0.1; fx <= 0.9; fx += 0.08) {
-            const x = fx * (W as number), y = fy * (H as number);
-            const t = ws.surface.at(x, y, kind, null);
-            if (t.id !== null || !t.point) continue;
-            const d = Math.hypot(fx - 0.5, fy - 0.7);
-            if (d < bd) {
-              bd = d;
-              best = { x, y };
-            }
-          }
-        return best;
-      },
-      [kind, vp.width, vp.height] as const,
-    );
+    // somewhere on empty bench to drag from: chosen, then confirmed at the moment of the press (waitEmpty)
+    const spot = await waitEmpty(page, kind, { x: 0.5, y: 0.7 });
     expect(spot, 'an empty spot of bench to pan from').toBeTruthy();
     const want = { x: vp.width / 2 - d.x, y: vp.height / 2 - d.y };
     const lim = (v: number, m: number) => Math.max(-m, Math.min(m, v));
@@ -303,6 +283,79 @@ async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY
     streak = r.p ? streak + 1 : 0;
     if (r.p && streak >= 3) return r.p as Disc;
     if ((await frameNo(page)) - f0 > limit) throw new Error(`${id} never came clear in ${limit} frames (${r.why})`);
+    await page.waitForTimeout(40);
+  }
+}
+
+/**
+ * A spot of empty bench to press, as a person would pick one: nothing pickable under the point, and none of the
+ * crew within a margin of it or heading into it (their pick boxes on screen, and where they will be half a
+ * second on at the speed they are going). The spot nearest `prefer` (a share of the screen) of those farthest
+ * from the crew; then the same spot confirmed three looks running, and re-chosen if it is not. Counted in frames.
+ */
+async function waitEmpty(page: Page, kind: 'mouse' | 'touch', prefer: { x: number; y: number }, limit = 1800): Promise<XY> {
+  const f0 = await frameNo(page);
+  let spot: XY | null = null;
+  let streak = 0;
+  for (;;) {
+    const r: { spot: XY | null; ok: boolean } = await page.evaluate(
+      ([kind, prefer, spot]) => {
+        const w = window as any;
+        const ws = w.__bench.ws;
+        const c = ws.stage.renderer.domElement;
+        const W = c.clientWidth, H = c.clientHeight;
+        const now = performance.now();
+        // the crew on screen, and where each is heading (from the last look)
+        const crew = ['fetch', 'patch', 'revert'].map((id) => [id, ws.surface.screen(id)] as const).filter(([, d]) => d);
+        const last = (w.__i1crew ?? {}) as Record<string, { x: number; y: number; t: number }>;
+        const ahead = crew.map(([id, d]) => {
+          const l = last[id];
+          const dt = l ? Math.max(1, now - l.t) : 1;
+          const vx = l ? ((d.x - l.x) / dt) * 500 : 0, vy = l ? ((d.y - l.y) / dt) * 500 : 0; // px in the next half second
+          return { x: d.x, y: d.y, r: d.r, ax: d.x + vx, ay: d.y + vy };
+        });
+        w.__i1crew = Object.fromEntries(crew.map(([id, d]) => [id, { x: d.x, y: d.y, t: now }]));
+        const margin = kind === 'touch' ? 44 : 30;
+        const clear = (x: number, y: number): number => {
+          const t = ws.surface.at(x, y, kind, null);
+          if (t.id !== null || !t.point) return -1;
+          // distance to the nearest crew box now or half a second on (along the way), less its radius
+          let d = Infinity;
+          for (const a of ahead)
+            for (let k = 0; k <= 4; k++) {
+              const cx = a.x + ((a.ax - a.x) * k) / 4, cy = a.y + ((a.ay - a.y) * k) / 4;
+              d = Math.min(d, Math.hypot(cx - x, cy - y) - a.r);
+            }
+          return d - margin;
+        };
+        if (spot) return { spot, ok: clear(spot.x, spot.y) > 0 };
+        let best: { x: number; y: number } | null = null;
+        let bs = -Infinity;
+        for (let fy = 0.3; fy <= 0.95; fy += 0.05)
+          for (let fx = 0.08; fx <= 0.92; fx += 0.06) {
+            const x = fx * W, y = fy * H;
+            const m = clear(x, y);
+            if (m <= 0) continue;
+            // well clear of the crew first, then near where it is wanted
+            const score = Math.min(m, 120) - 200 * Math.hypot(fx - prefer.x, fy - prefer.y);
+            if (score > bs) {
+              bs = score;
+              best = { x, y };
+            }
+          }
+        return { spot: best, ok: !!best };
+      },
+      [kind, prefer, spot] as const,
+    );
+    if (r.ok && r.spot) {
+      spot = r.spot;
+      streak++;
+      if (streak >= 3) return spot!;
+    } else {
+      spot = null; // stale: choose again
+      streak = 0;
+    }
+    if ((await frameNo(page)) - f0 > limit) throw new Error(`no empty bench to press in ${limit} frames`);
     await page.waitForTimeout(40);
   }
 }
@@ -743,7 +796,18 @@ test('one visitor’s loop by mouse on the default page (§ E8: X1, X2, X3 end t
   await stroke(page, hand, line({ x: from.x, y: from.y + 3 }, { x: platen.x + 6, y: platen.y - 8 }, 16), 16);
   await pollFrames(page, () => setting(page, 'cord', 'jack')).toBe('jack-platen');
   await waitClear(page, 'crate-2', 'mouse');
-  await carryTo(page, 'crate-2', (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[]);
+  // onto the platen's small tray, carried and let go over it. A crate let go over a small tray sometimes glances off its
+  // edge or the column and lands beside it (physics, as on a real bench): then, as a visitor would, pick it up and try again
+  const trayDrop = (await w('window.__bench.ws.world.scene.mouths.find((m) => m.id === "platen").drop')) as number[];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await waitClear(page, 'crate-2', 'mouse');
+    await carryTo(page, 'crate-2', trayDrop);
+    const on = await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 240)
+      .toMatch(/"mouth":"platen"/)
+      .then(() => true)
+      .catch(() => false);
+    if (on) break;
+  }
   await pollFrames(page, async () => JSON.stringify(await loc('crate-2')), 900, 'the crate on the tray').toMatch(/"mouth":"platen"/);
 
   // the phone: "Make it blue." typed and sent; Patch does the job; the crate on the tray turns blue
@@ -781,11 +845,7 @@ test('R1: the glove cursor over the stage (four poses as CSS images), and the be
   const cur = () => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
   // the pictures arrive once, at start-up: then every cursor of input's is a glove (image-set with a 2x picture)
   await pollFrames(page, async () => /image-set\(/.test(await cur())).toBe(true);
-  const free = await page.evaluate(() => {
-    const ws = (window as any).__bench.ws;
-    for (let y = 840; y > 400; y -= 10) for (let x = 600; x < 900; x += 10) if (ws.surface.at(x, y, 'mouse', null).id === null) return { x, y };
-    return null;
-  });
+  const free = await waitEmpty(page, 'mouse', { x: 0.5, y: 0.85 });
   await page.mouse.move(free!.x, free!.y);
   await frames(page, 3);
   expect(await cur(), 'resting over empty bench').toMatch(/, default$/);
