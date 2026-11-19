@@ -333,6 +333,29 @@ export function createPhonePanel(o: PhonePanelOptions): PhonePanel {
     return ready.querySelector<HTMLButtonElement>('.ph-key') ?? (input.disabled ? close : input);
   }
 
+  /**
+   * (I1 R2) The panel is never stranded between open and shut. Every animation on it is cancelled before it
+   * moves again (a finished one with `fill` would otherwise hold it at the phone's size under the next opening:
+   * Taylor's "opens the size of the phone and there's no way to fix it"), none keeps a fill, and a timer puts it in
+   * the state it is meant to be in when its move should be over, whatever happened to the animation meanwhile
+   * (a background tab, a cancelled frame).
+   */
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  function stopMoving(): void {
+    for (const a of root.getAnimations()) a.cancel();
+    anim = null;
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    settleTimer = null;
+  }
+  function settle(): void {
+    stopMoving();
+    root.hidden = !isOpen;
+  }
+  function settleAfter(ms: number): void {
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, ms + 120);
+  }
+
   const panel: PhonePanel = {
     element: root,
     get isOpen() {
@@ -342,7 +365,7 @@ export function createPhonePanel(o: PhonePanelOptions): PhonePanel {
       if (isOpen) return;
       isOpen = true;
       returnTo = to ?? (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
-      anim?.cancel();
+      stopMoving();
       root.hidden = false;
       place();
       draw();
@@ -357,22 +380,23 @@ export function createPhonePanel(o: PhonePanelOptions): PhonePanel {
           ],
           { duration: 380, easing: 'cubic-bezier(.3,0,.25,1)' },
         );
+        anim.onfinish = settle;
+        settleAfter(380);
       }
       o.onToggle?.(true);
     },
     close() {
       if (!isOpen) return;
       isOpen = false;
-      anim?.cancel();
+      stopMoving();
       const to = reduced() ? null : fromAnchor();
-      const done = (): void => {
-        root.hidden = true;
-        anim = null;
-      };
       if (to) {
+        // held at its end (no flash of the full panel before it is hidden) until `settle` hides it and cancels it:
+        // nothing is left holding it after that
         anim = root.animate([{ transform: 'translate(0px, 0px) scale(1) rotate(0deg)', opacity: 1 }, to], { duration: 220, easing: 'cubic-bezier(.5,0,.75,.4)', fill: 'forwards' });
-        anim.onfinish = done;
-      } else done();
+        anim.onfinish = settle;
+        settleAfter(220);
+      } else settle();
       if (root.contains(document.activeElement) || document.activeElement === document.body) returnTo?.focus({ preventScroll: true });
       o.onToggle?.(false);
     },
@@ -381,7 +405,7 @@ export function createPhonePanel(o: PhonePanelOptions): PhonePanel {
       unsubscribe();
       removeEventListener('resize', onResize);
       sheet.removeEventListener('change', onResize);
-      anim?.cancel();
+      stopMoving();
       root.remove();
     },
   };
