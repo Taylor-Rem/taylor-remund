@@ -556,9 +556,11 @@ describe('the station files', () => {
     expect(new Set(names).size).toBe(names.length);
     for (const want of ['set', 'parts', 'fetch', 'patch', 'board', 'belt', 'button']) expect(names, want).toContain(want);
     const at = (n: string): number => names.indexOf(n);
-    // whatever feeds the set's pool comes before it; Fetch after the parts
+    // whatever feeds the set's pool comes before it; Fetch and Patch before the parts (W5: the crate in a hand or
+    // a paw is handed to the parts view through its overlay, which runs while the parts view draws)
     for (const s of all) if (s.order < ORDER.set) expect(at(s.name), s.name).toBeLessThan(at('set'));
-    expect(at('fetch')).toBeGreaterThan(at('parts'));
+    expect(at('fetch')).toBeLessThan(at('parts'));
+    expect(at('patch')).toBeLessThan(at('parts'));
   });
 });
 

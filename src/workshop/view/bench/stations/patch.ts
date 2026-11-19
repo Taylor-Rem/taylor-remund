@@ -8,7 +8,8 @@ import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'patch',
-  order: ORDER.crew,
+  // before the parts: a crate it catches is handed to the parts view through an overlay, so its shadow goes with it
+  order: ORDER.parts - 1,
   make(k) {
     const sf = origin(LAYOUT.stations.storefront);
     const pl = origin(LAYOUT.stations.platen);
