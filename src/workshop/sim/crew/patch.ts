@@ -121,8 +121,15 @@ export const PATCH_TUNING = {
   crossOff: 0.25,
   /** R4: let go with the hand moving at least this fast (units/s), it is thrown; slower is a set-down. */
   throwAt: 1.5,
-  /** R4: a throw's speed is clamped to the parts' (the world's LOOSE_TUNING.throwMax: a test holds them together). */
-  throwMax: 7.5,
+  /**
+   * R4: the most a throw can send it at (units/s, the hand's level speed): the parts' base cap (S5: 14, scaled
+   * down by mass; Patch is light and soft, so it gets the whole of it: it flies at least as far as a small crate).
+   * The hand's velocity arrives level; Patch adds its own loft, as the world does for a part: `loft` × the level
+   * speed upward, at most `loftMax`.
+   */
+  throwMax: 14,
+  loft: 0.18,
+  loftMax: 1.6,
   /** R4: in the hand its body's middle hangs this far below the hand (the scruff); a sphere of `bodyR` for what it meets. */
   hangBelow: 0.6,
   bodyR: 0.45,
@@ -327,8 +334,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let landing: { from: Vec3; to: Vec3; speed: number } | null = null;
   /** Thrown from `p` (its middle, world) with the hand's velocity `v`. */
   function throwFrom(p: Vec3, v: Vec3): void {
-    const n = length(v);
-    const vv = n > T.throwMax ? scale(v, T.throwMax / n) : v;
+    // level, clamped to the cap, and lofted (whatever arrives)
+    const h = Math.hypot(v[0], v[2]);
+    const k = h > T.throwMax ? T.throwMax / h : 1;
+    const vv: Vec3 = [v[0] * k, Math.min(T.loftMax, T.loft * h * k), v[2] * k];
     let q = p;
     // (never starting inside a body: above it)
     for (const o of SOLIDS) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
@@ -716,7 +725,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       if (intent.end) {
         // R4: let go with the hand moving, it flies (a scripted arc: never a physics body)
         const hv = handVelocity(intent.velocity);
-        if (length(hv) >= T.throwAt) {
+        if (Math.hypot(hv[0], hv[2]) >= T.throwAt) {
           trail.length = 0;
           throwFrom([intent.target[0], intent.target[1] - T.hangBelow, intent.target[2]], hv);
           return true;

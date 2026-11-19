@@ -68,8 +68,8 @@ function watch(w: World, t: Tape, limit: number): Flight {
 }
 
 describe('Patch thrown (R4)', () => {
-  test('its cap is the parts\' cap', () => {
-    expect(T.throwMax).toBe(LOOSE_TUNING.throwMax);
+  test('it can be thrown at least as hard as a part (it is light and soft)', () => {
+    expect(T.throwMax).toBeGreaterThanOrEqual(LOOSE_TUNING.throwMax);
   });
 
   test('a throw across the bench: it flies, lands clear, rolls, sits up, shakes its head, gives the look and walks home', async () => {
@@ -131,7 +131,7 @@ describe('Patch thrown (R4)', () => {
     for (let k = 0; k < 100; k++) {
       const from: Vec3 = [-8 + r() * 16, 1.2 + r() * 2.6, -3.5 + r() * 8];
       const a = r() * Math.PI * 2;
-      const sp = r() * 9; // past the cap too: it is clamped
+      const sp = r() * 16; // past the cap too: it is clamped
       const v: Vec3 = [Math.sin(a) * sp, Math.min(1.6, 0.18 * sp) * r(), Math.cos(a) * sp];
       const kind = k % 4; // 0, 1: plain; 2: while it holds a job; 3: the Button pressed in the air
       const w = await benchWorld(k + 1);
