@@ -25,10 +25,10 @@ import type { BodyMode, CrewMember, FetchState, Id, Pose, SimEvent, Vec3 } from 
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import { fetchPorter, fetchNameTape } from '../kit/pieces/fetch-porter/index.ts';
 import { PRESETS, WHEEL_R, contactPoint, poseMatrices, type ArmJoints, type Arms, type FetchPose } from '../kit/pieces/fetch-porter/rig.ts';
-import { blendPose, handsUp as handsUpBeat, held as heldBeat, jetpack as jetpackBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
+import { BALANCE, blendPose, handsUp as handsUpBeat, held as heldBeat, jetpack as jetpackBeat, knocked as knockedBeat, knockedLength, outOfLane, setDown as setDownBeat, LENGTHS } from '../kit/pieces/fetch-porter/perform.ts';
 import { ReachMotion, gripOf, type V3 } from '../kit/pieces/fetch-porter/reach.ts';
-import { frightened } from '../kit/pieces/fetch-porter/fright.ts';
-import { FETCH_TUNING, fetchStand } from '../../sim/index.ts';
+import { GUARD, frightened } from '../kit/pieces/fetch-porter/fright.ts';
+import { FETCH_TUNING, LINE, fetchStand } from '../../sim/index.ts';
 import type { SceneDesc } from '../../sim/index.ts';
 import { BlobShadows, type Blob } from '../effects/blob-shadows.ts';
 import { paintPorter } from '../kit/pieces/fetch-porter/paint.ts';
@@ -121,6 +121,11 @@ export interface FetchInput {
   revertAt?: Vec3 | null;
   /** Revert's card is up and being read (S7: everyone settled and looking at it, not upstaging it). */
   cardUp?: boolean;
+  /**
+   * R2: set on a machine rather than in the visitor's hand while its crew state is `held`: riding the belt, on
+   * the dock's ramp and through its door, or thrown home by the chute (from its part's mode and location).
+   */
+  ride?: 'belt' | 'dock' | 'thrown' | null;
   /** S5's chute pad (world x, z), where a shipped crate's replacement is thrown. */
   pad?: readonly [number, number] | null;
   /** Where a part is now (world), for following a thrown crate through its arc. */
@@ -277,6 +282,11 @@ export class FetchPerformer {
         this.ignitedP = [i.pose.p[0], i.pose.p[1] - 0.3, i.pose.p[2]];
       }
       if (e.type === 'jet.cut' && e.id === m.id) this.cutAt = i.time;
+      // R2: struck by the striker as it rides the belt: a jolt
+      if (e.type === 'struck' && e.part === m.id) {
+        this.joltAt = i.time;
+        if (!i.reducedMotion) this.squash.kick(7);
+      }
       if (e.type === 'restock.launched') {
         this.toss = { part: e.part, from: e.from, to: e.to, flight: e.flight, at: i.time };
         this.chute = e.from;
@@ -287,6 +297,19 @@ export class FetchPerformer {
       this.frozenAt = null;
     } else if (this.frozenAt === null) this.frozenAt = i.time;
     const act = this.act;
+    // R2: riding (set on the belt by the visitor), the door, thrown home by the chute, and home again
+    const ride = act === 'held' && i.mode === 'machine' ? (i.ride ?? null) : null;
+    if (ride !== this.ride) {
+      if (ride === 'dock') this.dockAt = i.time;
+      if (ride === 'belt') this.beltAt = i.time;
+      if (this.ride === 'thrown' && ride === null) {
+        // touchdown: on its wheel, squashed
+        this.homeAt = i.time;
+        if (!i.reducedMotion) this.squash.kick(8);
+      }
+      this.ride = ride;
+    }
+    const sinceHome = i.time - this.homeAt;
     const carrying = m.carrying !== null;
     const inHand = i.mode === 'held';
     const loose = i.mode === 'free';
@@ -615,6 +638,69 @@ export class FetchPerformer {
       case 'held': {
         pointerOk = false;
         blinkOk = false;
+        if (ride === 'belt') {
+          // riding the belt: sat down on its wheel, arms out for balance, the eye wide, looking where it is
+          // being taken, with a glance now and then at whoever put it there ("you did this")
+          const u = i.time - this.beltAt;
+          arms = BALANCE;
+          armOmega = 9;
+          squash = 0.55;
+          brow = -0.65;
+          pupil = 0.8;
+          lids = [0, 0.05];
+          look = new Vector3(P.x + 2.2, P.y + 0.2, P.z);
+          const g = u > 1 ? (u - 1) % 2.6 : -1;
+          const glance = g >= 0 && !rm ? smoothstep(0, 0.12, g) * (1 - smoothstep(0.55, 0.7, g)) : 0;
+          if (glance > 0) {
+            look = look.lerp(visitor, glance);
+            brow = lerp(brow, 0.25, glance);
+            lids = [lerp(0, 0.3, glance), lerp(0.05, 0.35, glance)];
+          }
+          // the striker ahead: a flinch as it passes under (eyes up at the hammer, crouched, claws up)
+          const dx = LINE.strikerX - P.x;
+          const fl = Math.abs(P.z - LINE.belt.z) < 0.6 ? smoothstep(1.1, 0.45, dx) * (1 - smoothstep(-0.05, -0.5, dx)) : 0;
+          if (fl > 0) {
+            look = look.lerp(new Vector3(LINE.strikerX, P.y + 1.2, P.z), fl);
+            squash += 0.35 * fl;
+            lids = [lerp(lids[0], 0.45, fl), lerp(lids[1], 0.3, fl)];
+            brow = lerp(brow, 0.6, fl);
+            arms = mixArms(arms, GUARD, fl);
+          }
+          break;
+        }
+        if (ride === 'dock') {
+          // on the ramp and in at the door: one last look back at the visitor as it comes down on it
+          const u = i.time - this.dockAt;
+          arms = BALANCE;
+          armOmega = 6;
+          squash = 0.45;
+          const back = smoothstep(0.2, 0.45, u);
+          look = new Vector3(P.x + 1.5, P.y, P.z).lerp(visitor, back);
+          brow = lerp(-0.6, 0.35, back);
+          lids = [lerp(0, 0.3, back), lerp(0.05, 0.4, back)];
+          pupil = lerp(0.8, 1.35, back);
+          roll = 0.2 * back;
+          break;
+        }
+        if (ride === 'thrown') {
+          // thrown home by the chute: tumbling, limbs out, the eye huge, the wheel spinning
+          arms = PRESETS.flail;
+          armOmega = 14;
+          squash = -0.5;
+          brow = -1;
+          pupil = 0.55;
+          lids = [0, 0];
+          look = this.toss ? new Vector3(...this.toss.to) : visitor;
+          break;
+        }
+        if (i.time - this.homeAt < 0.6) {
+          // just down from the chute's throw (its body still settling): squashed on its wheel, arms out
+          arms = BALANCE;
+          squash = 0.7;
+          brow = -0.8;
+          look = new Vector3(P.x, P.y - 1, P.z + 0.6);
+          break;
+        }
         arms = DANGLE;
         armOmega = 9;
         lids = [0, 0];
@@ -744,6 +830,15 @@ export class FetchPerformer {
       brow = Math.min(brow, -0.35);
     }
     if (pointerOk && pointerOn) pupil = Math.max(pupil, 1.15);
+    // ── R2: home from the chute: shakes itself off (below), a look back at the chute, then at the visitor ──
+    if (grounded && sinceHome >= 0 && sinceHome < 2.4 && !frozen) {
+      if (sinceHome > 1.0 && sinceHome < 1.5 && this.chute) look = new Vector3(...this.chute);
+      else if (sinceHome >= 1.5) {
+        look = visitor;
+        brow = Math.min(brow, -0.3);
+      }
+      pointerOk = false;
+    }
     // ── the jetpack: the eye out at the visitor in the rise (wide: "is this a good idea?"), then fixed on its
     // landing spot; after it lands, a proud little look at the visitor ──
     const jet = act === 'jetpack' ? m.jet ?? null : null;
@@ -786,7 +881,7 @@ export class FetchPerformer {
       }
       if (toss && sinceToss >= 0 && sinceToss < 0.05 && !rm) this.squash.kick(-4);
       if (toss && !rm && sinceToss >= toss.flight && sinceToss < toss.flight + 0.32) this.restockHop = toss.at + toss.flight;
-    } else if (toss && sinceToss >= toss.flight && sinceToss < toss.flight + 1.4 && grounded && !frozen && Math.hypot(P.x - toss.to[0], P.z - toss.to[2]) < 2.2) {
+    } else if (toss && toss.part !== m.id && sinceToss >= toss.flight && sinceToss < toss.flight + 1.4 && grounded && !frozen && Math.hypot(P.x - toss.to[0], P.z - toss.to[2]) < 2.2) {
       // attract mode: it lands beside it while it watches its own crate ship: a flinch, and a look round at it
       const u = sinceToss - toss.flight;
       look = new Vector3(...toss.to);
@@ -878,7 +973,11 @@ export class FetchPerformer {
 
     // ── wheel: exactly the ground under it; in the air it spins ──
     if (!frozen) {
-      if (act === 'jetpack' && !inHand) {
+      if (ride === 'thrown') {
+        // thrown home: the wheel spinning free
+        this.spin = damp(this.spin, rm ? 4 : 16, 3, db);
+        this.wheel += this.spin * db;
+      } else if (act === 'jetpack' && !inHand) {
         // in the air on its jets (the simulation scripts its body, still 'crew'): the wheel dangles and keeps turning
         this.spin = damp(this.spin, rm ? 3 : 9, 1.5, db);
         this.wheel += this.spin * db;
@@ -996,6 +1095,26 @@ export class FetchPerformer {
     // the restock's landing: a small hop as its crate touches the pad (not in reduced motion)
     const sinceHop = i.time - this.restockHop;
     if (sinceHop >= 0 && sinceHop < 0.32 && grounded && !rm) pose = { ...pose, lift: Math.max(pose.lift ?? 0, 0.12 * Math.sin((sinceHop / 0.32) * Math.PI)) };
+    // R2: the eye on a ride (wide on the belt, huge thrown), the striker's jolt, and the shake on landing home
+    if (ride) pose.eyeScale = ride === 'thrown' ? 1.45 : ride === 'belt' ? 1.25 : 1.15;
+    const sj = i.time - this.joltAt;
+    if (ride === 'belt' && sj >= 0 && sj < 0.6) {
+      const k = 1 - smoothstep(0, 0.6, sj);
+      pose.eyeScale = 1.45;
+      pose.brow = -1;
+      pose.pupilSize = 0.55;
+      if (!rm) pose.lean = [(pose.lean?.[0] ?? 0) - 0.25 * k * Math.cos(sj * 30), (pose.lean?.[1] ?? 0) + 0.2 * k * Math.sin(sj * 26)];
+    }
+    if (grounded && sinceHome >= 0 && sinceHome < 1.3 && !rm) {
+      // a wobble off the landing, then a shake from head to wheel like a dog out of water
+      const wob = sinceHome < 0.35 ? 0.16 * Math.sin(sinceHome * 22) * (1 - sinceHome / 0.35) : 0;
+      const sh = sinceHome >= 0.35 ? Math.sin(Math.PI * 2 * 6.5 * (sinceHome - 0.35)) * smoothstep(0.35, 0.45, sinceHome) * (1 - smoothstep(0.85, 1.25, sinceHome)) : 0;
+      pose.lean = [(pose.lean?.[0] ?? 0) + wob, (pose.lean?.[1] ?? 0) + 0.2 * sh];
+      pose.headRoll = (pose.headRoll ?? 0) - 0.35 * sh;
+      pose.headYaw = (pose.headYaw ?? 0) + 0.25 * sh;
+      pose.aerial = [(pose.aerial?.[0] ?? 0) + 0.3 * Math.abs(sh), (pose.aerial?.[1] ?? 0) + 0.9 * sh];
+      pose.lids = [Math.max(pose.lids?.[0] ?? 0, 0.7 * Math.abs(sh)), Math.max(pose.lids?.[1] ?? 0, 0.5 * Math.abs(sh))];
+    }
     // the jetpack's flight (S5): the whole pose but the head's aim, while it flies
     if (jet) {
       const jp = jetpackBeat({ phase: jet.phase, phaseTime: jet.phaseTime, phaseLength: jet.phaseLength, thrust: jet.thrust, sinceIgnite: i.time - this.ignitedAt, sinceCut: i.time - this.cutAt, t: st, reducedMotion: rm });
@@ -1116,7 +1235,20 @@ export class FetchPerformer {
       } else this.twist.v *= Math.exp(-8 * dt); // falling: it keeps the turn it had; it rights itself from there
       const tq = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), this.twist.x);
       const off = new Vector3(0, -i.half[1], 0).applyQuaternion(Q).applyQuaternion(tq);
-      root.compose(P.clone().add(off), tq.multiply(Q), new Vector3(1, 1, 1));
+      const pos = P.clone().add(off);
+      const q = tq.multiply(Q);
+      // R2: riding the belt and the ramp, it sits up on its wheel facing the visitor, however its body lay down
+      // when it was set there (the body is the machine's; the view only draws it upright), eased up over 0.3 s
+      this.uprightW = ride === 'belt' || ride === 'dock' ? Math.min(1, this.uprightW + db / 0.3) : 0;
+      if (this.uprightW > 0) {
+        const k = this.uprightW * this.uprightW * (3 - 2 * this.uprightW);
+        const e = new Matrix4().makeRotationFromQuaternion(Q).elements;
+        const hy = Math.abs(e[1]!) * i.half[0] + Math.abs(e[5]!) * i.half[1] + Math.abs(e[9]!) * i.half[2];
+        const up = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.atan2(visitor.x - P.x, visitor.z - P.z));
+        pos.lerp(new Vector3(P.x, P.y - hy, P.z), k);
+        q.slerp(up, k);
+      }
+      root.compose(pos, q, new Vector3(1, 1, 1));
     }
     if (grounded) this.twist.set(0);
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
@@ -1203,6 +1335,13 @@ export class FetchPerformer {
   private ignitedAt = -Infinity;
   private cutAt = -Infinity;
   private ignitedP: [number, number, number] | null = null;
+  /** R2: what it rides (if anything), and when each part of it began; the striker's jolt; home from the chute. */
+  private ride: 'belt' | 'dock' | 'thrown' | null = null;
+  private beltAt = -Infinity;
+  private dockAt = -Infinity;
+  private joltAt = -Infinity;
+  private homeAt = -Infinity;
+  private uprightW = 0;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
@@ -1494,6 +1633,7 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           rung: rungOf(w),
           revertAt: w.bracketed || cardUp(w) ? revertOf(w) : null,
           cardUp: cardUp(w),
+          ride: rideOf(w, id, motion.mode),
           pad: w.scene.runner.rounds?.pad ?? null,
           partAt: (pid: string) => w.motion(pid)?.pose.p ?? null,
           handsHalf,
@@ -1596,6 +1736,16 @@ function rungOf(w: Frame['world']): FetchInput['rung'] {
   const b = w.button();
   if (b.phase === 'idle' || !b.script) return null;
   return { phase: b.phase, t: b.phaseTime, rewind: b.script.rewind, rung: b.rung, presses: b.presses };
+}
+
+/** R2: Fetch on a machine while its crew state is held: on the belt, through the dock's door, or thrown home. */
+function rideOf(w: Frame['world'], id: string, mode: string): FetchInput['ride'] {
+  if (mode !== 'machine') return null;
+  const loc = w.part(id)?.location as { at: string; mouth?: string } | undefined;
+  if (!loc) return null;
+  if (loc.at === 'shipped') return 'thrown';
+  if (loc.at === 'in') return loc.mouth === 'dock' ? 'dock' : 'belt';
+  return null;
 }
 
 /** Revert's card is up. */
