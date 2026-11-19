@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run, types } from './helpers.ts';
 import { BUTTON_TUNING } from '../../../src/workshop/sim/machines/button.ts';
-import { LOOSE_TUNING } from '../../../src/workshop/sim/world.ts';
+import { throwCap } from '../../../src/workshop/sim/world.ts';
+import { massOf } from '../../../src/workshop/sim/parts.ts';
 import { steps } from '../../../src/workshop/sim/clock.ts';
 import { rng } from '../../../src/workshop/sim/rng.ts';
 import type { Intent, SimEvent, Vec3 } from '../../../src/workshop/sim/types.ts';
@@ -43,7 +44,8 @@ describe('loose parts with the stub physics (exact)', () => {
     world.dispatch({ type: 'release', velocity: [100, 0, 0] });
     const ev = run(world, 1);
     const rel = ev.find((e) => e.type === 'part.released');
-    expect(rel).toEqual({ type: 'part.released', id: 'crate-1', speed: LOOSE_TUNING.throwMax });
+    // (R4) clamped to the cap for its mass: the whole cap for a light crate, less for a heavy one
+    expect(rel).toEqual({ type: 'part.released', id: 'crate-1', speed: throwCap(world.scene.parts.find((p) => p.id === 'crate-1')!.mass ?? massOf(world.halfExtents('crate-1')!, world.scene.parts.find((p) => p.id === 'crate-1')!.material)) });
     expect(world.holding()).toBeNull();
     // still in flight: the durable location has not moved
     expect(world.part('crate-1')?.location).toMatchObject({ at: 'rest', pose: { p: p0 } });
