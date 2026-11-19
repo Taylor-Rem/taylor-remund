@@ -46,12 +46,8 @@ test('lenient: a view that keeps throwing is paused and retried; the bench keeps
 
 test('lenient: an error that escapes a frame puts the bench back to its opening state and the loop carries on', async ({ page }) => {
   await live(page, '?strict=0');
-  await page.evaluate(() => {
-    const ws = (window as any).__handoff.workshop;
-    ws.dispatch({ type: 'turn', id: 'belt-dial', value: 0 }); // something on the undo stack
-  });
-  await page.waitForTimeout(300);
-  expect(await page.evaluate(() => (window as any).__handoff.workshop.world.undoStack().length)).toBeGreaterThan(0);
+  const durable = (): Promise<string> => page.evaluate(() => JSON.stringify((window as any).__handoff.workshop.driver.o.world.durable().map((d: any) => [d.target, d.field, d.value])));
+  const opening = await durable();
   await page.evaluate(() => {
     const ws = (window as any).__handoff.workshop;
     const world = ws.driver.o.world;
@@ -65,7 +61,8 @@ test('lenient: an error that escapes a frame puts the bench back to its opening 
   await page.waitForTimeout(1500);
   const f = await faults(page);
   expect(f.resets).toBe(1);
-  expect(await page.evaluate(() => (window as any).__handoff.workshop.world.undoStack().length)).toBe(0);
+  expect(await page.evaluate(() => (window as any).__handoff.workshop.driver.o.world.undoStack().length)).toBe(0);
+  expect(await durable()).toBe(opening); // the opening state
   const a = await steps(page);
   await page.waitForTimeout(1000);
   expect((await steps(page)) - a).toBeGreaterThan(30);
