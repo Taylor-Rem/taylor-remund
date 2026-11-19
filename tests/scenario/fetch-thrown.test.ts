@@ -31,6 +31,43 @@ function backAtWork(w: World): boolean {
   return m.mode === 'crew' && upY(m.pose.q) > 0.97 && st !== 'held' && st !== 'jetpack';
 }
 
+describe('a flick through the intent path is a throw (R4, I1\'s finding)', () => {
+  /** Grab `id`, move the hand 150 ms (9 steps) accelerating along `dir` to `speed`, then let go with that velocity. */
+  async function flick(id: string, dir: readonly [number, number], speed: number): Promise<{ moved: number; rel: Vec3; end: Vec3; released: number }> {
+    const w = await benchWorld('r4-flick', { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(90);
+    const p0 = w.motion(id)!.pose.p;
+    w.dispatch({ type: 'grab', id, grip: p0 });
+    t.run(1);
+    let hand: Vec3 = [p0[0], p0[1] + 0.35, p0[2]];
+    for (let i = 1; i <= 9; i++) {
+      const sp = (speed * i) / 9 / HZ;
+      hand = [hand[0] + dir[0] * sp, hand[1], hand[2] + dir[1] * sp];
+      w.dispatch({ type: 'carry', target: hand });
+      t.run(1);
+    }
+    const rel = w.motion(id)!.pose.p;
+    w.dispatch({ type: 'release', velocity: [dir[0] * speed, Math.min(1.6, 0.18 * speed), dir[1] * speed] });
+    const ev = t.run(1);
+    const released = (ev.find((e) => e.type === 'part.released') as { speed: number } | undefined)?.speed ?? -1;
+    t.run(4 * HZ);
+    const end = w.motion(id)!.pose.p;
+    w.dispose();
+    return { moved: Math.hypot(end[0] - p0[0], end[2] - p0[2]), rel, end, released };
+  }
+  test('150 ms, ending with the hand at 6 u/s: thrown, it leaves at 6 and carries on (the small crate, across open bench to the left)', async () => {
+    const r = await flick('crate-3', [-1, 0], 6);
+    expect(r.released).toBeCloseTo(Math.hypot(6, 1.08), 1);
+    expect(Math.hypot(r.end[0] - r.rel[0], r.end[2] - r.rel[2]), 'it carries on past where it was let go').toBeGreaterThan(1.8);
+  }, 60_000);
+  test('150 ms, ending with the hand still: a cancelled pick-up, back exactly where it was', async () => {
+    const r = await flick('crate-3', [-1, 0], 0);
+    expect(r.released).toBe(0);
+    expect(r.moved).toBeLessThan(0.02);
+  }, 60_000);
+});
+
 describe('Fetch thrown', () => {
   test('across the bench, hard: it flies, tumbles, and within seconds is on its wheels, shaking itself off, then back to its tape', async () => {
     const w = await benchWorld('r4-fetch-across', { scene: FULL_BENCH });

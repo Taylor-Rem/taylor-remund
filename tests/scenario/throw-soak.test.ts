@@ -168,7 +168,9 @@ async function session(seed: number): Promise<string[]> {
     const f = w.motion('fetch')!;
     const fs = w.crew('fetch')!.state;
     if (f.mode === 'crew' && upOf(f.pose.q) < 0.95) fails.push(`${label}: Fetch off its wheels (${fs})`);
-    if (fs === 'held' && f.mode !== 'gone' && f.mode !== 'chute' && f.mode !== 'machine') fails.push(`${label}: Fetch not back at work (held, ${f.mode})`);
+    const loc = w.part('fetch')!.location;
+    const riding = f.mode === 'machine' && loc.at === 'in' && (loc.mouth === 'belt' || loc.mouth === 'dock');
+    if (fs === 'held' && f.mode !== 'gone' && f.mode !== 'chute' && !riding) fails.push(`${label}: Fetch not back at work (held, ${f.mode})`);
     if (fs === 'jetpack') fails.push(`${label}: Fetch still on its jets`);
     // Revert: not left lying (its own recovery is S7's; reported here)
     const rv = w.motion('revert');

@@ -114,6 +114,8 @@ export const FETCH_TUNING = {
   shakeAfter: 3,
   /** R4: loose this long below this speed without the world calling it at rest (wedged and rocking), it gets up anyway. */
   stuckAfter: 2.5,
+  /** R4: held this long without moving in a machine's hands (the platen's tray, a stopped belt), it hops off on its jets. */
+  leaveMachine: 2.5,
   stuckSpeed: 0.4,
   /** R4: come to rest with its lowest point more than this over the bench top, it is up on something: it hops down. */
   standOn: 0.08,
@@ -421,6 +423,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let flung = 0;
   /** R4: steps loose and slow without settling. */
   let slowFor = 0;
+  /** R4: steps held still in a machine's hands, and where it was last step. */
+  let machineStill = 0;
+  let machineLast: Vec3 | null = null;
   let shrugThenReturn = false;
   let lookAt: Vec3 | null = null;
 
@@ -1240,7 +1245,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   }
   /** R4: up off whatever it came to rest on (or out from where it is wedged), on its jets, to the nearest free point of its tape. */
   function startHop(p: Pose): void {
-    ctx.attach(spec.id, spec.id);
+    if (!ctx.attach(spec.id, spec.id)) return; // (a machine keeping it: the dock's door; it goes on through)
     letGo([0, 0, 0], [0, 0, 0], null);
     const landS = freeLanding(p.p[0], p.p[2]);
     const [lx, lz] = at(landS);
@@ -1465,6 +1470,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         if (mode !== 'free') flung = 0;
         // R4: never settled (rocking where it is wedged, creeping): after `stuckAfter` loose and slow, it gets up anyway
         slowFor = mode === 'free' && speedNow < T.stuckSpeed ? slowFor + 1 : 0;
+        // R4: held still in a machine that does not carry it on (the platen's tray; a stopped belt): it hops off
+        const still = mode === 'machine' && pNow && machineLast ? Math.hypot(pNow.p[0] - machineLast[0], pNow.p[1] - machineLast[1], pNow.p[2] - machineLast[2]) < 0.002 : false;
+        machineStill = still ? machineStill + 1 : 0;
+        machineLast = mode === 'machine' && pNow ? pNow.p : null;
+        if (machineStill >= steps(T.leaveMachine) && pNow && !ctx.bracketed) {
+          machineStill = 0;
+          machineLast = null;
+          startHop(pNow);
+          return;
+        }
         heldLast = mode === 'free' && pNow ? pNow.p : null;
         if (ctx.part(spec.id)?.location.at === 'shipped') shipped = true;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
