@@ -348,6 +348,17 @@ describe('the dock', () => {
     const { world, physics } = benchStub();
     run(world, 2);
     const ship = (id: Id) => {
+      // S5 R1: a replacement comes up the chute onto the pad, and the next waits for the pad to be free: before each
+      // shipment the visitor moves what lies on the pad off it (here no Fetch takes it)
+      const pad = bench.runner.rounds!.pad!;
+      for (const p of world.parts()) {
+        const q = world.motion(p.id)!.pose.p;
+        if (world.mode(p.id) !== 'free' || Math.hypot(q[0] - pad[0], q[2] - pad[1]) > 0.6) continue;
+        world.dispatch({ type: 'grab', id: p.id, grip: q });
+        run(world, 1);
+        world.dispatch({ type: 'place', at: [0.6 * ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'].indexOf(p.id) - 3, 0, -2] });
+        run(world, HZ);
+      }
       setOnBelt(world, physics, id, LINE.belt.to - 0.3);
       for (let i = 0; i < 8 * HZ && world.part(id)!.location.at !== 'shipped'; i++) run(world, 1);
       expect(world.part(id)!.location.at).toBe('shipped');

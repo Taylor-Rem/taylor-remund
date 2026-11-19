@@ -39,9 +39,19 @@ test('three minutes of play: every set-down lands on the belt; nothing else leav
       } else strays.push(`${held} let go in ${f.state} at ${(w.step / HZ).toFixed(2)} s`);
     }
     held = f.carrying;
-    for (const [id, by] of pending) expect(w.step, `${id} set down but not taken in by the belt (or the tray)`).toBeLessThanOrEqual(by);
+    // (S5 R1: or set on the stack, restocking it from the chute's pad: at rest there)
+    const stack = FULL_BENCH.runner.rounds!.stack;
+    for (const [id, by] of [...pending]) {
+      const p = w.motion(id)!.pose.p;
+      if (w.mode(id) === 'free' && w.part(id)!.location.at === 'rest' && Math.hypot(p[0] - stack[0], p[2] - stack[1]) < 0.55) {
+        pending.delete(id);
+        fed++;
+        continue;
+      }
+      expect(w.step, `${id} set down but not taken in by the belt (or the tray), nor on the stack`).toBeLessThanOrEqual(by + HZ / 2);
+    }
   }
-  console.log(`three minutes of play: ${placed} set down, ${fed} taken in by the belt, strays ${JSON.stringify(strays)}`);
+  console.log(`three minutes of play: ${placed} set down, ${fed} taken in by the belt or set on the stack, strays ${JSON.stringify(strays)}`);
   expect(strays).toEqual([]);
   expect(placed).toBeGreaterThan(10);
   expect(fed).toBe(placed - pending.size);

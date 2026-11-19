@@ -338,7 +338,13 @@ export type SimEvent =
   /** The return chute's flap kicks open: a part pops out (`part`), or a misfire (null). */
   | { readonly type: 'flap'; readonly id: Id; readonly part: Id | null }
   /** A plain crate shipped and a fresh one is set on the crate stack in its place (dropped on from above, as `system`). */
-  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id }
+  | { readonly type: 'restocked'; readonly id: Id; readonly part: Id; /** S5 R1: where it was set: on the stack (no pad), or on the chute's pad (at touchdown). */ readonly on?: 'stack' | 'pad' }
+  /**
+   * S5 R1: a plain crate's replacement leaves the return chute's mouth (`from`), thrown in an arc onto the pad (`to`,
+   * its centre at rest), landing `flight` seconds later (then `restocked` with `on: 'pad'`). The chute's flap kicks.
+   * Fetch's view: in attract mode it lands beside Fetch as it watches its crate ship (a flinch and a look).
+   */
+  | { readonly type: 'restock.launched'; readonly id: Id; readonly part: Id; readonly from: Vec3; readonly to: Vec3; readonly flight: number }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
