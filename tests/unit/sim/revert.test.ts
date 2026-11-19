@@ -361,7 +361,7 @@ describe('Revert between jobs', () => {
     const { world, physics } = quietStub();
     run(world, 5);
     // the visitor scatters the stack and takes the loose crate out of Fetch's hands: four strays
-    setDown(world, physics, 'crate-3', -6, -3);
+    setDown(world, physics, 'crate-3', -6.6, -1.6);
     const first = world.step;
     run(world, steps(5));
     setDown(world, physics, 'crate-2', -6.5, 1);
@@ -391,7 +391,7 @@ describe('Revert between jobs', () => {
   /** Four strays, then on to the moment Revert starts its sweep: the part it sweeps. */
   function toSweep(world: World, physics: StubPhysics): Id {
     run(world, 5);
-    setDown(world, physics, 'crate-3', -6, -3);
+    setDown(world, physics, 'crate-3', -6.6, -1.6);
     run(world, steps(5));
     setDown(world, physics, 'crate-2', -6.5, 1);
     setDown(world, physics, 'crate-1', -2, -3.5);
@@ -428,6 +428,21 @@ describe('Revert between jobs', () => {
     world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     const ev = run(world, steps(REVERT_TUNING.sweep + REVERT_TUNING.settle + 1));
     expect(ev.some((e) => e.type === 'revert.sweep' && e.part === part)).toBe(false);
+  });
+
+  test('S7 round 2: a stray with no clear stand (hard against the back of the bench) is left for later, not swept from wherever Revert is', () => {
+    const { world, physics } = quietStub();
+    run(world, 5);
+    setDown(world, physics, 'crate-3', -6, -3);
+    run(world, steps(5));
+    setDown(world, physics, 'crate-2', -6.5, 1);
+    setDown(world, physics, 'crate-1', -2, -3.5);
+    setDown(world, physics, 'crate-4', 1.5, -3.2);
+    const ev = run(world, steps(A_WHILE - 4)); // crate-3 is old enough from about 83 s in; the others not yet
+    expect(ev.some((e) => e.type === 'revert.sweep' || e.type === 'put-away')).toBe(false);
+    expect(states(ev)).not.toContain('sweep');
+    expect(states(ev)).not.toContain('rising'); // it does not even come up for it
+    expect(world.writer('crate-3', 'location')).not.toBe('system');
   });
 
   test('it never puts away what the visitor touched within the while', () => {
