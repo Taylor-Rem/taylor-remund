@@ -263,7 +263,10 @@ async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY
         if (!t) return { p: null, why: 'no target' };
         // the points of the target a hand could press (the one asked for, or its middle and round it), each only if
         // it is the target's now; of those, the one farthest from any of the crew (a robot may be rolling closer)
-        const cands = at ? [at] : [[0, 0], [0.35, 0], [-0.35, 0], [0, 0.35], [0, -0.35], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]].map(([a, b]) => ({ x: t.x + a! * t.r, y: t.y + b! * t.r }));
+        // the middle and round it, then the rest of its disc (a robot parked half in front leaves the other half to press)
+        const grid: number[][] = [[0, 0], [0.35, 0], [-0.35, 0], [0, 0.35], [0, -0.35], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]];
+        for (let a = -0.7; a <= 0.71; a += 0.175) for (let b = -0.7; b <= 0.71; b += 0.175) if (Math.hypot(a, b) <= 0.75) grid.push([a, b]);
+        const cands = at ? [at] : grid.map(([a, b]) => ({ x: t.x + a! * t.r, y: t.y + b! * t.r }));
         const crew = ['fetch', 'patch', 'revert'].filter((c) => c !== id).map((c) => ws.surface.screen(c)).filter(Boolean);
         let best: { x: number; y: number } | null = null;
         let bd = -Infinity;
@@ -869,6 +872,91 @@ test('R1: the glove cursor over the stage (four poses as CSS images), and the be
   await frames(p2, 30);
   expect(await p2.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor)).not.toMatch(/image-set/);
   await ctx.close();
+});
+
+/**
+ * R2 (Taylor: "sometimes when you click on the phone it doesn't open the interactive phone screen to full size,
+ * instead still basically being the same size as the phone and there's no way to fix it"). A hundred times, at
+ * random moments of a running bench, the phone is opened and closed the ways a visitor does it (the phone, the
+ * close key, Escape, quick second presses); after each, once its move is over, the panel is fully open (its full
+ * size, no transform left on it, and the text field takes typing) or fully shut, and it opens again.
+ */
+async function phoneCycles(page: Page, kind: 'mouse' | 'touch', n: number): Promise<string[]> {
+  const fails: string[] = [];
+  const press = async (p: XY) => (kind === 'touch' ? page.touchscreen.tap(p.x, p.y) : page.mouse.click(p.x, p.y));
+  const panel = page.locator('section.ph');
+  const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+  const look = () =>
+    page.evaluate(() => {
+      const ws = (window as any).__bench.ws;
+      const el = ws.phone.panel.element as HTMLElement;
+      const r = el.getBoundingClientRect();
+      return { open: ws.phone.isOpen as boolean, hidden: el.hidden, w: r.width, transform: getComputedStyle(el).transform, vw: document.documentElement.clientWidth };
+    });
+  for (let i = 0; i < n; i++) {
+    const seq: string[] = [];
+    // open it (from wherever the last cycle left it), then one to three of: close key, Escape, the phone again
+    const ph = await waitClear(page, 'phone', kind);
+    await press(ph);
+    seq.push('phone');
+    for (let k = Math.floor(rnd(0, 3)); k > 0; k--) {
+      await page.waitForTimeout(rnd(0, 420));
+      const a = Math.floor(rnd(0, 3));
+      if (a === 0 && (await panel.isVisible())) {
+        const b = await page.locator('.ph-close').boundingBox();
+        if (b) await press({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+        seq.push('close');
+      } else if (a === 1) {
+        await page.keyboard.press('Escape');
+        seq.push('esc');
+      } else {
+        const p2 = await page.evaluate(() => (window as any).__bench.ws.surface.screen('phone') as XY);
+        await press(p2);
+        seq.push('phone');
+      }
+    }
+    // its move is over (380 ms open, 220 ms shut) and a little more
+    await page.waitForTimeout(650);
+    const s = await look();
+    const full = kind === 'touch' ? s.w >= s.vw - 2 : Math.abs(s.w - Math.min(388, s.vw - 48)) < 2;
+    if (s.open) {
+      if (s.hidden || !full || s.transform !== 'none') fails.push(`#${i} ${seq.join(',')}: open but ${JSON.stringify(s)}`);
+      else {
+        // the text field takes typing
+        const field = page.locator('section.ph input:not([type="hidden"]), section.ph textarea').first();
+        if (await field.isEnabled()) {
+          await field.focus();
+          await page.keyboard.type('hi');
+          const v = await field.inputValue();
+          if (!v.endsWith('hi')) fails.push(`#${i} ${seq.join(',')}: the field did not take typing (${JSON.stringify(v)})`);
+          await field.fill('');
+        }
+      }
+    } else if (!s.hidden) fails.push(`#${i} ${seq.join(',')}: shut but showing ${JSON.stringify(s)}`);
+    // shut it for the next cycle, if it is open (the close key), and let the bench run a random while
+    if (s.open) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+    }
+    await page.waitForTimeout(rnd(0, 900));
+  }
+  return fails;
+}
+
+test('R2: the phone’s panel is never stranded: a hundred opens and closes at random moments, by mouse and by touch', async ({ page, browser }) => {
+  test.setTimeout(40 * 60_000);
+  await open(page, 1440, 900);
+  const mouse = await phoneCycles(page, 'mouse', 100);
+  console.log(`[I1] R2 mouse: ${100 - mouse.length}/100 good${mouse.length ? `; first: ${mouse.slice(0, 3).join(' | ')}` : ''}`);
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const p2 = await ctx.newPage();
+  await open(p2, 390, 844);
+  // the phone is at the edge of the phone framing: bring it in once with a finger, as a visitor would
+  await bringIntoView(p2, fingerHand(await ctx.newCDPSession(p2)), 'phone', 'touch');
+  const touch = await phoneCycles(p2, 'touch', 100);
+  await ctx.close();
+  console.log(`[I1] R2 phone cycles: mouse ${100 - mouse.length}/100 good, touch ${100 - touch.length}/100 good`);
+  expect([...mouse.map((f) => `mouse ${f}`), ...touch.map((f) => `touch ${f}`)]).toEqual([]);
 });
 
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
