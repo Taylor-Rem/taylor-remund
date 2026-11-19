@@ -311,8 +311,15 @@ export function toRoot(world: V3, rootWorld: Matrix4): V3 {
 
 /** Spine frame (root space) for a pose's body, lean and twist. */
 function spineFrame(f: Pick<FullPose, 'body' | 'lean' | 'twist'>): Matrix4 {
-  return poseMatrices({ body: f.body, lean: f.lean, twist: f.twist }).body!.clone().multiply(poseMatrices({ lean: f.lean, twist: f.twist }).spine!);
+  // the rig's own body and spine transforms (rig.ts poseMatrices), without the rest of the tree
+  const fore = clamp(f.lean[0], -0.25, 0.45), side = clamp(f.lean[1], -0.35, 0.35);
+  return bodyMatrix(f.body as BodyPlace)
+    .multiply(_s.makeTranslation(0, HIPS.y, HIPS.z))
+    .multiply(_s.makeRotationZ(-side))
+    .multiply(_s.makeRotationX(fore))
+    .multiply(_s.makeRotationY(clamp(f.twist, -0.6, 0.6)));
 }
+const _s = new Matrix4();
 
 /**
  * Head yaw and pitch (and the eyes' share) to look at a root-space point from a body pose.
@@ -338,6 +345,11 @@ export const ARM_REACH = UPPER_ARM + FOREARM + PALM;
 
 /** Solve one arm (spine space target) to joints. Returns the joints and how far the target is out of reach. */
 export function solveArm(side: 'left' | 'right', targetSpine: Vector3, base: ArmJoints): { joints: ArmJoints; short: number } {
+  const a = solveArmAnalytic(side, targetSpine, base);
+  return refineArm(side, targetSpine, a.joints, a.short);
+}
+
+function solveArmAnalytic(side: 'left' | 'right', targetSpine: Vector3, base: ArmJoints): { joints: ArmJoints; short: number } {
   const s = side === 'left' ? 1 : -1;
   const S = new Vector3(s * SHOULDER.x, SHOULDER.y, SHOULDER.z);
   const D = targetSpine.clone().sub(S);
@@ -380,9 +392,15 @@ export function solveArm(side: 'left' | 'right', targetSpine: Vector3, base: Arm
   const X0 = new Vector3(Math.cos(phi), Math.sin(phi), 0);
   const Z0 = new Vector3(-Math.sin(sw) * Math.sin(phi), Math.sin(sw) * Math.cos(phi), Math.cos(sw));
   const beta = Math.atan2(w.dot(X0), w.dot(Z0));
-  const analytic: ArmJoints = { swing: sw, abduct: s * phi, twist: s * beta, elbow, wrist: base.wrist, roll: base.roll };
-  // the rig clamps its joints: if the analytic answer is outside them, search inside them instead
-  return refineArm(side, targetSpine, analytic, short);
+  return { joints: { swing: sw, abduct: s * phi, twist: s * beta, elbow, wrist: base.wrist, roll: base.roll }, short };
+}
+
+/** The closed-form arm alone (no search): its joints, how far short, and how far outside the rig's limits it is. */
+function analyticArm(side: 'left' | 'right', targetSpine: Vector3, base: ArmJoints): { joints: ArmJoints; short: number; outside: number } {
+  const r = solveArmAnalytic(side, targetSpine, base);
+  let outside = 0;
+  for (const k of ARM_KEYS) outside += Math.max(0, ARM_LIMITS[k][0] - r.joints[k], r.joints[k] - ARM_LIMITS[k][1]);
+  return { ...r, outside };
 }
 
 /** The palm's middle in spine space for an arm's joints (the rig's own chain). */
@@ -414,13 +432,23 @@ function refineArm(side: 'left' | 'right', target: Vector3, start: ArmJoints, sh
     return p.distanceToSquared(target) + elbowUp * 0.002;
   };
   if (Math.sqrt(err(s0)) < 0.01 + short0) return { joints: s0, short: short0 };
-  const seeds: ArmJoints[] = [s0, { ...s0, swing: 1.2, abduct: 0.3, twist: -0.6, elbow: 1.6 }, { ...s0, swing: 0.6, abduct: 0.2, twist: 0, elbow: 1.0 }, { ...s0, swing: 1.8, abduct: 0.1, twist: -1.0, elbow: 2.0 }];
+  const others: ArmJoints[] = [{ ...s0, swing: 1.2, abduct: 0.3, twist: -0.6, elbow: 1.6 }, { ...s0, swing: 0.6, abduct: 0.2, twist: 0, elbow: 1.0 }, { ...s0, swing: 1.8, abduct: 0.1, twist: -1.0, elbow: 2.0 }];
+  // start from whichever seed is already nearest: one descent, not four
+  let seed0 = s0, e0 = err(s0);
+  for (const o of others) {
+    const e = err(limited(o));
+    if (e < e0) {
+      seed0 = o;
+      e0 = e;
+    }
+  }
+  const seeds: ArmJoints[] = [seed0];
   let best = s0, bestE = err(s0);
   const keys: (keyof ArmJoints)[] = ['swing', 'abduct', 'twist', 'elbow'];
   for (const seed of seeds) {
     let a = limited(seed), e = err(a);
     for (let step = 0.4; step > 0.004; step *= 0.5) {
-      for (let it = 0; it < 6; it++) {
+      for (let it = 0; it < 5; it++) {
         let moved = false;
         for (const k of keys) {
           for (const d of [step, -step]) {
@@ -488,7 +516,7 @@ function reachUncached(target: V3, side: 'left' | 'right', base: PatchPose, o: {
   const T = new Vector3(...target);
   if (o.swivel !== undefined) f.body.rot = [f.body.rot[0], o.swivel, f.body.rot[2]];
   const armBase = f.arms[side];
-  let best: { fore: number; sideL: number; twist: number; short: number; joints: ArmJoints; cost: number } | null = null;
+  let best: { fore: number; sideL: number; twist: number; short: number; joints: ArmJoints; cost: number; local: Vector3 } | null = null;
   const S = new Vector3((side === 'left' ? 1 : -1) * SHOULDER.x, SHOULDER.y, SHOULDER.z);
   // the least lean that reaches with a little bend left in the elbow; else the closest it can get.
   // Branch and bound (H1): a lean's own penalty is a floor under its cost, so the candidates are tried
@@ -500,15 +528,20 @@ function reachUncached(target: V3, side: 'left' | 'right', base: PatchPose, o: {
     const { fore, sideL, tw } = c;
     const sp = spineFrame({ body: f.body, lean: [fore, sideL], twist: tw });
     const local = T.clone().applyMatrix4(sp.clone().invert());
-    const r = solveArm(side, local, armBase);
+    // the closed-form arm scores each lean (cheap); a lean whose answer leaves the rig's limits pays for it
+    const r = analyticArm(side, local, armBase);
     const slack = Math.max(0, local.distanceTo(S) - ARM_REACH * 0.93);
-    const cost = r.short * 10 + slack * 2 + fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1;
+    const cost = r.short * 10 + slack * 2 + fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1 + r.outside * 0.05;
     if (!best || cost < best.cost || (cost === best.cost && c.idx < bestIdx)) {
-      best = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost };
+      best = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost, local };
       bestIdx = c.idx;
     }
   }
   const b = best!;
+  // only the winner is brought inside the limits (the search, if it needs one)
+  const fin = refineArm(side, b.local, b.joints, b.short);
+  b.joints = fin.joints;
+  b.short = fin.short;
   f.lean = [b.fore, b.sideL];
   f.twist = b.twist;
   f.arms[side] = b.joints;
