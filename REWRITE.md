@@ -696,8 +696,13 @@ Patch's place: it never walks the bench.
 - *With the visitor:* pull the cord out mid-job and Patch looks at the dead
   plug, then slowly at the visitor.
 - *Picked up* (Taylor, 2026-11-18): Patch can be lifted off the stool. It
-  hangs there unimpressed; put down anywhere, it goes back to the stool
-  and climbs up.
+  flails, then hangs there unimpressed; put down anywhere, it goes back to
+  the stool and climbs up. The way back is the only walking it does, and
+  it is walked properly (a coworker of Taylor's, 2026-11-19: "Patch has a
+  weird walking animation"): a look at the visitor, a turn to face its
+  way, steps that plant, a scamper when the way is long; round the
+  machines, the crates and Fetch, never through them; over the belt by
+  climbing its rail and being carried a step or two.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
@@ -928,7 +933,10 @@ arrangement of objects becomes a tune with no instruction.
 door rolls up, the part leaves, a bell rings. A plain crate's replacement
 is thrown up the return chute onto the pad by the belt's feed (Taylor,
 2026-11-19: "We could have the boxes shoot out of the chute"); Fetch keeps
-the stack stocked from the pad and otherwise feeds the belt from it; a tool or a robot comes back up the chute with a RETURN TO
+the stack stocked from the pad and otherwise feeds the belt from it; a robot is refused a second and a half after the door shuts on it and is
+thrown home up the chute, tumbling, to land on its wheels by the pad
+(Taylor's coworkers, 2026-11-19: "he disappears completely. He should come
+back somehow"; it had been away ten seconds); a tool comes back up the chute with a RETURN TO
 SENDER mark. *Reset:* UNDO brings a shipment back through the door. *Why:*
 things have somewhere to go, and coming back is funnier than leaving.
 
@@ -1403,7 +1411,16 @@ machine.
 If frame time worsens during a visit the stage steps down by itself:
 resolution first, then shadows, then part count. A lost graphics context
 shows the picture and a button to restart the workshop. Any uncaught error
-in the stage falls back to the Still tier. The stage stops drawing when its
+in the stage falls back to the Still tier. As built in P2 (2026-11-19,
+after a coworker's bench froze for the rest of a visit): when the context
+is lost the world stops and keeps its state and the picture shows; if the
+context comes back within five seconds the stage is built again on the
+same world and the visitor's bench carries on, otherwise the picture
+stays (the restart button and its words are P3's). On a built page one
+faulting machine or view is skipped and reported to the console, a second
+fault within three seconds puts the bench back to its opening state, and
+only repeated failure ends at the picture; in development and in every
+test an error still throws. The stage stops drawing when its
 tab is hidden.
 
 ### E8. Tests and checks
