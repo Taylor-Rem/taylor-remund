@@ -489,6 +489,7 @@ const PATCHLAMP_UNITS = [
     jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
     stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.aim },
     bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
+    edge: { minX: AT.bench.minX, maxX: AT.bench.maxX, maxZ: AT.bench.maxZ }, // R1: the open edges it can hang from
     runner: s6PatchRunner(), // S6
   }),
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
