@@ -45,7 +45,7 @@ const body = (id: string): Box3 => {
 const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS }), stool: stool({ detail: 'low', seatY: STOOL_SEAT }), belt: belt({ length: LAYOUT.beltLength, detail: 'low', line: true }) }, { stool: { x: S.stool.x, z: S.stool.z }, phoneYaw: S.phone.yaw });
 
 /** Where the fumbled crate comes to rest: tossed back and left off the front run, in front of the console (about; the simulation decides). */
-const REST: Vec3 = [AT.fumbleX - 0.45, 0.225, AT.lane.points[0]![1] - 0.9];
+const REST: Vec3 = [AT.fumbleX - 0.45, 0.225, AT.lane.points[0]![1] - 0.2];
 /** Patch, drawn at the crew's scale on its seat: its seated box. */
 const patchBox = (): Box3 => {
   const s = fit.stool.seat;
@@ -210,7 +210,7 @@ describe("Fetch's path (A1 round 6: runs of tape, corners rounded)", () => {
       }
   });
 
-  const TODAYS_PLATEN = new Set(['platen-column', 'platen-tank']);
+  const TODAYS_PLATEN = new Set(['platen-plinth']);
   const trayS = (() => {
     const t = scene.mouths!.find((m) => m.id === scene.runner.attract!.tray)!;
     return fetchStand(scene, 'tray', t.drop[0], t.drop[2]).s;
@@ -567,8 +567,8 @@ describe("Fetch's reach (A1 round 6: arm's length, side-on or facing the visitor
     const end = AT.lane.points[AT.lane.points.length - 1]!;
     expect(Math.hypot(t.at[0] - end[0], t.at[1] - end[1])).toBeCloseTo(FETCH_TUNING.inset, 3);
     // the reshaped platen's left stand: 0.40 outside its left foot (today's piece is placed with its left foot there)
-    expect(body('platen').min.x - t.at[0]).toBeCloseTo(0.4, 2);
-    expect(tray.drop[0] - t.at[0]).toBeCloseTo(1.0, 2);
+    expect(body('platen-plinth').min.x - t.at[0]).toBeCloseTo(0.4, 2);
+    expect(Math.abs(tray.drop[0] - t.at[0] - 0.99)).toBeLessThan(0.02); // PLATEN.stand.left: 0.99 from the seat
     expect(tray.drop[2]).toBeCloseTo(t.at[1], 3);
   });
 

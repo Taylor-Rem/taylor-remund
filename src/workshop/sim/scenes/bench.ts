@@ -78,29 +78,31 @@ export const AT = {
   /** The UNDO lever (real piece, origin (-2.5, 0.3)): its console, quadrant and lever at home, as one box. */
   undo: { c: [-2.5, 0.983, 0.352], half: [0.79, 0.983, 0.462] } as Box,
   /** The phone on its easel. */
-  phone: { c: [2.9, 0.36, 1.6], half: [0.21, 0.36, 0.15] } as Box,
-  /** The platen (real piece, origin (4.9, 0.85): today's piece, its left foot at x 3.7 where the reshaped piece's will be): its base and deck, its arm's column, its tank. */
-  platen: { c: [4.9, 0.31, 0.705], half: [1.2, 0.31, 1.005] } as Box,
-  platenColumn: { c: [3.9, 1.5, 0.75], half: [0.1, 1.5, 0.12] } as Box,
-  platenTank: { c: [5.72, 0.75, 0.0], half: [0.26, 0.75, 0.26] } as Box,
+  phone: { c: [0.12, 0.36, 1.95], half: [0.21, 0.36, 0.15] } as Box,
+  /** The reshaped platen (real piece, origin (3.14, 0.8)): its console (x 0.4..2.12, z -1.2..0.42 from the origin, the column, tank and PLATEN plate on it); its column; its tank. Its left stand, PLATEN.stand.left, is the end of Fetch's path. */
+  platen: { c: [4.4, 0.31, 0.41], half: [0.86, 0.31, 0.81] } as Box,
+  /** The platen's turntable on its round plinth, at the piece's front left: its cast foot (radius 0.59 round the seat) as a box. */
+  platenPlinth: { c: [3.19, 0.31, 0.7], half: [0.59, 0.31, 0.59] } as Box,
+  platenColumn: { c: [4.09, 1.5, 0.7], half: [0.12, 1.5, 0.12] } as Box,
+  platenTank: { c: [4.58, 0.75, -0.06], half: [0.26, 0.75, 0.26] } as Box,
   /** The storefront (real piece, origin (7.6, -3.6)): its bounds, jack box and conduit included. */
   storefront: { c: [7.07, 1.415, -3.535], half: [1.74, 1.415, 0.535] } as Box,
   /** Shipped (P4, clay): four 1.0 × 1.0 pallets, 0.15 high. */
   pallets: [
-    { c: [7.4, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
-    { c: [8.45, 0.075, -1.85], half: [0.5, 0.075, 0.5] },
-    { c: [7.48, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
-    { c: [8.5, 0.075, -0.3], half: [0.5, 0.075, 0.5] },
+    { c: [7.4, 0.075, -2.05], half: [0.5, 0.075, 0.5] },
+    { c: [8.45, 0.075, -2.05], half: [0.5, 0.075, 0.5] },
+    { c: [7.48, 0.075, -0.5], half: [0.5, 0.075, 0.5] },
+    { c: [8.5, 0.075, -0.5], half: [0.5, 0.075, 0.5] },
   ] as readonly Box[],
   /** Their stacks of crates (fronts flush with the pallets' fronts): the back row 1.2 high, the front row 0.6. */
   stacks: [
-    { c: [7.3975, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
-    { c: [8.4525, 0.675, -1.65], half: [0.4975, 0.525, 0.3] },
-    { c: [7.48, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
-    { c: [8.5, 0.375, -0.025], half: [0.475, 0.225, 0.225] },
+    { c: [7.3975, 0.675, -1.85], half: [0.4975, 0.525, 0.3] },
+    { c: [8.4525, 0.675, -1.85], half: [0.4975, 0.525, 0.3] },
+    { c: [7.48, 0.375, -0.225], half: [0.475, 0.225, 0.225] },
+    { c: [8.5, 0.375, -0.225], half: [0.475, 0.225, 0.225] },
   ] as readonly Box[],
   /** The mailbox on its post, the résumé clipboard on it (P4, clay): front right. */
-  mailbox: { c: [7.7, 0.65, 3.75], half: [0.21, 0.65, 0.16] } as Box,
+  mailbox: { c: [8.25, 0.65, 4.2], half: [0.21, 0.65, 0.16] } as Box,
   /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.85, 0.3)). Its hatch's doors stand open either side, low. */
   revert: { c: [-4.832, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
 
@@ -122,22 +124,22 @@ export const AT = {
    * (side-on, arms out across its low left edge) with the phone and the stack in front of it. Every place it
    * handles is within 1.0 of where it stands (`runner.stands`, `reach` 1.10).
    */
-  lane: { points: [[-0.5, 2.93], [1.08, 2.93], [1.08, 0.75], [3.6, 0.75]] as const },
+  lane: { points: [[-0.5, 2.93], [1.08, 2.93], [1.08, 0.7], [2.5, 0.7]] as const },
   /** Where Fetch stands for each thing it handles (x, z on its path): the belt's feed (in front), the phone and the stack (in front), the tray (the path's end, side-on). */
-  stands: { feed: [0.63, 2.93] as const, phone: [2.9, 0.75] as const, stack: [1.08, 1.85] as const, tray: [3.6, 0.75] as const },
+  stands: { feed: [0.63, 2.93] as const, phone: [1.08, 1.95] as const, stack: [1.08, 1.85] as const, tray: [2.5, 0.7] as const },
   /** The length of the row at the deflector's foot (three crates side by side), from its end right of the belt's control housing. */
   offBackRow: 2.4,
   /** The belt's feed point (x): where Fetch sets crates on the belt, right in front of where it stands; upstream of the striker. */
   beltFeed: 0.63,
   /** The platen's seat as the reshaped piece will have it (PLATEN.stand.left + 1.0: 0.6 inside its left foot, on the seat's own z). Today's piece is placed with its left foot where the new one's will be. */
-  platenSeat: [4.3, 0.62, 0.75] as Vec3,
+  platenSeat: [3.19, 0.62, 0.7] as Vec3,
   /** Where along the lane Fetch starts (0 at a), with the loose crate in its hands. */
   fetchStart: 0.12,
   /** The loose crate's own starting point (its durable location until it first rests elsewhere). */
   looseCrate: [0.0, 0.225, 2.2] as Vec3,
   /** Where on the lane Fetch fumbles (x, on its front run): right of the console's front; the crate tumbles back and left, to rest in front of the console. */
-  fumbleX: 0.6,
-  fumble: { heading: -Math.PI / 2, linvel: [-0.9, 1.8, -0.8] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
+  fumbleX: 0.4,
+  fumble: { heading: -Math.PI / 2, linvel: [-0.9, 1.8, -0.3] as Vec3, angvel: [0, 0, 5] as Vec3, offerHeading: 0 },
   /** The belt's bed (carrying surface at y 0.5) and its control housing at the left end (the `line` belt: dial, lever, lamp; x -7.34..-5.96). Belt length 10. A part run off the back by the deflector rests at its `off.back`, (-5.4, 2.68): beside the stack, at the lane's left end. */
   belt: { c: [-0.9, 0.25, 4.0], half: [5.0, 0.25, 0.52] } as Box,
   beltMotor: { c: [-6.65, 0.63, 4.1], half: [0.69, 0.63, 0.79] } as Box,
@@ -551,6 +553,7 @@ export const bench: SceneDesc = {
     box('belt-motor', AT.beltMotor),
     box('undo', AT.undo),
     box('platen', AT.platen),
+    box('platen-plinth', AT.platenPlinth),
     box('platen-column', AT.platenColumn),
     box('platen-tank', AT.platenTank),
     box('storefront', AT.storefront),

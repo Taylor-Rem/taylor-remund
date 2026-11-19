@@ -60,7 +60,8 @@ describe('the knock is bounded: never off the bench, never into a machine', () =
     const toward = clearRun(-1, 2.2, 0, 1, 3, r, b, obs);
     expect(toward).toBeLessThan(3);
     for (const o of obs) expect(distanceTo(o, -1, 2.2 + toward)).toBeGreaterThanOrEqual(r - 1e-9);
-    expect(clearRun(-1, 2.2, 1, 0, 1, r, b, obs)).toBeCloseTo(1, 9);
+    // (A1 round 6: the open bench in front of the console, leftward; the phone stands right of it)
+    expect(clearRun(-1, 2.2, -1, 0, 1, r, b, obs)).toBeCloseTo(1, 9);
   });
 
   test('never past the bench edge', () => {

@@ -197,7 +197,8 @@ describe('knocked', () => {
     // the behaviour, not the aim: every knock above recovered; and the throws exercised it (how many land
     // depends on the layout round Fetch's lane: on round 4, 43 of 220)
     expect(knocked).toBeGreaterThanOrEqual(25);
-    expect(sides.size).toBeGreaterThanOrEqual(3);
+    // (A1 round 6: Fetch waits at the stack's stand on the jog, the stack on its right and the console behind it: two sides are open)
+    expect(sides.size).toBeGreaterThanOrEqual(2);
     expect(strengths.size).toBeGreaterThanOrEqual(2);
     w.dispose();
   }, 240_000);

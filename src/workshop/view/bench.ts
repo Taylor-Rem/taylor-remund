@@ -94,7 +94,7 @@ export const REVERT_SCALE = CREW_SCALE / 1.25;
  */
 export const BOUNDS = {
   storefront: { x: [-2.27, 1.21], z: [-0.47, 0.6], h: 2.83 },
-  platen: { x: [-1.7, 1.31], z: [-1.26, 1.09], h: 2.99 },
+  platen: { x: [-0.54, 2.49], z: [-1.51, 0.65], h: 3.08 },
   dock: { x: [-1.7, 1.38], z: [-1.35, 1.2], h: 2.29 },
   revert: { x: [-0.84 * REVERT_SCALE, 0.87 * REVERT_SCALE], z: [-0.58 * REVERT_SCALE, 0.7 * REVERT_SCALE], h: 1.12 * REVERT_SCALE },
   hatch: { x: [-1.3 * REVERT_SCALE, 1.3 * REVERT_SCALE], z: [-0.81 * REVERT_SCALE, 0.81 * REVERT_SCALE], h: 0.87 * REVERT_SCALE },
@@ -170,9 +170,9 @@ export const LAYOUT = {
     bayNext: spot(-4.18, -3.55, 2.72, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
     /** The platen (real; base 2.4 × 2.0, arm up 3.0; its conduit leaves left). Right of Patch and forward, its column clear of Patch's tail; its tray 1.9 from the lane. */
-    platen: real(4.9, 0.85, BOUNDS.platen),
+    platen: real(3.14, 0.8, BOUNDS.platen),
     /** Shipped (P4): four pallets of crates (`SHIPPED`). */
-    shipped: spot(7.88, -1.0, 2.24, 2.8, 1.2, { fill: 'zone' }),
+    shipped: spot(7.88, -1.2, 2.24, 2.8, 1.2, { fill: 'zone' }),
     // ── the Button's row ──
     /** Revert's hatch, doors open, the lift up (real, at REVERT_SCALE). The bench top is cut for it (`benchHole`). Left of the lever, in the lamp's spill. */
     hatch: real(-4.85, 0.3, BOUNDS.hatch),
@@ -182,7 +182,7 @@ export const LAYOUT = {
     undo: real(-2.5, 0.3, BOUNDS.undo),
     button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
     /** The phone on its easel: right of the Button, between it and the platen, a hand's reach from the lane. */
-    phone: spot(2.9, 1.6, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
+    phone: spot(0.12, 1.95, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──
     /** The crate stack (the ground point of its bottom crate): left of the lane's left end, 2.02 from its stop (the crate it lifts swings clear of the stack); the chute's landing and the deflector's set-down spot beside it, all clear of the lane's tape. */
     stack: spot(2.13, 1.85, 0.8, 0.8, 1.85, { fill: 'piece' }),
@@ -195,7 +195,7 @@ export const LAYOUT = {
     /** The dock (real; its turn toward the camera is built in, so yaw 0; its ramp fitted to the belt's end). */
     dock: real(DOOR[0], DOOR[1], BOUNDS.dock),
     /** The mailbox on its post, the résumé clipboard hanging from it: front right, clear, nothing in front (P4 builds them). */
-    mailbox: spot(7.7, 3.75, 0.42, 0.36, 1.3),
+    mailbox: spot(8.25, 4.2, 0.42, 0.36, 1.3),
     /** The return chute (real): up out of the dark at the front-left corner, its mouth looking along the bench at the stack's front. */
     chute: real(-7.8, 5, BOUNDS.chute),
   },
@@ -222,15 +222,15 @@ const PALLET = { w: 1.0, d: 1.0, h: 0.15 } as const;
 export const SHIPPED = {
   pallet: PALLET,
   pallets: [
-    { x: 7.4, z: -1.85, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
-    { x: 8.45, z: -1.85, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
-    { x: 7.48, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
-    { x: 8.5, z: -0.3, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 7.4, z: -2.05, crates: [{ size: 'M', dx: -0.2, y: 0 }, { size: 'S', dx: -0.2, y: 0.6 }, { size: 'S', dx: 0.27, y: 0 }] },
+    { x: 8.45, z: -2.05, crates: [{ size: 'M', dx: 0.2, y: 0 }, { size: 'S', dx: 0.2, y: 0.6 }, { size: 'S', dx: -0.27, y: 0 }, { size: 'S', dx: -0.27, y: 0.45 }] },
+    { x: 7.48, z: -0.5, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
+    { x: 8.5, z: -0.5, crates: [{ size: 'S', dx: -0.25, y: 0 }, { size: 'S', dx: 0.25, y: 0 }] },
   ] as ReadonlyArray<{ x: number; z: number; crates: readonly ShippedCrate[] }>,
 } as const;
 
 /** The mailbox on its post and the résumé clipboard hanging from the post's front (clay; P4). */
-export const MAILBOX = { x: 7.7, z: 3.75, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 }, clipboard: { w: 0.34, h: 0.44, t: 0.03, y: 0.42 } } as const;
+export const MAILBOX = { x: 8.25, z: 4.2, post: 0.18, postH: 1.0, box: { w: 0.42, d: 0.32, h: 0.3 }, clipboard: { w: 0.34, h: 0.44, t: 0.03, y: 0.42 } } as const;
 
 /** Each pallet as two boxes, the pallet and its stack of crates: the bodies. */
 export function shippedBoxes(): Array<{ id: string; box: Box3 }> {
