@@ -35,7 +35,7 @@ import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -70,7 +70,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm' | 'ledge';
 
 /** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
 const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
@@ -181,6 +181,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let walked = 0;
     let walkPrev: V3 | null = null;
     let climbFoot: V3 = [0, 0, 1];
+    /** R1: the edge it went over (root space), kept for the ledge, the haul and the dusting off. */
+    let ledgeO: LedgeOptions | null = null;
     let catchShelf: V3 | null = null;
     let reactFrom: V3 = [0, 0, 1];
     let lookStart = 0;
@@ -277,7 +279,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const plugOut = !!cord?.lifted;
 
         // ── a Button rung: the crew is the audience; the job resumes where the simulation left it ──
-        if (w.bracketed && !rungSaved && mode !== 'held') {
+        if (w.bracketed && !rungSaved && mode !== 'held' && mode !== 'ledge') {
           rungSaved = { mode, entry, at: t };
           rungDrawer = drawer;
           enter('rung', t, true);
@@ -358,6 +360,16 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               enter('walk', t, false);
               break;
             }
+            case 'ledge':
+            case 'haul':
+            case 'dust':
+              // R1: over the edge; the performance runs the three stages through on one set of keys
+              if (mode !== 'ledge' && v.ledge) {
+                ledgeO = { at: seatSpace(v.ledge.at), up: seatSpace(v.ledge.up), heading: v.heading - SIDE_ON, front: v.ledge.edge === 'front', visitor: boardToRoot(VISITOR_BOARD, stoolB) };
+                enter('ledge', t, false);
+                blendFrom = null; // from the hand to the edge in one frame: it caught it
+              }
+              break;
             case 'climb':
               // from its feet at the stool's foot (where the walk ended, or where it was put down)
               climbFoot = seatSpace(v.foot);
@@ -466,6 +478,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             pose = climb(reduced ? CLIMB_LENGTH : sT, { foot: climbFoot, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
             break;
           }
+          case 'ledge':
+            pose = ledgeO && (st === 'ledge' || st === 'haul' || st === 'dust') ? overTheEdge(st, sT, ledgeO) : last;
+            break;
           case 'duck':
             pose = duck(reduced ? DUCK_LENGTH : sT, { from: reactFrom });
             break;

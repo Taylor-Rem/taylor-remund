@@ -32,6 +32,11 @@
  * - lifted off the stool (`drag` intents with its id): it hangs (`held`);
  *   put down anywhere it walks back (`walk`) and climbs up (`climb`). A job
  *   in hand waits and carries on where it was; texts wait meanwhile;
+ * - let go of past an open edge of the bench, or flung over one (R1): it
+ *   catches the edge and hangs from it (`ledge` 1.6 s), hauls itself up
+ *   (`haul` 0.7 s), dusts itself off (`dust` 0.5 s), gives the visitor the
+ *   look, and walks back. It is never carried by physics and nothing is
+ *   charged; it cannot be taken hold of again until it is on its feet;
  * - a part thrown at it gets one of three answers, chosen by where the part
  *   is going: high (at its head) it ducks; at its hands, and small enough
  *   and slow enough, it catches it and sets it down on the shelf beside the
@@ -85,6 +90,14 @@ export const PATCH_TUNING = {
   /** Walking back to the stool, and climbing up. */
   walk: 1.6,
   climb: 0.8,
+  /** R1: off the edge: it hangs from the edge, hauls itself up, dusts itself off (then the look, and the walk back). */
+  ledge: 1.6,
+  haul: 0.7,
+  dust: 0.5,
+  /** Where it stands once up: this far in from the edge. */
+  ledgeIn: 0.35,
+  /** A release carries on the hand's travel for this long (s) when deciding whether it went over an edge (a fling). */
+  fling: 0.25,
 } as const;
 
 export interface PatchSpec {
@@ -114,6 +127,11 @@ export interface PatchSpec {
   readonly stations: Readonly<Record<Id, Vec3>>;
   /** The bench: where it can be put down. */
   readonly bench: { readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number };
+  /**
+   * R1: the bench's open edges (world: its left and right ends, its front; the back is against the wall). Let go
+   * of past one, Patch catches it and hangs (`ledge`). Without it a release past the bench is put down on it.
+   */
+  readonly edge?: { readonly minX: number; readonly maxX: number; readonly maxZ: number };
   /**
    * S6: the stool's runner along the board (world x of the stool's middle). `rest` is its place at the
    * runner's right end (where `seat` and `foot` are measured); `jacks` is where it stands to work each
@@ -162,6 +180,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   const finishing: { job: Job; part: Id; until: number }[] = [];
   let cancelledAt = -1;
   const watched: Watched[] = [];
+  /** R1: the edge it hangs from and hauls itself up over (states `ledge`, `haul`, `dust`, and the look after). */
+  let ledge: { edge: 'front' | 'left' | 'right'; at: Vec3; up: Vec3; out: Vec3 } | null = null;
+  /** R1: on its feet on the bench after the ledge: the look ends in the walk back, not in carrying on. */
+  let afoot = false;
+  /** R1: the hand's last few places while it holds Patch (a release past an edge is judged with the hand's travel). */
+  const trail: { step: number; p: Vec3 }[] = [];
 
   // ── S6: the stool on its runner ──
   const runner = spec.runner ?? null;
@@ -212,7 +236,36 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   const bodyCentre = (): Vec3 => add(seatNow(), [0, spec.body.up, 0]);
   const seconds = (): number => (ctx.clock.step - since) / HZ;
   const lengthOf = (s: PatchState): number =>
-    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb } as Record<string, number>)[s] ?? Infinity);
+    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust } as Record<string, number>)[s] ?? Infinity);
+
+  /**
+   * R1: where a release at `p` goes over an open edge (with the hand's travel carried on for `fling`
+   * seconds), the point of that edge nearest to where it was going; null when it stays on the bench.
+   */
+  function overEdge(p: Vec3): { edge: 'front' | 'left' | 'right'; at: Vec3; up: Vec3; out: Vec3 } | null {
+    const e = spec.edge;
+    if (!e) return null;
+    // the hand's travel before it let go: from the carry a little before the last to the last (the release
+    // itself is where the hand was last carried to, so it is not counted twice)
+    let v: Vec3 = [0, 0, 0];
+    const last = trail[trail.length - 1];
+    const old = last ? trail.find((s) => last.step - s.step <= Math.round(0.15 * HZ)) : undefined;
+    // (a fling needs a few carries of the hand, and a recent one: one jump of the target is not a throw)
+    if (trail.length >= 3 && last && old && last.step > old.step && ctx.clock.step - last.step <= Math.round(0.1 * HZ)) v = scale(sub(last.p, old.p), HZ / (last.step - old.step));
+    const fast = Math.hypot(v[0], v[2]) >= T.throwMin;
+    const q: Vec3 = fast ? add(p, scale(v, T.fling)) : p;
+    // how far past each open edge it goes; the edge it goes furthest past is the one it catches
+    const past = { left: e.minX - q[0], right: q[0] - e.maxX, front: q[2] - e.maxZ };
+    const [edge, d] = (Object.entries(past) as ['front' | 'left' | 'right', number][]).reduce((a, b) => (b[1] > a[1] ? b : a));
+    if (d <= 0) return null;
+    const y = spec.foot[1];
+    const out: Vec3 = edge === 'front' ? [0, 0, 1] : edge === 'left' ? [-1, 0, 0] : [1, 0, 0];
+    // the nearest point of that edge (kept a little in from the corners so it hangs from the edge, not a corner)
+    const zIn = Math.min(e.maxZ - 0.5, Math.max(spec.bench.minZ, q[2]));
+    const xIn = Math.min(e.maxX - 0.5, Math.max(e.minX + 0.5, q[0]));
+    const at: Vec3 = edge === 'front' ? [xIn, y, e.maxZ] : edge === 'left' ? [e.minX, y, zIn] : [e.maxX, y, zIn];
+    return { edge, at, up: sub(at, scale(out, T.ledgeIn)), out };
+  }
 
   /** Start the stool rolling to `to` (state `roll`); false (and nothing) when it is already there. */
   function rollTo(to: number, home: boolean): boolean {
@@ -291,7 +344,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     if (resume) resume = null;
     plan = null;
     if (roll && !roll.home) roll = null;
-    if (!(seatedOrWorking() || state === 'stare' || state === 'look')) return; // lifted or walking: it will find out
+    if (afoot || !(seatedOrWorking() || state === 'stare' || state === 'look')) return; // lifted, off the edge or walking: it will find out
     if (why === 'cord') {
       lookAt = boardOf(ctx).plugAt ?? jackAt(c.jack);
       enter('stare');
@@ -396,7 +449,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
 
     intent(intent: Intent): boolean {
       if (intent.type !== 'drag' || intent.id !== id || ctx.bracketed) return false;
-      if (state !== 'held') {
+      // R1: hanging from the edge, or hauling itself up: it cannot be taken hold of until it is on its feet
+      if (state === 'ledge' || state === 'haul') return false;
+      const taken = state !== 'held'; // the grab itself: where the hand took hold, not where it carries to
+      if (taken) {
+        trail.length = 0;
+        ledge = null;
+        afoot = false;
         interrupt();
         back = null; // the cord's way back is given up: the line puts it back when attract mode ends
         if (roll?.home) roll = null; // the way home is given up; it carries on from where the stool is
@@ -408,7 +467,22 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         enter('held');
       }
       at = intent.target;
+      if (!intent.end && !taken) {
+        trail.push({ step: ctx.clock.step, p: intent.target });
+        while (trail.length > 0 && ctx.clock.step - (trail[0] as { step: number }).step > Math.round(0.3 * HZ)) trail.shift();
+      }
       if (intent.end) {
+        const over = overEdge(intent.target);
+        trail.length = 0;
+        if (over) {
+          // it goes over the edge and catches it: never carried by physics, nothing charged
+          ledge = over;
+          at = over.at;
+          heading = Math.atan2(-over.out[0], -over.out[2]); // facing in, over the edge it holds
+          lookAt = null;
+          enter('ledge');
+          return true;
+        }
         const b = spec.bench;
         at = [Math.min(b.maxX, Math.max(b.minX, intent.target[0])), spec.foot[1], Math.min(b.maxZ, Math.max(b.minZ, intent.target[2]))];
         lookAt = null;
@@ -597,9 +671,40 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           }
           break;
         case 'look':
+          if (t >= length_) {
+            if (afoot) {
+              // R1: the look after the ledge ends in the walk back to the stool
+              afoot = false;
+              lookAt = null;
+              enter(dist(at, footNow()) < 0.15 ? 'climb' : 'walk');
+            } else carryOn();
+          }
+          break;
         case 'duck':
         case 'bonk':
           if (t >= length_) carryOn();
+          break;
+        case 'ledge':
+          if (ledge) at = ledge.at;
+          if (t >= length_) enter('haul');
+          break;
+        case 'haul':
+          if (ledge) {
+            const k = Math.min(1, t / T.haul);
+            at = add(ledge.at, scale(sub(ledge.up, ledge.at), k));
+          }
+          if (t >= length_) {
+            if (ledge) at = ledge.up;
+            afoot = true;
+            enter('dust');
+          }
+          break;
+        case 'dust':
+          if (t >= length_) {
+            ledge = null;
+            lookAt = spec.visitor;
+            enter('look');
+          }
           break;
         case 'catch':
           if (holding) {
@@ -657,6 +762,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       plan = null;
       back = null;
       plugging = null;
+      ledge = null;
+      afoot = false;
+      trail.length = 0;
       stoolX = restX;
       busyAt = ctx.clock.step;
       at = spec.seat;
@@ -687,6 +795,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         plug: state === 'plug' && plugging ? { ...plugging } : null,
         shelf: spec.shelf,
         foot: footNow(),
+        ledge: ledge && (state === 'ledge' || state === 'haul' || state === 'dust') ? { edge: ledge.edge, at: ledge.at, up: ledge.up, out: ledge.out } : null,
       };
     },
   };

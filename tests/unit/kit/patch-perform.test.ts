@@ -192,3 +192,32 @@ describe('the facepalm', () => {
     expect(end.armScale).toEqual([1, 1]);
   });
 });
+
+describe('over the edge (R1)', () => {
+  it('a paw holds the edge all through the hang (front and side); hauled, it stands at `up`; every pose is finite', () => {
+    for (const front of [true, false]) {
+      const o = { at: [0.5, -0.43, 2.5] as PF.V3, up: [0.5, -0.43, 2.27] as PF.V3, heading: Math.PI, front };
+      for (const t of [0, 0.3, 0.6, 1.0, 1.3, 1.6]) {
+        const p = PF.overTheEdge('ledge', t, o);
+        expect(finite(p)).toBe(true);
+        const l = PF.pawPoint(p, 'left'), r = PF.pawPoint(p, 'right');
+        const near = Math.min(Math.hypot(l[0] - o.at[0], l[1] - o.at[1], l[2] - o.at[2]), Math.hypot(r[0] - o.at[0], r[1] - o.at[1], r[2] - o.at[2]));
+        expect(near).toBeLessThan(0.2);
+        expect(PF.headPoint(p)[1]).toBeLessThan(o.at[1] + 0.2); // hanging: the head no higher than just over the edge
+      }
+      for (const t of [0, 0.35, 0.7]) expect(finite(PF.overTheEdge('haul', t, o))).toBe(true);
+      for (const t of [0, 0.25, 0.5]) expect(finite(PF.overTheEdge('dust', t, o))).toBe(true);
+      const up = PF.resolvePose(PF.overTheEdge('haul', PF.HAUL_LENGTH, o));
+      expect(Math.hypot(up.body.at[0] - o.up[0], up.body.at[2] - o.up[2])).toBeLessThan(1e-6);
+      expect(up.body.at[1]).toBeGreaterThan(o.up[1]);
+    }
+  });
+  it('off the front it turns on one paw and gives the visitor the look; off a side it does not turn', () => {
+    const o = { at: [0.5, -0.43, 2.5] as PF.V3, up: [0.5, -0.43, 2.27] as PF.V3, heading: Math.PI, front: true };
+    const turned = PF.resolvePose(PF.overTheEdge('ledge', 1.15, o));
+    expect(Math.abs(turned.body.rot[1] - Math.PI)).toBeGreaterThan(0.5);
+    expect(turned.brows[0]).toBeLessThan(-0.4);
+    const side = PF.resolvePose(PF.overTheEdge('ledge', 1.15, { ...o, front: false }));
+    expect(Math.abs(side.body.rot[1] - Math.PI)).toBeLessThan(1e-6);
+  });
+});

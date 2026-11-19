@@ -722,7 +722,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -769,6 +769,14 @@ export interface PatchView extends MachineViewBase {
    * moves straight between them over `stateLength`).
    */
   readonly foot: Vec3;
+  /**
+   * R1: let go of (or flung) past an open edge of the bench, Patch catches the edge and hangs from it
+   * (`ledge`), hauls itself up (`haul`), dusts itself off (`dust`), gives the visitor the look, and walks
+   * back. `at` is the point of the edge its paws hold (bench top) through `ledge`, and moves from there
+   * to `up` (its feet on the bench, just in from the edge) over `haul`. `out` is the edge's outward
+   * direction (unit, horizontal); `edge` which edge it is. Null otherwise.
+   */
+  readonly ledge: { readonly edge: 'front' | 'left' | 'right'; readonly at: Vec3; readonly up: Vec3; readonly out: Vec3 } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
