@@ -84,7 +84,7 @@ function solveLinear(A: number[][], b: number[]): number[] {
 }
 
 /** Levenberg–Marquardt over the unknowns `free`, bounded by clamping: six unknowns, a handful of residuals. */
-function lm(q: number[], free: readonly number[], res: (q: number[]) => number[], iters: number): number[] {
+function lm(q: number[], free: readonly number[], res: (q: number[]) => number[], iters: number, tries0 = 6): number[] {
   let x = q.slice();
   let r = res(x);
   let cost = r.reduce((s, v) => s + v * v, 0);
@@ -103,7 +103,7 @@ function lm(q: number[], free: readonly number[], res: (q: number[]) => number[]
     const A = Array.from({ length: n }, (_, a) => Array.from({ length: n }, (_, b) => Jc[a]!.reduce((s, v, k) => s + v * Jc[b]![k]!, 0)));
     const g = Jc.map((col) => col.reduce((s, v, k) => s + v * r[k]!, 0));
     let improved = false;
-    for (let tries = 0; tries < 6; tries++) {
+    for (let tries = 0; tries < tries0; tries++) {
       const Ad = A.map((row, a) => row.map((v, b) => (a === b ? v * (1 + mu) + mu : v)));
       const dx = solveLinear(Ad, g.map((v) => -v));
       const xn = x.slice();
@@ -194,7 +194,7 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
   const thorough = o.thorough === true;
   const seed = tableSeed(d, ty, tap !== null);
   const starts = warm ? [warm.q] : thorough ? (seed ? [seed, ...SEEDS] : SEEDS) : [seed ?? Q0];
-  const itA = warm ? 4 : thorough ? 30 : 16;
+  const itA = warm ? 2 : thorough ? 30 : 16;
   let q: number[] = [];
   let e = Infinity;
   // warm and already telescoping: the tubes stay in play (phase B alone; its pull on the tubes takes them in
@@ -207,7 +207,7 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
   for (const st of skipA ? [] : starts) {
     const x0 = st.slice();
     x0[5] = 0;
-    const x = lm(x0, [0, 1, 2, 3, 4], resA, itA);
+    const x = lm(x0, [0, 1, 2, 3, 4], resA, itA, warm ? 3 : 6);
     const ex = err(x).length();
     if (ex < e - 1e-5) {
       q = x;
@@ -226,7 +226,7 @@ export function reachPose(target: V3, o: ReachOptions = {}): ReachSolution {
     const from = warm ? warm.q : seed;
     const qb = from && from[5]! > 1e-3 ? from.slice() : q.slice();
     if (qb[5]! < 1e-3) qb[5] = Math.min(TELE_MAX, e * 0.8);
-    let best = lm(qb, [0, 1, 2, 3, 4, 5], resB, warm ? 6 : thorough ? 30 : 16);
+    let best = lm(qb, [0, 1, 2, 3, 4, 5], resB, warm ? 3 : thorough ? 30 : 16, warm ? 3 : 6);
     let eb = err(best).length();
     // far and low (or wherever the first answer went wrong): from the other shapes too, tubes half out
     if (eb > 0.003 && (thorough || !warm)) {
