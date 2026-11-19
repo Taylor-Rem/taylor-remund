@@ -16,6 +16,7 @@
 //    code makes later (fetch(), so `as="fetch"` with `crossorigin`).
 //
 // The page sets the stage root's background colour (no colour is typed here).
+import { picturePreloads, type PosterSet } from './poster.ts';
 export interface Preload {
   href: string;
   /** Default fetch (what the stage's code does with it: fetch()). */
@@ -25,9 +26,15 @@ export interface Preload {
 }
 interface Props {
   preload?: Preload[];
+  /** The picture set, its files (the page's `?url` glob) and their folder: the picture is preloaded first. */
+  posters?: { set: PosterSet; files: Record<string, string>; dir: string };
 }
-const { preload = [] } = Astro.props;
+const { preload = [], posters } = Astro.props;
+// The picture first (§ E7: first paint within a second on Fast 4G): one preload per band, each with the
+// media range that selects exactly the band the <picture> will pick, ahead of everything else in the head.
+const pictureLinks = posters ? picturePreloads(posters.set, (f) => posters.files[`${posters.dir}${f}`] ?? '') : [];
 ---
+{pictureLinks.map((l) => <link rel="preload" as="image" type={l.type} media={l.media} imagesrcset={l.srcset} imagesizes={l.sizes} fetchpriority="high" />)}
 <script is:inline>
   (function () {
     var d = document.documentElement;

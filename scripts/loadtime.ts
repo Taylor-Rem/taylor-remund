@@ -468,10 +468,15 @@ export function picturePaint(d: PageData): number | null {
   return d.paints['first-contentful-paint'] ?? null;
 }
 
-/** Bytes transferred before the picture was painted (the first-paint budget). */
+/**
+ * Bytes the first paint needed (the first-paint budget): the page and every
+ * file that had finished arriving when the picture was painted. Files still
+ * in flight then (the stage's code and engine, started at once on purpose)
+ * are not counted: the picture did not wait for them.
+ */
 export function firstPaintBytes(d: PageData, at: number | null): number {
   if (at === null) return 0;
-  return d.nav.transfer + d.resources.filter((r) => r.start <= at).reduce((s, r) => s + r.transfer, 0);
+  return d.nav.transfer + d.resources.filter((r) => r.end <= at).reduce((s, r) => s + r.transfer, 0);
 }
 
 /** The machine's state when a run starts: 1-minute load average and the GPU's busy percent (AMD sysfs), if readable. */

@@ -228,3 +228,22 @@ export function warmth(progress: number, from = 0.42): number {
   const e = 1 - Math.pow(1 - p, 1.6);
   return from + (1 - from) * e;
 }
+
+/**
+ * Preload links for the picture (one per band, AVIF only), with media ranges
+ * that do not overlap, so a browser fetches exactly the file its <picture>
+ * will choose, before its scripts. Empty until the set is rendered.
+ */
+export function picturePreloads(set: PosterSet, url: (file: string) => string): { media: string; type: PosterFile['type']; srcset: string; sizes: string }[] {
+  if (!set.posters.some((p) => p.files.length)) return [];
+  const bands = widestFirst(set.posters);
+  return bands.flatMap((b, i) => {
+    const files = b.files.filter((f) => f.type === 'image/avif').sort((p, q) => p.width - q.width);
+    if (!files.length) return [];
+    const wider = bands[i - 1];
+    const lo = i === bands.length - 1 ? null : minAspectQuery(b.minAspect);
+    const hi = wider ? `(max-aspect-ratio: ${Math.round(wider.minAspect * 10000) - 1}/10000)` : null;
+    const media = [lo, hi].filter(Boolean).join(' and ') || 'all';
+    return [{ media, type: 'image/avif' as const, srcset: files.map((f) => `${url(f.file)} ${f.width}w`).join(', '), sizes: coverSizes(b.aspect) }];
+  });
+}

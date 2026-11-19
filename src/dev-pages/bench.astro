@@ -46,11 +46,12 @@ const posters = postersJson as unknown as PosterSet;
 const files = import.meta.glob<string>('./bench/*.{avif,jpg}', { query: '?url', import: 'default', eager: true });
 // what the stage fetches once its code runs, asked for at once: the engine's wasm (the longest download, low
 // priority so the code and the picture go first), the bake table, the label painters' script, the fonts
+// (low: they must not slow the picture or the code; nothing else wants the line by then)
 const preload = [
   { href: wasmUrl, priority: 'low' as const },
-  { href: bakeUrl },
-  { href: workerUrl },
-  ...Object.values(FACES).map((f) => ({ href: `/fonts/${f.file}` })),
+  { href: bakeUrl, priority: 'low' as const },
+  { href: workerUrl, priority: 'low' as const },
+  ...Object.values(FACES).map((f) => ({ href: `/fonts/${f.file}`, priority: 'low' as const })),
 ];
 ---
 <!doctype html>
@@ -60,7 +61,7 @@ const preload = [
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="robots" content="noindex" />
     <title>Bench</title>
-    <StageHead preload={preload} />
+    <StageHead preload={preload} posters={{ set: posters, files, dir: './bench/' }} />
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
       .stage-root { background: #12292c; }

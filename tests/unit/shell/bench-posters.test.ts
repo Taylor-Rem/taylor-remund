@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Box3, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { coverRect, makeBands, pixelSize, type PosterSet } from '../../../src/workshop/shell/poster.ts';
+import { coverRect, makeBands, picturePreloads, pixelSize, type PosterSet } from '../../../src/workshop/shell/poster.ts';
 import { adoptView, bandView, viewOf } from '../../../src/workshop/shell/loader.ts';
 import { CameraRig } from '../../../src/workshop/view/stage/camera.ts';
 import type { Stage } from '../../../src/workshop/view/stage/index.ts';
@@ -48,6 +48,20 @@ describe('the bench’s bands', () => {
     // no band straddles a switch of the framing
     for (const x of b) {
       for (const cut of [1, FRAMING.widerFrom]) expect(x.minAspect < cut && x.aspect > cut, `${x.minAspect}..${x.aspect}`).toBe(false);
+    }
+  });
+
+  it('one picture preload per band, and exactly one matches any aspect', () => {
+    const links = picturePreloads(set, (f) => `/x/${f}`);
+    if (!set.posters.some((p) => p.files.length)) return;
+    expect(links.length).toBe(set.posters.length);
+    const parse = (m: string): [number, number] => {
+      const lo = /min-aspect-ratio: (\d+)\/(\d+)/.exec(m);
+      const hi = /max-aspect-ratio: (\d+)\/(\d+)/.exec(m);
+      return [lo ? Number(lo[1]) / Number(lo[2]) : 0, hi ? Number(hi[1]) / Number(hi[2]) : Infinity];
+    };
+    for (const a of [0.43, 0.46, 0.5, 0.75, 0.999, 1, 1.333, 1.5, 1.6, 1.7, 1.78, 2.33]) {
+      expect(links.filter((l) => { const [lo, hi] = parse(l.media); return a >= lo && a <= hi; }).length, `aspect ${a}`).toBe(1);
     }
   });
 
