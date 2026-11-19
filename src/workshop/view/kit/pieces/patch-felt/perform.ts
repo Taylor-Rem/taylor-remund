@@ -1252,21 +1252,32 @@ function facepalmKeys(k: Key[], t0: number, L: number, variant: FacepalmVariant,
   // to meet the paw. Found by a search over the rig (paw on the face, the elbow as far out as that allows).
   // the body swivels half round to the visitor on the stool, so the paw and the bowed head face the camera
   const swPalm = swv + 0.5;
-  const palmBase: PatchPose = { ...SEATED, body: { rot: [0, swPalm, 0] }, lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28 };
+  // the slump: the body sinks on the stool and the shoulders roll forward into the bow
+  const sunk = { at: [0, -0.05, 0.02] as V3, rot: [0.06, swPalm, 0] as V3 };
+  // the red sleeve is the shape, not the paw: the elbow up and forward and the forearm lying across the white
+  // muzzle. One paw: the face turns down into the crook of the arm. Both: the first sleeve across the muzzle, the
+  // second higher, across the eyes, so the whole face is behind red. (A search over the rig: the forearm in front
+  // of the muzzle, the elbow as high as a toy's shoulder allows; the head pitched only so far that the camera,
+  // which looks down, still sees the face it is hiding: the bow is in the shoulders and the slump.)
+  const both = variant === 'both';
+  const hy = both ? 0 : 0.5;
+  const hp = both ? -0.4 : -0.48;
+  const palmBase: PatchPose = { ...SEATED, body: sunk, lean: [0.2, 0.1], twist: 0, headYaw: hy, headPitch: hp, headTilt: 0.2 };
   // out at the side, elbow high: the silhouette reads the move before the paw arrives
   const lift: ArmJoints = J(1.2, 1.0, -0.4, 1.7, 0.3, 0.9);
-  const palmL: ArmJoints = J(1.5, 0.7, 0.3, 1.25, 0.3, 1.2);
-  const palmR: ArmJoints | null = variant === 'both' ? J(1.5, 0.6, 0.3, 1.3, 0.3, 1.2) : null;
+  const palmL: ArmJoints = both ? J(1.6, -0.1, -1.2, 0.7, 0.3, 1.2) : J(1.6, 0.4, 0.8, 0.7, 0.3, 1.2);
+  const palmR: ArmJoints | null = both ? J(1.75, 0.15, -0.9, 0.9, 0.3, 1.2) : null;
   const chin: ArmJoints | null = variant === 'drag' ? J(1.15, 0.45, 0, 0.95, 0.4, 1.2) : null;
   const lkPeek = peek.map((p) => lookAt(resolvePose(palmBase), p, 0));
   const tt = (u: number): number => t0 + L * u;
   k.push(
-    // the paw comes up, slowly, out to the side first
-    { t: tt(0.22), set: { armL: lift, ...(palmR ? { armR: { ...lift, abduct: lift.abduct * 0.9 } } : {}), armScale: [1.55, palmR ? 1.55 : 1], body: { rot: [0, swPalm, 0] }, ...FACE.flat, lids: [0.4, 0.42], brows: [-0.3, -0.2] }, ease: inOutQuad },
-    // the head drops into it
-    { t: tt(0.45), set: { armL: palmL, ...(palmR ? { armR: palmR } : {}), lean: [0.1, 0.15], twist: -0.3, headYaw: 0, headPitch: -0.32, headTilt: 0.28, lids: [1, 1], lidsLow: [0.5, 0.5], brows: [-0.65, -0.6], browTilt: [0.35, 0.3], mouth: [-0.25, -0.2], ears: [0.6, 0.5], tail: [-0.2, 0] }, ease: inOutCubic },
-    // the held beat
-    { t: tt(0.66), set: { headPitch: -0.36, ears: [0.8, 0.7] } },
+    // the paw comes up, slowly, out to the side first; the ears are already going back
+    { t: tt(0.22), set: { armL: lift, ...(palmR ? { armR: { ...lift, abduct: lift.abduct * 0.9 } } : {}), armScale: [1.6, palmR ? 1.6 : 1], body: { rot: [0, swPalm, 0] }, ...FACE.flat, lids: [0.4, 0.42], brows: [-0.3, -0.2], ears: [0.7, 0.6] }, ease: inOutQuad },
+    // the face goes into it, the ears flatten back and down, the whole figure slumps and the tail droops
+    { t: tt(0.45), set: { armL: palmL, ...(palmR ? { armR: palmR } : {}), body: sunk, lean: [0.2, 0.1], twist: 0, headYaw: hy, headPitch: hp, headTilt: 0.2, lids: [1, 1], lidsLow: [0.5, 0.5], brows: [-0.65, -0.6], browTilt: [0.35, 0.3], mouth: [-0.25, -0.2], ears: [1, 1], tail: [-0.6, 0], tailLift: -0.9 }, ease: inOutCubic },
+    // one slow sigh while it is held: up a little, and down again further
+    { t: tt(0.56), set: { body: { at: [0, -0.015, 0.01], rot: [0.02, swPalm, 0] }, lean: [0.08, 0.1], headPitch: hp + 0.12 }, ease: inOutQuad },
+    { t: tt(0.7), set: { body: { at: [0, -0.065, 0.025], rot: [0.09, swPalm, 0] }, lean: [0.26, 0.1], headPitch: hp - 0.04 }, ease: inOutCubic },
   );
   if (variant === 'drag' && chin) {
     k.push(
@@ -1276,10 +1287,11 @@ function facepalmKeys(k: Key[], t0: number, L: number, variant: FacepalmVariant,
   } else {
     // one eye opens between the fingers: the right (the paw covers the left)
     const g0 = lkPeek[0]?.gaze ?? [0.5, 0.6];
-    k.push({ t: tt(0.8), set: { lids: [1, 0.46], lidsLow: [0.5, 0.25], gaze: [clamp(g0[0], -1, 1), clamp(g0[1] + 0.3, -1, 1)], brows: [-0.6, -0.15], browTilt: [0.35, -0.15] }, ease: inOutQuad });
+    // and the ears come up one at a time, the open eye's side first
+    k.push({ t: tt(0.8), set: { lids: [1, 0.46], lidsLow: [0.5, 0.25], gaze: [clamp(g0[0], -1, 1), clamp(g0[1] + 0.3, -1, 1)], brows: [-0.6, -0.15], browTilt: [0.35, -0.15], ears: [1, -0.2] }, ease: inOutQuad });
     const g1 = lkPeek[1];
     if (g1) k.push({ t: tt(0.92), set: { gaze: [clamp(g1.gaze[0], -1, 1), clamp(g1.gaze[1] + 0.3, -1, 1)] }, ease: inOutQuad });
-    k.push({ t: tt(1), set: { lids: [1, 0.48] } });
+    k.push({ t: tt(1), set: { lids: [1, 0.48], ears: [-0.1, -0.25] } });
   }
 }
 
@@ -1313,7 +1325,7 @@ export function facepalm(t: number, o: FacepalmOptions = {}): PatchPose {
     }
     facepalmKeys(k, glance ? 0.45 : 0.1, L - (glance ? 0.45 : 0.1) - 0.45, variant, sit, vis, glance ? [glance, vis] : [vis]);
     // the paw comes down; the look at the visitor stays
-    k.push({ t: L, set: { arms: 'rest', armScale: [1, 1], lean: [0.02, 0], ...lookAt(resolvePose(SEATED), vis, 0.85), ...FACE.deadpan, ears: [0.3, 0.2], tail: [0.3, 0] }, ease: inOutQuad });
+    k.push({ t: L, set: { arms: 'rest', armScale: [1, 1], body: sit.body, lean: [0.02, 0], ...lookAt(resolvePose(SEATED), vis, 0.85), ...FACE.deadpan, ears: [0.3, 0.2], tail: [0.3, 0], tailLift: 0 }, ease: inOutQuad });
     return bake(from, k);
   });
   return toPose(sampleOverlap(keys, t, { eyes: 0.03, ears: -0.05, tail: -0.12, body: -0.02 }));
