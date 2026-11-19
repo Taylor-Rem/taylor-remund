@@ -1,14 +1,17 @@
 /**
  * The piece registry. Every `kit/pieces/<name>/index.ts` that exports
- * `catalogue: CatalogueEntry[]` is found here by Vite's import.meta.glob
- * (lazily: a folder's code loads only when asked for), so builders working
- * in parallel never edit a shared list.
+ * `catalogue: CatalogueEntry[]` is found here by Vite's import.meta.glob,
+ * so builders working in parallel never edit a shared list. Eagerly (B1
+ * round 2): every folder's code is in the pieces chunk already (astro.config
+ * `codeSplitting`), and a lazy glob made one stub chunk per folder that the
+ * catalogue then fetched one after another (26 round trips on Fast 4G).
+ * The functions stay async so callers need not change.
  */
 import type { BuildOptions, CatalogueEntry } from '../catalogue.ts';
 import type { Piece } from '../types.ts';
 
 type Module = { catalogue?: CatalogueEntry[] };
-const modules = import.meta.glob<Module>('./*/index.ts');
+const modules = import.meta.glob<Module>('./*/index.ts', { eager: true });
 
 /** Folder names of every registered piece module (no piece code is loaded). */
 export function pieceFolders(): string[] {
@@ -19,9 +22,8 @@ export function pieceFolders(): string[] {
 
 /** The catalogue entries of one folder. */
 export async function loadFolder(folder: string): Promise<CatalogueEntry[]> {
-  const load = modules[`./${folder}/index.ts`];
-  if (!load) throw new Error(`no piece folder '${folder}'`);
-  const m = await load();
+  const m = modules[`./${folder}/index.ts`];
+  if (!m) throw new Error(`no piece folder '${folder}'`);
   return m.catalogue ?? [];
 }
 

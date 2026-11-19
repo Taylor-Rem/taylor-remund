@@ -111,16 +111,15 @@ export interface Slot {
 }
 
 type Module = Record<string, unknown>;
-const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts');
-const stationModules = import.meta.glob<Module>('./stations/*.ts');
+// eager (B1 round 2): no stub chunk and round trip per piece or view; the code is in the bundle anyway
+const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts', { eager: true });
+const stationModules = import.meta.glob<Module>('./stations/*.ts', { eager: true });
 
 async function pieceModule(folder: string): Promise<Module | null> {
-  const load = pieceModules[`./kit/pieces/${folder}/index.ts`];
-  return load ? await load() : null;
+  return pieceModules[`./kit/pieces/${folder}/index.ts`] ?? null;
 }
 async function stationModule(name: string): Promise<Module | null> {
-  const load = stationModules[`./stations/${name}.ts`];
-  return load ? await load() : null;
+  return stationModules[`./stations/${name}.ts`] ?? null;
 }
 
 /** A function exported under one of these names. */

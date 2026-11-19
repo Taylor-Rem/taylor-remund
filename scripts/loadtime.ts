@@ -25,9 +25,9 @@
 // Exit codes: 0 measured, 1 failed, 2 usage.
 
 import { spawnSync } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createSecureServer, type Http2SecureServer } from 'node:http2';
-import { tmpdir } from 'node:os';
+import { loadavg, tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createGzip } from 'node:zlib';
@@ -189,6 +189,8 @@ export interface Run {
   profile: Record<string, number> | null;
   /** Per `b1:` phase: the functions with the most self time (name @ chunk:line, ms). */
   phases: Record<string, [string, number][]> | null;
+  /** Load average and GPU busy when the run started. */
+  machine?: string;
 }
 
 /** Self time by function inside each window (profile and trace share the TimeTicks clock). */
@@ -404,6 +406,7 @@ async function throttleOn(cdp: CDPSession, t: ThrottleName): Promise<void> {
 
 /** One cold load. */
 export async function coldLoad(url: string, o: LoadOptions): Promise<Run> {
+  const machine = machineState();
   const browser = await chromium.launch({ channel: 'chrome', headless: true, args: [...GPU_ARGS, '--ignore-certificate-errors'] });
   try {
     const context = await browser.newContext({ viewport: { width: o.w, height: o.h }, ignoreHTTPSErrors: true });
@@ -447,7 +450,7 @@ export async function coldLoad(url: string, o: LoadOptions): Promise<Run> {
       return c ? String(e ? c.getParameter(e.UNMASKED_RENDERER_WEBGL) : c.getParameter(c.RENDERER)) : 'no webgl2';
     });
     if (errors.length) throw new Error(`page error: ${errors[0]}`);
-    return { throttle: o.throttle, renderer, page: data, trace, profile, phases };
+    return { throttle: o.throttle, renderer, page: data, trace, profile, phases, machine };
   } finally {
     await browser.close();
   }
@@ -471,18 +474,33 @@ export function firstPaintBytes(d: PageData, at: number | null): number {
   return d.nav.transfer + d.resources.filter((r) => r.start <= at).reduce((s, r) => s + r.transfer, 0);
 }
 
+/** The machine's state when a run starts: 1-minute load average and the GPU's busy percent (AMD sysfs), if readable. */
+export function machineState(): string {
+  let gpu = '?';
+  try {
+    for (const c of readdirSync('/sys/class/drm')) {
+      const f = `/sys/class/drm/${c}/device/gpu_busy_percent`;
+      if (/^card\d+$/.test(c) && existsSync(f)) gpu = readFileSync(f, 'utf8').trim();
+    }
+  } catch {
+    /* not Linux/AMD */
+  }
+  return `load ${loadavg()[0]!.toFixed(2)} gpu ${gpu}%`;
+}
+
 export function describe(run: Run, detail: boolean): string {
   const d = run.page;
   const L: string[] = [];
   const pic = picturePaint(d);
   const total = d.nav.transfer + d.resources.reduce((s, r) => s + r.transfer, 0);
   const decoded = d.resources.reduce((s, r) => s + r.decoded, 0);
-  L.push(`  ${run.throttle.padEnd(7)} picture ${ms(pic)}   usable ${ms(d.usable)}   requests ${d.resources.length + 1}   transfer ${kb(total)} (decoded ${kb(decoded)})   first-paint bytes ${kb(firstPaintBytes(d, pic))}   long tasks ${d.long.length} (${d.long.reduce((s, l) => s + l.dur, 0).toFixed(0)} ms, max ${Math.max(0, ...d.long.map((l) => l.dur)).toFixed(0)})`);
+  L.push(`  ${run.throttle.padEnd(7)} [${run.machine ?? ''}] picture ${ms(pic)}   usable ${ms(d.usable)}   requests ${d.resources.length + 1}   transfer ${kb(total)} (decoded ${kb(decoded)})   first-paint bytes ${kb(firstPaintBytes(d, pic))}   long tasks ${d.long.length} (${d.long.reduce((s, l) => s + l.dur, 0).toFixed(0)} ms, max ${Math.max(0, ...d.long.map((l) => l.dur)).toFixed(0)})`);
   if (!detail) return L.join('\n');
   L.push(`    html ${ms(d.nav.responseEnd)}  DCL ${ms(d.nav.domContentLoaded)}  load ${ms(d.nav.load)}  FCP ${ms(d.paints['first-contentful-paint'])}  LCP ${ms(d.lcp.at(-1)?.t)} ${d.lcp.at(-1)?.el ?? ''}`);
-  L.push('    network (by end time):');
-  for (const r of [...d.resources].sort((a, b) => a.end - b.end)) {
-    L.push(`      ${ms(r.start)} → ${ms(r.end)}  ${kb(r.transfer).padStart(10)}  ${r.name.replace(/^\/_astro\//, '').slice(0, 70)}`);
+  L.push('    network waterfall (by start time; bar: 1 char = 100 ms):');
+  for (const r of [...d.resources].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const bar = ' '.repeat(Math.min(150, Math.round(r.start / 100))) + '#'.repeat(Math.max(1, Math.min(150, Math.round((r.end - r.start) / 100))));
+    L.push(`      ${ms(r.start)} → ${ms(r.end)}  ${kb(r.transfer).padStart(10)}  ${r.name.replace(/^\/_astro\//, '').slice(0, 44).padEnd(44)} ${bar}`);
   }
   if (d.marks.length) {
     L.push('    phases (performance marks):');
