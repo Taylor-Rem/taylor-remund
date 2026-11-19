@@ -420,6 +420,14 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
 
   // 7. the phone: opened from the bench, a ready-made text sent down the line
   const phone = await bringIntoView(page, hand, 'phone', kind);
+  // the porter rolls along its front run between the camera and the phone on every round: a visitor
+  // presses what they can see, so wait until the phone is what is under the point (not Fetch passing)
+  await pollFrames(
+    page,
+    () => page.evaluate(([x, y, k]) => (window as any).__bench.ws.surface.at(x, y, k, null).id, [phone.x, phone.y, kind === 'touch' ? 'touch' : 'mouse'] as const),
+    900,
+    'the phone never came clear of whatever was in front of it',
+  ).toBe('phone');
   await use(page, hand, [phone, phone]);
   const panel = page.getByRole('dialog');
   await expect(panel).toBeVisible();
