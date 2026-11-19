@@ -643,7 +643,9 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   // AudioContext opens the audio device (136 ms on the reference laptop) and the sound's code renders its
   // palette (about 60 ms more); done inside the first press they made the visit's first grab take 170 ms
   // (§ E0: 50). The context is made suspended, nothing is fed to it, and the first gesture only resumes it.
-  // A visitor who acts before the idle time comes gets the old path: everything made at that press.
+  // It is asked for in the first idle time after the loop starts running on the wall clock (after the hand-over
+  // on the loader's path, so never on the way to usable). A visitor who presses before even that comes gets it
+  // made just after the frame that shows the press, never inside it.
   {
     type SoundModule = typeof import('../audio/index.ts');
     let sound: import('../audio/index.ts').Sound | null = null;
@@ -667,6 +669,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
         return; // no sound on this browser; the workshop carries on silent
       }
       context = c;
+      if (heard) c.resume().catch(() => {});
       load()
         .then((m) => {
           if (gone) return void c.close();
@@ -682,12 +685,20 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       removeEventListener('pointerdown', first, true);
       removeEventListener('keydown', first, true);
       heard = true;
-      prepare(); // made now only if the idle time never came
-      context?.resume().catch(() => {});
+      if (context) context.resume().catch(() => {});
+      // not made yet (a press before any idle time): after the frame that answers the press, not inside it
+      else requestAnimationFrame(() => setTimeout(prepare, 0));
     };
-    // idle time, a moment after the bench starts running (never on the way to usable)
     const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-    const soon = setTimeout(() => (idle ? idle(prepare, { timeout: 3000 }) : prepare()), 1500);
+    let asked = false;
+    /** Once the loop runs on the wall clock: ask for the first idle time. */
+    const ask = (): void => {
+      if (asked || !loop.running || loop.manual) return;
+      asked = true;
+      if (idle) idle(prepare, { timeout: 1000 });
+      else soon = setTimeout(prepare, 200);
+    };
+    let soon: ReturnType<typeof setTimeout> | undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key !== 'm' && e.key !== 'M') || editable(e.target)) return;
       void load().then((m) => m.toggleMuted());
@@ -700,6 +711,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       ...opts,
       onFrame(frame, ws) {
         guard.run('audio', () => {
+          ask();
           if (!heard) return; // before the first gesture nothing is heard (and nothing piles up for later)
           if (sound) sound.frame(frame);
           else if (early.length < 2000) early.push(...frame.events);
