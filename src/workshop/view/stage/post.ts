@@ -81,7 +81,7 @@ export const LOOK = {
   exposure: 1.1,
   toneMap: 'neutral' as ToneMap,
   /** `scale` is the AO resolution; `power` sharpens the occlusion curve; `strength` mixes it toward the teal occlusion colour. */
-  gtao: { scale: 0.5, radius: 0.5, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 6, denoise: 8, denoiseRadius: 6, strength: 1.0 },
+  gtao: { scale: 0.5, radius: 0.5, distanceExponent: 1.6, thickness: 1.2, falloff: 1.0, power: 1.8, samples: 4, denoise: 4, denoiseRadius: 6, strength: 1.0 },
   /** Threshold sits above lit paper at the hot spot (about 2-2.5 linear) and below the bulbs (indicator 5, lamp 9 in materials): only bulbs glow; a brass glint at most catches a small halo. */
   bloom: { threshold: 4.5, knee: 0.5, strength: 0.5, radius: 0.85, levels: 5 },
   /** Focus: no blur within `range` (fraction of focus distance); `scale` px of blur per unit of |z−f|/z; capped at `max` px, both at 900 px tall; `far` scales the blur beyond the focus plane. */

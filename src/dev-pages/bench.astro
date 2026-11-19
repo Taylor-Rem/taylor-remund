@@ -93,6 +93,8 @@ const preload = [
       import { bench as BENCH_SCENE } from '../workshop/sim/scenes/bench.ts';
       import { loadBench, homeBox, homeEdge, FRAMING, LAYOUT, spotBox, type Spot, type StationKey } from '../workshop/view/bench.ts';
       import { staticBox } from '../workshop/view/vignette.ts';
+      import { lanePath } from '../workshop/sim/path.ts';
+      import { FETCH_TUNING, fetchStand } from '../workshop/sim/crew/fetch.ts';
       import type { View } from '../workshop/view/stage/camera.ts';
 
       const q = new URLSearchParams(location.search);
@@ -305,6 +307,43 @@ const preload = [
             const t = NAMES[key];
             g.fillText(t, m.x - g.measureText(t).width / 2, m.y + (onWall ? -6 : 4));
             void b;
+          }
+          // Fetch's path (the ridden line, corners rounded) and where it stands for each thing it handles, with the distance
+          const sc = bench.scene;
+          const path = lanePath(sc.runner.lane.points, FETCH_TUNING.cornerRadius * (sc.crewScale ?? 1));
+          g.strokeStyle = 'rgba(255,90,200,0.95)';
+          g.lineWidth = 2;
+          g.beginPath();
+          for (let i = 0; i <= 120; i++) {
+            const [x, z] = path.at((path.length * i) / 120);
+            const q = P(x, 0, z);
+            if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y);
+          }
+          g.stroke();
+          const lap = sc.runner.attract, rounds = sc.runner.rounds;
+          const tray = lap ? sc.mouths?.find((m) => m.id === lap.tray) : undefined;
+          const feed = rounds ? sc.mouths?.find((m) => m.id === rounds.mouth) : undefined;
+          const things: Array<['stack' | 'tray' | 'phone' | 'feed', number, number]> = [];
+          if (rounds) things.push(['stack', rounds.stack[0], rounds.stack[1]]);
+          if (tray) things.push(['tray', tray.drop[0], tray.drop[2]]);
+          if (lap) things.push(['phone', lap.phone[0], lap.phone[2]]);
+          if (feed) things.push(['feed', feed.drop[0], feed.drop[2]]);
+          g.font = 'bold 12px ui-monospace, Menlo, monospace';
+          for (const [what, px, pz] of things) {
+            const st = fetchStand(sc, what, px, pz);
+            const a = P(st.at[0], 0, st.at[1]), b = P(px, 0, pz);
+            g.strokeStyle = 'rgba(255,90,200,0.95)';
+            g.lineWidth = 1.5;
+            g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+            g.fillStyle = 'rgba(255,90,200,1)';
+            g.beginPath(); g.arc(a.x, a.y, 5, 0, Math.PI * 2); g.fill();
+            g.beginPath(); g.arc(b.x, b.y, 3, 0, Math.PI * 2); g.fill();
+            const label = `${what} ${st.d.toFixed(2)}`;
+            g.fillStyle = 'rgba(18,41,44,0.8)';
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            g.fillRect(mx + 4, my - 12, g.measureText(label).width + 6, 16);
+            g.fillStyle = 'rgba(255,200,240,1)';
+            g.fillText(label, mx + 7, my);
           }
           return;
         }

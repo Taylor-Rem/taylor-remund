@@ -40,7 +40,7 @@ export const PLATE_LEAN_DEG = 35;
 export const PLATE_CAP = (() => {
   const p = (DEFAULT_VIEW.pitchDeg - PLATE_LEAN_DEG) * (Math.PI / 180);
   const perUnit = capPx(1, 'front', { pxPerUnit: DEFAULT_VIEW.pxPerUnit, pitchDeg: 0 }) * Math.cos(p);
-  return Math.ceil(((DEFAULT_VIEW.minCapPx * 1.1) / perUnit) * 100) / 100;
+  return Math.ceil(((DEFAULT_VIEW.minCapPx * 1.15) / perUnit) * 100) / 100;
 })();
 
 /** Make the platen's label texture and return its key and size. */

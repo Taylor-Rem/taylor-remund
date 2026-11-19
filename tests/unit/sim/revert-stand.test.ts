@@ -1,11 +1,14 @@
-// Where Revert stands to work, so the visitor can see the work (S7 item 4): it fits the cover from beside
-// the console, in profile; it sweeps a part from the part's far side, facing the visitor across it; and its
+// Where Revert stands to work, so the visitor can see the work (S7 item 4): it fits the cover from behind
+// the console, facing the visitor over it (A1 round 7); it sweeps a part from the part's far side, facing the visitor across it; and its
 // track clears every fixed thing on the bench.
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
 import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
-import { bench, AT, REVERT } from '../../../src/workshop/sim/scenes/bench.ts';
+import { bench, AT, REVERT, CREW_SCALE } from '../../../src/workshop/sim/scenes/bench.ts';
+import { lanePath } from '../../../src/workshop/sim/path.ts';
+import { FETCH_TUNING } from '../../../src/workshop/sim/crew/fetch.ts';
+import { defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
 import { qyaw, rotate, yawOf } from '../../../src/workshop/sim/math.ts';
 import { steps } from '../../../src/workshop/sim/clock.ts';
 import type { Id, RevertView, SimEvent } from '../../../src/workshop/sim/types.ts';
@@ -116,11 +119,33 @@ describe('Revert stands where the work is seen', () => {
     }
   });
 
-  test('it fits the cover from beside the console, in profile to the visitor, not from behind it', () => {
+  test('it fits the cover from behind the console, facing the visitor over it, where its turning circle clears Fetch, the platen and Patch', () => {
     const b = REVERT.button;
-    expect(Math.abs(Math.abs(b.heading) - Math.PI / 2)).toBeLessThan(1e-9);
-    expect(b.x - HZ).toBeGreaterThan(AT.console.c[0] + AT.console.half[0]); // its front clear of the console's side
-    expect(b.z).toBeGreaterThan(AT.console.c[2] - AT.console.half[2] - HX); // level with the console, not behind it
+    expect(b.heading).toBe(0);
+    const back = AT.console.c[2] - AT.console.half[2];
+    expect(b.z).toBeLessThan(back);
+    // its shoulder (front left) in line with the Button's cap
+    expect(Math.abs(b.x - 0.64 - AT.buttonCap[0])).toBeLessThan(0.05);
+    const turn = Math.hypot(HX, HZ);
+    // Fetch's path, its round footprint round every point of it
+    const fr = Math.hypot(defaultHalfExtents('robot', 'M')[0], defaultHalfExtents('robot', 'M')[2]) * CREW_SCALE;
+    const path = lanePath(AT.lane.points as readonly (readonly [number, number])[], FETCH_TUNING.cornerRadius * CREW_SCALE);
+    for (let i = 0; i <= 400; i++) {
+      const [x, z] = path.at((path.length * i) / 400);
+      expect(Math.hypot(x - b.x, z - b.z) - fr, `Fetch at (${x.toFixed(2)}, ${z.toFixed(2)})`).toBeGreaterThan(turn);
+    }
+    // the platen, Patch's runner and its stool at every stop, and the console itself
+    const stool = AT.stool.half;
+    const boxes: Array<[string, number, number, number, number]> = [
+      ...[AT.platen, AT.platenPlinth, AT.platenColumn, AT.platenTank].map((p, i) => [`platen ${i}`, p.c[0], p.c[2], p.half[0], p.half[2]] as [string, number, number, number, number]),
+      ['runner', AT.boardRunner.c[0], AT.boardRunner.c[2], AT.boardRunner.half[0], AT.boardRunner.half[2]],
+      ...Object.entries(AT.stoolAt).map(([k, s]) => [`stool at ${k}`, s[0], s[1], stool[0], stool[2]] as [string, number, number, number, number]),
+      ['console', AT.console.c[0], AT.console.c[2], AT.console.half[0], AT.console.half[2]],
+    ];
+    for (const [id, cx, cz, hx, hz] of boxes) {
+      const dx = Math.max(0, Math.abs(b.x - cx) - hx), dz = Math.max(0, Math.abs(b.z - cz) - hz);
+      expect(Math.hypot(dx, dz), id).toBeGreaterThan(turn);
+    }
   });
 
   test('it sweeps a stray from the stray\'s far side, facing the visitor across it, then goes home and down', () => {
