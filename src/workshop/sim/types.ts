@@ -253,7 +253,7 @@ export type Intent =
    * `target` where the hand is (world space); `end: true` on the last one, where it is let go.
    * (S6) Kept while the input layer moves to `grab`/`carry`/`release`, which now reach the same units.
    */
-  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean }
+  | { readonly type: 'drag'; readonly id: Id; readonly target: Vec3; readonly end?: boolean; readonly velocity?: Vec3 }
   // ── S6 ──
   /**
    * The settings' reduced-motion switch, at run time (§ B4, § B10): from the next press a Button rung is
@@ -735,7 +735,7 @@ export interface LineView extends MachineViewBase {
  * visitor: `stare` (looks at the dead plug), `look` (then slowly at the visitor, or at the lever),
  * `duck`, `catch`, `bonk`, `held` (lifted off the stool, hanging), `walk` (put down, going back), `climb`.
  */
-export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross';
+export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross' | 'fly' | 'land' | 'shake' | 'away';
 
 /** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
 export interface PatchView extends MachineViewBase {
@@ -798,6 +798,13 @@ export interface PatchView extends MachineViewBase {
    * turn to face its way, without a step. Null otherwise.
    */
   readonly walk: { readonly pace: number; readonly scamper: boolean; readonly next: Vec3 | null; readonly waiting: boolean } | null;
+  /**
+   * R4: thrown. `fly`: in the air on a scripted arc (`at` is its middle, world; `v` its velocity now; `chute`: on
+   * its way back up the chute after a throw off the bench). `land`: come down (`at` its feet on the bench), a bounce
+   * and a roll over `stateLength`, ending sat up (`speed`: how fast it came in). Then `shake` (sat, a shake of the
+   * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
+   */
+  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
