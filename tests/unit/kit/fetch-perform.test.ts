@@ -93,7 +93,8 @@ describe('fetch-porter performances (perform.ts)', () => {
       for (let t = 0; t <= b.length; t += 0.05) {
         const ms = poseMatrices(b.at(t));
         for (const s of ['L', 'R'] as const) {
-          const hand = new Vector3(0, -0.05, 0).applyMatrix4(inBody(ms, [`arm${s}`, `forearm${s}`, `hand${s}`]));
+          // (the hand rides the telescope's stages)
+          const hand = new Vector3(0, -0.05, 0).applyMatrix4(inBody(ms, [`arm${s}`, `forearm${s}`, `tele${s}1`, `tele${s}2`, `tele${s}3`, `hand${s}`]));
           const inside = Math.abs(hand.x) < TORSO.w / 2 && hand.y > TORSO.y0 && hand.y < TORSO.lidTop && Math.abs(hand.z) < TORSO.d / 2;
           expect(inside, `${b.name} t=${t.toFixed(2)} ${s}`).toBe(false);
         }

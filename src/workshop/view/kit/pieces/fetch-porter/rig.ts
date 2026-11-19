@@ -159,6 +159,8 @@ export interface FetchPose {
   brow?: number;
   /** Pupil size: 0.55 pinpoint .. 1 rest .. 1.35 dilated. */
   pupilSize?: number;
+  /** The whole eye (lens, pupil, lids) scaled in its socket: 1 rest .. 1.45 wide with fright. */
+  eyeScale?: number;
   /** Pupil offset within the eye, -1..1 each (x + toward Fetch's left / screen right, y + up). Clamped to the unit disc. */
   gaze?: [number, number];
   /** [top, bottom] 0 open .. 1 closed. */
@@ -216,6 +218,7 @@ export const NEUTRAL: Required<Omit<FetchPose, 'arms'>> & { arms: ArmPreset } = 
   headRoll: 0,
   brow: 0,
   pupilSize: 1,
+  eyeScale: 1,
   gaze: [0, 0],
   lids: [0, 0],
   arms: 'rest',
@@ -349,7 +352,7 @@ export function resolveArms(a: FetchPose['arms']): Arms {
 
 /** Arm joint limits (they keep the hands outside the body and the jaws inside their travel). */
 export const ARM_LIMITS: Record<Exclude<keyof ArmJoints, 'tele'>, [number, number]> = {
-  swing: [-0.6, 2.2],
+  swing: [-0.6, 3.0],
   abduct: [-0.55, 1.6],
   twist: [-1.6, 1.6],
   elbow: [0, 2.3],
@@ -417,7 +420,8 @@ export function poseMatrices(pose: FetchPose = {}): Record<string, Matrix4> {
   m.headTilt = chain(T(0, CAN.c, 0), RX(-pitch - BODY_RAKE));
   // + brow pulls the peak forward and down over the eye (a rotation of + about X carries the top toward +Z)
   m.brow = RX(clamp(p.brow, -1, 1) * (p.brow > 0 ? BROW.down : BROW.up));
-  m.eye = T(0, 0, CAN.front);
+  const es = clamp(p.eyeScale, 0.8, 1.45);
+  m.eye = es === 1 ? T(0, 0, CAN.front) : chain(T(0, 0, CAN.front), S(es, es, es));
   const ps = clamp(p.pupilSize, 0.55, 1.35);
   m.pupilDot = S(ps, ps, 1);
   const ga = GAZE_MAX;

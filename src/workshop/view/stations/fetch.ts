@@ -119,6 +119,12 @@ export interface FetchInput {
   rung?: { phase: 'playing' | 'rewinding'; t: number; rewind: number; rung: number; presses: number } | null;
   /** Where Revert is (its card comes up at the end of a rung: the eye goes there). */
   revertAt?: Vec3 | null;
+  /** Revert's card is up and being read (S7: everyone settled and looking at it, not upstaging it). */
+  cardUp?: boolean;
+  /** S5's chute pad (world x, z), where a shipped crate's replacement is thrown. */
+  pad?: readonly [number, number] | null;
+  /** Where a part is now (world), for following a thrown crate through its arc. */
+  partAt?: (id: string) => Vec3 | null;
   /**
    * Where its grip should be (world): the simulation's `CrewMember.hands` when it has it, or the view's own
    * stand-in until then (the crate it sets down, the crate it goes for, the phone it taps). Null: no reach.
@@ -266,6 +272,10 @@ export class FetchPerformer {
     for (const e of i.events) {
       if (e.type === 'crew.state' && e.id === m.id) this.transition(e.from as FetchState, e.state as FetchState, i.time);
       if (e.type === 'part.hit' && (e.id === m.id || e.other === m.id) && i.mode === 'free') this.squash.kick(Math.min(6, e.strength * 1.4));
+      if (e.type === 'restock.launched') {
+        this.toss = { part: e.part, from: e.from, to: e.to, flight: e.flight, at: i.time };
+        this.chute = e.from;
+      }
     }
     if (!frozen) {
       this.act = m.state;
@@ -482,12 +492,21 @@ export class FetchPerformer {
           // glance at the belt and back to the visitor; again every few seconds if the offer runs longer
           const p = (u - 1.3) % 2.8;
           if (u > 1.3) {
-            const rock = p < 0.8 ? Math.sin((p / 0.8) * Math.PI * 2) * (1 - p / 0.8) : 0;
-            sideLean = 0.08 * rock;
-            roll = 0.22 - 0.12 * rock;
-            squash += 0.06 * Math.abs(rock);
-            const glance = smoothstep(1.0, 1.15, p) * (1 - smoothstep(1.55, 1.75, p));
-            if (glance > 0 && i.feed) look = new Vector3(...i.feed).lerp(visitor, 1 - glance);
+            // (whole-body moves, big enough to read from the home camera in one still)
+            const rock = p < 0.8 ? Math.sin((p / 0.8) * Math.PI * 2) * (1 - 0.5 * p / 0.8) : 0;
+            sideLean = (rm ? 0.1 : 0.24) * rock;
+            roll = 0.22 - 0.2 * rock;
+            squash += 0.15 * Math.abs(rock);
+            const glance = smoothstep(1.0, 1.2, p) * (1 - smoothstep(1.6, 1.85, p));
+            if (glance > 0 && i.feed && !i.cardUp) {
+              look = new Vector3(...i.feed).lerp(visitor, 1 - glance);
+              // the whole body leans toward the belt with the look, and comes back
+              const fx = i.feed[0] - P.x, fz = i.feed[2] - P.z;
+              const lx = fx * side.x + fz * side.z, lz = fx * fwd.x + fz * fwd.z;
+              const n = Math.hypot(lx, lz) || 1;
+              sideLean += (rm ? 0.1 : 0.26) * glance * (lx / n);
+              fore += (rm ? 0.1 : 0.26) * glance * (lz / n);
+            }
             lids = [lids[0] + 0.1 * glance, lids[1]];
           }
           // a last cock of the head ("well?") that is over a beat before the offer ends
@@ -671,7 +690,20 @@ export class FetchPerformer {
     }
 
     // ── the freeze: a held breath; only the eye slides to the Button ──
-    const fr = frozen && i.rung ? frightened({ ...i.rung, reducedMotion: rm }) : null;
+    let fr = null;
+    if (frozen && i.rung) {
+      // away from the Button and the camera's bearing, both in its own frame
+      let away: [number, number] = [0, 0];
+      if (i.button) {
+        const bx = i.button[0] - P.x, bz = i.button[2] - P.z;
+        const lx = bx * side.x + bz * side.z, lz = bx * fwd.x + bz * fwd.z;
+        const n = Math.hypot(lx, lz) || 1;
+        away = [-lz / n, -lx / n];
+      }
+      const cx = i.visitor[0] - P.x, cz = i.visitor[2] - P.z;
+      const camYaw = Math.atan2(cx * side.x + cz * side.z, cx * fwd.x + cz * fwd.z);
+      fr = frightened({ ...i.rung, away, camYaw, reducedMotion: rm });
+    }
     if (frozen) {
       look = i.button ? new Vector3(...i.button) : this.lastLook ?? look;
       if (fr && fr.toVisitor > 0) {
@@ -699,6 +731,52 @@ export class FetchPerformer {
       brow = Math.min(brow, -0.35);
     }
     if (pointerOk && pointerOn) pupil = Math.max(pupil, 1.15);
+    // ── S5's thrown restock: waiting for its crate at the pad like a dog for a ball; in attract mode, a flinch ──
+    const toss = this.toss;
+    const sinceToss = toss ? i.time - toss.at : Infinity;
+    const tossing = toss !== null && sinceToss < toss.flight + 0.15;
+    const atPad = !!i.pad && grounded && !frozen && !carrying && act === 'idle' && Math.hypot(P.x - i.pad[0], P.z - i.pad[1]) < 1.4;
+    if (atPad && i.pad) {
+      const mouth = this.chute ?? [i.pad[0] - 1.8, 1.4, i.pad[1]];
+      if (tossing && toss) {
+        // perked up at the throw; eye and head follow the crate through its arc
+        const at = i.partAt?.(toss.part);
+        look = at ? new Vector3(...at) : new Vector3(...toss.to);
+        brow = Math.min(brow, -0.7);
+        pupil = 1.35;
+        squash -= 0.25;
+      } else if (toss && sinceToss < toss.flight + 1.0) {
+        // landed: on it
+        look = new Vector3(...toss.to);
+        pupil = 1.3;
+      } else {
+        // its eye on the chute's mouth, a small impatient bounce now and then
+        look = new Vector3(mouth[0], mouth[1], mouth[2]);
+        if (!rm) {
+          const b = (i.time + this.seed * 0.37) % 2.7;
+          squash += b < 0.36 ? -0.3 * Math.sin((b / 0.36) * Math.PI * 2) : 0;
+        }
+      }
+      if (toss && sinceToss >= 0 && sinceToss < 0.05 && !rm) this.squash.kick(-4);
+      if (toss && !rm && sinceToss >= toss.flight && sinceToss < toss.flight + 0.32) this.restockHop = toss.at + toss.flight;
+    } else if (toss && sinceToss >= toss.flight && sinceToss < toss.flight + 1.4 && grounded && !frozen && Math.hypot(P.x - toss.to[0], P.z - toss.to[2]) < 2.2) {
+      // attract mode: it lands beside it while it watches its own crate ship: a flinch, and a look round at it
+      const u = sinceToss - toss.flight;
+      look = new Vector3(...toss.to);
+      brow = Math.min(brow, -0.8);
+      pupil = 0.7;
+      if (u < 0.05 && !rm) this.squash.kick(4);
+      const ax = toss.to[0] - P.x, az = toss.to[2] - P.z;
+      const lx = ax * side.x + az * side.z, lz = ax * fwd.x + az * fwd.z, n = Math.hypot(lx, lz) || 1;
+      const k = (rm ? 0.4 : 1) * (1 - smoothstep(0.2, 1.2, u));
+      sideLean -= 0.22 * k * (lx / n);
+      fore -= 0.22 * k * (lz / n);
+    }
+    // Revert's card up: settled, looking at it (unless it is busy carrying or under way)
+    if (i.cardUp && i.revertAt && grounded && !frozen && !carrying && Math.abs(v) < 0.3) {
+      look = new Vector3(...i.revertAt);
+      sideLean *= 0.2;
+    }
     // micro-saccades: tiny re-aims while it fixates
     if (!rm && !frozen && this.micro.due(t)) this.microOff = [(this.micro.random() - 0.5) * 0.08, (this.micro.random() - 0.5) * 0.06];
     // a large change of target earns a blink (most of the time)
@@ -881,8 +959,12 @@ export class FetchPerformer {
     // a Button rung frightens it (frozen: the simulation holds its body; this is the view's own show)
     if (fr && fr.weight > 1e-3) {
       const hp = pose.headPitch ?? 0, hy = pose.headYaw ?? 0, gz = pose.gaze ?? [0, 0];
-      pose = blendPose(pose, { ...pose, ...fr.pose, headPitch: hp + (fr.pose.headPitch ?? 0), headYaw: hy, gaze: gz, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, fr.weight);
+      const fp = fr.pose.headPitch ?? 0;
+      pose = blendPose(pose, { ...pose, ...fr.pose, headPitch: lerp(hp + fp, fp, fr.aim), headYaw: lerp(hy, fr.pose.headYaw ?? 0, fr.aim), gaze: fr.aim > 0.5 ? [0, 0] : gz, wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 }, fr.weight);
     }
+    // the restock's landing: a small hop as its crate touches the pad (not in reduced motion)
+    const sinceHop = i.time - this.restockHop;
+    if (sinceHop >= 0 && sinceHop < 0.32 && grounded && !rm) pose = { ...pose, lift: Math.max(pose.lift ?? 0, 0.12 * Math.sin((sinceHop / 0.32) * Math.PI)) };
     // set down: the spring takes it, it steadies (from the moment it is back on its wheel)
     const sinceDown = i.time - this.downAt;
     if (grounded && sinceDown >= 0 && sinceDown < LENGTHS.setDown && !rm) {
@@ -1061,6 +1143,10 @@ export class FetchPerformer {
   private offerNear = false;
   private offerNearAt = -Infinity;
   private offerLeftAt = -Infinity;
+  /** S5's thrown restock: the throw in flight (from `restock.launched`), the chute's mouth, the landing's hop. */
+  private toss: { part: string; from: Vec3; to: Vec3; flight: number; at: number } | null = null;
+  private chute: Vec3 | null = null;
+  private restockHop = -Infinity;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
@@ -1350,7 +1436,10 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
           hands,
           feed: w.scene.mouths?.find((x) => x.id === w.scene.runner.rounds?.mouth)?.drop ?? null,
           rung: rungOf(w),
-          revertAt: w.bracketed ? revertOf(w) : null,
+          revertAt: w.bracketed || cardUp(w) ? revertOf(w) : null,
+          cardUp: cardUp(w),
+          pad: w.scene.runner.rounds?.pad ?? null,
+          partAt: (pid: string) => w.motion(pid)?.pose.p ?? null,
           handsHalf,
           scale: k,
         });
@@ -1451,6 +1540,16 @@ function rungOf(w: Frame['world']): FetchInput['rung'] {
   const b = w.button();
   if (b.phase === 'idle' || !b.script) return null;
   return { phase: b.phase, t: b.phaseTime, rewind: b.script.rewind, rung: b.rung, presses: b.presses };
+}
+
+/** Revert's card is up. */
+function cardUp(w: Frame['world']): boolean {
+  for (const r of w.crewViews()) {
+    if (r.kind !== 'revert') continue;
+    const c = (r as { card?: { since: number; read: number } | null }).card;
+    return !!c;
+  }
+  return false;
 }
 
 /** Where Revert is (its body, a little up), if it is on the bench: its card comes up there. */
