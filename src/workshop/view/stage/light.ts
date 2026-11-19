@@ -26,7 +26,7 @@ import {
 } from 'three';
 import type { Token } from '../palette.ts';
 import { SHADOW_LAYER } from '../kit/realize.ts';
-import { lampLighting, stageColours, type LampLighting, type RGB } from './colours.ts';
+import { lampColourFrom, lampLighting, stageColours, type LampLighting, type RGB } from './colours.ts';
 import { LAMP_GLOW } from '../materials/lamp-glow.ts';
 import type { Tier } from '../types.ts';
 
@@ -83,6 +83,13 @@ export const RIG = {
   colourRate: 9,
   /** setBulb refits the shadow camera when the bulb has moved this far since the last fit. */
   refit: 0.5,
+  /**
+   * The warning beacon's wash (W3, § B4 rung 4): while it turns, the bounce light is borrowed and
+   * swung round the beacon, `reach` out along the reflector's beam and `drop` below the dome,
+   * amber, at `intensity` × the strength the view asks for. No new light, no shadow, and nothing at
+   * all when the beacon is off (the bounce is put back).
+   */
+  beacon: { intensity: 60, reach: 2.6, drop: 0.1 },
 };
 
 const toColor = (c: RGB, out = new Color()): Color => out.fromArray(c);
@@ -121,6 +128,10 @@ export class LightRig {
   /** The box the shadow camera was fitted to, and where the bulb was. */
   private shadowBox = new Box3();
   private readonly fitAt = new Vector3();
+  /** The beacon's wash while it turns (null: off; the bounce is the bounce). */
+  private beacon: { strength: number } | null = null;
+  private readonly bounceHome = new Vector3();
+  private readonly beaconColour = new Color();
 
   constructor(opts: LightRigOptions) {
     this.root.name = 'light-rig';
@@ -171,7 +182,9 @@ export class LightRig {
     this.bounce = new PointLight(toColor(c.bounce), RIG.bounce.intensity, 0, 2);
     this.bounce.name = 'bounce';
     this.bounce.position.set(aim[0], RIG.bounce.height, aim[2]);
+    this.bounceHome.copy(this.bounce.position);
     this.root.add(this.bounce);
+    toColor(lampColourFrom('amber'), this.beaconColour);
 
     // WASH: the sign's bulbs on the back wall. High tier only.
     if (opts.tier === 'high') {
@@ -221,7 +234,8 @@ export class LightRig {
     this.key.position.set(pos[0], pos[1], pos[2]);
     if (aim) {
       this.key.target.position.set(aim[0], aim[1], aim[2]);
-      this.bounce.position.set(aim[0], aim[1] + RIG.bounce.height, aim[2]);
+      this.bounceHome.set(aim[0], aim[1] + RIG.bounce.height, aim[2]);
+      if (!this.beacon) this.bounce.position.copy(this.bounceHome);
     }
     this.key.target.updateMatrixWorld();
     // the shadow camera's near and far follow the bulb (a dragged lamp swings a long way)
@@ -247,6 +261,30 @@ export class LightRig {
 
   get lampState(): Readonly<LampState> {
     return this.lamp;
+  }
+
+  /**
+   * The warning beacon's wash (§ B4 rung 4): the bounce light, borrowed, swung round the beacon at
+   * `at` along the reflector's `angle` (radians about +Y; 0 toward +Z), amber, `strength` 0..1 (the
+   * view pulses it as the bright side comes round). `null` puts the bounce back exactly. While on it
+   * costs a position, a colour and an intensity a frame; off, nothing. Reduced motion: the view
+   * passes a fixed angle (a steady glow).
+   */
+  setBeacon(b: { at: readonly [number, number, number]; angle: number; strength: number } | null): void {
+    if (!b) {
+      if (!this.beacon) return;
+      this.beacon = null;
+      this.bounce.position.copy(this.bounceHome);
+      this.bounce.color.fromArray(this.colourNow, 12);
+      this.apply();
+      return;
+    }
+    this.beacon ??= { strength: 0 };
+    this.beacon.strength = MathUtils.clamp(b.strength, 0, 1);
+    const B = RIG.beacon;
+    this.bounce.position.set(b.at[0] + Math.sin(b.angle) * B.reach, b.at[1] - B.drop, b.at[2] + Math.cos(b.angle) * B.reach);
+    this.bounce.color.copy(this.beaconColour);
+    this.bounce.intensity = B.intensity * this.beacon.strength;
   }
 
   /** A momentary dip of the lamp (the Button): drops fast, stutters once, recovers. */
@@ -311,7 +349,7 @@ export class LightRig {
     this.front.color.fromArray(c, 3);
     this.hemi.color.fromArray(c, 6);
     this.hemi.groundColor.fromArray(c, 9);
-    this.bounce.color.fromArray(c, 12);
+    if (!this.beacon) this.bounce.color.fromArray(c, 12);
     this.rim.color.fromArray(c, 15);
     LAMP_GLOW.c_lampGlow.value.fromArray(c, 18);
     LAMP_GLOW.u_lampGlowMix.value = c[21]!;
@@ -327,7 +365,7 @@ export class LightRig {
     this.hemi.intensity = RIG.fill.hemi * nf;
     this.front.intensity = RIG.fill.front * nf;
     this.rim.intensity = RIG.rim.intensity * MathUtils.lerp(RIG.night.rim, 1, day);
-    this.bounce.intensity = RIG.bounce.intensity * day;
+    if (!this.beacon) this.bounce.intensity = RIG.bounce.intensity * day;
     if (this.wash) this.wash.intensity = RIG.wash.intensity * MathUtils.lerp(RIG.wash.night, 1, day);
     this.envIntensity = RIG.env.intensity * MathUtils.lerp(RIG.night.env, 1, day);
     if (this.scene) this.scene.environmentIntensity = this.envIntensity * this.envScale;

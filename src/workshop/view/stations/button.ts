@@ -150,6 +150,9 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     // the cover's pick target rides on the guard's hinge (W3 hover: what can be touched must look it)
     const guardBone = obj.getObjectByName('guard');
     const coverProxy = guardBone ? proxyOn(guardBone, nodeBounds(built, 'guard'), 'cover:proxy', 0.05) : null;
+    // the Button's own target is its cap and the ring round it, riding down with the cap (not the whole console)
+    const capBone = obj.getObjectByName('cap');
+    const capProxy = capBone ? proxyOn(capBone, nodeBounds(built, 'cap'), 'cap:proxy', 0.09) : null;
     let coverHover = 0;
 
     let id: Id | null = null;
@@ -174,7 +177,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
       root.position.copy(p);
       root.quaternion.copy(q);
       id = w.scene.button.id;
-      ctx.pickable(id, obj);
+      ctx.pickable(id, capProxy ?? obj);
       const b = w.button();
       if (coverProxy) ctx.pickable(b.coverId, coverProxy);
       count.x = countTo = b.presses;
