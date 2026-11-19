@@ -11,9 +11,13 @@
 //  - the CSS of the stage root (shell/loader.ts: `.stage-root`, `.poster`,
 //    `.live`, `.warm-done`);
 //  - preload links for what the stage needs that the browser would otherwise
-//    find only after its code has run (§ E6 "in parallel"): the physics wasm,
-//    the fonts, the label worker, the bake table. They match the requests the
-//    code makes later (fetch(), so `as="fetch"` with `crossorigin`).
+//    find only after its code has run (§ E6 "in parallel"): the fonts, the
+//    label worker, the bake table. They match the requests the code makes
+//    later (fetch(), so `as="fetch"` with `crossorigin`). The physics wasm is
+//    better started by shell/early.ts than preloaded here: on Fast 4G a 1.2 MB
+//    preload took the picture's and the code's share of the line (bench:
+//    picture 0.93 s against 0.73 s, usable 4.3 s against 3.95 s);
+//  - first of all, the picture itself (`posters`): one preload per band.
 //
 // The page sets the stage root's background colour (no colour is typed here).
 import { picturePreloads, type PosterSet } from './poster.ts';

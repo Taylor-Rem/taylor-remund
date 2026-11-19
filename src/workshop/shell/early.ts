@@ -19,7 +19,6 @@
  */
 import { createRapierPhysics } from '../sim/physics/rapier.ts';
 import type { PhysicsPort } from '../sim/physics/port.ts';
-import { prefetchLabelWorker } from '../view/labels/pool.ts';
 
 interface Early {
   physics: Promise<PhysicsPort>;
@@ -34,7 +33,10 @@ export function startEarly(): void {
   if (g[KEY]) return;
   const physics = createRapierPhysics();
   physics.catch(() => {});
-  void prefetchLabelWorker();
+  // the painters' script: its fetch is already in flight (the page's preload link); the pool, which takes it
+  // once for all its workers, rides in a big chunk, so it is imported lazily (a static import made this whole
+  // script, and with it the engine, wait for that chunk: 1.6 s on Fast 4G)
+  void import('../view/labels/pool.ts').then((m) => m.prefetchLabelWorker()).catch(() => {});
   g[KEY] = { physics, at: typeof performance !== 'undefined' ? performance.now() : 0 };
 }
 

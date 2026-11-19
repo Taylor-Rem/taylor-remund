@@ -37,18 +37,18 @@ import StageHead from '../workshop/shell/StageHead.astro';
 import StagePicture from '../workshop/shell/StagePicture.astro';
 import type { PosterSet } from '../workshop/shell/poster.ts';
 import postersJson from './bench/posters.json';
-import wasmUrl from '@dimforge/rapier3d/rapier_wasm3d_bg.wasm?url';
 import bakeUrl from '../workshop/view/kit/bake-table.bin?url';
 import workerUrl from '../workshop/view/labels/worker.ts?worker&url';
 import { FACES } from '../workshop/view/labels/fonts.ts';
 
 const posters = postersJson as unknown as PosterSet;
 const files = import.meta.glob<string>('./bench/*.{avif,jpg}', { query: '?url', import: 'default', eager: true });
-// what the stage fetches once its code runs, asked for at once: the engine's wasm (the longest download, low
-// priority so the code and the picture go first), the bake table, the label painters' script, the fonts
-// (low: they must not slow the picture or the code; nothing else wants the line by then)
+// what the stage fetches once its code runs, asked for at once: the bake table, the label painters' script, the fonts
+// (low: they must not slow the picture or the code). Not the engine's wasm: preloaded from the head it took
+// a share of the line from the picture and the code (Fast 4G, measured: picture 0.93 s, usable 4.3 s); started by
+// the early script once its 3 KB chunk is in (about 0.55 s) it still lands long before the world wants it
+// (picture 0.73 s, usable 3.95 s)
 const preload = [
-  { href: wasmUrl, priority: 'low' as const },
   { href: bakeUrl, priority: 'low' as const },
   { href: workerUrl, priority: 'low' as const },
   ...Object.values(FACES).map((f) => ({ href: `/fonts/${f.file}`, priority: 'low' as const })),
