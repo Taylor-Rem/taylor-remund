@@ -35,6 +35,7 @@ import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -69,7 +70,7 @@ export interface OperatorViewOptions {
   things: Partial<Record<JackName, Vec3>>;
 }
 
-type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk';
+type Mode = 'idle' | 'notice' | 'roll' | 'plug' | 'job' | 'shut' | 'look' | 'lever' | 'held' | 'walk' | 'climb' | 'duck' | 'catch' | 'bonk' | 'rung' | 'facepalm';
 
 /** Where each of the simulation's job stages starts in the job performance (it is authored at their lengths). */
 const JOB_AT = new Map<string, { at: number; dur: number }>(JOB_STAGES.map((s) => [s.name, { at: s.at, dur: s.dur }]));
@@ -160,6 +161,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
       () => void duck(0.3),
       () => void bonked(0.3),
       () => void catchCrate(0.6),
+      () => void rungReaction(1, 1, { play: 3, rewind: 1.2 }),
+      () => void facepalm(1),
     ];
 
     // ── view state ──
@@ -182,6 +185,19 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let reactFrom: V3 = [0, 0, 1];
     let lookStart = 0;
     let hover = 0;
+    // a Button rung: the performance it interrupted (resumed, where the simulation left it, when the rung is over)
+    let rungSaved: { mode: Mode; entry: PatchPose; at: number } | null = null;
+    let rungDrawer = 0;
+    // Fetch's fumble: the facepalm when Patch's paws are free, a glance and a head shake when they are not
+    let fetchState = '';
+    let fumbleAt = -1;
+    let fumbleSeen = 0;
+    let fumbleFrom: V3 = [0, 0, 1];
+    /** When Patch reacts to a fumble (a beat after the crate lands), and for how long. */
+    const FUMBLE_BEAT = 0.25, FUMBLE_LENGTH = 3.0;
+    // after rung 3: Patch watches Revert fit the cover, and nods once when it is on
+    let coverWas = '';
+    let nodAt = -1;
     /** The cord's move (state `plug`): from which jack to which. */
     let plugMove: { from: JackName; to: JackName } | null = null;
     const pawW = new Vector3();
@@ -259,6 +275,40 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const sT = reduced && finite ? v.stateLength : finite ? Math.min(v.stateTime, v.stateLength) : v.stateTime;
         const cord = w.cord('cord');
         const plugOut = !!cord?.lifted;
+
+        // ── a Button rung: the crew is the audience; the job resumes where the simulation left it ──
+        if (w.bracketed && !rungSaved && mode !== 'held') {
+          rungSaved = { mode, entry, at: t };
+          rungDrawer = drawer;
+          enter('rung', t, true);
+        } else if (!w.bracketed && rungSaved) {
+          const sv = rungSaved;
+          rungSaved = null;
+          blendFrom = last;
+          blendAt = t;
+          blendDur = F.blendFar;
+          mode = sv.mode;
+          entry = sv.entry;
+          // the performances that run on the view's clock pick up where they were
+          modeAt += t - sv.at;
+          lookStart += t - sv.at;
+        }
+        // ── Fetch fumbled its crate: Patch reacts a beat after it lands (from the back of the bench) ──
+        const fc = w.crew('fetch');
+        if (fc && fc.state !== fetchState) {
+          if (fc.state === 'offer' && fetchState === 'fumble') {
+            fumbleAt = t + FUMBLE_BEAT;
+            fumbleFrom = seatSpace([fc.x, 0.4, fc.z]);
+            fumbleSeen++;
+          }
+          fetchState = fc.state;
+        }
+        if (fumbleAt >= 0 && t >= fumbleAt && !rungSaved) {
+          // paws free (idle at the rest or by a jack): the full facepalm; otherwise a glance (below)
+          if (mode === 'idle') enter('facepalm', t, true);
+          if (mode !== 'facepalm') fumbleAt = -fumbleAt - 1; // remembered as a glance's start (negative)
+          else fumbleAt = -1;
+        }
 
         // ── which performance ──
         const lv = w.machine('line');
@@ -433,12 +483,32 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           case 'bonk':
             pose = bonked(reduced ? BONK_LENGTH : sT, { from: reactFrom });
             break;
+          case 'rung': {
+            const b = w.button();
+            const sc = b.script;
+            const P = sc?.play ?? 3, RW = sc?.rewind ?? 1.2;
+            const tr = b.phase === 'playing' ? b.phaseTime : b.phase === 'rewinding' ? P + b.phaseTime : P + RW;
+            pose = rungReaction(b.rung, reduced || w.reducedMotion ? P + RW : tr, { play: P, rewind: RW, button: seatSpace(w.scene.button.at), visitor: boardToRoot(VISITOR_BOARD, stoolB), from: entry, presses: b.presses });
+            drawer = rungDrawer;
+            break;
+          }
+          case 'facepalm': {
+            const variant: FacepalmVariant = (['one', 'drag', 'one', 'both'] as const)[(fumbleSeen - 1) % 4]!;
+            pose = facepalm(reduced ? FUMBLE_LENGTH : age, { length: FUMBLE_LENGTH, glance: fumbleFrom, visitor: boardToRoot(VISITOR_BOARD, stoolB), from: entry, variant });
+            if (age >= FUMBLE_LENGTH) enter('idle', t, true);
+            break;
+          }
           default: {
             if (prep.length && t > 1 && !reduced) prep.shift()!();
             // idle: the rest (side-on, face to the visitor) or at work by a jack; the head follows the action, slowly
             const base = resolvePose(restPose(stoolB));
             let target: V3 | null = null;
-            if (frame.pointer && frame.hovered && frame.hovered !== 'patch') {
+            const bv = w.button();
+            if (bv.cover === 'fitting') {
+              const rv = w.machine('revert');
+              if (rv && rv.kind === 'revert') target = seatSpace([rv.x, 0.6, rv.z]);
+            }
+            if (!target && frame.pointer && frame.hovered && frame.hovered !== 'patch') {
               tv.set(frame.pointer[0], frame.pointer[1], frame.pointer[2]);
               if (tv.distanceTo(root.position) < F.near) target = rootSpace(frame.pointer);
             }
@@ -467,6 +537,24 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           hp = r.headPitch;
           gx = r.gaze[0];
           gy = r.gaze[1];
+        }
+        // the cover is on: one nod (idle only; a nod is a small dip of the head and back)
+        const cv0 = w.button().cover;
+        if (cv0 !== coverWas) {
+          if (coverWas === 'fitting' && cv0 === 'shut') nodAt = t;
+          coverWas = cv0;
+        }
+        if (nodAt >= 0 && !reduced) {
+          const k = (t - nodAt) / 0.7;
+          if (k >= 1 || mode !== 'idle') nodAt = -1;
+          else pose = { ...pose, headPitch: (pose.headPitch ?? 0) - 0.22 * Math.sin(Math.PI * k) * (k < 0.5 ? 1 : 0.8) };
+        }
+        // busy when Fetch fumbled: a quick glance at the crash and a small shake of the head, and on with the job
+        if (fumbleAt < -1 && !reduced) {
+          const g0 = -fumbleAt - 1;
+          const k = (t - g0) / 0.9;
+          if (k >= 1) fumbleAt = -1;
+          else pose = glanceShake(pose, k, fumbleFrom);
         }
         if (blendFrom && !reduced && t - blendAt < blendDur) pose = blendTo(blendFrom, pose, t - blendAt, blendDur);
         else blendFrom = null;
@@ -521,7 +609,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
 
         // ── the drawer of the jack in hand follows the paw; any other closes ──
         for (const j of JACKS) {
-          const want = j === jobJack && (mode === 'job' || mode === 'shut') ? drawer : 0;
+          const want = j === jobJack && (mode === 'job' || mode === 'shut' || (mode === 'rung' && (rungSaved?.mode === 'job' || rungSaved?.mode === 'shut'))) ? drawer : 0;
           drawers[j] = reduced ? want : want > drawers[j] ? want : damp(drawers[j], want, 8, dt);
         }
         const sum = drawers.storefront * 1 + drawers.platen * 3 + drawers.belt * 9 + drawers.lamp * 27;
