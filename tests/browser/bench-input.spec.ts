@@ -959,6 +959,77 @@ test('R2: the phone’s panel is never stranded: a hundred opens and closes at r
   expect([...mouse.map((f) => `mouse ${f}`), ...touch.map((f) => `touch ${f}`)]).toEqual([]);
 });
 
+/** Count what the page does with sound: every AudioContext made (and its state), every buffer started. */
+const SOUND_PROBE = () => {
+  const w = window as any;
+  w.__snd = { made: 0, contexts: [] as AudioContext[], started: 0 };
+  const C = w.AudioContext;
+  if (!C) return;
+  w.AudioContext = class extends C {
+    constructor(...a: any[]) {
+      super(...a);
+      w.__snd.made++;
+      w.__snd.contexts.push(this);
+    }
+  };
+  const start = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (...a: any[]) {
+    w.__snd.started++;
+    return (start as any).apply(this, a);
+  };
+};
+
+/**
+ * R3: the FIRST hover, grab and press of a visit, each by itself (§ E0: the first touch is the one that matters
+ * most; medians over several would hide a slow first one). Each first gesture on a fresh page: a grab, then on a
+ * second page a press. And the sound: nothing heard before the first gesture; heard from it (the context made in
+ * idle time beforehand, resumed by the gesture).
+ */
+test('R3: the first hover, the first grab and the first press of a visit are each as quick as the rest; sound starts with the first gesture', async ({ browser }) => {
+  const firstOf = async (what: 'grab' | 'press'): Promise<{ hover: number; first: number; ft: number; snd: { before: string; after: string; startedBefore: number; startedAfter: number; made: number } }> => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript(SOUND_PROBE);
+    const page = await ctx.newPage();
+    await open(page, 1440, 900);
+    // the bench running a while, as a visitor looks before acting (the idle time comes in this)
+    await frames(page, 150);
+    const target = what === 'grab' ? await waitClear(page, 'crate-1', 'mouse') : await waitClear(page, 'belt-dial', 'mouse');
+    const sndBefore = await page.evaluate(() => ({ state: (window as any).__snd.contexts.map((c: AudioContext) => c.state).join(',') || 'none', started: (window as any).__snd.started }));
+    await page.evaluate(() => (window as any).__bench.ws.latency.reset());
+    // the first hover of the visit
+    await page.mouse.move(target.x, target.y);
+    await frames(page, 6);
+    const hover = await page.evaluate(() => (window as any).__bench.ws.latency.report().frame.hover?.last ?? -1);
+    await page.evaluate(() => (window as any).__bench.ws.latency.reset());
+    // the first gesture of the visit
+    await page.mouse.down();
+    await frames(page, 8);
+    await page.mouse.up();
+    const first = await page.evaluate((k) => (window as any).__bench.ws.latency.report().frame[k]?.last ?? -1, what);
+    await frames(page, 30);
+    const ft = await page.evaluate(() => {
+      const f = ((window as any).__bench.ws.loop.frameTimes() as number[]).slice(-120).sort((a, b) => a - b);
+      return f[Math.floor(f.length / 2)] ?? 16.7;
+    });
+    const sndAfter = await page.evaluate(() => ({ state: (window as any).__snd.contexts.map((c: AudioContext) => c.state).join(',') || 'none', started: (window as any).__snd.started, made: (window as any).__snd.made }));
+    await ctx.close();
+    return { hover, first, ft, snd: { before: sndBefore.state, after: sndAfter.state, startedBefore: sndBefore.started, startedAfter: sndAfter.started, made: sndAfter.made } };
+  };
+  const g = await firstOf('grab');
+  const p = await firstOf('press');
+  const loadavg = await import('node:os').then((os) => os.loadavg().map((v) => v.toFixed(2)).join(' '));
+  console.log(`[I1] R3 first of a visit (ms, DOM event → end of the first frame after its step), load ${loadavg}: hover ${g.hover.toFixed(1)}, grab ${g.first.toFixed(1)} (frame ${g.ft.toFixed(1)}); hover ${p.hover.toFixed(1)}, press ${p.first.toFixed(1)}; sound ${JSON.stringify(g.snd)}`);
+  expect(g.hover).toBeGreaterThan(0);
+  expect(g.hover).toBeLessThan(g.ft * 1.5 + 17);
+  expect(g.first, 'the first grab of a visit').toBeLessThan(Math.max(50, g.ft * 1.5 + 17));
+  expect(p.first, 'the first press of a visit').toBeLessThan(100);
+  // sound: made beforehand and silent until the first gesture, then heard
+  expect(g.snd.startedBefore, 'nothing sounds before the first gesture').toBe(0);
+  expect(g.snd.made, 'one context').toBe(1);
+  expect(g.snd.after).toBe('running');
+  expect(g.snd.startedAfter, 'the first pick-up is heard').toBeGreaterThan(0);
+});
+
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
   await open(page, 1440, 900);
   await standIns(page);
