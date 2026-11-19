@@ -61,6 +61,8 @@ import { HZ, steps } from '../clock.ts';
 import { qnormalize, qyaw, yawOf } from '../math.ts';
 import { MATERIAL, massOf } from '../parts.ts';
 import { KNOCK_TUNING, classify, clearRun, obstacles, toyBounce } from './fetch-knock.ts';
+import { lanePath } from '../path.ts';
+import type { SceneDesc, StandPoint } from '../scene.ts';
 import type { Obstacle, Strength } from './fetch-knock.ts';
 
 /** Timings (seconds), speeds (units/s) and distances (units), at P1 size. Tune here. */
@@ -71,6 +73,8 @@ export const FETCH_TUNING = {
   /** How far past a stop it runs before skidding back. */
   overshoot: 0.3,
   skidBack: 0.8,
+  /** S5 round 2: the hand never goes faster than this (units/s); a reach that far takes longer than its nominal time. */
+  handSpeed: 6,
   /** Pause at each end of the lane: [min, max]. */
   idle: [0.8, 2.0] as readonly [number, number],
   /** The lane's stops are this far inside its ends. */
@@ -120,6 +124,19 @@ export const FETCH_TUNING = {
   handsUpNear: 1.6,
   /** Its eye follows a loose part on the move within this distance (units). */
   gazeRange: 4,
+  // ── S5 round 2: the path and the hands ──
+  /** A corner of its path is ridden as an arc of this radius (less where the runs are too short), at no more than `cornerSpeed`. */
+  cornerRadius: 0.3,
+  cornerSpeed: 1.2,
+  /**
+   * The grip (`CrewMember.hands`), seconds: a short pull back before every reach, the claws closing on a part
+   * (inside `gather`), and the ease back to the carry pose after a set-down, a tap, a stretch or a reach given up.
+   * The reach out itself takes the rest of `pickup` (over the part, then down onto it); `gather` brings it in
+   * (close, straight up `gatherLift`, across above the hands, down into them); `place` and `TAP` time the others.
+   */
+  hands: { pull: 0.08, down: 0.12, close: 0.1, back: 0.3, stretchOut: 0.4 } as const,
+  /** How far the pull back goes (units, toward its body). */
+  pullBack: 0.1,
 } as const;
 
 export type { FetchState } from '../types.ts';
@@ -149,6 +166,10 @@ function scaled(t: typeof FETCH_TUNING, k: number): typeof FETCH_TUNING {
     dropClear: t.dropClear * k,
     handsUpNear: t.handsUpNear * k,
     gazeRange: t.gazeRange * k,
+    cornerRadius: t.cornerRadius * k,
+    cornerSpeed: t.cornerSpeed * k,
+    pullBack: t.pullBack * k,
+    handSpeed: t.handSpeed * k,
   } as typeof FETCH_TUNING;
 }
 
@@ -191,6 +212,55 @@ function nlerp(a: Quat, b: Quat, f: number): Quat {
 const lerp3 = (a: Vec3, b: Vec3, f: number): Vec3 => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
 const isTxn = (c: Cause): boolean => c !== 'crew' && c !== 'system';
 
+/** S5 round 2: the farthest Fetch's grip goes from its centre on the bench, in this scene (`FetchSpec.reach`, else P2's number). */
+export function fetchReach(scene: SceneDesc, tuning: Partial<typeof FETCH_TUNING> = {}): number {
+  const T = scaled({ ...FETCH_TUNING, ...tuning }, scene.crewScale ?? 1);
+  return scene.runner.reach ?? T.reach + T.handForward;
+}
+
+/** S5 round 2: where on its path Fetch stands to handle `what` at (px, pz), and how far that is from it. */
+export function fetchStand(scene: SceneDesc, what: 'stack' | 'tray' | 'phone' | 'feed', px: number, pz: number, tuning: Partial<typeof FETCH_TUNING> = {}): { s: number; at: [number, number]; d: number } {
+  const T = scaled({ ...FETCH_TUNING, ...tuning }, scene.crewScale ?? 1);
+  const path = lanePath(scene.runner.lane.points, T.cornerRadius);
+  const lo = Math.min(T.inset, path.length / 2);
+  const hi = Math.max(path.length - T.inset, path.length / 2);
+  const clampS = (v: number): number => Math.min(hi, Math.max(lo, v));
+  const st = scene.runner.stands?.[what];
+  const sv = typeof st === 'number' ? clampS(st * path.length) : st ? clampS(path.nearest(st[0], st[1])) : clampS(path.nearest(px, pz));
+  const at = path.at(sv);
+  return { s: sv, at, d: Math.hypot(px - at[0], pz - at[1]) };
+}
+
+/**
+ * S6 / S5 round 2: can Fetch run attract mode's lap on this scene? Every place it handles must be within its
+ * reach (`fetchReach`) of where it stands for it (`fetchStand`). Says why not, naming the place, the distance
+ * and the reach (what a layout engineer reads); the lap also needs the phone line's desk, which only a
+ * running world can say.
+ */
+export function canRunLap(scene: SceneDesc, tuning: Partial<typeof FETCH_TUNING> = {}): { ok: true } | { ok: false; why: string } {
+  const spec = scene.runner;
+  const lap = spec.attract;
+  const rounds = spec.rounds;
+  if (!lap) return { ok: false, why: 'no attract lap in the scene (FetchSpec.attract)' };
+  if (!rounds) return { ok: false, why: 'no rounds in the scene (FetchSpec.rounds): the stack and the belt are named there' };
+  const tray = scene.mouths?.find((m) => m.id === lap.tray);
+  const feed = scene.mouths?.find((m) => m.id === rounds.mouth);
+  if (!tray) return { ok: false, why: `no mouth "${lap.tray}" for the tray` };
+  if (!feed) return { ok: false, why: `no mouth "${rounds.mouth}" for the belt's feed` };
+  const R = fetchReach(scene, tuning);
+  const places: ['stack' | 'tray' | 'phone' | 'feed', number, number][] = [
+    ['stack', rounds.stack[0], rounds.stack[1]],
+    ['tray', tray.drop[0], tray.drop[2]],
+    ['phone', lap.phone[0], lap.phone[2]],
+    ['feed', feed.drop[0], feed.drop[2]],
+  ];
+  for (const [what, px, pz] of places) {
+    const st = fetchStand(scene, what, px, pz, tuning);
+    if (st.d > R) return { ok: false, why: `${what} at (${px.toFixed(2)}, ${pz.toFixed(2)}) is ${st.d.toFixed(2)} from where Fetch stands for it (${st.at[0].toFixed(2)}, ${st.at[1].toFixed(2)}); its reach is ${R.toFixed(2)}` };
+  }
+  return { ok: true };
+}
+
 export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING> = {}): FetchUnit {
   const k = ctx.scene.crewScale ?? 1;
   const T = scaled({ ...FETCH_TUNING, ...tuning }, k);
@@ -199,19 +269,26 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const rounds = spec.rounds ?? null;
   const rng = ctx.rng('fetch');
   const knockRng = ctx.rng('fetch:knock'); // its own fork: a knock never shifts the idle pauses
-  const [ax, az] = spec.lane.a;
-  const [bx, bz] = spec.lane.b;
-  const laneLen = Math.hypot(bx - ax, bz - az);
-  const dir: readonly [number, number] = [(bx - ax) / laneLen, (bz - az) / laneLen];
-  const laneYaw = Math.atan2(dir[0], dir[1]);
+  // S5 round 2: its lane is a path of runs; it rides it by distance `s` from the first point
+  const PATH = lanePath(spec.lane.points, T.cornerRadius);
+  const laneLen = PATH.length;
   const stopA = Math.min(T.inset, laneLen / 2);
   const stopB = Math.max(laneLen - T.inset, laneLen / 2);
   const clampLane = (s: number): number => Math.min(stopB, Math.max(stopA, s));
-  const at = (s: number): [number, number] => [ax + dir[0] * s, az + dir[1] * s];
-  /** Lane parameter (units) of the point nearest (x, z). */
-  const nearest = (x: number, z: number): number => clampLane((x - ax) * dir[0] + (z - az) * dir[1]);
-  /** How far from a point of its lane it can take hold of a part (horizontal, to the part's centre). */
-  const R = T.reach + T.handForward;
+  const at = (s: number): [number, number] => PATH.at(s);
+  /** The way the path runs at `s` (toward its last point). */
+  const pathYaw = (s: number): number => PATH.yaw(s);
+  /** Path distance (between its stops) of the point nearest (x, z). */
+  const nearest = (x: number, z: number): number => clampLane(PATH.nearest(x, z));
+  /** S5 round 2: the farthest its grip goes from its centre, on the bench (`FetchSpec.reach`; else P2's number). */
+  const R = spec.reach ?? T.reach + T.handForward;
+  /** Where on the path it stands to handle `what` at (px, pz): the scene's stand point, else the nearest point. */
+  const standS = (what: keyof NonNullable<typeof spec.stands>, px: number, pz: number): number => {
+    const st: StandPoint | undefined = spec.stands?.[what];
+    if (typeof st === 'number') return clampLane(st * laneLen);
+    if (st) return nearest(st[0], st[1]);
+    return nearest(px, pz);
+  };
   const selfSpec = ctx.scene.parts.find((p) => p.id === spec.id);
   const selfHalf: Vec3 = ctx.halfExtents(spec.id) ?? [0.3, 0.5, 0.26];
   const selfMass = selfSpec?.mass ?? massOf(selfHalf, selfSpec?.material ?? 'metal');
@@ -294,7 +371,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let x = at(s)[0];
   let z = at(s)[1];
   let v = 0; // signed speed along the lane (+ toward b)
-  let heading = laneYaw;
+  let heading = pathYaw(s);
   let carrying: Id | null = null;
   let target = s;
   /** Direction of the current run along the lane, fixed when it starts (the overshoot is past the stop in this direction). */
@@ -311,9 +388,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let goal: Id | null = null;
   let goalWhy: 'retrieve' | 'take' | 'collect' = 'take';
   /** The crate coming into its hands: from where, since when. */
-  let gather: { from: Pose; at: number } | null = null;
+  let gather: { from: Pose; at: number; dur: number[] } | null = null;
   /** Setting a crate down: the drop pose (bottom of the crate at the mouth's drop point), and whether it has let go. */
-  let placing: { to: Pose; above: Pose; from: Pose | null; out: number; let: boolean } | null = null;
+  let placing: { to: Pose; above: Pose; from: Pose | null; out: number; let: boolean; dur: [number, number] } | null = null;
   /** The step it last set a crate down (the pace), and the crate, while it is still falling the last hair. */
   let lastPlaced = -Infinity;
   let justPlaced: Id | null = null;
@@ -335,12 +412,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const HISTORY = 5;
   let gaze: Gaze | null = null;
   let handsUp = false;
+  /** S5 round 2: the grip this step (`CrewMember.hands`), and an ease back to the carry pose in progress. */
+  let hands: Vec3 | null = null;
+  let armBack: { from: Vec3; at: number; dur: number } | null = null;
 
   const enter = (next: FetchState): void => {
     if (next === state) return;
     const from = state;
     state = next;
     entered = ctx.clock.step;
+    reachLegs = null; // a reach belongs to the state that made it
     ctx.emit({ type: 'crew.state', id: spec.id, state: next, from });
   };
   const inState = (): number => ctx.clock.step - entered;
@@ -360,31 +441,98 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const reach = T.bodyHalfDepth + T.handGap + (carrying ? (ctx.halfExtents(carrying)?.[2] ?? 0.225) : 0.225);
     return { p: [x + fx * reach, T.handHeight, z + fz * reach], q: qyaw(heading) };
   };
-  /** Where the crate in its hands is: coming into them, in them, or on its way out over the belt. */
-  function cratePose(): Pose {
-    const hand = handPose();
-    const now = ctx.clock.step;
-    if (gather) {
-      const f = clamp01((now - gather.at) / Math.max(1, steps(T.gather)));
-      if (f >= 1) gather = null;
-      else {
-        // straight up off whatever it sat on, across above the hands (never down through what it sat on), then into them
-        const high = Math.max(gather.from.p[1] + T.gatherLift, hand.p[1]);
-        const lifted: Vec3 = [gather.from.p[0], high, gather.from.p[2]];
-        const over: Vec3 = [hand.p[0], high, hand.p[2]];
-        const p = f < 0.25 ? lerp3(gather.from.p, lifted, smooth(f / 0.25)) : f < 0.75 ? lerp3(lifted, over, smooth((f - 0.25) / 0.5)) : lerp3(over, hand.p, smooth((f - 0.75) / 0.25));
-        return { p, q: nlerp(gather.from.q, hand.q, smooth(f)) };
-      }
+  // ── S5 round 2: the grip. Every pose a part in its care takes is the grip's; the grip eases, never jumps ──
+
+  const home = (): Vec3 => handPose().p;
+  /** Never further from its centre (on the bench) than its reach. */
+  const inReach = (p: Vec3): Vec3 => {
+    const dx = p[0] - x;
+    const dz = p[2] - z;
+    const d = Math.hypot(dx, dz);
+    return d <= R ? p : [x + (dx / d) * R, p[1], z + (dz / d) * R];
+  };
+  /** The carry pose drawn back toward its body a little, and up: the wind-up before a reach. */
+  const pulled = (): Vec3 => {
+    const h = home();
+    return [h[0] - Math.sin(heading) * T.pullBack, h[1] + T.pullBack * 0.5, h[2] - Math.cos(heading) * T.pullBack];
+  };
+  const dist3 = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  /** A leg's time: its nominal length, or longer if the hand would otherwise go faster than `handSpeed` (an eased leg peaks at 1.5× its mean). */
+  const legTime = (nominal: number, from: Vec3, to: Vec3): number => Math.max(nominal, (1.5 * dist3(from, to)) / T.handSpeed);
+  /** Legs through `pts` (read live each step: Fetch may be turning), each eased, with fixed durations (seconds); t from the first leg's start. */
+  function alongLegs(pts: readonly Vec3[], dur: readonly number[], t: number): Vec3 {
+    let u = t;
+    for (let i = 0; i < dur.length; i++) {
+      const d = dur[i] as number;
+      if (u < d) return lerp3(pts[i] as Vec3, pts[i + 1] as Vec3, smooth(clamp01(u / Math.max(1e-9, d))));
+      u -= d;
     }
-    if (placing && !placing.let && placing.from) {
-      const out = steps(T.place.out);
-      const lower = steps(T.place.lower);
-      const t = now - placing.out;
-      if (t <= out) return { p: lerp3(placing.from.p, placing.above.p, smooth(clamp01(t / Math.max(1, out)))), q: nlerp(placing.from.q, placing.to.q, smooth(clamp01(t / Math.max(1, out)))) };
-      return { p: lerp3(placing.above.p, placing.to.p, smooth(clamp01((t - out) / Math.max(1, lower)))), q: placing.to.q };
-    }
-    return hand;
+    return pts[pts.length - 1] as Vec3;
   }
+  const sum = (a: readonly number[]): number => a.reduce((p, q) => p + q, 0);
+  /** A reach in progress (pickup, tap, stretch): where to, by what points, the legs' times (fixed at its start). */
+  let reachLegs: { at: number; dur: number[]; over: boolean; back: boolean } | null = null;
+  /** Points of a reach out to `to`: pulled back, then (`over`) above it at `high` and down onto it, or straight to it. */
+  const reachPts = (to: Vec3, high: number | null): Vec3[] => (high === null ? [home(), pulled(), to] : [home(), pulled(), [to[0], high, to[2]], to]);
+  /** Start a reach now: legs timed from their nominal lengths and the hand's speed. */
+  function startReach(now: number, to: Vec3, high: number | null, total: number): void {
+    const pts = reachPts(to, high);
+    const pull = Math.min(T.hands.pull, total * 0.3);
+    const down = high === null ? 0 : Math.min(T.hands.down, total * 0.3);
+    const nominal = high === null ? [pull, total - pull] : [pull, total - pull - down, down];
+    reachLegs = { at: now, dur: nominal.map((n, i) => legTime(n, pts[i] as Vec3, pts[i + 1] as Vec3)), over: high !== null, back: false };
+  }
+  const reachLen = (): number => (reachLegs ? sum(reachLegs.dur) : 0);
+  const reachGrip = (now: number, to: Vec3, high: number | null): Vec3 => (reachLegs ? alongLegs(reachPts(to, high), reachLegs.dur, (now - reachLegs.at) / HZ) : home());
+  /** Bringing a part in: the claws close where it rests, then straight up, across above the hands (never down through what it sat on), into them. */
+  function gatherPts(): Vec3[] {
+    const g = gather as { from: Pose };
+    const hand = home();
+    const high = Math.max(g.from.p[1] + T.gatherLift, hand[1]);
+    return [g.from.p, g.from.p, [g.from.p[0], high, g.from.p[2]], [hand[0], high, hand[2]], hand];
+  }
+  function gatherGrip(now: number): { p: Vec3; q: Quat } | null {
+    if (!gather) return null;
+    const t = (now - gather.at) / HZ;
+    const total = sum(gather.dur);
+    if (t >= total) {
+      gather = null;
+      return null;
+    }
+    const f = clamp01((t - T.hands.close) / Math.max(1e-9, total - T.hands.close));
+    return { p: alongLegs(gatherPts(), gather.dur, t), q: nlerp(gather.from.q, handPose().q, smooth(f)) };
+  }
+  /** Start bringing in the part whose claws just closed at `from`. */
+  function startGather(now: number, from: Pose): void {
+    gather = { from, at: now, dur: [] };
+    const pts = gatherPts();
+    const rest = T.gather - T.hands.close;
+    gather.dur = [T.hands.close, ...[0.25, 0.5, 0.25].map((f, i) => legTime(rest * f, pts[i + 1] as Vec3, pts[i + 2] as Vec3))];
+  }
+  /** Setting a part down: out over the drop, lowered onto it; held there one step before the claws open. */
+  function placeGrip(now: number): { p: Vec3; q: Quat } | null {
+    if (!placing || placing.let || !placing.from) return null;
+    const [out, lower] = placing.dur;
+    const t = (now - placing.out) / HZ;
+    if (t <= out) {
+      const f = smooth(clamp01(t / Math.max(1e-9, out)));
+      return { p: lerp3(placing.from.p, placing.above.p, f), q: nlerp(placing.from.q, placing.to.q, f) };
+    }
+    return { p: lerp3(placing.above.p, placing.to.p, smooth(clamp01((t - out) / Math.max(1e-9, lower)))), q: placing.to.q };
+  }
+  function armBackGrip(now: number): Vec3 | null {
+    if (!armBack) return null;
+    const f = (now - armBack.at) / Math.max(1, steps(armBack.dur));
+    if (f >= 1) {
+      armBack = null;
+      return null;
+    }
+    return lerp3(armBack.from, home(), smooth(f));
+  }
+  /** The hands go back to the carry pose from wherever they are now (no faster than the hand's speed). */
+  const drawBack = (from: Vec3 | null, now: number, dur: number = T.hands.back): void => {
+    armBack = from ? { from, at: now, dur: legTime(dur, from, home()) } : null;
+  };
 
   /** Let go of the crate in its hands (the visitor took Fetch, or a knock): it falls, its rest charged to `cause`. */
   function letGo(linvel: Vec3, angvel: Vec3, cause: Cause | null): Id | null {
@@ -393,6 +541,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     carrying = null;
     gather = null;
     placing = null;
+    armBack = null;
+    hands = null;
     if (ctx.mode(c) === 'crew') ctx.detach(c, linvel, angvel, cause);
     return c;
   }
@@ -408,6 +558,11 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       v = 0;
       lookAt = null;
       enter('held');
+    },
+    heldYaw() {
+      // held up, it turns to face whoever has it (the visitor)
+      const p = ctx.pose(spec.id);
+      return p ? Math.atan2(spec.outward[0] - p.p[0], spec.outward[2] - p.p[2]) : null;
     },
     taken(part) {
       if (part !== carrying) return;
@@ -474,6 +629,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       v += Math.sign(toAim) * T.accel * dt;
       v = Math.max(-T.maxSpeed, Math.min(T.maxSpeed, v));
     }
+    // S5 round 2: a corner ahead: no faster than it can brake down to `cornerSpeed` by the time it gets there
+    const cap = Math.min(cornerCap(s, Math.sign(v) || rollDir), cornerCap(s + v * dt, Math.sign(v) || rollDir));
+    if (Math.abs(v) > cap) v = Math.sign(v) * cap;
     const nextS = s + v * dt;
     // past the aim, or stopped near it: skid back to the stop
     if ((v > 0 && nextS >= aim) || (v < 0 && nextS <= aim) || (Math.abs(v) < T.brake * dt && Math.abs(toAim) < 0.02)) {
@@ -484,9 +642,25 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       return;
     }
     s = nextS;
-    // into the run: a quick spin round (never a snap, so a crate in its hands swings rather than jumps)
-    if (Math.abs(v) > 0.01) turnToward(v > 0 ? laneYaw : laneYaw + Math.PI);
+    // into the run, and round each corner: an eased turn to the way the path runs (never a snap, so a crate in its hands swings rather than jumps)
+    if (Math.abs(v) > 0.01) turnToward(v > 0 ? pathYaw(s) : pathYaw(s) + Math.PI);
   }
+
+  /** The fastest it may go at `s` moving in direction `sgn`: slow through a corner, braking down into it. */
+  function cornerCap(sv: number, sgn: number): number {
+    let cap: number = T.maxSpeed;
+    for (const c of PATH.corners) {
+      if (sv >= c.s0 && sv <= c.s1) cap = Math.min(cap, T.cornerSpeed);
+      const ahead = sgn > 0 ? c.s0 - sv : sv - c.s1;
+      if (ahead >= 0) cap = Math.min(cap, Math.sqrt(T.cornerSpeed * T.cornerSpeed + 2 * T.brake * ahead));
+    }
+    return cap;
+  }
+  /** Along its path, the closer of its two ways (forward or back) to where it faces now. */
+  const alongPath = (): number => {
+    const py = pathYaw(s);
+    return Math.cos(heading - py) >= 0 ? py : py + Math.PI;
+  };
 
   function skid(): void {
     const dt = 1 / HZ;
@@ -516,8 +690,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     let best: Id | null = null;
     let bestY = -Infinity;
     for (const id of ctx.parts()) {
-      if (!fresh(id)) continue;
       const p = ctx.pose(id);
+      // a stack still settling (a fresh crate dropped on it, one knocked) is waited for: lifting from it would knock the rest about
+      if (p && ctx.mode(id) === 'free' && !ctx.settled(id) && horizontal(p.p, rounds.stack[0], rounds.stack[1]) <= rounds.stackRadius * 2) return null;
+      if (!fresh(id)) continue;
       if (!p || horizontal(p.p, rounds.stack[0], rounds.stack[1]) > rounds.stackRadius) continue;
       if (p.p[1] > bestY) [best, bestY] = [id, p.p[1]];
     }
@@ -558,25 +734,20 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     if (!p) return;
     goal = part;
     goalWhy = why;
-    const sl = nearest(p.p[0], p.p[2]);
+    // where it stands: the scene's stand point for the stack (a crate on it) or the tray, else the nearest point
+    const onStack = rounds !== null && Math.hypot(p.p[0] - rounds.stack[0], p.p[2] - rounds.stack[1]) <= rounds.stackRadius;
+    const sl = why === 'collect' ? standS('tray', p.p[0], p.p[2]) : why === 'take' && onStack ? standS('stack', p.p[0], p.p[2]) : nearest(p.p[0], p.p[2]);
     const [lx, lz] = at(sl);
     rollTo(sl, Math.hypot(p.p[0] - lx, p.p[2] - lz) <= R ? why : 'stretch');
   }
   // ── S6: attract mode's lap (§ B3): stack → the platen's tray → tap the phone → Patch → collect → the belt ──
 
   const lapSpec = spec.attract ?? null;
-  /** Can this scene run the lap at all (every place within reach of the tape)? Else Fetch laps its lane as in P1. */
+  /** Can this scene run the lap at all (`canRunLap`: every place within reach of where it stands)? Else Fetch laps its lane as in P1. */
   let lapPossible: boolean | null = null;
   function lapReach(): boolean {
     if (lapPossible !== null) return lapPossible;
-    const tray = lapSpec ? ctx.mouth(lapSpec.tray) : undefined;
-    const d = drop();
-    if (!lapSpec || !rounds || !tray || !d || !deskOf(ctx)) return (lapPossible = false);
-    const within = (px: number, pz: number): boolean => {
-      const [lx, lz] = at(nearest(px, pz));
-      return Math.hypot(px - lx, pz - lz) <= R;
-    };
-    lapPossible = within(rounds.stack[0], rounds.stack[1]) && within(tray.drop[0], tray.drop[2]) && within(lapSpec.phone[0], lapSpec.phone[2]) && within(d[0], d[2]);
+    lapPossible = !!deskOf(ctx) && canRunLap(ctx.scene, tuning).ok;
     return lapPossible;
   }
   const lapOn = (): boolean => !ctx.playMode && lapReach();
@@ -631,6 +802,12 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         if (landing(lapCrate)) return false;
         const top = lapCrate && fresh(lapCrate) ? lapCrate : stackTop();
         if (!top) return false;
+        // gave up on it a moment ago (out of reach): never nag
+        const tp = ctx.pose(top);
+        if (tp && ctx.clock.step < giveUpUntil) {
+          const [lx, lz] = at(standS('stack', tp.p[0], tp.p[2]));
+          if (Math.hypot(tp.p[0] - lx, tp.p[2] - lz) > R) return false;
+        }
         lapCrate = top;
         goFor(top, 'take');
         return true;
@@ -646,14 +823,14 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           return false;
         }
         placeAt = tray.drop;
-        rollTo(nearest(tray.drop[0], tray.drop[2]), 'place');
+        rollTo(standS('tray', tray.drop[0], tray.drop[2]), 'place');
         return true;
       case 'tap':
         if (textN !== null) {
           setBeat('patch');
           return false;
         }
-        rollTo(nearest(lapSpec.phone[0], lapSpec.phone[2]), 'tap');
+        rollTo(standS('phone', lapSpec.phone[0], lapSpec.phone[2]), 'tap');
         return true;
       case 'patch':
         if (!replied) return false;
@@ -679,7 +856,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         const d = drop();
         if (!d || !feeding() || !dropClear()) return false;
         placeAt = null;
-        rollTo(nearest(d[0], d[2]), 'place');
+        rollTo(standS('feed', d[0], d[2]), 'place');
         return true;
       }
       case 'ride':
@@ -701,7 +878,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     if (carrying) {
       if (!gather && feeding() && now - lastPlaced >= steps(rounds.every) && inPlay() <= rounds.cap && dropClear()) {
         const d = drop() as Vec3;
-        rollTo(nearest(d[0], d[2]), 'place');
+        rollTo(standS('feed', d[0], d[2]), 'place');
         return true;
       }
       return false;
@@ -716,7 +893,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const top = stackTop();
     if (!top) return false;
     const p = ctx.pose(top) as Pose;
-    const sl = nearest(p.p[0], p.p[2]);
+    const sl = standS('stack', p.p[0], p.p[2]);
     const [lx, lz] = at(sl);
     if (Math.hypot(p.p[0] - lx, p.p[2] - lz) > R && now < giveUpUntil) return false; // gave up on it a moment ago: never nag
     goFor(top, 'take');
@@ -739,6 +916,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     goal = null;
     placing = null;
     gather = null;
+    armBack = null;
+    hands = null;
     v = 0;
     knock = { by: h.by, strength: st, dir: Math.atan2(h.dirX, h.dirZ), distance: run, spin, shove: K.shove[i] as number, wobble: K.wobble[i] as number, x0: x, z0: z, h0: heading, dx: h.dirX, dz: h.dirZ };
     // the toy's bounce, at the next step
@@ -753,13 +932,23 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const knockable = (): boolean => state !== 'held' && state !== 'frozen' && state !== 'knocked' && !ctx.bracketed && ctx.mode(spec.id) === 'crew';
 
   /** Read a step's hits: one involving Fetch (or the crate in its hands) and a free part. */
+  /** Parts it shoved about itself while knocked (sliding into them): their bounce off it a moment later is not a throw. */
+  const shovedByMe = new Map<Id, number>();
   function hear(events: readonly SimEvent[]): void {
+    const now = ctx.clock.step;
+    for (const [id, until] of shovedByMe) if (until < now) shovedByMe.delete(id);
+    for (const e of events) {
+      if (e.type !== 'part.hit' || e.other === null) continue;
+      // sliding into things while knocked, or anything the part in its own hands bumps
+      const mine = state === 'knocked' ? spec.id : carrying;
+      if (mine !== null && (e.id === mine || e.other === mine)) shovedByMe.set(e.id === mine ? e.other : e.id, now + steps(1.5));
+    }
     if (!knockable()) return;
     for (const e of events) {
       if (e.type !== 'part.hit' || e.other === null) continue;
       const mine = (id: Id): boolean => id === spec.id || (id === carrying && carrying !== null);
       const by = mine(e.id) ? e.other : mine(e.other) ? e.id : null;
-      if (by === null || by === carrying || ctx.mode(by) !== 'free' || startedInside.has(by)) continue;
+      if (by === null || by === carrying || ctx.mode(by) !== 'free' || startedInside.has(by) || shovedByMe.has(by)) continue;
       const part = ctx.part(by);
       const half = ctx.halfExtents(by);
       const pose = ctx.pose(by);
@@ -873,16 +1062,22 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         frozenFrom = { state, entered, at: ctx.clock.step };
         hit = null;
         bounce = null;
+        const keep = reachLegs;
         enter('frozen');
+        reachLegs = keep;
       } else if (frozenFrom) {
         const was = frozenFrom;
         frozenFrom = null;
         const shift = ctx.clock.step - was.at;
+        const keep = reachLegs;
         enter(was.state);
+        reachLegs = keep;
         // resume as if no time had passed in the frozen state
         entered = was.entered + shift;
         if (gather) gather = { ...gather, at: gather.at + shift };
         if (placing) placing = { ...placing, out: placing.out + shift };
+        if (reachLegs) reachLegs = { ...reachLegs, at: reachLegs.at + shift };
+        if (armBack) armBack = { ...armBack, at: armBack.at + shift };
       }
     },
 
@@ -937,6 +1132,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       startsInside();
       const now = ctx.clock.step;
       lookAt = null;
+      /** The grip this step, if a state puts its hands somewhere (else the gather, the set-down or the ease back decides). */
+      let grip: Vec3 | null = null;
+      let gripQ: Quat | null = null;
+      let tapped = false;
       const mode = ctx.mode(spec.id);
 
       if (bounce) {
@@ -947,6 +1146,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       if (state === 'held') {
         hit = null;
         saluteDue = false;
+        hands = null;
+        armBack = null;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
         if (mode === 'free' && ctx.settled(spec.id)) {
           const p = ctx.pose(spec.id);
@@ -1002,6 +1203,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
       switch (state) {
         case 'idle': {
+          // set down, back on its path, or after a job: square up to the path, the shorter way (a job below may turn it otherwise)
+          if (!carrying || !(rounds && ctx.playMode)) turnToward(alongPath());
           if (fumbleDue()) {
             rollTo(spec.fumbleAt * laneLen, 'fumble');
             break;
@@ -1084,18 +1287,26 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (p) {
               lookAt = p.p;
               turnToward(yawTo(p.p));
+              // out to it: pulled back, over it, then down onto its centre (no faster than the hand's speed)
+              const high = Math.max(p.p[1] + T.gatherLift, home()[1]);
+              if (!reachLegs) startReach(now, p.p, high, T.pickup);
+              grip = reachGrip(now, p.p, high);
             }
-            if (inState() < steps(T.pickup)) break;
+            if (p && reachLegs && now - reachLegs.at < Math.round(reachLen() * HZ)) break;
             goal = null;
             if (g === fumbled) fumbled = null;
             // (S6) collecting from the platen's tray: the crate is in the platen's hands until Fetch takes it
             const takeable = goalWhy === 'collect' ? ctx.mode(g) === 'machine' : ctx.mode(g) === 'free' && ctx.settled(g);
             const ok = p && !ctx.touched(g) && takeable && Math.hypot(p.p[0] - x, p.p[2] - z) <= R;
             if (ok && ctx.attach(g, spec.id)) {
+              // the claws close where it rests
               carrying = g;
-              gather = { from: p, at: now };
+              startGather(now, p);
+              grip = p.p;
+              gripQ = p.q;
               break;
             }
+            drawBack(grip, now);
             if (p && Math.hypot(p.p[0] - x, p.p[2] - z) > R && !ctx.touched(g)) {
               // it moved out of reach while it rolled up: say so
               ctx.emit({ type: 'card', by: spec.id, content: 'slip.out-of-lane' });
@@ -1105,7 +1316,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             break;
           }
           if (gather) {
-            // the crate coming into its hands: face back to the lane as it arrives
+            // the crate coming into its hands: it turns back to its path as the crate comes in (over the top of what it
+            // sat on), so the hands come down beside it, not into whatever is left there
+            turnToward(alongPath());
             break;
           }
           purpose = 'lap';
@@ -1120,8 +1333,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (p) {
             lookAt = p.p;
             turnToward(yawTo(p.p));
+            // its hands go out as far as they go toward it, hold there, and come back
+            const tip = inReach(p.p);
+            if (!reachLegs) startReach(now, tip, null, T.hands.stretchOut);
+            if (reachLegs && !reachLegs.back) {
+              if ((now - reachLegs.at) / HZ < Math.max(T.stretch - T.hands.back, reachLen() + 0.1)) grip = reachGrip(now, tip, null);
+              else {
+                drawBack(hands ?? tip, now);
+                reachLegs.back = true;
+              }
+            }
           }
-          if (inState() >= steps(T.stretch)) {
+          if (inState() >= steps(T.stretch) && armBack === null) {
             if (g && g === fumbled) fumbled = null;
             goal = null;
             giveUpUntil = now + steps(T.giveUpFor);
@@ -1137,13 +1360,24 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (phone) {
             lookAt = phone;
             turnToward(yawTo(phone));
+            // a finger out to the phone, the tap (as it arrives), and back
+            const tip = inReach(phone);
+            if (!reachLegs) startReach(now, tip, null, TAP.at);
+            if (reachLegs && !reachLegs.back) {
+              grip = reachGrip(now, tip, null);
+              if (now - reachLegs.at >= Math.round(reachLen() * HZ)) {
+                drawBack(tip, now, TAP.length - TAP.at);
+                reachLegs.back = true;
+                tapped = true;
+              }
+            }
           }
-          if (inState() === steps(TAP.at) && lapSpec && textN === null) {
+          if (tapped && lapSpec && textN === null) {
             const n = deskOf(ctx)?.crewText(lapSpec.say, lapSpec.words, lapSpec.jack) ?? null;
             textN = n ?? -1;
             if (n === null) replied = true; // the line would not take it: on with the lap
           }
-          if (inState() >= steps(TAP.length)) toIdle();
+          if (inState() >= steps(TAP.length) && armBack === null) toIdle();
           break;
         }
         case 'place': {
@@ -1156,7 +1390,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           if (!placing && carrying) {
             const half = ctx.halfExtents(carrying) ?? [0.3, 0.3, 0.3];
             const to: Pose = { p: [d[0], d[1] + half[1] + 0.005, d[2]], q: qyaw(0) };
-            placing = { to, above: { p: [d[0], d[1] + half[1] + T.placeLift, d[2]], q: to.q }, from: null, out: -1, let: false };
+            placing = { to, above: { p: [d[0], d[1] + half[1] + T.placeLift, d[2]], q: to.q }, from: null, out: -1, let: false, dur: [T.place.out, T.place.lower] };
           }
           if (!placing) break;
           lookAt = placing.to.p;
@@ -1170,21 +1404,23 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
               toIdle();
               break;
             }
-            placing.from = cratePose();
+            placing.from = handPose();
             placing.out = now;
+            placing.dur = [legTime(T.place.out, placing.from.p, placing.above.p), legTime(T.place.lower, placing.above.p, placing.to.p)];
             break;
           }
           const sinceOut = now - placing.out;
-          if (!placing.let && carrying && sinceOut >= steps(T.place.out) + steps(T.place.lower)) {
+          // the claws open the step after the part reached its place (it is there, still): nothing moves it after
+          if (!placing.let && carrying && sinceOut > Math.round((placing.dur[0] + placing.dur[1]) * HZ)) {
             const c = carrying;
-            ctx.drive(c, placing.to);
             ctx.detach(c, [0, 0, 0], [0, 0, 0], 'crew');
+            drawBack(placing.to.p, now, T.place.back);
             carrying = null;
             placing.let = true;
             lastPlaced = now;
             justPlaced = c;
           }
-          if (placing.let && sinceOut >= steps(T.place.out) + steps(T.place.lower) + steps(T.place.back)) {
+          if (placing.let && armBack === null) {
             placing = null;
             placeAt = null;
             toIdle();
@@ -1210,13 +1446,15 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             x = tx;
             z = tz;
             v = 0;
-            heading = Math.cos(heading - laneYaw) >= 0 ? laneYaw : laneYaw + Math.PI;
-            toIdle();
+            toIdle(); // it turns to its path in idle, the shorter way
           } else {
             x += (dx / d) * stepLen;
             z += (dz / d) * stepLen;
-            turnToward(Math.atan2(dx, dz));
-            v = T.returnSpeed;
+            // the shorter way round: it may hurry back rolling backwards rather than turn half a circle
+            const way = Math.atan2(dx, dz);
+            const fwd = Math.cos(heading - way) >= 0;
+            turnToward(fwd ? way : way + Math.PI);
+            v = fwd ? T.returnSpeed : -T.returnSpeed;
           }
           break;
         }
@@ -1227,8 +1465,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         else nudge = null;
       }
       if (state === 'idle' || state === 'shrug' || state === 'salute' || state === 'fumble' || state === 'offer' || state === 'pickup' || state === 'place' || state === 'reach' || state === 'tap') v = 0;
+      // the grip: a state's own, else bringing a part in, setting one down, or easing back to the carry pose
+      if (!grip && carrying) {
+        const g = gatherGrip(now) ?? placeGrip(now);
+        if (g) [grip, gripQ] = [g.p, g.q];
+      }
+      if (!grip) grip = armBackGrip(now);
+      if (state === 'knocked') grip = null;
+      hands = grip ? inReach(grip) : null;
       if (ctx.mode(spec.id) === 'crew') ctx.drive(spec.id, bodyPose());
-      if (carrying) ctx.drive(carrying, cratePose());
+      if (carrying) ctx.drive(carrying, hands ? { p: hands, q: gripQ ?? handPose().q } : handPose());
     },
 
     post() {
@@ -1254,10 +1500,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     },
 
     member(): CrewMember {
-      const facing = Math.cos(heading - laneYaw) >= 0 ? 1 : -1;
+      const facing = Math.cos(heading - pathYaw(s)) >= 0 ? 1 : -1;
       const speed = state === 'return' || state === 'knocked' ? v : v * facing;
       const kn: FetchKnock | null = knock && state === 'knocked' ? { by: knock.by, strength: knock.strength, dir: knock.dir, distance: knock.distance, spin: knock.spin, shove: knock.shove, wobble: knock.wobble } : null;
-      return { id: spec.id, state, stateTime: inState() / HZ, x, z, heading, speed, carrying, lookAt, gaze, handsUp, knock: kn };
+      return { id: spec.id, state, stateTime: inState() / HZ, x, z, heading, speed, carrying, lookAt, gaze, handsUp, knock: kn, hands };
     },
   };
   return unit;

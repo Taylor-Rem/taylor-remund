@@ -294,7 +294,11 @@ describe('seam 6: Fetch sees Revert', () => {
     out.push(...run(world, 2));
     return out;
   }
-  /** Play mode (a lever pull with nothing to take: Revert comes up), the belt stopped (Fetch waits on its lane with a crate), both idle. */
+  /**
+   * Play mode (a lever pull with nothing to take: Revert comes up), the belt stopped (Fetch waits on its lane
+   * with a crate), both idle. S7: Revert goes back down once its card is down and a pause has passed, so
+   * this returns early in its stand-by (about two seconds in), not after ten.
+   */
   function settle(world: World): void {
     world.dispatch({ type: 'undo' });
     run(world, 1);
@@ -303,7 +307,7 @@ describe('seam 6: Fetch sees Revert', () => {
       run(world, 1);
       const f = world.crew('fetch')!;
       const r = world.machine('revert-crew') as RevertView;
-      if (i > 600 && f.state === 'idle' && f.stateTime > 1 && r.state === 'idle') return;
+      if (i > 120 && f.state === 'idle' && f.stateTime > 1 && r.state === 'idle') return;
     }
     throw new Error('the bench did not settle');
   }

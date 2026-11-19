@@ -172,7 +172,7 @@ describe('loose parts under Rapier', () => {
     throwPart(w, 'fetch', line(from, [2, 2, 3], 30), [1, 0, 1]);
     const { events } = runUntil(w, (e) => e.some((x) => x.type === 'crew.state' && x.state === 'idle'), steps(10));
     expect(events.some((e) => e.type === 'crew.state' && e.state === 'return')).toBe(true);
-    expect(w.crew('fetch')?.z).toBeCloseTo(w.scene.runner.lane.a[1], 6);
+    expect(w.crew('fetch')?.z).toBeCloseTo(w.scene.runner.lane.points[0]![1], 6);
     expect(w.mode('fetch')).toBe('crew');
   });
 });

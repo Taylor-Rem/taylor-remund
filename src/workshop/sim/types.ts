@@ -428,6 +428,11 @@ export interface BeltView extends MachineViewBase {
   readonly phase: number;
   /** Parts riding it now, in the order they lie along it from the motor end. */
   readonly riding: readonly Id[];
+  /**
+   * S7: running backward with the slide's foot full, the part held against the deflector, waiting for a
+   * free place (the belt runs on under it; the belt told once when it began to wait). Null otherwise.
+   */
+  readonly waiting: Id | null;
 }
 
 /** The striker (§ B2 X2): a hammer on a sprung arm over the belt. */
@@ -439,6 +444,12 @@ export interface StrikerView extends MachineViewBase {
   readonly since: number;
   /** The part last struck, or null. */
   readonly last: Id | null;
+  /**
+   * S7: seconds until the next strike on the belt as it now runs (the nearest riding part coming toward
+   * the arm, at the pace it moved this step), or null when nothing is coming (stopped, empty, a part
+   * waiting, a rung playing). At top speed a strike can fall due within a few frames: raise the arm by it.
+   */
+  readonly next: number | null;
 }
 
 /** The dock (§ B1: ships it, out, with a bell; § D 7). */
@@ -501,14 +512,17 @@ export type CoverState = 'none' | 'fitting' | 'shut' | 'open';
 
 /**
  * Revert, the caretaker (§ B5). `below`: in its hatch, unseen, the doors shut. `rising`: the lift
- * brings it up (it may already be cranking). `idle`: up, awake, flat-lidded. `trundle`: driving on its
+ * brings it up (it may already be cranking). `sinking` (S7): its work done and back on its hatch, after a
+ * deadpan pause the lift takes it down (`lift` 1 → 0 over the rise time; the doors stay open until it
+ * is down, then shut after it), then `below`; called meanwhile, it rises again from where the lift is.
+ * `idle`: up, awake, flat-lidded. `trundle`: driving on its
  * treads (`speed`). `crank`: turning its crank while a change runs backwards. `fit`: screwing the
  * cover on the Button. `sweep`: putting a part away (`sweeping`). `park`: asleep in the window's light,
  * one eye open. `stuck`: its hatch is covered by something; the doors rattle, it stays down. `held`:
  * in the visitor's hand, limp. `loose`: put down (or on the belt, or shipped): it waits to come to
  * rest, rights itself and carries on.
  */
-export type RevertState = 'below' | 'rising' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
+export type RevertState = 'below' | 'rising' | 'sinking' | 'idle' | 'trundle' | 'crank' | 'fit' | 'sweep' | 'park' | 'stuck' | 'held' | 'loose';
 
 /**
  * Revert's state, published as a machine view (`world.machine(<its unit id>)`, kind `revert`) because
@@ -731,6 +745,17 @@ export interface PatchView extends MachineViewBase {
   readonly plug: { readonly from: Id; readonly to: Id } | null;
   /** S6: the job in hand, its stages in order with their lengths (seconds), as planned when it was picked up; null when free. */
   readonly plan: readonly { readonly state: PatchState; readonly length: number }[] | null;
+  /**
+   * S7: where a caught part is set down, world space: the bottom centre of the part on the shelf beside the
+   * board (the part's centre is this plus its half height, and 0.01). Fixed; it does not move with the stool.
+   */
+  readonly shelf: Vec3;
+  /**
+   * S7: where it climbs back onto its stool from, world space: its feet on the bench in front of the stool,
+   * wherever the stool is on its runner now. `walk` ends here; `climb` goes from here to the seat (`at`
+   * moves straight between them over `stateLength`).
+   */
+  readonly foot: Vec3;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';
@@ -857,6 +882,16 @@ export interface CrewMember {
   readonly handsUp?: boolean;
   /** S5: the knock, while `state` is `knocked`; null otherwise. */
   readonly knock?: FetchKnock | null;
+  /**
+   * S5 round 2: the centre of its grip, world space, whenever its hands are away from the carry pose: going
+   * out for a part, bringing it in, setting one down, tapping the phone, stretching for something past its
+   * tape. Null with the arms at rest or carrying (a carried part then sits at the carry pose in front of it).
+   * A promise the arms are drawn to: a part in its care has its centre AT the grip at every step from the
+   * moment the claws close to the moment they open; the grip moves continuously (eased out, closed, eased
+   * back: `FETCH_TUNING.hands`); it is never further than `FetchSpec.reach` from Fetch's centre on the
+   * bench; a part is taken from where it rests and set down where it will rest.
+   */
+  readonly hands?: Vec3 | null;
 }
 
 // ── S6: one crew (every member listed in one place, each as the view object it already had) ──

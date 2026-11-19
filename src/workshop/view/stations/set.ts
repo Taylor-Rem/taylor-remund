@@ -15,6 +15,7 @@
  */
 import { Group, Matrix4, Vector3 } from 'three';
 import type { SceneDesc } from '../../sim/types.ts';
+import { laneOutline } from '../../sim/index.ts';
 import type { StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { KitPart, Piece, PieceNode } from '../kit/types.ts';
 import { merge, part, piece, place } from '../kit/compose.ts';
@@ -178,16 +179,10 @@ export function createSetView(o: SetOptions): StationViewFactory & { info?: SetI
     const wall = build(E.wall, { width: 21, height: 9 });
     if (wall) items.push({ piece: wall, at: new Matrix4().makeTranslation(0, 0, WALL_Z) });
 
-    // Fetch's lane: a closed rectangle of tape round the runner's lane (it cannot leave it)
+    // Fetch's lane: a closed outline of tape round every run of the runner's lane (it cannot leave it)
     if (o.laneTape !== false) {
-      const lane = o.scene.runner.lane;
       const hw = o.laneTape?.half ?? 0.52, past = o.laneTape?.past ?? 0.55;
-      const x0 = Math.min(lane.a[0], lane.b[0]) - past, x1 = Math.max(lane.a[0], lane.b[0]) + past;
-      const zc = (lane.a[1] + lane.b[1]) / 2;
-      items.push({
-        piece: laneTape({ seed: o.seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }),
-        at: I,
-      });
+      items.push({ piece: laneTape({ seed: o.seed + 4, points: laneOutline(o.scene.runner.lane.points, hw, past) }), at: I });
     }
 
     // the sign, hung above the board; its wash socket places the wall wash

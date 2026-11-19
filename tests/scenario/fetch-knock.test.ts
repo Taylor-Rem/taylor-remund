@@ -36,7 +36,7 @@ function watchKnock(w: World, max: number): { ev: SimEvent[]; recovered: boolean
       if (f.state === 'knocked') expect(d >= Math.min(r, start[i] as number) - 1e-6, `into ${o.id}: ${d.toFixed(3)} at ${f.x.toFixed(2)}, ${f.z.toFixed(2)}`).toBe(true);
     });
     const lane = w.scene.runner.lane;
-    if (f.state === 'idle' && Math.abs(f.z - lane.a[1]) < 1e-6) recovered = true;
+    if (f.state === 'idle' && Math.abs(f.z - lane.points[0]![1]) < 1e-6) recovered = true;
   });
   return { ev, recovered };
 }
@@ -115,7 +115,7 @@ describe('knocked', () => {
     runWhile(w, () => w.crew('fetch')!.carrying !== null, steps(15));
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     runWhile(w, () => !(w.crew('fetch')!.state === 'idle' && w.crew('fetch')!.stateTime > 1), steps(20));
-    expect(w.crew('fetch')!.x).toBeLessThan(lane.a[0] + 1.5);
+    expect(w.crew('fetch')!.x).toBeLessThan(lane.points[0]![0] + 1.5);
     const ev = throwAndSee(w, 'crate-1', { yaw: Math.PI / 2 + 0.4, speed: 7 });
     const r = watchKnock(w, steps(8));
     const k = knocks([...ev, ...r.ev]);

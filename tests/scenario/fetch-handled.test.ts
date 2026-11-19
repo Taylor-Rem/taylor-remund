@@ -19,7 +19,7 @@ describe('picked up and put down', () => {
     expect(back).not.toBeNull();
     const idle = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'idle', steps(8));
     expect(idle).not.toBeNull();
-    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.a[1], 9);
+    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.points[0]![1], 9);
     // its rounds go on: a crate onto the belt within a quarter minute
     const fed = t.until((e) => e.type === 'taken-in' && e.mouth === 'belt' && e.part !== 'fetch', steps(15));
     expect(fed).not.toBeNull();
@@ -52,7 +52,7 @@ describe('picked up and put down', () => {
     expect(w.writer('fetch', 'location')).toBe('crew');
     const idle = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'idle', steps(8));
     expect(idle).not.toBeNull();
-    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.a[1], 9);
+    expect(w.crew('fetch')!.z).toBeCloseTo(SCENE.runner.lane.points[0]![1], 9);
     w.dispose();
   }, 60_000);
 });

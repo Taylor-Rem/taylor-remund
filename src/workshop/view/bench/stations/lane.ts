@@ -1,5 +1,6 @@
-/** Fetch's lane: a closed rectangle of yellow tape round the runner's lane, wide enough for the bigger Fetch. */
+/** Fetch's lane: a closed outline of yellow tape round every run of the runner's lane (taped corners), wide enough for the bigger Fetch. */
 import { Matrix4 } from 'three';
+import { laneOutline } from '../../../sim/index.ts';
 import { laneTape } from '../../kit/pieces/bench/index.ts';
 import { LANE_TAPE } from '../../bench.ts';
 import { ORDER, staticStation, type BenchStation } from '../station.ts';
@@ -9,11 +10,8 @@ export const station: BenchStation = {
   order: ORDER.pool,
   make(k) {
     return staticStation(k, () => {
-      const lane = k.scene.runner.lane;
-      const hw = LANE_TAPE.half, px = LANE_TAPE.past;
-      const x0 = Math.min(lane.a[0], lane.b[0]) - px, x1 = Math.max(lane.a[0], lane.b[0]) + px;
-      const zc = (lane.a[1] + lane.b[1]) / 2;
-      return [{ piece: laneTape({ seed: k.seed + 4, points: [[x0, zc - hw], [x1, zc - hw + 0.015], [x1, zc + hw], [x0, zc + hw - 0.01], [x0, zc - hw]] }), at: new Matrix4() }];
+      const points = laneOutline(k.scene.runner.lane.points, LANE_TAPE.half, LANE_TAPE.past);
+      return [{ piece: laneTape({ seed: k.seed + 4, points }), at: new Matrix4() }];
     });
   },
 };

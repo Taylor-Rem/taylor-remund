@@ -358,9 +358,7 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
     });
     nodes = m;
     dirty = true;
-    const picking = (ctx as unknown as { picking?: { add(id: Id, o: Object3D, opts?: { box?: Box3; pad?: number }): void } }).picking;
-    if (picking) picking.add('lamp', grip, { box: SHADE_BOX, pad: 0.05 });
-    else ctx.pickable('lamp', grip);
+    ctx.pickable('lamp', grip, { box: SHADE_BOX, pad: 0.05 });
   })();
 
   const arm: Arm = {

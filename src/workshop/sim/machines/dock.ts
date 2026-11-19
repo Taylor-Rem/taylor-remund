@@ -230,7 +230,9 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     }
     const crates = ctx.parts().filter((id) => ctx.part(id)?.kind === 'crate' && ctx.part(id)?.location.at === 'shipped' && ctx.mode(id) === 'gone');
     const free = crates.filter((id) => !isTxn(ctx.writer(id, 'location')));
-    const spare = free.find((id) => ctx.part(id)?.size === size && !shippedOrder.includes(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
+    // (S5 round 2) the same size first, a spare or else the longest shipped, so the stack is put back as it was
+    const sameSize = (id: Id): boolean => ctx.part(id)?.size === size;
+    const spare = free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
     if (spare === undefined) return;
     shippedOrder = shippedOrder.filter((x) => x !== spare);
     const p = ctx.part(spare) as Part;
