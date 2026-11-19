@@ -469,6 +469,20 @@ export function reach(target: V3, side: 'left' | 'right', base: PatchPose = EXPR
 }
 const reachCache = new Map<string, Reach>();
 
+/** The leans reachUncached tries (fore, side, twist), in the order of their own penalty, with their old loop index. */
+const LEAN_CANDIDATES: ReadonlyArray<{ fore: number; sideL: number; tw: number; floor: number; idx: number }> = (() => {
+  const out: Array<{ fore: number; sideL: number; tw: number; floor: number; idx: number }> = [];
+  for (let i = 0; i <= 7; i++) {
+    for (let j = -3; j <= 3; j++) {
+      for (const tw of [-0.3, 0, 0.3]) {
+        const fore = (i / 7) * 0.42, sideL = (j / 3) * 0.3;
+        out.push({ fore, sideL, tw, floor: fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1, idx: out.length });
+      }
+    }
+  }
+  return out.sort((a, b) => a.floor - b.floor || a.idx - b.idx);
+})();
+
 function reachUncached(target: V3, side: 'left' | 'right', base: PatchPose, o: { swivel?: number; watch?: boolean }): Reach {
   const f = resolvePose(base);
   const T = new Vector3(...target);
@@ -476,18 +490,22 @@ function reachUncached(target: V3, side: 'left' | 'right', base: PatchPose, o: {
   const armBase = f.arms[side];
   let best: { fore: number; sideL: number; twist: number; short: number; joints: ArmJoints; cost: number } | null = null;
   const S = new Vector3((side === 'left' ? 1 : -1) * SHOULDER.x, SHOULDER.y, SHOULDER.z);
-  // the least lean that reaches with a little bend left in the elbow; else the closest it can get
-  for (let i = 0; i <= 7; i++) {
-    for (let j = -3; j <= 3; j++) {
-      for (const tw of [-0.3, 0, 0.3]) {
-        const fore = (i / 7) * 0.42, sideL = (j / 3) * 0.3;
-        const sp = spineFrame({ body: f.body, lean: [fore, sideL], twist: tw });
-        const local = T.clone().applyMatrix4(sp.clone().invert());
-        const r = solveArm(side, local, armBase);
-        const slack = Math.max(0, local.distanceTo(S) - ARM_REACH * 0.93);
-        const cost = r.short * 10 + slack * 2 + fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1;
-        if (!best || cost < best.cost) best = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost };
-      }
+  // the least lean that reaches with a little bend left in the elbow; else the closest it can get.
+  // Branch and bound (H1): a lean's own penalty is a floor under its cost, so the candidates are tried
+  // cheapest floor first and one whose floor is above the best cost so far is skipped. The winner is the
+  // same as the full search's: the lowest cost, and among equal costs the first in the old loop order.
+  let bestIdx = Infinity;
+  for (const c of LEAN_CANDIDATES) {
+    if (best && c.floor > best.cost) break;
+    const { fore, sideL, tw } = c;
+    const sp = spineFrame({ body: f.body, lean: [fore, sideL], twist: tw });
+    const local = T.clone().applyMatrix4(sp.clone().invert());
+    const r = solveArm(side, local, armBase);
+    const slack = Math.max(0, local.distanceTo(S) - ARM_REACH * 0.93);
+    const cost = r.short * 10 + slack * 2 + fore * 0.15 + Math.abs(sideL) * 0.2 + Math.abs(tw) * 0.1;
+    if (!best || cost < best.cost || (cost === best.cost && c.idx < bestIdx)) {
+      best = { fore, sideL, twist: tw, short: r.short, joints: r.joints, cost };
+      bestIdx = c.idx;
     }
   }
   const b = best!;
