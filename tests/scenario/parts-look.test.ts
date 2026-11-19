@@ -14,6 +14,7 @@ import { crate } from '../../src/workshop/view/kit/pieces/crate/index.ts';
 import { createPartsView, partShows, partsHooks, paintToken, type PartWork } from '../../src/workshop/view/stations/parts.ts';
 import { PlatenPerformances } from '../../src/workshop/view/stations/platen.ts';
 import type { Frame, LabelRegion, Labels, ViewContext } from '../../src/workshop/view/types.ts';
+import type { Piece } from '../../src/workshop/view/kit/types.ts';
 
 const stubMaterials = {
   of: (): Material => new MeshBasicMaterial(),
@@ -52,7 +53,7 @@ async function rig(): Promise<Rig> {
     labels: stubLabels,
     tier: 'high',
     reducedMotion: false,
-    realize: (p) => K.realize(p, stubMaterials),
+    realize: (p: Piece) => K.realize(p, stubMaterials),
     pickable() {},
   } as unknown as ViewContext;
   const view = createPartsView({
