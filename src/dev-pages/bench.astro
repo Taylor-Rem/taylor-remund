@@ -230,6 +230,11 @@ const preload = [
               progress(1);
               return bootOptions();
             },
+            // R2: a stage rebuilt after a lost graphics context: the hooks follow the new workshop
+            onRebuilt(nw) {
+              const b = (window as unknown as { __bench?: { ws: unknown } }).__bench;
+              if (b) b.ws = nw;
+            },
           });
       if (!started) {
         // the stage could not start: the picture stays (shell/loader.ts)
