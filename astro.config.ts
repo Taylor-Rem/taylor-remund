@@ -38,6 +38,9 @@ export default defineConfig({
         output: {
           codeSplitting: {
             groups: [
+              // the physics adapter and the clock it needs, on their own (B1): a stage page's first small script
+              // starts the engine with them; in the 350 KB station chunk they cost the engine a round trip
+              { name: 'physics', test: /\/src\/workshop\/sim\/(physics\/rapier|clock)\.ts$/, priority: 4 },
               { name: 'three', test: /\/node_modules\/three\//, priority: 3 },
               { name: 'pieces', test: /\/src\/workshop\/view\/kit\/pieces\//, priority: 2 },
               { name: 'stations', test: /\/src\/workshop\/view\/stations\//, priority: 1 },

@@ -21,7 +21,9 @@ interface KitRegistry {
   loadCatalogue(): Promise<Entry[]>;
 }
 
-const registry = import.meta.glob<KitRegistry>('../kit/pieces/registry.ts');
+// eager (B1 round 2): the registry, and through it every piece, is in the bundle the page loads; a lazy
+// glob cost a stub chunk and a round trip before the first piece could be found
+const registry = import.meta.glob<KitRegistry>('../kit/pieces/registry.ts', { eager: true });
 const folders = import.meta.glob<{ catalogue?: Entry[] }>('../kit/pieces/*/index.ts');
 const legacy = import.meta.glob<{ testBlock?: (o?: KitOptions) => Piece }>('../kit/pieces/test-block.ts');
 
@@ -35,7 +37,7 @@ async function discover(): Promise<{ entries: Entry[]; source: Source }> {
   let entries: Entry[] = [];
   let source: Source = 'fallback';
   if (reg) {
-    entries = await (await reg()).loadCatalogue();
+    entries = await reg.loadCatalogue();
     source = 'registry';
   } else {
     for (const key of Object.keys(folders).sort()) {

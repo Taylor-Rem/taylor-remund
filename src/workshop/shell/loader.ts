@@ -266,7 +266,15 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     ws = await bootWorkshop(o.canvas, {
       ...opts,
       manual: true,
-      onProgress: (phase, done, total) => report(phase, done, total),
+      onProgress: (phase, done, total) => {
+        report(phase, done, total);
+        // the scene is built and its programs compiled: only the first frame is left. The picture comes up to
+        // full now (a compositor transition, it runs while that frame is drawn), so the swap need not wait for it
+        if (phase === 'compile' && done >= total) {
+          root.classList.add('warm-done');
+          warm(1);
+        }
+      },
       frameCamera(stage: Stage, scene: SceneDesc) {
         (framing ?? defaultFraming)(stage, scene);
         // only the first framing adopts the picture: later ones (a resize after the swap) go home
@@ -303,13 +311,19 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     state.phase = 'swapping';
     mark('swap');
     root.classList.add('live');
+    const go = (): void => {
+      ws!.loop.setManual(false);
+      ws!.loop.start();
+      state.usableAt = now();
+    };
+    // The loop starts with the cross-fade (the canvas takes input from its first moment): in 150 ms the
+    // world moves a few pixels under a picture that is already fading. The proof (hold) keeps it still.
+    if (!o.hold) go();
     if (fadeMs > 0) await wait(fadeMs + 20);
     root.closest('.warming')?.classList.remove('warming');
     await holdHere('held-stage');
-    ws.loop.setManual(false);
-    ws.loop.start();
+    if (o.hold) go();
     state.phase = 'live';
-    state.usableAt = now();
     mark('usable');
     measure('to usable', 0);
     o.onLive?.(ws);

@@ -1,0 +1,42 @@
+---
+// The stage root of a picture-first page (B1): the <picture> of the scene's
+// aspect bands (shell/poster.ts), the canvas the live stage draws on, and
+// `window.__posters` for the page's script to hand to `loadStage`. Use with
+// StageHead.astro in <head>.
+//
+//   const files = import.meta.glob<string>('./mypage/*.{avif,jpg}', { query: '?url', import: 'default', eager: true });
+//   <StagePicture set={postersJson} files={files} dir="./mypage/" />
+//
+// Until the set has been rendered (node scripts/poster.ts) there is no picture
+// and the page starts as before, dark until the stage is up.
+import { pictureSources, type PosterSet } from './poster.ts';
+
+interface Props {
+  set: PosterSet;
+  /** The page's eager `?url` glob of the poster folder. */
+  files: Record<string, string>;
+  /** The folder as the glob's keys start (e.g. './bench/'). */
+  dir: string;
+  /** The canvas's id (default 'stage'). */
+  canvasId?: string;
+}
+const { set, files, dir, canvasId = 'stage' } = Astro.props;
+const urlOf = (file: string): string => files[`${dir}${file}`] ?? '';
+const urls: Record<string, string> = Object.fromEntries(set.posters.flatMap((p) => p.files.map((f) => [f.file, urlOf(f.file)])));
+const ready = set.posters.some((p) => p.files.length > 0) && Object.values(urls).every((u) => u !== '');
+const sources = ready ? pictureSources(set, urlOf) : [];
+const fallbackEntry = set.posters.flatMap((p) => p.files).find((f) => f.file === set.fallback);
+const fallback = fallbackEntry ? urlOf(fallbackEntry.file) : '';
+---
+<div class="stage-root" id="stage-root">
+  {ready && (
+    <picture>
+      {sources.map((s) => <source media={s.media ?? undefined} type={s.type} srcset={s.srcset} sizes={s.sizes} />)}
+      <img class="poster" src={fallback} alt="" width={fallbackEntry?.width} height={fallbackEntry?.height} fetchpriority="high" {...{ elementtiming: 'poster' }} />
+    </picture>
+  )}
+  <canvas class="stage" id={canvasId}></canvas>
+</div>
+<script define:vars={{ urls, manifest: set, ready }} is:inline>
+  window.__posters = { urls: urls, manifest: manifest, ready: ready };
+</script>

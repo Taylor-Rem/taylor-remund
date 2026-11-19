@@ -49,6 +49,7 @@ import type { Piece } from '../kit/types.ts';
 import { HOME, JOINTS, aimLamp, armFrames, type Joint, type LampPose } from '../kit/pieces/lamp/aim.ts';
 import { nodeTransforms } from '../kit/pieces/lamp/pose.ts';
 import { Spring, clamp, lerp, smoothstep } from '../anim/index.ts';
+import * as pieceRegistry from '../kit/pieces/registry.ts';
 
 /** Tune here. Times in seconds. */
 export const LAMP_FEEL = {
@@ -341,7 +342,7 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
   void (async () => {
     let reg: typeof import('../kit/pieces/registry.ts');
     try {
-      reg = await import('../kit/pieces/registry.ts');
+      reg = await Promise.resolve(pieceRegistry); // static (B1): a dynamic import here cost a stub chunk and a round trip, and the lamp's body could appear after the handoff
     } catch {
       return; // no registry outside Vite (unit tests): the light still follows the arm's maths
     }
@@ -460,7 +461,7 @@ function createArm(ctx: ViewContext, root: Group, o: { place: Vec3; seed?: numbe
 async function standBody(ctx: ViewContext, root: Group): Promise<void> {
   let reg: typeof import('../kit/pieces/registry.ts');
   try {
-    reg = await import('../kit/pieces/registry.ts');
+    reg = await Promise.resolve(pieceRegistry); // static (B1): see above
   } catch {
     return; // no registry outside Vite (unit tests)
   }

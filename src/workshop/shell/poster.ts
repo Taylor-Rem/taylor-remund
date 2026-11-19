@@ -174,28 +174,37 @@ export function cropIsExact(pictureAspect: number, screenAspect: number): boolea
  * Bands for a scene whose framing is constant above `wideFrom` (the rig fits
  * by height there) and changes below it: geometric steps of at most `ratio`
  * in aspect, from `narrowest` up, split at aspect 1 (portrait and landscape
- * framings differ), and one band from `wideFrom` up rendered at `widest`.
+ * framings differ) and at every other aspect in `breaks` where the scene's
+ * own framing switches (a band never straddles a switch; the band below one
+ * is rendered a hair under it), and one band from `wideFrom` up rendered at
+ * `widest`.
  */
-export function makeBands(o: { narrowest: number; wideFrom: number; widest: number; ratio: number; height: { portrait: number; landscape: number }; densities: { portrait: number[]; landscape: number[] } }): PosterBand[] {
+export function makeBands(o: { narrowest: number; wideFrom: number; widest: number; ratio: number; breaks?: number[]; height: { portrait: number; landscape: number }; densities: { portrait: number[]; landscape: number[] } }): PosterBand[] {
   const bands: PosterBand[] = [];
   const split = (lo: number, hi: number): number[] => {
     const n = Math.max(1, Math.ceil(Math.log(hi / lo) / Math.log(o.ratio)));
     return Array.from({ length: n }, (_, i) => lo * Math.pow(hi / lo, i / n));
   };
-  const add = (lo: number, hi: number, portrait: boolean): void => {
+  const add = (lo: number, hi: number, portrait: boolean, hiIsBreak: boolean): void => {
     const starts = split(lo, hi);
     starts.forEach((s, i) => {
-      const top = i + 1 < starts.length ? starts[i + 1]! : hi;
+      const last = i + 1 >= starts.length;
+      const top = last ? hi : starts[i + 1]!;
       bands.push({
         minAspect: round3(s),
-        aspect: round3(portrait && top >= 1 ? 0.999 : top),
+        aspect: round3(last && hiIsBreak ? top - 0.001 : top),
         height: portrait ? o.height.portrait : o.height.landscape,
         densities: portrait ? o.densities.portrait : o.densities.landscape,
       });
     });
   };
-  add(o.narrowest, 1, true);
-  add(1, o.wideFrom, false);
+  const cuts = [...new Set([1, ...(o.breaks ?? [])])].filter((c) => c > o.narrowest && c <= o.wideFrom).sort((x, y) => x - y);
+  let lo = o.narrowest;
+  for (const c of cuts) {
+    add(lo, c, c <= 1, true);
+    lo = c === 1 ? 1 : c + 0.001;
+  }
+  if (lo < o.wideFrom - 1e-9) add(lo, o.wideFrom, false, false);
   bands.push({ minAspect: round3(o.wideFrom), aspect: o.widest, height: o.height.landscape, densities: o.densities.landscape });
   bands[0]!.minAspect = 0;
   return bands;
@@ -218,4 +227,23 @@ export function warmth(progress: number, from = 0.42): number {
   if (p >= 1) return 1;
   const e = 1 - Math.pow(1 - p, 1.6);
   return from + (1 - from) * e;
+}
+
+/**
+ * Preload links for the picture (one per band, AVIF only), with media ranges
+ * that do not overlap, so a browser fetches exactly the file its <picture>
+ * will choose, before its scripts. Empty until the set is rendered.
+ */
+export function picturePreloads(set: PosterSet, url: (file: string) => string): { media: string; type: PosterFile['type']; srcset: string; sizes: string }[] {
+  if (!set.posters.some((p) => p.files.length)) return [];
+  const bands = widestFirst(set.posters);
+  return bands.flatMap((b, i) => {
+    const files = b.files.filter((f) => f.type === 'image/avif').sort((p, q) => p.width - q.width);
+    if (!files.length) return [];
+    const wider = bands[i - 1];
+    const lo = i === bands.length - 1 ? null : minAspectQuery(b.minAspect);
+    const hi = wider ? `(max-aspect-ratio: ${Math.round(wider.minAspect * 10000) - 1}/10000)` : null;
+    const media = [lo, hi].filter(Boolean).join(' and ') || 'all';
+    return [{ media, type: 'image/avif' as const, srcset: files.map((f) => `${url(f.file)} ${f.width}w`).join(', '), sizes: coverSizes(b.aspect) }];
+  });
 }

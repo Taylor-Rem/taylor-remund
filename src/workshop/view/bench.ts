@@ -369,11 +369,12 @@ export interface Bench {
 }
 
 type Module = Record<string, unknown>;
-const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts');
-const stationModules = import.meta.glob<{ station?: BenchStation }>('./bench/stations/*.ts');
+// eager (B1 round 2): lazy globs made a stub chunk per piece and per station, each fetched in turn
+// (51 round trips before the physics engine could start on Fast 4G); their code is in the bundle anyway
+const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts', { eager: true });
+const stationModules = import.meta.glob<{ station?: BenchStation }>('./bench/stations/*.ts', { eager: true });
 async function pieceModule(folder: string): Promise<Module | null> {
-  const load = pieceModules[`./kit/pieces/${folder}/index.ts`];
-  return load ? await load() : null;
+  return pieceModules[`./kit/pieces/${folder}/index.ts`] ?? null;
 }
 
 export async function loadBench(o: BenchOptions): Promise<Bench> {
@@ -467,7 +468,7 @@ export async function loadBench(o: BenchOptions): Promise<Bench> {
 export async function benchStations(): Promise<BenchStation[]> {
   const out: Array<{ s: BenchStation; file: string }> = [];
   for (const file of Object.keys(stationModules).sort()) {
-    const m = await stationModules[file]!();
+    const m = stationModules[file]!;
     if (!m.station) throw new Error(`bench: ${file} exports no 'station'`);
     out.push({ s: m.station, file });
   }

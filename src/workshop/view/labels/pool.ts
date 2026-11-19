@@ -13,9 +13,64 @@
  * label is painted on the main thread exactly as before.
  */
 import type { PaintJob, PaintedJob } from './paint.ts';
+import workerUrl from './worker.ts?worker&url';
+
+/**
+ * The painter's script, fetched ONCE (B1 round 2: four `new Worker(url)` were
+ * four downloads on a cold load) and handed to every worker as a blob URL.
+ * The worker bundle is one self-contained script (no imports), so a blob runs
+ * it unchanged. Start it early with `prefetchLabelWorker()`; if the fetch
+ * fails the workers load the URL themselves, as before.
+ */
+let source: Promise<string> | null = null;
+export function prefetchLabelWorker(): Promise<string> {
+  source ??= (async () => {
+    try {
+      if (typeof fetch !== 'function' || typeof URL.createObjectURL !== 'function') return workerUrl;
+      const r = await fetch(workerUrl);
+      if (!r.ok) return workerUrl;
+      return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
+    } catch {
+      return workerUrl;
+    }
+  })();
+  return source;
+}
+
+/** A worker that exists once the script is in: messages sent before then wait, in order. */
+class LateWorker {
+  onmessage: ((e: MessageEvent) => void) | null = null;
+  onerror: ((e: Event) => void) | null = null;
+  private real: Worker | null = null;
+  private queue: Array<[unknown, Transferable[]]> = [];
+  private dead = false;
+  constructor(name: string) {
+    void prefetchLabelWorker().then((url) => {
+      if (this.dead) return;
+      try {
+        const w = new Worker(url, { type: 'module', name });
+        w.onmessage = (e) => this.onmessage?.(e);
+        w.onerror = (e) => this.onerror?.(e);
+        this.real = w;
+        for (const [m, t] of this.queue.splice(0)) w.postMessage(m, t);
+      } catch (e) {
+        this.onerror?.(new ErrorEvent('error', { message: String(e) }));
+      }
+    });
+  }
+  postMessage(m: unknown, transfer: Transferable[] = []): void {
+    if (this.real) this.real.postMessage(m, transfer);
+    else this.queue.push([m, transfer]);
+  }
+  terminate(): void {
+    this.dead = true;
+    this.real?.terminate();
+    this.queue = [];
+  }
+}
 
 interface Slot {
-  worker: Worker;
+  worker: LateWorker;
   queued: number;
   dead: boolean;
 }
@@ -31,12 +86,8 @@ export class Pool {
   /** Start `n` workers (their scripts load meanwhile); `init` hands them the faces. */
   constructor(n: number) {
     for (let i = 0; i < n; i++) {
-      let worker: Worker;
-      try {
-        worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: `labels-${i}` });
-      } catch {
-        continue;
-      }
+      if (typeof Worker === 'undefined') continue;
+      const worker = new LateWorker(`labels-${i}`);
       const slot: Slot = { worker, queued: 0, dead: false };
       worker.onmessage = (e: MessageEvent) => this.answer(slot, e.data as Answer);
       worker.onerror = () => this.kill(slot, 'worker error');

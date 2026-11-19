@@ -1,0 +1,421 @@
+{
+  "scene": "bench (src/dev-pages/bench.astro)",
+  "step": 12,
+  "settle": 2,
+  "narrowest": 0.42,
+  "hash": "2d01c719e8d12fdea06f",
+  "renderer": "ANGLE (AMD, Vulkan 1.4.305 (AMD Radeon Graphics (RADV RENOIR) (0x00001638)), radv)",
+  "rendered": "2026-11-19",
+  "fallback": "band12-2400@1x.jpg",
+  "posters": [
+    {
+      "minAspect": 0,
+      "aspect": 0.475,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -3.61931
+        ],
+        "distance": 39.38282
+      },
+      "files": [
+        {
+          "file": "band00-475@1x.avif",
+          "width": 428,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 29726
+        },
+        {
+          "file": "band00-475@2x.avif",
+          "width": 855,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 70633
+        }
+      ]
+    },
+    {
+      "minAspect": 0.475,
+      "aspect": 0.538,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -2.55951
+        ],
+        "distance": 35.22853
+      },
+      "files": [
+        {
+          "file": "band01-538@1x.avif",
+          "width": 484,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 33978
+        },
+        {
+          "file": "band01-538@2x.avif",
+          "width": 968,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 80963
+        }
+      ]
+    },
+    {
+      "minAspect": 0.538,
+      "aspect": 0.609,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -1.61299
+        ],
+        "distance": 31.52041
+      },
+      "files": [
+        {
+          "file": "band02-609@1x.avif",
+          "width": 548,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 38985
+        },
+        {
+          "file": "band02-609@2x.avif",
+          "width": 1096,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 91985
+        }
+      ]
+    },
+    {
+      "minAspect": 0.609,
+      "aspect": 0.69,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -0.77122
+        ],
+        "distance": 28.22394
+      },
+      "files": [
+        {
+          "file": "band03-690@1x.avif",
+          "width": 621,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 43987
+        },
+        {
+          "file": "band03-690@2x.avif",
+          "width": 1242,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 101472
+        }
+      ]
+    },
+    {
+      "minAspect": 0.69,
+      "aspect": 0.78,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -0.5
+        ],
+        "distance": 25.36862
+      },
+      "files": [
+        {
+          "file": "band04-780@1x.avif",
+          "width": 702,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 47209
+        },
+        {
+          "file": "band04-780@2x.avif",
+          "width": 1404,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 105453
+        }
+      ]
+    },
+    {
+      "minAspect": 0.78,
+      "aspect": 0.883,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -0.5
+        ],
+        "distance": 22.80781
+      },
+      "files": [
+        {
+          "file": "band05-883@1x.avif",
+          "width": 795,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 47965
+        },
+        {
+          "file": "band05-883@2x.avif",
+          "width": 1589,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 103045
+        }
+      ]
+    },
+    {
+      "minAspect": 0.883,
+      "aspect": 0.999,
+      "height": 900,
+      "densities": [
+        1,
+        2
+      ],
+      "view": {
+        "focus": [
+          1.2,
+          1.15,
+          -0.5
+        ],
+        "distance": 20.57163
+      },
+      "files": [
+        {
+          "file": "band06-999@1x.avif",
+          "width": 899,
+          "height": 900,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 50809
+        },
+        {
+          "file": "band06-999@2x.avif",
+          "width": 1798,
+          "height": 1800,
+          "density": 2,
+          "type": "image/avif",
+          "bytes": 105466
+        }
+      ]
+    },
+    {
+      "minAspect": 1,
+      "aspect": 1.112,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          -1.25,
+          -9.58731
+        ],
+        "distance": 60.06674
+      },
+      "files": [
+        {
+          "file": "band07-1112@1x.avif",
+          "width": 1201,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 68059
+        }
+      ]
+    },
+    {
+      "minAspect": 1.112,
+      "aspect": 1.236,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          -1.25,
+          -8.09919
+        ],
+        "distance": 54.23218
+      },
+      "files": [
+        {
+          "file": "band08-1236@1x.avif",
+          "width": 1335,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 75669
+        }
+      ]
+    },
+    {
+      "minAspect": 1.236,
+      "aspect": 1.375,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          -1.25,
+          -6.75142
+        ],
+        "distance": 48.95002
+      },
+      "files": [
+        {
+          "file": "band09-1375@1x.avif",
+          "width": 1485,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 84621
+        }
+      ]
+    },
+    {
+      "minAspect": 1.375,
+      "aspect": 1.529,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          -1.25,
+          -5.54476
+        ],
+        "distance": 44.22327
+      },
+      "files": [
+        {
+          "file": "band10-1529@1x.avif",
+          "width": 1651,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 93776
+        }
+      ]
+    },
+    {
+      "minAspect": 1.529,
+      "aspect": 1.699,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          -1.25,
+          -4.89808
+        ],
+        "distance": 39.9833
+      },
+      "files": [
+        {
+          "file": "band11-1699@1x.avif",
+          "width": 1835,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 104856
+        }
+      ]
+    },
+    {
+      "minAspect": 1.701,
+      "aspect": 2.4,
+      "height": 1080,
+      "densities": [
+        1
+      ],
+      "view": {
+        "focus": [
+          0,
+          1.5,
+          -2.15365
+        ],
+        "distance": 40.95373
+      },
+      "files": [
+        {
+          "file": "band12-2400@1x.avif",
+          "width": 2592,
+          "height": 1080,
+          "density": 1,
+          "type": "image/avif",
+          "bytes": 92591
+        },
+        {
+          "file": "band12-2400@1x.jpg",
+          "width": 2592,
+          "height": 1080,
+          "density": 1,
+          "type": "image/jpeg",
+          "bytes": 325843
+        }
+      ]
+    }
+  ]
+}
