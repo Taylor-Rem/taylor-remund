@@ -127,10 +127,10 @@ class Aim {
  * hold, facing the room (its depth fixed): up the screen is straight up, so a gentle flick goes up and
  * comes back down where it went up (Taylor: "throwing them up then catching them and back up again like juggling").
  * A hard one leans back the way the camera looks down, so it goes up and back and meets the back wall well up ("it
- * can be fun to throw them against the back wall too"): no lean below `from` u/s, all of the line of sight's tilt
+ * can be fun to throw them against the back wall too"): no lean below `from` u/s, `lean` times the line of sight's tilt
  * from `full` u/s, eased between.
  */
-export const UP_FLICK = { from: 16, full: 28 } as const;
+export const UP_FLICK = { from: 16, full: 28, lean: 1 } as const;
 
 /** The upright plane through `p` facing the room (its depth fixed), its up (world up), and the line of sight's downward tilt. */
 function facingAt(eye: Vec3, p: Vec3): { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null {
@@ -376,7 +376,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
           // a hard flick leans back by the line of sight's tilt (eased in with speed): at the back wall
           const sp = Math.hypot(onFacing[0], onFacing[1], onFacing[2]);
           const k = smooth((sp - UP_FLICK.from) / (UP_FLICK.full - UP_FLICK.from));
-          const a = k * facing.pitch;
+          const a = k * UP_FLICK.lean * facing.pitch;
           const h = Math.hypot(facing.n[0], facing.n[2]) || 1;
           const bx = facing.n[0] / h;
           const bz = facing.n[2] / h; // away from the camera, level

@@ -325,7 +325,7 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
  * a thing caught in the air is still held up, the hold rises on an upright plane through the thing, facing the room
  * (its depth fixed, as a flick up is read), instead of sliding back along the carry surface; when the
  * pointer slows, stops, or goes down or sideways, it eases back onto the surface. `speed` px/s up the screen (and
- * `ratio` times its sideways speed) is fast; the blend rises with time constant `rise` s and falls with `fall` s;
+ * `ratio` times its sideways speed), over at least `reach` px in the window, is fast; the blend rises with time constant `rise` s and falls with `fall` s;
  * the pointer's speed is taken over its last `window` ms, and a pointer that has not moved for `still` ms is still;
  * a lift up the screen longer than `flick` ms is a carry toward the back, not a flick, and goes back onto the surface.
  */
@@ -350,7 +350,7 @@ export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null):
   return [x, y, anchor[2]];
 }
 
-export const UP_HOLD = { speed: 250, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
+export const UP_HOLD = { speed: 400, reach: 12, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
 
 export class UpHold {
   private readonly hist: { t: number; x: number; y: number }[] = [];
@@ -395,7 +395,8 @@ export class UpHold {
     const moving = t - b.t < T.still && span > 0.004;
     const vx = moving ? (b.x - a.x) / span : 0;
     const up = moving ? -(b.y - a.y) / span : 0;
-    const fastUp = up > T.speed && up > T.ratio * Math.abs(vx);
+    // fast, and far enough to be a flick, not a few events of a slow hand arriving together
+    const fastUp = up > T.speed && up > T.ratio * Math.abs(vx) && a.y - b.y >= T.reach;
     // a flick is short: a hand that goes on up the screen for longer than `flick` ms is carrying it back, and the
     // hold goes back onto the surface (where a carry toward the back lifts it near the wall)
     if (!fastUp) this.upSince = null;
