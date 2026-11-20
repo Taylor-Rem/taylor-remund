@@ -186,6 +186,12 @@ export const PATCH_TUNING = {
   slideMin: 0.4,
   /** R5: from high on the wall it comes down faster, so the slide is never much longer than this (s) once it is moving. */
   slideMost: 1.4,
+  /**
+   * R5 (the lead's film, 2026-11-20): thrown at the back wall, its middle meets the wall no higher than this. A hard
+   * flick up the screen has already lifted it some units in the hand, and with the throw's upward part it met the wall
+   * at 6.4, where the home view shows only its feet: the gag happened off the top of the picture.
+   */
+  wallMeet: 5,
 } as const;
 
 export interface PatchSpec {
@@ -409,7 +415,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const k = h > T.throwMax ? T.throwMax / h : 1;
     const room = Math.max(0, T.topMid - p[1]);
     const upCap = Math.min(T.upMax, Math.sqrt(2 * -g * room));
-    const vy = drop ? Math.min(0, v[1]) : Math.min(upCap, Math.max(v[1], Math.min(T.loftMax, T.loft * h * k)));
+    let vy = drop ? Math.min(0, v[1]) : Math.min(upCap, Math.max(v[1], Math.min(T.loftMax, T.loft * h * k)));
+    // (at the back wall: no more upward speed than brings its middle to `wallMeet` where it meets the wall's face)
+    const toWall = -v[2] * k;
+    if (!drop && toWall >= T.wallSpeed) {
+      const tw = (p[2] - (ctx.scene.bench.minZ + T.bodyR)) / toWall;
+      if (tw > 1 / HZ) vy = Math.min(vy, (T.wallMeet - p[1] - 0.5 * g * tw * tw) / tw);
+    }
     const vv: Vec3 = [v[0] * k, vy, v[2] * k];
     let q: Vec3 = p[1] > T.topMid ? [p[0], T.topMid, p[2]] : p;
     // (never starting inside a body, a robot or a part: out of it the least way, sideways before up, at most
