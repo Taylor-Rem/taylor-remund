@@ -30,6 +30,14 @@ function overlap(a: Box, b: Box, slack = 0.02): boolean {
   return true;
 }
 const yaw = (q: readonly number[]): number => 2 * Math.atan2(q[1]!, q[3]!);
+/** Patch's footprint is round: does a circle of radius `r` at (x, z) reach into the box by more than `slack`? */
+function touchesRound(b: Box, x: number, z: number, r: number, slack = 0.02): boolean {
+  const dx = x - b.x, dz = z - b.z;
+  const c = Math.cos(b.h), s = Math.sin(b.h);
+  const lx = dx * c - dz * s, lz = dx * s + dz * c;
+  const ex = Math.max(0, Math.abs(lx) - b.hx), ez = Math.max(0, Math.abs(lz) - b.hz);
+  return Math.hypot(ex, ez) < r - slack;
+}
 
 function revertBox(w: World): Box | null {
   const r = w.machine('revert-crew') as RevertView;
@@ -103,7 +111,7 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
     const pb = patchBox(w);
     if (fb && overlap(rb, fb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Fetch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${fb.x.toFixed(2)},${fb.z.toFixed(2)} (${w.crew('fetch')?.state})`);
     // (the first second and a half after the visitor lets go of Patch: it may be dropped against Revert; they part at once)
-    if (pb && overlap(rb, pb) && i >= steps(1.5)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
+    if (pb && touchesRound(rb, pb.x, pb.z, PATCH_R) && i >= steps(1.5)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
   }
   if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${JSON.stringify(w.crew('fetch')).slice(0, 600)}`);
   w.dispose();
