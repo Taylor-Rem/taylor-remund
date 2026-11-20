@@ -2010,7 +2010,9 @@ function satOnBench(feet: V3, yaw: number): PatchPose {
   return {
     ...SEATED,
     body: { at: [feet[0], feet[1] + 0.01, feet[2]], rot: [0.04, yaw, 0] },
-    legs: [{ lift: 0.12, splay: 0.45, knee: 0.4 }, { lift: 0.08, splay: 0.5, knee: 0.55 }],
+    // (R4: the legs along the bench, not through it: thighs raised to the level, knees barely bent, the heels on
+    // the bench; measured from the rig in tests/unit/kit/patch-ground.test.ts)
+    legs: [{ lift: 0.48, splay: 0.45, knee: 0.05 }, { lift: 0.46, splay: 0.5, knee: 0.08 }],
     lean: [0.08, 0],
     twist: 0,
     arms: { left: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4), right: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4) },
@@ -2019,8 +2021,9 @@ function satOnBench(feet: V3, yaw: number): PatchPose {
     headTilt: 0.12,
     ...FACE.flat,
     ears: [0.35, 0.25],
+    // (the tail lying along the bench behind it, not hanging down through it as it does off the stool's seat)
     tail: [0.5, 0.35],
-    tailLift: -0.35,
+    tailLift: 0.5,
     boom: 0.15,
   };
 }

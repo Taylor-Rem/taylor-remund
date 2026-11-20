@@ -25,6 +25,7 @@
  */
 import { Group, Matrix4, Vector3, type Object3D } from 'three';
 import { nodeBounds } from './proxy.ts';
+import { clearOfEdge, figureOf, grounded, type Figure } from '../kit/pieces/patch-felt/ground.ts';
 import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
@@ -132,6 +133,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     // stool"); measured once, at its rest pose. No target where the simulation refuses the grab
     // (hanging from the edge, hauling itself up, out of sight after going over the edge)
     const bodyNode = nodes.get('body') ?? obj;
+    // the figure's points by node, for keeping every drawn part above the bench (ground.ts)
+    const figure: Figure | null = piece ? figureOf(piece) : null;
+    let floorBox = { minX: -Infinity, maxX: Infinity, minZ: -Infinity, maxZ: Infinity };
+    /** Is this root-space point over the bench (only those points are kept above its top)? */
+    const overBench = (x: number, z: number): boolean => {
+      const me = root.matrixWorld.elements;
+      const wx = me[0]! * x + me[8]! * z + me[12]!, wz = me[2]! * x + me[10]! * z + me[14]!;
+      return wx >= floorBox.minX && wx <= floorBox.maxX && wz >= floorBox.minZ && wz <= floorBox.maxZ;
+    };
     let grabbable = true;
     // (the felt is skinned: its meshes hang from the piece, not the bone, so the box is the body node's own parts
     // and its children's, measured in its frame, as proxy.ts does for any skinned node)
@@ -709,6 +719,16 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
+        // R4 (Taylor: "Patch often clips through the floor"): no drawn part below the bench's top. The pose is lifted
+        // by what the posed figure needs this frame (its lowest point over the bench, from the rig): the landing's
+        // roll and bounce turn it about its middle, the wall slide's legs hang below it, a low carry drags it
+        if (figure && mode !== 'away') {
+          floorBox = w.scene.bench;
+          const floor = (w.scene.bench.top - root.position.y) / S;
+          // hanging from the edge, its back against the bench's front: moved out from it, not up off the edge
+          if (mode === 'ledge' && st === 'ledge' && ledgeO) pose = clearOfEdge(pose, figure, floor, overBench, [-Math.sin(ledgeO.heading), -Math.cos(ledgeO.heading)]);
+          else pose = grounded(pose, figure, floor, overBench);
+        }
         apply(pose);
         // a caught part is drawn in the paw: through the parts view's overlay when it draws after this view (its
         // shadow goes with it), or straight onto its matrix when it has drawn already this frame
