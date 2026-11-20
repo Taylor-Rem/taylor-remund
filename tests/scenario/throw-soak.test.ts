@@ -59,8 +59,8 @@ function plan(seed: number, w: World): Throw {
   const r = rng(`throw-soak-${seed}`);
   const THROWN_IDS = [...LOOSE, 'patch'];
   const id = THROWN_IDS[r.int(THROWN_IDS.length)] as string;
-  // (R4) from anywhere up to the top of the lift (5.5): mostly bench height, one in four high
-  const from: Vec3 = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 5.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
+  // (R4) from anywhere up to the top of the carry (a grip height of 7.5, over the back wall's top): mostly bench height, one in four high
+  const from: [number, number, number] = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 7.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
   const cap = LOOSE_TUNING.throwMax * 1.05; // a little over: the world clamps it
   const k = r.int(10);
   let dir: Vec3;
@@ -76,6 +76,11 @@ function plan(seed: number, w: World): Throw {
     what = `at ${other}`;
   } else if (k < 5) {
     dir = [r.range(-0.3, 0.3), 0, -1];
+    // (R4) at the wall and over it: from right up against it and from high (the raised carry), lobbed up hard
+    if (r.int(2) === 0) {
+      from[2] = r.range(-4.6, -3.0);
+      from[1] = r.range(1.0, 7.5);
+    }
     what = 'at the back wall';
   } else if (k < 6) {
     const side = r.int(3);
@@ -98,7 +103,10 @@ function plan(seed: number, w: World): Throw {
 }
 
 async function session(seed: number): Promise<string[]> {
+  let wRef: World | null = null;
+  const p0of = (id: string): Vec3 => wRef!.motion(id)!.pose.p as Vec3;
   const w = await benchWorld(`throw-soak-${seed}`, { scene: FULL_BENCH });
+  wRef = w;
   /** Parts that have come to rest (or been taken into a machine) since the throw: moving later is someone's work (Revert's pan). */
   const rested = new Set<string>();
   const stillRun = new Map<string, number>();
@@ -160,7 +168,7 @@ async function session(seed: number): Promise<string[]> {
       run(1);
       if (w.holding()?.id !== th.id) break;
       for (let i = 0; i < 20; i++) {
-        w.dispatch({ type: 'carry', target: [m.pose.p[0], Math.max(1.0, Math.min(5.5, m.pose.p[1])), m.pose.p[2]] });
+        w.dispatch({ type: 'carry', target: [m.pose.p[0], Math.max(1.0, Math.min(7.5, m.pose.p[1])), m.pose.p[2]] });
         run(1);
       }
       w.dispatch({ type: 'release', velocity: [th.v[0] * 0.3, 12, th.v[2] * 0.3] });
@@ -187,6 +195,8 @@ async function session(seed: number): Promise<string[]> {
       if (!finite(m.pose)) fails.push(`${label}: ${id} NaN`);
       if (mode === 'held') fails.push(`${label}: ${id} still in the hand`);
       if (mode === 'gone' || mode === 'chute') continue; // shipped, or on its way back up the chute
+      // (R4) its centre inside the bench's footprint, or in the dock's hands (riding, or thrown back from the chute)
+      if (mode !== 'machine' && (Math.abs(p0of(id)[0]) > 9 || Math.abs(p0of(id)[2]) > 5)) fails.push(`${label}: ${id} left outside the bench at (${p0of(id).map((v) => v.toFixed(2)).join(', ')}) (${mode})`);
       const p = m.pose.p;
       if (mode === 'free') {
         const moving = Math.hypot(p[0] - m.prev.p[0], p[1] - m.prev.p[1], p[2] - m.prev.p[2]) * HZ;
@@ -197,7 +207,9 @@ async function session(seed: number): Promise<string[]> {
           if (p[1] < -0.05 && Math.abs(p[0]) < 9 && Math.abs(p[2]) < 5) fails.push(`${label}: ${id} inside the bench at (${p.map((v) => v.toFixed(2)).join(', ')})`);
           continue;
         }
-        if (insideBox(p, s.pose, (s.shape as { half: Vec3 }).half, 0.02)) fails.push(`${label}: ${id} inside ${s.id} (${mode})`);
+        // (going through the dock's door: the dock carries it into its bay, inside its collider, to ship it)
+        const shipping = mode === 'machine' && s.id === 'dock' && w.part(id)?.location.at === 'in';
+        if (!shipping && insideBox(p, s.pose, (s.shape as { half: Vec3 }).half, 0.02)) fails.push(`${label}: ${id} inside ${s.id} (${mode})`);
       }
       for (const o of LOOSE) {
         if (o === id) continue;

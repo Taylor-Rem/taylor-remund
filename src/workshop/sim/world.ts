@@ -109,6 +109,9 @@ export const LOOSE_TUNING = {
   /** R4: at rest with its centre above this (out of every hand's and robot's reach) for this long, it goes home by the chute. */
   highRest: 2.5,
   highRestTime: 3,
+  /** R4: with its centre outside the bench's footprint and slower than this (u/s) for this long (s), it goes home by the chute. */
+  outsideSlow: 0.5,
+  outsideTime: 1.5,
   /** Tumble on release: spin per unit/s of throw about the axis across the throw. */
   tumble: 0.7,
   /** A free part counts as disturbed above these speeds. */
@@ -623,7 +626,17 @@ export function createWorld(opts: WorldOptions): World {
 
   /** R4: steps each part has lain at rest above `LOOSE_TUNING.highRest`. */
   const highFor = new Map<Id, number>();
+  /** R4: steps each part has lain (or crept) with its centre outside the bench's footprint. */
+  const outsideFor = new Map<Id, number>();
+  const outsideFootprint = (p: Vec3): boolean => {
+    const b = scene.bench;
+    return p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ;
+  };
   function edgeAndChute(): void {
+    for (const id of [...outsideFor.keys()]) {
+      const l = loose.get(id);
+      if (!l || l.mode !== 'free' || !outsideFootprint(l.pose.p)) outsideFor.delete(id);
+    }
     for (const id of [...highFor.keys()]) {
       const l = loose.get(id);
       if (!l || l.mode !== 'free' || l.unsettled || l.pose.p[1] <= T.highRest) highFor.delete(id);
@@ -635,6 +648,19 @@ export function createWorld(opts: WorldOptions): World {
         l.unsettled = false;
         l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
         lastChuteRelease = l.chuteAt;
+      } else if (l.mode === 'free' && !bracket && outsideFootprint(l.pose.p) && length(physics.state(l.id).linvel) < T.outsideSlow) {
+        // R4 (I1's flick behind the back wall): its centre outside the bench's footprint, on any side and at any height,
+        // at rest or barely moving for `outsideTime`: wherever that is, no hand or robot can reach it; home by the chute
+        const n = (outsideFor.get(l.id) ?? 0) + 1;
+        outsideFor.set(l.id, n);
+        if (n >= steps(T.outsideTime)) {
+          outsideFor.delete(l.id);
+          physics.setEnabled(l.id, false);
+          setMode(l, 'chute');
+          l.unsettled = false;
+          l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
+          lastChuteRelease = l.chuteAt;
+        }
       } else if (l.mode === 'free' && !bracket && !l.unsettled && l.pose.p[1] > T.highRest) {
         // R4: come to rest up where no hand or robot can reach (the switchboard's top, the storefront's roof): after
         // `highRestTime` it goes home by the chute (as anything off the bench does), thrown back onto the pad
