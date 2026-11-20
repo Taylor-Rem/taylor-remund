@@ -176,6 +176,12 @@ export interface Unit {
   restored?(restores: readonly Restore[]): void;
   /** S6: a crew member says so here: its view under the one roster (`WorldView.crewViews()`). */
   crewView?(): CrewView;
+  /**
+   * R4 (Taylor: "it shoots out of the chute really weakly"): `part` is due out of the return chute now (it fell off the
+   * bench, or was sent back). A unit that throws it back onto the bench (the dock, onto its pad) does so here and says
+   * true; its rest is `cause`'s. None does: the world pops it out of the chute's mouth (`scene.chute`), as in P1.
+   */
+  catchReturn?(part: Id, cause: Cause | null): boolean;
 }
 
 /**
