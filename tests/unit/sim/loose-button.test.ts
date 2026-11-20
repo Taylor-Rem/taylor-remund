@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run, types } from './helpers.ts';
 import { BUTTON_TUNING } from '../../../src/workshop/sim/machines/button.ts';
-import { throwCap } from '../../../src/workshop/sim/world.ts';
+import { clampThrow, LOOSE_TUNING } from '../../../src/workshop/sim/world.ts';
 import { massOf } from '../../../src/workshop/sim/parts.ts';
 import { steps } from '../../../src/workshop/sim/clock.ts';
 import { rng } from '../../../src/workshop/sim/rng.ts';
@@ -44,8 +44,12 @@ describe('loose parts with the stub physics (exact)', () => {
     world.dispatch({ type: 'release', velocity: [100, 0, 0] });
     const ev = run(world, 1);
     const rel = ev.find((e) => e.type === 'part.released');
-    // (R4) clamped to the cap for its mass: the whole cap for a light crate, less for a heavy one
-    expect(rel).toEqual({ type: 'part.released', id: 'crate-1', speed: throwCap(world.scene.parts.find((p) => p.id === 'crate-1')!.mass ?? massOf(world.halfExtents('crate-1')!, world.scene.parts.find((p) => p.id === 'crate-1')!.material)) });
+    // (R4) a stated 100 goes softly toward the ceiling for its mass (`clampThrow`: just under `throwMax` scaled by
+    // mass), and being level it also lifts a little (`loft` per unit of level speed, at most `loftMax`)
+    const spec = world.scene.parts.find((p) => p.id === 'crate-1')!;
+    const level = clampThrow([100, 0, 0], spec.mass ?? massOf(world.halfExtents('crate-1')!, spec.material), landing.p[1], world.scene.gravity)[0];
+    expect(level).toBeLessThan(LOOSE_TUNING.throwMax);
+    expect(rel).toEqual({ type: 'part.released', id: 'crate-1', speed: Math.hypot(level, Math.min(LOOSE_TUNING.loftMax, level * LOOSE_TUNING.loft)) });
     expect(world.holding()).toBeNull();
     // still in flight: the durable location has not moved
     expect(world.part('crate-1')?.location).toMatchObject({ at: 'rest', pose: { p: p0 } });
