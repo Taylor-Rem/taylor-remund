@@ -114,6 +114,22 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
+/**
+ * Every read of the scene's colour goes through `finite3`. One pixel that is not a number, or has overflowed the
+ * half-float buffer, would otherwise be spread by the bloom pyramid into a black octagon a third of the screen
+ * wide (Taylor's desktop, 2026-11-20: three of them over the bench), and by the focus blur into a smaller one.
+ * Which pixels go wrong depends on the graphics card: what `pow`, `normalize` or a division does at its edge is
+ * left to the driver, and the laptop this is built on never showed one. So the chain does not trust its input:
+ * a value that is not a number or has overflowed is black (an overflow drawn as bright as the scene gets flared
+ * white over as much of the bench as the black had covered), and nothing is brighter than `SCENE_MAX` (the bulbs
+ * are far below it). The test is a comparison, which a driver cannot fold away as it may `isnan`.
+ */
+const FINITE = /* glsl */ `
+#define SCENE_MAX 256.0
+float finite1(float x) { return abs(x) < 6.0e4 ? clamp(x, 0.0, SCENE_MAX) : 0.0; }
+vec3 finite3(vec3 c) { return vec3(finite1(c.r), finite1(c.g), finite1(c.b)); }
+`;
+
 const PREFILTER = {
   name: 'StageBloomPrefilter',
   uniforms: { tInput: { value: null as Texture | null }, texel: { value: new Vector2() }, threshold: { value: 1 }, knee: { value: 0.5 } },
@@ -124,12 +140,13 @@ uniform vec2 texel;
 uniform float threshold;
 uniform float knee;
 varying vec2 vUv;
+${FINITE}
 float karis(vec3 c) { return 1.0 / (1.0 + max(c.r, max(c.g, c.b))); }
 void main() {
-  vec3 a = texture2D(tInput, vUv + texel * vec2(-1.0, -1.0)).rgb;
-  vec3 b = texture2D(tInput, vUv + texel * vec2( 1.0, -1.0)).rgb;
-  vec3 c = texture2D(tInput, vUv + texel * vec2(-1.0,  1.0)).rgb;
-  vec3 d = texture2D(tInput, vUv + texel * vec2( 1.0,  1.0)).rgb;
+  vec3 a = finite3(texture2D(tInput, vUv + texel * vec2(-1.0, -1.0)).rgb);
+  vec3 b = finite3(texture2D(tInput, vUv + texel * vec2( 1.0, -1.0)).rgb);
+  vec3 c = finite3(texture2D(tInput, vUv + texel * vec2(-1.0,  1.0)).rgb);
+  vec3 d = finite3(texture2D(tInput, vUv + texel * vec2( 1.0,  1.0)).rgb);
   float wa = karis(a), wb = karis(b), wc = karis(c), wd = karis(d);
   vec3 col = (a * wa + b * wb + c * wc + d * wd) / (wa + wb + wc + wd);
   float br = max(col.r, max(col.g, col.b));
@@ -184,6 +201,7 @@ void main() {
 
 /** GLSL shared by the focus pass and the composite: depth, blur size, AO. */
 const FOCUS_COMMON = /* glsl */ `
+${FINITE}
 uniform sampler2D tColor;
 uniform sampler2D tDepth;
 uniform sampler2D tAO;
@@ -275,7 +293,7 @@ varying vec2 vUv;
 void main() {
   float d = depthAt(vUv);
   float coc = cocAt(d);
-  vec3 sum = occlude(texture2D(tColor, vUv).rgb, vUv);
+  vec3 sum = occlude(finite3(texture2D(tColor, vUv).rgb), vUv);
   if (coc < 0.35) { gl_FragColor = vec4(sum, 1.0); return; }
   float wsum = 1.0;
   float phi = ign(gl_FragCoord.xy) * 6.2831853;
@@ -288,7 +306,7 @@ void main() {
     float ds = depthAt(uv);
     float reach = clamp(cocAt(ds) - length(o) + 1.0, 0.0, 1.0);
     float w = (ds > d + 1e-5) ? 1.0 : reach;
-    sum += occlude(texture2D(tColor, uv).rgb, uv) * w;
+    sum += occlude(finite3(texture2D(tColor, uv).rgb), uv) * w;
     wsum += w;
   }
   gl_FragColor = vec4(sum / wsum, 1.0);
@@ -422,7 +440,7 @@ float keyShadow(vec2 uv, float d, vec3 wp, float blur) {
 
 void main() {
   float d = depthAt(vUv);
-  vec3 col = occludeSoft(texture2D(tColor, vUv).rgb, vUv);
+  vec3 col = occludeSoft(finite3(texture2D(tColor, vUv).rgb), vUv);
 
 #ifdef USE_FOCUS
   // Sharp where in focus, the half-resolution gather where not.
