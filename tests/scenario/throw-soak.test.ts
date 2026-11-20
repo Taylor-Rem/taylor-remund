@@ -98,9 +98,20 @@ async function session(seed: number): Promise<string[]> {
   let lateFrom = Infinity;
   let holdRun = 0;
   let holdWorst = 0;
+  /** Patch in `walk` without a break, the longest run since the throw (seconds). */
+  let walkRun = 0;
+  let walkWorst = 0;
+  let thrownAt = Infinity;
+  const TRACE = process.env.THROW_TRACE;
   const run = (n: number): void => {
     for (let i = 0; i < n; i++) {
       w.advance();
+      if (w.step >= thrownAt) {
+        const pv = (w.crewView('patch') as { view?: { state?: string; at?: Vec3 } } | undefined)?.view;
+        walkRun = pv?.state === 'walk' ? walkRun + 1 : 0;
+        walkWorst = Math.max(walkWorst, walkRun / HZ);
+        if (TRACE === 'patch' && (w.step - thrownAt) % (HZ / 4) === 0) console.log(`${((w.step - thrownAt) / HZ).toFixed(2)} patch ${pv?.state} ${pv?.at?.map((v) => v.toFixed(2)).join(',')} | fetch ${w.crew('fetch')!.state} ${w.motion('fetch')!.pose.p.map((v) => v.toFixed(2)).join(',')} | revert ${w.motion('revert')!.pose.p.map((v) => v.toFixed(2)).join(',')}`);
+      }
       for (const e of w.drainEvents()) if (e.type === 'part.rested' || e.type === 'taken-in') rested.add(e.type === 'taken-in' ? e.part : e.id);
       // (R4 follow-up) Fetch standing with one crate in its hands (idle, or at a seat it cannot use)
       const fc = w.crew('fetch');
@@ -132,12 +143,12 @@ async function session(seed: number): Promise<string[]> {
       run(1);
     }
     w.dispatch({ type: 'release', velocity: th.v });
+    thrownAt = w.step;
     rested.clear();
     lateFrom = w.step + steps(SETTLE - 4);
     run(2);
     if (th.rung) w.dispatch({ type: 'press', id: 'button' });
-    const TRACE = process.env.THROW_TRACE;
-    if (TRACE) {
+    if (TRACE && TRACE !== 'patch') {
       for (let k = 0; k < SETTLE * 4; k++) {
         run(HZ / 4);
         const m = w.motion(TRACE)!;
@@ -181,6 +192,8 @@ async function session(seed: number): Promise<string[]> {
       if (!v.at.every(Number.isFinite)) fails.push(`${label}: Patch NaN`);
       else if (v.state !== 'seated') fails.push(`${label}: Patch not back on its stool after ${SETTLE + 30} s (${v.state} at ${v.at.map((x) => x.toFixed(2)).join(', ')})`);
     }
+    // and never walking for more than 30 s at a stretch, whatever was thrown
+    if (walkWorst > 30) fails.push(`${label}: Patch walking for ${walkWorst.toFixed(1)} s`);
     // Fetch set (not flung) into a machine that holds it still (the platen's tray) waits there FETCH_TUNING.leaveMachineSet
     // seconds to be painted before it hops off: give it that
     for (let i = 0; i < (FETCH_TUNING.leaveMachineSet + 6) * HZ && w.motion('fetch')!.mode === 'machine' && w.part('fetch')!.location.at === 'in' && (w.part('fetch')!.location as { mouth: string }).mouth === 'platen'; i++) run(1);

@@ -49,6 +49,8 @@ interface Flight {
   /** The most steps running its sphere was inside a loose part or a robot's body in the air (one: the step of contact). */
   overlap: number;
   overlapAt: string;
+  /** The longest stretch in `walk` without a break (seconds). */
+  walk: number;
 }
 
 /** Loose parts Patch knocked in its flight (from its events). */
@@ -61,11 +63,14 @@ const knocked = (t: Tape): string[] => [
 
 /** Until it is back on its stool (or `limit` s), watching the flight. */
 function watch(w: World, t: Tape, limit: number): Flight {
-  const f: Flight = { states: [], inside: 0, insideAt: '', overlap: 0, overlapAt: '' };
+  const f: Flight = { states: [], inside: 0, insideAt: '', overlap: 0, overlapAt: '', walk: 0 };
   const run = new Map<string, number>();
+  let walking = 0;
   for (let i = 0; i < limit * HZ; i++) {
     t.run(1);
     const v = patchView(w);
+    walking = v.state === 'walk' ? walking + 1 : 0;
+    f.walk = Math.max(f.walk, walking / HZ);
     if (f.states[f.states.length - 1] !== v.state) f.states.push(v.state);
     if (v.state === 'fly') {
       // a loose part or a robot: never inside it for more than the step it is met
@@ -407,6 +412,7 @@ describe('Patch thrown (R4)', () => {
       expect(patchView(w).state, line).toBe('seated');
       expect(patchView(w).at, line).toEqual(PATCHLAMP.patch.seat.map((x, i) => (i === 0 ? x + (patchView(w).stool.x - patchView(w).stool.rest) : x)));
       expect(f.inside, `${line} ${f.insideAt}`).toBe(0);
+      expect(f.walk, `${line}: walking without a break`).toBeLessThanOrEqual(30);
       if (job !== null) expect(answer(t, job, 30).e.type, line).toBe('line.reply');
       else if (kind !== 3 && knocked(t).length === 0) expect(w.durable(), line).toEqual(before);
       // (S5 R4) it knocked a crate, or Fetch (which drops what it carries): all of it is the throw's, one transaction
