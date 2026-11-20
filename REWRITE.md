@@ -684,7 +684,9 @@ carries parts between stations inside lanes of yellow tape.
   if neither it sets the crate down on its tape, still fresh.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it is shoved and spun, not
   merely bumped into; it wobbles, finds its balance and goes back to its
-  lane.
+  lane. A thrown Patch knocks it the same way, by how fast Patch came in:
+  it drops what it carries, looks at Patch, and goes back to work; the
+  lever takes that back with the rest of the throw.
 - *Its boundary:* it cannot cross the tape. Reaching for something outside
   it, it stretches, gives up, and prints a slip: "OUT OF MY LANE."
 
