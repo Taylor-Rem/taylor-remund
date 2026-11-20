@@ -146,10 +146,9 @@ describe('dropped from the top of the lift (5.5)', () => {
     ['Patch\'s stool', () => [3.02, 5.5, -3.46]],
   ];
   for (const [what, at] of REVERT_ONTO) {
-    // KNOWN (S7's, reported 2026-11-20): Revert come to rest up on a crate or on Patch's stool stands there idle for good
-    // (its trip home is never started from up there). `test.fails` until S7 fixes it: then it passes and this fails.
-    const known = what !== 'Fetch';
-    (known ? test.fails : test)(`Revert dropped from 5.5 onto ${what}: nothing passes into anything, nothing throws, and it trundles home`, async () => {
+    // (S7, 2026-11-20: up on a crate or Patch's stool it gets itself down: off a low thing it trundles, from higher it
+    // goes down and comes back up through its hatch)
+    test(`Revert dropped from 5.5 onto ${what}: nothing passes into anything, nothing throws, and it trundles home`, async () => {
       const w = await benchWorld(`r4-drop-revert-${what}`, { scene: FULL_BENCH });
       const t = tape(w);
       t.run(steps(1));

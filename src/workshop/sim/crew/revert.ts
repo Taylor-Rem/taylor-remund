@@ -124,6 +124,17 @@ export const REVERT_TUNING = {
   glance: 0.8,
   /** R3: the crate it was going for taken by the visitor: it looks at the hand this long, then goes home. */
   lookTaken: 0.9,
+  /**
+   * R4 (2026-11-20): let go or come to rest up off the bench's floor: after `perchBeat` it trundles off anything
+   * up to `perchLow` high (a crate), dropping the last of the way; from anything higher, or where it cannot drive
+   * off, it goes down where it is and comes back up through its own hatch. Thrown off the bench or refused by the
+   * dock it never comes up the chute: after `returnBeat` it rises through its hatch, gives the visitor one long
+   * look (`returnLook`), and goes back to what it was doing.
+   */
+  perchBeat: 1,
+  perchLow: 0.9,
+  returnBeat: 1.6,
+  returnLook: 1.8,
   /** At the Button, screwing the cover on. */
   fit: 1.2,
   /** After being put down: glaring this long before it carries on. */
@@ -196,7 +207,7 @@ export interface RevertUnit extends MachineUnit {
 export const CARD_KEPT = 'card.revert.kept';
 export const CARD_NOTHING = 'card.revert.nothing';
 
-type Purpose = 'cover' | 'park' | 'home' | 'sweep';
+type Purpose = 'cover' | 'park' | 'home' | 'sweep' | 'off';
 
 interface Route {
   readonly pts: (readonly [number, number])[];
@@ -275,6 +286,12 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let lookAt: Id | null = null;
   let lookUntil = -1;
   let homeFirst = false;
+  /** R4: it went home the way it knows (down, and up through its hatch): when to come up, and the long look after. */
+  let returnAt = -1;
+  let lookBackUntil = -1;
+  /** R4: driving off a perch: where it set off from (the drop comes over the last stretch). */
+  let offFrom: readonly [number, number] = [0, 0];
+  let fall = 0;
   /** R3: the knock from below a covered hatch: when it began (-1: not yet), and how many knocks so far. */
   let knockAt = -1;
   let knocked = 0;
@@ -416,6 +433,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       speed = 0;
       turning = 0;
       lift = 1;
+      // (R4: a card it was about to hold up is not held up later, on landing: none at all for being thrown)
+      pendingCard = null;
+      returnAt = -1;
       enter('held');
     },
     taken(part: Id) {
@@ -736,8 +756,75 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     return best;
   }
 
+  /**
+   * R4: off a perch: a floor spot beside it it can stand on, nearest first (and the least turn), or null.
+   */
+  function perchExit(): { readonly at: readonly [number, number]; readonly heading: number } | null {
+    const g = ground;
+    ground = 0; // (clear as it will stand there, on the floor)
+    try {
+      for (const d of [1.3, 1.7, 2.2]) {
+        for (let k = 0; k < 16; k++) {
+          const turn = (k % 2 === 0 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
+          const h = wrap(heading + turn);
+          const qx = x + Math.sin(h) * d;
+          const qz = z + Math.cos(h) * d;
+          if (room(qx, qz, h)) return { at: [qx, qz], heading: h };
+        }
+      }
+      return null;
+    } finally {
+      ground = g;
+    }
+  }
+  /** R4: one step of driving off a perch: turn to the way off, roll, and drop the last of the way (a heavy thump). */
+  function driveOff(r: Route): boolean {
+    const target = r.pts[0]!;
+    const dx = target[0] - x;
+    const dz = target[1] - z;
+    const d = Math.hypot(dx, dz);
+    const err = wrap(Math.atan2(dx, dz) - heading);
+    if (d > 0.05 && Math.abs(err) > 0.04) {
+      const step = Math.sign(err) * Math.min(Math.abs(err), T.turn * dt);
+      heading += step;
+      turning = step / dt;
+      speed = 0;
+      return false;
+    }
+    turning = 0;
+    const d0 = Math.max(0.1, Math.hypot(target[0] - offFrom[0], target[1] - offFrom[1]));
+    if (d > 0.01) {
+      speed = T.speed * 0.6;
+      const stepLen = Math.min(d, speed * dt);
+      x += (dx / d) * stepLen;
+      z += (dz / d) * stepLen;
+    } else speed = 0;
+    // over the edge: the last 40% of the way it drops
+    if (ground > 0 && Math.hypot(x - offFrom[0], z - offFrom[1]) >= 0.6 * d0) {
+      fall += 9.8 * dt;
+      ground = Math.max(0, ground - fall * dt);
+    }
+    if (d <= 0.01 && ground <= 0) {
+      fall = 0;
+      speed = 0;
+      return true;
+    }
+    return false;
+  }
+  /** R4: it goes home the way it knows: down where it is, then (after a beat) up through its hatch with a long look. */
+  function downAndHome(): void {
+    route = null;
+    sweeping = null;
+    speed = 0;
+    turning = 0;
+    pendingCard = null;
+    returnAt = ctx.clock.step + steps(T.returnBeat);
+    if (state !== 'below' && state !== 'sinking') enter('sinking');
+  }
+
   /** One step along the route. True when it has arrived (facing the spot's heading). */
   function drive(r: Route): boolean {
+    if (r.purpose === 'off') return driveOff(r);
     const target = r.pts[r.i];
     if (!target) {
       // at the end: turn to the spot's heading
@@ -937,7 +1024,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
    */
   function showCard(content: string): void {
     // (R3: under a covered hatch it is coming up, by a knock if need be: it holds the card up once it is up)
-    if (state === 'below' || state === 'sinking' || state === 'held' || state === 'loose') {
+    // (R4: in a hand, in the air or on its way home it cannot hold a card up: the stick holds it; not later on landing)
+    if (state === 'held' || state === 'loose') return;
+    if (state === 'below' || state === 'sinking') {
       card = { content, at: ctx.clock.step };
       readUntil = ctx.clock.step;
       pendingCard = null;
@@ -1123,6 +1212,21 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   function think(): void {
     const now = ctx.clock.step;
     if (state !== 'idle' && state !== 'park') return;
+    // R4: up off the bench's floor (set or thrown onto a crate, the stool, a machine): it gets itself down
+    if (ground > 0.05) {
+      if (now - entered < steps(T.perchBeat)) return;
+      const exit = ground <= T.perchLow ? perchExit() : null;
+      if (exit) {
+        offFrom = [x, z];
+        fall = 0;
+        away = true;
+        route = { pts: [exit.at], i: 0, purpose: 'off', heading: exit.heading, blocked: 0, backed: 0, reverse: -1, turnDir: 0 };
+        enter('trundle');
+      } else downAndHome();
+      return;
+    }
+    // R4: back up through its hatch after being thrown: one long look at the visitor first
+    if (now < lookBackUntil) return;
     // R3: the crate it was going for was taken: a look at the hand, then home (no other crate first)
     if (now < lookUntil) return;
     if (homeFirst && atHome()) homeFirst = false;
@@ -1227,6 +1331,29 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     id: spec.id,
     station: spec.station,
     name: spec.name,
+    /**
+     * R4: its own body coming back up the chute (off the bench's edge, refused by the dock, come to rest too high):
+     * not out of the chute and onto the bench: it is home, below; after a beat it comes up through its hatch.
+     */
+    catchReturn(part: Id): boolean {
+      if (part !== body) return false;
+      route = null;
+      sweeping = null;
+      carrying = null;
+      pendingCard = null;
+      speed = 0;
+      turning = 0;
+      x = spec.home.x;
+      z = spec.home.z;
+      heading = spec.home.heading;
+      ground = 0;
+      lift = 0;
+      ctx.stow(body, drawnPose());
+      stowed = true;
+      returnAt = ctx.clock.step + steps(T.returnBeat);
+      enter('below');
+      return true;
+    },
     affordances: [],
     tell() {
       ctx.emit({ type: 'tell', id: spec.id });
@@ -1336,8 +1463,20 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.max(0, lift - dt / T.rise);
         if (lift <= 0) enter('below');
       }
+      // R4: down away from its hatch (off a perch, thrown, refused): it is home below; after a beat it comes up
+      if (state === 'below' && (Math.abs(x - spec.home.x) > 1e-6 || Math.abs(z - spec.home.z) > 1e-6 || ground !== 0)) {
+        x = spec.home.x;
+        z = spec.home.z;
+        heading = spec.home.heading;
+        ground = 0;
+      }
+      if (state === 'below' && returnAt >= 0 && now >= returnAt && !ctx.bracketed) {
+        returnAt = -1;
+        lookBackUntil = now + steps(T.rise + T.returnLook);
+        rise();
+      }
       if (state === 'stuck') stuckStep(now);
-      const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
+      const doorsWant = state === 'rising' || ((state === 'sinking' || up()) && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
       // ── R3: Fetch's work, and the crate in its pan ──
@@ -1530,6 +1669,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         surveying: state === 'idle' && surveyFor !== null,
         surveyLength: surveyLong ? T.survey : T.glance,
         emptyPan: (now - emptyPanAt) / HZ,
+        lookingBack: up() && now < lookBackUntil,
         starving: starving(),
         drawn: state !== 'held' && state !== 'loose',
       };

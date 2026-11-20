@@ -600,6 +600,8 @@ export interface RevertView extends MachineViewBase {
   readonly surveying: boolean;
   /** R3: how long this look round lasts (seconds): the whole scene when the bench has run dry, else one short look at the crate and the visitor. */
   readonly surveyLength: number;
+  /** R4: back up through its hatch after being thrown off the bench or refused by the dock: one long look at the visitor. */
+  readonly lookingBack: boolean;
   /** R3: seconds since the visitor took a crate out of its pan (Infinity: never): it looks at the empty pan, then goes home. */
   readonly emptyPan: number;
   /** R3: Fetch has had nothing it may carry for a while: it is out to put crates back into circulation (its eyes: the belt, Fetch, the crate, the visitor). */

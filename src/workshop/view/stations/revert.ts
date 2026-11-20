@@ -856,6 +856,15 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           if (!R) pitch.kick(k === 3 ? H.nod : 0.25); // a glance; a weary nod at the visitor
         }
       }
+      // R4: back up through its hatch after a throw: one long, unimpressed look at the visitor
+      if (rv.lookingBack && rv.drawn) {
+        gazeAtCamera(look, heading, tmpV2);
+        gx = look[0];
+        gy = look[1];
+        l0 = l1 = 0.66;
+        s0 = s1 = 0.18;
+        bw = 0.75;
+      }
       // R3: waiting for something in its way it may not put away: one plain look at it, held
       if (rv.waitingFor && worldNow && rv.drawn) {
         const pv = rv.waitingFor === 'patch' ? worldNow.crewViews().find((c) => c.kind === 'patch') : undefined;
