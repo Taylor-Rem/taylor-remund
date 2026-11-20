@@ -830,6 +830,18 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
           if (!R) pitch.kick(k === 3 ? H.nod : 0.25); // a glance; a weary nod at the visitor
         }
       }
+      // R3: waiting for something in its way it may not put away: one plain look at it, held
+      if (rv.waitingFor && worldNow && rv.drawn) {
+        const pv = rv.waitingFor === 'patch' ? worldNow.crewViews().find((c) => c.kind === 'patch') : undefined;
+        const at = pv && pv.kind === 'patch' ? (pv.view as { at: readonly number[] }).at : worldNow.motion(rv.waitingFor)?.pose.p;
+        if (at) {
+          gazeAt(look, heading, tmpV2, tmpV.set(at[0]!, at[1]!, at[2]!));
+          gx = look[0];
+          gy = look[1];
+          l0 = l1 = 0.55;
+          bw = 0.45;
+        }
+      }
       // R3: the visitor took the crate out of its pan: a look down at the empty pan, then at the visitor
       const EP = F.emptyPan;
       if (rv.emptyPan > EP.pan + EP.visitor) emptyKicked = false;
