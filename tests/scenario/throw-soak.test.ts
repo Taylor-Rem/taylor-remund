@@ -96,10 +96,16 @@ async function session(seed: number): Promise<string[]> {
   const stillRun = new Map<string, number>();
   const calmed = new Set<string>();
   let lateFrom = Infinity;
+  let holdRun = 0;
+  let holdWorst = 0;
   const run = (n: number): void => {
     for (let i = 0; i < n; i++) {
       w.advance();
       for (const e of w.drainEvents()) if (e.type === 'part.rested' || e.type === 'taken-in') rested.add(e.type === 'taken-in' ? e.part : e.id);
+      // (R4 follow-up) Fetch standing with one crate in its hands (idle, or at a seat it cannot use)
+      const fc = w.crew('fetch');
+      holdRun = fc && fc.carrying && (fc.state === 'idle' || fc.state === 'place') ? holdRun + 1 : 0;
+      holdWorst = Math.max(holdWorst, holdRun / HZ);
       // still for half a second at a time, counted over the last four seconds of the settle (crew and Revert move things on purpose)
       for (const id of LOOSE) {
         const m = w.motion(id);
@@ -179,6 +185,7 @@ async function session(seed: number): Promise<string[]> {
     // seconds to be painted before it hops off: give it that
     for (let i = 0; i < (FETCH_TUNING.leaveMachineSet + 6) * HZ && w.motion('fetch')!.mode === 'machine' && w.part('fetch')!.location.at === 'in' && (w.part('fetch')!.location as { mouth: string }).mouth === 'platen'; i++) run(1);
     if (w.crew('fetch')!.state === 'jetpack' || w.crew('fetch')!.state === 'shrug') run(steps(4));
+    if (holdWorst > 10) fails.push(`${label}: Fetch stood holding a crate for ${holdWorst.toFixed(1)} s`);
     // Fetch: upright and back at work
     const f = w.motion('fetch')!;
     const fs = w.crew('fetch')!.state;

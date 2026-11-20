@@ -143,7 +143,7 @@ describe('its rounds (play mode)', () => {
     w.dispose();
   }, 240_000);
 
-  test('a stopped belt: it takes one crate and waits with it; nothing floods; started again, it feeds again', async () => {
+  test('a stopped belt: nothing floods, it never stands holding a crate for good (back on the stack or set down by R4\'s rule); started again, it feeds again', async () => {
     const w = await benchWorld('rounds-stop', { scene: SCENE });
     startPlay(w);
     const t = tape(w);
@@ -152,10 +152,10 @@ describe('its rounds (play mode)', () => {
     expect(w.setting('belt', 'running')).toBe(false);
     const fed = t.of('taken-in').filter((x) => x.e.mouth === ROUNDS.mouth).length;
     expect(fed).toBeLessThanOrEqual(1); // at most the one it was already setting down
-    expect(w.crew('fetch')!.carrying).not.toBeNull();
+    expect(w.crew('fetch')!.carrying, 'not holding one for good').toBeNull();
     expect(inPlay(w)).toBeLessThanOrEqual(ROUNDS.cap);
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 1 });
-    const again = t.until((e) => e.type === 'taken-in' && e.mouth === ROUNDS.mouth, steps(10));
+    const again = t.until((e) => e.type === 'taken-in' && e.mouth === ROUNDS.mouth, steps(25));
     expect(again).not.toBeNull();
     w.dispose();
   }, 60_000);

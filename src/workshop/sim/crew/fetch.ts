@@ -116,6 +116,8 @@ export const FETCH_TUNING = {
   stuckAfter: 2.5,
   /** R4: thrown into a machine's hands and held there this long without moving (the platen's tray, a stopped belt), it hops off on its jets. */
   leaveMachine: 2.5,
+  /** (R4 follow-up) standing with a crate it cannot take anywhere this long (beyond the belt's pace, 5 s), it sets it down. */
+  holdIdleMax: 7,
   /** ...but set there on purpose (on the platen's tray, to be painted: discovery 7; time to notice it, open the phone, plug the cord and type), it waits this long first. */
   leaveMachineSet: 45,
   /** ...and while the visitor is at it, not at all: a text within this long, the cord worked within this long (s). */
@@ -429,6 +431,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let slowFor = 0;
   /** R4: steps held still in a machine's hands, and where it was last step. */
   let machineStill = 0;
+  /** (R4 follow-up) steps standing with a crate it cannot take anywhere. */
+  let stuckCarry = 0;
   /** R4: it came into the machine's hands thrown (not set there on purpose). */
   let arrivedFlung = false;
   /** R4 follow-up: the visitor at work on it (a text, a call open, the cord, a hand full), for a Fetch set on the tray. */
@@ -823,9 +827,14 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   const restockDue = (): boolean => !!rounds?.pad && stackCount() < stackStart && padCrate() !== null;
   /** Where the crate it is fetching goes: the belt (its rounds, the lap), or the stack (restocking it from the pad). */
   let carryTo: 'belt' | 'stack' = 'belt';
-  /** Set the crate in its hands on top of the stack. */
-  function toStack(): void {
-    if (!rounds) return;
+  /** (R4 follow-up) Is the stack's seat (its top) free for the crate in its hands? */
+  function stackSeatClear(): boolean {
+    if (!rounds || !carrying) return false;
+    const [sx, sz] = rounds.stack;
+    return seatClear([sx, stackSeatTop(), sz], carrying);
+  }
+  function stackSeatTop(): number {
+    if (!rounds) return ctx.scene.bench.top;
     const [sx, sz] = rounds.stack;
     let top = ctx.scene.bench.top;
     for (const id of ctx.parts()) {
@@ -834,7 +843,42 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       if (id === carrying || !p || (m !== 'free' && m !== 'held') || horizontal(p, sx, sz) > rounds.stackRadius) continue;
       top = Math.max(top, p[1] + (ctx.halfExtents(id)?.[1] ?? 0.3));
     }
-    placeAt = [sx, top, sz];
+    return top;
+  }
+  /**
+   * (R4 follow-up) Nowhere to take the crate in its hands: it sets it down beside itself, on its tape's side of the
+   * bench, at the nearest free point within reach (untouched, still fresh: the crew's), and goes back to waiting.
+   */
+  function setDownHere(): boolean {
+    if (!carrying) return false;
+    const h = ctx.halfExtents(carrying) ?? [0.3, 0.3, 0.3];
+    const cr = Math.hypot(h[0], h[2]);
+    const b = ctx.scene.bench;
+    const out = Math.atan2(spec.outward[0] - x, spec.outward[2] - z);
+    for (const dist of [footprint + cr + 0.05, footprint + cr + 0.3]) {
+      if (dist > R) continue;
+      for (let k = 0; k < 12; k++) {
+        const a = out + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 6);
+        const px = x + Math.sin(a) * dist;
+        const pz = z + Math.cos(a) * dist;
+        if (px - cr < b.minX || px + cr > b.maxX || pz - cr < b.minZ || pz + cr > b.maxZ) continue;
+        if ([...BODIES, ...robotObstacles()].some((o) => distanceTo(o, px, pz) < cr + 0.02)) continue;
+        const seat: Vec3 = [px, b.top, pz];
+        if (!seatClear(seat, carrying) || ctx.parts().some((id) => id !== carrying && id !== spec.id && ctx.mode(id) === 'free' && horizontal(ctx.pose(id)!.p, px, pz) < cr + 0.35)) continue;
+        carryTo = 'belt';
+        placeAt = seat;
+        purpose = 'place';
+        enter('place');
+        return true;
+      }
+    }
+    return false;
+  }
+  /** Set the crate in its hands on top of the stack. */
+  function toStack(): void {
+    if (!rounds) return;
+    const [sx, sz] = rounds.stack;
+    placeAt = [sx, stackSeatTop(), sz];
     rollTo(standS('stack', sx, sz), 'place');
   }
   /** Go for a crate to restock the stack with, or to feed the belt from: the pad's. */
@@ -1037,6 +1081,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       return true;
     }
     if (carrying) {
+      // (R4 follow-up) where it is going taken or shut, it chooses again: the belt if the stack's seat is taken, the stack
+      // if the belt's feed is (and the stack has room); neither, and the watchdog in `tick` sets it down on its tape
+      if (carryTo === 'stack' && !stackSeatClear()) carryTo = 'belt';
+      else if (carryTo === 'belt' && (!feeding() || !dropClear()) && stackSeatClear() && stackCount() < stackStart) carryTo = 'stack';
       if (carryTo === 'stack') {
         if (gather) return false;
         toStack();
@@ -1595,6 +1643,16 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           lastPlaced = now; // it counts as a crate set down: the pace starts again
           enter('salute');
         }
+      }
+
+      // (R4 follow-up) never holding a crate while unable to act: standing with it (idle, or at a seat it cannot use)
+      // for `holdIdleMax`, it sets it down beside itself on its tape and goes back to waiting
+      if (carrying && rounds && ctx.playMode && (state === 'idle' || (state === 'place' && !placing?.from))) stuckCarry++;
+      else stuckCarry = 0;
+      if (stuckCarry >= steps(T.holdIdleMax) && !ctx.bracketed) {
+        stuckCarry = 0;
+        placing = null;
+        if (setDownHere()) return;
       }
 
       switch (state) {
