@@ -168,9 +168,12 @@ describe('the score on the bench', () => {
     expect(high.length).toBeGreaterThan(0);
     expect(high[0]!.cue.id).toBe('hit.wood.S');
     expect(Math.max(...high.map((x) => x.cue.gain))).toBeGreaterThan(Math.max(0, ...low.map((x) => x.cue.gain)));
-    // never more than one knock per part within the gap
-    const steps = high.map((x) => x.step).sort((a, b) => a - b);
-    for (let i = 1; i < steps.length; i++) expect(steps[i]! - steps[i - 1]!).toBeGreaterThanOrEqual(Math.round(0.08 * HZ) - 1);
+    // never more than one knock per part within the gap (per voice: after the drop Fetch may walk into the crate where
+    // it lies, and its own knock can fall in the same step as the crate's)
+    for (const id of new Set(high.map((x) => x.cue.id))) {
+      const steps = high.filter((x) => x.cue.id === id).map((x) => x.step).sort((a, b) => a - b);
+      for (let i = 1; i < steps.length; i++) expect(steps[i]! - steps[i - 1]!, id).toBeGreaterThanOrEqual(Math.round(0.08 * HZ) - 1);
+    }
     w.dispose();
   }, 120_000);
 

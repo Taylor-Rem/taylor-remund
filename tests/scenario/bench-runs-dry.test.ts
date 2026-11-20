@@ -127,7 +127,9 @@ describe('R3: can the visitor leave the bench with nothing for Fetch to carry?',
       const [x, y, z] = tray();
       let n = 0;
       everyCrate(w, (ids) => {
-        for (const id of ids.filter((x2) => !w.touched(x2))) {
+        // (the stack top down: taking the bottom crate first knocks the top one off wherever the yank throws it, and
+        // since the carry keeps up with the hand (2026-11-20) it landed on Fetch's tape at (2.62, 2.48), not in the tray)
+        for (const id of ids.filter((x2) => !w.touched(x2)).sort((a, b) => w.motion(b)!.pose.p[1] - w.motion(a)!.pose.p[1])) {
           const p = w.motion(id)!.pose.p;
           const onStack = Math.hypot(p[0] - AT.stack[0], p[2] - AT.stack[1]) < 0.6;
           if (onStack && n < 2) putOn(w, t, id, [x + (n++ ? 0.5 : -0.4), y, z]);
