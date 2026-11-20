@@ -1739,7 +1739,16 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     at = q;
   }
   say.push(`load ${(await import("node:os")).loadavg()[0]!.toFixed(1)}`);
-  say.push(`z range over the throws and catches: ${(Math.max(...zs) - Math.min(...zs)).toFixed(2)}`);
+  // its z through every flight, from where it was first thrown to where it was last caught (what a visitor sees it
+  // do; Patch swings a little in the hand between, which is its own and not where it goes)
+  const flown = await page.evaluate(() => {
+    const rec = (window as any).__i1j.rec as number[][];
+    const first = rec.findIndex((r) => r[4] === 0);
+    const lastHeld = rec.map((r) => r[4]).lastIndexOf(1);
+    return rec.slice(Math.max(0, first), lastHeld).filter((r) => r[4] === 0).map((r) => r[3]!);
+  });
+  const zAll = [zs[0]!, ...flown];
+  say.push(`z range over the throws and catches: ${(Math.max(...zAll) - Math.min(...zAll)).toFixed(2)}`);
   // where z moved: each stretch held or flying, its z at the start and the end
   const stretches = await page.evaluate(() => {
     const rec = (window as any).__i1j.rec as number[][];

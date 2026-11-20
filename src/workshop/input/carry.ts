@@ -331,19 +331,21 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 /**
  * Where the pointer's ray holds a thing up from `anchor`: at the anchor's depth (z fixed, so juggling stays put), its
  * height where the ray crosses that depth, and its x where the ray crosses the plane through the anchor square to the
- * line of sight (so straight up the screen is straight up in the world, not drifting toward the middle of the view as
+ * camera's axis (so straight up the screen is straight up in the world, not drifting toward the middle of the view as
  * it would on the depth plane alone). Null for a ray along the depth plane.
  */
-export function heldUp(ray: RayLike, anchor: Vec3): Vec3 | null {
+export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null): Vec3 | null {
   const [ox, oy, oz] = ray.origin;
   const [dx, dy, dz] = ray.dir;
   if (Math.abs(dz) < 1e-6) return null;
   const kz = (anchor[2] - oz) / dz;
   const y = oy + dy * kz;
-  // the plane square to the line of sight to the anchor
+  // the plane through the anchor square to the camera's axis (where the screen's columns are world columns: a
+  // camera that does not roll keeps x along a column of pixels); without the axis, square to the line of sight
   const lx = anchor[0] - ox, ly = anchor[1] - oy, lz = anchor[2] - oz;
-  const dn = dx * lx + dy * ly + dz * lz;
-  const x = Math.abs(dn) > 1e-9 ? ox + dx * ((lx * lx + ly * ly + lz * lz) / dn) : ox + dx * kz;
+  const f = forward ?? [lx, ly, lz];
+  const dn = dx * f[0] + dy * f[1] + dz * f[2];
+  const x = Math.abs(dn) > 1e-9 ? ox + dx * ((lx * f[0] + ly * f[1] + lz * f[2]) / dn) : ox + dx * kz;
   return [x, y, anchor[2]];
 }
 
@@ -367,13 +369,18 @@ export class UpHold {
     this.out = null;
   }
 
+  /** Where the hold up is anchored while it is up (null on the surface). */
+  get anchored(): Vec3 | null {
+    return this.anchor;
+  }
+
   /** How much of the hold is on the upright plane now (0 on the surface, 1 up). */
   get blend(): number {
     return this.w;
   }
 
   /** The hold for the pointer at (x, y) at time t: `onSurface` is the carry surface's point on the same ray. */
-  target(ray: RayLike, x: number, y: number, t: number, onSurface: Vec3, top: number): Vec3 {
+  target(ray: RayLike, x: number, y: number, t: number, onSurface: Vec3, top: number, forward: Vec3 | null = null): Vec3 {
     const T = UP_HOLD;
     const last = this.hist[this.hist.length - 1];
     if (!last || last.x !== x || last.y !== y) this.hist.push({ t, x, y });
@@ -401,7 +408,7 @@ export class UpHold {
     }
     this.anchor ??= this.out ?? onSurface;
     let up3: Vec3 = onSurface;
-    const f = heldUp(ray, this.anchor);
+    const f = heldUp(ray, this.anchor, forward);
     // held up from where it was taken: never below the lower of the surface and where it was taken (a lift over a
     // station raises the surface itself; the hold does not need to)
     const floor = Math.min(onSurface[1], this.anchor[1]);

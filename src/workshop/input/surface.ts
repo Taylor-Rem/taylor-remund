@@ -32,6 +32,8 @@ export interface SurfaceDeps {
   hidden?(): ReadonlySet<Id>;
   /** A world point on screen (CSS px of the canvas), or null behind the camera. */
   project?(p: Vec3): [number, number] | null;
+  /** The way the camera looks (unit), for reading a hand straight up the screen as straight up. */
+  forward?(): Vec3;
   /** World units per CSS pixel at a world point (the camera's scale there), for reaches measured on screen. */
   unitsPerPx?(p: Vec3): number;
   /** A handle's reading (default: `readingFromWorld`). */
@@ -336,7 +338,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const onSurface = plane.target(ray, t, carried.what === 'part' ? obstacles(carried.id) : []);
       if (carried.what === 'plug') return onSurface;
       // held up: a fast lift up the screen, or a thing caught in the air, rises in place instead of sliding back
-      lastTarget = upHold.target(ray, x, y, t, onSurface, Math.min(plane.tuning.top, w?.scene.bench.ceiling ?? plane.tuning.top));
+      lastTarget = upHold.target(ray, x, y, t, onSurface, Math.min(plane.tuning.top, w?.scene.bench.ceiling ?? plane.tuning.top), deps.forward?.() ?? null);
       return lastTarget;
     },
 
@@ -361,7 +363,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
     handFacing(x, y) {
       if (!facing) return null;
       // read as the hold up is (`heldUp`): at the depth where the hand holds it now, straight up the screen straight up
-      return heldUp(deps.ray(x, y), lastTarget ?? facing.p);
+      return heldUp(deps.ray(x, y), upHold.anchored ?? lastTarget ?? facing.p, deps.forward?.() ?? null);
     },
 
     throwFrom(v, onFacing) {

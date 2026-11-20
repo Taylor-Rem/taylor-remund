@@ -414,6 +414,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const v = world.crewView(id) as { view?: { state?: string } } | undefined;
     return v?.view?.state === 'fly';
   };
+  const fwd = new Vector3();
   const surface = createSurface({
     world: () => world,
     ray: toRay,
@@ -444,6 +445,10 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       const s = stage.camera.worldToScreen(upp.set(p[0], p[1], p[2]));
       if (s.z > 1) return null;
       return [((s.x + 1) / 2) * (canvas.clientWidth || 1), ((1 - s.y) / 2) * (canvas.clientHeight || 1)];
+    },
+    forward: () => {
+      const d = stage.camera.camera.getWorldDirection(fwd);
+      return [d.x, d.y, d.z];
     },
     panels: () => panelIds,
     hidden: () => (hasPhone ? lineSet : noIds),
