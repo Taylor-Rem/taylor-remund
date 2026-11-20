@@ -661,6 +661,19 @@ reaction lasts at most a second and a half, only one of them does anything
 attention-seeking at a time, none repeats a line twice running, and none
 uses or moves a part the visitor has touched (§ E5).
 
+**Nobody is ever hurt.** Taylor, 2026-11-20: "it's meant to be good fun.
+All our characters are indestructible and don't feel pain. If Patch acts
+annoyed because you threw him or dropped him from up high, he has his fun
+slapstick and plays along with it because he knows it's fun. The point
+is, at most, Patch should act irritated. Never in pain. And he acts
+irritated because he knows it's the character he's playing." And: "keep
+it light fun, even if the user is being 'mean'". So every reaction to
+being thrown, dropped, hit or shipped reads as irritated, unimpressed,
+startled or theatrical, and as playing along. None reads as pain, as fear
+of the visitor, or as distress: no wince, no limp, no cowering from the
+hand, no pleading, no cry. That binds the picture, the motion and the
+sound.
+
 These are sketches of character, not scripts (§ What is fixed). The names
 are working names (§ Decisions).
 
