@@ -46,6 +46,8 @@ interface Entry {
   box: Box3;
   /** Padding added to every side of the true box, world units. */
   pad: number;
+  /** While this says false there is no target (the thing is there but cannot be taken now). */
+  active: (() => boolean) | null;
 }
 
 export interface PickableOptions {
@@ -53,6 +55,8 @@ export interface PickableOptions {
   pad?: number;
   /** Use this box (object frame) instead of measuring the object's geometry. */
   box?: Box3;
+  /** A target only while this says true (Patch hanging from the edge cannot be taken: no glove over it). */
+  active?: () => boolean;
 }
 
 const tmpInv = new Matrix4();
@@ -110,7 +114,7 @@ export class Picking {
   add(id: Id, object: Object3D, opts: PickableOptions = {}): void {
     const box = opts.box ? opts.box.clone() : localBounds(object);
     if (box.isEmpty()) box.set(new Vector3(-0.05, -0.05, -0.05), new Vector3(0.05, 0.05, 0.05));
-    this.entries.set(id, { id, object, box, pad: opts.pad ?? 0.03 });
+    this.entries.set(id, { id, object, box, pad: opts.pad ?? 0.03, active: opts.active ?? null });
   }
 
   remove(id: Id): void {
@@ -164,7 +168,7 @@ export class Picking {
     let best: Entry | null = null;
     // pass 1: the true boxes
     for (const e of this.entries.values()) {
-      if (e.id === exclude || !visible(e.object) || (opts.filter && !opts.filter(e.id))) continue;
+      if (e.id === exclude || !visible(e.object) || (e.active && !e.active()) || (opts.filter && !opts.filter(e.id))) continue;
       axisScale(e.object, tmpSc);
       if (Math.min(tmpSc.x, tmpSc.y, tmpSc.z) < HIDDEN_SCALE) continue;
       tmpInv.copy(e.object.matrixWorld).invert();
@@ -185,7 +189,7 @@ export class Picking {
     // pass 2: grown to the minimum on-screen size; nearest centre to the ray wins
     let bestPerp = Infinity;
     for (const e of this.entries.values()) {
-      if (e.id === exclude || !visible(e.object) || (opts.filter && !opts.filter(e.id))) continue;
+      if (e.id === exclude || !visible(e.object) || (e.active && !e.active()) || (opts.filter && !opts.filter(e.id))) continue;
       axisScale(e.object, tmpSc);
       if (Math.min(tmpSc.x, tmpSc.y, tmpSc.z) < HIDDEN_SCALE) continue;
       e.box.getCenter(tmpC).applyMatrix4(e.object.matrixWorld);

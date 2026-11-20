@@ -1375,7 +1375,8 @@ export function rungReaction(rung: number, t: number, o: RungOptions): PatchPose
     // the body stays where the stool has it; only the seat's worth of movement
     const sit: FullPose = { ...f0, legs: [LEG_REST, LEG_REST], folder: f0.folder };
     const lkVis = lookAt(sit, vis, 0.85);
-    const startle: Partial<PatchPose> = { lids: [0.12, 0.14], lidsLow: [0, 0], brows: [0.9, 0.85], browTilt: [0.2, 0.2], ears: [-1, -1], mouth: [-0.2, -0.2], boom: 0.15 };
+    // (§ B5 tone: a comic "whoa", not fright: eyes wide, brows up, the mouth an "o", not turned down)
+    const startle: Partial<PatchPose> = { lids: [0.16, 0.18], lidsLow: [0, 0], brows: [0.9, 0.85], browTilt: [0.2, 0.2], ears: [-1, -1], mouth: [0.1, 0.1], boom: 0.15 };
     const k: Key[] = [{ t: 0, set: toPose(sit) }];
     const deckVariant: FacepalmVariant = (['one', 'both', 'drag'] as const)[(o.presses ?? 0) % 3]!;
     if (r === 1) {
@@ -1410,8 +1411,10 @@ export function rungReaction(rung: number, t: number, o: RungOptions): PatchPose
     } else {
       // rung 4: down behind its knees, arms over its head; a peek over them; up as the bench runs back
       const crouch: [LegJoints, LegJoints] = [{ lift: 0.7, splay: 0.25, knee: 1.35 }, { lift: 0.7, splay: 0.25, knee: 1.35 }];
-      const down: Partial<PatchPose> = { body: { at: [0.06, -0.42, 0.22], rot: [0.35, 0, 0] }, legs: crouch, lean: [0.45, 0], twist: 0, headYaw: 0.35, headPitch: -0.5, headTilt: 0.1, gaze: [0, -0.2], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [1, 0.3], tailLift: 0.4, boom: 0.2 };
-      const peek: Partial<PatchPose> = { body: { at: [0.06, -0.28, 0.22], rot: [0.2, 0, 0] }, legs: crouch, lean: [0.3, 0], headYaw: lkVis.headYaw * 0.7, headPitch: 0.15, gaze: [0.4, 0.5], lids: [0.2, 0.22], lidsLow: [0, 0], brows: [0.7, 0.6], browTilt: [0.2, 0.2], ears: [-0.2, 0.3], mouth: [-0.25, -0.2] };
+      // (§ B5 tone: a sulk behind its knees, arms folded, eyes half shut: "not this again", not taking cover; the
+      // peek over them is deadpan, not worried)
+      const down: Partial<PatchPose> = { body: { at: [0.06, -0.42, 0.22], rot: [0.35, 0, 0] }, legs: crouch, lean: [0.45, 0], twist: 0, headYaw: 0.35, headPitch: -0.35, headTilt: 0.1, gaze: [0, -0.2], ...FACE.deadpan, lids: [0.62, 0.65], ears: [0.35, 0.3], arms: 'fold', tail: [1, 0.3], tailLift: 0.4, boom: 0.2 };
+      const peek: Partial<PatchPose> = { body: { at: [0.06, -0.28, 0.22], rot: [0.2, 0, 0] }, legs: crouch, lean: [0.3, 0], headYaw: lkVis.headYaw * 0.7, headPitch: 0.15, gaze: [0.4, 0.5], lids: [0.42, 0.45], lidsLow: [0.2, 0.2], brows: [-0.45, 0.2], browTilt: [-0.25, 0.1], ears: [0.1, 0.3], mouth: [-0.1, 0.05] };
       k.push(
         { t: 0.15, set: { ...down }, ease: outCubic },
         { t: 1.3, set: { ...peek }, ease: inOutQuad },
@@ -1520,10 +1523,11 @@ function flail(f: FullPose, t: number, A: number): FullPose {
     tailLift: f.tailLift + 0.6 * A,
     headTilt: f.headTilt + s(6, 1) * 0.15,
     lean: [f.lean[0] + s(5, 0.3) * 0.08, f.lean[1] + s(6.5, 1) * 0.12],
-    lids: [lerp(f.lids[0], 0.12, A), lerp(f.lids[1], 0.14, A)],
-    lidsLow: [lerp(f.lidsLow[0], 0, A), lerp(f.lidsLow[1], 0, A)],
-    brows: [lerp(f.brows[0], 0.8, A), lerp(f.brows[1], 0.7, A)],
-    mouth: [lerp(f.mouth[0], -0.3, A), lerp(f.mouth[1], -0.3, A)],
+    // (§ B5 tone: the flail is theatre: indignant, one brow up and a lopsided mouth, never wide-eyed fright)
+    lids: [lerp(f.lids[0], 0.3, A), lerp(f.lids[1], 0.33, A)],
+    lidsLow: [lerp(f.lidsLow[0], 0.1, A), lerp(f.lidsLow[1], 0.1, A)],
+    brows: [lerp(f.brows[0], -0.35, A), lerp(f.brows[1], 0.55, A)],
+    mouth: [lerp(f.mouth[0], -0.15, A), lerp(f.mouth[1], 0.3, A)],
     ears: [lerp(f.ears[0], -0.6, A) + s(10, 0) * 0.3, lerp(f.ears[1], -0.6, A) + s(10, 2) * 0.3],
   };
 }
@@ -1816,7 +1820,8 @@ function buildLedge(o: LedgeOptions, vis: V3): Array<{ t: number; pose: FullPose
     headTilt: 0,
     gaze: [0, 0.6],
     ...FACE.alert,
-    ears: [1, 1],
+    // (§ B5 tone: hanging on is no bother: ears up, not flattened)
+    ears: [0.2, 0.25],
     tail: [-0.3, 0],
     tailLift: -1.3,
     boom: 0.2,
@@ -1935,12 +1940,13 @@ export function tumble(t: number, mid: V3, spin: number, yaw: number): PatchPose
       headPitch: 0.2,
       headTilt: 0,
       gaze: [0, 0],
-      lids: [0.15, 0.17],
-      lidsLow: [0, 0],
-      brows: [0.8, 0.75],
-      browTilt: [0.2, 0.2],
-      mouth: [-0.4, -0.35],
-      ears: [1, 1],
+      // (§ B5 tone: it knows this is the fun; it plays along: a grin and one brow up, never alarm)
+      lids: [0.3, 0.33],
+      lidsLow: [0.15, 0.15],
+      brows: [0.55, -0.1],
+      browTilt: [0.25, 0],
+      mouth: [0.75, 0.35],
+      ears: [0.7, 0.7],
       tail: [-0.6, 0.4 * w],
       tailLift: 0.8,
       boom: 0.3,
@@ -1988,12 +1994,13 @@ export function splat(t: number, mid: V3, yaw: number, stick: number): PatchPose
       headPitch: lerp(0.4, 0.15, sliding),
       headTilt: quiver * 3,
       gaze: [0, 0.2],
-      lids: [lerp(0.1, 0.5, sliding), lerp(0.12, 0.55, sliding)],
-      lidsLow: [0.05, 0.05],
-      brows: [0.8, 0.75],
-      browTilt: [0.25, 0.25],
-      mouth: [-0.5, -0.45],
-      ears: [-0.7, -0.7],
+      // (§ B5 tone: flat against the wall, unimpressed: the gag is the shape, the face says "really.")
+      lids: [lerp(0.38, 0.5, sliding), lerp(0.4, 0.55, sliding)],
+      lidsLow: [0.22, 0.22],
+      brows: [-0.5, -0.3],
+      browTilt: [-0.3, 0.05],
+      mouth: [-0.12, -0.1],
+      ears: [-0.4, -0.4],
       tail: [-0.6, 0.6],
       tailLift: 0.2,
       boom: 0.35,
@@ -2010,7 +2017,9 @@ function satOnBench(feet: V3, yaw: number): PatchPose {
   return {
     ...SEATED,
     body: { at: [feet[0], feet[1] + 0.01, feet[2]], rot: [0.04, yaw, 0] },
-    legs: [{ lift: 0.12, splay: 0.45, knee: 0.4 }, { lift: 0.08, splay: 0.5, knee: 0.55 }],
+    // (R4: the legs along the bench, not through it: thighs raised to the level, knees barely bent, the heels on
+    // the bench; measured from the rig in tests/unit/kit/patch-ground.test.ts)
+    legs: [{ lift: 0.48, splay: 0.45, knee: 0.05 }, { lift: 0.46, splay: 0.5, knee: 0.08 }],
     lean: [0.08, 0],
     twist: 0,
     arms: { left: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4), right: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4) },
@@ -2019,8 +2028,9 @@ function satOnBench(feet: V3, yaw: number): PatchPose {
     headTilt: 0.12,
     ...FACE.flat,
     ears: [0.35, 0.25],
+    // (the tail lying along the bench behind it, not hanging down through it as it does off the stool's seat)
     tail: [0.5, 0.35],
-    tailLift: -0.35,
+    tailLift: 0.5,
     boom: 0.15,
   };
 }
@@ -2053,12 +2063,175 @@ export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: n
   return toPose({ ...p, body: { at: [p.body.at[0], p.body.at[1] - settle, p.body.at[2]], rot: p.body.rot } });
 }
 
-/** Sat on the bench after a throw (R4, the simulation's `shake`, 0.6 s): a shake of the head, and the eyes clear. */
-export function shakeOff(t: number, feet: V3, yaw: number): PatchPose {
-  const k = clamp01(t / SHAKE_LENGTH);
-  const p = satOnBench(feet, yaw);
-  const sh = Math.sin(k * Math.PI * 6) * (1 - k) * 0.45;
-  return { ...p, headYaw: sh, headTilt: -sh * 0.4, lids: [lerp(0.6, 0.36, k), lerp(0.62, 0.39, k)], ears: [0.3 + sh, 0.3 - sh], brows: [-0.3, -0.2] };
+export interface ShakeOptions {
+  visitor?: V3;
+  /** How far it fell (units): the bigger the fall, the bigger the "really?". */
+  fall?: number;
+  /** Dropped or thrown up (it came down falling): it dusts itself off as well. */
+  dust?: boolean;
+  /** The simulation's length of the stage (s). */
+  length?: number;
+}
+
+/**
+ * Sat on the bench after a throw (R4, the simulation's `shake`): "really?" (§ B5 tone: never dizziness, never a
+ * hurt). The head comes round to the visitor and tips, one brow goes up, the lids come down half, the mouth goes
+ * flat to one side; one slow, small shake of the head ("no"), and it holds the stare. After a drop or a throw up it
+ * brushes itself off first, paws down its front, as if this happens every day. Bigger the further it fell.
+ */
+export function shakeOff(t: number, feet: V3, yaw: number, o: ShakeOptions = {}): PatchPose {
+  const L = o.length ?? SHAKE_LENGTH;
+  const k = clamp01(t / L);
+  const big = clamp01((o.fall ?? 0) / 5);
+  const p = resolvePose(satOnBench(feet, yaw));
+  const lk = lookAt(p, o.visitor ?? VISITOR, 0.9);
+  // the turn to the visitor, and the one slow "no" (two swings, small)
+  const turn = smoothstep(0, 0.35, k);
+  const no = Math.sin(clamp01((k - 0.3) / 0.5) * Math.PI * 2) * 0.16 * (1 + big * 0.6) * (k > 0.3 && k < 0.8 ? 1 : 0);
+  let f: FullPose = {
+    ...p,
+    headYaw: lerp(0, lk.headYaw, turn) + no,
+    headPitch: lerp(p.headPitch, lk.headPitch, turn),
+    headTilt: lerp(0.12, -0.22 - 0.1 * big, turn),
+    gaze: [lerp(0, lk.gaze[0], turn), lerp(0, lk.gaze[1], turn)],
+    lids: [lerp(0.36, 0.5 + 0.08 * big, turn), lerp(0.39, 0.52 + 0.08 * big, turn)],
+    lidsLow: [0.25, 0.25],
+    brows: [lerp(-0.3, 0.55 + 0.25 * big, turn), lerp(-0.2, -0.45, turn)],
+    browTilt: [0.25, -0.2],
+    mouth: [lerp(0.45, -0.15, turn), lerp(-0.1, 0.3, turn)],
+    ears: [0.3, 0.15],
+  };
+  if (o.dust) {
+    // paws down its front, twice, before the stare (each a brush from the chest to the knees)
+    const d = clamp01(k / 0.45);
+    const brush = Math.sin(d * Math.PI * 2) * (d < 1 ? 1 : 0);
+    const arm = (a: ArmJoints, s: number): ArmJoints => ({ ...a, swing: a.swing + 0.35 + 0.35 * brush * s, abduct: a.abduct - 0.15, elbow: a.elbow + 0.5 - 0.3 * brush * s });
+    f = { ...f, arms: { left: arm(f.arms.left, 1), right: arm(f.arms.right, -1) }, headPitch: f.headPitch - 0.25 * (1 - turn) };
+  }
+  return toPose(f);
+}
+
+/**
+ * Falling (R4: dropped from high, or coming down from a throw up): it knows it is falling. Arms and legs out, ears
+ * and tail streaming up, a look down at the bench coming, then at the visitor: "seriously?" (§ B5 tone: theatre, not
+ * fright). `mid` its middle (root space), `t` seconds into the fall.
+ */
+export function falling(t: number, mid: V3, yaw: number, visitor: V3 = VISITOR): PatchPose {
+  const w = Math.sin(t * 9), w2 = Math.sin(t * 7 + 1);
+  const base = resolvePose({ ...SEATED, body: aboutMiddle(mid, 0.1, yaw, 0.05 * w2) });
+  const lk = lookAt(base, visitor, 0.9);
+  const down = 1 - smoothstep(0.15, 0.45, t);
+  return toPose({
+    ...base,
+    legs: [
+      { lift: 0.2 + 0.15 * w, splay: 0.7, knee: 0.5 },
+      { lift: 0.2 - 0.15 * w, splay: 0.7, knee: 0.5 },
+    ],
+    lean: [-0.1, 0],
+    twist: 0,
+    arms: { left: J(0.6 + 0.15 * w, 1.35, 0, 0.35, 0, 0), right: J(0.6 - 0.15 * w, 1.35, 0, 0.35, 0, 0) },
+    headYaw: lerp(lk.headYaw, 0, down),
+    headPitch: lerp(lk.headPitch, -0.5, down),
+    headTilt: 0.1,
+    gaze: [lerp(lk.gaze[0], 0, down), lerp(lk.gaze[1], -0.7, down)],
+    ...FACE.deadpan,
+    lids: [0.36, 0.38],
+    brows: [lerp(-0.5, 0.5, down), -0.35],
+    ears: [-0.9, -0.85],
+    tail: [0.2 * w2, 0.3 * w],
+    tailLift: 1.3,
+    boom: 0.35,
+  } as FullPose);
+}
+
+/**
+ * Thrown up (R4): rising, arms up like a diver going the wrong way, legs together, pleased with itself; at the top,
+ * the beat (`top`, the simulation's hang): it stops, arms folded, legs crossed, and looks at the visitor with one
+ * brow up, before gravity remembers it. `mid` its middle (root space).
+ */
+export function upward(t: number, mid: V3, yaw: number, top: boolean, visitor: V3 = VISITOR): PatchPose {
+  const base = resolvePose({ ...SEATED, body: aboutMiddle(mid, 0, yaw, 0) });
+  const lk = lookAt(base, visitor, 0.95);
+  if (top)
+    return toPose({
+      ...resolvePose({ ...SEATED, ...EXPRESSIONS.unimpressed, body: aboutMiddle(mid, 0, yaw, 0) }),
+      legs: [
+        { lift: -1.2, splay: -0.05, knee: -0.6 },
+        { lift: -1.1, splay: -0.15, knee: -0.7 },
+      ],
+      arms: 'fold',
+      headYaw: lk.headYaw,
+      headPitch: lk.headPitch,
+      headTilt: -0.2,
+      gaze: lk.gaze,
+      ...FACE.deadpan,
+      brows: [0.6, -0.45],
+      browTilt: [0.3, -0.2],
+      ears: [0.1, 0.2],
+      tail: [0.6, 0.2],
+      tailLift: -0.6,
+    } as unknown as FullPose);
+  const w = Math.sin(t * 8);
+  return toPose({
+    ...base,
+    legs: [
+      { lift: -1.35, splay: 0.02, knee: -0.2 },
+      { lift: -1.35, splay: 0.02, knee: -0.25 },
+    ],
+    lean: [-0.05, 0],
+    twist: 0,
+    arms: { left: J(2.6, 0.25, 0, 0.1, 0, 0), right: J(2.6, 0.25, 0, 0.1, 0, 0) },
+    headYaw: lk.headYaw * 0.5,
+    headPitch: 0.35,
+    headTilt: 0,
+    gaze: [lk.gaze[0] * 0.5, 0.4],
+    ...FACE.smug,
+    ears: [0.8, 0.8],
+    tail: [0.1 * w, 0],
+    tailLift: -1.1,
+    boom: 0.3,
+  } as FullPose);
+}
+
+/**
+ * Down from high (R4: a fall of 1.5 or more): a flop. It hits flat (from below 3 on its seat with a bump, from
+ * higher on its front, arms and legs out), bounces once (higher the higher it fell), lies a beat, then pushes itself
+ * up and sits, legs out. Never a wince, never a limp: it lies there like someone waiting for applause. `length` the
+ * simulation's stage; `feet` where it lies (root space, on the bench).
+ */
+export function flop(t: number, feet: V3, yaw: number, fall: number, length: number): PatchPose {
+  const k = clamp01(t / length);
+  const front = fall >= 3;
+  const big = clamp01(fall / 6);
+  // the bounce: one, in the first fifth
+  const b = Math.sin(Math.PI * clamp01(k / 0.2)) * (0.08 + 0.18 * big) * (k < 0.2 ? 1 : 0);
+  const sat = resolvePose(satOnBench(feet, yaw));
+  const flat: FullPose = front
+    ? resolvePose({
+        ...SEATED,
+        body: { at: [feet[0], feet[1] + 0.12 + b, feet[2]], rot: [1.45, yaw, 0.05] },
+        legs: [
+          { lift: -1.4, splay: 0.55, knee: -0.1 },
+          { lift: -1.35, splay: 0.6, knee: -0.2 },
+        ],
+        lean: [0, 0],
+        twist: 0,
+        arms: { left: J(2.4, 1.0, 0, 0.1, 0, 0), right: J(2.4, 1.0, 0, 0.1, 0, 0) },
+        headYaw: 0,
+        headPitch: 0.25,
+        headTilt: 0.15,
+        gaze: [0.3, 0.4],
+        ...FACE.deadpan,
+        lids: [0.55, 0.58],
+        ears: [0.4, 0.3],
+        tail: [0.3, 0.2],
+        tailLift: 0.9,
+        boom: 0.4,
+      })
+    : resolvePose({ ...satOnBench([feet[0], feet[1] + b, feet[2]], yaw), legs: [{ lift: 0.9, splay: 0.6, knee: 0.2 }, { lift: 0.85, splay: 0.65, knee: 0.25 }], lean: [-0.2, 0], ...FACE.deadpan, lids: [0.5, 0.52], ears: [-0.5, -0.4] } as PatchPose);
+  // a beat, then up and sat
+  const up = smoothstep(0.55, 0.9, k);
+  return toPose(mixPose(flat, sat, up));
 }
 
 /** Put down at a root-space floor point: toddles to the stool's foot, then climbs (for reviews; the view drives `toddle` and `climb` itself). */
@@ -2095,8 +2268,9 @@ export function duck(t: number, o: CrateOptions = {}): PatchPose {
     const lkVis = lookAt(resolvePose(SEATED), vis, 0.75);
     return bake(SEATED, [
       { t: 0, set: { ...SEATED } },
-      // down: hunched over the knees, eyes screwed shut, ears flat, arms tucked in
-      { t: L * 0.12, set: { body: { at: [0, -0.05, 0.02], rot: [0.18, -away * 0.25, 0] }, lean: [0.42, 0], twist: 0, headYaw: 0.15, headPitch: -0.45, headTilt: 0.1, gaze: [0, -0.3], ...FACE.squeezed, ears: [1, 1], arms: 'fold', tail: [0.9, 0], tailLift: 0.3, boom: 0.15 }, ease: outCubic },
+      // down: a bored dip under it, eyes up on the crate going over, arms in its lap (§ B5 tone: it knows this
+      // game; it is not cowering)
+      { t: L * 0.12, set: { body: { at: [0, -0.05, 0.02], rot: [0.18, -away * 0.25, 0] }, lean: [0.42, 0], twist: 0, headYaw: 0.15, headPitch: -0.3, headTilt: 0.1, gaze: [0, 0.6], ...FACE.deadpan, lids: [0.4, 0.42], ears: [0.3, 0.3], arms: 'lap', tail: [0.9, 0], tailLift: 0.3, boom: 0.15 }, ease: outCubic },
       { t: L * 0.38, set: { body: { at: [0, -0.055, 0.02], rot: [0.2, -away * 0.25, 0] }, headPitch: -0.48 } },
       // up; one eye first
       { t: L * 0.66, set: { body: {}, lean: [0.08, 0], headYaw: lkVis.headYaw * 0.5, headPitch: 0.0, headTilt: 0.05, lids: [0.45, 0.8], lidsLow: [0.3, 0.4], brows: [-0.5, -0.6], ears: [0.4, 0.5], tail: [0.4, 0], tailLift: 0, boom: 0, arms: 'lap', gaze: [0.4, 0.2] }, ease: inOutCubic },
@@ -2199,9 +2373,10 @@ export function bonked(t: number, o: CrateOptions = {}): PatchPose {
     return bake(SEATED, [
       { t: 0, set: { ...SEATED, headYaw: lkVis.headYaw, headPitch: lkVis.headPitch, gaze: lkVis.gaze } },
       // the knock: head and headset tip away; lids shut; the boom flies up
-      { t: L * 0.06, set: { headTilt: -side * 0.45, headYaw: lkVis.headYaw - side * 0.25, headPitch: lkVis.headPitch - 0.08, headset: askew, boom: 0.5, lids: [1, 1], lean: [0, -side * 0.12], ears: [0.6, 0.6] }, ease: outCubic },
+      // (§ B5 tone: a squint as it lands, not a wince; it was never hurt)
+      { t: L * 0.06, set: { headTilt: -side * 0.45, headYaw: lkVis.headYaw - side * 0.25, headPitch: lkVis.headPitch - 0.08, headset: askew, boom: 0.5, lids: [0.6, 0.65], lean: [0, -side * 0.12], ears: [0.4, 0.4] }, ease: outCubic },
       // the head comes back; the headset stays where it went
-      { t: L * 0.24, set: { headTilt: -side * 0.12, headYaw: lkVis.headYaw - side * 0.08, headPitch: lkVis.headPitch, boom: 0.3, lids: [0.85, 0.85], lean: [0.0, 0] }, ease: inOutQuad },
+      { t: L * 0.24, set: { headTilt: -side * 0.12, headYaw: lkVis.headYaw - side * 0.08, headPitch: lkVis.headPitch, boom: 0.3, lids: [0.55, 0.6], lean: [0.0, 0] }, ease: inOutQuad },
       // a moment. the eyes open on the visitor
       { t: L * 0.45, set: { lids: [0.42, 0.48], gaze: [0.3, 0.15], ...pick(FACE.deadpan, ['brows', 'browTilt', 'lidsLow']), mouth: [0, -0.1] } },
       // the paw goes up, the chin comes up

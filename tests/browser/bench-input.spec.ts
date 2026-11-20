@@ -1408,6 +1408,128 @@ test('R4: throwing the crew by mouse: Fetch across open bench is upright at its 
   console.log(`[I1] R4 crew: ${JSON.stringify(crew)}`);
 });
 
+/**
+ * R4 (Taylor: "When you throw Patch, his 'grab' box stays on his stool, so if you try to grab him again before he
+ * reaches his stool it doesn't work"): Patch flicked off its stool is taken again where it is: by mouse while it sits
+ * after landing and while it walks home, by touch at the phone framing while it walks. The glove opens over Patch
+ * wherever it is, not over the empty stool. Pressed where the simulation has Patch (its middle, projected), not where
+ * its target says it is; `world.holding()` is Patch at each grab.
+ */
+test('R4: Patch thrown is taken again where it is: sitting after landing and walking home by mouse, walking home by touch', async ({ page }) => {
+  test.setTimeout(6 * 60_000);
+  const W = () =>
+    page.evaluate(() => {
+      const ws = (window as any).__bench.ws;
+      const v = ws.world.crewView('patch').view;
+      return { state: v.state as string, at: v.at as number[], held: ws.world.holding()?.id ?? null };
+    });
+  const project = (p: number[]) => page.evaluate((p) => (window as any).__bench.project(p) as XY, p);
+  /** Where Patch's middle is on screen (the simulation's place; standing or sitting, its middle is a little above its feet). */
+  const middle = async (): Promise<XY & { state: string }> => {
+    const v = await W();
+    const lift = v.state === 'fly' || v.state === 'held' ? 0 : 0.3;
+    return { ...(await project([v.at[0]!, v.at[1]! + lift, v.at[2]!])), state: v.state };
+  };
+  /** What the pointer would take at a point (the input's own pick). */
+  const under = (q: XY, kind: 'mouse' | 'touch') => page.evaluate(([q, kind]) => (window as any).__bench.ws.surface.at(q.x, q.y, kind, null).id as string | null, [q, kind] as const);
+  /** I1's cadence (CDP events every 10 ms): pressed at `s`, moved `dx, dy` px over `ms`, let go (after a stillness, if `still`). */
+  const flick = async (cdp: CDPSession, kind: 'mouse' | 'touch', s: XY, dx: number, dy: number, ms: number, still = false, holdMs = 120) => {
+    const mouse = (type: string, q: XY, buttons: number) => cdp.send('Input.dispatchMouseEvent', { type, x: q.x, y: q.y, button: 'left', buttons, clickCount: 1 } as any);
+    const touch = (type: string, q: XY | null) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: q ? [{ x: q.x, y: q.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] : [] } as any);
+    if (kind === 'mouse') {
+      await page.mouse.move(s.x, s.y);
+      await frames(page, 2);
+      await mouse('mousePressed', s, 1);
+    }
+    else await touch('touchStart', s);
+    const n = Math.max(2, Math.round(ms / 10));
+    for (let k = 1; k <= n; k++) {
+      await new Promise((r) => setTimeout(r, 10));
+      const q = { x: s.x + (dx * k) / n, y: s.y + (dy * k) / n };
+      if (kind === 'mouse') await mouse('mouseMoved', q, 1);
+      else await touch('touchMove', q);
+    }
+    if (still) await page.waitForTimeout(300);
+    if (kind === 'mouse') await mouse('mouseReleased', { x: s.x + dx, y: s.y + dy }, 0);
+    else await touch('touchEnd', null);
+    await frames(page, 2);
+  };
+  const run = async (kind: 'mouse' | 'touch') => {
+    const cdp = await page.context().newCDPSession(page);
+    await pollFrames(page, async () => (await W()).state, 1800, 'Patch on its stool').toBe('seated');
+    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), 'patch', 'touch');
+    // each time the world holds Patch in a hand (looked for every frame while the hand is down)
+    await page.evaluate(() => {
+      const w = (window as any).__bench.ws.world;
+      (window as any).__r4takes = 0;
+      let was = false;
+      const look = () => {
+        const now = w.holding()?.id === 'patch';
+        if (now && !was) (window as any).__r4takes++;
+        was = now;
+        requestAnimationFrame(look);
+      };
+      look();
+    });
+    const takes = () => page.evaluate(() => (window as any).__r4takes as number);
+    const throwIt = async (): Promise<XY> => {
+      const seat = await middle();
+      expect(await under(seat, kind), 'Patch on its stool is the target').toBe('patch');
+      const n = await takes();
+      // front-left on screen, a short sharp flick (I1's crew throw), after a moment's hold so the grab lands first
+      await flick(cdp, kind, seat, -70, 70, 100, false, 120);
+      expect(await takes(), 'Patch taken off its stool').toBe(n + 1);
+      await pollFrames(page, async () => (await W()).state !== 'held', 120).toBe(true);
+      return seat;
+    };
+    /** Taken again where it is now, in one of `states`: the glove over it first (mouse), then the press. */
+    const takeAgain = async (states: string[], what: string) => {
+      await pollFrames(page, async () => states.includes((await W()).state), 1800, `Patch ${what}`).toBe(true);
+      // pressed while the point is plainly Patch's (Fetch may pass in front)
+      let q: XY | null = null;
+      for (let k = 0; k < 240 && !q; k++) {
+        const m = await middle();
+        if (!states.includes(m.state)) break;
+        if ((await under(m, kind)) === 'patch') q = m;
+        else await frames(page, 1);
+      }
+      const v = await W();
+      expect(q, `Patch ${what} (${v.state} at ${JSON.stringify(v.at.map((x) => +x.toFixed(2)))}) is the target at its own middle`).not.toBeNull();
+      if (kind === 'mouse') {
+        await page.mouse.move(q!.x, q!.y);
+        await frames(page, 2);
+        expect(await hovered(page), `the glove opens over Patch ${what}`).toBe('patch');
+      }
+      const n = await takes();
+      await flick(cdp, kind, q!, 0, -12, 60, true);
+      expect(await takes(), `the world took Patch ${what}`).toBe(n + 1);
+    };
+    if (kind === 'mouse') {
+      await throwIt();
+      await takeAgain(['shake', 'look'], 'sitting after landing');
+      await pollFrames(page, async () => (await W()).state, 3600, 'Patch back on its stool').toBe('seated');
+      const seat = await throwIt();
+      await pollFrames(page, async () => (await W()).state === 'walk', 1800, 'Patch walking home').toBe(true);
+      // the empty stool is not Patch while Patch is elsewhere
+      const m = await middle();
+      if (Math.hypot(m.x - seat.x, m.y - seat.y) > 80) {
+        await page.mouse.move(seat.x, seat.y);
+        await frames(page, 2);
+        expect(await hovered(page), 'no glove over the empty stool').not.toBe('patch');
+      }
+      await takeAgain(['walk'], 'walking home');
+    } else {
+      await throwIt();
+      await takeAgain(['walk'], 'walking home, by touch');
+    }
+    await pollFrames(page, async () => (await W()).state, 3600, 'Patch back on its stool at the end').toBe('seated');
+  };
+  await open(page, 1440, 900);
+  await run('mouse');
+  await open(page, 390, 844);
+  await run('touch');
+});
+
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
   await open(page, 1440, 900);
   await standIns(page);

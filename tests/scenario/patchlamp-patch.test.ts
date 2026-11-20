@@ -131,11 +131,14 @@ describe('Patch is lifted off its stool', () => {
     }
     expect(t.events.some((x) => (x.e.type === 'line.reply' || x.e.type === 'line.refused') && (x.e.n === a || x.e.n === b))).toBe(false);
     expect(shopView(w).sign).toBe('paint-green');
-    w.dispatch({ type: 'drag', id: 'patch', target: [-2, 2, 1], end: true });
+    w.dispatch({ type: 'drag', id: 'patch', target: [-6, 1.2, -2], end: true }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
     t.run(1);
+    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
+    for (let i = 0; i < 60 && patchView(w).state === 'fly'; i++) t.run(1);
     expect(patchView(w).state).toBe('walk');
     const down = patchView(w).at;
-    expect(Math.hypot(down[0] + 2, down[1], down[2] - 1)).toBeLessThan(0.05); // put down there (and already a step on its way)
+    // put down there (R4: the hand still moving at 1.5 u/s as it lets go, it drifts that way the little way it falls)
+    expect(Math.hypot(down[0] + 6, down[1], down[2] + 2)).toBeLessThan(0.4);
     // S7: it walks to `foot` (in front of the stool, wherever the stool is) and climbs from there
     const foot = patchView(w).foot;
     for (let i = 0; i < 10 * HZ && patchView(w).state === 'walk'; i++) t.run(1);
@@ -180,6 +183,8 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     if (pause) t.run(12);
     w.dispatch({ type: 'drag', id: 'patch', target: to, end: true });
     t.run(1);
+    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
+    for (let i = 0; i < 60 && patchView(w).state === 'fly' && pause; i++) t.run(1);
   }
 
   test('off the front: it hangs from the front edge, hauls itself up, dusts off, gives the look and walks back; never physics, nothing charged', async () => {
@@ -243,7 +248,7 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(patchView(w).at).toEqual([EDGE.maxX - 0.5, PATCHLAMP.patch.foot[1], EDGE.maxZ]);
     const b = await benchWorld();
     const tb = tape(b);
-    carryAndDrop(b, tb, [0, 2.5, -30], 240); // behind the wall: put down on the bench, as before
+    carryAndDrop(b, tb, [0, 1.2, -30], 240); // behind the wall: put down on the bench, as before
     expect(patchView(b).state).toBe('walk');
     expect(patchView(b).ledge).toBeNull();
   });
@@ -256,7 +261,7 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(patchView(w).state).toBe('fly');
     const g = await benchWorld();
     const tg = tape(g);
-    carryAndDrop(g, tg, [2, 2.5, EDGE.maxZ - 0.3], 400);
+    carryAndDrop(g, tg, [2, 1.2, EDGE.maxZ - 0.3], 400);
     expect(patchView(g).state).toBe('walk');
   });
 

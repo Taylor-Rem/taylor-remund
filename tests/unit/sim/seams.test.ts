@@ -45,12 +45,14 @@ describe('seam 2: one grab', () => {
     expect(world.holding()).toEqual({ kind: 'unit', id: 'patch' });
     expect(world.playMode).toBe(true);
     expect(patch().state).toBe('held');
-    world.dispatch({ type: 'carry', target: [0, 2, 1] });
+    world.dispatch({ type: 'carry', target: [-6, 1.2, -2] }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
     run(world, 1);
-    expect(patch().at).toEqual([0, 2, 1]);
+    expect(patch().at).toEqual([-6, 1.2, -2]);
     world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     run(world, 1);
     expect(world.holding()).toBeNull();
+    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
+    for (let i = 0; i < 60 && patch().state === 'fly'; i++) run(world, 1);
     expect(['walk', 'climb']).toContain(patch().state);
   });
 

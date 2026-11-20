@@ -24,6 +24,8 @@
  * breath, blinks or glances run.
  */
 import { Group, Matrix4, Vector3, type Object3D } from 'three';
+import { nodeBounds } from './proxy.ts';
+import { clearOfEdge, figureOf, grounded, type Figure } from '../kit/pieces/patch-felt/ground.ts';
 import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
@@ -32,11 +34,12 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
 import { PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
+import { SCRUFF as SCRUFF_AT } from '../kit/pieces/patch-felt/rig.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, LAND_LENGTH, SHAKE_LENGTH,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, falling, upward, flop, LAND_LENGTH, SHAKE_LENGTH,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -126,7 +129,28 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         if (x) ms[n]!.decompose(x.position, x.quaternion, x.scale);
       }
     };
-    if (ctx.pickable) ctx.pickable('patch', root);
+    // the grab target rides Patch's drawn body (the rig's `body` node, everything else hangs from it), not the
+    // root, which stays on the seat while Patch flies, lands, walks home (R4: Taylor, "his 'grab' box stays on his
+    // stool"); measured once, at its rest pose. No target where the simulation refuses the grab
+    // (hanging from the edge, hauling itself up, out of sight after going over the edge)
+    const bodyNode = nodes.get('body') ?? obj;
+    // the figure's points by node, for keeping every drawn part above the bench (ground.ts)
+    const figure: Figure | null = piece ? figureOf(piece) : null;
+    let floorBox = { minX: -Infinity, maxX: Infinity, minZ: -Infinity, maxZ: Infinity };
+    /** Is this root-space point over the bench (only those points are kept above its top)? */
+    const overBench = (x: number, z: number): boolean => {
+      const me = root.matrixWorld.elements;
+      const wx = me[0]! * x + me[8]! * z + me[12]!, wz = me[2]! * x + me[10]! * z + me[14]!;
+      return wx >= floorBox.minX && wx <= floorBox.maxX && wz >= floorBox.minZ && wz <= floorBox.maxZ;
+    };
+    let grabbable = true;
+    // (the felt is skinned: its meshes hang from the piece, not the bone, so the box is the body node's own parts
+    // and its children's, measured in its frame, as proxy.ts does for any skinned node)
+    if (ctx.pickable) {
+      const box = piece ? nodeBounds(piece, 'body') : null;
+      if (box && !box.isEmpty()) ctx.pickable('patch', bodyNode, { box, active: () => grabbable });
+      else ctx.pickable('patch', root, { active: () => grabbable });
+    }
     const seatH = o.fit.stool.seat[1] / S;
 
     // ── the job's targets for each jack (cached: the job's keys are cached by this object) ──
@@ -190,6 +214,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     /** R4: in the air: how far it has turned head over heels, when it left the hand, the way it was going; and on landing. */
     let flySpin = 0;
     let flyAt = 0;
+    /** R4 up: when the fall began (frame time; the top of a throw up, or the release of a drop). */
+    let fallAt = -1;
     let flyYaw = 0;
     let landSpin = 0;
     let landYaw = 0;
@@ -562,19 +588,32 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'fly': {
-            // turning head over heels as it goes, faster the harder it was thrown
             const tv = v.thrown?.v;
             const sp = tv ? Math.hypot(tv[0], tv[2]) : 0;
+            if (v.thrown?.drop) {
+              // R4 up: dropped, or thrown up: rising (arms up), the beat at the top, then falling and knowing it
+              const vis = boardToRoot(VISITOR_BOARD, stoolB);
+              const rising = !!tv && tv[1] > 0 && !v.thrown.top;
+              if (rising || v.thrown.top) fallAt = -1;
+              else if (fallAt < 0) fallAt = t;
+              pose = v.thrown.top ? upward(0, seatSpace(v.at), flyYaw, true, vis) : rising ? upward(reduced ? 0 : t - flyAt, seatSpace(v.at), flyYaw, false, vis) : falling(reduced ? 1 : t - fallAt, seatSpace(v.at), flyYaw, vis);
+              break;
+            }
+            // turning head over heels as it goes, faster the harder it was thrown
             if (tv && sp > 0.3) flyYaw = Math.atan2(tv[0], tv[2]) - SIDE_ON;
             if (!reduced) flySpin += Math.min(11, Math.max(4, sp * 1.3)) * dt;
             pose = tumble(reduced ? 0 : t - flyAt, seatSpace(v.at), flySpin, flyYaw);
             break;
           }
-          case 'land':
-            pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
+          case 'land': {
+            const fall = v.thrown?.fall ?? 0;
+            // R4 up: down from high after a drop or a throw up: the flop; else the landing's bounce and roll
+            if (v.thrown?.drop && fall >= PATCH_TUNING.flopFrom) pose = flop(reduced ? v.stateLength : sT, seatSpace(v.at), landYaw, fall, v.stateLength);
+            else pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall || v.thrown?.drop ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
             break;
+          }
           case 'shake':
-            pose = shakeOff(reduced ? SHAKE_LENGTH : sT, seatSpace(v.at), landYaw);
+            pose = shakeOff(reduced ? v.stateLength : sT, seatSpace(v.at), landYaw, { visitor: boardToRoot(VISITOR_BOARD, stoolB), fall: v.thrown?.fall ?? 0, dust: !!v.thrown?.drop, length: v.stateLength });
             break;
           case 'away':
             pose = last;
@@ -675,6 +714,18 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           if (k >= 1) fumbleAt = -1;
           else pose = glanceShake(pose, k, fumbleFrom);
         }
+        // (the root moves between the seat and the hand when Patch is taken or let go: a blend begun this frame
+        // starts from where the figure was drawn, not from the same place relative to the root's new spot: no snap)
+        if (blendFrom && blendAt === t) {
+          const next = mode === 'held' ? tv.set(v.at[0], v.at[1], v.at[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
+          const dxw = root.position.x - next.x, dyw = root.position.y - next.y, dzw = root.position.z - next.z;
+          if (Math.abs(dxw) + Math.abs(dyw) + Math.abs(dzw) > 1e-6) {
+            const c = Math.cos(-SIDE_ON), sn = Math.sin(-SIDE_ON);
+            const b = blendFrom.body ?? {};
+            const at0 = b.at ?? (b.pivot === 'scruff' ? SCRUFF_AT : ([0, 0, 0] as const));
+            blendFrom = { ...blendFrom, body: { ...b, at: [at0[0] + (dxw * c + dzw * sn) / S, at0[1] + dyw / S, at0[2] + (-dxw * sn + dzw * c) / S] } };
+          }
+        }
         if (blendFrom && !reduced && t - blendAt < blendDur) pose = blendTo(blendFrom, pose, t - blendAt, blendDur);
         else blendFrom = null;
         last = pose;
@@ -691,10 +742,21 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         stool.position.set(stoolRest.x + dx, stoolRest.y, stoolRest.z);
         // R4: thrown off the bench, it is out of sight until it comes back up the chute
         root.visible = mode !== 'away';
+        grabbable = st !== 'ledge' && st !== 'haul' && st !== 'away';
         if (mode === 'held') root.position.set(v.at[0], v.at[1], v.at[2]);
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
+        // R4 (Taylor: "Patch often clips through the floor"): no drawn part below the bench's top. The pose is lifted
+        // by what the posed figure needs this frame (its lowest point over the bench, from the rig): the landing's
+        // roll and bounce turn it about its middle, the wall slide's legs hang below it, a low carry drags it
+        if (figure && mode !== 'away') {
+          floorBox = w.scene.bench;
+          const floor = (w.scene.bench.top - root.position.y) / S;
+          // hanging from the edge, its back against the bench's front: moved out from it, not up off the edge
+          if (mode === 'ledge' && st === 'ledge' && ledgeO) pose = clearOfEdge(pose, figure, floor, overBench, [-Math.sin(ledgeO.heading), -Math.cos(ledgeO.heading)]);
+          else pose = grounded(pose, figure, floor, overBench);
+        }
         apply(pose);
         // a caught part is drawn in the paw: through the parts view's overlay when it draws after this view (its
         // shadow goes with it), or straight onto its matrix when it has drawn already this frame
