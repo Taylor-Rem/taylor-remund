@@ -397,6 +397,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const deep = (c: Vec3): boolean => all.some((o) => sphereMeets(o, c[0], c[1], c[2], T.bodyR * 0.8));
     if (deep(q)) {
       let found: Vec3 | null = null;
+      // hanging below the hand over a low body (the board's desk, the console), its middle is in it: up onto its
+      // top first, where the hand is anyway, if that is no more than `clearMax` above the hand
+      const hand = q[1] + T.hangBelow;
+      const under = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
+      const top = Math.max(...under.map((o) => o.y1)) + T.bodyR * 0.8 + 0.01;
+      if (top <= hand + T.clearMax && !deep([q[0], top, q[2]])) found = [q[0], top, q[2]];
       for (let ring = 1; ring <= 10 && !found; ring++) {
         const r = (ring / 10) * T.clearMax;
         for (let i = 0; i < 16 && !found; i++) {
@@ -419,6 +425,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     // level speed into the face it touches); pointing away or along, an ordinary throw from where it is, leaving it
     const touching = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR));
     for (const o of touching) {
+      if (q[1] >= o.y1) continue; // (over it, not against its side: it leaves it whichever way it is thrown)
       const n = offTop(o, q[0], q[2]);
       if (-(vv[0] * n[0] + vv[2] * n[1]) <= T.intoBody) continue;
       // (into its face, but glancing off its corner: a tenth of a second on along the throw it is clear of it)
@@ -1311,9 +1318,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
               ctx.emit({ type: 'patch.throw', phase: 'gone', speed: length(f.v) });
             }
             // (past the edge it still never goes through a body: met side-on, it falls straight)
-            if (SOLIDS.some((o) => sphereMeets(o, np[0], np[1], np[2], T.bodyR))) {
-              f.v = [0, Math.min(f.v[1], 0), 0];
-              np = [at[0], at[1] + f.v[1] / HZ, at[2]];
+            const met = SOLIDS.find((o) => sphereMeets(o, np[0], np[1], np[2], T.bodyR * 0.8));
+            if (met) {
+              // (and out from its side as it falls, never down inside it)
+              const d = offTop(met, at[0], at[2]);
+              f.v = [d[0] * 0.8, Math.min(f.v[1], 0), d[1] * 0.8];
+              np = [at[0] + d[0] * 0.06, at[1] + f.v[1] / HZ, at[2] + d[1] * 0.06];
             }
             at = np;
             if (np[1] < top - 1.5) {
@@ -1362,7 +1372,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             const meetsB = sphereMeets(b, np[0], np[1], np[2], T.bodyR);
             if (f.leaving.has(b.id)) {
               if (!meetsB) f.leaving.delete(b.id); // (clear of what it was let go against)
-              if (!meetsB || boxDist(b, np) >= boxDist(b, at) - 1e-9) continue; // (leaving it: never further in)
+              if (!meetsB || boxDist(b, np) >= boxDist(b, at) - 1e-9 || !sphereMeets(b, np[0], np[1], np[2], T.bodyR * 0.8)) continue; // (leaving it: glancing along it, never deep in it)
             }
             if (!meetsB) continue;
             if (!f.knocked.has(b.id)) {
@@ -1397,7 +1407,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             const meetsO = sphereMeets(o, np[0], np[1], np[2], T.bodyR);
             if (f.leaving.has(o.id)) {
               if (!meetsO) f.leaving.delete(o.id); // (clear of what it was let go against, thrown away from it)
-              if (!meetsO || boxDist(o, np) >= boxDist(o, at) - 1e-9) continue; // (leaving it: never further in)
+              if (!meetsO || boxDist(o, np) >= boxDist(o, at) - 1e-9 || !sphereMeets(o, np[0], np[1], np[2], T.bodyR * 0.8)) continue; // (leaving it: glancing along it, never deep in it)
+              // (it would go deeper: it slides along the face this step, the part of its step into the face taken
+              // out, and keeps the throw's velocity for when it is clear)
+              const n = offTop(o, at[0], at[2]);
+              const dx = np[0] - at[0], dz = np[2] - at[2];
+              const inn = Math.min(0, dx * n[0] + dz * n[1]);
+              np = [np[0] - inn * n[0], np[1], np[2] - inn * n[1]];
+              continue;
             }
             if (!meetsO) continue;
             const side = at[1] - T.bodyR < o.y1 - 0.03;
@@ -1452,7 +1469,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           }
           if (Math.hypot(f.v[0], f.v[2]) > 0.3) heading = Math.atan2(f.v[0], f.v[2]);
           // the last word: whatever moved it this step, it does not end the step in a fixed body
-          const deeper = (o: Solid, c: Vec3): boolean => sphereMeets(o, c[0], c[1], c[2], T.bodyR * 0.95) && (!f.leaving.has(o.id) || boxDist(o, c) < boxDist(o, at) - 1e-9);
+          const deeper = (o: Solid, c: Vec3): boolean => sphereMeets(o, c[0], c[1], c[2], f.leaving.has(o.id) ? T.bodyR * 0.8 : T.bodyR * 0.95) && (!f.leaving.has(o.id) || boxDist(o, c) < boxDist(o, at) - 1e-9);
           if (SOLIDS.some((o) => deeper(o, np))) {
             const fall: Vec3 = [at[0], np[1], at[2]];
             np = SOLIDS.some((o) => deeper(o, fall)) ? at : fall;

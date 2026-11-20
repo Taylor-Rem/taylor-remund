@@ -351,6 +351,36 @@ describe('Patch thrown (R4)', () => {
     }
   });
 
+  // I1's two failing records: held against the back wall, the hand sweeping -x along it at y 1.2 and let go
+  // front-left at 12 u/s at x 2.52 (its middle at the board's end) and at x 2.3 (its middle in the board's desk)
+  for (const x of [2.52, 2.3]) {
+    test(`I1's record: let go at x ${x} over the board's end, the hand front-left at 12: it flies`, async () => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      const s = patchView(w).at;
+      w.dispatch({ type: 'drag', id: 'patch', target: [s[0], 2.4, s[2]] });
+      t.run(1);
+      for (let i = 1; i <= 30; i++) {
+        w.dispatch({ type: 'drag', id: 'patch', target: [s[0] + ((3.37 - s[0]) * i) / 30, 2.4 + ((1.39 - 2.4) * i) / 30, s[2] + ((-4.42 - s[2]) * i) / 30] });
+        t.run(1);
+      }
+      for (let i = 1; i <= 6; i++) {
+        w.dispatch({ type: 'drag', id: 'patch', target: [3.37 + ((x - 3.37) * i) / 6, 1.39 - (0.24 * i) / 6, -4.42] });
+        t.run(1);
+      }
+      w.dispatch({ type: 'drag', id: 'patch', target: [x, 1.15, -4.42], end: true, velocity: [-8.5, 0, 8.8] });
+      t.run(1);
+      const first = patchView(w);
+      expect(first.state).toBe('fly');
+      expect(first.at[1]).toBeLessThanOrEqual(1.15 + 0.5);
+      const f = watch(w, t, 40);
+      const all = t.of('crew.state').filter((e) => e.e.id === 'patch').map((e) => e.e.state);
+      expect(all, all.join('>')).not.toContain('wall');
+      expect(f.states.at(-1)).toBe('seated');
+    }, 60_000);
+  }
+
   test('a hundred seeded throws: every one ends on the stool, the job carried on, nothing durable changed by it', async () => {
     const r = rng(Number(process.env.PATCH_THROW_SEED ?? 20261119));
     const log: string[] = [];
