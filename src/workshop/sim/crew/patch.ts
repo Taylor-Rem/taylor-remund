@@ -409,6 +409,18 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const under = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
       const top = Math.max(...under.map((o) => o.y1)) + T.bodyR * 0.8 + 0.01;
       if (top <= hand + T.clearMax && !deep([q[0], top, q[2]])) found = [q[0], top, q[2]];
+      // (and the top taken by something standing on it, the board's panel on its desk: the nearest clear place
+      // on that top, before anywhere at its own height)
+      // (its middle over that body, or so near its edge that most of it is over it: not beside it)
+      const over = under.some((o) => distanceTo(o, q[0], q[2]) <= T.bodyR * 0.5);
+      for (let ring = 1; ring <= 10 && !found && over && top <= hand + T.clearMax; ring++) {
+        const r = (ring / 10) * T.clearMax * 2;
+        for (let i = 0; i < 16 && !found; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const c: Vec3 = [q[0] + Math.cos(a) * r, top, q[2] + Math.sin(a) * r];
+          if (!deep(c) && under.some((o) => sphereMeets(o, c[0], c[1] - T.bodyR, c[2], T.bodyR * 0.8))) found = c;
+        }
+      }
       for (let ring = 1; ring <= 10 && !found; ring++) {
         const r = (ring / 10) * T.clearMax;
         for (let i = 0; i < 16 && !found; i++) {

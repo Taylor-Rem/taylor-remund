@@ -379,6 +379,16 @@ describe('Patch thrown (R4)', () => {
       const first = patchView(w);
       expect(first.state).toBe('fly');
       expect(first.at[1]).toBeLessThanOrEqual(1.15 + 0.5);
+      // and it goes somewhere: hanging over the desk it starts from the desk's top (in front of the panel), not
+      // boxed in between the board's end, the stool and the wall (I1's 1.44-unit run)
+      const p0 = first.at;
+      let far = 0;
+      for (let i = 0; i < 3 * HZ && ['fly', 'land'].includes(patchView(w).state); i++) {
+        t.run(1);
+        const a = patchView(w).at;
+        far = Math.max(far, Math.hypot(a[0] - p0[0], a[2] - p0[2]));
+      }
+      if (full) expect(far).toBeGreaterThan(3);
       const f = watch(w, t, 40);
       const all = t.of('crew.state').filter((e) => e.e.id === 'patch').map((e) => e.e.state);
       expect(all, all.join('>')).not.toContain('wall');
