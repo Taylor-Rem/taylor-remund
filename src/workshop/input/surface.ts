@@ -7,7 +7,7 @@
  * never from what a machine does.
  */
 import type { Id, Quat, Vec3, WorldView } from '../sim/types.ts';
-import { CarryPlane, rayAtDepth, type CarryTuning, type Obstacle, type RayLike } from './carry.ts';
+import { CarryPlane, heldUp, rayAtDepth, UpHold, type CarryTuning, type Obstacle, type RayLike } from './carry.ts';
 import type { GestureWorld, HandleReading, HeldKind, PointerKind, Role, Target } from './gesture.ts';
 import { aimFromWorld, clampToPolygon, readingFromWorld } from './readings.ts';
 
@@ -122,27 +122,35 @@ class Aim {
 
 /**
  * Tune here: how a flick up the screen leaves the hand. It is read on an upright plane through where the hand took
- * hold, square to the line of sight across the bench: up the screen is straight up, so a gentle flick goes up and
+ * hold, facing the room (its depth fixed): up the screen is straight up, so a gentle flick goes up and
  * comes back down where it went up (Taylor: "throwing them up then catching them and back up again like juggling").
  * A hard one leans back the way the camera looks down, so it goes up and back and meets the back wall well up ("it
  * can be fun to throw them against the back wall too"): no lean below `from` u/s, all of the line of sight's tilt
  * from `full` u/s, eased between.
  */
-export const UP_FLICK = { from: 9, full: 20 } as const;
+export const UP_FLICK = { from: 13, full: 24 } as const;
 
-/** The upright plane through `p` square to the line of sight from `eye` across the bench, its up (world up), and the line of sight's downward tilt. */
+/** The upright plane through `p` facing the room (its depth fixed), its up (world up), and the line of sight's downward tilt. */
 function facingAt(eye: Vec3, p: Vec3): { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null {
   const d: Vec3 = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
   const hl = Math.hypot(d[0], d[2]);
   if (hl < 1e-6) return null;
   const pitch = Math.atan2(-d[1], hl);
-  const down = 0;
-  const n: Vec3 = [(d[0] / hl) * Math.cos(down), -Math.sin(down), (d[2] / hl) * Math.cos(down)];
+  // facing the room (its depth fixed), as the hold up is (`UpHold`): straight up the screen is straight up
+  const n: Vec3 = [0, 0, Math.sign(d[2]) || -1];
   const k = n[1];
   const up: Vec3 = [-k * n[0], 1 - k * n[1], -k * n[2]];
   const ul = Math.hypot(up[0], up[1], up[2]);
   if (ul < 1e-6) return null;
   return { p, n, up: [up[0] / ul, up[1] / ul, up[2] / ul], pitch };
+}
+
+/** The middle of a thing up in the air (a loose body flying, or Patch in flight), or null if it is not. */
+function airborneMiddle(w: WorldView, id: Id): Vec3 | null {
+  const m = w.motion(id);
+  if (m) return m.mode === 'free' && m.awake && m.pose.p[1] > w.scene.bench.top + 0.6 ? m.pose.p : null;
+  const v = (w as unknown as { crewView?(id: Id): { view?: { state?: string; at?: Vec3 } } | undefined }).crewView?.(id)?.view;
+  return v?.state === 'fly' && v.at ? [v.at[0], v.at[1] + 0.6, v.at[2]] : null;
 }
 
 const smooth = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -154,10 +162,13 @@ export function createSurface(deps: SurfaceDeps): Surface {
   /** The surface's slope under the hand at its last sample (0 level, π/2 upright). */
   let handTheta = 0;
   /**
-   * The upright plane through where the hand took hold, square to the line of sight across the bench; its up (world
+   * The upright plane through where the hand took hold, facing the room; its up (world
    * up) and the line of sight's downward tilt: a flick up the screen is read on it (`UP_FLICK`).
    */
   let facing: { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null = null;
+  const upHold = new UpHold();
+  /** Where the hand held it at its last re-aim. */
+  let lastTarget: Vec3 | null = null;
   let carried: {
     id: Id;
     what: HeldKind | 'aim';
@@ -296,6 +307,9 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const bottom = (m?.pose.p[1] ?? grip[1] - half[1]) - (m ? halfHeight(q, half) : 0);
       carried = { id, what, halfX: hx, halfZ: hz };
       plane.begin({ kind: 'part', halfX: hx, halfZ: hz, gripAboveBottom: Math.max(0, grip[1] - bottom) }, grip, t, obstacles(id));
+      // caught in the air: the world says it is flying (over a station its bottom may be low above what is under it)
+      upHold.begin(t, grip, plane.caught || airborneMiddle(w, id) !== null);
+      lastTarget = grip;
     },
 
     carryTarget(x, y, t) {
@@ -319,7 +333,11 @@ export function createSurface(deps: SurfaceDeps): Surface {
         return [aim.x, w.scene.bench.top, aim.z];
       }
       if (!plane || !carried) return benchPoint(ray) ?? [0, 0, 0];
-      return plane.target(ray, t, carried.what === 'part' ? obstacles(carried.id) : []);
+      const onSurface = plane.target(ray, t, carried.what === 'part' ? obstacles(carried.id) : []);
+      if (carried.what === 'plug') return onSurface;
+      // held up: a fast lift up the screen, or a thing caught in the air, rises in place instead of sliding back
+      lastTarget = upHold.target(ray, x, y, t, onSurface, Math.min(plane.tuning.top, w?.scene.bench.ceiling ?? plane.tuning.top));
+      return lastTarget;
     },
 
     spot(x, y) {
@@ -337,16 +355,13 @@ export function createSurface(deps: SurfaceDeps): Surface {
       handY = null;
       handTheta = 0;
       facing = null;
+      lastTarget = null;
     },
 
     handFacing(x, y) {
       if (!facing) return null;
-      const ray = deps.ray(x, y);
-      const { p, n } = facing;
-      const dn = ray.dir[0] * n[0] + ray.dir[1] * n[1] + ray.dir[2] * n[2];
-      if (Math.abs(dn) < 1e-6) return null;
-      const t = ((p[0] - ray.origin[0]) * n[0] + (p[1] - ray.origin[1]) * n[1] + (p[2] - ray.origin[2]) * n[2]) / dn;
-      return [ray.origin[0] + ray.dir[0] * t, ray.origin[1] + ray.dir[1] * t, ray.origin[2] + ray.dir[2] * t];
+      // read as the hold up is (`heldUp`): at the depth where the hand holds it now, straight up the screen straight up
+      return heldUp(deps.ray(x, y), lastTarget ?? facing.p);
     },
 
     throwFrom(v, onFacing) {
@@ -394,8 +409,16 @@ export function createSurface(deps: SurfaceDeps): Surface {
     gripFor(id, what, point) {
       // an arm that aims is taken where it points now, so the grab does not jump the light to the hand
       const w = deps.world();
-      if (what !== 'unit' || !w || !aims(w, id)) return point;
-      return aimFromWorld(w, id)?.aim ?? point;
+      if (what === 'unit' && w && aims(w, id)) return aimFromWorld(w, id)?.aim ?? point;
+      // (R5) caught in the air: taken at its middle's depth, on the same line of sight (the press lands on the front
+      // of its pick box), so holding it up and throwing it again keeps it where it is instead of drawing it forward
+      const mid = w ? airborneMiddle(w, id) : null;
+      if (!mid) return point;
+      const eye = deps.ray(0, 0).origin;
+      const dz = point[2] - eye[2];
+      if (Math.abs(dz) < 1e-6) return point;
+      const k = (mid[2] - eye[2]) / dz;
+      return [eye[0] + (point[0] - eye[0]) * k, eye[1] + (point[1] - eye[1]) * k, mid[2]];
     },
 
     screen: (id) => deps.screen?.(id) ?? null,

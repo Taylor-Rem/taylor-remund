@@ -1628,6 +1628,7 @@ async function hookRelease(page: Page): Promise<void> {
     const d0 = w.dispatch.bind(w);
     w.dispatch = (i: any) => {
       if (i.type === 'release') W.__i1v = i.velocity;
+      if (i.type === 'carry') W.__i1t = i.target;
       d0(i);
     };
   });
@@ -1681,13 +1682,15 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     const look = () => {
       if (!W.__i1j || W.__i1j.id !== id) return;
       const p = id === 'patch' ? w.crewView('patch').view.at : w.motion(id).pose.p;
-      W.__i1j.rec.push([performance.now(), p[0], p[1], p[2], w.holding()?.id === id ? 1 : 0]);
+      W.__i1j.rec.push([performance.now(), p[0], p[1], p[2], w.holding()?.id === id ? 1 : 0, W.__i1t?.[2] ?? NaN, W.__i1t?.[1] ?? NaN]);
       requestAnimationFrame(look);
     };
     look();
   }, id);
+  const zs: number[] = [];
   for (let k = 0; k < 3; k++) {
     const from = await posOf(page, id);
+    zs.push(from[2]);
     await hand.drag(at, { x: at.x, y: at.y - flickPx }, 100, true);
     await frames(page, 1);
     const v = await sentV(page);
@@ -1732,8 +1735,25 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     const nowS = await projectP(page, now);
     say.push(`throw ${k + 1} from ${JSON.stringify(from.map((n) => +n.toFixed(2)))}: sent ${JSON.stringify(v?.map((n) => +n.toFixed(1)))}, rose to ${peak[3]!.toFixed(2)}; caught at ${JSON.stringify(p.map((n) => +n.toFixed(2)))}: ${ok ? `held, ${Math.hypot(nowS.x - q.x, nowS.y - q.y).toFixed(0)} px from the pointer` : 'missed'}`);
     if (!ok) break;
+    zs.push(now[2]);
     at = q;
   }
+  say.push(`load ${(await import("node:os")).loadavg()[0]!.toFixed(1)}`);
+  say.push(`z range over the throws and catches: ${(Math.max(...zs) - Math.min(...zs)).toFixed(2)}`);
+  // where z moved: each stretch held or flying, its z at the start and the end
+  const stretches = await page.evaluate(() => {
+    const rec = (window as any).__i1j.rec as number[][];
+    const out: string[] = [];
+    let i = 0;
+    while (i < rec.length) {
+      let j = i;
+      while (j + 1 < rec.length && rec[j + 1]![4] === rec[i]![4]) j++;
+      out.push(`${rec[i]![4] ? 'held' : 'flying'} z ${rec[i]![3]!.toFixed(2)}→${rec[j]![3]!.toFixed(2)}${rec[i]![4] ? ` (hand z ${rec[i]![5]!.toFixed(2)}→${rec[j]![5]!.toFixed(2)}, y ${rec[i]![6]!.toFixed(2)}→${rec[j]![6]!.toFixed(2)})` : ''}`);
+      i = j + 1;
+    }
+    return out.join(', ');
+  });
+  say.push(`z by stretch: ${stretches}`);
   // between the first throw and the last catch, never down on the bench
   const lowest = await page.evaluate(() => {
     const W = window as any;
@@ -1756,15 +1776,14 @@ for (const [label, id, start, flickPx] of [
   ['Patch', 'patch', [-3.5, 0.8], 60],
 ] as const) {
   test(`R5: juggling ${label} by mouse: flicked up, caught in the air, up again, three catches without touching the bench`, async ({ page }) => {
-    // WAITING on the Patch builder: a flick straight up is not yet a throw for Patch (its level speed is under
-    // `throwAt`, so it is set down at its feet at once). The test stands as the acceptance test for that change.
-    test.fixme(id === 'patch', 'waits on the Patch builder: a flick straight up is not yet a throw for Patch');
     test.setTimeout(5 * 60_000);
     await open(page, 1440, 900);
     const cdp = await page.context().newCDPSession(page);
     const say = await juggleIt(page, cdp, 'mouse', id, [start[0], start[1]], flickPx);
     console.log(`[I1] R5 juggle ${id} by mouse: ${say.join(' | ')}`);
     expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+    // it stays where it is juggled: over three throws and catches its z moves by less than 0.3 in all
+    expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it does not walk back toward the wall').toBeLessThan(0.3);
     // never down on the bench in between (its middle above its own half height and a little)
     const low = Number(say.at(-1)!.split(': ')[1]);
     expect(low, 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(id === 'patch' ? 0.3 : 0.6);
@@ -1782,6 +1801,7 @@ test('R5: juggling a crate by touch at the phone framing (390x844)', async ({ br
   const say = await juggleIt(page, cdp, 'touch', 'crate-3', [p[0] - 0.5, p[2] - 1.5], 40);
   console.log(`[I1] R5 juggle crate-3 by touch: ${say.join(' | ')}`);
   expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+  expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it does not walk back toward the wall').toBeLessThan(0.3);
   expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(0.6);
   await ctx.close();
 });
@@ -1943,4 +1963,50 @@ test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen f
   console.log(`[I1] R5 wall, Patch: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; states ${pr.map((r) => r[0]).filter((s, i, a) => i === 0 || a[i - 1] !== s).join('>')}; at the wall its middle at ${wall ? (wall[1] as number).toFixed(2) : 'never'}`);
   expect(wall, 'Patch reaches the wall').toBeTruthy();
   expect(wall[1], 'its middle above 1.5').toBeGreaterThan(1.5);
+});
+
+test('R5: a press on a thing in the air takes the thing when it is in front of the lamp\'s shade along the ray', async ({ page }) => {
+  test.setTimeout(5 * 60_000);
+  await open(page, 1440, 900);
+  const cdp = await page.context().newCDPSession(page);
+  const hand = tickHand(page, cdp, 'mouse');
+  await hookRelease(page);
+  const L = (await page.evaluate(() => (window as any).__bench.ws.surface.where('lamp'))) as V3;
+  const disc = (await page.evaluate(() => (window as any).__bench.ws.surface.screen('lamp'))) as Disc;
+  expect(L && disc, 'the lamp has a pick target').toBeTruthy();
+  // the crate carried to stand in front of the lamp (toward the room), then thrown up so it rises in front of the
+  // shade; pressed on where it is as it passes over the shade on screen
+  let at = await takeHold(page, hand, 'crate-2', 'mouse');
+  at = await carryOver(page, hand, 'crate-2', at, [L[0], L[2] + 1.6]);
+  await frames(page, 20);
+  const px = Math.max(40, at.y - disc.y + 30);
+  await hand.drag(at, { x: at.x, y: at.y - Math.min(110, px) }, 100, true);
+  const hit = await page.evaluate(
+    ([d]) =>
+      new Promise<number[] | null>((done) => {
+        const W = window as any;
+        const w = W.__bench.ws.world;
+        let n = 0;
+        const look = () => {
+          const p = w.motion('crate-2').pose.p;
+          const s = W.__bench.project(p);
+          if (Math.hypot(s.x - d.x, s.y - d.y) < d.r * 0.8) return done([s.x, s.y, p[0], p[1], p[2]]);
+          if (++n > 240) return done(null);
+          requestAnimationFrame(look);
+        };
+        look();
+      }),
+    [disc] as const,
+  );
+  console.log(`[I1] R5 in front of the lamp (shade at ${JSON.stringify(L.map((n) => +n.toFixed(2)))}): sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; over the shade on screen: ${JSON.stringify(hit?.map((n) => +n.toFixed(2)))}`);
+  expect(hit, 'it passed over the shade on screen').not.toBeNull();
+  const q = { x: hit![0]!, y: hit![1]! };
+  const crateD = await page.evaluate(() => (window as any).__bench.ws.world.motion('crate-2').pose.p as number[]);
+  await hand.down(q);
+  await frames(page, 3);
+  const took = await heldId(page);
+  console.log(`[I1] R5 in front of the lamp: pressed at ${JSON.stringify({ x: +q.x.toFixed(0), y: +q.y.toFixed(0) })} with the crate at ${JSON.stringify(crateD.map((n) => +n.toFixed(2)))}: the hand took ${took}`);
+  expect(crateD[2]!, 'the crate was in front of the shade (nearer the room)').toBeGreaterThan(L[2]);
+  expect(took, 'the crate in front is the one taken, not the lamp behind it').toBe('crate-2');
+  await hand.up(q);
 });

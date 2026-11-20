@@ -194,6 +194,8 @@ export class CarryPlane {
   private shape: CarryShape | null = null;
   /** The plane's current height (part) and its goal. */
   private h = 0;
+  /** Taken hold of in the air (its bottom above what is under it by more than the carry's clearance). */
+  caught = false;
   private lastT = 0;
   private readonly p: [number, number, number] = [0, 0, 0];
 
@@ -223,8 +225,9 @@ export class CarryPlane {
       const carried = Math.min(Math.max(bottom, under), under + 0.05) + this.tuning.clearance + shape.gripAboveBottom;
       // caught in the air: the surface starts where it was caught (the grip on the pointer's ray, no jump) and eases
       // down to the carrying height from there
-      this.h = bottom > under + this.tuning.clearance ? Math.max(grip[1], carried) : carried;
-    }
+      this.caught = bottom > under + this.tuning.clearance;
+      this.h = this.caught ? Math.max(grip[1], carried) : carried;
+    } else this.caught = false;
   }
 
   end(): void {
@@ -316,3 +319,94 @@ export class CarryPlane {
 const BELOW_SLACK = 0.05;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
+
+/**
+ * Tune here: holding a thing up (Taylor, 2026-11-20: juggling). While the pointer goes up the screen fast, or while
+ * a thing caught in the air is still held up, the hold rises on an upright plane through the thing, facing the room
+ * (its depth fixed, as a flick up is read), instead of sliding back along the carry surface; when the
+ * pointer slows, stops, or goes down or sideways, it eases back onto the surface. `speed` px/s up the screen (and
+ * `ratio` times its sideways speed) is fast; the blend rises with time constant `rise` s and falls with `fall` s;
+ * the pointer's speed is taken over its last `window` ms, and a pointer that has not moved for `still` ms is still.
+ */
+/**
+ * Where the pointer's ray holds a thing up from `anchor`: at the anchor's depth (z fixed, so juggling stays put), its
+ * height where the ray crosses that depth, and its x where the ray crosses the plane through the anchor square to the
+ * line of sight (so straight up the screen is straight up in the world, not drifting toward the middle of the view as
+ * it would on the depth plane alone). Null for a ray along the depth plane.
+ */
+export function heldUp(ray: RayLike, anchor: Vec3): Vec3 | null {
+  const [ox, oy, oz] = ray.origin;
+  const [dx, dy, dz] = ray.dir;
+  if (Math.abs(dz) < 1e-6) return null;
+  const kz = (anchor[2] - oz) / dz;
+  const y = oy + dy * kz;
+  // the plane square to the line of sight to the anchor
+  const lx = anchor[0] - ox, ly = anchor[1] - oy, lz = anchor[2] - oz;
+  const dn = dx * lx + dy * ly + dz * lz;
+  const x = Math.abs(dn) > 1e-9 ? ox + dx * ((lx * lx + ly * ly + lz * lz) / dn) : ox + dx * kz;
+  return [x, y, anchor[2]];
+}
+
+export const UP_HOLD = { speed: 350, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60 } as const;
+
+export class UpHold {
+  private readonly hist: { t: number; x: number; y: number }[] = [];
+  private w = 0;
+  private lastT = 0;
+  private anchor: Vec3 | null = null;
+  private airborne = false;
+  private out: Vec3 | null = null;
+
+  /** Start a hold: `caught` a thing taken in the air at `grip` (held up where it was taken). */
+  begin(t: number, grip: Vec3, caught: boolean): void {
+    this.hist.length = 0;
+    this.lastT = t;
+    this.airborne = caught;
+    this.w = caught ? 1 : 0;
+    this.anchor = caught ? grip : null;
+    this.out = null;
+  }
+
+  /** How much of the hold is on the upright plane now (0 on the surface, 1 up). */
+  get blend(): number {
+    return this.w;
+  }
+
+  /** The hold for the pointer at (x, y) at time t: `onSurface` is the carry surface's point on the same ray. */
+  target(ray: RayLike, x: number, y: number, t: number, onSurface: Vec3, top: number): Vec3 {
+    const T = UP_HOLD;
+    const last = this.hist[this.hist.length - 1];
+    if (!last || last.x !== x || last.y !== y) this.hist.push({ t, x, y });
+    while (this.hist.length > 2 && t - (this.hist[1] as { t: number }).t > T.window) this.hist.shift();
+    const a = this.hist[0] as { t: number; x: number; y: number };
+    const b = this.hist[this.hist.length - 1] as { t: number; x: number; y: number };
+    // a hand setting off from rest: its first step is taken as one frame's move, not spread over the time it stood
+    const span = (b.t - a.t > T.still ? 16 : b.t - a.t) / 1000;
+    const moving = t - b.t < T.still && span > 0.004;
+    const vx = moving ? (b.x - a.x) / span : 0;
+    const up = moving ? -(b.y - a.y) / span : 0;
+    const fastUp = up > T.speed && up > T.ratio * Math.abs(vx);
+    // held up after a catch until the hand goes down or sideways
+    if (this.airborne && moving && (-up > T.speed * 0.5 || (Math.abs(vx) > T.speed && Math.abs(vx) > T.ratio * Math.max(up, 0)))) this.airborne = false;
+    const want = fastUp || this.airborne ? 1 : 0;
+    const dt = Math.max(0, (t - this.lastT) / 1000);
+    this.lastT = Math.max(this.lastT, t);
+    const tau = want > this.w ? T.rise : T.fall;
+    this.w = tau <= 0 ? want : this.w + (want - this.w) * (1 - Math.exp(-dt / tau));
+    if (this.w < 0.005 && want === 0) {
+      this.w = 0;
+      this.anchor = null;
+      this.out = onSurface;
+      return onSurface;
+    }
+    this.anchor ??= this.out ?? onSurface;
+    let up3: Vec3 = onSurface;
+    const f = heldUp(ray, this.anchor);
+    if (f && f[1] >= onSurface[1] - 0.05) up3 = [f[0], Math.min(top, f[1]), f[2]];
+    else if (this.airborne) this.airborne = false; // brought down to the surface: on it again
+    const w = this.w;
+    const out: Vec3 = [onSurface[0] + (up3[0] - onSurface[0]) * w, onSurface[1] + (up3[1] - onSurface[1]) * w, onSurface[2] + (up3[2] - onSurface[2]) * w];
+    this.out = out;
+    return out;
+  }
+}
