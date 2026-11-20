@@ -159,7 +159,12 @@ describe('the score on the bench', () => {
     };
     // let go still, low down; and thrown down hard
     const low = drop(0.3, 0);
-    const high = drop(0.6, 7.5); // (R4 S5: 7.5, the old clamp; at 9, now thrown as asked, it reaches the bench between two of the score's speed samples)
+    // (R4) at 9 and at the new cap the crate used to reach the bench between two of the score's speed samples and
+    // sound softer than a set-down: the score now hears a contact at the fastest of the last 0.1 s
+    const high = drop(0.6, 9);
+    const hardest = drop(0.6, 14);
+    expect(hardest.length).toBeGreaterThan(0);
+    expect(Math.max(...hardest.map((x) => x.cue.gain))).toBeGreaterThan(Math.max(0, ...low.map((x) => x.cue.gain)));
     expect(high.length).toBeGreaterThan(0);
     expect(high[0]!.cue.id).toBe('hit.wood.S');
     expect(Math.max(...high.map((x) => x.cue.gain))).toBeGreaterThan(Math.max(0, ...low.map((x) => x.cue.gain)));

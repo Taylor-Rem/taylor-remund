@@ -56,6 +56,12 @@ export const SCORE_TUNING = {
   hitRange: 22,
   /** The same part does not knock twice within this long (s): resting jitter is not a drum roll. */
   hitGap: 0.08,
+  /** (R4) A contact's speed is the fastest the part went over this long before it (s). */
+  speedWindow: 0.1,
+  /** (R4) A throw is heard (a whoosh) from this release speed (units/s): below it a let-go is a set-down. */
+  throwMin: 4,
+  /** (R4) The whoosh against the landing it leads to: at most this fraction of that landing's gain. */
+  whoosh: 0.55,
   /**
    * (R1) A crate thrown out of the chute lands on the pad: its own note, as a knock this loud, once; the
    * physics' own contacts for it are not heard for this long after (it is handed to physics still, a hair up).
@@ -103,9 +109,19 @@ export class Score {
   private yelped = new Map<Id, number>();
   /** (S5 jet) The jets are burning (from `jet.ignited` to `jet.cut`): the hiss sounds. */
   private jetOn = false;
+  /** (R4) Revert's knocks heard in this knocking, and its leaves last frame. */
+  private knocks = 0;
+  private lastHatch = 0;
+  /** (R4) Patch stuck to a wall: its height last frame (null until seen), until it starts down. */
+  private patchWall: { y: number | null } | null = null;
   /** (S5 jet) After the cut: where it lands, and whether the touchdown has been heard. */
   private jetDown: { y: number; touched: boolean } | null = null;
-  private speeds = new Map<Id, number>();
+  /**
+   * (R4) Each moving part's recent speeds (units/s, sim time): a contact is heard at the fastest of the last
+   * `SCORE_TUNING.speedWindow` seconds, because by the step a contact is reported the solver has often already
+   * slowed the body (a fast crate reached the bench between two samples and sounded softer than a set-down).
+   */
+  private speeds = new Map<Id, { t: number; v: number }[]>();
   private leverPhase: string | null = null;
   private crank: number | null = null;
   private crankAcc = 0;
@@ -126,7 +142,7 @@ export class Score {
     for (const e of events) if (e.type === 'restocked' && e.on === 'pad') this.quietUntil.set(e.part, now + SCORE_TUNING.padLanding.quiet);
     for (const e of events) this.event(world, e, now);
     this.states(world, now);
-    this.track(world);
+    this.track(world, now);
     return { cues: this.cues, loops: this.loops(world) };
   }
 
@@ -144,6 +160,39 @@ export class Score {
   private event(w: WorldView, e: SimEvent, now: number): void {
     const T = SCORE_TUNING;
     switch (e.type) {
+      case 'part.released': {
+        // (R4) a throw: the whoosh it leaves through, never louder than the landing it leads to; below `throwMin` silence
+        this.note(e.id, now, e.speed);
+        if (e.speed < T.throwMin) return;
+        this.whoosh(now, e.speed, this.posOf(w, e.id));
+        // Fetch is the thing thrown: its yelp (its own two seconds, apart from the lift's)
+        if (e.id === this.fetch) this.yelp(w, e.id, 'fetch.yelp', now, `${e.id}#throw`);
+        return;
+      }
+      case 'patch.throw': {
+        // (R4) Patch thrown: a stuffed raccoon, never hurt
+        const at = this.posOf(w, 'patch');
+        switch (e.phase) {
+          case 'thrown':
+            this.play('patch.fly', now, { param: clamp(0.15 + 0.035 * e.speed, 0.15, 0.55) }, at);
+            if (e.speed >= T.throwMin) this.whoosh(now, e.speed, at);
+            return;
+          case 'landed':
+            return this.play('patch.thud', now, { gain: Math.max(0.3, hitGain(e.speed)) }, at);
+          case 'hit':
+            if (e.wall) {
+              this.patchWall = { y: null };
+              return this.play('patch.pat', now, { gain: Math.max(0.5, hitGain(e.speed)) }, at);
+            }
+            return this.play('patch.bump', now, { gain: Math.max(0.4, hitGain(e.speed)) }, at);
+          case 'gone':
+            return this.play('patch.fall', now, {}, at);
+          case 'chute':
+            this.play('chute.launch', now, {}, at);
+            return this.play('patch.rise', now, {}, at);
+        }
+        return;
+      }
       case 'part.grabbed': {
         const p = w.part(e.id);
         if (p) this.play(`pick.${p.material}.${p.size}`, now, {}, this.posOf(w, e.id));
@@ -153,7 +202,7 @@ export class Score {
         const p = w.part(e.id);
         if (!p || e.strength < T.hitSoft) return;
         // the faster of the two, as it was coming in (a crate dropped on a resting one: the dropped one's speed)
-        const g = hitGain(Math.max(this.speeds.get(e.id) ?? 0, e.other ? (this.speeds.get(e.other) ?? 0) : 0));
+        const g = hitGain(Math.max(this.peak(e.id, now), e.other ? this.peak(e.other, now) : 0));
         if (g <= 0) return;
         const last = this.lastHit.get(e.id);
         if (last !== undefined && now - last < T.hitGap && now >= last) return;
@@ -283,6 +332,8 @@ export class Score {
         return this.play('revert.sweep', now, {}, e.from.p);
       case 'crew.state': {
         if (e.id === this.revertBody(w) && e.state === 'rising') this.play('revert.hatch', now, {}, this.posOf(w, e.id));
+        // (R4) Fetch let go (thrown, dropped): once at rest it rights itself and shakes: the servo's whirr
+        if (e.id === this.fetch && e.state === 'shrug' && e.from === 'held') this.play('fetch.whirr', now, {}, this.posOf(w, e.id));
         // (R1) lifted into the visitor's hand: one yelp in its own voice, not again within two seconds
         if (e.state === 'held' && e.from !== 'held') {
           const voice = e.id === this.fetch ? 'fetch.yelp' : w.machine(e.id)?.kind === 'patch' ? 'patch.yelp' : null;
@@ -321,6 +372,29 @@ export class Score {
   // ───────────────────────── one-shots, from states ─────────────────────────
 
   private states(w: WorldView, now: number): void {
+    // (R4) Revert knocking from under a covered hatch: a hollow knock at each jump of the leaves (two, then they open)
+    if (this.revert) {
+      const v = w.machine(this.revert);
+      if (v?.kind === 'revert') {
+        if (v.knock < 0) this.knocks = 0;
+        else if (this.knocks < 2 && v.hatch > 1e-3 && this.lastHatch <= 1e-3) {
+          this.knocks++;
+          this.play('revert.knock', now, {}, [v.x, 0, v.z]);
+        }
+        this.lastHatch = v.hatch;
+      }
+    }
+    // (R4) Patch stuck to a wall: the squeak when it starts down
+    if (this.patchWall) {
+      const pv = w.machine('patch');
+      if (pv?.kind !== 'patch' || pv.state !== 'wall') this.patchWall = null;
+      else {
+        if (this.patchWall.y !== null && pv.at[1] < this.patchWall.y - 1e-4) {
+          this.play('patch.slide', now, {}, pv.at);
+          this.patchWall = null;
+        } else this.patchWall.y = pv.at[1];
+      }
+    }
     // (S5 jet) the hiss never outlives the flight (caught in mid-air, put back by a rung); the landing after the cut
     if (this.fetch) {
       const T = SCORE_TUNING.jetLanding;
@@ -367,16 +441,35 @@ export class Score {
   }
 
   /** Each moving part's speed now, for the contacts of the next frame (units/s, from its last step). */
-  private track(w: WorldView): void {
-    this.speeds.clear();
+  private track(w: WorldView, now: number): void {
+    const W = SCORE_TUNING.speedWindow;
     for (const p of w.parts()) {
       const m = w.motion(p.id);
+      let list = this.speeds.get(p.id);
+      if (list) {
+        list = list.filter((x) => now - x.t <= W && now >= x.t);
+        if (list.length === 0) this.speeds.delete(p.id);
+        else this.speeds.set(p.id, list);
+      }
       if (!m || !m.awake) continue;
       const a = m.prev.p;
       const b = m.pose.p;
       const v = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) * HZ;
-      if (v > 0.05) this.speeds.set(p.id, v);
+      if (v > 0.05) this.note(p.id, now, v);
     }
+  }
+
+  private note(id: Id, now: number, v: number): void {
+    const list = this.speeds.get(id) ?? [];
+    list.push({ t: now, v });
+    this.speeds.set(id, list);
+  }
+
+  /** The fastest a part went over the last `speedWindow` seconds. */
+  private peak(id: Id, now: number): number {
+    let m = 0;
+    for (const x of this.speeds.get(id) ?? []) if (now - x.t <= SCORE_TUNING.speedWindow && now >= x.t) m = Math.max(m, x.v);
+    return m;
   }
 
   // ───────────────────────── loops ─────────────────────────
@@ -445,6 +538,20 @@ export class Score {
     const fetch = w.crewViews().find((c) => c.kind === 'fetch');
     this.fetch = fetch ? fetch.id : null;
     if (this.fetch && !w.crew(this.fetch)) this.fetch = null;
+  }
+
+  /** (R4) A throw's whoosh: length and pitch by speed, at a fraction of the landing it leads to. */
+  private whoosh(now: number, speed: number, at: Vec3 | null): void {
+    const T = SCORE_TUNING;
+    this.play('throw.whoosh', now, { param: clamp(0.12 + 0.02 * (speed - T.throwMin), 0.12, 0.42), rate: clamp(0.85 + 0.025 * speed, 0.85, 1.25), gain: T.whoosh * hitGain(speed) }, at);
+  }
+
+  /** A crew yelp, not again within `yelpGap` of the last under the same key. */
+  private yelp(w: WorldView, id: Id, voice: string, now: number, key: string = id): void {
+    const last = this.yelped.get(key);
+    if (last !== undefined && now - last < SCORE_TUNING.yelpGap && now >= last) return;
+    this.yelped.set(key, now);
+    this.play(voice, now, {}, this.posOf(w, id));
   }
 
   /** Fetch's own knock: its note by its size and material (the landing of a flight). */
