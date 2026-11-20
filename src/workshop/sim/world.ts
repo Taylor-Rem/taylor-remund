@@ -45,6 +45,12 @@ import { createFetch, FETCH_TUNING } from './crew/fetch.ts';
 import { vignette } from './scenes/vignette.ts';
 
 /** How loose parts feel. Tune here (§ E0: "polish time goes to feel"). */
+/** R4: the fastest a part of this mass leaves the hand (`LOOSE_TUNING.throwMax`, less for a heavy part). */
+export function throwCap(mass: number): number {
+  const T = LOOSE_TUNING;
+  return T.throwMax * Math.max(T.throwMassMin, Math.min(1, (T.throwMassRef / Math.max(mass, 1e-3)) ** T.throwMassExp));
+}
+
 export const LOOSE_TUNING = {
   /** Carry spring: the held part closes this fraction of its gap per second (critically damped first order). */
   carryRate: 18,
@@ -66,8 +72,19 @@ export const LOOSE_TUNING = {
   leanMax: 0.28,
   /** Held parts keep this much angular velocity each step (sway), the rest is the levelling drive. */
   sway: 0.55,
-  /** Throws are clamped to this speed, units/s. */
-  throwMax: 7.5,
+  /**
+   * Throws are clamped to this speed, units/s (R4, Taylor: "retain their momentum better after you let go"; was 7.5,
+   * which crossed a fifth of the bench). Measured on the open bench from a carry at 1.1: 10 units/s carries a crate
+   * about half the bench (7 to 9 units), 14 most of it (11 or more) and off the end from the middle.
+   */
+  throwMax: 14,
+  /**
+   * R4: a heavier part leaves the hand slower: its cap is `throwMax × (throwMassRef / mass)^throwMassExp`, never
+   * below `throwMassMin` of it. A small or middle crate gets the whole cap, a large one about 12, Fetch about 10.
+   */
+  throwMassRef: 0.15,
+  throwMassExp: 0.2,
+  throwMassMin: 0.65,
   /** Tumble on release: spin per unit/s of throw about the axis across the throw. */
   tumble: 0.7,
   /** A free part counts as disturbed above these speeds. */
@@ -485,7 +502,7 @@ export function createWorld(opts: WorldOptions): World {
 
   function letGoOfPart(l: Loose, velocity: Vec3, kind: 'release' | 'place'): void {
     if (kind === 'release' && cancelledPickUp(l, velocity)) return;
-    const v = clampLength(velocity, T.throwMax);
+    const v = clampLength(velocity, throwCap(l.mass));
     const spin = scale(cross([0, 1, 0], v), T.tumble);
     const current = physics.state(l.id).angvel;
     release(l, v, add(scale(current, 0.5), spin));
@@ -658,6 +675,29 @@ export function createWorld(opts: WorldOptions): World {
       l.chargeTo = null;
       // § B1 law 2, in one place: whatever comes to rest in a mouth is offered to its machine
       const mouth = mouths.find((m) => inMouth(m, st.pose.p));
+      // R4: a robot set or thrown into a mouth rides on its wheels: if it came to rest tipped, it is stood up
+      // where it lies (its lowest point kept) before the machine takes it
+      if (mouth && store.get(l.id, 'kind') === 'robot') {
+        const q = st.pose.q;
+        const up = 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
+        if (up < 0.95) {
+          const r = (i: number, j: number): number => {
+            const [x, y, z, w] = q;
+            const m = [
+              [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+              [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+              [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+            ];
+            return m[i]![j]!;
+          };
+          const bottom = st.pose.p[1] - (Math.abs(r(1, 0)) * l.half[0] + Math.abs(r(1, 1)) * l.half[1] + Math.abs(r(1, 2)) * l.half[2]);
+          const upright: Pose = { p: [st.pose.p[0], bottom + l.half[1] + 0.005, st.pose.p[2]], q: qyaw(yawOf(q)) };
+          physics.setPose(l.id, upright);
+          physics.setVelocity(l.id, [0, 0, 0], [0, 0, 0]);
+          l.pose = upright;
+          l.prev = upright;
+        }
+      }
       if (mouth && offer(l, mouth, cause)) {
         emit({ type: 'part.rested', id: l.id });
         continue;
@@ -944,9 +984,13 @@ export function createWorld(opts: WorldOptions): World {
       const l = loose.get(id);
       if (!l || l.mode !== 'free') return;
       const st = physics.state(id);
-      physics.setVelocity(id, add(st.linvel, dv), st.angvel);
+      // (R4) never faster than the hand could throw it; and set moving by something else, an open window takes it
+      // (§ E5 rule 4: a crate knocked by a thrown Patch is the throw's), as when physics sets it moving
+      physics.setVelocity(id, clampLength(add(st.linvel, dv), throwCap(l.mass)), st.angvel);
       physics.wake(id);
+      if (!l.unsettled) history.disturbed(id);
       l.unsettled = true;
+      l.calm = 0;
     },
     crewFor: (part, handle) => crewHandles.set(part, handle),
     undo: (req) => performUndo(req),
