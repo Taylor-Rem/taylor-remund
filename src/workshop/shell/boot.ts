@@ -371,44 +371,62 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     }
     return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, r: Math.max(x1 - x0, y1 - y0) / 2 };
   };
+const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: HeldKind | null = null): { id: Id; point: Vec3 } | null => {
+    pickRay.origin.set(r.origin[0], r.origin[1], r.origin[2]);
+    pickRay.direction.set(r.dir[0], r.dir[1], r.dir[2]);
+    const minPx = kind === 'mouse' ? hitPx.mouse : hitPx.touch;
+    const filter = filters[holding ?? 'none'];
+    const hit = picking.pick(pickRay, { exclude, minPx, filter });
+    if (!hit) return null;
+    const first = { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] as Vec3 };
+    if (hit.grown) return first;
+    // a small thing inside a big thing's proxy wins (the plug under the lamp's arm, the phone by the Button's console):
+    // the next true hit along the ray, if it lies within the first's box and is much smaller
+    // a box is coarser than what it stands for: when the ray passes through a robot's box but misses the robot
+    // itself (beside its arm, over its head) and something behind is truly under the point, that is what the
+    // visitor sees and presses (the phone beside Fetch rolling past). Tested against the drawn meshes, only
+    // when two proxies overlap on the ray.
+    // (up to three deep: Fetch carrying a crate, both in front of the phone)
+    skipped.clear();
+    let front: { id: Id; point: Vec3 } = first;
+    for (let depth = 0; depth < 3; depth++) {
+      skipped.add(front.id);
+      const behind = picking.pick(pickRay, { exclude, filter: (id) => !skipped.has(id) && filter(id) });
+      if (!behind || behind.grown || !missesDrawn(front.id)) break;
+      front = { id: behind.id, point: [behind.point.x, behind.point.y, behind.point.z] };
+    }
+    if (front !== first) return front;
+    const big = picking.worldBox(first.id, box3);
+    if (!big) return first;
+    const bigSize = big.getSize(corner).length();
+    const inner = picking.pick(pickRay, { exclude, minPx, filter: (id) => id !== first.id && filter(id) });
+    if (!inner) return first;
+    const innerId = inner.id;
+    const innerPoint: Vec3 = [inner.point.x, inner.point.y, inner.point.z];
+    const small = picking.worldBox(innerId, box3b);
+    if (!small || !big.containsPoint(small.getCenter(corner)) || small.getSize(corner).length() > bigSize * 0.4) return first;
+    return { id: innerId, point: innerPoint };
+};
+  /** Up in the air: a loose body flying (free and awake, above the bench), or Patch in flight. */
+  const inTheAir = (id: Id): boolean => {
+    const m = world.motion(id);
+    if (m) return m.mode === 'free' && m.awake && m.pose.p[1] > world.scene.bench.top + 0.6;
+    const v = world.crewView(id) as { view?: { state?: string } } | undefined;
+    return v?.view?.state === 'fly';
+  };
+  const fwd = new Vector3();
   const surface = createSurface({
     world: () => world,
     ray: toRay,
     pick(r, kind: PointerKind, exclude, holding = null) {
-      pickRay.origin.set(r.origin[0], r.origin[1], r.origin[2]);
-      pickRay.direction.set(r.dir[0], r.dir[1], r.dir[2]);
-      const minPx = kind === 'mouse' ? hitPx.mouse : hitPx.touch;
+      const chosen = pickAt(r, kind, exclude, holding);
+      // a thing in the air is taken when it is in front of what was picked along the ray (a juggled crate before the
+      // lamp's shade, Patch flying past the switchboard): pressed on as it passes, it is what the hand meant
       const filter = filters[holding ?? 'none'];
-      const hit = picking.pick(pickRay, { exclude, minPx, filter });
-      if (!hit) return null;
-      const first = { id: hit.id, point: [hit.point.x, hit.point.y, hit.point.z] as Vec3 };
-      if (hit.grown) return first;
-      // a small thing inside a big thing's proxy wins (the plug under the lamp's arm, the phone by the Button's console):
-      // the next true hit along the ray, if it lies within the first's box and is much smaller
-      // a box is coarser than what it stands for: when the ray passes through a robot's box but misses the robot
-      // itself (beside its arm, over its head) and something behind is truly under the point, that is what the
-      // visitor sees and presses (the phone beside Fetch rolling past). Tested against the drawn meshes, only
-      // when two proxies overlap on the ray.
-      // (up to three deep: Fetch carrying a crate, both in front of the phone)
-      skipped.clear();
-      let front: { id: Id; point: Vec3 } = first;
-      for (let depth = 0; depth < 3; depth++) {
-        skipped.add(front.id);
-        const behind = picking.pick(pickRay, { exclude, filter: (id) => !skipped.has(id) && filter(id) });
-        if (!behind || behind.grown || !missesDrawn(front.id)) break;
-        front = { id: behind.id, point: [behind.point.x, behind.point.y, behind.point.z] };
-      }
-      if (front !== first) return front;
-      const big = picking.worldBox(first.id, box3);
-      if (!big) return first;
-      const bigSize = big.getSize(corner).length();
-      const inner = picking.pick(pickRay, { exclude, minPx, filter: (id) => id !== first.id && filter(id) });
-      if (!inner) return first;
-      const innerId = inner.id;
-      const innerPoint: Vec3 = [inner.point.x, inner.point.y, inner.point.z];
-      const small = picking.worldBox(innerId, box3b);
-      if (!small || !big.containsPoint(small.getCenter(corner)) || small.getSize(corner).length() > bigSize * 0.4) return first;
-      return { id: innerId, point: innerPoint };
+      const air = picking.pick(pickRay, { exclude, minPx: kind === 'mouse' ? hitPx.mouse : hitPx.touch, filter: (id) => filter(id) && inTheAir(id) });
+      if (!air || air.id === chosen?.id) return chosen;
+      const behind = chosen ? Math.hypot(chosen.point[0] - r.origin[0], chosen.point[1] - r.origin[1], chosen.point[2] - r.origin[2]) : Infinity;
+      return air.distance < behind ? { id: air.id, point: [air.point.x, air.point.y, air.point.z] } : chosen;
     },
     half(id) {
       const b = picking.localBox(id);
@@ -427,6 +445,10 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       const s = stage.camera.worldToScreen(upp.set(p[0], p[1], p[2]));
       if (s.z > 1) return null;
       return [((s.x + 1) / 2) * (canvas.clientWidth || 1), ((1 - s.y) / 2) * (canvas.clientHeight || 1)];
+    },
+    forward: () => {
+      const d = stage.camera.camera.getWorldDirection(fwd);
+      return [d.x, d.y, d.z];
     },
     panels: () => panelIds,
     hidden: () => (hasPhone ? lineSet : noIds),

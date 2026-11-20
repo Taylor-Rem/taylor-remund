@@ -847,9 +847,11 @@ export class Gestures {
 
   private take(id: Id, role: HeldKind, point: Vec3, s: Sample, keys = false): void {
     this.holding = { id, what: role, tap: false, key: null };
+    const grip = role === 'plug' ? point : (this.world.gripFor?.(id, role, point) ?? point);
     if (role === 'plug') this.intent({ type: 'unplug', cord: id }, s.t);
-    else this.intent({ type: 'grab', id, grip: this.world.gripFor?.(id, role, point) ?? point }, s.t);
-    this.world.beginCarry(id, role, point, s.t);
+    else this.intent({ type: 'grab', id, grip }, s.t);
+    // (R5) the carry starts from the grip the world was given (a thing caught in the air: at its middle's depth)
+    this.world.beginCarry(id, role, grip, s.t);
     this.vel.reset();
     this.velFacing.reset();
     if (!keys) {
