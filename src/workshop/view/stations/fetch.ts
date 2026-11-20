@@ -321,9 +321,27 @@ export class FetchPerformer {
     if (i.teleport && grounded && !this.lastQ.equals(Q)) {
       // righting itself after being put down: swing up from where it lay
       this.rightFrom.copy(this.lastQ).multiply(Q.clone().invert());
+      this.rightFromPos.copy(this.lastRootPos);
+      this.rightDur = 0.32;
+      this.rightHoldUntil = -Infinity;
       this.righting = 1;
       this.squash.kick(-3.2);
+    } else if (grounded && this.lastMode === 'free' && new Vector3(0, 1, 0).applyQuaternion(this.lastQ).y < 0.8) {
+      // R4: thrown, it lay on its side or back and the simulation has it up again: it lies there a beat, dazed,
+      // then pushes itself up with the arm it lies on (the simulation's heading untouched: the view draws the getting up)
+      this.yaw.set(m.heading);
+      const qNow = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), m.heading + this.bodyTurn.x);
+      this.rightFrom.copy(this.lastQ).multiply(qNow.invert());
+      this.rightFromPos.copy(this.lastRootPos);
+      this.rightDur = i.reducedMotion ? 0.3 : 0.55;
+      this.rightHoldUntil = i.time + (i.reducedMotion ? 0 : 0.35);
+      this.righting = 1;
+      this.dazedAt = i.time;
+      // the side it lies on: world down in its own frame
+      const down = new Vector3(0, -1, 0).applyQuaternion(this.lastQ.clone().invert());
+      this.pushLeft = down.x > 0;
     }
+    this.lastMode = i.mode;
     if (grounded) {
       this.yaw.step(m.heading, db);
     } else {
@@ -847,6 +865,9 @@ export class FetchPerformer {
       else if (jet.phase === 'ignite' || jet.phase === 'rise') look = visitor;
       else look = new Vector3(jet.to[0], jet.to[1] - 0.3, jet.to[2]);
     } else if (grounded && i.time - this.cutAt > 0.6 && i.time - this.cutAt < 2.4) {
+      // down again: a shrug at the visitor ("well, that happened")
+      const sc = i.time - this.cutAt;
+      arms = mixArms(arms, PRESETS.shrug, smoothstep(0.6, 0.85, sc) * (1 - smoothstep(1.6, 1.95, sc)));
       look = visitor;
       brow = Math.min(brow, -0.4);
       lids = [0, Math.max(lids[1], 0.45)];
@@ -1115,10 +1136,38 @@ export class FetchPerformer {
       pose.aerial = [(pose.aerial?.[0] ?? 0) + 0.3 * Math.abs(sh), (pose.aerial?.[1] ?? 0) + 0.9 * sh];
       pose.lids = [Math.max(pose.lids?.[0] ?? 0, 0.7 * Math.abs(sh)), Math.max(pose.lids?.[1] ?? 0, 0.5 * Math.abs(sh))];
     }
+    // R4: thrown, in the air: the eye wide (the flail's arms are the held beat's, loose)
+    if (act === 'held' && loose) {
+      pose.eyeScale = 1.35;
+      pose.brow = -1;
+    }
+    // R4: on its side after a throw, dazed (half lids, the pupil wandering round), then the push up with an arm
+    if (grounded && this.righting > 0 && i.time - this.dazedAt < 2) {
+      const dz = i.time - this.dazedAt;
+      if (i.time < this.rightHoldUntil) {
+        pose.lids = [0.55, 0.45];
+        pose.gaze = rm ? [0, -0.3] : [0.55 * Math.cos(dz * 9), 0.45 * Math.sin(dz * 9)];
+        pose.pupilSize = 0.8;
+        pose.brow = 0.35;
+      } else {
+        const u = 1 - this.righting;
+        const push = { ...BALANCE.left, swing: -0.5 + 0.4 * u, abduct: 1.55, elbow: 0.15 + 0.6 * u, grip: 0.9 };
+        const out = { ...BALANCE.right, abduct: 1.2 };
+        pose.arms = this.pushLeft ? { left: push, right: out } : { left: { ...out }, right: { ...push } };
+        pose.lids = [0.3 * (1 - u), 0.25];
+        pose.brow = 0.2 - 0.6 * u;
+      }
+    }
     // the jetpack's flight (S5): the whole pose but the head's aim, while it flies
     if (jet) {
       const jp = jetpackBeat({ phase: jet.phase, phaseTime: jet.phaseTime, phaseLength: jet.phaseLength, thrust: jet.thrust, sinceIgnite: i.time - this.ignitedAt, sinceCut: i.time - this.cutAt, t: st, reducedMotion: rm });
       pose = { ...pose, ...jp, headYaw: pose.headYaw ?? 0, headPitch: pose.headPitch ?? 0, headRoll: pose.headRoll ?? 0, gaze: pose.gaze ?? [0, 0], wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 };
+      // R4: a hop that starts standing (off a stack, a tray, a wedge), not from below the edge: a crouch first
+      if (this.jetFirst === null) this.jetFirst = jet.phase;
+      if (this.jetFirst !== 'fall' && jet.phase === 'ignite' && !rm) {
+        const c = jet.phaseTime / Math.max(0.05, jet.phaseLength);
+        pose.squash = c < 0.55 ? 0.8 * Math.sin((Math.PI / 2) * (c / 0.55)) : -0.45;
+      }
       // one puff ball left behind in the air where the jets lit, for its half second (pinned in the world:
       // the root's frame is the body's, so the point is taken into it each frame)
       const si = i.time - this.ignitedAt;
@@ -1128,7 +1177,8 @@ export class FetchPerformer {
         pose.puffLeftAt = [(dx * Math.cos(a) - dz * Math.sin(a)) / k, dy / k, (dx * Math.sin(a) + dz * Math.cos(a)) / k];
         pose.puffLeft = rm ? 0 : 1.6 * smoothstep(0, 0.1, si) * (1 - smoothstep(0.3, 0.7, si)) + 0.4 * smoothstep(0.1, 0.6, si) * (1 - smoothstep(0.45, 0.7, si));
       }
-    } else if (i.time - this.cutAt < 0.6) {
+    } else if (act !== 'jetpack' && this.jetFirst !== null && i.time - this.cutAt > 0.5) this.jetFirst = null;
+    if (!jet && i.time - this.cutAt < 0.6) {
       // the cut's puff thins away after it has landed
       const s = i.time - this.cutAt;
       pose = { ...pose, puff: smoothstep(0, 0.08, s) * (1 - smoothstep(0.18, 0.55, s)) };
@@ -1219,9 +1269,22 @@ export class FetchPerformer {
       const pos = new Vector3(P.x, P.y - i.half[1], P.z).addScaledVector(fwd, shuffle);
       let q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw + this.bodyTurn.x);
       if (this.righting > 0) {
-        this.righting = Math.max(0, this.righting - db / 0.32);
+        if (i.time >= this.rightHoldUntil) {
+          this.righting = Math.max(0, this.righting - db / this.rightDur);
+          // up: a little bounce on the spring
+          if (this.righting === 0 && i.time - this.dazedAt < 2 && !rm) this.squash.kick(-3);
+        }
         const k = this.righting * this.righting * (3 - 2 * this.righting);
+        // turned about the body's middle (not its tyre's foot, which would sweep the torso through the bench),
+        // the middle carried from where it lay to where it stands, a little up on the way
+        const qUp = q.clone();
         q = new Quaternion().slerp(this.rightFrom, k).multiply(q);
+        const mid = new Vector3(0, i.half[1], 0);
+        const cUp = pos.clone().add(mid.clone().applyQuaternion(qUp));
+        const cLay = this.rightFromPos.clone().add(mid.clone().applyQuaternion(this.rightFrom.clone().multiply(qUp)));
+        const c = cUp.lerp(cLay, k);
+        c.y += 0.12 * Math.sin(Math.PI * k);
+        pos.copy(c.sub(mid.applyQuaternion(q)));
       }
       root.compose(pos, q, new Vector3(1, 1, 1));
     } else {
@@ -1251,6 +1314,7 @@ export class FetchPerformer {
       root.compose(pos, q, new Vector3(1, 1, 1));
     }
     if (grounded) this.twist.set(0);
+    this.lastRootPos.setFromMatrixPosition(root);
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
 
     // contact shadow: under the tyre where the pose puts it (a lean, a hop), fading as it leaves the bench
@@ -1342,6 +1406,16 @@ export class FetchPerformer {
   private joltAt = -Infinity;
   private homeAt = -Infinity;
   private uprightW = 0;
+  /** R4: thrown and righting itself: when it lay down dazed, how long it stays down, how long the push up takes. */
+  private lastMode: string | null = null;
+  private lastRootPos = new Vector3();
+  private rightFromPos = new Vector3();
+  private rightDur = 0.32;
+  private rightHoldUntil = -Infinity;
+  private dazedAt = -Infinity;
+  private pushLeft = true;
+  /** The jetpack's first phase this flight: 'fall' from below the edge, 'ignite' a hop that started standing. */
+  private jetFirst: string | null = null;
   private cumF = 0;
   private cumS = 0;
   private lastShuffle = 0;
