@@ -32,8 +32,7 @@
  * A drag that starts on something usable never pans. The keyboard column
  * (Tab, Enter/Space, arrows, U, Esc) is `key()` below.
  */
-import type { Id, Intent, Vec3 } from '../sim/types.ts';
-import { VelocityTracker } from './velocity.ts';
+import type { Id, Intent, Lens, Vec3 } from '../sim/types.ts';
 
 export type PointerKind = 'mouse' | 'touch' | 'pen';
 
@@ -104,17 +103,10 @@ export interface GestureWorld {
   /** What `id` is to a hand (keyboard focus has no pointer to ask `at` with). */
   role?(id: Id): Role;
   /**
-   * (R4) Where the hand is, for the throw: the pointer on the surface the carried thing rides (level through where it
-   * took hold, curving up at the back), unrolled into (x, height, s) so the measure is the same everywhere on it.
+   * How the visitor looks at the bench (and what of the carried thing's motion is the carry's own), for the world to
+   * read the throw by. The throw itself is the thing's own motion as it leaves the hand: the world has that.
    */
-  handPoint?(x: number, y: number): Vec3;
-  /** Where the hand is on the plane through where it took hold that faces the camera (for a flick up the screen). */
-  handFacing?(x: number, y: number): Vec3 | null;
-  /**
-   * The throw: the hand's velocity measured in `handPoint`'s terms and on the facing plane (`handFacing`), made one
-   * velocity in the world where it let go.
-   */
-  throwFrom?(v: Vec3, onFacing: Vec3 | null): Vec3;
+  lens?(): Lens | null;
   /** The grip a grab names (default: the point the hand took it at; an arm that aims is taken where it points). */
   gripFor?(id: Id, what: HeldKind, point: Vec3): Vec3;
 }
@@ -150,11 +142,11 @@ export const GESTURE_TUNING = {
   doublePx: 24,
   /** A second finger this soon (ms) after a grab, before it moved, turns the grab into a two-finger pan. */
   secondFingerMs: 220,
-  /** Release velocity is the average over this window (ms). */
-  velocityWindow: 80,
-  /** A throw also lifts a little: upward speed per unit of horizontal speed, and its most. */
-  loft: 0.18,
-  loftMax: 1.6,
+  /**
+   * A press on a part let go again within this long (ms) without moving keeps it in hand (tap-then-tap); held still
+   * longer and let go, it is set down where it is (a thing caught in the air and let go is dropped, not kept).
+   */
+  tapMs: 350,
   /** Wheel: distance factor per pixel of deltaY. */
   wheel: 0.0015,
   /** Keys + and −. */
@@ -243,9 +235,6 @@ export class Gestures {
   private readonly ptrs = new Map<number, Ptr>();
   private active: Active | null = null;
   private holding: Holding | null = null;
-  private readonly vel = new VelocityTracker();
-  /** The same hand on the plane facing the camera (a flick up the screen is read there). */
-  private readonly velFacing = new VelocityTracker();
   private out: Command[] = [];
   private hovered: Id | null = null;
   private cursor: Cursor = 'default';
@@ -352,8 +341,6 @@ export class Gestures {
       if (onHeld && !this.world.bracketed) {
         this.active = { k: 'carry', p: s.id, moved: false, fresh: false };
         h.tap = false;
-        this.vel.reset();
-        this.velFacing.reset();
         this.sampleCarry(s.x, s.y, s.t);
         this.setCursor('grabbing');
         return;
@@ -461,14 +448,14 @@ export class Gestures {
         this.active = null;
         const h = this.holding;
         if (!h) return;
-        if (!a.moved && a.fresh) {
+        if (!a.moved && a.fresh && s.t - p.t0 <= this.tuning.tapMs) {
           // a click or tap on a part: it stays in hand (tap-then-tap)
           h.tap = true;
           this.noteTap(s, h.id);
           if (s.kind === 'mouse') this.sampleCarry(s.x, s.y, s.t);
           return;
         }
-        if (!a.moved) {
+        if (!a.moved && !a.fresh) {
           // pressed the tap-held thing again without moving: set it down here
           this.place(s.x, s.y, s.kind, s.t);
           this.noteTap(s, h.id);
@@ -643,14 +630,14 @@ export class Gestures {
     const a = this.active;
     if (a?.k === 'carry') {
       const p = this.ptrs.get(a.p);
-      if (p) this.sampleCarry(p.x, p.y, t, false);
+      if (p) this.sampleCarry(p.x, p.y, t);
       return;
     }
     if (this.holding?.key) {
       this.intent({ type: 'carry', target: this.holding.key.at }, t);
       return;
     }
-    if (this.holding?.tap && this.mouse) this.sampleCarry(this.mouse.x, this.mouse.y, t, false);
+    if (this.holding?.tap && this.mouse) this.sampleCarry(this.mouse.x, this.mouse.y, t);
     if (!a && this.mouse) this.updateHover(t);
   }
 
@@ -852,8 +839,6 @@ export class Gestures {
     else this.intent({ type: 'grab', id, grip }, s.t);
     // (R5) the carry starts from the grip the world was given (a thing caught in the air: at its middle's depth)
     this.world.beginCarry(id, role, grip, s.t);
-    this.vel.reset();
-    this.velFacing.reset();
     if (!keys) {
       this.sampleCarry(s.x, s.y, s.t);
       this.setHover(null, s.t);
@@ -861,21 +846,10 @@ export class Gestures {
     this.setCursor('grabbing');
   }
 
-  /**
-   * Re-aim the carried thing at the pointer. (R4) Only a pointer event is a sample of the hand for the throw: a
-   * frame re-aiming at a pointer that has not reported is not the hand stopping. The hand is measured on a level
-   * plane through where it took hold (`handPoint`), not on the carry target, whose height eases over what is
-   * under it (that rise is the carry's, not the hand's).
-   */
-  private sampleCarry(x: number, y: number, t: number, fromEvent = true): void {
+  /** Re-aim the carried thing at the pointer. */
+  private sampleCarry(x: number, y: number, t: number): void {
     if (!this.holding) return;
-    const target = this.world.carryTarget(x, y, t);
-    if (fromEvent) {
-      this.vel.add(t, this.world.handPoint?.(x, y) ?? target);
-      const f = this.world.handFacing?.(x, y);
-      if (f) this.velFacing.add(t, f);
-    }
-    this.intent({ type: 'carry', target }, t);
+    this.intent({ type: 'carry', target: this.world.carryTarget(x, y, t) }, t);
   }
 
   /** The jack the plug would go into at x, y: the nearest within reach (the world's answer), else the one under the pointer. */
@@ -891,25 +865,12 @@ export class Gestures {
     if (h.what === 'plug') {
       this.intent({ type: 'plug', cord: h.id, jack: this.jackAt(s.x, s.y, s.kind, h.id) }, s.t);
     } else {
-      // (R4) a unit (Patch, the lamp's shade) is thrown like a part: what it does with the hand's velocity is its own
-      this.intent({ type: 'release', velocity: this.throwVelocity(s.t) }, s.t);
+      // the throw is the thing's own motion as it leaves the hand (a part's body; a unit goes where the hand goes):
+      // the world reads it, as the visitor saw it (`lens`)
+      const lens = this.world.lens?.() ?? null;
+      this.intent(lens ? { type: 'release', lens } : { type: 'release' }, s.t);
     }
     this.endHold(s.t);
-  }
-
-  /**
-   * The hand's velocity at release. A flick up the screen goes up (read on the plane facing the camera); a level or
-   * downward one is read on the surface and gets a little loft so it arcs, where it has no real upward part of its own.
-   */
-  throwVelocity(t: number): Vec3 {
-    // (R4) what the hand was doing when it threw, not the average of its last moments
-    const v0 = this.vel.throw(t);
-    const f = this.velFacing.count > 0 ? this.velFacing.throw(t) : null;
-    const v = this.world.throwFrom?.(v0, f) ?? v0;
-    const hs = Math.hypot(v[0], v[2]);
-    const loft = Math.min(this.tuning.loftMax, hs * this.tuning.loft);
-    if (v[1] >= loft) return v;
-    return [v[0], v[1] < 0 ? v[1] + loft : loft, v[2]];
   }
 
   /** Let go where it is, throwing nothing (Esc, a cancelled pointer, a grab that became a pinch). */
@@ -936,8 +897,6 @@ export class Gestures {
   private endHold(t: number): void {
     this.holding = null;
     this.world.endCarry();
-    this.vel.reset();
-    this.velFacing.reset();
     this.setCursor('default');
     if (this.mouse) this.updateHover(t);
     else this.setHover(this.focus, t);

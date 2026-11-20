@@ -110,6 +110,10 @@ export interface SimContext {
   launch(id: Id, pose: Pose, linvel: Vec3, angvel: Vec3, cause: Cause | null): void;
   /** Give a free part a change of velocity (the Button's shove). */
   shove(id: Id, dv: Vec3): void;
+  /** A loose part's velocity now (units/s), or undefined if it is not in the world. */
+  velocity(id: Id): { readonly linvel: Vec3; readonly angvel: Vec3 } | undefined;
+  /** A crew member's own body, free: how much of gravity it feels (1 as any part; less for a moment, to hang in the air). */
+  buoy(id: Id, gravityScale: number): void;
   /** Say which crew member speaks for a part (Fetch for `fetch`). */
   crewFor(part: Id, handle: CrewHandle): void;
 
@@ -155,6 +159,14 @@ export interface Unit {
    * `{ kind: 'unit', id }` meanwhile.
    */
   holds?(id: Id): boolean;
+  /**
+   * A unit that can be held and has a body of its own (`PartSpec.crewBody`): asked as the hand takes hold of `id`
+   * (after its `drag` intent said yes), where that body is now. The world brings the body into the world there and
+   * carries it as it carries a held part (the same weight in the hand, the same contacts); let go, the body is
+   * thrown by its own motion like any part, and the unit's `drag` intent with `end` then finds it `free`. Null: no
+   * body this time (the unit goes where the hand goes, as a unit without one does).
+   */
+  embody?(id: Id): { readonly body: Id; readonly pose: Pose; readonly grip: Vec3 } | null;
   /** An intent addressed to this unit. Return true if it acted (that flips play mode). */
   intent?(intent: Intent): boolean;
   /** Before physics. */

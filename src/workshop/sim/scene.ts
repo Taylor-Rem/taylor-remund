@@ -31,6 +31,16 @@ export interface PartSpec {
    * it on the crate stack when a plain crate ships). Its `pose` is only where its body waits, unseen.
    */
   readonly shipped?: boolean;
+  /**
+   * A crew member's own body (2026-11-20: Patch thrown is a real body while it flies). It is out of the world until
+   * its unit is taken hold of (`Unit.embody`), and stowed again by the unit when the unit's script takes over. It is
+   * nobody's cargo: never offered to a mouth, never sent up the chute by the world (its unit looks after it off the
+   * bench), never touched or committed (where it lies is the unit's business, not the history's), not in the
+   * registry (the visitor takes hold of the unit, not of this).
+   */
+  readonly crewBody?: boolean;
+  /** How it meets things, where the material's own figures are not it (a soft toy: its own bounce and drag). */
+  readonly feel?: { readonly friction?: number; readonly restitution?: number; readonly linearDamping?: number; readonly angularDamping?: number };
 }
 
 export interface StaticSpec {

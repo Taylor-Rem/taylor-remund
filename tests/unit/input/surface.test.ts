@@ -154,42 +154,37 @@ describe('the first action ends attract mode; a hover does not', () => {
   });
 });
 
-describe('surface: a flick up the screen throws up (Taylor, 2026-11-20)', () => {
+describe('surface: the lens (how the visitor looks at the bench, for the world to read a throw by)', () => {
   /** A camera up and in front of the bench, as the home view's. */
   const cam = (x: number, y: number): RayLike => {
     const d = [x / 1000, -0.55 - y / 1000, -1];
     const n = Math.hypot(d[0]!, d[1]!, d[2]!);
     return { origin: [0, 9, 14], dir: [d[0]! / n, d[1]! / n, d[2]! / n] };
   };
-  const carrying = () => {
-    const s = surface(world(), cam);
-    s.beginCarry('crate-1', 'part', [-3, 1, 0.8], 0);
-    return s;
+  const forward = (): [number, number, number] => {
+    const n = Math.hypot(0.55, 1);
+    return [0, -0.55 / n, -1 / n];
   };
+  const seen = () => createSurface({ world, ray: cam, pick: () => null, half: () => null, forward });
 
-  it('a gentle flick up is straight up (juggling: it comes down where it went up)', () => {
-    const v = carrying().throwFrom!([0, 0, -2], [0, 7, 0]);
-    expect(v[1]).toBeCloseTo(7, 6);
-    expect(Math.hypot(v[0], v[2])).toBeLessThan(1e-9);
+  it('away is the way the camera looks, level; the tilt is its slope below level', () => {
+    const l = seen().lens!()!;
+    expect(l.away[0]).toBeCloseTo(0, 9);
+    expect(l.away[1]).toBeCloseTo(-1, 9);
+    expect(l.tilt).toBeCloseTo(0.55, 9);
+    expect(l.drift).toBeUndefined();
   });
 
-  it('a hard flick up leans back the way the camera looks down: up and back, at the wall', () => {
-    const v = carrying().throwFrom!([0, 0, -10], [0, 25, 0]);
-    expect(Math.hypot(v[0], v[1], v[2])).toBeCloseTo(25, 6);
-    expect(v[2]).toBeLessThan(-8);
-    expect(v[1]).toBeGreaterThan(15);
+  it('a surface that does not know the camera has no lens (the world then takes the throw as it is)', () => {
+    expect(surface().lens!()).toBeNull();
   });
 
-  it('a flick down the screen is read on the surface: toward the room, not into the bench', () => {
-    const v = carrying().throwFrom!([1, 0, 9], [1, -6, 0]);
-    expect(v).toEqual([1, 0, 9]);
-  });
-
-  it('the hand on the upright plane through the grip, square to the line of sight across the bench', () => {
-    const s = carrying();
-    const a = s.handFacing!(0, 0)!;
-    const b = s.handFacing!(0, -100)!; // up the screen
-    expect(b[1]).toBeGreaterThan(a[1]);
-    expect(b[2]).toBeCloseTo(a[2], 6);
+  it('while the carry eases over something, its own motion is named as drift; with a still surface there is none', () => {
+    const w = world();
+    const s = createSurface({ world: () => w, ray: cam, pick: () => null, half: () => null, forward });
+    s.beginCarry('crate-3', 'part', w.motion('crate-3')!.pose.p, 0);
+    // held still for a second: the surface has settled
+    for (let t = 16; t <= 1000; t += 16) s.carryTarget(0, 0, t);
+    expect(s.lens!()!.drift).toBeUndefined();
   });
 });

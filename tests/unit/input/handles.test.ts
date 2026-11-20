@@ -303,7 +303,7 @@ describe('the UNDO lever (press): a click pulls it; press and drag down the arc 
 });
 
 describe('holding units, and the plug into the nearest jack', () => {
-  it('a unit that can be held (the lamp, Patch) is grabbed, carried and let go with the hand’s velocity, as a part is (R4)', () => {
+  it('a unit that can be held (the lamp, Patch) is grabbed, carried and let go as a part is (the world reads the throw from where the hand took it)', () => {
     const { drag, acts, intents } = setup();
     const out = drag([
       [300, 100],
@@ -313,12 +313,7 @@ describe('holding units, and the plug into the nearest jack', () => {
     ]);
     const a = acts(out);
     expect(a[0]).toEqual({ type: 'grab', id: 'lamp', grip: [9, 0, 9] }); // where it points (gripFor), not where the hand took it
-    const rel = a[1];
-    expect(rel?.type).toBe('release');
-    if (rel?.type !== 'release') return;
-    const v = rel.velocity;
-    expect(v[0]).toBeGreaterThan(1); // moving right (x px / 100 = world x), down the screen (+z)
-    expect(v[2]).toBeGreaterThan(0.3);
+    expect(a[1]).toEqual({ type: 'release' });
     expect(intents(out).filter((i) => i.type === 'carry').length).toBeGreaterThanOrEqual(3);
   });
 

@@ -3,12 +3,18 @@
  * ray meets a surface, and that point is the `carry` target for the grip.
  *
  * - A loose part (or Fetch, or a unit) rides a surface that is level over the
- *   bench, its bottom a comfortable height (`clearance`) above whatever is
- *   under it, so it rises smoothly over tall things (eased, faster up than
- *   down); near the back it curves up into an upright face in front of the
- *   wall (`surfaceHit`), so raising the pointer further lifts the thing
- *   instead of pushing it into the wall. The grip point stays on the
- *   pointer's ray, i.e. under the cursor, as far as the spring allows.
+ *   bench, its bottom a comfortable height (`clearance`) above whatever it is
+ *   carried over (the bench, or the top of a machine or another part: see
+ *   `levelFor`), eased, faster up than down; near the back it
+ *   curves up into an upright face in front of the wall (`surfaceHit`), so
+ *   raising the pointer further lifts the thing instead of pushing it into
+ *   the wall. A thing taken in the air has that upright face through where it
+ *   was taken, so it is held up there and comes down with the pointer. The
+ *   grip point stays on the pointer's ray, i.e. under the cursor.
+ *   The target is a function of where the pointer is, never of how fast it
+ *   moves: nothing here switches on a speed (2026-11-20: a fast lift used to
+ *   be read as "up" and a slow one as "back", and at the speed between the
+ *   two the hold flickered).
  * - The cord's plug rides a vertical plane just in front of the board, so it
  *   slides over the jacks the way a hand would hold it.
  *
@@ -192,11 +198,22 @@ export function floorUnder(x: number, z: number, hx: number, hz: number, obstacl
 export class CarryPlane {
   readonly tuning: CarryTuning;
   private shape: CarryShape | null = null;
-  /** The plane's current height (part) and its goal. */
+  /** The surface's level now (the grip's height on its level part). */
   private h = 0;
-  /** Taken hold of in the air (its bottom above what is under it by more than the carry's clearance). */
+  /** What it is carried over: the top of what the pointer was last on (the bench's, or a thing's). */
+  private level = 0;
+  /** Taken in the air: the depth (z) its upright face stands at, through where it was taken; null: in front of the wall. */
+  private face: number | null = null;
+  /** Taken hold of in the air (its bottom above what is under it by more than the carry's clearance, or flying). */
   caught = false;
+  /**
+   * The target's motion at the last call that was the surface's own and not the pointer's (its level easing over
+   * what is under it), units/s. A throw is the hand's: this is taken out of it (`Lens.drift`).
+   */
+  drift: Vec3 = [0, 0, 0];
   private lastT = 0;
+  /** Where the hold was at the last call (a new level is chosen nearest to it). */
+  private last: Vec3 | null = null;
   private readonly p: [number, number, number] = [0, 0, 0];
 
   private readonly bench: BenchBounds;
@@ -214,29 +231,52 @@ export class CarryPlane {
     return this.h;
   }
 
-  /** Start carrying: `floor` is the top of whatever the part sits on now (its bottom, when resting). */
-  begin(shape: CarryShape, grip: Vec3, t: number, obstacles: Iterable<Obstacle>): void {
+  /** Where the upright face stands now (z): where it was taken in the air, else in front of the wall. */
+  get faceDepth(): number {
+    return this.face ?? this.homeFace();
+  }
+
+  private homeFace(): number {
+    const s = this.shape;
+    const halfZ = s?.kind === 'part' ? s.halfZ : 0.2;
+    return Math.max(this.tuning.backLine + halfZ + this.tuning.footprintPad, this.bench.minZ + halfZ);
+  }
+
+  /**
+   * Start carrying: `grip` is where it was taken (world). `flying`: it was in the air and moving (the world says).
+   * Taken from where it rests, it lifts to the carrying height over what it sits on. Taken in the air it is held
+   * where it was taken: well up, on an upright face through that point (it comes down with the pointer and goes up
+   * with it, at that depth); only a little up, on a level that starts at the grip and eases down to the carry's.
+   */
+  begin(shape: CarryShape, grip: Vec3, t: number, obstacles: Iterable<Obstacle>, flying = false): void {
     this.shape = shape;
     this.lastT = t;
+    this.face = null;
+    this.drift = [0, 0, 0];
+    this.last = grip;
     if (shape.kind === 'part') {
+      const T = this.tuning;
       // the plane starts where the lift takes the grip: its bottom `clearance` above what is under it now
       const bottom = grip[1] - shape.gripAboveBottom;
-      const under = floorUnder(grip[0], grip[2], shape.halfX + this.tuning.footprintPad, shape.halfZ + this.tuning.footprintPad, obstacles, this.bench.top, bottom + BELOW_SLACK);
-      const carried = Math.min(Math.max(bottom, under), under + 0.05) + this.tuning.clearance + shape.gripAboveBottom;
-      // caught in the air: the surface starts where it was caught (the grip on the pointer's ray, no jump) and eases
-      // down to the carrying height from there
-      this.caught = bottom > under + this.tuning.clearance;
-      this.h = this.caught ? Math.max(grip[1], carried) : carried;
+      const under = floorUnder(grip[0], grip[2], shape.halfX + T.footprintPad, shape.halfZ + T.footprintPad, obstacles, this.bench.top, bottom + BELOW_SLACK);
+      const carried = Math.min(Math.max(bottom, under), under + 0.05) + T.clearance + shape.gripAboveBottom;
+      this.level = under;
+      this.caught = flying || bottom > under + T.clearance;
+      if (this.caught && grip[1] >= carried + T.fillet && grip[2] > this.homeFace()) {
+        this.h = carried;
+        this.face = grip[2];
+      } else this.h = this.caught ? Math.max(grip[1], carried) : carried;
     } else this.caught = false;
   }
 
   end(): void {
     this.shape = null;
+    this.face = null;
+    this.drift = [0, 0, 0];
   }
 
   /**
-   * The target for the pointer ray at time `t` (ms). Eases the plane's
-   * height by the time since the last call.
+   * The target for the pointer ray at time `t` (ms). Eases the surface's level by the time since the last call.
    */
   target(ray: RayLike, t: number, obstacles: Iterable<Obstacle>): Vec3 {
     const s = this.shape;
@@ -249,49 +289,95 @@ export class CarryPlane {
       const p = rayAtDepth(ray, s.jackZ + T.plugStandoff, this.p);
       return [clamp(p[0], b.minX, b.maxX), clamp(p[1], b.top + T.plugFloor, b.ceiling), p[2]];
     }
-    // What the part must clear. Each obstacle is tested at the height the part would ride over
-    // it: is the pointer ray, at that height, over its footprint? Testing at the plane's current
-    // height instead would feed back (rising moves the ray's point toward the camera, off the
-    // obstacle, and the plane would fall again).
     const lift = T.clearance + s.gripAboveBottom;
-    let goal = b.top + lift;
-    const hx = s.halfX + T.footprintPad;
-    const hz = s.halfZ + T.footprintPad;
-    // where the part is heading now, on the surface at its current height: whatever it is already above stays under it
-    const now = this.hit(ray, this.h).p;
-    const nx = clamp(now[0], b.minX - T.margin, b.maxX + T.margin);
-    const nz = clamp(now[2], b.minZ + s.halfZ, b.maxZ + T.margin);
-    const bottomNow = this.h - s.gripAboveBottom;
-    for (const o of obstacles) {
-      const hc = o.top + lift;
-      if (hc <= goal) continue;
-      if (o.top <= bottomNow + BELOW_SLACK && !(o.maxX < nx - hx || o.minX > nx + hx || o.maxZ < nz - hz || o.minZ > nz + hz)) {
-        goal = hc;
-        continue;
-      }
-      // (the surface's level at hc: an obstacle under the upright face, the storefront say, lifts the whole profile)
-      const q = this.hit(ray, hc).p;
-      const x = clamp(q[0], b.minX - T.margin, b.maxX + T.margin);
-      const z = clamp(q[2], b.minZ + s.halfZ, b.maxZ + T.margin);
-      if (o.maxX < x - hx || o.minX > x + hx || o.maxZ < z - hz || o.minZ > z + hz) continue;
-      goal = hc;
-    }
-    goal = Math.min(b.ceiling, goal);
+    const all = Array.isArray(obstacles) ? (obstacles as Obstacle[]) : [...obstacles];
+    this.level = this.levelFor(ray, all, lift, s.halfX + T.footprintPad, s.halfZ + T.footprintPad, s.halfZ);
+    const goal = Math.min(b.ceiling, this.level + lift);
+    const h0 = this.h;
     const rate = goal > this.h ? T.rise : T.fall;
     this.h += (goal - this.h) * (1 - Math.exp(-rate * dt));
-    const p = this.hit(ray, this.h).p;
-    return [clamp(p[0], b.minX - T.margin, b.maxX + T.margin), p[1], clamp(p[2], b.minZ + s.halfZ, b.maxZ + T.margin)];
+    const hit = this.hit(ray, this.h);
+    const p = this.inBounds(hit.p, s.halfZ);
+    // what of that was the surface's own doing: the same pointer on the surface as it was a moment ago
+    if (dt > 1e-4 && h0 !== this.h) {
+      const was = this.inBounds(this.hit(ray, h0).p, s.halfZ);
+      this.drift = [(p[0] - was[0]) / dt, (p[1] - was[1]) / dt, (p[2] - was[2]) / dt];
+    } else if (dt > 1e-4) this.drift = [0, 0, 0];
+    // taken in the air and now brought down onto the level: the upright face is in front of the wall again (the
+    // level part only grows behind the hold, so the hold does not move by it)
+    if (this.face !== null && hit.theta === 0) this.face = null;
+    this.last = p;
+    return p;
+  }
+
+  private inBounds(p: readonly [number, number, number], halfZ: number): Vec3 {
+    const b = this.bench, m = this.tuning.margin;
+    return [clamp(p[0], b.minX - m, b.maxX + m), p[1], clamp(p[2], b.minZ + halfZ, b.maxZ + m)];
   }
 
   /**
-   * The carried part's surface with its level at `h`: level over the bench, curving up near the back so the part's
-   * back face never passes `backLine`, up to `top` (or the scene's ceiling). (For a plug: its own plane.)
+   * The level the thing is carried over for this pointer (the bench's top, or the top of a machine or a part).
+   * A level MAKES SENSE for a pointer when the thing, carried at it, would stand over something of just that height
+   * and into nothing taller. Where the pointer passes above a machine's image, two levels make sense at once: on the
+   * bench behind the machine, and over the machine. So the rule is continuity: it stays at the level it has while
+   * that makes sense; when it stops making sense (it would run into something, or has left the top it was over) it
+   * takes the level that makes sense nearest to where it is; and where none does (in front of a thing too tall to
+   * be over yet) it is carried clear, at the lowest level that runs into nothing. (Until 2026-11-20 it took the
+   * highest level whose machine it would be over, so a thing carried along the bench BEHIND the console was pulled
+   * a unit and a half toward the visitor and up onto it, and every machine it passed above made it hop.)
+   */
+  private levelFor(ray: RayLike, obstacles: readonly Obstacle[], lift: number, hx: number, hz: number, halfZ: number): number {
+    const b = this.bench;
+    const probe = (level: number): { q: Vec3; clear: boolean; over: boolean } => {
+      const q = this.inBounds(this.hit(ray, level + lift).p, halfZ);
+      let clear = true;
+      let support = b.top;
+      for (const o of obstacles) {
+        if (o.top <= b.top || !overlaps(o, q[0], q[2], hx, hz)) continue; // (the bench itself, and what is under it)
+        if (o.top <= level + BELOW_SLACK) support = Math.max(support, o.top);
+        // (taller, and not something hanging well above the carried thing: it would run into it)
+        else if (o.bottom < level + lift + ABOVE_SLACK) clear = false;
+      }
+      // (over something of just that height: what is under it there stands as high as the level, no lower)
+      return { q, clear, over: clear && Math.abs(support - level) <= BELOW_SLACK };
+    };
+    const cur = probe(this.level);
+    if (cur.over) return this.level;
+    // On its way over a thing, or off it: it keeps that thing's level while the pointer still has to do with the
+    // thing, i.e. while the ray, between where it would hold the part on the bench and where it holds it over the
+    // thing, passes over the thing. (Going up the screen onto a tall crate the part first hangs in front of it, at
+    // its height; without this it dropped behind the crate as soon as the bench there was free.)
+    if (cur.clear && this.level > b.top + BELOW_SLACK) {
+      const a = this.inBounds(this.hit(ray, b.top + lift).p, halfZ);
+      for (const o of obstacles) if (Math.abs(o.top - this.level) <= BELOW_SLACK && segmentOver(o, a[0], a[2], cur.q[0], cur.q[2], hx, hz)) return this.level;
+    }
+    const levels = [b.top];
+    for (const o of obstacles) if (o.top > b.top && !levels.some((l) => Math.abs(l - o.top) < 1e-6)) levels.push(o.top);
+    levels.sort((x, y) => x - y);
+    const here = this.last;
+    let best: number | null = null;
+    let bestD = Infinity;
+    let lowestClear: number | null = null;
+    for (const l of levels) {
+      const pr = probe(l);
+      if (pr.clear && lowestClear === null) lowestClear = l;
+      if (!pr.over) continue;
+      const d = here ? Math.hypot(pr.q[0] - here[0], pr.q[1] - here[1], pr.q[2] - here[2]) : l;
+      if (d < bestD) {
+        bestD = d;
+        best = l;
+      }
+    }
+    return best ?? lowestClear ?? (levels[levels.length - 1] as number);
+  }
+
+  /**
+   * The carried part's surface with its level at `h`: level over the bench, curving up into an upright face (in
+   * front of the wall, or through where the part was taken in the air), up to `top` (or the scene's ceiling).
    */
   hit(ray: RayLike, h: number): SurfaceHit {
-    const s = this.shape;
     const T = this.tuning;
-    const halfZ = s?.kind === 'part' ? s.halfZ : 0.2;
-    const zv = Math.max(T.backLine + halfZ + T.footprintPad, this.bench.minZ + halfZ);
+    const zv = this.faceDepth;
     const top = Math.max(h + T.fillet, Math.min(T.top, this.bench.ceiling));
     return surfaceHit(ray, h, zv + T.fillet, T.fillet, top);
   }
@@ -315,129 +401,25 @@ export class CarryPlane {
   }
 }
 
+const overlaps = (o: Obstacle, x: number, z: number, hx: number, hz: number): boolean => !(o.maxX < x - hx || o.minX > x + hx || o.maxZ < z - hz || o.minZ > z + hz);
+
+/** Does the level segment (x0, z0)-(x1, z1) pass over an obstacle's footprint, grown by (hx, hz)? */
+function segmentOver(o: Obstacle, x0: number, z0: number, x1: number, z1: number, hx: number, hz: number): boolean {
+  let t0 = 0, t1 = 1;
+  const clip = (p: number, d: number, lo: number, hi: number): boolean => {
+    if (Math.abs(d) < 1e-12) return p >= lo && p <= hi;
+    let a = (lo - p) / d, b = (hi - p) / d;
+    if (a > b) [a, b] = [b, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, b);
+    return t0 <= t1;
+  };
+  return clip(x0, x1 - x0, o.minX - hx, o.maxX + hx) && clip(z0, z1 - z0, o.minZ - hz, o.maxZ + hz);
+}
+
 /** Obstacles starting this far above the carried part's bottom still count as under it (they are beside it). */
 const BELOW_SLACK = 0.05;
+/** An obstacle whose bottom is this far above the carried grip's height hangs over the carried part, not in its way. */
+const ABOVE_SLACK = 1.0;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
-
-/**
- * Tune here: holding a thing up (Taylor, 2026-11-20: juggling). While the pointer goes up the screen fast, or while
- * a thing caught in the air is still held up, the hold rises on an upright plane through the thing, facing the room
- * (its depth fixed, as a flick up is read), instead of sliding back along the carry surface; when the
- * pointer slows, stops, or goes down or sideways, it eases back onto the surface. `speed` px/s up the screen (and
- * `ratio` times its sideways speed), over at least `reach` px in the window, is fast; the blend rises with time constant `rise` s and falls with `fall` s;
- * the pointer's speed is taken over its last `window` ms, and a pointer that has not moved for `still` ms is still;
- * a lift up the screen longer than `flick` ms is a carry toward the back, not a flick, and goes back onto the surface.
- */
-/**
- * Where the pointer's ray holds a thing up from `anchor`: at the anchor's depth (z fixed, so juggling stays put), its
- * height where the ray crosses that depth, and its x where the ray crosses the plane through the anchor square to the
- * camera's axis (so straight up the screen is straight up in the world, not drifting toward the middle of the view as
- * it would on the depth plane alone). Null for a ray along the depth plane.
- */
-export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null): Vec3 | null {
-  const [ox, oy, oz] = ray.origin;
-  const [dx, dy, dz] = ray.dir;
-  if (Math.abs(dz) < 1e-6) return null;
-  const kz = (anchor[2] - oz) / dz;
-  const y = oy + dy * kz;
-  // the plane through the anchor square to the camera's axis (where the screen's columns are world columns: a
-  // camera that does not roll keeps x along a column of pixels); without the axis, square to the line of sight
-  const lx = anchor[0] - ox, ly = anchor[1] - oy, lz = anchor[2] - oz;
-  const f = forward ?? [lx, ly, lz];
-  const dn = dx * f[0] + dy * f[1] + dz * f[2];
-  const x = Math.abs(dn) > 1e-9 ? ox + dx * ((lx * f[0] + ly * f[1] + lz * f[2]) / dn) : ox + dx * kz;
-  return [x, y, anchor[2]];
-}
-
-export const UP_HOLD = { speed: 300, reach: 5, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
-
-export class UpHold {
-  private readonly hist: { t: number; x: number; y: number }[] = [];
-  private w = 0;
-  private lastT = 0;
-  private anchor: Vec3 | null = null;
-  private airborne = false;
-  private upSince: number | null = null;
-  /** When the hold began (the press): samples from before it are not the hand's. */
-  private since = -Infinity;
-  private out: Vec3 | null = null;
-
-  /** Start a hold: `caught` a thing taken in the air at `grip` (held up where it was taken). */
-  begin(t: number, grip: Vec3, caught: boolean): void {
-    this.hist.length = 0;
-    this.upSince = null;
-    this.since = t;
-    this.lastT = t;
-    this.airborne = caught;
-    this.w = caught ? 1 : 0;
-    this.anchor = caught ? grip : null;
-    this.out = null;
-  }
-
-  /** Where the hold up is anchored while it is up (null on the surface). */
-  get anchored(): Vec3 | null {
-    return this.anchor;
-  }
-
-  /** How much of the hold is on the upright plane now (0 on the surface, 1 up). */
-  get blend(): number {
-    return this.w;
-  }
-
-  /** The hold for the pointer at (x, y) at time t: `onSurface` is the carry surface's point on the same ray. */
-  target(ray: RayLike, x: number, y: number, t: number, onSurface: Vec3, top: number, forward: Vec3 | null = null): Vec3 {
-    const T = UP_HOLD;
-    const last = this.hist[this.hist.length - 1];
-    // the hand's history starts at the press: nothing from before it counts as movement of the hold (a frame's time
-    // can be a little before the press's own: taken as the press's)
-    if (t < this.since) t = this.since;
-    if (!last || last.x !== x || last.y !== y) this.hist.push({ t, x, y });
-    while (this.hist.length > 2 && t - (this.hist[1] as { t: number }).t > T.window) this.hist.shift();
-    const b = this.hist[this.hist.length - 1] as { t: number; x: number; y: number };
-    // where the hand was at the start of its present movement: the oldest sample in the window, but not one it stood
-    // still at before setting off (that one starts the movement 10 ms, one event, before the next sample)
-    const a = this.hist[0] as { t: number; x: number; y: number };
-    let at = a.t;
-    const next = this.hist[1];
-    if (next && next.t - a.t > T.still) at = next.t - 10;
-    const span = (b.t - at) / 1000;
-    const moving = t - b.t < T.still && span > 0.004;
-    const vx = moving ? (b.x - a.x) / span : 0;
-    const up = moving ? -(b.y - a.y) / span : 0;
-    // fast, and far enough to be a flick, not a few events of a slow hand arriving together
-    const fastUp = up > T.speed && up > T.ratio * Math.abs(vx) && a.y - b.y >= T.reach;
-    // a flick is short: a hand that goes on up the screen for longer than `flick` ms is carrying it back, and the
-    // hold goes back onto the surface (where a carry toward the back lifts it near the wall)
-    if (!fastUp) this.upSince = null;
-    else this.upSince ??= t;
-    const flicking = fastUp && t - (this.upSince ?? t) <= T.flick;
-    // held up after a catch until the hand goes down or sideways
-    if (this.airborne && moving && (-up > T.speed * 0.5 || (Math.abs(vx) > T.speed && Math.abs(vx) > T.ratio * Math.max(up, 0)))) this.airborne = false;
-    const want = flicking || this.airborne ? 1 : 0;
-    const dt = Math.max(0, (t - this.lastT) / 1000);
-    this.lastT = Math.max(this.lastT, t);
-    const tau = want > this.w ? T.rise : T.fall;
-    this.w = tau <= 0 ? want : this.w + (want - this.w) * (1 - Math.exp(-dt / tau));
-    if (this.w < 0.005 && want === 0) {
-      this.w = 0;
-      this.anchor = null;
-      this.out = onSurface;
-      return onSurface;
-    }
-    this.anchor ??= this.out ?? onSurface;
-    let up3: Vec3 = onSurface;
-    const f = heldUp(ray, this.anchor, forward);
-    // held up from where it was taken: brought down below the lower of the surface and where it was taken, it is on the
-    // surface again (a lift over a station raises the surface itself; the hold does not need to). Where it was taken
-    // allows a unit: a thing caught falling is pressed below its middle (the press aims where it is
-    // going, and arrives late on a busy machine), and that is not the hand bringing it down
-    const floor = Math.min(onSurface[1], this.anchor[1] - 1);
-    if (f && f[1] >= floor - 0.05) up3 = [f[0], Math.min(top, f[1]), f[2]];
-    else if (this.airborne) this.airborne = false; // brought down to the surface: on it again
-    const w = this.w;
-    const out: Vec3 = [onSurface[0] + (up3[0] - onSurface[0]) * w, onSurface[1] + (up3[1] - onSurface[1]) * w, onSurface[2] + (up3[2] - onSurface[2]) * w];
-    this.out = out;
-    return out;
-  }
-}
