@@ -189,9 +189,22 @@ describe('Patch thrown (R4)', () => {
     const body = fc.kind === 'fetch' ? fc.body : '';
     const fp = w.motion(body)!.pose.p;
     throwFrom(w, t, [fp[0] - 3, 2.2, fp[2]], [9, 0, 0]);
+    // the stack as it stands after each step of the flight
+    const stackAt = new Map<number, string[]>();
+    // (until the hit, then the flight is watched from there; the steps before it are the arc out of the hand)
+    for (let i = 0; i < 90 && !t.of('patch.throw').some((x) => x.e.phase === 'hit' && x.e.what === body); i++) {
+      t.run(1);
+      stackAt.set(w.step - 1, w.undoStack().map((x) => x.id));
+      stackAt.set(w.step, w.undoStack().map((x) => x.id));
+    }
     const f = watch(w, t, 30);
     expect(f.states.at(-1)).toBe('seated');
-    expect(t.of('patch.throw').some((x) => x.e.phase === 'hit' && x.e.what === body)).toBe(true);
+    const hit = t.of('patch.throw').find((x) => x.e.phase === 'hit' && x.e.what === body);
+    expect(hit).toBeTruthy();
+    // § E5: the hit belongs to the throw: it carries the throw's transaction, and that is on the stack then
+    const txn = hit!.e.txn;
+    expect(txn).toMatch(/^t\d+$/);
+    expect(stackAt.get(hit!.step)).toContain(txn);
     expect(f.overlap, f.overlapAt).toBeLessThanOrEqual(1);
   }, 60_000);
 

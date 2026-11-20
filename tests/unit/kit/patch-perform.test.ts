@@ -240,6 +240,26 @@ describe('thrown (R4)', () => {
     expect(Math.abs(end.body.rot[0])).toBeLessThan(0.2); // upright
     expect(end.body.at[1]).toBeLessThan(-0.3); // down on the bench, not on the stool
   });
+  it('off a wall it keeps one facing from the first frame stuck to the last of the landing (face to the room)', () => {
+    // the wall's normal (out of the wall, toward the room) is the body's yaw: +Z in the body at yaw 0
+    const n = new Vector3(0, 0, 1);
+    const facing = (p: PatchPose): number[] => {
+      const out: number[] = [];
+      for (const path of [['body'], ['body', 'spine', 'head']]) {
+        const m = PF.nodeMatrix(p, path);
+        const o = new Vector3().applyMatrix4(m);
+        out.push(new Vector3(0, 0, 1).applyMatrix4(m).sub(o).dot(n));
+      }
+      return out;
+    };
+    const feet: PF.V3 = [1, -0.43, 1];
+    const poses = [
+      ...[0.01, 0.1, 0.2, 0.25, 0.4, 0.6].map((t) => PF.splat(t, mid, 0, 0.25)),
+      ...[0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, PF.LAND_LENGTH].map((t) => PF.landed(t, feet, 0, 0, 0, true)),
+      PF.shakeOff(0.3, feet, 0),
+    ];
+    for (const p of poses) for (const d of facing(p)) expect(d).toBeGreaterThan(0.5);
+  });
   it('stuck to the wall it quivers in place; then it slides with its arms dragged up', () => {
     const a = PF.resolvePose(PF.splat(0.1, mid, 0.3, 0.25));
     const b = PF.resolvePose(PF.splat(0.6, mid, 0.3, 0.25));

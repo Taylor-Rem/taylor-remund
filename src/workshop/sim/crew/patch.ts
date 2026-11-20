@@ -1245,7 +1245,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
               const sp = Math.hypot(f.v[0], f.v[2]);
               ctx.shove(id, [f.v[0] * T.knock, Math.max(0, f.v[1]) * 0.3 + Math.min(1.5, 0.3 + sp * 0.15), f.v[2] * T.knock]);
             }
-            ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: id });
+            ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: id, ...(f.txn && f.txn !== 'crew' && f.txn !== 'system' ? { txn: f.txn } : {}) });
             f.v = [f.v[0] * T.keep, Math.min(f.v[1], 0.5), f.v[2] * T.keep];
             // (this step it goes no further in: the part moves off it under the knock; come down on it from above,
             // it is tipped off it as off any top, below)
@@ -1257,7 +1257,16 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             if (!sphereMeets(b, np[0], np[1], np[2], T.bodyR)) continue;
             if (!f.knocked.has(b.id)) {
               f.knocked.add(b.id);
-              ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: b.id });
+              // § E5: what a visitor's throw disturbs belongs to that throw. A robot hit (Fetch, Revert) is the
+              // throw's too: its transaction is opened (or is the one already open) and the robot's body claimed
+              // into its window, and the event carries it, so what the robot drops can be charged to it
+              let txn: Cause | null = null;
+              if (!ctx.bracketed && ctx.part(b.id)) {
+                f.txn ??= ctx.history.open('release', b.id, ctx.clock.step);
+                ctx.history.claim(b.id, f.txn, ctx.clock.step);
+                txn = f.txn;
+              }
+              ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: b.id, ...(txn && txn !== 'crew' && txn !== 'system' ? { txn } : {}) });
             }
             // (resting on top of it: off it by its nearer side, as off any top)
             if (at[1] >= b.y1) {

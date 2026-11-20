@@ -397,10 +397,11 @@ export type SimEvent =
   /**
    * R4: Patch thrown, for sound (and for crew that may answer it): `thrown` as it leaves the hand; `hit` when it
    * meets something in the air (`what`: a fixed body's id, a robot's body, or a loose part it knocked; `wall`: it
-   * met a wall flat and sticks to it); `landed` on the bench; `gone` over an edge well clear; `chute` back up the
+   * met a wall flat and sticks to it; `txn`, on a hit of a loose part or a robot: the throw's transaction, which
+   * whatever that disturbs is charged to, § E5 rule 4); `landed` on the bench; `gone` over an edge well clear; `chute` back up the
    * chute. `speed`: units/s at that moment.
    */
-  | { readonly type: 'patch.throw'; readonly phase: 'thrown' | 'hit' | 'landed' | 'gone' | 'chute'; readonly speed: number; readonly what?: Id; readonly wall?: boolean }
+  | { readonly type: 'patch.throw'; readonly phase: 'thrown' | 'hit' | 'landed' | 'gone' | 'chute'; readonly speed: number; readonly what?: Id; readonly wall?: boolean; readonly txn?: TransactionId }
   // ── S6: attract mode ──
   /** Attract mode's lap moved on to `beat` (lap `lap`, from 1). `AttractView` has the rest. */
   | { readonly type: 'attract.beat'; readonly lap: number; readonly beat: AttractBeat };

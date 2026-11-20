@@ -2015,7 +2015,7 @@ function satOnBench(feet: V3, yaw: number): PatchPose {
  * that eats the speed, and it ends sat up on the bench, legs out. `feet` is the simulation's `at` (root space, on
  * the bench, sliding on meanwhile), `spin0` how far it had turned in the air, `speed` how fast it came in.
  */
-export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: number): PatchPose {
+export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: number, fromWall = false): PatchPose {
   const L = LAND_LENGTH;
   const k = clamp01(t / L);
   const hard = clamp01(speed / 6);
@@ -2027,7 +2027,10 @@ export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: n
   const spin = lerp(spin0, end, e);
   const sat = resolvePose(satOnBench(feet, yaw));
   // from the tumble into the sit, all the way by the last fifth (then a small settle)
-  const air = resolvePose(tumble(0.3 + t, [feet[0], feet[1] + MIDDLE * 0.9 + b, feet[2]], spin, yaw));
+  // (off a wall it was never tumbling: from the bottom of the slide, the same way round, into the sit)
+  const air = fromWall
+    ? resolvePose(splat(1, [feet[0], feet[1] + MIDDLE * 0.9 + b, feet[2]], yaw, 0.25))
+    : resolvePose(tumble(0.3 + t, [feet[0], feet[1] + MIDDLE * 0.9 + b, feet[2]], spin, yaw));
   const w = smoothstep(0.25, 0.8, k);
   const p = mixPose(air, sat, w);
   const settle = k > 0.8 ? Math.sin(Math.PI * smoothstep(0.8, 1, k)) * 0.04 : 0;
