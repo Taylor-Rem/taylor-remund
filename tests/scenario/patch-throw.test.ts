@@ -522,7 +522,9 @@ describe('Patch thrown (R4)', () => {
       }, 60_000);
     }
 
-    test('thrown up with a little drift (1.5 u/s across, 9 up): still a throw up, with its hang at the top and its flop', async () => {
+    // (R5: the hang at the top is a float now, not a stop of so many steps: it is in the float for a few steps, and
+    // drifts on through them; tests/scenario/patch-float.test.ts holds the float itself)
+    test('thrown up with a little drift (1.5 u/s across, 9 up): still a throw up, with its float at the top and its flop', async () => {
       const w = await benchWorld(1);
       const t = tape(w);
       t.run(20);
@@ -538,7 +540,7 @@ describe('Patch thrown (R4)', () => {
         if (v.state === 'fly' && v.thrown?.top) tops++;
         if (v.state === 'land') land = v;
       }
-      expect(tops).toBe(Math.round(T.hang * HZ));
+      expect(tops).toBeGreaterThan(3);
       expect(land!.thrown?.drop).toBe(true);
       expect(land!.stateLength).toBeGreaterThan(T.land);
     }, 60_000);

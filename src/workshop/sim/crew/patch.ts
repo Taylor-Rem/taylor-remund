@@ -162,8 +162,21 @@ export const PATCH_TUNING = {
   upLean: 0.5,
   /** R4: let go with the hand still, its middle more than this above the bench: it falls (a hand's height or less is a set-down). */
   dropFrom: 0.9,
-  /** R4: thrown up, it hangs this long at the top before it falls (the beat where the comedy is). */
-  hang: 0.15,
+  /**
+   * R4, R5 (Taylor, 2026-11-20: "a brief hang at the apex, but it shouldn't interrupt significant horizontal movement
+   * or feel like an accidental freeze"): thrown up, it FLOATS at the top (the beat where the comedy is). Near the top
+   * gravity eases off: its pull is (1 - floatGrav·share·e^-(vy/floatBand)²) of the world's, so the upward speed passes
+   * through nothing smoothly, never stopping, and the sideways drift goes on untouched. With these numbers the float
+   * adds about 0.15 s to the flight (∫ of the slowed pull over vy; the old dead stop was 0.15 s too), and it is "in the
+   * float" (`thrown.top`) while the pull is down by more than a third (|vy| under about 0.5 u/s, about 0.2 s).
+   * `share` is how vertical the throw was, its level speed over its upward speed: 1 at `floatLean[0]` or less (about 7
+   * degrees off straight up: a hand meaning straight up is rarely truer), fading smoothly to none at `floatLean[1]`
+   * (about 19 degrees: from a full-height throw, 12 up, that is 4 u/s across, half the bench in its 2.4 s up and down:
+   * a throw across, which floats not at all). Only throws up (`upLean`) float.
+   */
+  floatGrav: 0.85,
+  floatBand: 0.46,
+  floatLean: [0.12, 0.35] as const,
   /** R4: caught in the air, how long (s) it takes to settle from where it was onto the hand. */
   catchEase: 0.3,
   /** R4: fallen this far (units, from the top of its flight to the bench) or more, it lands in a flop: a bounce, flat, a beat, then up. */
@@ -282,6 +295,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let lookAt: Vec3 | null = null;
   let at: Vec3 = spec.seat;
   let heading = spec.facing;
+  /** R5, for the view only (nothing here reads it back): `at` and the state at the end of this step and the one before. */
+  let endAt: Vec3 = at, endState: PatchState = state, lastAt: Vec3 = at, lastState: PatchState = state;
   /** A caught part, the throw it is charged to, and the job that keeps that throw on the stack while Patch has it (rule 4, rule 10). */
   let holding: { id: Id; cause: Cause | null; job: Job | null } | null = null;
   /** A caught part set down: its throw stays on the stack until the part has come to rest (and that rest is the throw's). */
@@ -389,9 +404,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   const SOLIDS: Solid[] = solidsOf(ctx.scene);
   /** In the air: its velocity; past an open edge and going (out); coming back from the chute. */
   /** (R4 up: `peak` the highest its middle has been this flight; `drop` let go still from high; `up` thrown upward;
-   * `hang` steps left of the hang at the top; `rising` still going up.) */
-  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; passing: Set<Id>; leaving: Set<Id>; txn: Cause | null; peak: number; drop: boolean; up: boolean; hang: number; rising: boolean } | null = null;
-  const newFly = (v: Vec3, chute: boolean, from = -Infinity): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), passing: new Set(), leaving: new Set(), txn: null, peak: from, drop: false, up: false, hang: 0, rising: v[1] > 0 });
+   * `float` how much it floats at its top (0..1, `floatLean`; 0 for anything but a throw up).) */
+  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; passing: Set<Id>; leaving: Set<Id>; txn: Cause | null; peak: number; drop: boolean; up: boolean; float: number } | null = null;
+  const newFly = (v: Vec3, chute: boolean, from = -Infinity): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), passing: new Set(), leaving: new Set(), txn: null, peak: from, drop: false, up: false, float: 0 });
+  /** The share of the world's pull it has now (R5's float at the top of a throw up: under 1 near the top). */
+  const floatPull = (f: NonNullable<typeof fly>): number => 1 - T.floatGrav * f.float * Math.exp(-((f.v[1] / T.floatBand) ** 2));
+  /** In the float: the pull down by more than a third. */
+  const inFloat = (f: NonNullable<typeof fly>): boolean => f.float > 0 && floatPull(f) < 2 / 3;
   /** Met a wall flat: its outward direction, and how fast it came in. */
   let walled: { out: Vec3; speed: number; slideFrom?: number } | null = null;
   /** How far a point is from a body's box (0 inside), in three dimensions. */
@@ -523,6 +542,11 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     fly.drop = drop;
     // (thrown up by the hand: not a level throw's own loft, and not a throw across the bench that has lift in it)
     fly.up = !drop && v[1] >= T.upAt && Math.hypot(vv[0], vv[2]) <= T.upLean * vv[1];
+    if (fly.up) {
+      const lean = Math.hypot(vv[0], vv[2]) / vv[1];
+      const k = Math.min(1, Math.max(0, (lean - T.floatLean[0]) / (T.floatLean[1] - T.floatLean[0])));
+      fly.float = 1 - k * k * (3 - 2 * k);
+    }
     gripOff = null;
     for (const o of touching) if (q[1] < o.y1) fly.leaving.add(o.id); // (one it is over is a top it comes down on)
     // (a set-down from a hand's height is not a throw: no sound of one)
@@ -1089,6 +1113,11 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           finishing.splice(finishing.indexOf(f), 1);
           f.job.done();
         }
+      // (R5: kept for drawing between steps; read by `view()` only)
+      lastAt = endAt;
+      lastState = endState;
+      endAt = at;
+      endState = state;
     },
 
     heard(events: readonly SimEvent[]) {
@@ -1462,19 +1491,11 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             walkBack();
             break;
           }
-          // thrown up: at the top it hangs a moment, still, before it falls (the cartoon's beat)
-          if (f.hang > 0) {
-            f.hang--;
-            break;
-          }
-          f.v = [f.v[0], f.v[1] + g / HZ, f.v[2]];
-          if (f.rising && f.v[1] <= 0) {
-            f.rising = false;
-            if (f.up) {
-              f.hang = Math.round(T.hang * HZ);
-              f.v = [f.v[0], 0, f.v[2]];
-            }
-          }
+          // thrown up: near the top gravity eases off and it floats a moment, drifting on, before it falls (the
+          // cartoon's beat; `floatGrav`). The pull is taken at the middle of the step's change in speed (a
+          // midpoint step), so the speed through the top is smooth whatever the step lands on
+          const pull = f.float > 0 ? floatPull({ ...f, v: [f.v[0], f.v[1] + (g * floatPull(f)) / (2 * HZ), f.v[2]] }) : 1;
+          f.v = [f.v[0], f.v[1] + (g * pull) / HZ, f.v[2]];
           let np: Vec3 = [at[0] + f.v[0] / HZ, at[1] + f.v[1] / HZ, at[2] + f.v[2] / HZ];
           // (never above `topMid`: the sign, the lamp's arm and its chain hang over the back of the bench but are not
           // bodies; nothing up there stops it but this)
@@ -1840,9 +1861,13 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
                 chute: fly?.chute ?? false,
                 fall: landing ? landing.fall : fly ? Math.max(0, fly.peak - at[1]) : 0,
                 drop: landing ? landing.drop : fly ? fly.drop || fly.up : false,
-                top: !!fly && fly.hang > 0,
+                top: !!fly && state === 'fly' && inFloat(fly),
+                float: fly?.float ?? 0,
               }
             : null,
+        // (R5: the step before's `at`, in the same sense; `at` itself across a jump or a change of state. Let go
+        // from the hand, its middle a step before is where it hung then, under the hand)
+        prevAt: at !== endAt ? at : lastState === endState ? lastAt : lastState === 'held' && endState === 'fly' ? [lastAt[0], lastAt[1] - T.hangBelow, lastAt[2]] : at,
         walk: state === 'walk' || state === 'cross' ? { pace, scamper: pace > T.walk, next: way ? onGround(way.points[0] ?? way.cross?.from ?? pt(footNow())) : null, waiting: state === 'walk' && seconds() >= T.setOff && (way === null || blockedAt >= 0) } : null,
       };
     },
