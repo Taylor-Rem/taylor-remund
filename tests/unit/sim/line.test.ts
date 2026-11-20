@@ -188,13 +188,15 @@ describe('the belt: settings and handles', () => {
     world.interactable('belt')!.tell();
     run(world, TELL_SECONDS * HZ + 1);
     expect(beltOf(world).lamp).toBe('steady');
-    const before = world.durable();
+    // (the belt's own durable state: the crew may set a crate down meanwhile, R4 follow-up)
+    const beltState = () => world.durable().filter((d) => d.target === 'belt');
+    const before = beltState();
     world.interactable('belt')!.misfire(2);
     expect(beltOf(world).surface).toBe(BELT_TUNING.lurch.speed * 2);
     expect(beltOf(world).misfire).toEqual({ level: 2, since: 0 });
     run(world, HZ);
     expect(beltOf(world).surface).toBeGreaterThan(0);
-    expect(world.durable()).toEqual(before);
+    expect(beltState()).toEqual(before);
   });
 });
 
