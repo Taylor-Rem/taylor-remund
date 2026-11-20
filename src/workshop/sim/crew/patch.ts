@@ -431,7 +431,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       // top first, where the hand is anyway, if that is no more than `clearMax` above the hand
       const hand = q[1] + T.hangBelow;
       const under = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
-      const top = Math.max(...under.map((o) => o.y1)) + T.bodyR * 0.8 + 0.01;
+      // (clear of the top by its whole flight sphere: on it, not in it, so it comes down on it and is tipped off)
+      const top = Math.max(...under.map((o) => o.y1)) + T.bodyR + 0.01;
       if (top <= hand + T.clearMax && !deep([q[0], top, q[2]])) found = [q[0], top, q[2]];
       // (and the top taken by something standing on it, the board's panel on its desk: the nearest clear place
       // on that top, before anywhere at its own height)
@@ -498,8 +499,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     fly.drop = drop;
     fly.up = v[1] >= T.upAt && !drop; // (thrown up by the hand: not a level throw's own loft)
     gripOff = null;
-    for (const o of touching) fly.leaving.add(o.id);
-    ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
+    for (const o of touching) if (q[1] < o.y1) fly.leaving.add(o.id); // (one it is over is a top it comes down on)
+    // (a set-down from a hand's height is not a throw: no sound of one)
+    if (!drop || q[1] - spec.foot[1] > T.dropFrom) ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
     // loose parts it was let go against: shoved aside along the throw as it leaves the hand (each once, the
     // throw's, as any knock), and it goes on at the speed it was thrown with
     for (const o of parts) {
@@ -572,7 +574,6 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
 
   function landAt(p: Vec3, v: Vec3): void {
     const from = restingAt([p[0], spec.foot[1], p[2]]);
-    ctx.emit({ type: 'patch.throw', phase: 'landed', speed: length(v) });
     const sp = Math.hypot(v[0], v[2]);
     let roll = Math.min(T.slideMax, sp * T.slide);
     const dir: Pt = sp > 1e-6 ? [v[0] / sp, v[2] / sp] : [0, 0];
@@ -582,6 +583,19 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       to = [from[0] + dir[0] * roll, from[2] + dir[1] * roll];
     }
     if (roll <= 0.02) to = pt(from);
+    // let go from a hand's height or less: a set-down after all, on its feet where it came down, and home
+    if (fly?.drop && !fly.up && Math.max(fly.peak, p[1]) - spec.foot[1] <= T.dropFrom) {
+      // (where it is put down, as a set-down always was: only moved if it would stand inside a body)
+      const b = spec.bench;
+      const down: Vec3 = [Math.min(b.maxX, Math.max(b.minX, p[0])), spec.foot[1], Math.min(b.maxZ, Math.max(b.minZ, p[2]))];
+      at = dist(down, footNow()) >= 0.15 ? standingAt(down) : down;
+      fly = null;
+      landing = null;
+      lookAt = null;
+      walkBack();
+      return;
+    }
+    ctx.emit({ type: 'patch.throw', phase: 'landed', speed: length(v) });
     // how far it fell (from the top of its flight to the bench), and whether it was dropped rather than thrown
     const fall = Math.max(0, (fly ? Math.max(fly.peak, p[1]) : p[1]) - spec.foot[1]);
     const dropped = !!fly && (fly.drop || fly.up);
@@ -980,8 +994,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           throwFrom(mid, hv);
           return true;
         }
-        // let go still, up high: it falls (and lands by the height it fell)
-        if (mid[1] - spec.foot[1] > T.dropFrom && !overEdge(intent.target)) {
+        // let go still above the bench: it falls from where it was let go (I1: never put on the bench at once); from
+        // a hand's height that is a set-down (on its feet, and home), from higher a landing by the height it fell
+        if (mid[1] - spec.foot[1] > T.restMid + 0.02 && !overEdge(intent.target)) {
           trail.length = 0;
           throwFrom(mid, hv, true);
           return true;

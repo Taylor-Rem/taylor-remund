@@ -12,7 +12,7 @@ const lift = () => {
   const seat = patch().at;
   world.dispatch({ type: 'grab', id: 'patch', grip: [seat[0], seat[1] + 1, seat[2]] });
   run(world, 1);
-  world.dispatch({ type: 'carry', target: [0, 1.2, 1] }); // (a hand's height: higher, let go still, it falls: R4)
+  world.dispatch({ type: 'carry', target: [-6, 1.2, -2] }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
   run(world, 1);
   return { world, patch };
 };
@@ -31,6 +31,8 @@ describe("a unit let go of gets the hand's velocity", () => {
     const a = lift();
     a.world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     run(a.world, 1);
+    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
+    for (let i = 0; i < 60 && a.patch().state === 'fly'; i++) run(a.world, 1);
     expect(['walk', 'climb']).toContain(a.patch().state);
     const b = lift();
     b.world.dispatch({ type: 'place', at: [-3, 0, 1] });

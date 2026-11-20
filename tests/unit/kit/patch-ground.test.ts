@@ -26,6 +26,12 @@ states.push({ name: 'the wall slide', L: 1.4, pose: (t) => PF.splat(t, [0, FLOOR
 states.push({ name: 'the tumble at the bench', L: 0.6, pose: (t) => PF.tumble(t, [0, FLOOR + 0.3, 0], t * 12, 0.3) });
 states.push({ name: 'the walk', L: 1.6, pose: (t) => PF.toddle(t * 0.9, [0, FLOOR, 0], 0.8) });
 states.push({ name: 'the scamper', L: 1.6, pose: (t) => PF.toddle(t * 1.4, [0, FLOOR, 0], -1.1, { scamper: true }) });
+// R4 up: falling onto the bench (its middle down to 0.3 above it), the top of a throw up just above it, the flop
+// from 2 (on its seat) and from 5 (on its front), and the "really?" with the dusting off
+states.push({ name: 'falling onto the bench', L: 0.8, pose: (t) => PF.falling(t, [0, FLOOR + 0.3 + (0.8 - t) * 1.5, 0], 0.4) });
+states.push({ name: 'the top of a throw up', L: 0.3, pose: (t) => PF.upward(t, [0, FLOOR + 0.6, 0], -0.6, t > 0.1) });
+for (const fall of [2, 5]) states.push({ name: `the flop from ${fall}`, L: 1.5, pose: (t) => PF.flop(t, [0, FLOOR, 0], 0.9, fall, 1.5) });
+states.push({ name: '"really?" with the dusting off', L: 1.0, pose: (t) => PF.shakeOff(t, [0, FLOOR, 0], -0.4, { fall: 5, dust: true, length: 1.0 }) });
 // the haul over the edge (edge at the origin, facing in along +z): only what is over the bench counts
 const edge = { at: [0, FLOOR, 0] as V3, up: [0, FLOOR, 0.35] as V3, heading: 0, front: false };
 // hanging from the edge: moved out from the bench's front (not lifted off the edge it holds)

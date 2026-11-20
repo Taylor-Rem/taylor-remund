@@ -34,11 +34,12 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
 import { PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
+import { SCRUFF as SCRUFF_AT } from '../kit/pieces/patch-felt/rig.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
-  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, LAND_LENGTH, SHAKE_LENGTH,
+  rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, falling, upward, flop, LAND_LENGTH, SHAKE_LENGTH,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
@@ -213,6 +214,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     /** R4: in the air: how far it has turned head over heels, when it left the hand, the way it was going; and on landing. */
     let flySpin = 0;
     let flyAt = 0;
+    /** R4 up: when the fall began (frame time; the top of a throw up, or the release of a drop). */
+    let fallAt = -1;
     let flyYaw = 0;
     let landSpin = 0;
     let landYaw = 0;
@@ -585,19 +588,32 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'fly': {
-            // turning head over heels as it goes, faster the harder it was thrown
             const tv = v.thrown?.v;
             const sp = tv ? Math.hypot(tv[0], tv[2]) : 0;
+            if (v.thrown?.drop) {
+              // R4 up: dropped, or thrown up: rising (arms up), the beat at the top, then falling and knowing it
+              const vis = boardToRoot(VISITOR_BOARD, stoolB);
+              const rising = !!tv && tv[1] > 0 && !v.thrown.top;
+              if (rising || v.thrown.top) fallAt = -1;
+              else if (fallAt < 0) fallAt = t;
+              pose = v.thrown.top ? upward(0, seatSpace(v.at), flyYaw, true, vis) : rising ? upward(reduced ? 0 : t - flyAt, seatSpace(v.at), flyYaw, false, vis) : falling(reduced ? 1 : t - fallAt, seatSpace(v.at), flyYaw, vis);
+              break;
+            }
+            // turning head over heels as it goes, faster the harder it was thrown
             if (tv && sp > 0.3) flyYaw = Math.atan2(tv[0], tv[2]) - SIDE_ON;
             if (!reduced) flySpin += Math.min(11, Math.max(4, sp * 1.3)) * dt;
             pose = tumble(reduced ? 0 : t - flyAt, seatSpace(v.at), flySpin, flyYaw);
             break;
           }
-          case 'land':
-            pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
+          case 'land': {
+            const fall = v.thrown?.fall ?? 0;
+            // R4 up: down from high after a drop or a throw up: the flop; else the landing's bounce and roll
+            if (v.thrown?.drop && fall >= PATCH_TUNING.flopFrom) pose = flop(reduced ? v.stateLength : sT, seatSpace(v.at), landYaw, fall, v.stateLength);
+            else pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall || v.thrown?.drop ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
             break;
+          }
           case 'shake':
-            pose = shakeOff(reduced ? SHAKE_LENGTH : sT, seatSpace(v.at), landYaw);
+            pose = shakeOff(reduced ? v.stateLength : sT, seatSpace(v.at), landYaw, { visitor: boardToRoot(VISITOR_BOARD, stoolB), fall: v.thrown?.fall ?? 0, dust: !!v.thrown?.drop, length: v.stateLength });
             break;
           case 'away':
             pose = last;
@@ -697,6 +713,18 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           const k = (t - g0) / 0.9;
           if (k >= 1) fumbleAt = -1;
           else pose = glanceShake(pose, k, fumbleFrom);
+        }
+        // (the root moves between the seat and the hand when Patch is taken or let go: a blend begun this frame
+        // starts from where the figure was drawn, not from the same place relative to the root's new spot: no snap)
+        if (blendFrom && blendAt === t) {
+          const next = mode === 'held' ? tv.set(v.at[0], v.at[1], v.at[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
+          const dxw = root.position.x - next.x, dyw = root.position.y - next.y, dzw = root.position.z - next.z;
+          if (Math.abs(dxw) + Math.abs(dyw) + Math.abs(dzw) > 1e-6) {
+            const c = Math.cos(-SIDE_ON), sn = Math.sin(-SIDE_ON);
+            const b = blendFrom.body ?? {};
+            const at0 = b.at ?? (b.pivot === 'scruff' ? SCRUFF_AT : ([0, 0, 0] as const));
+            blendFrom = { ...blendFrom, body: { ...b, at: [at0[0] + (dxw * c + dzw * sn) / S, at0[1] + dyw / S, at0[2] + (-dxw * sn + dzw * c) / S] } };
+          }
         }
         if (blendFrom && !reduced && t - blendAt < blendDur) pose = blendTo(blendFrom, pose, t - blendAt, blendDur);
         else blendFrom = null;
