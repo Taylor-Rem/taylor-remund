@@ -1667,8 +1667,12 @@ async function carryOver(page: Page, hand: ReturnType<typeof tickHand>, id: stri
  * Juggle `id`: flick it up, catch it on the way down above the bench, flick it up again; three catches running
  * without it touching the bench, then let it fall. Returns an account of each throw and catch.
  */
-async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id: string, start: [number, number], flickPx: number): Promise<string[]> {
+async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id: string, start: [number, number], flickPx: number, opts: { follow?: boolean } = {}): Promise<string[]> {
+  // `follow: false`: the pointer stays where the flick left it and the catch is one press where the thing is, with no
+  // movement before it (a hand whipped across to intercept, a finger landing); each catch is then held still 500 ms
+  const follow = opts.follow ?? true;
   const hand = tickHand(page, cdp, kind);
+  const stills: [number, number][] = [];
   await hookRelease(page);
   const say: string[] = [];
   let at = await takeHold(page, hand, id, kind);
@@ -1729,7 +1733,8 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     }
     const p: V3 = [peak[0]!, peak[1]!, peak[2]!];
     const q = await projectP(page, id === 'patch' ? [p[0], p[1] + 0.6, p[2]] : p);
-    await hand.down(q);
+    if (follow || kind === 'touch') await hand.down(q);
+    else await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: q.x, y: q.y, button: 'left', buttons: 1, clickCount: 1 } as any);
     const ok = await pollFrames(page, () => heldId(page), 6).toBe(id).then(() => true, () => false);
     const now = await middleOf(page, id);
     const nowS = await projectP(page, now);
@@ -1737,6 +1742,12 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     if (!ok) break;
     zs.push(now[2]);
     at = q;
+    if (!follow) {
+      // held still half a second: it stays where it was caught
+      const from0 = await page.evaluate(() => (window as any).__i1j.rec.length as number);
+      await frames(page, 30);
+      stills.push([from0, await page.evaluate(() => (window as any).__i1j.rec.length as number)]);
+    }
   }
   say.push(`load ${(await import("node:os")).loadavg()[0]!.toFixed(1)}`);
   // its z through every flight, from where it was first thrown to where it was last caught (what a visitor sees it
@@ -1747,7 +1758,20 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     const lastHeld = rec.map((r) => r[4]).lastIndexOf(1);
     return rec.slice(Math.max(0, first), lastHeld).filter((r) => r[4] === 0).map((r) => r[3]!);
   });
-  const zAll = [zs[0]!, ...flown];
+  const held = await page.evaluate((stills) => {
+    const rec = (window as any).__i1j.rec as number[][];
+    return stills.flatMap(([a, b]) => rec.slice(a, b).map((r) => r[3]!));
+  }, stills);
+  const zAll = [zs[0]!, ...flown, ...held];
+  if (stills.length) {
+    say.push(`z while held still after the catches: ${(Math.min(...held)).toFixed(2)}..${(Math.max(...held)).toFixed(2)}`);
+    // the first still hold, every fifth frame: its z, and the hand's (the carry target's) z and y
+    const trace = await page.evaluate(([a, b]) => {
+      const rec = (window as any).__i1j.rec as number[][];
+      return rec.slice(a, b).filter((_, i) => i % 5 === 0).map((r) => `${r[3]!.toFixed(2)}/${r[5]!.toFixed(2)},${r[6]!.toFixed(2)}`).join(' ');
+    }, stills[0]!);
+    say.push(`first still hold (z / hand z, y): ${trace}`);
+  }
   say.push(`z range over the throws and catches: ${(Math.max(...zAll) - Math.min(...zAll)).toFixed(2)}`);
   // where z moved: each stretch held or flying, its z at the start and the end
   const stretches = await page.evaluate(() => {
@@ -1799,6 +1823,39 @@ for (const [label, id, start, flickPx] of [
     expect(low, 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(id === 'patch' ? 0.3 : 0.6);
   });
 }
+
+for (const [label, id] of [
+  ['a crate', 'crate-2'],
+  ['Fetch', 'fetch'],
+  ['Patch', 'patch'],
+] as const) {
+  test(`R5: juggling ${label} by mouse, the pointer not following it: each catch one press where it is with no movement before it, held still 500 ms; three catches, it stays where it was caught`, async ({ page }) => {
+    test.setTimeout(5 * 60_000);
+    await open(page, 1440, 900);
+    const cdp = await page.context().newCDPSession(page);
+    const say = await juggleIt(page, cdp, 'mouse', id, [-5.8, -1.2], 60, { follow: false });
+    console.log(`[I1] R5 juggle (no follow) ${id} by mouse: ${say.join(' | ')}`);
+    expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+    expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it stays where it is caught and juggled').toBeLessThan(0.3);
+    expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(id === 'patch' ? 0.3 : 0.6);
+  });
+}
+
+test('R5: juggling Patch by touch at the phone framing (390x844): a finger lands on it with no movement before; three catches, held still 500 ms each, it stays where it was caught', async ({ browser }) => {
+  test.setTimeout(5 * 60_000);
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  await open(page, 390, 844);
+  const cdp = await ctx.newCDPSession(page);
+  await bringIntoView(page, fingerHand(cdp), 'patch', 'touch');
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
+  const say = await juggleIt(page, cdp, 'touch', 'patch', [1.5, -2.0], 40, { follow: false });
+  console.log(`[I1] R5 juggle (no follow) patch by touch: ${say.join(' | ')}`);
+  expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+  expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it stays where it is caught and juggled').toBeLessThan(0.3);
+  expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(0.3);
+  await ctx.close();
+});
 
 test('R5: juggling a crate by touch at the phone framing (390x844)', async ({ browser }) => {
   test.setTimeout(5 * 60_000);
