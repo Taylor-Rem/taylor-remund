@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import * as PF from '../../../src/workshop/view/kit/pieces/patch-felt/perform.ts';
-import { EXPRESSIONS, HC, NEUTRAL, poseMatrices } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
+import { EXPRESSIONS, HC, NEUTRAL, SHOULDER, poseMatrices } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import type { PatchPose } from '../../../src/workshop/view/kit/pieces/patch-felt/rig.ts';
 import { BOARD_WHOLE } from '../../../src/workshop/view/kit/pieces/switchboard/board.ts';
 import { PATCH_TUNING } from '../../../src/workshop/sim/index.ts';
@@ -259,6 +259,19 @@ describe('thrown (R4)', () => {
       PF.shakeOff(0.3, feet, 0),
     ];
     for (const p of poses) for (const d of facing(p)) expect(d).toBeGreaterThan(0.5);
+  });
+  it('stuck to the wall it is an X: both hands farther from its midline than the shoulders, and above them', () => {
+    for (const t of [0.02, 0.1, 0.2]) {
+      const p = PF.splat(t, mid, 0.4, 0.25);
+      const inv = PF.nodeMatrix(p, ['body']).clone().invert();
+      const sp = PF.nodeMatrix(p, ['body', 'spine']);
+      for (const [side, sx] of [['left', 1], ['right', -1]] as const) {
+        const sh = new Vector3(sx * SHOULDER.x, SHOULDER.y, SHOULDER.z).applyMatrix4(sp).applyMatrix4(inv);
+        const h = new Vector3(...PF.pawPoint(p, side)).applyMatrix4(inv);
+        expect(Math.abs(h.x)).toBeGreaterThan(Math.abs(sh.x) + 0.1);
+        expect(h.y).toBeGreaterThan(sh.y);
+      }
+    }
   });
   it('stuck to the wall it quivers in place; then it slides with its arms dragged up', () => {
     const a = PF.resolvePose(PF.splat(0.1, mid, 0.3, 0.25));
