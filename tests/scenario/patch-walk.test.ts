@@ -2,7 +2,7 @@
 // over the belt (only by its crossing) when that is the way; and in a time that fits the distance. On the
 // whole bench under real Rapier.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape } from './line-helpers.ts';
+import { benchWorld, FULL_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { PATCHLAMP, patchView } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -192,5 +192,98 @@ describe('Patch walks back to its stool round things (R2)', () => {
     expect(Math.abs(Math.atan2(Math.sin(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2])), Math.cos(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2]))))).toBeLessThan(1e-6);
     t.run(Math.round(0.3 * HZ));
     expect(Math.hypot(patchView(w).at[0] - at0[0], patchView(w).at[2] - at0[2])).toBeGreaterThan(0.1);
+  }, 60_000);
+});
+
+/** Carry a loose part to `to` and set it down there (no throw), then let it come to rest. */
+function place(w: World, t: Tape, id: string, to: Vec3): void {
+  w.dispatch({ type: 'grab', id, grip: w.motion(id)!.pose.p });
+  t.run(1);
+  expect(w.holding()?.id, `${id} to hand`).toBe(id);
+  // (carried until it is there and still: let go on the way, it slides on)
+  for (let i = 0, there = 0; i < 400 && there < 15; i++) {
+    w.dispatch({ type: 'carry', target: to });
+    t.run(1);
+    const p = w.motion(id)!.pose.p;
+    there = Math.hypot(p[0] - to[0], p[1] - to[1], p[2] - to[2]) < 0.03 ? there + 1 : 0;
+  }
+  w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+  t.run(HZ);
+}
+
+/** Watch Patch home: the seconds it took, and the longest it stood in `walk` without a step, further than `beyond` from the stool's foot (the look and the turn before it sets off are part of that). */
+function watchHome(w: World, t: Tape, limit: number, beyond: number): { seconds: number; stood: number; states: PatchState[] } {
+  const foot = PATCHLAMP.patch.foot;
+  const out = { seconds: 0, stood: 0, states: [] as PatchState[] };
+  let prev = patchView(w).at;
+  let run = 0;
+  for (let i = 0; i < limit * HZ; i++) {
+    t.run(1);
+    const v = patchView(w);
+    if (out.states[out.states.length - 1] !== v.state) out.states.push(v.state);
+    out.seconds += 1 / HZ;
+    const still = v.state === 'walk' && Math.hypot(v.at[0] - prev[0], v.at[2] - prev[2]) < 1e-9 && Math.hypot(v.at[0] - foot[0], v.at[2] - foot[2]) > beyond;
+    run = still ? run + 1 : 0;
+    out.stood = Math.max(out.stood, run / HZ);
+    prev = v.at;
+    if (v.state === 'seated') break;
+  }
+  return out;
+}
+
+// R5: found by the throw soak (its seed 2345, once "thrown up" meant more up than across and the throws fell
+// differently). Taylor, R4: "They should still always be able to recover."
+describe('Patch is never held up for good by crates lying on the bench (R5)', () => {
+  test("a crate at the stool's foot and another across its way: round the one at once, and the other nudged aside at the last step", async () => {
+    const w = await benchWorld(31, { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(20);
+    const foot = PATCHLAMP.patch.foot;
+    // one at the stool's foot: no way that keeps clear of every crate ends there
+    place(w, t, 'crate-4', [foot[0] + 0.12, 0.6, foot[2] - 0.1]);
+    const c4 = w.motion('crate-4')!.pose.p;
+    expect(Math.hypot(c4[0] - foot[0], c4[2] - foot[2]), 'the crate lies at the foot').toBeLessThan(0.2);
+    // and one where Patch's way round the fixed bodies leads, with Patch set down just behind it
+    place(w, t, 'crate-1', [2.6, 0.8, 2.46]);
+    setDown(w, t, [2.05, 0, 3.0]);
+    expect(patchView(w).state).toBe('walk');
+    const trip = watchHome(w, t, 40, 1.2);
+    const what = `${trip.seconds.toFixed(1)} s, stood ${trip.stood.toFixed(1)} s, ${trip.states.join('>')}`;
+    if (process.env.PATCH_WALK_LOG) console.log(what);
+    expect(patchView(w).state, what).toBe('seated');
+    // away from the stool it stands no longer than its set-off and one look for another way
+    expect(trip.stood, what).toBeLessThan(T.setOff + T.retry + 0.5);
+    // home: the set-off, the way round (a scamper), the wait at the foot for the crate there, the climb
+    expect(trip.seconds, what).toBeLessThan(T.setOff + 10 / T.scamper + T.lastStep + T.climb + 3);
+    // the crate at the foot was nudged aside, not walked through
+    const c4b = w.motion('crate-4')!.pose.p;
+    expect(Math.hypot(c4b[0] - c4[0], c4b[2] - c4[2]), 'the crate at the foot moved aside').toBeGreaterThan(0.1);
+  }, 60_000);
+
+  test("a big crate at the stool's foot that stops it more than a unit short: the last step's wait, the crate nudged aside, and up", async () => {
+    const w = await benchWorld(32, { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(20);
+    const foot = PATCHLAMP.patch.foot;
+    // the big crate (0.4 half) with its near face inside Patch's footprint of the foot, on the side Patch comes from
+    place(w, t, 'crate-1', [foot[0] + 0.56, 0.8, foot[2]]);
+    const c1 = w.motion('crate-1')!.pose.p;
+    setDown(w, t, [foot[0] + 3, 0, foot[2]]);
+    // (it stops short of the crate, more than the unit the last step's wait was counted within)
+    let short = 0;
+    for (let i = 0; i < 4 * HZ; i++) {
+      t.run(1);
+      short = Math.hypot(patchView(w).at[0] - foot[0], patchView(w).at[2] - foot[2]);
+    }
+    expect(patchView(w).walk?.waiting, 'stopped by the crate').toBe(true);
+    expect(short, 'more than a unit short').toBeGreaterThan(1);
+    const trip = watchHome(w, t, 40, 0);
+    const what = `${trip.seconds.toFixed(1)} s, stood ${trip.stood.toFixed(1)} s, ${trip.states.join('>')}, crate from ${[c1[0], c1[2]].map((x) => x.toFixed(2))} to ${[w.motion('crate-1')!.pose.p[0], w.motion('crate-1')!.pose.p[2]].map((x) => x.toFixed(2))}`;
+    if (process.env.PATCH_WALK_LOG) console.log(what);
+    expect(patchView(w).state, what).toBe('seated');
+    // (one wait, the last step's, counted from when the crate stopped it: four seconds of it are already gone)
+    expect(trip.seconds, what).toBeLessThan(T.lastStep - 4 + T.climb + 2.5);
+    const c1b = w.motion('crate-1')!.pose.p;
+    expect(Math.hypot(c1b[0] - c1[0], c1b[2] - c1[2]), 'the crate was nudged aside').toBeGreaterThan(0.05);
   }, 60_000);
 });

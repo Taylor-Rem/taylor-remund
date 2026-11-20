@@ -377,6 +377,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let way: Way | null = null;
   let pace: number = T.walk;
   let blockedAt = -1;
+  /** R5: what stopped its last step stands at the stool's foot (a big crate there stops it more than a unit short). */
+  let footBlock = false;
   let retryAt = 0;
   let crossing: { x: number; z0: number; side: 1 | -1 } | null = null;
   let gapWaitAt = -1;
@@ -567,7 +569,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     // point it can walk home from)
     const bodies = [...STATICS, ...movers()];
     const home = pt(footNow());
-    const free = (q: Pt): boolean => planWay(q, home, R, bodies, routeBench, BELT, 0) !== null;
+    // (R5: what stands at the stool's foot shuts every point in alike: the way home is judged without it)
+    const round = offFoot(bodies);
+    const free = (q: Pt): boolean => planWay(q, home, R, round, routeBench, BELT, 0) !== null;
     let c = c0;
     if (!free(pt(c0))) {
       search: for (let ring = 1; ring <= 6; ring++) {
@@ -699,15 +703,31 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const c = clearPoint(pt(p), R, [...STATICS, ...movers()], routeBench) ?? clearPoint(pt(p), R, STATICS, routeBench);
     return c ? onGround(c) : [p[0], spec.foot[1], p[2]];
   }
+  /**
+   * The things that move, less whatever stands at the stool's foot itself. No way that keeps clear of that can end
+   * there; Patch's way goes up to it, and the last step deals with it (it waits for the crew, nudges a loose part).
+   */
+  function offFoot(mv: readonly Obstacle[]): Obstacle[] {
+    const f = footNow();
+    return mv.filter((o) => distanceTo(o, f[0], f[2]) >= R);
+  }
   function planBack(withMovers: boolean): void {
-    const bodies = withMovers ? [...BODIES, ...movers()] : BODIES;
+    const mv = withMovers ? movers() : [];
     const drift = beltSurface() * (T.crossOver + T.crossOn);
-    way = planWay(pt(at), pt(footNow()), R, bodies, routeBench, BELT, drift);
+    const plan = (bodies: readonly Obstacle[]): Way | null => planWay(pt(at), pt(footNow()), R, bodies, routeBench, BELT, drift);
+    way = plan(withMovers ? [...BODIES, ...mv] : BODIES);
     // no way round the things that move as they stand now: the way round the fixed bodies (each step still stops
     // short of them); none round Fetch's tape either: across it (Fetch is still watched for, step by step)
-    if (!way && withMovers) way = planWay(pt(at), pt(footNow()), R, [...STATICS, ...movers()], routeBench, BELT, drift);
-    if (!way && withMovers) way = planWay(pt(at), pt(footNow()), R, BODIES, routeBench, BELT, drift);
-    if (!way) way = planWay(pt(at), pt(footNow()), R, STATICS, routeBench, BELT, drift);
+    if (!way && withMovers) way = plan([...STATICS, ...mv]);
+    // R5: something stands at the stool's foot (a crate thrown there), so no way round everything ends there: the
+    // way round everything else, up to it. (The ways below keep clear of no crate at all: with one lying at the
+    // stool, another on that way held Patch where it stood until Revert had cleared the bench, half a minute.)
+    if (!way && withMovers) {
+      const rest = offFoot(mv);
+      if (rest.length < mv.length) way = plan([...BODIES, ...rest]) ?? plan([...STATICS, ...rest]);
+    }
+    if (!way && withMovers) way = plan(BODIES);
+    if (!way) way = plan(STATICS);
     retryAt = ctx.clock.step + steps(T.retry);
   }
   /** On its feet on the bench: the way back (a look at the visitor and a turn first, unless it is on its way already). */
@@ -809,7 +829,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   }
 
   function enter(s: PatchState, elapsed = 0, len = lengthOf(s)): void {
-    if (s !== state) nearFootAt = -1; // (the stool's-foot wait counts one walk at a time)
+    if (s !== state) {
+      nearFootAt = -1; // (the stool's-foot wait counts one walk at a time)
+      footBlock = false;
+    }
     if (s !== 'roll') roll = null; // a roll ends (or is given up) with any other state
     const from = state;
     state = s;
@@ -1298,8 +1321,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           // R4 (Taylor: "They should still always be able to recover"): never waiting at its own stool for good. Within
           // a unit of the stool's foot for `lastStep` seconds, it takes the last step anyway: a loose part in the way
           // (a crate thrown to the stool's foot) is nudged aside, a crew move; Fetch or Revert in the way it waits for
+          // (R5: or stopped short by the very thing that stands at the foot, however far short: the big crate's
+          // far face is more than a unit from it)
           const foot = footNow();
-          if (Math.hypot(foot[0] - at[0], foot[2] - at[2]) < 1) {
+          if (Math.hypot(foot[0] - at[0], foot[2] - at[2]) < 1 || footBlock) {
             if (nearFootAt < 0) nearFootAt = ctx.clock.step;
           } else nearFootAt = -1;
           if (nearFootAt >= 0 && ctx.clock.step - nearFootAt >= steps(T.lastStep)) {
@@ -1411,6 +1436,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           });
           if (!stepClear(pt(at), np, R, mv) || closer) {
             if (blockedAt < 0) blockedAt = ctx.clock.step;
+            // (R5: stopped by what stands at the stool's foot: the last step's wait counts from here)
+            footBlock = mv.some((o) => {
+              if (o.id.endsWith(':ahead') || distanceTo(o, foot[0], foot[2]) >= R) return false;
+              const dn = distanceTo(o, np[0], np[1]);
+              return !stepClear(pt(at), np, R, [o]) || (dn < R && dn < distanceTo(o, at[0], at[2]) - 1e-9);
+            });
             if (ctx.clock.step - blockedAt >= steps(T.retry)) {
               blockedAt = -1;
               planBack(true);
@@ -1418,6 +1449,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             break;
           }
           blockedAt = -1;
+          footBlock = false;
           if (n > 1e-6) heading = Math.atan2(dx, dz);
           at = onGround(np);
           if (n <= stepLen) way.points.shift();

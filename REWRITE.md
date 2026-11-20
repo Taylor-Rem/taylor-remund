@@ -778,7 +778,9 @@ Patch's place: it never walks the bench.
   of a second and slides down. Over the bench's edge low, it catches the
   ledge; thrown hard over it, it is out of sight for about a second and
   comes back up the chute. It always gets back on its stool: a crate that
-  has come to rest at the stool's foot is nudged aside. Let go while
+  has come to rest at the stool's foot is nudged aside, and with one
+  lying there its way home still goes round every other crate (it does
+  not stand behind one waiting for the bench to be cleared). Let go while
   touching something, it is thrown all the same unless the throw points
   into that thing. Let go still from up high it falls, knowing it, and
   lands in a flop that grows with the fall, sits up and dusts off. Thrown
