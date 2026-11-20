@@ -131,7 +131,7 @@ describe('Patch is lifted off its stool', () => {
     }
     expect(t.events.some((x) => (x.e.type === 'line.reply' || x.e.type === 'line.refused') && (x.e.n === a || x.e.n === b))).toBe(false);
     expect(shopView(w).sign).toBe('paint-green');
-    w.dispatch({ type: 'drag', id: 'patch', target: [-2, 2, 1], end: true });
+    w.dispatch({ type: 'drag', id: 'patch', target: [-2, 1.2, 1], end: true }); // (a hand's height: higher, it falls: R4)
     t.run(1);
     expect(patchView(w).state).toBe('walk');
     const down = patchView(w).at;
@@ -243,7 +243,7 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(patchView(w).at).toEqual([EDGE.maxX - 0.5, PATCHLAMP.patch.foot[1], EDGE.maxZ]);
     const b = await benchWorld();
     const tb = tape(b);
-    carryAndDrop(b, tb, [0, 2.5, -30], 240); // behind the wall: put down on the bench, as before
+    carryAndDrop(b, tb, [0, 1.2, -30], 240); // behind the wall: put down on the bench, as before
     expect(patchView(b).state).toBe('walk');
     expect(patchView(b).ledge).toBeNull();
   });
@@ -256,7 +256,7 @@ describe('Patch let go of past the edge of the bench (R1)', () => {
     expect(patchView(w).state).toBe('fly');
     const g = await benchWorld();
     const tg = tape(g);
-    carryAndDrop(g, tg, [2, 2.5, EDGE.maxZ - 0.3], 400);
+    carryAndDrop(g, tg, [2, 1.2, EDGE.maxZ - 0.3], 400);
     expect(patchView(g).state).toBe('walk');
   });
 

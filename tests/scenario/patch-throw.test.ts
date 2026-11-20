@@ -396,6 +396,160 @@ describe('Patch thrown (R4)', () => {
     }, 60_000);
   }
 
+  // R4 up (Taylor: "when you lift Patch then drop him, he should have a falling and landing animation ... You should
+  // be able to throw them up ... like juggling"). Through the intent path: lifted off its stool, carried, let go.
+  describe('dropped from high, thrown up, caught in the air', () => {
+    /** Lifted off its stool and carried to `hand` (the hand's point; its middle hangs `hangBelow` under it), held still. */
+    const carryTo = (w: World, t: Tape, hand: Vec3): void => {
+      const s = patchView(w).at;
+      const a: Vec3 = [s[0], 2.4, s[2] + 0.6];
+      for (let i = 0; i <= 40; i++) {
+        w.dispatch({ type: 'drag', id: 'patch', target: [a[0] + ((hand[0] - a[0]) * i) / 40, a[1] + ((hand[1] - a[1]) * i) / 40, a[2] + ((hand[2] - a[2]) * i) / 40] });
+        t.run(1);
+      }
+      for (let i = 0; i < 20; i++) {
+        w.dispatch({ type: 'drag', id: 'patch', target: hand });
+        t.run(1);
+      }
+    };
+    const statesOf = (t: Tape): string[] => t.of('crew.state').filter((x) => x.e.id === 'patch').map((x) => x.e.state as string);
+
+    for (const h of [1, 3, 5.5]) {
+      test(`let go still with its middle ${h} above the bench: it falls, lands, and is home`, async () => {
+        const w = await benchWorld(1);
+        const t = tape(w);
+        t.run(20);
+        const hand: Vec3 = [-6, h + T.hangBelow, -2];
+        carryTo(w, t, hand);
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true });
+        t.run(1);
+        expect(patchView(w).state).toBe('fly');
+        expect(patchView(w).thrown?.drop).toBe(true);
+        // it falls straight: where it lands is under where it was let go
+        let landedAt: Vec3 | null = null;
+        let fell = 0;
+        for (let i = 0; i < 5 * HZ && !landedAt; i++) {
+          t.run(1);
+          const v = patchView(w);
+          if (v.state === 'land') {
+            landedAt = [...v.at] as Vec3;
+            fell = v.thrown?.fall ?? 0;
+          }
+        }
+        expect(landedAt).not.toBeNull();
+        expect(Math.hypot(landedAt![0] - hand[0], landedAt![2] - hand[2]), JSON.stringify(landedAt)).toBeLessThan(0.5);
+        expect(fell).toBeCloseTo(h, 0);
+        const f = watch(w, t, 40);
+        const all = statesOf(t);
+        expect(all.join('>')).toMatch(/held>fly>land>shake>look>walk.*>seated/);
+        expect(f.states.at(-1)).toBe('seated');
+      }, 60_000);
+    }
+
+    for (const up of [6, 12]) {
+      test(`thrown straight up at ${up} u/s: it rises, hangs at the top, falls, and lands within a unit of where it left`, async () => {
+        const w = await benchWorld(1);
+        const t = tape(w);
+        t.run(20);
+        const hand: Vec3 = [-6, 1.2, -2];
+        carryTo(w, t, hand);
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, up, 0] });
+        t.run(1);
+        expect(patchView(w).state).toBe('fly');
+        const g = -w.scene.gravity;
+        let peak = 0, topSteps = 0;
+        let landedAt: Vec3 | null = null;
+        for (let i = 0; i < 6 * HZ && !landedAt; i++) {
+          t.run(1);
+          const v = patchView(w);
+          if (v.state === 'fly') {
+            peak = Math.max(peak, v.at[1]);
+            if (v.thrown?.top) topSteps++;
+          }
+          if (v.state === 'land') landedAt = [...v.at] as Vec3;
+        }
+        // as high as the hand's speed takes it (from its middle, 0.6 under the hand)
+        expect(peak).toBeCloseTo(hand[1] - T.hangBelow + (up * up) / (2 * g), 0);
+        expect(topSteps).toBeGreaterThan(3);
+        expect(landedAt).not.toBeNull();
+        expect(Math.hypot(landedAt![0] - hand[0], landedAt![2] - hand[2])).toBeLessThan(1);
+        const f = watch(w, t, 40);
+        expect(f.states.at(-1)).toBe('seated');
+      }, 60_000);
+    }
+
+    test('juggled: thrown up, caught at the top (no snap), thrown again from there, three times, never touching the bench', async () => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      let hand: Vec3 = [-6, 1.2, -2];
+      carryTo(w, t, hand);
+      for (let k = 0; k < 3; k++) {
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 9, 0] });
+        t.run(1);
+        expect(patchView(w).state, `throw ${k + 1}`).toBe('fly');
+        // up to the top
+        for (let i = 0; i < 3 * HZ && !patchView(w).thrown?.top; i++) t.run(1);
+        const v0 = patchView(w);
+        expect(v0.thrown?.top, `throw ${k + 1} reaches its top`).toBe(true);
+        const mid0 = [...v0.at] as Vec3;
+        // caught there: the hand takes it a little off its scruff; it does not jump to the hand
+        const grip: Vec3 = [mid0[0] + 0.1, mid0[1] + 0.2, mid0[2]];
+        w.dispatch({ type: 'drag', id: 'patch', target: grip });
+        t.run(1);
+        const v1 = patchView(w);
+        expect(v1.state).toBe('held');
+        expect(Math.hypot(v1.at[0] - mid0[0], v1.at[1] - T.hangBelow - mid0[1], v1.at[2] - mid0[2]), `caught ${k + 1}: where it was`).toBeLessThan(0.05);
+        // held a moment, the hand still: settles onto the hand
+        for (let i = 0; i < 30; i++) {
+          w.dispatch({ type: 'drag', id: 'patch', target: grip });
+          t.run(1);
+        }
+        hand = grip;
+        // the next throw flies from where it hangs now
+        const before = patchView(w).at;
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 9, 0] });
+        t.run(1);
+        const v2 = patchView(w);
+        expect(v2.state).toBe('fly');
+        expect(Math.abs(v2.at[1] - (before[1] - T.hangBelow))).toBeLessThan(0.3);
+        // (then caught again, below: the loop goes on from the next throw)
+        for (let i = 0; i < 3 * HZ && !patchView(w).thrown?.top; i++) t.run(1);
+        const top = patchView(w).at;
+        hand = [top[0], top[1] + T.hangBelow, top[2]];
+        w.dispatch({ type: 'drag', id: 'patch', target: hand });
+        t.run(1);
+        expect(patchView(w).state).toBe('held');
+        for (let i = 0; i < 20; i++) {
+          w.dispatch({ type: 'drag', id: 'patch', target: hand });
+          t.run(1);
+        }
+      }
+      // never down on the bench in all that
+      expect(statesOf(t)).not.toContain('land');
+      w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true });
+      const f = watch(w, t, 40);
+      expect(f.states.at(-1)).toBe('seated');
+    }, 60_000);
+
+    test('never higher than 7.2, however high it is let go and however hard it is thrown up', async () => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      const hand: Vec3 = [-3, 5.5 + T.hangBelow, -3.4];
+      carryTo(w, t, hand);
+      w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 14, 0] });
+      let peak = 0;
+      for (let i = 0; i < 4 * HZ; i++) {
+        t.run(1);
+        peak = Math.max(peak, patchView(w).at[1]);
+      }
+      expect(peak).toBeLessThanOrEqual(T.topMid + 1e-9);
+      const f = watch(w, t, 40);
+      expect(f.states.at(-1)).toBe('seated');
+    }, 60_000);
+  });
+
   test('a hundred seeded throws: every one ends on the stool, the job carried on, nothing durable changed by it', async () => {
     const r = rng(Number(process.env.PATCH_THROW_SEED ?? 20261119));
     const log: string[] = [];
@@ -403,7 +557,9 @@ describe('Patch thrown (R4)', () => {
       const from: Vec3 = [-8 + r() * 16, 1.2 + r() * 2.6, -3.5 + r() * 8];
       const a = r() * Math.PI * 2;
       const sp = r() * 16; // past the cap too: it is clamped
-      const v: Vec3 = [Math.sin(a) * sp, Math.min(1.6, 0.18 * sp) * r(), Math.cos(a) * sp];
+      // (R4 up: every fifth thrown up, the hand's upward part up to past the cap, the level part anything)
+      const upward = k % 5 === 4;
+      const v: Vec3 = upward ? [Math.sin(a) * sp * 0.4, 1.5 + r() * 12, Math.cos(a) * sp * 0.4] : [Math.sin(a) * sp, Math.min(1.6, 0.18 * sp) * r(), Math.cos(a) * sp];
       const kind = k % 4; // 0, 1: plain; 2: while it holds a job; 3: the Button pressed in the air
       const w = await benchWorld(k + 1);
       const t = tape(w);

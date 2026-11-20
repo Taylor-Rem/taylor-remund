@@ -822,8 +822,11 @@ export interface PatchView extends MachineViewBase {
    * its way back up the chute after a throw off the bench). `land`: come down (`at` its feet on the bench), a bounce
    * and a roll over `stateLength`, ending sat up (`speed`: how fast it came in). Then `shake` (sat, a shake of the
    * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
+   * (Up, R4: `fall` how far it has fallen from the top of its flight (`fly`) or fell (`land`, `shake`); `drop` let go
+   * still from high or thrown up (it comes down falling, not tumbling along); `top` hanging at the top of a throw
+   * up, a moment before it falls. Present in `shake` too, for the size of its "really?".)
    */
-  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean } | null;
+  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean } | null;
   /**
    * R4: met a wall flat (state `wall`): `out` the wall's outward direction where it met it (unit, horizontal;
    * Patch faces it, spread), `stick` seconds stuck there, then it slides down it (`at`, its middle, moving down)

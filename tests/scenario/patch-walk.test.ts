@@ -28,7 +28,7 @@ function setDown(w: World, t: Tape, to: Vec3): void {
     t.run(1);
   }
   t.run(12);
-  w.dispatch({ type: 'drag', id: 'patch', target: [to[0], 3, to[2]], end: true });
+  w.dispatch({ type: 'drag', id: 'patch', target: [to[0], 1.2, to[2]], end: true }); // (a hand's height: higher, it falls: R4)
   t.run(1);
 }
 

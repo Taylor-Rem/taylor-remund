@@ -12,7 +12,7 @@ const lift = () => {
   const seat = patch().at;
   world.dispatch({ type: 'grab', id: 'patch', grip: [seat[0], seat[1] + 1, seat[2]] });
   run(world, 1);
-  world.dispatch({ type: 'carry', target: [0, 2.5, 1] });
+  world.dispatch({ type: 'carry', target: [0, 1.2, 1] }); // (a hand's height: higher, let go still, it falls: R4)
   run(world, 1);
   return { world, patch };
 };
