@@ -318,7 +318,11 @@ export class FetchPerformer {
     // ── where the body is ──
     const P = new Vector3(i.pose.p[0], i.pose.p[1], i.pose.p[2]);
     const Q = new Quaternion(i.pose.q[0], i.pose.q[1], i.pose.q[2], i.pose.q[3]);
-    if (i.teleport && grounded && !this.lastQ.equals(Q)) {
+    // (a righting only ever starts from a pose this view has drawn: never on its first frame, after a reset or a
+    // recover that moves it across the bench, or when the stage is rebuilt on a running world)
+    const upNow = new Vector3(P.x, P.y - i.half[1], P.z);
+    const drawnNear = this.drawn && this.lastRootPos.distanceTo(upNow) < 0.5;
+    if (i.teleport && grounded && drawnNear && !this.lastQ.equals(Q)) {
       // righting itself after being put down: swing up from where it lay
       this.rightFrom.copy(this.lastQ).multiply(Q.clone().invert());
       this.rightFromPos.copy(this.lastRootPos);
@@ -326,7 +330,7 @@ export class FetchPerformer {
       this.rightHoldUntil = -Infinity;
       this.righting = 1;
       this.squash.kick(-3.2);
-    } else if (grounded && this.lastMode === 'free' && new Vector3(0, 1, 0).applyQuaternion(this.lastQ).y < 0.8) {
+    } else if (grounded && this.drawn && this.lastMode === 'free' && this.lastRootPos.distanceTo(upNow) < 1.5 && new Vector3(0, 1, 0).applyQuaternion(this.lastQ).y < 0.8) {
       // R4: thrown, it lay on its side or back and the simulation has it up again: it lies there a beat, dazed,
       // then pushes itself up with the arm it lies on (the simulation's heading untouched: the view draws the getting up)
       this.yaw.set(m.heading);
@@ -342,7 +346,11 @@ export class FetchPerformer {
       this.pushLeft = down.x > 0;
     }
     this.lastMode = i.mode;
-    if (grounded) {
+    if (grounded && (!this.drawn || (i.teleport && !drawnNear))) {
+      // a first frame (or a jump the view never drew): its heading as it is, the view's own turn of the body undone
+      this.yaw.set(m.heading);
+      this.bodyTurn.set(0);
+    } else if (grounded) {
       this.yaw.step(m.heading, db);
     } else {
       const f = new Vector3(0, 0, 1).applyQuaternion(Q);
@@ -1315,6 +1323,7 @@ export class FetchPerformer {
     }
     if (grounded) this.twist.set(0);
     this.lastRootPos.setFromMatrixPosition(root);
+    this.drawn = true;
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
 
     // contact shadow: under the tyre where the pose puts it (a lean, a hop), fading as it leaves the bench
@@ -1409,6 +1418,8 @@ export class FetchPerformer {
   /** R4: thrown and righting itself: when it lay down dazed, how long it stays down, how long the push up takes. */
   private lastMode: string | null = null;
   private lastRootPos = new Vector3();
+  /** Whether this view has drawn Fetch at least once (its last pose is real, not a default). */
+  private drawn = false;
   private rightFromPos = new Vector3();
   private rightDur = 0.32;
   private rightHoldUntil = -Infinity;
