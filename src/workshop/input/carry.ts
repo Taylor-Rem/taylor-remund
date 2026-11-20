@@ -350,7 +350,7 @@ export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null):
   return [x, y, anchor[2]];
 }
 
-export const UP_HOLD = { speed: 400, reach: 12, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
+export const UP_HOLD = { speed: 300, reach: 8, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
 
 export class UpHold {
   private readonly hist: { t: number; x: number; y: number }[] = [];
@@ -388,10 +388,14 @@ export class UpHold {
     const last = this.hist[this.hist.length - 1];
     if (!last || last.x !== x || last.y !== y) this.hist.push({ t, x, y });
     while (this.hist.length > 2 && t - (this.hist[1] as { t: number }).t > T.window) this.hist.shift();
-    const a = this.hist[0] as { t: number; x: number; y: number };
     const b = this.hist[this.hist.length - 1] as { t: number; x: number; y: number };
-    // a hand setting off from rest: its first step is taken as one event's move (10 ms), not spread over the time it stood
-    const span = (b.t - a.t > T.still ? 10 : b.t - a.t) / 1000;
+    // where the hand was at the start of its present movement: the oldest sample in the window, but not one it stood
+    // still at before setting off (that one starts the movement 10 ms, one event, before the next sample)
+    const a = this.hist[0] as { t: number; x: number; y: number };
+    let at = a.t;
+    const next = this.hist[1];
+    if (next && next.t - a.t > T.still) at = next.t - 10;
+    const span = (b.t - at) / 1000;
     const moving = t - b.t < T.still && span > 0.004;
     const vx = moving ? (b.x - a.x) / span : 0;
     const up = moving ? -(b.y - a.y) / span : 0;
