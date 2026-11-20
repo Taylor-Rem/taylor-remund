@@ -347,7 +347,7 @@ export function heldUp(ray: RayLike, anchor: Vec3): Vec3 | null {
   return [x, y, anchor[2]];
 }
 
-export const UP_HOLD = { speed: 350, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60 } as const;
+export const UP_HOLD = { speed: 250, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60 } as const;
 
 export class UpHold {
   private readonly hist: { t: number; x: number; y: number }[] = [];
@@ -380,8 +380,8 @@ export class UpHold {
     while (this.hist.length > 2 && t - (this.hist[1] as { t: number }).t > T.window) this.hist.shift();
     const a = this.hist[0] as { t: number; x: number; y: number };
     const b = this.hist[this.hist.length - 1] as { t: number; x: number; y: number };
-    // a hand setting off from rest: its first step is taken as one frame's move, not spread over the time it stood
-    const span = (b.t - a.t > T.still ? 16 : b.t - a.t) / 1000;
+    // a hand setting off from rest: its first step is taken as one event's move (10 ms), not spread over the time it stood
+    const span = (b.t - a.t > T.still ? 10 : b.t - a.t) / 1000;
     const moving = t - b.t < T.still && span > 0.004;
     const vx = moving ? (b.x - a.x) / span : 0;
     const up = moving ? -(b.y - a.y) / span : 0;
@@ -402,7 +402,10 @@ export class UpHold {
     this.anchor ??= this.out ?? onSurface;
     let up3: Vec3 = onSurface;
     const f = heldUp(ray, this.anchor);
-    if (f && f[1] >= onSurface[1] - 0.05) up3 = [f[0], Math.min(top, f[1]), f[2]];
+    // held up from where it was taken: never below the lower of the surface and where it was taken (a lift over a
+    // station raises the surface itself; the hold does not need to)
+    const floor = Math.min(onSurface[1], this.anchor[1]);
+    if (f && f[1] >= floor - 0.05) up3 = [f[0], Math.min(top, f[1]), f[2]];
     else if (this.airborne) this.airborne = false; // brought down to the surface: on it again
     const w = this.w;
     const out: Vec3 = [onSurface[0] + (up3[0] - onSurface[0]) * w, onSurface[1] + (up3[1] - onSurface[1]) * w, onSurface[2] + (up3[2] - onSurface[2]) * w];

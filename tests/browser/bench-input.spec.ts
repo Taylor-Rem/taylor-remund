@@ -1673,7 +1673,7 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
   const say: string[] = [];
   let at = await takeHold(page, hand, id, kind);
   at = await carryOver(page, hand, id, at, start);
-  await frames(page, 20);
+  await frames(page, 60); // (settled: a quick carry up the screen lifts it, and it eases back onto the surface when the hand stops)
   // the page watches it every frame from here: its lowest point between each throw and its catch
   await page.evaluate((id) => {
     const W = window as any;
@@ -1710,7 +1710,7 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
             last = p;
             // on its way down, half way back to where it was thrown from (a hand reaching up to meet it), and where
             // it will be two frames on (the press takes about that long to arrive)
-            if (top > (y0 as number) + 0.5 && vy < 0 && p[1] < (y0 as number) + (top - (y0 as number)) * 0.5) {
+            if (top > (y0 as number) + 0.5 && vy < 0 && p[1] < (y0 as number) + (top - (y0 as number)) * 0.3) {
               const dx = p[0] - last0![0]!;
               const dz = p[2] - last0![2]!;
               return done([p[0] + 2 * dx, p[1] + 2 * vy, p[2] + 2 * dz, top]);
@@ -1771,9 +1771,10 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
 }
 
 for (const [label, id, start, flickPx] of [
-  ['a crate', 'crate-2', [-3.5, 0.8], 60],
-  ['Fetch', 'fetch', [-3.0, 1.6], 60],
-  ['Patch', 'patch', [-3.5, 0.8], 60],
+  // (juggled on the open left of the bench, clear of the stations and of where the crew go about their work)
+  ['a crate', 'crate-2', [-5.8, -1.2], 60],
+  ['Fetch', 'fetch', [-5.8, -1.2], 60],
+  ['Patch', 'patch', [-5.8, -1.2], 60],
 ] as const) {
   test(`R5: juggling ${label} by mouse: flicked up, caught in the air, up again, three catches without touching the bench`, async ({ page }) => {
     test.setTimeout(5 * 60_000);

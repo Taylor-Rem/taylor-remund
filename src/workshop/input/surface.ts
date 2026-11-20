@@ -128,7 +128,7 @@ class Aim {
  * can be fun to throw them against the back wall too"): no lean below `from` u/s, all of the line of sight's tilt
  * from `full` u/s, eased between.
  */
-export const UP_FLICK = { from: 13, full: 24 } as const;
+export const UP_FLICK = { from: 16, full: 28 } as const;
 
 /** The upright plane through `p` facing the room (its depth fixed), its up (world up), and the line of sight's downward tilt. */
 function facingAt(eye: Vec3, p: Vec3): { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null {
@@ -410,15 +410,10 @@ export function createSurface(deps: SurfaceDeps): Surface {
       // an arm that aims is taken where it points now, so the grab does not jump the light to the hand
       const w = deps.world();
       if (what === 'unit' && w && aims(w, id)) return aimFromWorld(w, id)?.aim ?? point;
-      // (R5) caught in the air: taken at its middle's depth, on the same line of sight (the press lands on the front
-      // of its pick box), so holding it up and throwing it again keeps it where it is instead of drawing it forward
-      const mid = w ? airborneMiddle(w, id) : null;
-      if (!mid) return point;
-      const eye = deps.ray(0, 0).origin;
-      const dz = point[2] - eye[2];
-      if (Math.abs(dz) < 1e-6) return point;
-      const k = (mid[2] - eye[2]) / dz;
-      return [eye[0] + (point[0] - eye[0]) * k, eye[1] + (point[1] - eye[1]) * k, mid[2]];
+      // (R5) caught in the air: taken by its middle (the press lands on the front of its pick box; and a tumbling
+      // thing taken off its middle is turned level about the grip, which walks it), so holding it up and throwing it
+      // again keeps it where it is. The press is aimed at it: its middle is a few pixels from the pointer at most.
+      return (w ? airborneMiddle(w, id) : null) ?? point;
     },
 
     screen: (id) => deps.screen?.(id) ?? null,
