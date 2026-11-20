@@ -60,6 +60,7 @@ describe('R4: Revert let go anywhere gets itself down and home', () => {
     ['a crate', (w) => { const p = w.motion('crate-3')!.pose.p; return [p[0], 3.5, p[2]]; }],
     ['Patch\'s stool', () => [3.02, 3.5, -3.46]],
     ['the console\'s top', () => [AT.console.c[0], 3.5, AT.console.c[2]]],
+    ['the striker\'s top', () => [AT.striker.c[0], 7.5, AT.striker.c[2]]],
   ];
   for (const [what, at] of PERCHES) {
     test(`set down on ${what}: home and below within 30 s, no card`, async () => {
