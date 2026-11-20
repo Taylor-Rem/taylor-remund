@@ -1627,6 +1627,11 @@ async function hookRelease(page: Page): Promise<void> {
     const w = W.__bench.ws.world;
     const d0 = w.dispatch.bind(w);
     w.dispatch = (i: any) => {
+      // (`__i1setV`: the next release goes with this velocity whatever the hand's flick made of it; used once)
+      if (i.type === 'release' && W.__i1setV) {
+        i = { ...i, velocity: W.__i1setV };
+        W.__i1setV = null;
+      }
       if (i.type === 'release') W.__i1v = i.velocity;
       if (i.type === 'carry') W.__i1t = i.target;
       d0(i);
@@ -1661,6 +1666,25 @@ async function carryOver(page: Page, hand: ReturnType<typeof tickHand>, id: stri
     await frames(page, 12);
   }
   return at;
+}
+
+/** How far (x, z) is from the footprint of the nearest fixed body that stands higher than `above` (not the bench top), and which. */
+async function clearance(page: Page, at: [number, number], above: number): Promise<{ id: string; d: number }> {
+  return page.evaluate(
+    ([x, z, above]) => {
+      let best = { id: 'nothing', d: Infinity };
+      for (const s of (window as any).__bench.ws.world.scene.statics as any[]) {
+        if (s.shape.type !== 'box' || s.id === 'bench') continue;
+        const h = s.shape.half as number[];
+        const c = s.pose.p as number[];
+        if (c[1]! + h[1]! <= above) continue;
+        const d = Math.hypot(Math.max(0, Math.abs(x - c[0]!) - h[0]!), Math.max(0, Math.abs(z - c[2]!) - h[2]!));
+        if (d < best.d) best = { id: s.id as string, d };
+      }
+      return best;
+    },
+    [at[0], at[1], above] as const,
+  );
 }
 
 /**
@@ -1865,7 +1889,15 @@ test('R5: juggling a crate by touch at the phone framing (390x844)', async ({ br
   const cdp = await ctx.newCDPSession(page);
   await bringIntoView(page, fingerHand(cdp), 'crate-3', 'touch');
   const p = await posOf(page, 'crate-3');
-  const say = await juggleIt(page, cdp, 'touch', 'crate-3', [p[0] - 0.5, p[2] - 1.5], 40);
+  // Over the middle of the console's top. (It was half a unit to the LEFT of the crate's place: there the crate hung
+  // against the side of the UNDO lever's housing, right face x -1.71 and 1.97 high. Three runs in twenty it ended
+  // behind the housing, pressed to its back face with the hand a unit away, and its first throw sprang 0.1 to 0.2
+  // back; one run in thirty more than the 0.3 allowed. The bench was right; the spot was wrong, as with the wall.)
+  const start: [number, number] = [p[0] + 0.45, p[2] - 1.4];
+  const near = await clearance(page, start, 1.2);
+  console.log(`[I1] R5 juggle crate-3 by touch: from ${JSON.stringify(start.map((n) => +n.toFixed(2)))}, ${near.d.toFixed(2)} from ${near.id}`);
+  expect(near.d, `the start is clear of ${near.id}`).toBeGreaterThan(0.8);
+  const say = await juggleIt(page, cdp, 'touch', 'crate-3', start, 40);
   console.log(`[I1] R5 juggle crate-3 by touch: ${say.join(' | ')}`);
   expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
   expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it does not walk back toward the wall').toBeLessThan(0.3);
@@ -2051,23 +2083,81 @@ test('R5: a press on a thing in the air takes the thing when it is in front of t
   const L = (await page.evaluate(() => (window as any).__bench.ws.surface.where('lamp'))) as V3;
   const disc = (await page.evaluate(() => (window as any).__bench.ws.surface.screen('lamp'))) as Disc;
   expect(L && disc, 'the lamp has a pick target').toBeTruthy();
-  // the crate carried to stand in front of the lamp (toward the room), then thrown up so it rises in front of the
-  // shade; pressed on where it is as it passes over the shade on screen
+  // The crate is carried to stand in front of the shade (toward the room) and thrown up, so that it rises between the
+  // pointer and the shade; it is pressed on as it crosses the shade on screen.
+  //
+  // Where it stands: over the top of the UNDO lever's housing, a unit in front of the shade, at the x that puts the
+  // shade behind it on screen. (It stood 1.6 in front at bench height: there its back was 0.14 inside the housing's
+  // front face, z 0.81, so it was held pressed against that face; and from there it met the shade on screen only at
+  // the very top of its flight, 5.1 to 5.2 up. Two runs in thirty it never crossed it. The spot was wrong, as with the
+  // wall and the juggle.) From the housing's top it crosses the place on its way up with more than a unit of rise left.
+  // (The shade's target is 125 px in radius; the old place put the top of the flight 94 px below its middle.)
+  // The throw is the set-up, so its velocity is set and not left to the flick; the press, which is what is tested, is
+  // the hand's own, aimed two frames ahead as a hand reaching for a moving thing is (the juggling tests do the same).
+  const AHEAD = 1.2;
+  const aim = (await page.evaluate(
+    ([L, d, ahead]) => {
+      const W = window as any;
+      let x = L[0]!;
+      let h = L[1]!;
+      const z = L[2]! + ahead;
+      for (let i = 0; i < 16; i++) {
+        const s = W.__bench.project([x, h, z]);
+        const sx = W.__bench.project([x + 0.1, h, z]);
+        const sy = W.__bench.project([x, h + 0.1, z]);
+        x += ((d.x - s.x) / (sx.x - s.x)) * 0.1;
+        h += ((d.y - s.y) / (sy.y - s.y)) * 0.1;
+      }
+      return [x, h, z];
+    },
+    [L, disc, AHEAD] as const,
+  )) as V3;
   let at = await takeHold(page, hand, 'crate-2', 'mouse');
-  at = await carryOver(page, hand, 'crate-2', at, [L[0], L[2] + 1.6]);
-  await frames(page, 20);
-  const px = Math.max(40, at.y - disc.y + 30);
-  await hand.drag(at, { x: at.x, y: at.y - Math.min(110, px) }, 100, true);
+  at = await carryOver(page, hand, 'crate-2', at, [aim[0], aim[2]]);
+  at = await carryOver(page, hand, 'crate-2', at, [aim[0], aim[2]]); // (again: up on the housing it is steered from its new height)
+  await frames(page, 60); // (settled: it eases back onto the carry surface when the hand stops)
+  const from = await posOf(page, 'crate-2');
+  const under = await clearance(page, [from[0], from[2]], from[1]);
+  // rising from where it is held, the height at which it comes inside the part of the target watched below (0.6 of
+  // its radius), and how far to the side of the target's middle it is there
+  const entry = (await page.evaluate(
+    ([f, d]) => {
+      const W = window as any;
+      let h = f[1]!;
+      const want = d.y + d.r * 0.5;
+      for (let i = 0; i < 16; i++) {
+        const s = W.__bench.project([f[0], h, f[2]]);
+        const sy = W.__bench.project([f[0], h + 0.1, f[2]]);
+        h += ((want - s.y) / (sy.y - s.y)) * 0.1;
+      }
+      return [h, W.__bench.project([f[0], h, f[2]]).x - d.x];
+    },
+    [from, disc] as const,
+  )) as [number, number];
+  console.log(`[I1] R5 in front of the lamp (shade at ${JSON.stringify(L.map((n) => +n.toFixed(2)))}, its target ${JSON.stringify({ x: +disc.x.toFixed(0), y: +disc.y.toFixed(0), r: +disc.r.toFixed(0) })}): held at ${JSON.stringify(from.map((n) => +n.toFixed(2)))} (meant: ${JSON.stringify([aim[0], aim[2]].map((n) => +n.toFixed(2)))}); it comes inside the target ${(entry[0] - from[1]).toFixed(2)} up, ${entry[1].toFixed(0)} px to the side of its middle; nearest body standing higher than it: ${under.id} at ${under.d.toFixed(2)}`);
+  expect(from[2], 'held in front of the shade (nearer the room)').toBeGreaterThan(L[2] + 0.3);
+  expect(under.d, `clear of ${under.id}`).toBeGreaterThan(0.6);
+  // (it comes inside on its way up with more than a unit of its rise left: a crate thrown up rises about 4.4)
+  expect(entry[0] - from[1], 'the rise to where it comes inside the target').toBeGreaterThan(0.3);
+  expect(entry[0] - from[1], 'the rise to where it comes inside the target').toBeLessThan(3.2);
+  expect(Math.abs(entry[1]), 'and near the middle of it, side to side').toBeLessThan(disc.r * 0.3);
+  await page.evaluate(() => {
+    (window as any).__i1setV = [0, 16.7, 0];
+  });
+  await hand.drag(at, { x: at.x, y: at.y - 100 }, 100, true);
   const hit = await page.evaluate(
     ([d]) =>
       new Promise<number[] | null>((done) => {
         const W = window as any;
         const w = W.__bench.ws.world;
         let n = 0;
+        let last: { x: number; y: number } | null = null;
         const look = () => {
           const p = w.motion('crate-2').pose.p;
           const s = W.__bench.project(p);
-          if (Math.hypot(s.x - d.x, s.y - d.y) < d.r * 0.8) return done([s.x, s.y, p[0], p[1], p[2]]);
+          // inside the shade's target, and where it will be two frames on (the press takes about that long to arrive)
+          if (last && Math.hypot(s.x - d.x, s.y - d.y) < d.r * 0.6) return done([s.x + 2 * (s.x - last.x), s.y + 2 * (s.y - last.y), p[0], p[1], p[2], s.x, s.y]);
+          last = s;
           if (++n > 240) return done(null);
           requestAnimationFrame(look);
         };
@@ -2075,9 +2165,11 @@ test('R5: a press on a thing in the air takes the thing when it is in front of t
       }),
     [disc] as const,
   );
-  console.log(`[I1] R5 in front of the lamp (shade at ${JSON.stringify(L.map((n) => +n.toFixed(2)))}): sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; over the shade on screen: ${JSON.stringify(hit?.map((n) => +n.toFixed(2)))}`);
+  console.log(`[I1] R5 in front of the lamp: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; over the shade on screen: ${JSON.stringify(hit?.map((n) => +n.toFixed(2)))}`);
   expect(hit, 'it passed over the shade on screen').not.toBeNull();
   const q = { x: hit![0]!, y: hit![1]! };
+  // (the press is on the shade's own target: the lamp is what is behind the crate there)
+  expect(Math.hypot(q.x - disc.x, q.y - disc.y), 'the press is inside the shade\'s target').toBeLessThan(disc.r);
   const crateD = await page.evaluate(() => (window as any).__bench.ws.world.motion('crate-2').pose.p as number[]);
   await hand.down(q);
   await frames(page, 3);
