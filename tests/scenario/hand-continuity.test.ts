@@ -195,6 +195,36 @@ describe('let go: it goes on as it was going', () => {
     expect(level(vel(w, 'crate-3'))).toBeLessThan(1);
   });
 
+  // (Found on the page 2026-11-20: the crate had braked to 7 units/s as it reached a hand that had stopped, and was
+  // then thrown at 28, the most it had on its way there. A hand that has stopped has thrown nothing.)
+  test('let go while it is still running up to a hand that has stopped: it keeps what it has left, and is not thrown harder', async () => {
+    const { w, t } = await inHand('crate-1');
+    const r = sweep(w, t, 'crate-1', [1, 0], 6, () => 60);
+    // the hand has stopped; the crate is still on its way
+    for (let i = 0; i < 2; i++) {
+      w.dispatch({ type: 'carry', target: r.hand });
+      t.run(1);
+    }
+    const before = vel(w, 'crate-1');
+    expect(r.hand[0] - w.motion('crate-1')!.pose.p[0]).toBeGreaterThan(0.5); // (not there yet)
+    w.dispatch({ type: 'release' });
+    t.run(1);
+    const after = vel(w, 'crate-1');
+    expect(level(after)).toBeLessThan(level(before) + 0.3);
+    expect(after[0]).toBeGreaterThan(0); // and not stopped dead in the air, nor sent back
+    // arriving at the hand and let go there, it has almost nothing
+    const { w: w2, t: t2 } = await inHand('crate-3');
+    const r2 = sweep(w2, t2, 'crate-3', [1, 0], 8, () => 30);
+    for (let i = 0; i < 3; i++) {
+      w2.dispatch({ type: 'carry', target: r2.hand });
+      t2.run(1);
+    }
+    const left = level(vel(w2, 'crate-3'));
+    w2.dispatch({ type: 'release' });
+    t2.run(1);
+    expect(level(vel(w2, 'crate-3'))).toBeLessThan(Math.max(1, left + 0.3));
+  });
+
   test('a stated velocity is still the throw (the keys, a cancelled pointer, these tests)', async () => {
     const { w, t } = await inHand('crate-3');
     w.dispatch({ type: 'release', velocity: [6, 0, 0] });

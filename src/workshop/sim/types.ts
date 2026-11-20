@@ -99,7 +99,8 @@ export interface PartMotion {
  * being a loose part (`kind: 'unit'`: Patch lifted off its stool, the lamp by its shade; `id` is the
  * unit's id). All three come from the one gesture: `grab`, `carry`, `release`.
  */
-export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id };
+/** (`body`: a held unit with a body of its own, which the world carries exactly as it carries a held part: `Unit.embody`.) */
+export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id; readonly body?: Id };
 
 // ───────────────────────── effects and causes (§ E5) ─────────────────────────
 

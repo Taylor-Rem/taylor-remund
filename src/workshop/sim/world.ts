@@ -88,23 +88,34 @@ export function clampThrow(v: Vec3, mass: number, y: number, gravity: number): V
 
 /**
  * What a hand threw, from what the thing in it was doing over its last steps (`samples`: its velocity each step,
- * newest last). The way it was going at the end, at the speed it had there, eased toward the most it had along that
- * way a moment before (a hand slows in its last frames, and means the throw it made). Never faster than it was just
- * moving, never another way than it was going; a thing at rest in the hand is set down.
+ * newest last) and where the hand itself was (`hand`: its place each step). The way the thing was going at the
+ * end, at the speed it had there (the faster of its last step and its last two together: one step's figure can be
+ * low or high where a hand's reports arrive unevenly, and a thing flicked is still gaining on the hand), eased
+ * toward the most it had along that way a moment before (a hand slows in its last frames, and means the throw it
+ * made). Never faster than it was just moving, never another way than it was going. A hand that has itself
+ * stopped has thrown nothing: the thing keeps only what it has left as it runs up to it; at rest, it is set down.
  */
-export function thrownFrom(samples: readonly Vec3[]): Vec3 {
+export function thrownFrom(samples: readonly Vec3[], hand?: readonly Vec3[]): Vec3 {
   const T = LOOSE_TUNING;
   const n = samples.length;
   if (n === 0) return [0, 0, 0];
   const last = samples[n - 1] as Vec3;
-  const now = n >= 2 ? scale(add(last, samples[n - 2] as Vec3), 0.5) : last;
-  const sp = length(now);
-  if (sp < T.throwRest) return now;
-  const d = scale(now, 1 / sp);
-  // (two steps at a time, as `now` is: one step's figure can be a spike, a hand's reports arriving unevenly)
+  const both = n >= 2 ? scale(add(last, samples[n - 2] as Vec3), 0.5) : last;
+  const sb = length(both);
+  if (sb < T.throwRest) return last;
+  // is the hand itself still going? (its own speed over its last three steps, against the thing's)
+  let going = 1;
+  if (hand && hand.length >= 2) {
+    const m = Math.min(3, hand.length - 1);
+    going = Math.min(1, (dist(hand[hand.length - 1] as Vec3, hand[hand.length - 1 - m] as Vec3) * HZ) / m / sb);
+  }
+  if (going < T.throwStill) return last;
+  const d = scale(both, 1 / sb);
+  const sp = Math.max(sb, dot(last, d));
+  // (the most it had: two steps at a time, for the same reason)
   let peak = sp;
   for (let i = Math.max(1, n - steps(T.throwLook)); i < n; i++) peak = Math.max(peak, dot(scale(add(samples[i] as Vec3, samples[i - 1] as Vec3), 0.5), d));
-  return scale(d, sp + (peak - sp) * T.throwKeep);
+  return scale(d, sp + (peak - sp) * T.throwKeep * going);
 }
 
 /**
@@ -184,6 +195,8 @@ export const LOOSE_TUNING = {
   /** The throw looks this far back (s) for the most the part had along its way, and keeps this much of the difference. */
   throwLook: 0.085,
   throwKeep: 0.6,
+  /** A hand moving slower than this share of the thing's own speed has stopped: the thing was only running up to it. */
+  throwStill: 0.3,
   /**
    * Leaving the hand faster than the bench can hold, a part keeps the hand's speed for its first frames and sheds
    * the excess over this time constant (s): no step in which it is suddenly slower. A contact ends it at once.
@@ -306,6 +319,8 @@ interface Loose {
   readonly half: Vec3;
   readonly mass: number;
   readonly material: PartMaterial;
+  /** A crew member's own body (`PartSpec.crewBody`): its unit looks after it; the world only moves it. */
+  readonly crew: boolean;
   mode: BodyMode;
   pose: Pose;
   prev: Pose;
@@ -343,7 +358,7 @@ interface Loose {
   boost: Vec3 | null;
 }
 
-type LooseState = Omit<Loose, 'id' | 'half' | 'mass' | 'material' | 'contacts'> & { contacts: Map<Id, number> };
+type LooseState = Omit<Loose, 'id' | 'half' | 'mass' | 'material' | 'crew' | 'contacts'> & { contacts: Map<Id, number> };
 
 interface Bracket {
   readonly store: StoreSnapshot;
@@ -396,6 +411,8 @@ export function createWorld(opts: WorldOptions): World {
   const validators = new Map<string, (v: Value) => boolean>();
   const vkey = (t: Id, f: string): string => `${t}\u0000${f}`;
   const loose = new Map<Id, Loose>();
+  /** Each part's friction, bounce and drag (its material's, or its own: `PartSpec.feel`). */
+  const feelOf = new Map<Id, { friction: number; restitution: number; linearDamping: number; angularDamping: number }>();
   const HIDDEN = hiddenPose(scene);
   const crewHandles = new Map<Id, CrewHandle>();
   const touchedSet = new Set<Id>();
@@ -415,6 +432,8 @@ export function createWorld(opts: WorldOptions): World {
    * a held unit (which goes where the hand goes) the hand's place each step. The throw is read from it (`thrownFrom`).
    */
   const trail: Vec3[] = [];
+  /** Where the hand was each of those steps (the carried thing's target). */
+  const hands: Vec3[] = [];
   const TRAIL = 12;
   const emit = (e: SimEvent): void => {
     events.push(e);
@@ -445,10 +464,16 @@ export function createWorld(opts: WorldOptions): World {
       store.define(spec.id, f, values[f]);
       validators.set(vkey(spec.id, f), PART_VALIDATORS[f]);
     }
-    const pose0 = spec.shipped ? HIDDEN : spec.pose;
-    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: pose0, mass, friction: m.friction, restitution: m.restitution, linearDamping: m.linearDamping, angularDamping: m.angularDamping, ccd: true });
-    if (spec.shipped) physics.setEnabled(spec.id, false);
-    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, mode: spec.shipped ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map(), boost: null });
+    // (a crew member's own body waits out of the world, as a spare does, until its unit is taken hold of)
+    const out = spec.shipped === true || spec.crewBody === true;
+    const pose0 = out ? HIDDEN : spec.pose;
+    const feel = { ...m, ...spec.feel };
+    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: pose0, mass, friction: feel.friction, restitution: feel.restitution, linearDamping: feel.linearDamping, angularDamping: feel.angularDamping, ccd: true });
+    if (out) physics.setEnabled(spec.id, false);
+    feelOf.set(spec.id, feel);
+    loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, crew: spec.crewBody === true, mode: out ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map(), boost: null });
+    // (a crew member's own body is not something a hand takes: the hand takes the member)
+    if (spec.crewBody) continue;
     registry.add({
       id: spec.id,
       station: spec.station,
@@ -534,7 +559,7 @@ export function createWorld(opts: WorldOptions): World {
   function release(l: Loose, linvel: Vec3, angvel: Vec3): void {
     physics.setKind(l.id, 'dynamic');
     physics.setGravityScale(l.id, 1);
-    const m = MATERIAL[l.material];
+    const m = feelOf.get(l.id) ?? MATERIAL[l.material];
     physics.setDamping(l.id, m.linearDamping, m.angularDamping);
     physics.setVelocity(l.id, linvel, angvel);
     physics.wake(l.id);
@@ -554,26 +579,67 @@ export function createWorld(opts: WorldOptions): World {
     held = { kind: 'unit', id };
     unitHand = grip;
     trail.length = 0;
+    hands.length = 0;
+    // a unit with a body of its own: the body comes into the world where the unit says it is, in the hand
+    const e = u.embody?.(id);
+    const b = e ? loose.get(e.body) : undefined;
+    if (e && b && b.crew && (b.mode === 'gone' || b.mode === 'free' || b.mode === 'crew')) {
+      physics.setEnabled(b.id, true);
+      if (b.mode !== 'free') {
+        physics.setPose(b.id, e.pose);
+        b.pose = e.pose;
+        b.prev = e.pose;
+      }
+      const pose = physics.pose(b.id);
+      const flying = b.mode === 'free' && length(physics.state(b.id).linvel) > 0.6;
+      physics.setKind(b.id, 'dynamic');
+      physics.setGravityScale(b.id, 0);
+      physics.setDamping(b.id, 0, 0);
+      if (!flying) physics.setVelocity(b.id, [0, 0, 0], [0, 0, 0]);
+      physics.wake(b.id);
+      setMode(b, 'held');
+      b.crewBy = null;
+      b.exit = null;
+      b.boost = null;
+      const local = rotate(qconj(pose.q), sub(e.grip, pose.p));
+      b.grip = [Math.max(-b.half[0], Math.min(b.half[0], local[0])), Math.max(-b.half[1], Math.min(b.half[1], local[1])), Math.max(-b.half[2], Math.min(b.half[2], local[2]))];
+      b.target = add(pose.p, rotate(pose.q, b.grip));
+      b.grabYaw = yawOf(pose.q);
+      b.grabStep = clock.step;
+      held = { kind: 'unit', id, body: b.id };
+    }
     return true;
   }
+  /** The body the hand is carrying: a held part, or a held unit's own body. */
+  const heldBody = (): Loose | null => (held?.kind === 'part' ? lp(held.id) : held?.kind === 'unit' && held.body ? lp(held.body) : null);
   function carryUnit(target: Vec3): void {
     if (held?.kind !== 'unit') return;
     unitHand = target;
+    if (held.body) lp(held.body).target = target;
     holderOf(held.id)?.intent?.({ type: 'drag', id: held.id, target });
   }
   /** The hand's velocity for a held unit, from where it was each step (the unit is wherever the hand is). */
   function unitThrow(lens: Lens | undefined): Vec3 {
     const vs: Vec3[] = [];
-    for (let i = 1; i < trail.length; i++) vs.push(scale(sub(trail[i] as Vec3, trail[i - 1] as Vec3), HZ));
-    return asSeen(handsOwn(thrownFrom(vs), lens), lens);
+    for (let i = 1; i < hands.length; i++) vs.push(scale(sub(hands[i] as Vec3, hands[i - 1] as Vec3), HZ));
+    return asSeen(handsOwn(thrownFrom(vs, hands), lens), lens);
   }
   /** `velocity`: the hand's, stated (a set-down says zero); `'own'`: read from the hand's last steps. */
   function letGoOfUnit(at: Vec3 = unitHand, velocity?: Vec3 | 'own', lens?: Lens): void {
     if (held?.kind !== 'unit') return;
     const id = held.id;
+    if (held.body) {
+      // its own body: thrown as a part is, by what the body was doing; the unit finds it free
+      const b = lp(held.body);
+      held = { kind: 'part', id: b.id };
+      letGoOfPart(b, velocity === 'own' ? undefined : (velocity ?? [0, 0, 0]), 'release', lens);
+      holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true });
+      return;
+    }
     held = null;
     const v = velocity === 'own' ? unitThrow(lens) : velocity;
     trail.length = 0;
+    hands.length = 0;
     holderOf(id)?.intent?.({ type: 'drag', id, target: at, end: true, ...(v ? { velocity: v } : {}) });
   }
 
@@ -581,7 +647,7 @@ export function createWorld(opts: WorldOptions): World {
     if (bracket || held) return false;
     const l = loose.get(id);
     if (!l) return grabUnit(id, grip);
-    if (l.mode === 'chute' || l.mode === 'gone') return false;
+    if (l.crew || l.mode === 'chute' || l.mode === 'gone') return false;
     // a machine may keep what it holds out of reach (the dock: a part at its door is behind the curtain)
     if (l.mode === 'machine' && l.holder !== null && unitById.get(l.holder)?.keeps?.(id)) return false;
     /** Parts a crew member was carrying that its being picked up sets loose (Fetch drops its crate). */
@@ -599,6 +665,8 @@ export function createWorld(opts: WorldOptions): World {
       if (by !== null) unitById.get(by)?.lost?.(id, 'grab');
     }
     const pose = physics.pose(id);
+    // (taken while it flies: it is held where it was taken, not lifted off anything)
+    const flying = l.mode === 'free' && l.unsettled && length(physics.state(id).linvel) > 0.6;
     physics.setKind(id, 'dynamic');
     physics.setGravityScale(id, 0);
     physics.setDamping(id, 0, 0);
@@ -610,7 +678,7 @@ export function createWorld(opts: WorldOptions): World {
     // the grip point in the part's own frame, kept inside the part
     const local = rotate(qconj(pose.q), sub(grip, pose.p));
     l.grip = [Math.max(-l.half[0], Math.min(l.half[0], local[0])), Math.max(-l.half[1], Math.min(l.half[1], local[1])), Math.max(-l.half[2], Math.min(l.half[2], local[2]))];
-    l.target = add(add(pose.p, rotate(pose.q, l.grip)), [0, T.lift, 0]);
+    l.target = add(add(pose.p, rotate(pose.q, l.grip)), [0, flying ? 0 : T.lift, 0]);
     l.grabYaw = yawOf(pose.q);
     l.grabStep = clock.step;
     touchedSet.add(id);
@@ -622,6 +690,7 @@ export function createWorld(opts: WorldOptions): World {
     }
     held = { kind: 'part', id };
     trail.length = 0;
+    hands.length = 0;
     l.boost = null;
     emit({ type: 'part.grabbed', id });
     return true;
@@ -665,8 +734,9 @@ export function createWorld(opts: WorldOptions): World {
   function letGoOfPart(l: Loose, stated: Vec3 | undefined, kind: 'release' | 'place', lens?: Lens): void {
     const st = physics.state(l.id);
     const own = stated === undefined;
-    const hand = own ? asSeen(handsOwn(thrownFrom(trail), lens), lens) : stated;
+    const hand = own ? asSeen(handsOwn(thrownFrom(trail, hands), lens), lens) : stated;
     trail.length = 0;
+    hands.length = 0;
     if (kind === 'release' && cancelledPickUp(l, hand)) return;
     let v = clampThrow(hand, l.mass, st.pose.p[1], scene.gravity);
     // a throw also lifts a little, where it has no real upward part of its own (it arcs)
@@ -727,8 +797,8 @@ export function createWorld(opts: WorldOptions): World {
   }
 
   function driveHeld(): void {
-    if (!held || held.kind !== 'part') return;
-    const l = lp(held.id);
+    const l = heldBody();
+    if (!l) return;
     const st = physics.state(l.id);
     const level = qyaw(yawOf(st.pose.q));
     const centreTarget = sub(clampTarget(l, l.target), rotate(level, l.grip));
@@ -828,6 +898,7 @@ export function createWorld(opts: WorldOptions): World {
       if (!l || l.mode !== 'free' || l.unsettled || l.pose.p[1] <= T.highRest) highFor.delete(id);
     }
     for (const l of loose.values()) {
+      if (l.crew) continue; // (its unit looks after it off the bench)
       if (l.mode === 'free' && (l.pose.p[1] < scene.fallY || !finitePose(l.pose))) {
         physics.setEnabled(l.id, false);
         setMode(l, 'chute');
@@ -898,6 +969,7 @@ export function createWorld(opts: WorldOptions): World {
         continue;
       }
       if (!l.unsettled) {
+        if (l.crew) continue;
         // S6: the safety net for a part that never counted as moving: one crept down slower than `wakeLinear`
         // (squeezed between two statics) and fell asleep below the bench top is still off the bench
         if (st.sleeping && offBench(st.pose.p)) {
@@ -914,6 +986,11 @@ export function createWorld(opts: WorldOptions): World {
       // at rest
       l.unsettled = false;
       l.calm = 0;
+      if (l.crew) {
+        // a crew member's own body: where it lies is its unit's business (no mouth, no commit, no chute)
+        emit({ type: 'part.rested', id: l.id });
+        continue;
+      }
       const a = l.anchor;
       l.anchor = null;
       if (a && anchored && dist(a.pose.p, st.pose.p) < T.anchorNear && qangle(a.pose.q, st.pose.q) < T.anchorAngle) {
@@ -1254,6 +1331,16 @@ export function createWorld(opts: WorldOptions): World {
       l.unsettled = true;
       l.calm = 0;
     },
+    velocity(id) {
+      const l = loose.get(id);
+      if (!l || l.mode === 'chute' || l.mode === 'gone') return undefined;
+      const st = physics.state(id);
+      return { linvel: st.linvel, angvel: st.angvel };
+    },
+    buoy(id, gravityScale) {
+      const l = loose.get(id);
+      if (l && l.crew && l.mode === 'free') physics.setGravityScale(id, gravityScale);
+    },
     crewFor: (part, handle) => crewHandles.set(part, handle),
     undo: (req) => performUndo(req),
     putAway(part, at) {
@@ -1368,12 +1455,19 @@ export function createWorld(opts: WorldOptions): World {
   function reset(): boolean {
     if (bracket) return false;
     if (held?.kind === 'plug') cord.drop();
-    else if (held?.kind === 'unit') letGoOfUnit();
-    else if (held) {
+    else if (held?.kind === 'unit') {
+      const b = held.body ? lp(held.body) : null;
+      if (b) {
+        release(b, [0, 0, 0], [0, 0, 0]);
+        held = { kind: 'unit', id: held.id };
+      }
+      letGoOfUnit();
+    } else if (held) {
       release(lp(held.id), [0, 0, 0], [0, 0, 0]);
       held = null;
     }
     trail.length = 0;
+    hands.length = 0;
     history.reset();
     for (const u of units) u.reset?.();
     const restores: Restore[] = [];
@@ -1513,9 +1607,13 @@ export function createWorld(opts: WorldOptions): World {
           hits(contacts);
           calmSpin();
           // what the thing in the hand did this step (the throw is read from it)
-          if (held?.kind === 'part') trail.push(physics.state(held.id).linvel);
-          else if (held?.kind === 'unit') trail.push(unitHand);
+          const hb = heldBody();
+          if (hb) {
+            trail.push(physics.state(hb.id).linvel);
+            hands.push(hb.target);
+          } else if (held?.kind === 'unit') hands.push(unitHand);
           if (trail.length > TRAIL) trail.shift();
+          if (hands.length > TRAIL) hands.shift();
           if (!bracket) {
             edgeAndChute();
             rests();
