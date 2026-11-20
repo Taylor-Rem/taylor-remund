@@ -51,6 +51,24 @@ export function throwCap(mass: number): number {
   return T.throwMax * Math.max(T.throwMassMin, Math.min(1, (T.throwMassRef / Math.max(mass, 1e-3)) ** T.throwMassExp));
 }
 
+/**
+ * R4 (Taylor: "you should be able to throw them up ... like juggling"): a release velocity clamped for a part of this
+ * mass let go at height `y` (its centre, world units): the level part to `throwCap(mass)`; downward to the same; upward
+ * to `upMax` scaled by mass as the throw is (a small crate 12 u/s: about 4.5 up in about 0.75 s, back down in 1.5), and
+ * never so fast that its centre would rise past `upApex` (under the scene's 8-unit ceiling with room; from the bench,
+ * under the 6-unit back wall's top as well).
+ */
+export function clampThrow(v: Vec3, mass: number, y: number, gravity: number): Vec3 {
+  const T = LOOSE_TUNING;
+  const k = throwCap(mass) / T.throwMax;
+  const h = clampLength([v[0], 0, v[2]], throwCap(mass));
+  const g = Math.abs(gravity);
+  const apexRoom = Math.max(0, T.upApex - y);
+  const up = Math.min(T.upMax * k, Math.sqrt(2 * g * apexRoom));
+  const vy = Math.max(-throwCap(mass), Math.min(up, v[1]));
+  return [h[0], vy, h[2]];
+}
+
 export const LOOSE_TUNING = {
   /** Carry spring: the held part closes this fraction of its gap per second (critically damped first order). */
   carryRate: 18,
@@ -85,6 +103,12 @@ export const LOOSE_TUNING = {
   throwMassRef: 0.15,
   throwMassExp: 0.2,
   throwMassMin: 0.65,
+  /** R4: the upward part of a throw: at most this (u/s, scaled by mass as the level part is), and never past `upApex` (its centre's height). */
+  upMax: 12,
+  upApex: 7.2,
+  /** R4: at rest with its centre above this (out of every hand's and robot's reach) for this long, it goes home by the chute. */
+  highRest: 2.5,
+  highRestTime: 3,
   /** Tumble on release: spin per unit/s of throw about the axis across the throw. */
   tumble: 0.7,
   /** A free part counts as disturbed above these speeds. */
@@ -502,7 +526,7 @@ export function createWorld(opts: WorldOptions): World {
 
   function letGoOfPart(l: Loose, velocity: Vec3, kind: 'release' | 'place'): void {
     if (kind === 'release' && cancelledPickUp(l, velocity)) return;
-    const v = clampLength(velocity, throwCap(l.mass));
+    const v = clampThrow(velocity, l.mass, physics.state(l.id).pose.p[1], scene.gravity);
     const spin = scale(cross([0, 1, 0], v), T.tumble);
     const current = physics.state(l.id).angvel;
     release(l, v, add(scale(current, 0.5), spin));
@@ -597,7 +621,13 @@ export function createWorld(opts: WorldOptions): World {
     return insideBench(p) || p[1] < scene.fallY || p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ || !Number.isFinite(p[0] + p[1] + p[2]);
   }
 
+  /** R4: steps each part has lain at rest above `LOOSE_TUNING.highRest`. */
+  const highFor = new Map<Id, number>();
   function edgeAndChute(): void {
+    for (const id of [...highFor.keys()]) {
+      const l = loose.get(id);
+      if (!l || l.mode !== 'free' || l.unsettled || l.pose.p[1] <= T.highRest) highFor.delete(id);
+    }
     for (const l of loose.values()) {
       if (l.mode === 'free' && (l.pose.p[1] < scene.fallY || !finitePose(l.pose))) {
         physics.setEnabled(l.id, false);
@@ -605,6 +635,18 @@ export function createWorld(opts: WorldOptions): World {
         l.unsettled = false;
         l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
         lastChuteRelease = l.chuteAt;
+      } else if (l.mode === 'free' && !bracket && !l.unsettled && l.pose.p[1] > T.highRest) {
+        // R4: come to rest up where no hand or robot can reach (the switchboard's top, the storefront's roof): after
+        // `highRestTime` it goes home by the chute (as anything off the bench does), thrown back onto the pad
+        const n = (highFor.get(l.id) ?? 0) + 1;
+        highFor.set(l.id, n);
+        if (n >= steps(T.highRestTime)) {
+          highFor.delete(l.id);
+          physics.setEnabled(l.id, false);
+          setMode(l, 'chute');
+          l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
+          lastChuteRelease = l.chuteAt;
+        }
       } else if (l.mode === 'chute' && clock.step >= l.chuteAt) {
         // R4: thrown back onto the bench (the dock's pad) when a unit does that; else the P1 pop out of the chute's mouth
         const cause = l.returnCause ? l.returnCause.cause : history.chargeReturn(l.id, clock.step);
