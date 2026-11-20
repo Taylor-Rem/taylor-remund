@@ -442,7 +442,14 @@ everywhere, which is what lets someone guess right the first time.
    hand moving and it is thrown: it keeps the hand's speed and direction
    (Taylor, 2026-11-19: "I want them to retain their momentum better after
    you let go, so you can throw boxes and Fetch and Patch and stuff. They
-   should still always be able to recover").
+   should still always be able to recover"). Raise the pointer and the
+   thing is lifted: over the bench it is carried level, and toward the
+   back the carry curves up, as high as the room (Taylor, 2026-11-20:
+   "once the cursor reaches a certain height, it starts lifting them up
+   rather than trying to continue lifting them backwards"). A flick up
+   throws up, and what is in the air can be caught and thrown again
+   (his test: "throwing them up then catching them and back up again like
+   juggling").
 2. **If it has a mouth, it takes anything loose.** Every machine has one
    verb and applies it to whatever arrives. A machine never answers with a
    bare refusal: it either does its verb, or says specifically what it
@@ -712,15 +719,23 @@ and a crank on its back. It lives in a cupboard under the bench.
   is pulled: it turns its crank and the change runs backwards.
 - *It keeps the bench from running dry* (Taylor, 2026-11-19: "Revert
   should be able to come out and clean them up. That way the simulation
-  will never get stuck because Fetch can't reach any boxes"). When Fetch
-  has had nothing it may carry for twenty seconds, Revert comes out for
-  every crate nobody has stirred for thirty, wherever it lies and however
-  few: it sweeps the crate into its dustpan, carries it home, drops it down
-  its hatch, and the dock sends that same crate back up the chute onto the
-  pad, fresh, for Fetch. A crowded bench is tidied the same way, oldest
-  first. Every put-away has this one picture; nothing hops across the
+  will never get stuck because Fetch can't reach any boxes"; and
+  2026-11-20: "I don't think we should be too conservative with it. If
+  even one is out of reach of the fetch, just have the robot come out
+  pretty quickly to clean it up. If the player picks up the box before
+  revert can reach it, he just returns to his spot"). Any crate Fetch may
+  not carry brings Revert out once it has lain still for eight seconds,
+  even one, even while Fetch is busy: one short look at the crate and the
+  visitor, then it sweeps the crate into its dustpan, carries it home,
+  drops it down its hatch, and the dock sends that same crate back up the
+  chute onto the pad, fresh, for Fetch. Taken from under its nose, it
+  looks at the hand and goes home, with no card; it never chases. A pile
+  the visitor has built is left alone until it has stood still for thirty
+  seconds. Every put-away has this one picture; nothing hops across the
   bench by itself. A crate the visitor takes out of the pan is the
-  visitor's again.
+  visitor's again. (A put-away forgets the crate's history, § E5 rule 14,
+  so ten seconds after a throw the lever no longer takes that throw
+  back.)
 - *Its hatch cannot be blocked.* When it has wanted to come up for three
   seconds (for the Button, the lever or a dry bench) and crates lie on its
   hatch, it knocks twice from below, the leaves open, the crates drop in
@@ -729,7 +744,10 @@ and a crank on its back. It lives in a cupboard under the bench.
   leave by themselves.
 - *Left in peace:* if the bench stays tidy for two minutes it parks in the
   light from the window and powers down, one eye still open.
-- *Picked up:* it is heavy and goes limp.
+- *Picked up:* it is heavy and goes limp. Let go anywhere, it gets itself
+  home: it trundles off a low thing, and from anything higher, off the
+  bench's edge, or refused by the dock, it comes back up through its own
+  hatch on its lift, never the chute, with one long look and no card.
 
 **Patch, the operator.** The raccoon in a cardigan and headset from
 Patchlamp's brand picture, on a stool at the switchboard. The stool is
@@ -760,7 +778,11 @@ Patch's place: it never walks the bench.
   comes back up the chute. It always gets back on its stool: a crate that
   has come to rest at the stool's foot is nudged aside. Let go while
   touching something, it is thrown all the same unless the throw points
-  into that thing.
+  into that thing. Let go still from up high it falls, knowing it, and
+  lands in a flop that grows with the fall, sits up and dusts off. Thrown
+  up it rises, hangs a moment at the top with its arms folded, and falls;
+  it can be caught in the air and thrown again. Wherever it is, it can be
+  taken hold of, and no part of it ever goes below the floor.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
@@ -961,7 +983,13 @@ for a small crate and less for heavier things; a firm flick carries a
 small crate about half the bench and a hard one off its end. The crew are
 thrown the same way (§ B5). Whatever is thrown, wherever, the bench is
 itself again within seconds: nothing lost, nothing stuck in or under
-anything, nobody left on their back. *Feedback:* its note, its shadow,
+anything, nobody left on their back. A throw up is at most twelve units a
+second for a small crate (it rises about four and a half and is back in a
+second and a half) and never carries anything past seven units; a hard
+flick up from the middle of the bench leans back and meets the back wall
+well up. What leaves the bench, on any side and at any height, is thrown
+back up the chute onto the pad or beside it; what comes to rest up high
+where no hand reaches goes home the same way. *Feedback:* its note, its shadow,
 the crew's eyes. *Reset:* what leaves the bench comes back up the chute;
 UNDO puts a moved thing back. *Why it is fun:* weight and sound make moving
 things satisfying before anything else is understood.
