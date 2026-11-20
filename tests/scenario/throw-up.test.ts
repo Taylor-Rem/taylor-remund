@@ -157,10 +157,9 @@ describe('dropped from the top of the carry (7.5: about 15.5 u/s down at the ben
     ['Patch\'s stool', () => [3.02, 7.5, -3.46]],
   ];
   for (const [what, at] of REVERT_ONTO) {
-    // KNOWN (S7's, reported 2026-11-20): Revert come to rest up on something (a crate, Patch's stool, the striker's top)
-    // stands there idle for good: its trip home is never started from up there. Its going home is reported here (set
-    // REVERT_HOME_STRICT=1 to require it) until S7 fixes that; what is required now: nothing passes into anything.
-    test(`Revert dropped from 7.5 onto ${what}: nothing passes into anything, nothing throws (and whether it trundles home)`, async () => {
+    // (S7, 2026-11-20: up on something (a crate, Patch's stool, the striker's top) it gets itself down: off a low thing
+    // it trundles, from higher it goes down and comes back up through its hatch)
+    test(`Revert dropped from 7.5 onto ${what}: nothing passes into anything, nothing throws, and it goes home`, async () => {
       const w = await benchWorld(`r4-drop-revert-${what}`, { scene: FULL_BENCH });
       const t = tape(w);
       t.run(steps(1));
@@ -180,8 +179,8 @@ describe('dropped from the top of the carry (7.5: about 15.5 u/s down at the ben
         home = (w.machine('revert-crew') as RevertView).state === 'below';
       }
       if (process.env.REVERT_DROP_LOG) console.log('LOG', what, t.events.filter((x) => ['crew.knocked', 'crew.nudged', 'part.hit', 'crew.state'].includes(x.e.type) && JSON.stringify(x.e).match(/revert|fetch|crate-3/)).slice(0, 40).map((x) => `${(x.step / HZ).toFixed(2)} ${JSON.stringify(x.e).slice(0, 110)}`).join('\n'));
-      if (!home) console.log(`Revert dropped onto ${what}: not home after 40 s, ${(w.machine('revert-crew') as RevertView).state} at ${w.motion('revert')!.pose.p.map((v) => v.toFixed(2)).join(',')} (S7's)`);
-      if (process.env.REVERT_HOME_STRICT) expect(home, 'Revert went home').toBe(true);
+      if (!home) console.log(`Revert dropped onto ${what}: not home after 40 s, ${(w.machine('revert-crew') as RevertView).state} at ${w.motion('revert')!.pose.p.map((v) => v.toFixed(2)).join(',')}`);
+      expect(home, 'Revert went home').toBe(true);
       w.dispose();
     }, 90_000);
   }

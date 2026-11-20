@@ -7,7 +7,8 @@ import { createCardView } from '../../stations/card.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
 // (R3: under a covered hatch, 'stuck', it knocks its way up and holds its card itself)
-const DOWN = new Set(['below']);
+// (R4: in a hand, in the air or on its way home through its hatch it cannot hold one up either)
+const DOWN = new Set(['below', 'held', 'loose']);
 
 export const station: BenchStation = {
   name: 'card',
