@@ -116,8 +116,10 @@ export const FETCH_TUNING = {
   stuckAfter: 2.5,
   /** R4: thrown into a machine's hands and held there this long without moving (the platen's tray, a stopped belt), it hops off on its jets. */
   leaveMachine: 2.5,
-  /** ...but set there on purpose (on the platen's tray, to be painted: time to plug the cord and send a text), it waits this long first. */
-  leaveMachineSet: 20,
+  /** ...but set there on purpose (on the platen's tray, to be painted: discovery 7; time to notice it, open the phone, plug the cord and type), it waits this long first. */
+  leaveMachineSet: 45,
+  /** ...and while the visitor is at it, not at all: a text within this long, the cord worked within this long (s). */
+  tray: { text: 20, cord: 10 },
   stuckSpeed: 0.4,
   /** R4: come to rest with its lowest point more than this over the bench top, it is up on something: it hops down. */
   standOn: 0.08,
@@ -429,6 +431,21 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let machineStill = 0;
   /** R4: it came into the machine's hands thrown (not set there on purpose). */
   let arrivedFlung = false;
+  /** R4 follow-up: the visitor at work on it (a text, a call open, the cord, a hand full), for a Fetch set on the tray. */
+  let lastText = -Infinity;
+  let lastCord = -Infinity;
+  const openCalls = new Set<number>();
+  const callsWhileSat = new Set<number>();
+  let jobDone = false;
+  /**
+   * Evidence the visitor is at it, as the sim can see it: a text sent within `T.tray.text` seconds; a call on the
+   * line still open (queued, being worked, not yet answered); the cord plugged or unplugged by the visitor within
+   * `T.tray.cord` seconds, or in their hand now; the visitor's pointer holding anything.
+   */
+  const visitorBusy = (): boolean => {
+    const now = ctx.clock.step;
+    return now - lastText < steps(T.tray.text) || openCalls.size > 0 || now - lastCord < steps(T.tray.cord) || ctx.holding() !== null;
+  };
   let machineLast: Vec3 | null = null;
   let shrugThenReturn = false;
   let lookAt: Vec3 | null = null;
@@ -1418,6 +1435,20 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
     heard(events) {
       hear(events);
+      // R4 follow-up: what the visitor does that says they are at the platen (see `visitorBusy`)
+      for (const e of events) {
+        if (e.type === 'line.sent' && e.by !== 'crew') {
+          lastText = ctx.clock.step;
+          openCalls.add(e.n);
+          if (ctx.mode(spec.id) === 'machine' && e.line === 'platen') callsWhileSat.add(e.n); // a paint job, not any text
+        }
+        if (e.type === 'line.reply' || e.type === 'line.refused') {
+          openCalls.delete(e.n);
+          // its paint job done (a call to the platen sent while it sat there, answered): it leaves as a thrown Fetch would
+          if (callsWhileSat.delete(e.n)) jobDone = true;
+        }
+        if ((e.type === 'cord.plugged' || e.type === 'cord.unplugged') && e.by === undefined) lastCord = ctx.clock.step;
+      }
       if (lapSpec && !ctx.playMode)
         for (const e of events) {
           if ((e.type === 'line.reply' || e.type === 'line.refused') && e.n === textN) replied = true;
@@ -1480,8 +1511,17 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         const still = mode === 'machine' && pNow && machineLast ? Math.hypot(pNow.p[0] - machineLast[0], pNow.p[1] - machineLast[1], pNow.p[2] - machineLast[2]) < 0.002 : false;
         machineStill = still ? machineStill + 1 : 0;
         machineLast = mode === 'machine' && pNow ? pNow.p : null;
-        if (machineStill >= steps(arrivedFlung ? T.leaveMachine : T.leaveMachineSet) && pNow && !ctx.bracketed) {
+        // set there on purpose: it waits `leaveMachineSet`, and not at all while the visitor is at it; once a paint job
+        // sent while it sat there is answered, it leaves as a thrown one does
+        if (mode !== 'machine') {
+          jobDone = false;
+          callsWhileSat.clear();
+        } else if (!arrivedFlung && !jobDone && visitorBusy()) machineStill = 0;
+        const wait = arrivedFlung || jobDone ? T.leaveMachine : T.leaveMachineSet;
+        if (machineStill >= steps(wait) && pNow && !ctx.bracketed && (arrivedFlung || jobDone || !visitorBusy())) {
           machineStill = 0;
+          jobDone = false;
+          callsWhileSat.clear();
           machineLast = null;
           startHop(pNow);
           return;
