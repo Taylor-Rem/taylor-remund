@@ -69,8 +69,19 @@ export const REVERT_TUNING = {
   doors: 0.3,
   /** Back on its hatch with nothing to do (its card down): it stands this long, deadpan, then sinks. */
   homePause: 1.2,
-  /** Its hatch covered: it rattles the doors this long, then stays down. */
+  /**
+   * Its hatch covered: it rattles the doors. R3: after `knockAfter` seconds of wanting up with only crates lying on
+   * the leaves, it knocks from below (two jumps of the leaves at `knocks`, each bumping what lies on them up by
+   * `knockKick` units/s), and at `knockOpen` the leaves open and what lay on them drops in (a put-away: the
+   * dock sends the same crate back up the chute). Fetch, Patch, or a crate in someone's hands on the hatch: it
+   * waits for them to go (they do), at most `stuckWait`, then stays down as before.
+   */
   stuck: 1.2,
+  knockAfter: 3,
+  knocks: [0, 0.5] as readonly number[],
+  knockKick: 1.6,
+  knockOpen: 1.1,
+  stuckWait: 20,
   /** ...and does not try to come up to tidy again for this long. */
   stuckRetry: 20,
   /** Trundling: top speed, acceleration, turning on the spot. */
@@ -254,6 +265,76 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let surveyFor: Id | null = null;
   /** R3: when it began its look round this time up (-1: not yet; Infinity: done until it next comes up). */
   let surveyFrom = -1;
+  /** R3: the knock from below a covered hatch: when it began (-1: not yet), and how many knocks so far. */
+  let knockAt = -1;
+  let knocked = 0;
+  /** R3: what lies on its hatch now: crates it may knock in, and whether anything else is there (it waits). */
+  function onLeaves(): { crates: Id[]; other: boolean } {
+    const ids = blockers(spec.home.x, spec.home.z, spec.home.heading);
+    const crates: Id[] = [];
+    let other = false;
+    for (const id of ids) {
+      if (ctx.part(id)?.kind === 'crate' && ctx.mode(id) === 'free') crates.push(id);
+      else other = true;
+    }
+    return { crates, other };
+  }
+  /** R3: the leaves during a knock (steps since it began): a jump at each knock, flung open at `knockOpen`. */
+  function knockLeaves(k: number): number {
+    for (const t of T.knocks) {
+      const d = (k - steps(t)) / HZ;
+      if (d >= 0 && d < 0.25) return 0.22 * Math.sin((d / 0.25) * Math.PI);
+    }
+    return 0;
+  }
+  /** R3: one step of the stuck state: wait for the hatch to clear, or knock in the crates that lie on it. */
+  function stuckStep(now: number): void {
+    const T0 = T;
+    const leaves = onLeaves();
+    if (leaves.crates.length === 0 && !leaves.other) {
+      comeUp();
+      return;
+    }
+    if (knockAt < 0) {
+      if (ctx.bracketed || leaves.other || inState() < steps(T0.knockAfter)) {
+        if (inState() >= steps(T0.stuckWait)) {
+          nextAway = Math.max(nextAway, now + steps(T0.stuckRetry));
+          enter('below');
+          // a card it was to hold up goes up from below after all (the stick holds it)
+          if (pendingCard !== null) {
+            card = { content: pendingCard, at: now };
+            readUntil = now;
+            pendingCard = null;
+          }
+        }
+        return;
+      }
+      knockAt = now;
+    }
+    const k = now - knockAt;
+    while (knocked < T0.knocks.length && k >= steps(T0.knocks[knocked]!)) {
+      for (const id of leaves.crates) ctx.shove(id, [0, T0.knockKick, 0]);
+      knocked++;
+    }
+    if (k < steps(T0.knockOpen)) return;
+    if (ctx.bracketed) return; // (nothing is put away while a rung is bracketed: the leaves open after it)
+    if (leaves.other) {
+      knockAt = -1; // something came onto it meanwhile: it waits again
+      knocked = 0;
+      return;
+    }
+    // the leaves open: what lay on them drops in (each a put-away, said as its own drop is)
+    for (const id of leaves.crates) {
+      const from = ctx.pose(id);
+      if (!from) continue;
+      ctx.emit({ type: 'revert.sweep', id: body, part: id, from, to: { at: 'shipped' } });
+      ctx.putAway(id, { at: 'shipped' });
+    }
+    lastPutAway = now;
+    knockAt = -1;
+    knocked = 0;
+    comeUp();
+  }
   /** R3: when the visitor took the crate out of its pan (it looks at the empty pan). */
   let emptyPanAt = -Infinity;
   /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
@@ -721,9 +802,18 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       return;
     }
     if (blocker(spec.home.x, spec.home.z, spec.home.heading) !== null) {
-      enter('stuck'); // its hatch is covered: it will not push the visitor's things off it
+      // its hatch is covered: it rattles the leaves, and (R3) if only crates lie there, knocks them in
+      if (state !== 'stuck') {
+        enter('stuck');
+        knockAt = -1;
+        knocked = 0;
+      }
       return;
     }
+    comeUp();
+  }
+  /** Up through its hatch (nothing on it). */
+  function comeUp(): void {
     x = spec.home.x;
     z = spec.home.z;
     heading = spec.home.heading;
@@ -748,7 +838,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
    * falling, there is nobody to turn: the card goes up at once.
    */
   function showCard(content: string): void {
-    if (state === 'below' || state === 'sinking' || state === 'stuck' || state === 'held' || state === 'loose') {
+    // (R3: under a covered hatch it is coming up, by a knock if need be: it holds the card up once it is up)
+    if (state === 'below' || state === 'sinking' || state === 'held' || state === 'loose') {
       card = { content, at: ctx.clock.step };
       readUntil = ctx.clock.step;
       pendingCard = null;
@@ -1109,10 +1200,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.max(0, lift - dt / T.rise);
         if (lift <= 0) enter('below');
       }
-      if (state === 'stuck' && inState() >= steps(T.stuck)) {
-        nextAway = Math.max(nextAway, now + steps(T.stuckRetry));
-        enter('below');
-      }
+      if (state === 'stuck') stuckStep(now);
       const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
@@ -1277,7 +1365,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         z,
         heading,
         lift,
-        hatch: state === 'stuck' ? 0.08 * Math.abs(Math.sin(inState() * 0.42)) : hatch,
+        hatch: state === 'stuck' ? (knockAt >= 0 ? knockLeaves(now - knockAt) : 0.08 * Math.abs(Math.sin(inState() * 0.42))) : hatch,
+        knock: state === 'stuck' && knockAt >= 0 ? (now - knockAt) / HZ : -1,
         crank,
         cranking,
         speed,

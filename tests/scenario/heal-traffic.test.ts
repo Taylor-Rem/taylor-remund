@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'vitest';
 import { benchWorld, putOn, tape, FULL_BENCH } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
+import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import { steps, HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, PatchView, RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
@@ -126,4 +127,22 @@ describe('the robots\' routes while the bench heals', () => {
     process.stderr.write(`\n${report.join('\n')}\n`);
     expect(bad, report.join('\n')).toBe(0);
   }, 900_000);
+
+  test('seed 16 (five handled crates, one on Revert\'s hatch, nothing Fetch may take): it heals at a cap of five loose crates and of six (Revert knocks the crate on its hatch in)', async () => {
+    const T = DOCK_TUNING as { looseMax: number };
+    const was = T.looseMax;
+    const report: string[] = [];
+    try {
+      for (const cap of [5, 6]) {
+        T.looseMax = cap;
+        const s = await session(16);
+        report.push(`cap ${cap}: fed ${s.fed === null ? 'NEVER' : `${s.fed.toFixed(0)} s`}, heals ${s.heals}, overlaps ${s.overlaps.length}`);
+        expect(s.fed, report.join('; ')).not.toBeNull();
+        expect(s.overlaps).toEqual([]);
+      }
+    } finally {
+      T.looseMax = was;
+    }
+    process.stderr.write(`\nseed 16: ${report.join('; ')}\n`);
+  }, 600_000);
 });
