@@ -84,3 +84,63 @@ describe('Fetch hit by a thrown Patch', () => {
     }
   }
 });
+
+describe('Fetch knocked by a thrown Patch while it carries a crate: the lever takes it back', () => {
+  test('the crate it drops is the throw\'s: one pull puts it back where the history had it before the throw; five more pulls throw nothing', async () => {
+    const w = await benchWorld('r4-patch-hit-crate', { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(steps(1));
+    startPlay(w);
+    // Fetch with a crate in its hands, standing (at the feed, the stack or the pad's stand)
+    let crate: string | null = null;
+    for (let i = 0; i < steps(60) && !crate; i++) {
+      t.run(1);
+      const f = w.crew('fetch')!;
+      if (f.carrying && f.state === 'idle' && i > steps(2)) crate = f.carrying;
+    }
+    expect(crate, 'it stands with a crate').toBeTruthy();
+    const locBefore = w.part(crate!)!.location;
+    const stackBefore = w.undoStack().length;
+    const f0 = w.motion('fetch')!.pose.p;
+    const speed = 12;
+    const run = 3;
+    // from the open side: in front of it (toward the visitor), the hand at Patch's middle height over Fetch's
+    const from: Vec3 = [f0[0], 1.45, Math.min(4.3, f0[2] + 1.0 + (speed * run) / HZ)];
+    w.dispatch({ type: 'grab', id: 'patch', grip: patchAt(w) });
+    for (let i = 1; i <= 40; i++) {
+      w.dispatch({ type: 'carry', target: [from[0], 2.8 - (1.35 * i) / 40, from[2]] });
+      t.run(1);
+    }
+    const f1 = w.motion('fetch')!.pose.p;
+    const dz = f1[2] - from[2];
+    const dx = f1[0] - from[0];
+    const l = Math.hypot(dx, dz);
+    for (let i = 1; i <= run; i++) {
+      w.dispatch({ type: 'carry', target: [from[0] + (dx / l) * ((speed * i) / HZ), 1.45, from[2] + (dz / l) * ((speed * i) / HZ)] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'release', velocity: [(dx / l) * speed, 0.3, (dz / l) * speed] });
+    const hit = t.until((e) => e.type === 'patch.throw' && e.phase === 'hit' && e.what === 'fetch', steps(2));
+    expect(hit, 'Patch meets Fetch').not.toBeNull();
+    const txn = (hit!.e as { txn?: string }).txn;
+    expect(txn, 'the hit names the throw').toBeTruthy();
+    const knocked = t.until((e) => e.type === 'crew.knocked' && e.id === 'fetch', 5);
+    expect((knocked?.e as { dropped?: string | null } | undefined)?.dropped, 'it drops its crate').toBe(crate);
+    t.run(steps(6));
+    expect(w.mode(crate!)).toBe('free');
+    expect(w.writer(crate!, 'location'), 'its rest is the throw\'s').toBe(txn);
+    expect(w.undoStack().length).toBe(stackBefore + 1);
+    // the lever, once: the throw taken back; the crate where the history had it before the throw
+    w.dispatch({ type: 'undo' });
+    t.run(steps(3));
+    expect(w.part(crate!)!.location).toEqual(locBefore);
+    // and five more pulls: nothing throws
+    for (let k = 0; k < 5; k++) {
+      w.dispatch({ type: 'undo' });
+      t.run(steps(1));
+    }
+    t.run(steps(10));
+    expect(w.crew('fetch')!.state).not.toBe('held');
+    w.dispose();
+  }, 120_000);
+});
