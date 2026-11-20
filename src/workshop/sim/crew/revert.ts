@@ -206,6 +206,8 @@ interface Route {
   backed: number;
   /** S7 round 2: the index of a point it reaches by backing straight off (to find room to turn onto its track), or -1. */
   readonly reverse: number;
+  /** R3: turning on the spot the long way round (+1 left, -1 right) because the short way swings into the layout; 0: the short way. */
+  turnDir: number;
 }
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
@@ -300,11 +302,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         if (inState() >= steps(T0.stuckWait)) {
           nextAway = Math.max(nextAway, now + steps(T0.stuckRetry));
           enter('below');
-          // a card it was to hold up goes up from below after all (the stick holds it)
+          // a card it was to hold up goes up from below after all: said again now it is down, so the stick holds it
           if (pendingCard !== null) {
-            card = { content: pendingCard, at: now };
-            readUntil = now;
+            const content = pendingCard;
             pendingCard = null;
+            ctx.emit({ type: 'card', by: body, content });
           }
         }
         return;
@@ -533,7 +535,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     }
     pts.push(...via, [to.x, to.z]);
     if (spec.path.length === 0 && !legClear(x, z, pts[0]![0], pts[0]![1])) return false;
-    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse };
+    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse, turnDir: 0 };
     if (purpose === 'cover' || purpose === 'sweep') away = true;
     if (state !== 'present') enter('trundle'); // presenting a card: it sets off once the card has been read
     return true;
@@ -732,12 +734,19 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       // turn on the spot first (treads counter-rotate); still rolling, it slows to a stop first and does not
       // speed up again until it faces the way (S7: a short leg after a sharp corner used to circle its point)
       speed = Math.max(0, speed - T.accel * dt);
-      const step = Math.sign(err) * Math.min(Math.abs(err), T.turn * dt);
-      if (!canTurn(heading + step)) return backOff(r);
+      let step = (r.turnDir || Math.sign(err)) * Math.min(r.turnDir ? T.turn * dt : Math.abs(err), T.turn * dt);
+      if (!canTurn(heading + step)) {
+        // R3: the short way round swings a corner into the layout (or a part): the long way, if that is clear
+        if (r.turnDir === 0 && canTurn(heading - step) && turnClearOfLayout(x, z, heading, heading - Math.sign(step) * 0.75 * Math.PI)) {
+          r.turnDir = -Math.sign(step);
+          step = -step;
+        } else return backOff(r);
+      }
       heading += step;
       turning = step / dt;
       if (speed <= 0) return false;
     } else {
+      r.turnDir = 0;
       heading += err * Math.min(1, 8 * dt);
       const stopping = (speed * speed) / (2 * T.accel);
       speed = d <= stopping + 1e-4 ? Math.max(0.15, speed - T.accel * dt) : Math.min(T.speed, speed + T.accel * dt);
@@ -999,7 +1008,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       else trip(spec.button, 'cover');
       return;
     }
-    if (now >= nextAway) {
+    // (never another crate while one is in its pan: home first)
+    if (now >= nextAway && !carrying) {
       const n = nextSweep();
       // R3: out to heal a dry bench, it takes in the scene before it sets off (the view's look round)
       // (once each time it comes up, at its hatch, whenever the heal begins: it may have been up a while)

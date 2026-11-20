@@ -89,4 +89,29 @@ describe('R3: Revert knocks its way up through a covered hatch', () => {
     expect(w.mode('fetch')).not.toBe('gone');
     w.dispose();
   }, 300_000);
+
+  test('it gives up waiting (Fetch on its hatch) after the rung\'s card was due: the card is said again once it is down, so the stick holds it up', async () => {
+    const T = REVERT_TUNING as { stuckWait: number };
+    const was = T.stuckWait;
+    T.stuckWait = 4.6; // (Fetch leaves the hatch in a few seconds by itself: give up before it does)
+    try {
+      const w = await benchWorld('knock-giveup', { scene: FULL_BENCH });
+      const t = tape(w);
+      t.run(steps(25));
+      putOn(w, t, 'fetch', HATCH);
+      w.dispatch({ type: 'press', id: 'button' });
+      const cards: { at: number; state: string; content: string }[] = [];
+      for (let i = 0; i < steps(12); i++) {
+        for (const e of t.run(1)) if (e.type === 'card' && e.by === 'revert') cards.push({ at: i / HZ, state: rv(w).state, content: e.content });
+      }
+      process.stderr.write(`\ncards: ${cards.map((c) => `${c.at.toFixed(1)} s ${c.content} (Revert ${c.state})`).join('; ')}\n`);
+      expect(cards.length).toBe(2);
+      expect(cards[0]!.state).toBe('stuck'); // due while it waited: it meant to hold it up itself
+      expect(cards[1]!.state).toBe('below'); // gave up: said again from below, where the stick takes it
+      expect(cards[1]!.content).toBe(cards[0]!.content);
+      w.dispose();
+    } finally {
+      T.stuckWait = was;
+    }
+  }, 300_000);
 });
