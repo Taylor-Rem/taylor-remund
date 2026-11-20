@@ -786,7 +786,7 @@ async function carryTo(page: Page, id: string, to: number[]): Promise<void> {
     await page.mouse.move(m.x, m.y, { steps: 2 });
     await frames(page, 3);
   }
-  await frames(page, 12); // still, so it is set down, not thrown
+  await frames(page, 30); // still, so it is set down, not thrown (and a short lift of a step up the screen has eased back)
   await page.mouse.up();
   await frames(page, 4);
 }

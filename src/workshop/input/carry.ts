@@ -326,7 +326,8 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
  * (its depth fixed, as a flick up is read), instead of sliding back along the carry surface; when the
  * pointer slows, stops, or goes down or sideways, it eases back onto the surface. `speed` px/s up the screen (and
  * `ratio` times its sideways speed) is fast; the blend rises with time constant `rise` s and falls with `fall` s;
- * the pointer's speed is taken over its last `window` ms, and a pointer that has not moved for `still` ms is still.
+ * the pointer's speed is taken over its last `window` ms, and a pointer that has not moved for `still` ms is still;
+ * a lift up the screen longer than `flick` ms is a carry toward the back, not a flick, and goes back onto the surface.
  */
 /**
  * Where the pointer's ray holds a thing up from `anchor`: at the anchor's depth (z fixed, so juggling stays put), its
@@ -349,7 +350,7 @@ export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null):
   return [x, y, anchor[2]];
 }
 
-export const UP_HOLD = { speed: 250, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60 } as const;
+export const UP_HOLD = { speed: 250, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
 
 export class UpHold {
   private readonly hist: { t: number; x: number; y: number }[] = [];
@@ -357,11 +358,13 @@ export class UpHold {
   private lastT = 0;
   private anchor: Vec3 | null = null;
   private airborne = false;
+  private upSince: number | null = null;
   private out: Vec3 | null = null;
 
   /** Start a hold: `caught` a thing taken in the air at `grip` (held up where it was taken). */
   begin(t: number, grip: Vec3, caught: boolean): void {
     this.hist.length = 0;
+    this.upSince = null;
     this.lastT = t;
     this.airborne = caught;
     this.w = caught ? 1 : 0;
@@ -393,9 +396,14 @@ export class UpHold {
     const vx = moving ? (b.x - a.x) / span : 0;
     const up = moving ? -(b.y - a.y) / span : 0;
     const fastUp = up > T.speed && up > T.ratio * Math.abs(vx);
+    // a flick is short: a hand that goes on up the screen for longer than `flick` ms is carrying it back, and the
+    // hold goes back onto the surface (where a carry toward the back lifts it near the wall)
+    if (!fastUp) this.upSince = null;
+    else this.upSince ??= t;
+    const flicking = fastUp && t - (this.upSince ?? t) <= T.flick;
     // held up after a catch until the hand goes down or sideways
     if (this.airborne && moving && (-up > T.speed * 0.5 || (Math.abs(vx) > T.speed && Math.abs(vx) > T.ratio * Math.max(up, 0)))) this.airborne = false;
-    const want = fastUp || this.airborne ? 1 : 0;
+    const want = flicking || this.airborne ? 1 : 0;
     const dt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = Math.max(this.lastT, t);
     const tau = want > this.w ? T.rise : T.fall;
