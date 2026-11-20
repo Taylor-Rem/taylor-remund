@@ -173,6 +173,8 @@ export interface RevertViewState {
   crank: number;
   card: { content: string | null; lift: number; open: number };
   eyes: RevertView['eyes'] | null;
+  /** The body's springs as drawn this frame (pitch, roll, bob, the treads' sag, the hanging swing): at rest unless something moved it. */
+  springs: { pitch: number; roll: number; bob: number; sag: number; swing: number };
 }
 
 export interface RevertStationView extends StationView {
@@ -321,7 +323,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     let rightFor = 0;
     let rightBig = false;
     const pose: RevertPose = { travel: [0, 0], lids: [0.6, 0.6], slant: [0, 0], gaze: [0, 0], brow: 0, browRoll: 0, lamps: [true, true], card: { lift: 0, open: 0, wobble: 0 }, arm: { yaw: 0, swing: 0, elbow: 0, wrist: 0, grip: 0 }, broom: 0, stroke: 0, crank: 0, bob: 0, pitch: 0, roll: 0, sag: 0 };
-    const state: RevertViewState = { lift: 0, doors: 0, crank: 0, card: { content: null, lift: 0, open: 0 }, eyes: null };
+    const state: RevertViewState = { lift: 0, doors: 0, crank: 0, card: { content: null, lift: 0, open: 0 }, eyes: null, springs: { pitch: 0, roll: 0, bob: 0, sag: 0, swing: 0 } };
+    /** Nothing drawn yet: the first frame Revert is seen takes it where it is (no speed or swing from the origin). */
+    let fresh = true;
 
     const place = (w: WorldView): void => {
       placed = true;
@@ -467,6 +471,13 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         let px = lerp(prev.x, cur.x, a);
         let pz = lerp(prev.z, cur.z, a);
         let ph = prev.h + Math.atan2(Math.sin(cur.h - prev.h), Math.cos(cur.h - prev.h)) * a;
+        if (fresh) {
+          // the first frame it is drawn: it has come from nowhere (no travel, no speed, no swing)
+          lastX = px;
+          lastZ = pz;
+          lastH = ph;
+          lastSpeed = 0;
+        }
 
         // ── events ──
         for (const e of frame.events) onEvent(e, rv, now);
@@ -477,7 +488,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
 
         // ── the hatch ──
         const doorGoal = rv.hatch;
-        if (R) {
+        if (R || fresh) {
           doors.x = doorGoal;
           doors.v = 0;
         } else {
@@ -500,8 +511,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         }
         // the lift: waits for the doors, then rams up onto its stop
         const liftGoal = rv.lift >= 1 ? 1 : clamp01((rv.lift - F.liftWait) / (1 - F.liftWait));
-        if (R) lift.set(liftGoal);
-        else lift.step(liftGoal, dt);
+        // (a fresh view: where the simulation has it, not risen from the hatch's floor)
+        if (R || fresh) {
+          lift.set(liftGoal);
+          wasLift = liftGoal;
+        } else lift.step(liftGoal, dt);
         if (lift.x > 1.03) {
           lift.x = 1.03;
           lift.v = Math.min(lift.v, 0);
@@ -579,7 +593,11 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
             tmpV.lerp(tmpV2.set(m.pose.p[0], m.pose.p[1], m.pose.p[2]), a);
             tmpQ.slerp(tmpQ2.set(m.pose.q[0], m.pose.q[1], m.pose.q[2], m.pose.q[3]), a);
           }
-          // its velocity (for the dangling arm and the sagging treads)
+          // its velocity (for the dangling arm and the sagging treads); none on the first frame it is drawn
+          if (fresh) {
+            lastPose.copy(tmpV);
+            lastVel.set(0, 0, 0);
+          }
           if (dt > 0) {
             tmpV2.copy(tmpV).sub(lastPose).divideScalar(dt);
             const ay = (tmpV2.y - lastVel.y) / dt;
@@ -610,6 +628,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         }
         body.matrixWorldNeedsUpdate = true;
         wasDrawn = drawn;
+        fresh = false;
 
         // the treads: by the distance covered, each side its own
         if (drawn) {
@@ -673,6 +692,12 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
         sag.step(drawn ? 0 : 1, dt);
         swing.step(0, dt);
         pose.sag = clamp(sag.x, 0, 1.2);
+        const sp = state.springs;
+        sp.pitch = pitch.x;
+        sp.roll = roll.x;
+        sp.bob = bob.x;
+        sp.sag = sag.x;
+        sp.swing = swing.x;
 
         // R3: the pan: opened out round the crate it sweeps up and carries (and through the tip, and the look at
         // it when the visitor took the crate), folded back after; the tip at the hatch
@@ -798,7 +823,8 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       turnGoal = 0;
       const H = F.heal;
       if (rv.surveying && worldNow && healFrom > -Infinity) {
-        const k = Math.min(3, Math.floor((now - healFrom) / H.look));
+        // (the whole scene when the bench has run dry; else one short look: the crate, then the visitor)
+        const k = rv.surveyLength >= 4 * H.look ? Math.min(3, Math.floor((now - healFrom) / H.look)) : now - healFrom < rv.surveyLength / 2 ? 2 : 3;
         let target: readonly number[] | null = null;
         if (k === 0) target = worldNow.scene.mouths?.find((mo) => mo.id === 'belt')?.drop ?? null;
         else if (k === 1) target = worldNow.motion('fetch')?.pose.p ?? null;

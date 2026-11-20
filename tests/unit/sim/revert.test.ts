@@ -18,8 +18,8 @@ const benchStub = () => stubWorld(1, { scene: bench });
  */
 const { rounds: _rounds, ...quietRunner } = bench.runner;
 const quietStub = () => stubWorld(1, { scene: { ...bench, runner: quietRunner } });
-/** The bench's "a while" (scenes/bench.ts, Revert's spec), seconds. */
-const A_WHILE = 90;
+/** R3 (2026-11-20): seconds a crate Fetch may not carry must lie unstirred before Revert comes for it (scenes/bench.ts). */
+const STIR = 8;
 const R = (w: World): RevertView => w.machine('revert-crew') as RevertView;
 const press = (w: World, id: string): SimEvent[] => {
   w.dispatch({ type: 'press', id });
@@ -366,26 +366,21 @@ describe('Revert between jobs', () => {
     expect(R(world).state).toBe('below');
   });
 
-  test('a crowded bench: after a while it comes up, sweeps the oldest crate nobody has stirred into its pan, and drops it down its hatch (R3)', () => {
-    const { world, physics } = quietStub();
+  test('one crate set down where Fetch may not take it: once nobody has stirred it for a few seconds it comes up, sweeps it into its pan, and drops it down its hatch (R3, 2026-11-20)', () => {
+    const { world, physics } = benchStub();
     run(world, 5);
-    // the visitor scatters the stack and takes the loose crate out of Fetch's hands: four strays
     setDown(world, physics, 'crate-3', -6.6, -1.6);
     const first = world.step;
-    run(world, steps(5));
-    setDown(world, physics, 'crate-2', -6.5, 1);
-    setDown(world, physics, 'crate-1', -2, -3.5);
-    setDown(world, physics, 'crate-4', 1.5, -3.2);
     expect(R(world).state).toBe('below');
     const ev: { step: number; e: SimEvent }[] = [];
-    for (let i = 0; i < steps(100); i++) for (const e of run(world, 1)) ev.push({ step: world.step, e });
-    const sweeps = ev.filter((x) => x.e.type === 'revert.sweep' && x.e.to.at === 'rest'); // into the pan
-    expect(sweeps).toHaveLength(1); // four strays: one put away, and the bench is no longer crowded
+    for (let i = 0; i < steps(40); i++) for (const e of run(world, 1)) ev.push({ step: world.step, e });
+    const sweeps = ev.filter((x) => x.e.type === 'revert.sweep' && x.e.to.at === 'rest' && x.e.part === 'crate-3'); // into the pan
+    expect(sweeps).toHaveLength(1);
     expect(ev.some((x) => x.e.type === 'revert.sweep' && x.e.to.at === 'shipped' && x.e.part === 'crate-3')).toBe(true); // down the hatch
     const s = sweeps[0]!;
-    // the oldest stirred (crate-3), once nothing has stirred it for the while; Revert came up for it
-    expect(s.e.type === 'revert.sweep' && s.e.part).toBe('crate-3');
-    expect(s.step - first).toBeGreaterThanOrEqual(steps(A_WHILE));
+    // once nothing has stirred it for the while; Revert came up for it
+    expect(s.step - first).toBeGreaterThanOrEqual(steps(STIR));
+    expect(s.step - first).toBeLessThan(steps(STIR + 15));
     expect(ev.some((x) => x.e.type === 'crew.state' && x.e.id === 'revert' && x.e.state === 'rising')).toBe(true);
     expect(ev.some((x) => x.e.type === 'put-away' && x.e.id === 'crate-3')).toBe(true);
     // down the hatch, then (the stub's chute) back up onto the pad: either way nobody's transaction
@@ -393,19 +388,13 @@ describe('Revert between jobs', () => {
     expect(['system', 'crew', 'settled']).toContain(world.writer('crate-3', 'location'));
     expect(world.touched('crate-3')).toBe(false);
     expect(world.undoStack().flatMap((t) => t.entries).some((e) => e.target === 'crate-3')).toBe(false);
-    // what the visitor touched later was left alone
-    for (const id of ['crate-1', 'crate-2', 'crate-4']) expect(world.writer(id, 'location'), id).not.toBe('system');
   });
 
   /** Four strays, then on to the moment Revert starts its sweep: the part it sweeps. */
   function toSweep(world: World, physics: StubPhysics): Id {
     run(world, 5);
     setDown(world, physics, 'crate-3', -6.6, -1.6);
-    run(world, steps(5));
-    setDown(world, physics, 'crate-2', -6.5, 1);
-    setDown(world, physics, 'crate-1', -2, -3.5);
-    setDown(world, physics, 'crate-4', 1.5, -3.2);
-    for (let i = 0; i < steps(100) && R(world).state !== 'sweep'; i++) run(world, 1);
+    for (let i = 0; i < steps(40) && R(world).state !== 'sweep'; i++) run(world, 1);
     expect(R(world).state).toBe('sweep');
     return R(world).sweeping!;
   }
@@ -417,7 +406,7 @@ describe('Revert between jobs', () => {
   }
 
   test('S7: its own body brushing the part it sweeps (turning inside its collider) does not spoil the sweep', () => {
-    const { world, physics } = quietStub();
+    const { world, physics } = benchStub();
     const part = toSweep(world, physics);
     run(world, 10);
     const ev = [] as SimEvent[];
@@ -428,7 +417,7 @@ describe('Revert between jobs', () => {
   });
 
   test('S7: a stir by the visitor during the sweep still counts: it leaves the part be', () => {
-    const { world, physics } = quietStub();
+    const { world, physics } = benchStub();
     const part = toSweep(world, physics);
     run(world, 10);
     brush(world, physics, part); // its own brush first, and then the visitor's hand
@@ -439,29 +428,31 @@ describe('Revert between jobs', () => {
     expect(ev.some((e) => e.type === 'revert.sweep' && e.part === part)).toBe(false);
   });
 
-  test('S7 round 2: a stray with no clear stand (hard against the back of the bench) is left for later, not swept from wherever Revert is', () => {
-    const { world, physics } = quietStub();
+  test('S7 round 2, R3: a stray with no stand facing the visitor (hard against the back of the bench) is swept from a stand round its side, never from wherever Revert happens to be', () => {
+    const { world, physics } = benchStub();
     run(world, 5);
     setDown(world, physics, 'crate-3', -6, -3);
-    run(world, steps(5));
-    setDown(world, physics, 'crate-2', -6.5, 1);
-    setDown(world, physics, 'crate-1', -2, -3.5);
-    setDown(world, physics, 'crate-4', 1.5, -3.2);
-    const ev = run(world, steps(A_WHILE - 4)); // crate-3 is old enough from about 83 s in; the others not yet
-    expect(ev.some((e) => e.type === 'revert.sweep' || e.type === 'put-away')).toBe(false);
-    expect(states(ev)).not.toContain('sweep');
-    expect(states(ev)).not.toContain('rising'); // it does not even come up for it
-    expect(world.writer('crate-3', 'location')).not.toBe('system');
+    let at: RevertView | null = null;
+    const ev: SimEvent[] = [];
+    for (let i = 0; i < steps(STIR + 30) && !ev.some((e) => e.type === 'revert.sweep'); i++) {
+      ev.push(...run(world, 1));
+      if (R(world).state === 'sweep' && !at) at = R(world);
+    }
+    expect(at).not.toBeNull();
+    const from = world.motion('crate-3')!.pose.p;
+    // at a stand by the crate, facing it
+    expect(Math.hypot(at!.x - from[0], at!.z - from[2])).toBeLessThan(AT.revert.half[2] + 0.8);
+    expect(ev.some((e) => e.type === 'revert.sweep' && e.part === 'crate-3')).toBe(true);
   });
 
   test('it never puts away what the visitor touched within the while', () => {
-    const { world, physics } = quietStub(); // (the crowded rule; with Fetch's rounds the healing rule's own while is 30 s: bench-runs-dry.test.ts)
+    const { world, physics } = benchStub();
     run(world, 5);
     setDown(world, physics, 'crate-4', 1.5, -3.2);
     setDown(world, physics, 'crate-3', -6, -3);
     setDown(world, physics, 'crate-2', -6.5, 1);
     setDown(world, physics, 'crate-1', -2, -3.5);
-    const ev = run(world, steps(A_WHILE - 10));
+    const ev = run(world, steps(STIR - 1));
     expect(ev.some((e) => e.type === 'revert.sweep' || e.type === 'put-away')).toBe(false);
   });
 });

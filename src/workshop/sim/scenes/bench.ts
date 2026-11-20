@@ -376,13 +376,11 @@ const S4_UNITS = [
     outward: REVERT.outward,
     stack: { at: AT.stack, radius: 0.6, max: 2 },
     start: 'below',
-    crowded: 4,
-    aWhile: 90,
     parkAfter: 120,
     awayGap: 4,
     // R3: the bench always heals: Fetch dry for 20 s, crates not stirred for 30 s go back into circulation
     pad: { at: AT.pad, radius: 0.45 },
-    heal: { after: 20, stir: 30 },
+    heal: { after: 20, stir: 8, pile: 30 },
   }),
 ];
 

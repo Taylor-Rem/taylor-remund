@@ -150,41 +150,37 @@ describe('R3: can the visitor leave the bench with nothing for Fetch to carry?',
     }, 300_000);
   }
 
-  test('(e) the same as (b) with a crate left on Revert\'s hatch: Revert knocks it in from below and comes up (R3); the bench heals', async () => {
+  test('(e) a crate left on Revert\'s hatch (2026-11-20: a crate Fetch may not carry brings Revert out by itself): Revert wants up for it, knocks it in from below, and it comes back up the chute', async () => {
     const w = await settled('dry-e');
     const t = tape(w);
-    let n = 0;
-    const spots: Vec3[] = [[REVERT.home.x, 0, REVERT.home.z], ...CORNERS];
-    everyCrate(w, (ids) => {
-      for (const id of ids.filter((x) => !w.touched(x))) {
-        putOn(w, t, id, spots[n++ % spots.length]!);
-        t.run(steps(1));
+    const id = CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;
+    putOn(w, t, id, [REVERT.home.x, 0, REVERT.home.z]);
+    const trailE: string[] = [];
+    let last = '';
+    let knocked = -1;
+    let back = -1;
+    for (let i = 0; i < steps(60) && back < 0; i++) {
+      for (const e of t.run(1)) {
+        if (e.type === 'revert.sweep' && e.part === id && e.to.at === 'shipped') knocked = i / HZ;
+        if (e.type === 'restocked' && e.part === id) back = i / HZ;
       }
-    });
-    const covered = CRATES.some((id) => {
-      const p = w.motion(id)?.pose.p;
-      return !!p && w.mode(id) === 'free' && Math.hypot(p[0] - REVERT.home.x, p[2] - REVERT.home.z) < 0.6;
-    });
-    expect(covered).toBe(true);
-    const at = untilTheBeltCarries(w);
-    const report = `(e) hatch covered: the belt carried a crate after ${at === null ? 'NEVER' : `${at.toFixed(1)} s: ${lastCarried}`}\n  ${trail.join(' | ')}`;
+      const st = (w.machine('revert-crew') as { state: string }).state;
+      if (st !== last) trailE.push(`${(i / HZ).toFixed(1)}s ${st}`);
+      last = st;
+    }
+    const report = `(e) ${id} on the hatch: knocked in at ${knocked.toFixed(1)} s, back up the chute at ${back.toFixed(1)} s\n  ${trailE.join(' | ')}`;
     process.stderr.write(`\n${report}\n`);
-    expect(at, report).not.toBeNull();
-    expect(at!, report).toBeLessThan(DOCK_TUNING.lastResort + 30);
-    expect(trail.some((x) => x.includes('stuck')), report).toBe(true); // it found its hatch covered
-    expect(trail.some((x) => x.includes('restocked')), report).toBe(true);
+    expect(trailE.some((x) => x.includes('stuck')), report).toBe(true); // it found its hatch covered
+    expect(knocked, report).toBeGreaterThan(0);
+    expect(back, report).toBeGreaterThan(knocked);
   }, 300_000);
 
   test('UNDO after Revert tidied the crate the visitor had set down: the crate is not pulled back; the lever goes on to older things, and nothing throws', async () => {
     const w = await settled('dry-undo');
     const t = tape(w);
-    let n = 0;
-    everyCrate(w, (ids) => {
-      for (const id of ids.filter((x) => !w.touched(x))) {
-        putOn(w, t, id, CORNERS[n++ % CORNERS.length]!);
-        t.run(steps(1));
-      }
-    });
+    // (2026-11-20) one crate thrown to a corner: Revert comes for it a few seconds later
+    const thrown = CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;
+    putOn(w, t, thrown, CORNERS[0]!);
     // wait for a tidy
     let tidied: Id | null = null;
     for (let i = 0; i < steps(WAIT) && !tidied; i++) for (const e of t.run(1)) if (e.type === 'revert.sweep' && e.to.at === 'rest') tidied = e.part;
