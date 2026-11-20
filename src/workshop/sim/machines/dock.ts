@@ -32,7 +32,7 @@ import type { Job } from '../history.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
-import { qaxis, qmul, qyaw } from '../math.ts';
+import { qaxis, qmul, qyaw, rotate } from '../math.ts';
 import { rampAt, rampDoor, rampLength, rampNearest } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { Beat, CHANGED_SINCE, Lamp, OK } from '../machine.ts';
@@ -161,9 +161,32 @@ interface Flight {
   readonly axis: Vec3;
   /** Whose rest it is on touchdown: the system's for a fresh crate, the crew's for a robot thrown home (R2). */
   readonly cause: Cause;
-  /** On the pad (driven there exactly): handed to physics at the next step. */
-  down: boolean;
 }
+
+/**
+ * The arc's shape (Taylor, 2026-11-20: crates "abruptly stopping during returns"): it is handed to physics the step
+ * before it touches down, moving exactly as the arc moves there, and the engine lands it (a small bounce and settle,
+ * by its material). So that it still rests where Fetch takes it every time, the last stretch is steep and slow across:
+ * its way across eases out to `ACROSS_END` of its mean speed at touchdown (it leaves the chute's mouth that much faster
+ * instead), and its tumble (whole turns) is done and still by `TUMBLE_BY` of the flight. Gravity is untouched.
+ */
+const ACROSS_END = 0;
+/** The tumble is done (square, still) by this share of the flight: it comes down flat, not rocking onto a corner. */
+const TUMBLE_BY = 0.8;
+/** Measured (tests/scenario/chute-landing.test.ts): the bounce and settle carry a crate about this far on along the throw; it is aimed that much short of the pad's near line. */
+const LAND_SHORT = 0.04;
+/** The share of the way across after `k` of the flight, and its rate (per unit of `k`). */
+const across = (k: number): number => (2 - ACROSS_END) * k - (1 - ACROSS_END) * k * k;
+const acrossRate = (k: number): number => 2 - ACROSS_END - 2 * (1 - ACROSS_END) * k;
+/** The share of the tumble after `k` (eased in and out, done by `TUMBLE_BY`: square and still at both ends), and its rate (per unit of `k`). */
+const tumble = (k: number): number => {
+  const u = Math.min(1, k / TUMBLE_BY);
+  return u * u * (3 - 2 * u);
+};
+const tumbleRate = (k: number): number => {
+  const u = Math.min(1, k / TUMBLE_BY);
+  return (6 * u * (1 - u)) / TUMBLE_BY;
+};
 
 interface Return {
   readonly id: Id;
@@ -407,7 +430,11 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const from = pad.from;
     // how it will lie: square to the pad (a turned crate reaches further toward the stand, or its middle further from
     // Fetch's reach: on this pad there is no room for either); it tumbles in the air by whole turns
-    const yaw0 = rng.range(-0.02, 0.02);
+    // (exactly square since its landing is the engine's: turned even a degree, it comes down on one edge first and its
+    // bounce carries it up to 0.08 off its mark, out of Fetch's reach; the draw is kept so the dock's other choices
+    // come from the stream they always did)
+    void rng.range(-0.02, 0.02);
+    const yaw0 = 0;
     const spin = 0;
     let [cx, cz] = pad.at;
     if (pad.near) {
@@ -421,7 +448,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       const ux = dx0 / l0;
       const uz = dz0 / l0;
       const ext = half[0] * Math.abs(ux * Math.cos(a) - uz * Math.sin(a)) + half[2] * Math.abs(ux * Math.sin(a) + uz * Math.cos(a));
-      [cx, cz] = [pad.near[0] + ux * ext, pad.near[1] + uz * ext];
+      // (and `LAND_SHORT` further in: its landing's bounce carries it about that far on toward the stand)
+      [cx, cz] = [pad.near[0] + ux * (ext + LAND_SHORT), pad.near[1] + uz * (ext + LAND_SHORT)];
     }
     throwTo(id, [cx, ctx.scene.bench.top + half[1] + 0.005, cz], yaw0, spin, cause);
   }
@@ -436,7 +464,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const dx = to[0] - from[0];
     const dz = to[2] - from[2];
     const l = Math.hypot(dx, dz) || 1;
-    const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], down: false, cause };
+    const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], cause };
     ctx.launch(id, { p: from, q: qyaw(yaw0) }, [0, 0, 0], [0, 0, 0], cause);
     if (!ctx.take(id, spec.id)) return; // (never: it was just put into the world, free)
     // (R4) a part thrown back is still the transaction that threw it off: back into its window (taking it left it)
@@ -529,11 +557,25 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     throwTo(id, [at[0], ctx.scene.bench.top + half[1] + 0.005, at[1]], rng.range(-0.1, 0.1), 0, cause ?? 'system');
     return true;
   }
-  function flightPose(f: Flight): Pose {
-    const t = Math.min(f.time, f.age / HZ);
-    const k = t / f.time;
-    const p: Vec3 = [f.from[0] + f.vx * t, f.from[1] + f.vy * t - 0.5 * g * t * t, f.from[2] + f.vz * t];
-    return { p, q: qmul(qyaw(f.yaw0 + f.spin * k), qaxis(f.axis, 2 * Math.PI * k)) };
+  /** Its pose `t` seconds into the flight (to the touchdown at `time`, exactly at `to`). */
+  function flightPose(f: Flight, t: number): Pose {
+    const k = Math.min(1, t / f.time);
+    const a = across(k) * f.time;
+    const p: Vec3 = [f.from[0] + f.vx * a, f.from[1] + f.vy * t - 0.5 * g * t * t, f.from[2] + f.vz * a];
+    return { p, q: qmul(qyaw(f.yaw0 + f.spin * k), qaxis(f.axis, 2 * Math.PI * tumble(k))) };
+  }
+  /** How it is moving `t` seconds into the flight: its velocity and its spin (world, rad/s). */
+  function flightMotion(f: Flight, t: number): [Vec3, Vec3] {
+    const k = Math.min(1, t / f.time);
+    const r = acrossRate(k);
+    const turn = (2 * Math.PI * tumbleRate(k)) / f.time;
+    const q = qyaw(f.yaw0 + f.spin * k);
+    // the tumble's axis turned by the yaw it is thrown with (a hair), plus the yaw's own turn
+    const ax = rotate(q, f.axis);
+    return [
+      [f.vx * r, f.vy - g * t, f.vz * r],
+      [ax[0] * turn, ax[1] * turn + f.spin / f.time, ax[2] * turn],
+    ];
   }
   function fly(): void {
     for (const f of [...flights]) {
@@ -542,20 +584,16 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         continue;
       }
       f.age += 1;
-      if (f.age / HZ < f.time) {
-        ctx.drive(f.id, flightPose(f));
+      if ((f.age + 1) / HZ < f.time) {
+        ctx.drive(f.id, flightPose(f, f.age / HZ));
         continue;
       }
-      if (!f.down) {
-        // the last step of the arc ends exactly on the pad
-        f.down = true;
-        ctx.drive(f.id, { p: f.to, q: qyaw(f.yaw0 + f.spin) });
-        continue;
-      }
-      // touch down: set where it lands (it is there: the last step drove it so), handed to physics still, to settle
-      // (not with its run left: that slid it toward Fetch's stand); whatever stands on the pad by now, physics parts them
+      // the step before it would touch down: handed to physics where it is, moving exactly as the arc moves there,
+      // and the engine lands it on the pad (the arc's last stretch is steep and slow across: it settles where it
+      // lands); whatever stands on the pad by now, physics parts them
       flights = flights.filter((x) => x !== f);
-      ctx.release(f.id, [0, -0.5, 0], [0, 0, 0], f.cause);
+      const [v, w] = flightMotion(f, (f.age - 1) / HZ); // (where the last step left it: physics adds this step's gravity)
+      ctx.release(f.id, v, w, f.cause);
       if (ctx.part(f.id)?.kind === 'crate') ctx.emit({ type: 'restocked', id: spec.id, part: f.id, on: 'pad' });
     }
   }
