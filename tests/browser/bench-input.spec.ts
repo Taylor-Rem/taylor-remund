@@ -1187,39 +1187,61 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
     console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
     expect.soft(d, 'a set-down stays where it is put').toBeLessThan(0.4);
   }
-  // a firm flick into open bench (toward -x, the way S5 measured clear of the stations): about 12 u/s
-  // (only believed when the page received the hand's samples at a person's rate: coarser than 25 ms is a hand nobody
-  // has, reported as not measured after one retry)
+  /**
+   * Carried to stand near `to` (x, z) and set down, the way a person moves it before a throw: carries held still
+   * before letting go, at most four, until it rests within 0.6 of the spot. Says where it rests.
+   */
+  const bring = async (to: [number, number]): Promise<number[]> => {
+    for (let k = 0; k < 4; k++) {
+      await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
+      const p = await pose();
+      const dx = to[0] - p[0]!;
+      const dz = to[1] - p[2]!;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.6) return p;
+      await hand([dx / d, dz / d], d, Math.max(300, d * 120), 250);
+    }
+    await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
+    return pose();
+  };
+  // a firm flick along a clear back lane: carried to (-7, -2.2) first, then flicked +x. The lane at z -2.2 is clear of
+  // fixed bodies from the left edge to the pallets at x 6.9 (about 13.9 units ahead of it), so the distance measures
+  // the throw, not the scenery (toward -x from the crate's own spot about four units are clear before the chute's
+  // deflector row). Aimed at z -2.2 because the set-down lands within 0.6 of the spot and the lift pulls the crate
+  // about half a unit toward the camera when it is taken again: it is let go near z -1.2 to -1.7, still in the lane,
+  // and well clear of Revert's hatch at (-4.85, 0.3). About 12 u/s.
+  // (Only believed when the page received the hand's samples at a person's rate: coarser than 25 ms is a hand nobody
+  // has, reported as not measured after one retry.)
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await hand([-1, 0], 1.2, 100);
+    const start = await bring([-7, -2.2]);
+    const r = await hand([1, 0], 1.2, 100);
     await pollFrames(page, async () => (await where(id)) !== 'held', 120).toBe(true);
     await frames(page, 240);
     const q = await pose();
     const d = Math.hypot(q[0]! - r.from[0]!, q[2]! - r.from[2]!);
     const coarse = r.median > COARSE_MS;
-    out['firm flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}carried ${d.toFixed(2)} units from ${fmt(r.from)} to ${fmt(q)} (velocity ${fmt(r.v)}; ${r.gaps}; last hits ${await touching()})`;
+    out['firm flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}carried ${d.toFixed(2)} units from ${fmt(r.from)} to ${fmt(q)} (set down first at ${fmt(start)}; velocity ${fmt(r.v)}; ${r.gaps}; last hits ${await touching()})`;
     console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
     if (coarse) continue;
     // hard since S5's cap (14 u/s for a small crate): it was soft while the cap was 7.5
     expect(d, 'a firm flick carries it at least 4 units').toBeGreaterThanOrEqual(4);
     break;
   }
-  // a hard flick off the left end, a little toward the back (on from where the firm flick left it): about 28 u/s by
-  // the hand, 14 by the world cap. (Not +z, nor straight -x: the firm flick leaves the crate beside the belt motor
-  // housing, x -7.3..-6.0, z 3.3..4.9, 1.26 high, and a crate thrown at that stops against it, as it should.)
-  // It leaves the bench and comes back
-  // First it is carried back 2.5 units and set down: a crate lifted on the phone framing rises toward the camera
-  // (0.7 to 1.9 units of z seen in the runs: the hand's plane is above the bench), which put it back beside the housing.
-  const away: [number, number] = [-0.8, -0.6];
-  await hand([0, -1], 2.5, 400, 250);
+  // a hard flick off the left end along the same lane: carried to (-6.5, -2.2), flicked -x at about 28 u/s by the
+  // hand, 14 by the world cap; nothing fixed between it and the edge at x -9. (Not along the front: the belt motor's
+  // housing, x -7.3..-6.0, z 3.3..4.9, 1.26 high, stops a crate thrown at it, as it should.) It leaves the bench and
+  // comes back
+  const away: [number, number] = [-1, 0];
   {
     const returned = () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id);
     let before = await returned();
+    await bring([-6.5, -2.2]);
     let r = await hand(away, 2, 70);
     let left = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
         before = await returned();
+        await bring([-6.5, -2.2]);
         r = await hand(away, 2, 70);
       }
       left = await pollFrames(page, async () => (await pose())[1]! < -0.2, 600, 'off the bench')
