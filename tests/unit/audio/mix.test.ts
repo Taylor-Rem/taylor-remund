@@ -94,7 +94,7 @@ describe('the scripts the audition page plays', () => {
 });
 
 describe('R1: the new beats', () => {
-  const R1 = ['chute.launch', 'fetch.chirp', 'fetch.yelp', 'patch.yelp', 'jet.pop', 'jet.puff'];
+  const R1 = ['chute.launch', 'fetch.chirp', 'fetch.yelp', 'patch.yelp', 'jet.pop', 'jet.puff', 'throw.whoosh', 'patch.fly', 'patch.thud', 'patch.pat', 'patch.slide', 'patch.bump', 'patch.fall', 'patch.rise', 'fetch.whirr', 'revert.knock'];
 
   test('none is louder than a part note, and each sits in the foreground band like the rest', () => {
     const note = SOUNDS.find((d) => d.id === 'note.wood.L')!.level;

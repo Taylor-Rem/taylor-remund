@@ -608,6 +608,191 @@ const OTHERS: SoundDef[] = [
       return biquad(out, sr, 'lowpass', 1800, 0.7);
     },
   }),
+  // ── R4: throwing ──
+  once({
+    id: 'throw.whoosh',
+    group: 'crew',
+    answers: 'part.released / patch.throw thrown at 4 u/s or more (the air it leaves through; length and pitch by speed)',
+    level: -9,
+    length: [0.1, 0.5],
+    variants: 2,
+    param: { default: 0.22, min: 0.12, max: 0.42, step: 0.02 },
+    draw: (sr, rnd, seconds) => {
+      // band noise sweeping down past the ear, a swell and a fall; quieter than any landing
+      const b = noise(Math.round(sr * seconds), rnd);
+      sweep(b, sr, 'bandpass', (t) => 2200 - 1300 * (t / seconds), 1.4);
+      return shape(b, sr, (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t / seconds)), 1.6));
+    },
+  }),
+  once({
+    id: 'patch.fly',
+    group: 'crew',
+    answers: 'patch.throw thrown (the felt "mmp" drawn out: longer the harder it is thrown)',
+    level: -11,
+    length: [0.15, 0.6],
+    variants: 2,
+    param: { default: 0.25, min: 0.15, max: 0.55, step: 0.05 },
+    draw: (sr, rnd, seconds) => {
+      // the lift's soft voice, a held "wheee" in felt: up a fourth and held, a little wobble, low-passed
+      const out = alloc(sr, seconds + 0.05);
+      const n = Math.round(sr * seconds);
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        const f = 330 * Math.pow(4 / 3, Math.min(1, t / 0.08)) * (1 + 0.02 * Math.sin(2 * Math.PI * 7 * t));
+        ph += (2 * Math.PI * f) / sr;
+        out[i] = Math.sin(ph) + 0.15 * Math.sin(2 * ph);
+      }
+      shape(out, sr, (t) => Math.min(1, t / 0.012) * Math.min(1, Math.max(0, (seconds - t) / 0.06)));
+      mixInto(out, burst(sr, 0.05, rnd, 'lowpass', 700, 0.7, ad(0.004, 0.01)), 0.3);
+      return biquad(out, sr, 'lowpass', 1800, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.thud',
+    group: 'crew',
+    answers: 'patch.throw landed (a stuffed toy on wood: a soft felt thud, scaled by speed)',
+    level: -6,
+    length: [0.06, 0.3],
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.3);
+      thump(out, sr, rnd, { f: 140, tau: 0.035, noiseF: 500 });
+      mixInto(out, burst(sr, 0.06, rnd, 'lowpass', 900, 0.7, ad(0.002, 0.012)), 0.4);
+      return biquad(out, sr, 'lowpass', 1400, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.pat',
+    group: 'crew',
+    answers: 'patch.throw hit with wall: true (flat against a wall: a pat)',
+    level: -8,
+    length: [0.03, 0.2],
+    draw: (sr, rnd) => {
+      // a flat soft slap: broad noise, very short, a little body under it
+      const out = alloc(sr, 0.2);
+      mixInto(out, burst(sr, 0.05, rnd, 'bandpass', 1300, 0.5, ad(0.0008, 0.007)), 1);
+      thump(out, sr, rnd, { f: 190, tau: 0.02, amp: 0.4, noiseF: 600 });
+      return biquad(out, sr, 'lowpass', 3500, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.slide',
+    group: 'crew',
+    answers: 'Patch sliding down the wall (PatchView state wall, once it starts to move down): felt squeaking on paint',
+    level: -12,
+    length: [0.3, 0.6],
+    variants: 2,
+    draw: (sr, rnd) => {
+      // a rubbery squeak in short stick-slip bursts, falling a little in pitch as it goes
+      const out = alloc(sr, 0.55);
+      const n = Math.round(sr * 0.5);
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        ph += (2 * Math.PI * (980 - 260 * (t / 0.5))) / sr;
+        out[i] = Math.sin(ph) + 0.3 * Math.sin(2 * ph + 0.5);
+      }
+      const chops: number[] = [];
+      for (let k = 0; k < 40; k++) chops.push(0.3 + 0.7 * rnd());
+      shape(out, sr, (t) => {
+        const x = t * 34;
+        const i = Math.floor(x);
+        return (chops[i] ?? 0) * Math.pow(Math.sin(Math.PI * (x - i)), 2) * Math.min(1, t / 0.03) * Math.max(0, Math.min(1, (0.5 - t) / 0.1));
+      });
+      return biquad(out, sr, 'lowpass', 3000, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.bump',
+    group: 'crew',
+    answers: 'patch.throw hit (anything not a wall: a small soft bump)',
+    level: -10,
+    length: [0.04, 0.25],
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.25);
+      thump(out, sr, rnd, { f: 210, tau: 0.025, amp: 0.8, noiseF: 800 });
+      return biquad(out, sr, 'lowpass', 2000, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.fall',
+    group: 'crew',
+    answers: 'patch.throw gone (over the edge, well clear: its "mmp" trailing away downward)',
+    level: -11,
+    length: [0.4, 0.8],
+    variants: 1,
+    draw: (sr) => {
+      const out = alloc(sr, 0.8);
+      const n = Math.round(sr * 0.7);
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        ph += (2 * Math.PI * 440 * Math.pow(0.5, t / 0.7)) / sr;
+        out[i] = Math.sin(ph) + 0.15 * Math.sin(2 * ph);
+      }
+      shape(out, sr, (t) => Math.min(1, t / 0.015) * Math.exp(-t / 0.22));
+      return biquad(out, sr, 'lowpass', 1800, 0.7);
+    },
+  }),
+  once({
+    id: 'patch.rise',
+    group: 'crew',
+    answers: 'patch.throw chute (shot back up the chute: the "mmp" coming back up, under the launch)',
+    level: -11,
+    length: [0.3, 0.7],
+    variants: 1,
+    draw: (sr) => {
+      const out = alloc(sr, 0.7);
+      const n = Math.round(sr * 0.55);
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        ph += (2 * Math.PI * 262 * Math.pow(2, Math.min(1, t / 0.4))) / sr;
+        out[i] = Math.sin(ph) + 0.15 * Math.sin(2 * ph);
+      }
+      shape(out, sr, (t) => Math.min(1, t / 0.08) * Math.max(0, Math.min(1, (0.55 - t) / 0.15)));
+      return biquad(out, sr, 'lowpass', 1800, 0.7);
+    },
+  }),
+  once({
+    id: 'fetch.whirr',
+    group: 'crew',
+    answers: "crew.state fetch held to shrug (let go: it rights itself): a little servo whirr, up and settling",
+    level: -11,
+    length: [0.2, 0.5],
+    variants: 2,
+    draw: (sr, rnd) => {
+      // its wheel's servo voice (G4) run up hard and back, with the gears' buzz
+      const out = alloc(sr, 0.5);
+      const n = Math.round(sr * 0.4);
+      const ph = [0, 0, 0, 0].map(() => rnd() * 6.28);
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        const f = 392 * (1 + 0.35 * Math.sin(Math.PI * Math.min(1, t / 0.4)));
+        for (let h = 0; h < 4; h++) {
+          ph[h]! += (2 * Math.PI * f * (h + 1)) / sr;
+          out[i]! += Math.sin(ph[h]!) * [1, 0.45, 0.25, 0.15][h]!;
+        }
+      }
+      shape(out, sr, (t) => Math.min(1, t / 0.03) * Math.max(0, Math.min(1, (0.4 - t) / 0.08)) * (0.78 + 0.22 * Math.sin(2 * Math.PI * 58 * t)));
+      return biquad(out, sr, 'lowpass', 3200, 0.7);
+    },
+  }),
+  once({
+    id: 'revert.knock',
+    group: 'crew',
+    answers: 'Revert knocking from under its covered hatch (RevertView.knock, each jump of the leaves): a hollow wooden knock',
+    level: -6,
+    length: [0.08, 0.35],
+    variants: 2,
+    draw: (sr, rnd) => {
+      // knuckles on a wooden leaf over a hollow: a wood knock and the box's low ring
+      const out = alloc(sr, 0.35);
+      knock(out, sr, rnd, [[420, 0.7, 0.03], [980, 0.4, 0.015], [1900, 0.2, 0.006]], { noiseF: 1400, noiseAmp: 0.4 });
+      partial(out, sr, { f: 140, amp: 0.6, tau: 0.07, attack: 0.002 });
+      return biquad(out, sr, 'lowpass', 3000, 0.7);
+    },
+  }),
   once({
     id: 'jet.pop',
     group: 'crew',
