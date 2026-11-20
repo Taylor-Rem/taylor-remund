@@ -59,8 +59,8 @@ function plan(seed: number, w: World): Throw {
   const r = rng(`throw-soak-${seed}`);
   const THROWN_IDS = [...LOOSE, 'patch'];
   const id = THROWN_IDS[r.int(THROWN_IDS.length)] as string;
-  // (R4) from anywhere up to the top of the lift (5.5): mostly bench height, one in four high
-  const from: [number, number, number] = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 5.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
+  // (R4) from anywhere up to the top of the carry (a grip height of 7.5, over the back wall's top): mostly bench height, one in four high
+  const from: [number, number, number] = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 7.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
   const cap = LOOSE_TUNING.throwMax * 1.05; // a little over: the world clamps it
   const k = r.int(10);
   let dir: Vec3;
@@ -79,7 +79,7 @@ function plan(seed: number, w: World): Throw {
     // (R4) at the wall and over it: from right up against it and from high (the raised carry), lobbed up hard
     if (r.int(2) === 0) {
       from[2] = r.range(-4.6, -3.0);
-      from[1] = r.range(1.0, 5.5);
+      from[1] = r.range(1.0, 7.5);
     }
     what = 'at the back wall';
   } else if (k < 6) {
@@ -168,7 +168,7 @@ async function session(seed: number): Promise<string[]> {
       run(1);
       if (w.holding()?.id !== th.id) break;
       for (let i = 0; i < 20; i++) {
-        w.dispatch({ type: 'carry', target: [m.pose.p[0], Math.max(1.0, Math.min(5.5, m.pose.p[1])), m.pose.p[2]] });
+        w.dispatch({ type: 'carry', target: [m.pose.p[0], Math.max(1.0, Math.min(7.5, m.pose.p[1])), m.pose.p[2]] });
         run(1);
       }
       w.dispatch({ type: 'release', velocity: [th.v[0] * 0.3, 12, th.v[2] * 0.3] });
