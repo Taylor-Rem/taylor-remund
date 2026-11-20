@@ -139,6 +139,10 @@ export const PATCH_TUNING = {
   restMid: 0.3,
   /** R4: faster than this (level, units/s) as it crosses an open edge, it is gone (too fast to catch hold). */
   catchSpeed: 8,
+  /** R4: within a unit of the stool's foot this long on its way back, it takes the last step whatever is there. */
+  lastStep: 5,
+  /** R4: how hard (units/s) a loose part at the stool's foot is nudged aside for that last step. */
+  nudge: 1.6,
   /** R4: let go deep inside a body, it is moved out the least way (sideways first), no more than this. */
   clearMax: 0.5,
   /** R4: let go touching a body, a throw is a hit on it only with more than this much (units/s) of its level speed into its face. */
@@ -257,6 +261,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let ledge: { edge: 'front' | 'left' | 'right'; at: Vec3; up: Vec3; out: Vec3 } | null = null;
   /** R1: on its feet on the bench after the ledge: the look ends in the walk back, not in carrying on. */
   let afoot = false;
+  /** When it came within a unit of the stool's foot on its way back (-1: not there). */
+  let nearFootAt = -1;
   /** R1: the hand's last few places while it holds Patch (a release past an edge is judged with the hand's travel). */
   const trail: { step: number; p: Vec3 }[] = [];
 
@@ -403,6 +409,18 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const under = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
       const top = Math.max(...under.map((o) => o.y1)) + T.bodyR * 0.8 + 0.01;
       if (top <= hand + T.clearMax && !deep([q[0], top, q[2]])) found = [q[0], top, q[2]];
+      // (and the top taken by something standing on it, the board's panel on its desk: the nearest clear place
+      // on that top, before anywhere at its own height)
+      // (its middle over that body, or so near its edge that most of it is over it: not beside it)
+      const over = under.some((o) => distanceTo(o, q[0], q[2]) <= T.bodyR * 0.5);
+      for (let ring = 1; ring <= 10 && !found && over && top <= hand + T.clearMax; ring++) {
+        const r = (ring / 10) * T.clearMax * 2;
+        for (let i = 0; i < 16 && !found; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const c: Vec3 = [q[0] + Math.cos(a) * r, top, q[2] + Math.sin(a) * r];
+          if (!deep(c) && under.some((o) => sphereMeets(o, c[0], c[1] - T.bodyR, c[2], T.bodyR * 0.8))) found = c;
+        }
+      }
       for (let ring = 1; ring <= 10 && !found; ring++) {
         const r = (ring / 10) * T.clearMax;
         for (let i = 0; i < 16 && !found; i++) {
@@ -716,6 +734,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   }
 
   function enter(s: PatchState, elapsed = 0, len = lengthOf(s)): void {
+    if (s !== state) nearFootAt = -1; // (the stool's-foot wait counts one walk at a time)
     if (s !== 'roll') roll = null; // a roll ends (or is given up) with any other state
     const from = state;
     state = s;
@@ -1185,6 +1204,29 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           };
           const here = near(pt(at));
           const fb = fetchBody();
+          // R4 (Taylor: "They should still always be able to recover"): never waiting at its own stool for good. Within
+          // a unit of the stool's foot for `lastStep` seconds, it takes the last step anyway: a loose part in the way
+          // (a crate thrown to the stool's foot) is nudged aside, a crew move; Fetch or Revert in the way it waits for
+          const foot = footNow();
+          if (Math.hypot(foot[0] - at[0], foot[2] - at[2]) < 1) {
+            if (nearFootAt < 0) nearFootAt = ctx.clock.step;
+          } else nearFootAt = -1;
+          if (nearFootAt >= 0 && ctx.clock.step - nearFootAt >= steps(T.lastStep)) {
+            const inWay = mv.filter((o) => !o.id.endsWith(':ahead') && (distanceTo(o, foot[0], foot[2]) < R + 0.05 || !stepClear(pt(at), pt(foot), R, [o])));
+            if (inWay.every((o) => ctx.mode(o.id) === 'free')) {
+              for (const o of inWay) {
+                const dx = o.x - foot[0], dz = o.z - foot[2];
+                const d = Math.hypot(dx, dz) || 1;
+                ctx.shove(o.id, [(dx / d) * T.nudge, 0.4, (dz / d) * T.nudge]);
+              }
+              nearFootAt = -1;
+              way = null;
+              heading = Math.atan2(foot[0] - at[0], foot[2] - at[2]);
+              at = foot;
+              enter('climb');
+              break;
+            }
+          }
           const fetchBoxes = fb ? mv.filter((o) => o.id === fb || o.id === `${fb}:ahead`) : [];
           const fetchDist = (p: Pt): number => Math.min(Infinity, ...fetchBoxes.map((o) => distanceTo(o, p[0], p[1])));
           const fetchHere = fetchDist(pt(at));
@@ -1403,6 +1445,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             f.v = [(ax / an) * 1.5, Math.min(f.v[1], 0), (az / an) * 1.5];
             np = [at[0] + f.v[0] / HZ, at[1] + f.v[1] / HZ, at[2] + f.v[2] / HZ];
             if (sphereMeets(b, np[0], np[1], np[2], T.bodyR) && distanceTo(b, np[0], np[2]) < distanceTo(b, at[0], at[2])) np = [at[0], np[1], at[2]];
+            // (a part or robot that is itself moving into it, a crate sliding under a knock: it is pushed along in
+            // front of it, out of its side, never left inside it)
+            const dIn = distanceTo(b, np[0], np[2]);
+            if (sphereMeets(b, np[0], np[1], np[2], T.bodyR * 0.8) && dIn < T.bodyR) {
+              const d = offTop(b, np[0], np[2]);
+              const push = T.bodyR - dIn + 0.01;
+              np = [np[0] + d[0] * push, np[1], np[2] + d[1] * push];
+            }
           }
           // never through a fixed body: met from the side, it stops there and drops (a wall, met flat, it sticks to
           // and slides down); come down on its top, tipped off
