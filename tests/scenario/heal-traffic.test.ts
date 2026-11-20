@@ -3,7 +3,7 @@
 // rounds, Patch set down somewhere and walking home, while Revert sweeps, carries and drops. Revert never
 // overlaps Fetch or Patch, neither of them walks through Revert, and nobody stops for good: the belt is fed again.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, putOn, tape, FULL_BENCH } from './line-helpers.ts';
+import { benchWorld, putOn, tape, FULL_BENCH, AT } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import { steps, HZ } from '../../src/workshop/sim/clock.ts';
@@ -49,7 +49,7 @@ function patchBox(w: World): Box | null {
   return { x: p.at[0], z: p.at[2], hx: PATCH_R, hz: PATCH_R, h: 0 };
 }
 
-async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<typeof rng>) => Vec3): Promise<{ fed: number | null; overlaps: string[]; heals: number }> {
+async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<typeof rng>) => Vec3): Promise<{ fed: number | null; overlaps: string[]; heals: number; swept: Id[]; padCrate: Id | null }> {
   const r = rng(`traffic-${seed}`);
   const w = await benchWorld(`traffic-${seed}`, { scene: FULL_BENCH });
   const t = tape(w);
@@ -78,10 +78,19 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
   const overlaps: string[] = [];
   let fed: number | null = null;
   let heals = 0;
+  const swept: Id[] = [];
+  const padCrate = CRATES.find((id) => {
+    const q = w.motion(id)?.pose.p;
+    return !!q && w.mode(id) === 'free' && w.touched(id) && Math.hypot(q[0] - AT.pad[0], q[2] - AT.pad[1]) < 0.45;
+  }) ?? null;
   for (let i = 0; i < steps(Number(process.env.TRAFFIC_SECS ?? 150)); i++) {
     for (const e of t.run(1)) {
       if (e.type === 'taken-in' && e.id === 'belt' && fed === null) fed = i / HZ;
-      if (e.type === 'revert.sweep' && e.to.at === 'rest') heals++;
+      if (e.type === 'revert.sweep' && e.to.at === 'rest') {
+        if (process.env.TRAFFIC_DBG) process.stderr.write(`\nSWEEP ${(i / HZ).toFixed(1)}s ${e.part} from ${e.from.p.map((v) => v.toFixed(2))} revert at ${(w.machine('revert-crew') as RevertView).x.toFixed(2)},${(w.machine('revert-crew') as RevertView).z.toFixed(2)} h ${(w.machine('revert-crew') as RevertView).heading.toFixed(2)} fetch ${w.motion('fetch')!.pose.p.map((v) => v.toFixed(2))} ${w.crew('fetch')?.state}`);
+        heals++;
+        swept.push(e.part);
+      }
     }
     if (process.env.TRAFFIC_DBG && (i % 120 === 0 || (i > 1900 && i < 2150 && i % 6 === 0))) {
       const rv = w.machine('revert-crew') as RevertView;
@@ -94,9 +103,9 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
     if (fb && overlap(rb, fb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Fetch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${fb.x.toFixed(2)},${fb.z.toFixed(2)} (${w.crew('fetch')?.state})`);
     if (pb && overlap(rb, pb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
   }
-  if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${w.crew('fetch')?.state}`);
+  if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${JSON.stringify(w.crew('fetch')).slice(0, 600)}`);
   w.dispose();
-  return { fed, overlaps, heals };
+  return { fed, overlaps, heals, swept, padCrate };
 }
 
 describe('the robots\' routes while the bench heals', () => {
@@ -144,5 +153,16 @@ describe('the robots\' routes while the bench heals', () => {
       T.looseMax = was;
     }
     process.stderr.write(`\nseed 16: ${report.join('; ')}\n`);
+  }, 600_000);
+
+  test('a handled crate left on Fetch\'s pad while Fetch starves: Revert sweeps it like any other, sharing the pad with Fetch waiting at its stand (never an overlap), and the belt is fed again', async () => {
+    let n = 0;
+    // the first crate the visitor handles goes on the pad, the rest into the back-left corner
+    const s = await session(200, undefined, () => (n++ === 0 ? [AT.pad[0], 0, AT.pad[1]] : [-8.2 + 0.7 * (n % 2), 0, -4.2 + 0.7 * Math.floor(n / 2)]));
+    process.stderr.write(`\npad: crate on the pad ${s.padCrate}; swept ${s.swept.join(', ')}; fed ${s.fed}; overlaps ${s.overlaps.length}${s.overlaps.length ? `: ${s.overlaps[0]}` : ''}\n`);
+    expect(s.padCrate).not.toBeNull();
+    expect(s.swept).toContain(s.padCrate);
+    expect(s.overlaps).toEqual([]);
+    expect(s.fed).not.toBeNull();
   }, 600_000);
 });
