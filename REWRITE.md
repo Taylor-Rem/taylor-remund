@@ -3,9 +3,11 @@
 **Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). P0 and
 P1 are built and G1 passed on 2026-11-18 (§ Approval log); P2, the
 playable bench, is built and G2 passed on 2026-11-20 (§ Approval log).
-P3 may begin once the notes Taylor gave that day are finished on the
-bench** (§ G P2 lists what Taylor added on 2026-11-18; the gate's
-numbers are in the packet, last revised 2026-11-20). Branch
+The notes Taylor gave that day are finished on the bench (2026-11-20:
+built, filmed on the real page and re-checked by the lead; he has not
+yet tried them himself). P3 is next** (§ G P2 lists what Taylor added on
+2026-11-18; the gate's numbers are in the packet, last revised
+2026-11-20). Branch
 `rewrite`, local only. `main` is the live site and stays untouched until
 the cutover.
 
