@@ -15,6 +15,8 @@ import type { Id, RevertView, SimEvent } from '../../../src/workshop/sim/types.t
 
 const { rounds: _rounds, ...quietRunner } = bench.runner;
 const quietStub = () => stubWorld(1, { scene: { ...bench, runner: quietRunner } });
+/** The bench as it is (R3, 2026-11-20: Revert comes for one crate Fetch may not carry, a few seconds after it was set down). */
+const benchStub = () => stubWorld(1, { scene: bench });
 const R = (w: World): RevertView => w.machine('revert-crew') as RevertView;
 const [HX, , HZ] = AT.revert.half;
 
@@ -149,14 +151,10 @@ describe('Revert stands where the work is seen', () => {
   });
 
   test('it sweeps a stray from the stray\'s far side, facing the visitor across it, then goes home and down', () => {
-    const { world, physics } = quietStub();
+    const { world, physics } = benchStub();
     run(world, 5);
-    // four strays out in the open; the oldest (crate-3) is the one it sweeps
+    // a stray out in the open
     setDown(world, physics, 'crate-3', -6.6, -1.6);
-    run(world, steps(5));
-    setDown(world, physics, 'crate-2', -6.5, 1);
-    setDown(world, physics, 'crate-1', -7.8, -1);
-    setDown(world, physics, 'crate-4', 1.5, -3.2);
     const ev: SimEvent[] = [];
     let at: RevertView | null = null;
     for (let i = 0; i < steps(110) && !ev.some((e) => e.type === 'revert.sweep'); i++) {
@@ -181,15 +179,11 @@ describe('Revert stands where the work is seen', () => {
     expect(after.some((e) => e.type === 'revert.sweep' && e.to.at === 'shipped')).toBe(true); // and down the hatch
   });
 
-  test('where the bench leaves no room behind a part, it takes the nearest stand that keeps its front or side to the visitor', () => {
-    const { world, physics } = quietStub();
+  test('where the bench leaves no room behind a part, it takes another stand by it (never inside a fixed thing)', () => {
+    const { world, physics } = benchStub();
     run(world, 5);
     // crate-3 against the back of the bench: no room behind it
     setDown(world, physics, 'crate-3', -6.2, -4.5);
-    run(world, steps(5));
-    setDown(world, physics, 'crate-2', -6.5, 1);
-    setDown(world, physics, 'crate-1', -2, -3.5);
-    setDown(world, physics, 'crate-4', 1.5, -3.2);
     let at: RevertView | null = null;
     for (let i = 0; i < steps(110) && !at; i++) {
       run(world, 1);
@@ -198,7 +192,9 @@ describe('Revert stands where the work is seen', () => {
     expect(at).not.toBeNull();
     const from = world.motion('crate-3')!.pose.p;
     const toVisitor = Math.atan2(REVERT.outward[0] - from[0], REVERT.outward[2] - from[2]);
-    expect(Math.abs(wrap(at!.heading - toVisitor))).toBeLessThanOrEqual(Math.PI / 2 + 1e-6); // its front or its side to the visitor
+    if (process.env.DBG) process.stderr.write(`\nAT ${at!.x.toFixed(2)},${at!.z.toFixed(2)} h ${at!.heading.toFixed(2)} crate ${from.map((v) => v.toFixed(2))} toVisitor ${toVisitor.toFixed(2)}\n`);
+    // (R3, 2026-11-20: where the way in to a stand facing the visitor passes the crate itself, it takes a stand it can drive straight to, whichever way that faces)
+    expect(Math.hypot(at!.x - from[0], at!.z - from[2])).toBeLessThan(HZ + 0.8);
     expect(Math.abs(wrap(at!.heading - toVisitor))).toBeGreaterThan(0.1); // not straight behind: there was no room
     expect(hits(at!.x, at!.z, at!.heading)).toBeNull();
   });

@@ -319,7 +319,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       ctx.commit([marks], 'crew');
       cause = 'crew';
     }
-    if (part.kind === 'robot' && spec.pad?.home) throwHome(r.id);
+    if (part.kind === 'robot' && spec.pad?.home && r.id === ctx.scene.runner.id) throwHome(r.id);
     else ctx.toChute(r.id, cause);
     ctx.emit({ type: 'returned', id: spec.id, part: r.id, how: 'chute' });
   }
@@ -513,6 +513,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     if (!spec.pad) return false;
     const part = ctx.part(id);
     if (!part) return false;
+    // (R4: Fetch is thrown home beside the pad; Revert comes home through its own hatch: its own unit takes it)
+    if (part.kind === 'robot' && id !== ctx.scene.runner.id) return false;
     if (part.kind === 'robot' && spec.pad.home) {
       throwHome(id, cause ?? 'crew');
       return true;

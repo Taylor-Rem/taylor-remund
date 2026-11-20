@@ -34,7 +34,10 @@ async function dryBench(seed: string): Promise<World> {
 
 describe('R3: Revert acts the heal', () => {
   test('it takes in the scene before it sets off, then carries the crate on its pan at its right side and drops it at home', async () => {
-    const w = await dryBench('acting-1');
+    // (2026-11-20: one crate thrown to the back left is enough to bring it out)
+    const w = await benchWorld('acting-1', { scene: FULL_BENCH });
+    tape(w).run(steps(20));
+    putOn(w, tape(w), CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!, [-8.2, 0, -4.2]);
     const t = tape(w);
     let surveyed = 0;
     let boundWhileSurveying: string | null = null;
@@ -62,7 +65,8 @@ describe('R3: Revert acts the heal', () => {
       }
     }
     // a look round of about REVERT_TUNING.survey seconds, at a crate it then went for
-    expect(surveyed / HZ).toBeGreaterThan(REVERT_TUNING.survey - 0.2);
+    // (2026-11-20: the whole look round when the bench has run dry, else one short look at the crate and the visitor)
+    expect(surveyed / HZ).toBeGreaterThan(REVERT_TUNING.glance - 0.1);
     expect(surveyed / HZ).toBeLessThan(REVERT_TUNING.survey + 0.5);
     expect(boundWhileSurveying).not.toBeNull();
     expect(setOffAfterSurvey).toBe(true);
