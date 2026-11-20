@@ -437,7 +437,11 @@ Three laws. A visitor never reads them; the world behaves by them
 everywhere, which is what lets someone guess right the first time.
 
 1. **If it is loose, you can pick it up.** Drag it, or tap it and then tap
-   where it should go. Let go and it falls with weight.
+   where it should go. Let go and it falls with weight. Let go with the
+   hand moving and it is thrown: it keeps the hand's speed and direction
+   (Taylor, 2026-11-19: "I want them to retain their momentum better after
+   you let go, so you can throw boxes and Fetch and Patch and stuff. They
+   should still always be able to recover").
 2. **If it has a mouth, it takes anything loose.** Every machine has one
    verb and applies it to whatever arrives. A machine never answers with a
    bare refusal: it either does its verb, or says specifically what it
@@ -668,6 +672,16 @@ carries parts between stations inside lanes of yellow tape.
   looks at its empty hands and salutes.
 - *Picked up:* its wheel spins in the air. Put down outside its lanes, it
   hurries back.
+- *Thrown* (Taylor, 2026-11-19): it flies and tumbles like any part, then
+  recovers wherever it ends. On its side or back it rights itself, shrugs
+  and goes back to its tape; up on the stack, a crate or a tray, or
+  wedged, it hops off on its jets; in a machine's mouth it is stood on its
+  wheels and carried; off the bench, the jetpack. Set on the platen's tray
+  on purpose it waits there three quarters of a minute, and for as long
+  as the visitor is busy with the phone or the cord.
+- *It never stands holding a crate it cannot place:* if the stack's seat
+  is taken it feeds the belt, if the belt is shut it stocks the stack, and
+  if neither it sets the crate down on its tape, still fresh.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it is shoved and spun, not
   merely bumped into; it wobbles, finds its balance and goes back to its
   lane.
@@ -718,6 +732,16 @@ Patch's place: it never walks the bench.
   way, steps that plant, a scamper when the way is long; round the
   machines, the crates and Fetch, never through them; over the belt by
   climbing its rail and being carried a step or two.
+- *Thrown* (Taylor, 2026-11-19): it flies on an arc of its own, tumbling,
+  limbs out and tail streaming; it is never carried by physics. It lands
+  at the nearest clear point, bounces, rolls up to sitting, shakes its
+  head, gives the visitor the look and walks home. It knocks loose crates
+  and tools out of its way and comes down just past them; it stops
+  against Fetch, Revert and anything a machine holds. Meeting a wall, the
+  board, the storefront or the dock side-on, it sticks flat for a quarter
+  of a second and slides down. Over the bench's edge low, it catches the
+  ledge; thrown well clear, it is out of sight for under a second and
+  comes back up the chute.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
@@ -911,7 +935,14 @@ it is not in the release.
 
 **1. Pick up and throw anything loose.** *Input:* drag, or tap then tap.
 *Behaviour:* the part rises and follows on a spring; released, it falls
-and tumbles with its weight and bounce. *Feedback:* its note, its shadow,
+and tumbles with its weight and bounce. A flick throws: what leaves the
+hand goes the way and as fast as the hand was going over its last
+moments (a hand that has stopped sets down), up to fourteen units a second
+for a small crate and less for heavier things; a firm flick carries a
+small crate about half the bench and a hard one off its end. The crew are
+thrown the same way (§ B5). Whatever is thrown, wherever, the bench is
+itself again within seconds: nothing lost, nothing stuck in or under
+anything, nobody left on their back. *Feedback:* its note, its shadow,
 the crew's eyes. *Reset:* what leaves the bench comes back up the chute;
 UNDO puts a moved thing back. *Why it is fun:* weight and sound make moving
 things satisfying before anything else is understood.
