@@ -24,6 +24,7 @@
  * breath, blinks or glances run.
  */
 import { Group, Matrix4, Vector3, type Object3D } from 'three';
+import { nodeBounds } from './proxy.ts';
 import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
@@ -126,7 +127,19 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         if (x) ms[n]!.decompose(x.position, x.quaternion, x.scale);
       }
     };
-    if (ctx.pickable) ctx.pickable('patch', root);
+    // the grab target rides Patch's drawn body (the rig's `body` node, everything else hangs from it), not the
+    // root, which stays on the seat while Patch flies, lands, walks home (R4: Taylor, "his 'grab' box stays on his
+    // stool"); measured once, at its rest pose. No target where the simulation refuses the grab
+    // (hanging from the edge, hauling itself up, out of sight after going over the edge)
+    const bodyNode = nodes.get('body') ?? obj;
+    let grabbable = true;
+    // (the felt is skinned: its meshes hang from the piece, not the bone, so the box is the body node's own parts
+    // and its children's, measured in its frame, as proxy.ts does for any skinned node)
+    if (ctx.pickable) {
+      const box = piece ? nodeBounds(piece, 'body') : null;
+      if (box && !box.isEmpty()) ctx.pickable('patch', bodyNode, { box, active: () => grabbable });
+      else ctx.pickable('patch', root, { active: () => grabbable });
+    }
     const seatH = o.fit.stool.seat[1] / S;
 
     // ── the job's targets for each jack (cached: the job's keys are cached by this object) ──
@@ -691,6 +704,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         stool.position.set(stoolRest.x + dx, stoolRest.y, stoolRest.z);
         // R4: thrown off the bench, it is out of sight until it comes back up the chute
         root.visible = mode !== 'away';
+        grabbable = st !== 'ledge' && st !== 'haul' && st !== 'away';
         if (mode === 'held') root.position.set(v.at[0], v.at[1], v.at[2]);
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);
