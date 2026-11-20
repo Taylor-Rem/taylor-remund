@@ -253,3 +253,74 @@ describe('nothing stays where no hand and no robot can reach', () => {
     }, 60_000);
   }
 });
+
+describe('at the back wall (I1, 2026-11-20: a crate flicked hard up the screen ended behind the wall)', () => {
+  // every part fired at the wall at the caps from 0.5, 2 and 6 away, level and 45 degrees up: from the bench's floor part of
+  // the carry never through it and never over it; from the raised part (5.3) over it by design, and then home by the chute
+  for (const id of ['crate-1', 'crate-2', 'crate-3', 'fetch', 'revert'] as const) {
+    test(`${id}: never through the wall; over it only from high up, and then home`, async () => {
+      const report: string[] = [];
+      for (const away of [0.5, 2, 6]) {
+        for (const [ang, y] of [[0, 1.2], [45, 1.2], [0, 2.2], [45, 2.2], [0, 5.3], [45, 5.3]] as const) {
+          const w = await benchWorld(`r4-wall-${id}-${away}-${ang}-${y}`, { scene: FULL_BENCH });
+          const t = tape(w);
+          t.run(steps(1.5));
+          if (id === 'revert') {
+            w.dispatch({ type: 'press', id: 'undo-lever' });
+            t.run(steps(3));
+          }
+          w.dispatch({ type: 'grab', id, grip: w.motion(id)!.pose.p });
+          t.run(1);
+          if (w.holding()?.id !== id) {
+            w.dispose();
+            continue;
+          }
+          const z = -5 + away + w.halfExtents(id)![2];
+          for (let i = 0; i < 120; i++) {
+            w.dispatch({ type: 'carry', target: [-1.5, y, z] });
+            t.run(1);
+          }
+          const a = (ang * Math.PI) / 180;
+          w.dispatch({ type: 'release', velocity: [0, 20 * Math.sin(a), -20 * Math.cos(a)] });
+          let behindAt = -Infinity;
+          for (let i = 0; i < steps(3); i++) {
+            t.run(1);
+            const m = w.motion(id)!;
+            if (m.mode === 'free' && m.pose.p[2] < -5.3) behindAt = Math.max(behindAt, m.pose.p[1]);
+          }
+          if (y < 3 && behindAt > -Infinity) report.push(`${away} away, ${ang} deg from ${y}: behind the wall at y ${behindAt.toFixed(2)}`);
+          // whatever happened: within ten more seconds it is back on the bench (or Fetch at work, Revert gone home)
+          t.run(steps(10));
+          const p = w.motion(id)!.pose.p;
+          const mode = w.motion(id)!.mode;
+          if (mode !== 'gone' && (Math.abs(p[0]) > 9 || Math.abs(p[2]) > 5)) report.push(`${away} away, ${ang} deg from ${y}: left outside at ${p.map((v) => v.toFixed(2)).join(',')} (${mode})`);
+          w.dispose();
+        }
+      }
+      expect(report).toEqual([]);
+    }, 600_000);
+  }
+
+  test('a crate come to rest outside the bench\'s footprint (here on a ledge past the left end, as anything outside might be) goes home by the chute within seconds', async () => {
+    // (the bench has no such ledge: whatever a part might lie on outside the footprint, the rule does not depend on it)
+    const scene = { ...FULL_BENCH, statics: [...FULL_BENCH.statics, { id: 'test-ledge', shape: { type: 'box' as const, half: [0.8, 0.25, 1.2] as Vec3, radius: 0 }, pose: { p: [-9.9, -0.25, 0] as Vec3, q: [0, 0, 0, 1] as const }, friction: 0.9, restitution: 0.05 }] };
+    const w = await benchWorld('r4-outside', { scene });
+    const t = tape(w);
+    t.run(steps(1));
+    liftTo(w, t, 'crate-3', [-8.6, 1.0, 0]);
+    w.dispatch({ type: 'release', velocity: [-3, 0.5, 0] });
+    let lay = false;
+    for (let i = 0; i < steps(3) && !lay; i++) {
+      t.run(1);
+      const m = w.motion('crate-3')!;
+      lay = m.mode === 'free' && m.pose.p[0] < -9 && Math.abs(m.pose.p[1] - 0.225) < 0.05;
+    }
+    expect(lay, 'it lies on the ledge outside the bench').toBe(true);
+    const sent = t.until((e) => e.type === 'restock.launched' && e.part === 'crate-3', steps(LOOSE_TUNING.outsideTime + 4));
+    expect(sent, 'sent home by the chute').not.toBeNull();
+    t.run(steps(4));
+    const p = w.motion('crate-3')!.pose.p;
+    expect(Math.hypot(p[0] - AT.pad[0], p[2] - AT.pad[1])).toBeLessThan(2.4);
+    w.dispose();
+  }, 60_000);
+});
