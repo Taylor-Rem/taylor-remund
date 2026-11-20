@@ -16,6 +16,8 @@ const PASSTHROUGH: Record<string, string> = {
   // URL path (as served)  -> source under legacy/
   'resume/index.html': 'legacy/resume/index.html',
   'ai/index.html': 'legacy/ai/index.html',
+  // (2026-11-19 on main: the case study the résumé's cards link to; it arrives here with a merge of main)
+  'case-studies/ledger-repair/index.html': 'legacy/case-studies/ledger-repair/index.html',
   'style.css': 'legacy/style.css',
   'script.js': 'legacy/script.js',
 };

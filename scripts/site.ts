@@ -17,7 +17,7 @@ export const SITE_ORIGIN = 'https://taylorremund.com';
  * is exempt from the budget's third-party and JavaScript rows, printed as
  * EXEMPT so the debt stays on screen. This list must be empty by gate G3.
  */
-export const LEGACY_PASSTHROUGH: readonly string[] = ['/resume/', '/ai/'];
+export const LEGACY_PASSTHROUGH: readonly string[] = ['/resume/', '/ai/', '/case-studies/ledger-repair/'];
 
 /** What a page's robots meta must be: exactly this content, none at all, or not checked. */
 export type Robots = { content: string } | 'none' | 'unchecked';
