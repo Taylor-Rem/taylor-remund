@@ -121,6 +121,7 @@ describe('Fetch knocked by a thrown Patch while it carries a crate: the lever ta
     }
     w.dispatch({ type: 'release', velocity: [(dx / l) * speed, 0.3, (dz / l) * speed] });
     const hit = t.until((e) => e.type === 'patch.throw' && e.phase === 'hit' && e.what === 'fetch', steps(2));
+    if (process.env.DBG) console.log('DBG', JSON.stringify(t.of('patch.throw').map((x) => x.e)), JSON.stringify(f1), JSON.stringify(from), JSON.stringify(patchAt(w)), JSON.stringify(w.halfExtents('fetch')));
     expect(hit, 'Patch meets Fetch').not.toBeNull();
     const txn = (hit!.e as { txn?: string }).txn;
     expect(txn, 'the hit names the throw').toBeTruthy();

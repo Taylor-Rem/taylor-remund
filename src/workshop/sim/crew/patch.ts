@@ -347,8 +347,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   // ── R4: thrown ──
   const SOLIDS: Solid[] = solidsOf(ctx.scene);
   /** In the air: its velocity; past an open edge and going (out); coming back from the chute. */
-  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; txn: Cause | null } | null = null;
-  const newFly = (v: Vec3, chute: boolean): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), txn: null });
+  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; passing: Set<Id>; txn: Cause | null } | null = null;
+  const newFly = (v: Vec3, chute: boolean): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), passing: new Set(), txn: null });
   /** Met a wall flat: its outward direction, and how fast it came in. */
   let walled: { out: Vec3; speed: number; slideFrom?: number } | null = null;
   /** Fetch's and Revert's bodies as solids (in the air Patch stops against them). */
@@ -382,7 +382,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const mode = ctx.mode(id);
       if (pp && h && mode !== 'gone' && mode !== 'chute') parts.push({ id, x: pp.p[0], z: pp.p[2], hx: h[0], hz: h[2], yaw: 0, y0: pp.p[1] - h[1], y1: pp.p[1] + h[1] });
     }
-    const all = [...SOLIDS, ...parts, ...robotBodies()];
+    // (a loose part it is let go against is not a reason to move: the flight knocks it, as anything in its way)
+    const free = new Set([...ctx.parts()].filter((id) => ctx.mode(id) === 'free'));
+    const all = [...SOLIDS, ...parts.filter((o) => !free.has(o.id)), ...robotBodies()];
     const clear = (c: Vec3): boolean => all.every((o) => !sphereMeets(o, c[0], c[1], c[2], T.bodyR));
     if (!clear(q)) {
       let found: Vec3 | null = null;
@@ -407,6 +409,20 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     at = q;
     fly = newFly(vv, false);
     ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
+    // loose parts it was let go against: shoved aside along the throw as it leaves the hand (each once, the
+    // throw's, as any knock), and it goes on at the speed it was thrown with
+    for (const o of parts) {
+      if (!free.has(o.id) || !sphereMeets(o, q[0], q[1], q[2], T.bodyR)) continue;
+      fly.knocked.add(o.id);
+      fly.passing.add(o.id);
+      if (ctx.bracketed) continue;
+      fly.txn ??= ctx.history.open('release', o.id, ctx.clock.step);
+      ctx.history.claim(o.id, fly.txn, ctx.clock.step);
+      const sp = Math.hypot(vv[0], vv[2]);
+      ctx.shove(o.id, [vv[0] * T.knock * 0.5, Math.min(1.5, 0.3 + sp * 0.1), vv[2] * T.knock * 0.5]);
+      const txn = fly.txn;
+      ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(vv), what: o.id, ...(txn !== 'crew' && txn !== 'system' ? { txn } : {}) });
+    }
     landing = null;
     lookAt = null;
     if (Math.hypot(vv[0], vv[2]) > 0.1) heading = Math.atan2(vv[0], vv[2]);
@@ -430,7 +446,25 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   }
   /** Where it comes to rest: clear of every body, and in the visitor's view if a point within a unit is. */
   function restingAt(p: Vec3): Vec3 {
-    const c = standingAt(p);
+    const c0 = standingAt(p);
+    // (never in a pocket it cannot walk out of: shut in by bodies and crates, it comes to rest at the nearest
+    // point it can walk home from)
+    const bodies = [...STATICS, ...movers()];
+    const home = pt(footNow());
+    const free = (q: Pt): boolean => planWay(q, home, R, bodies, routeBench, BELT, 0) !== null;
+    let c = c0;
+    if (!free(pt(c0))) {
+      search: for (let ring = 1; ring <= 6; ring++) {
+        const rad = ring * 0.25;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const q: Pt = [c0[0] + Math.cos(a) * rad, c0[2] + Math.sin(a) * rad];
+          if (clearPoint(q, R, bodies, routeBench)?.[0] !== q[0] || !free(q)) continue;
+          c = onGround(q);
+          break search;
+        }
+      }
+    }
     if (inView(c)) return c;
     for (let ring = 1; ring <= 10; ring++) {
       const rad = ring * 0.1;
@@ -1262,7 +1296,11 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             const h = ctx.halfExtents(id);
             if (!pp || !h) continue;
             const reach = T.bodyR + Math.max(h[0], h[1], h[2]) * 0.85;
-            if (dist(pp.p, np) > reach) continue;
+            if (dist(pp.p, np) > reach) {
+              f.passing.delete(id); // (clear of one it was let go against: from now on it is in its way like any)
+              continue;
+            }
+            if (f.passing.has(id)) continue; // (going on through one it was let go against)
             // (one in a machine or in the crew's hands is not knocked: it is in its way, like a body)
             if (f.knocked.has(id) || mode !== 'free') {
               // knocked already: after that it is in its way like anything else (it does not pass through it)
