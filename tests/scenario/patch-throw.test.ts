@@ -287,6 +287,70 @@ describe('Patch thrown (R4)', () => {
     }
   }, 120_000);
 
+  // R4 fault (I1's crew test): taken off its stool the carry presses Patch to the back wall; let go there with the
+  // hand moving away from the wall, it must fly. Through the intent path, as the page does it: lifted, carried to the
+  // body and held there, then let go with the hand's velocity.
+  describe('let go touching a body: away or along it flies, into it is the hit', () => {
+    // (`side`: along the face, the way that is open; the back wall's case is I1's own: the hand front-left)
+    const places: { name: string; hand: Vec3; away: [number, number]; side: number }[] = [
+      { name: 'the back wall by the stool', hand: [2.75, 1.2, -4.42], away: [0, 1], side: -1 },
+      { name: "the console's back", hand: [-0.6, 1.2, -0.58], away: [0, -1], side: 1 },
+      { name: "the storefront's front", hand: [6.0, 1.2, -2.66], away: [0, 1], side: -1 },
+    ];
+    for (const pl of places) {
+      const [ax, az] = pl.away;
+      const sx = pl.side;
+      const cases: { what: string; v: Vec3; fly: boolean; min: number }[] = [
+        { what: 'away and to the side at 12', v: [sx * 8.6 * Math.abs(az) + ax * 8.9, 0, az * 8.9 + sx * 8.6 * Math.abs(ax)], fly: true, min: 2.5 },
+        { what: 'straight away at 14', v: [ax * 14, 0, az * 14], fly: true, min: 2.5 },
+        // (along the back wall, the way the board's end is not: toward the storefront)
+        { what: 'along it at 8', v: [(pl.name.startsWith('the back') ? 1 : sx) * 8 * Math.abs(az), 0, sx * 8 * Math.abs(ax)], fly: true, min: 1.5 },
+        { what: 'into it at 6', v: [-ax * 6, 0, -az * 6], fly: false, min: 0 },
+      ];
+      for (const c of cases) {
+        test(`${pl.name}: ${c.what}`, async () => {
+          const w = await benchWorld(1);
+          const t = tape(w);
+          t.run(20);
+          const s = patchView(w).at;
+          // lifted off the stool, carried to the body and held against it (a pause, then the flick's own few carries)
+          w.dispatch({ type: 'drag', id: 'patch', target: [s[0], 2.4, s[2]] });
+          t.run(1);
+          for (let i = 1; i <= 40; i++) {
+            w.dispatch({ type: 'drag', id: 'patch', target: [s[0] + ((pl.hand[0] - s[0]) * i) / 40, 2.4 + ((pl.hand[1] - 2.4) * i) / 40, s[2] + ((pl.hand[2] - s[2]) * i) / 40] });
+            t.run(1);
+          }
+          t.run(20);
+          w.dispatch({ type: 'drag', id: 'patch', target: pl.hand, end: true, velocity: c.v });
+          // where it comes to rest (the first frame of the shake), then home
+          let rest: Vec3 | null = null;
+          for (let i = 0; i < 6 * 60 && !rest; i++) {
+            t.run(1);
+            const v = patchView(w);
+            if (v.state === 'shake') rest = [...v.at] as Vec3;
+          }
+          watch(w, t, 40);
+          const all = t.of('crew.state').filter((x) => x.e.id === 'patch').map((x) => x.e.state);
+          const states = all.join('>');
+          if (c.fly) {
+            expect(all, states).toContain('fly');
+            expect(rest, states).not.toBeNull();
+            // as far as the throw was hard, unless something stood in its way (then it met it: a hit)
+            const hitSomething = t.of('patch.throw').some((x) => x.e.phase === 'hit');
+            if (!hitSomething) expect(Math.hypot(rest![0] - pl.hand[0], rest![2] - pl.hand[2]), states).toBeGreaterThan(c.min);
+          } else {
+            // the wall gag, there (at most a step or two of flight first, when it was held a hair off the face)
+            expect(all, states).toContain('wall');
+            const flew = t.of('crew.state').filter((x) => x.e.id === 'patch');
+            const f0 = flew.find((x) => x.e.state === 'fly'), w0 = flew.find((x) => x.e.state === 'wall');
+            if (f0 && w0) expect(w0.step - f0.step, states).toBeLessThanOrEqual(6);
+          }
+          expect(patchView(w).state, states).toBe('seated');
+        }, 60_000);
+      }
+    }
+  });
+
   test('a hundred seeded throws: every one ends on the stool, the job carried on, nothing durable changed by it', async () => {
     const r = rng(Number(process.env.PATCH_THROW_SEED ?? 20261119));
     const log: string[] = [];
