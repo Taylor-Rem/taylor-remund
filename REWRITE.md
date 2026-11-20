@@ -2,9 +2,10 @@
 
 **Status: draft 3, approved at G0 on 2026-11-17 (§ Approval log). P0 and
 P1 are built and G1 passed on 2026-11-18 (§ Approval log); P2, the
-playable bench, is built and waits at G2 for its three testers and
-Taylor's line** (§ G P2 lists what Taylor added on 2026-11-18; the
-gate's numbers are in the packet of that date). Branch
+playable bench, is built and G2 passed on 2026-11-20 (§ Approval log).
+P3 may begin once the notes Taylor gave that day are finished on the
+bench** (§ G P2 lists what Taylor added on 2026-11-18; the gate's
+numbers are in the packet, last revised 2026-11-20). Branch
 `rewrite`, local only. `main` is the live site and stays untouched until
 the cutover.
 
@@ -2055,7 +2056,7 @@ about Taylor that he has not supplied.
 |---|---|---|---|
 | G0 | This specification; building may begin at P0 and stops at G1 | 2026-11-17 | Taylor: "I am authorizing G0 and the start of implementation." Not authorised by this line: deploying, pushing the branch, changing production, or passing any later gate. |
 | G1 | The look; the method for producing the rest of the bench | 2026-11-18 | Taylor, after playing the vignette on his own laptop: "G1 passed. I really like it a lot. You're good to continue with the plan". Passed on the first attempt. With it, by the terms put to him that day: the cream-enamel Fetch, the felt Patch, the four added paints and the four world typefaces stand. He gave notes instead of the six scores and ran no cold-viewer test; his notes are in § G P2. Not authorised by this line: pushing the branch, deploying, or passing any later gate. |
-| G2 | The bench plays; release 1's list confirmed | | |
+| G2 | The bench plays; release 1's list confirmed | 2026-11-20 | Taylor, after playing the bench on his laptop, his phone and his desktop and showing it to his coworkers: "G2 approved. I'm really loving the progress". With it, by the terms put to him that day: the bench plays (his coworkers came to it cold on 2026-11-19 by his account; nobody timed them and no three-tester sheet was run); the measured budgets hold and the physics engine stays; release 1's list stands with what he added between 2026-11-18 and 2026-11-20 (crates up the chute onto a pad, the bell, the glove cursor, the crew's reactions, the ledge and the jetpack, Revert keeping the bench from running dry, throwing); quiet effects are on from the first click; and the changes to things approved at G1 stand (Fetch's telescoping arms and wrist collars, the stack two high, the cheaper shading setting, the pack on Fetch's back, the taped pad). Given while five of his notes of that day were still being built (Revert out sooner, Patch's pick target, Patch through the floor, lifting things high, the chute's return): they are owed and are finished on the bench before P3's work begins. He has not heard the throw sounds. Not authorised by this line: pushing the branch, deploying, changing production, any wording of the crew's cards (G4), or passing any later gate. |
 | G4 | Both hatches, the paperwork, the truth table, the crew's lines | | |
 | G5 | The whole bench holds the standard | | |
 | G6 | Release 1 is done; merge | | |
