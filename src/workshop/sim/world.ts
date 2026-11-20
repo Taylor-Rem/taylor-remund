@@ -606,6 +606,14 @@ export function createWorld(opts: WorldOptions): World {
         l.chuteAt = Math.max(clock.step + steps(scene.chute.delay), lastChuteRelease + steps(T.chuteGap));
         lastChuteRelease = l.chuteAt;
       } else if (l.mode === 'chute' && clock.step >= l.chuteAt) {
+        // R4: thrown back onto the bench (the dock's pad) when a unit does that; else the P1 pop out of the chute's mouth
+        const cause = l.returnCause ? l.returnCause.cause : history.chargeReturn(l.id, clock.step);
+        if (!bracket && units.some((u) => u.catchReturn?.(l.id, cause))) {
+          l.returnCause = null;
+          l.exit = null;
+          emit({ type: 'part.returned', id: l.id });
+          continue;
+        }
         const yaw = finitePose(l.pose) ? yawOf(l.pose.q) : 0;
         const p: Pose = { p: scene.chute.pose.p, q: qnormalize(qmul(scene.chute.pose.q, qyaw(yaw))) };
         physics.setEnabled(l.id, true);
@@ -613,7 +621,7 @@ export function createWorld(opts: WorldOptions): World {
         release(l, scene.chute.linvel, [0, 0, 0]);
         l.pose = p;
         l.prev = p;
-        l.chargeTo = l.returnCause ? l.returnCause.cause : history.chargeReturn(l.id, clock.step);
+        l.chargeTo = cause;
         l.returnCause = null;
         l.exit = null;
         emit({ type: 'part.returned', id: l.id });
