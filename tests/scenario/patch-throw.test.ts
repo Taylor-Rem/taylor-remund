@@ -479,6 +479,70 @@ describe('Patch thrown (R4)', () => {
       }, 60_000);
     }
 
+    // Taylor, 2026-11-20, of a throw across the bench that had some lift in it: "Patch freezes mid air for several
+    // frames ... when he makes contact with the ground, he freezes again". The hang at the top and the flop are for a
+    // throw UP (more up than across); a throw that travels goes over its top without a stop and lands in its roll
+    for (const [level, up] of [[8, 5], [6, 9], [4, 7]] as const) {
+      test(`thrown across the bench at ${level} u/s with ${up} u/s of lift: over its top without a stop, head over heels, and down in a roll`, async () => {
+        const w = await benchWorld(1);
+        const t = tape(w);
+        t.run(20);
+        // (along z -2: open bench from end to end, between the console and the switchboard's runner)
+        const hand: Vec3 = [5, 1.6, -2];
+        carryTo(w, t, hand);
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [-level, up, 0] });
+        t.run(1);
+        expect(patchView(w).state).toBe('fly');
+        let peak = 0, still = 0, tops = 0, steps = 0;
+        let last = [...patchView(w).at] as Vec3;
+        let land: ReturnType<typeof patchView> | null = null;
+        for (let i = 0; i < 6 * HZ && !land; i++) {
+          t.run(1);
+          const v = patchView(w);
+          if (v.state === 'fly') {
+            steps++;
+            peak = Math.max(peak, v.at[1]);
+            if (v.thrown?.top) tops++;
+            // presented as a throw, not as a drop: the tumble, not the arms-up rise
+            expect(v.thrown?.drop, 'in flight it is a throw').toBe(false);
+            if (Math.hypot(v.at[0] - last[0], v.at[2] - last[2]) < 0.2 * (level / HZ)) still++;
+            last = [...v.at] as Vec3;
+          } else if (v.state === 'land') land = v;
+        }
+        expect(steps).toBeGreaterThan(20);
+        expect(tops, 'no hang at the top').toBe(0);
+        expect(still, 'never a step in the air without moving on').toBe(0);
+        // it did go up by the hand's lift (its middle 0.6 under the hand), so this is the high arc, not the level throw's loft
+        expect(peak).toBeGreaterThan(hand[1] - T.hangBelow + 0.5);
+        expect(land, 'it lands on the bench').not.toBeNull();
+        expect(land!.thrown?.drop, 'the landing is the roll, not the flop').toBe(false);
+        expect(land!.stateLength, 'no beat to wait out after the roll').toBeCloseTo(T.land, 5);
+        const f = watch(w, t, 40);
+        expect(f.states.at(-1)).toBe('seated');
+      }, 60_000);
+    }
+
+    test('thrown up with a little drift (1.5 u/s across, 9 up): still a throw up, with its hang at the top and its flop', async () => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      const hand: Vec3 = [-6, 1.2, -2];
+      carryTo(w, t, hand);
+      w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [1.5, 9, 0] });
+      t.run(1);
+      let tops = 0;
+      let land: ReturnType<typeof patchView> | null = null;
+      for (let i = 0; i < 6 * HZ && !land; i++) {
+        t.run(1);
+        const v = patchView(w);
+        if (v.state === 'fly' && v.thrown?.top) tops++;
+        if (v.state === 'land') land = v;
+      }
+      expect(tops).toBe(Math.round(T.hang * HZ));
+      expect(land!.thrown?.drop).toBe(true);
+      expect(land!.stateLength).toBeGreaterThan(T.land);
+    }, 60_000);
+
     for (const up of [6, 12]) {
       test(`thrown straight up at ${up} u/s: it rises, hangs at the top, falls, and lands within a unit of where it left`, async () => {
         const w = await benchWorld(1);

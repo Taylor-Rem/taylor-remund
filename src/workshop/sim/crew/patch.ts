@@ -153,6 +153,13 @@ export const PATCH_TUNING = {
   topMid: 7.2,
   /** R4: let go with the hand moving up faster than this (units/s), it is thrown up (whatever its level speed). */
   upAt: 1.5,
+  /**
+   * R5 (Taylor, 2026-11-20, of a throw across the bench that had some lift in it: "Patch freezes mid air for several
+   * frames"): thrown UP means more up than across: its level speed no more than this much of its upward speed (within
+   * about 27 degrees of straight up). Only that throw rises arms up, hangs at the top and comes down in a flop. One
+   * that travels goes over its top without a stop, head over heels, and lands in a roll, however high the hand sent it.
+   */
+  upLean: 0.5,
   /** R4: let go with the hand still, its middle more than this above the bench: it falls (a hand's height or less is a set-down). */
   dropFrom: 0.9,
   /** R4: thrown up, it hangs this long at the top before it falls (the beat where the comedy is). */
@@ -512,7 +519,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     at = q;
     fly = newFly(vv, false, q[1]);
     fly.drop = drop;
-    fly.up = v[1] >= T.upAt && !drop; // (thrown up by the hand: not a level throw's own loft)
+    // (thrown up by the hand: not a level throw's own loft, and not a throw across the bench that has lift in it)
+    fly.up = !drop && v[1] >= T.upAt && Math.hypot(vv[0], vv[2]) <= T.upLean * vv[1];
     gripOff = null;
     for (const o of touching) if (q[1] < o.y1) fly.leaving.add(o.id); // (one it is over is a top it comes down on)
     // (a set-down from a hand's height is not a throw: no sound of one)
@@ -617,10 +625,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     landing = { from, to: onGround(to), speed: sp, fall, drop: dropped };
     at = from;
     fly = null;
-    enter('land', 0, landLength(fall));
+    enter('land', 0, landLength(fall, dropped));
   }
-  /** The landing's length: a fall from high is a flop (a bounce, flat, a beat, then up), longer the higher. */
-  const landLength = (fall: number): number => T.land + (fall >= T.flopFrom ? T.flopMore * Math.min(1, 0.5 + (fall - T.flopFrom) / 6) : 0);
+  /**
+   * The landing's length: a fall from high after a drop or a throw up is a flop (a bounce, flat, a beat, then up),
+   * longer the higher. A throw that travels lands in its roll and has no beat to wait out, from whatever height
+   * (the view plays the roll, which is `land` long: the flop's time on top of it was a second of sitting still).
+   */
+  const landLength = (fall: number, flop: boolean): number => T.land + (flop && fall >= T.flopFrom ? T.flopMore * Math.min(1, 0.5 + (fall - T.flopFrom) / 6) : 0);
   /** The head's "really?" after it: longer the further it fell. */
   const shakeLength = (fall: number): number => T.shake + Math.min(0.6, Math.max(0, fall - 1) * 0.12);
   const pt = (v: Vec3): Pt => [v[0], v[2]];

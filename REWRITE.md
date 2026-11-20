@@ -783,7 +783,12 @@ Patch's place: it never walks the bench.
   into that thing. Let go still from up high it falls, knowing it, and
   lands in a flop that grows with the fall, sits up and dusts off. Thrown
   up it rises, hangs a moment at the top with its arms folded, and falls;
-  it can be caught in the air and thrown again. Wherever it is, it can be
+  it can be caught in the air and thrown again. "Up" means more up than
+  across (within about 27 degrees of straight up): a throw across the
+  bench with lift in it goes over its top without a stop, head over
+  heels, and lands in its roll like any other throw (Taylor, 2026-11-20,
+  of the hang and the flop on such a throw: "Patch freezes mid air for
+  several frames"). Wherever it is, it can be
   taken hold of, and no part of it ever goes below the floor.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
