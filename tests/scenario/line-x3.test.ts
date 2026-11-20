@@ -70,7 +70,7 @@ describe('the dock and the chute', () => {
     expect(t.until((e) => e.type === 'part.rested' && e.id === 'tool-rust', 6 * HZ)).not.toBeNull();
     const p = w.part('tool-rust')!;
     expect(p.marks).toEqual(['mark.shipped', 'mark.return']);
-    expect(near(w.motion('tool-rust')!.pose.p, AT.chute.p, 2.5)).toBe(true); // out of the chute's mouth (see the hand-in: the stack has moved away from it)
+    expect(near(w.motion('tool-rust')!.pose.p, [AT.pad[0], 0, AT.pad[1]], 2.4)).toBe(true); // (R4) thrown back up the chute onto the pad, or beside it
     const shipper = w.writer('tool-rust', 'location');
     expect(shipper).toMatch(/^t\d+$/);
     expect(w.writer('tool-rust', 'marks')).toBe(shipper);
@@ -122,7 +122,7 @@ describe('the dock and the chute', () => {
     expect(out).not.toBeNull();
     expect(t.of('flap').map((x) => x.e.part)).toContain('crate-3');
     expect(t.until((e) => e.type === 'part.rested' && e.id === 'crate-3', 6 * HZ)).not.toBeNull();
-    expect(near(w.motion('crate-3')!.pose.p, AT.chute.p, 2.5)).toBe(true);
+    expect(near(w.motion('crate-3')!.pose.p, [AT.pad[0], 0, AT.pad[1]], 2.4)).toBe(true); // (R4) thrown back onto the pad, or beside it
     const txn = w.writer('crate-3', 'location');
     expect(txn).toMatch(/^t\d+$/);
     w.dispatch({ type: 'undo' });
