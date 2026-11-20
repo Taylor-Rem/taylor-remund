@@ -1,8 +1,7 @@
-// Carry-target mapping, the release-velocity estimate, and picking against proxies.
+// Carry-target mapping, and picking against proxies. (The throw is the world's: tests/scenario/hand-continuity.test.ts.)
 import { describe, expect, it } from 'vitest';
 import { Box3, Group, PerspectiveCamera, Ray, Vector3 } from 'three';
 import { CarryPlane, floorUnder, rayAtHeight, type Obstacle, type RayLike } from '../../../src/workshop/input/carry.ts';
-import { VelocityTracker } from '../../../src/workshop/input/velocity.ts';
 import { halfFootprint, halfHeight } from '../../../src/workshop/input/surface.ts';
 import { Picking } from '../../../src/workshop/view/picking.ts';
 import type { Vec3 } from '../../../src/workshop/sim/types.ts';
@@ -30,26 +29,109 @@ describe('carry target', () => {
     expect(t[2]).toBeCloseTo(onRay[2], 6);
   });
 
-  it('rises smoothly over tall things (eased, not a jump) and settles back down', () => {
-    const plane = new CarryPlane(bench);
-    plane.begin({ kind: 'part', halfX: 0.3, halfZ: 0.3, gripAboveBottom: 0.3 }, [0, 0.3, 0], 0, []);
+  // (rayAt(x, z) aims at the bench point (x, 0, z): at the carrying height 0.65 the hold is one unit nearer the visitor)
+  const shape = { kind: 'part' as const, halfX: 0.3, halfZ: 0.3, gripAboveBottom: 0.3 };
+
+  it('climbs over what it would run into (eased, not a jump), stays under the pointer, and comes down again past it', () => {
     const stack = [box(3, 0, 1.8)];
     // pointing at the bench in front of the stack does not lift it (no feedback, no oscillation)
     const probe = new CarryPlane(bench);
-    probe.begin({ kind: 'part', halfX: 0.3, halfZ: 0.3, gripAboveBottom: 0.3 }, [0, 0.3, 0], 0, []);
+    probe.begin(shape, [0, 0.3, 0], 0, []);
     for (let i = 0; i < 40; i++) expect(probe.target(rayAt(3, 2), i * 16, stack)[1]).toBeCloseTo(0.65, 6);
-    const heights: number[] = [];
+    // a hand going up the screen from in front of the stack: the hold runs back into it, and rises
+    const plane = new CarryPlane(bench);
+    plane.begin(shape, [3, 0.3, 4], 0, []);
     let t = 0;
-    // the pointer just above the stack on screen: the ray passes over it at the height the part would ride
-    for (let i = 0; i < 40; i++) heights.push(plane.target(rayAt(3, 0, 2.45), (t += 16), stack)[1]);
-    expect(heights[0]!).toBeLessThan(1.2); // not a jump on the first frame
-    for (let i = 1; i < heights.length; i++) expect(heights[i]!).toBeGreaterThanOrEqual(heights[i - 1]! - 1e-9);
-    expect(heights[heights.length - 1]!).toBeCloseTo(1.8 + 0.35 + 0.3, 2);
+    let prev = plane.target(rayAt(3, 3), (t += 16), stack);
+    let last = prev;
+    for (let z = 3; z >= -3.4; z -= 0.05) {
+      const ray = rayAt(3, z);
+      const p = plane.target(ray, (t += 16), stack);
+      expect(p[1]).toBeGreaterThanOrEqual(prev[1] - 1e-9); // only ever up on the way in
+      expect(p[1] - prev[1]).toBeLessThan(0.5); // eased: no jump in height from one frame to the next
+      // on the pointer's ray the whole way: under the pointer on the screen
+      const k = (p[1] - ray.origin[1]) / ray.dir[1];
+      expect(p[2]).toBeCloseTo(ray.origin[2] + ray.dir[2] * k, 6);
+      prev = p;
+      last = p;
+    }
+    for (let i = 0; i < 30; i++) last = plane.target(rayAt(3, -3.4), (t += 16), stack);
+    expect(last[1]).toBeCloseTo(1.8 + 0.35 + 0.3, 2); // over the stack, clear of its top
+    expect(Math.abs(last[2])).toBeLessThan(0.74);
     // away from the stack it comes down again, more gently
     const down: number[] = [];
     for (let i = 0; i < 60; i++) down.push(plane.target(rayAt(-3, 0), (t += 16), stack)[1]);
     expect(down[0]!).toBeGreaterThan(2.0);
     expect(down[down.length - 1]!).toBeCloseTo(0.65, 2);
+  });
+
+  it('carried along the bench BEHIND a tall thing, it stays on the bench behind it: no hop onto what the pointer passes above', () => {
+    const stack = [box(3, 0, 1.8)];
+    const plane = new CarryPlane(bench);
+    plane.begin(shape, [0, 0.3, -2.2], 0, []);
+    let t = 0;
+    // aimed so that the hold runs along z = -2.2: at x = 3 the ray passes right over the stack at the height it would ride
+    for (let x = 0; x <= 6; x += 0.05) {
+      const p = plane.target(rayAt(x, -3.2), (t += 16), stack);
+      expect(p[1]).toBeCloseTo(0.65, 6);
+      expect(p[2]).toBeCloseTo(-2.2, 6);
+    }
+  });
+
+  it('pushed into a low, wide thing from behind (the belt, a tray), it goes up onto it', () => {
+    const tray = [box(3, 0, 0.5, 0.6)];
+    const plane = new CarryPlane(bench);
+    plane.begin(shape, [3, 0.3, -3], 0, []);
+    let t = 0;
+    let p: Vec3 = [0, 0, 0];
+    for (let z = -4; z <= -1.8; z += 0.05) p = plane.target(rayAt(3, z), (t += 16), tray);
+    for (let i = 0; i < 30; i++) p = plane.target(rayAt(3, -1.8), (t += 16), tray);
+    expect(p[1]).toBeCloseTo(0.5 + 0.35 + 0.3, 2);
+    expect(Math.abs(p[2])).toBeLessThan(0.6);
+  });
+
+  it('nothing under the bench is a level to carry over: a part stowed below it, the bench\'s own body', () => {
+    // (found on the page 2026-11-20: spare crates stowed four units under the bench were taken for levels, and a
+    // carried crate sank to the bench top when its own level stopped making sense near the back)
+    const under: Obstacle[] = [box(0, 0, -3.6, 0.3, -4.4), { minX: -10, maxX: 10, minZ: -5, maxZ: 5, top: 0, bottom: -1 }, box(3, 0, 1.8)];
+    const plane = new CarryPlane(bench);
+    plane.begin(shape, [3, 0.3, 4], 0, []);
+    let t = 0;
+    // into the stack from the front (its level stops making sense), across the fillet at the back, and round
+    for (let z = 3; z >= -5; z -= 0.05) expect(plane.target(rayAt(3, z), (t += 16), under)[1]).toBeGreaterThanOrEqual(0.65 - 1e-6);
+    for (let x = 3; x >= -6; x -= 0.05) expect(plane.target(rayAt(x, -5), (t += 16), under)[1]).toBeGreaterThanOrEqual(0.65 - 1e-6);
+  });
+
+  it('taken in the air it is held where it was taken: up and down with the pointer at that depth, and back onto the level when brought down', () => {
+    const plane = new CarryPlane(bench);
+    // caught 3 up over the middle of the bench, flying
+    const grip: Vec3 = [1, 3, 0.5];
+    plane.begin(shape, grip, 0, [], true);
+    const through = (y: number): RayLike => rayAt(1, 0.5, y);
+    let t = 0;
+    const p0 = plane.target(through(3), (t += 16), []);
+    expect(p0[0]).toBeCloseTo(1, 6);
+    expect(p0[1]).toBeCloseTo(3, 6);
+    expect(p0[2]).toBeCloseTo(0.5, 6);
+    // held still, it stays (it does not sink away along the ray)
+    for (let i = 0; i < 30; i++) expect(plane.target(through(3), (t += 16), [])[1]).toBeCloseTo(3, 6);
+    // the pointer up: straight up at that depth
+    const up = plane.target(through(4.5), (t += 16), []);
+    expect(up[1]).toBeCloseTo(4.5, 6);
+    expect(up[2]).toBeCloseTo(0.5, 6);
+    // brought down with no jump, round the curve and out onto the level in front
+    let prev = up;
+    for (let y = 4.5; y >= -1; y -= 0.05) {
+      const p = plane.target(through(y), (t += 16), []);
+      expect(Math.hypot(p[1] - prev[1], p[2] - prev[2])).toBeLessThan(0.2);
+      prev = p;
+    }
+    expect(prev[1]).toBeCloseTo(0.65, 2);
+    expect(prev[2]).toBeGreaterThan(0.5);
+    // on the level, the upright face is in front of the wall again: the pointer up the screen carries it back
+    const back = plane.target(rayAt(1, -2), (t += 16), []);
+    expect(back[1]).toBeCloseTo(0.65, 2);
+    expect(back[2]).toBeCloseTo(-1, 2);
   });
 
   it('a part taken from the top of a stack stays clear of the crate it sat on until it has left its footprint', () => {
@@ -200,36 +282,6 @@ describe('carry target', () => {
     const [hx, hz] = halfFootprint(q, [0.5, 0.1, 0.2]);
     expect(hx).toBeCloseTo(0.1, 6);
     expect(hz).toBeCloseTo(0.2, 6);
-  });
-});
-
-describe('release velocity', () => {
-  it('averages the last 80 ms, robust to uneven event spacing', () => {
-    const v = new VelocityTracker();
-    // 5 units/s along x, events at irregular times
-    let t = 0;
-    for (const dt of [16, 3, 25, 8, 16, 1, 30, 16, 9]) {
-      t += dt;
-      v.add(t, [t * 0.005, 0, 0]);
-    }
-    const est = v.velocity(t);
-    expect(est[0]).toBeCloseTo(5, 6);
-  });
-
-  it('a jittery last event does not decide the throw', () => {
-    const v = new VelocityTracker();
-    for (let i = 0; i <= 10; i++) v.add(i * 16, [i * 0.08, 0, 0]); // 5 u/s
-    v.add(161, [0.8 + 0.05, 0, 0]); // a 1 ms jump of 0.05: 50 u/s if taken alone
-    const est = v.velocity(161);
-    expect(est[0]).toBeGreaterThan(4);
-    expect(est[0]).toBeLessThan(6.5);
-  });
-
-  it('decays to nothing when the hand has stopped', () => {
-    const v = new VelocityTracker();
-    for (let i = 0; i <= 10; i++) v.add(i * 16, [i * 0.08, 0, 0]);
-    expect(v.velocity(160 + 40)[0]).toBeCloseTo(2.5, 6);
-    expect(v.velocity(160 + 90)).toEqual([0, 0, 0]);
   });
 });
 

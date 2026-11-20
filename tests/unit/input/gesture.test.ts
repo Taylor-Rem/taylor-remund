@@ -65,30 +65,24 @@ function setup(things = THINGS) {
 }
 
 describe('gestures: carrying', () => {
-  it('press on a part grabs at once; drag carries; letting go releases with the hand’s velocity', () => {
+  it('press on a part grabs at once; drag carries; letting go releases, and states no velocity: the throw is the thing’s own motion, which the world has', () => {
     const { g, s, intents, kinds } = setup();
     g.down(s(130, 130));
     let out = g.drain();
     expect(kinds(out)).toEqual(['grab']);
     const grab = intents(out).find((i) => i.type === 'grab');
     expect(grab).toMatchObject({ id: 'crate', grip: [1.3, 0.3, 1.3] });
-    // move right at 10 px (0.1 units) per 16 ms = 6.25 world units per second
     for (let i = 1; i <= 10; i++) g.move(s(130 + i * 10, 130));
     out = g.drain();
     expect(intents(out).filter((i) => i.type === 'carry').length).toBe(10);
     g.up(s(230, 130, { dt: 4 }));
     out = g.drain();
     const rel = intents(out).find((i) => i.type === 'release');
-    expect(rel?.type).toBe('release');
-    if (rel?.type !== 'release') return;
-    expect(rel.velocity[0]).toBeGreaterThan(5);
-    expect(rel.velocity[0]).toBeLessThan(7);
-    expect(Math.abs(rel.velocity[2])).toBeLessThan(1e-6);
-    expect(rel.velocity[1]).toBeGreaterThan(0); // the loft: a flick arcs
+    expect(rel).toEqual({ type: 'release' });
     expect(g.held).toBeNull();
   });
 
-  it('a hand that stopped before letting go throws nothing', () => {
+  it('a hand that stopped before letting go lets go the same way (the thing has stopped with it)', () => {
     const { g, s, intents } = setup();
     g.down(s(130, 130));
     for (let i = 1; i <= 10; i++) g.move(s(130 + i * 20, 130));
@@ -96,7 +90,16 @@ describe('gestures: carrying', () => {
     g.tick(s(0, 0, { dt: 150 }).t); // still for 150 ms
     g.up(s(330, 130, { dt: 1 }));
     const rel = intents(g.drain()).find((i) => i.type === 'release');
-    expect(rel).toEqual({ type: 'release', velocity: [0, 0, 0] });
+    expect(rel).toEqual({ type: 'release' });
+  });
+
+  it('a press held still on a part for longer than a tap, then let go, sets it down (it is not kept in hand)', () => {
+    const { g, s, intents } = setup();
+    g.down(s(130, 130));
+    g.drain();
+    g.up(s(130, 130, { dt: 600 }));
+    expect(intents(g.drain()).find((i) => i.type === 'release')).toEqual({ type: 'release' });
+    expect(g.held).toBeNull();
   });
 
   it('click vs drag: under the threshold a click is tap-then-tap; the part stays held and follows the mouse; a click on a spot places it', () => {
