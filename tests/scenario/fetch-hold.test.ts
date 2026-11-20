@@ -77,6 +77,66 @@ describe('Fetch never holds a crate while unable to act', () => {
     w.dispose();
   }, 120_000);
 
+  /** Press the Button as a visitor (lifting its cover first if it is shut) and play the rung out; returns the rung played. */
+  function pressRung(w: World, t: Tape, undoAfter = false): number {
+    let pressed: number | null = null;
+    for (let k = 0; k < 3 && pressed === null; k++) {
+      w.dispatch({ type: 'press', id: 'button' });
+      for (const e of t.run(1)) if (e.type === 'button.pressed') pressed = e.rung;
+      if (pressed === null) t.run(steps(0.3));
+    }
+    expect(pressed, 'the Button plays').not.toBeNull();
+    if (undoAfter) {
+      w.dispatch({ type: 'press', id: 'undo-lever' });
+      t.run(1);
+    }
+    expect(t.until((e) => e.type === 'rung.ended', steps(40)), 'the rung ends').not.toBeNull();
+    return pressed!;
+  }
+
+  // (R4 follow-up, the lead's question) a Button rung while Fetch stands holding a crate it cannot place: during the
+  // bracket it is frozen (`bracket(on)`), so neither its re-choice (idle) nor the 7 s set-down (guarded by
+  // `!ctx.bracketed`) runs, and nothing it does commits; the rung's rewind leaves the crate where the snapshot had it
+  // (in its hands); afterwards the watchdog counts again from naught and sets it down
+  for (const [rungWanted, undoAfter] of [[1, false], [2, false], [3, false], [4, false], [4, true]] as const) {
+    test(`rung ${rungWanted}${undoAfter ? ' with UNDO pulled straight after' : ''} pressed five seconds into holding a crate it cannot place: nothing throws, the crate stays in its hands through the rewind, and it is set down after`, async () => {
+      const w = await benchWorld(`r4-hold-rung-${rungWanted}-${undoAfter}`, { scene: FULL_BENCH });
+      const t = tape(w);
+      t.run(steps(1));
+      startPlay(w);
+      for (let n = 1; n < rungWanted; n++) {
+        pressRung(w, t);
+        t.run(steps(1));
+      }
+      for (let i = 0; i < steps(40) && w.crew('fetch')!.carrying; i++) t.run(1);
+      for (let i = 0; i < steps(60) && !w.crew('fetch')!.carrying; i++) t.run(1);
+      const crate = w.crew('fetch')!.carrying;
+      expect(crate, 'it takes a crate for the belt').toBeTruthy();
+      // the belt switched off, the stack full: nowhere to take it
+      w.commit([{ target: 'belt', field: BELT_FIELDS.running, after: false }], 'system');
+      // five seconds into standing with it
+      let run = 0;
+      for (let i = 0; i < steps(20) && run < steps(5); i++) {
+        t.run(1);
+        const f = w.crew('fetch')!;
+        run = f.carrying && (f.state === 'idle' || f.state === 'place') ? run + 1 : 0;
+      }
+      expect(run, 'it has stood five seconds with the crate').toBeGreaterThanOrEqual(steps(5));
+      const before = w.part(crate!)!.location;
+      const writerBefore = w.writer(crate!, 'location');
+      expect(pressRung(w, t, undoAfter)).toBe(rungWanted);
+      // the rewind put it back as the snapshot had it: in Fetch's hands, its durable location unchanged
+      expect(w.crew('fetch')!.carrying).toBe(crate);
+      expect(w.part(crate!)!.location).toEqual(before);
+      expect(w.writer(crate!, 'location')).toBe(writerBefore);
+      // and it is not left holding it for good
+      const worst = runWatching(w, t, steps(15), () => !w.crew('fetch')!.carrying);
+      expect(w.crew('fetch')!.carrying, 'set down after the rung').toBeNull();
+      expect(worst).toBeLessThan(FETCH_TUNING.holdIdleMax + 0.5);
+      w.dispose();
+    }, 180_000);
+  }
+
   test('the belt switched off and the stack\'s seat taken: it sets the crate down beside itself, untouched, and goes back to waiting', async () => {
     const { w, t, crate } = await carryingFromStack('r4-hold-neither');
     w.commit([{ target: 'belt', field: BELT_FIELDS.running, after: false }], 'system');
