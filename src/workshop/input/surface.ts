@@ -150,7 +150,10 @@ function facingAt(eye: Vec3, p: Vec3): { p: Vec3; n: Vec3; up: Vec3; pitch: numb
 /** The middle of a thing up in the air (a loose body flying, or Patch in flight), or null if it is not. */
 function airborneMiddle(w: WorldView, id: Id): Vec3 | null {
   const m = w.motion(id);
-  if (m) return m.mode === 'free' && m.awake && m.pose.p[1] > w.scene.bench.top + 0.6 ? m.pose.p : null;
+  // flying: free, above the bench, and moving (a crate settling on the stack is awake but not in the air): more than
+  // 0.01 a step, 0.6 u/s
+  const step = m ? Math.hypot(m.pose.p[0] - m.prev.p[0], m.pose.p[1] - m.prev.p[1], m.pose.p[2] - m.prev.p[2]) : 0;
+  if (m) return m.mode === 'free' && m.awake && step > 0.01 && m.pose.p[1] > w.scene.bench.top + 0.6 ? m.pose.p : null;
   const v = (w as unknown as { crewView?(id: Id): { view?: { state?: string; at?: Vec3 } } | undefined }).crewView?.(id)?.view;
   return v?.state === 'fly' && v.at ? [v.at[0], v.at[1] + 0.6, v.at[2]] : null;
 }

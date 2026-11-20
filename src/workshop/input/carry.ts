@@ -359,12 +359,15 @@ export class UpHold {
   private anchor: Vec3 | null = null;
   private airborne = false;
   private upSince: number | null = null;
+  /** When the hold began (the press): samples from before it are not the hand's. */
+  private since = -Infinity;
   private out: Vec3 | null = null;
 
   /** Start a hold: `caught` a thing taken in the air at `grip` (held up where it was taken). */
   begin(t: number, grip: Vec3, caught: boolean): void {
     this.hist.length = 0;
     this.upSince = null;
+    this.since = t;
     this.lastT = t;
     this.airborne = caught;
     this.w = caught ? 1 : 0;
@@ -386,6 +389,9 @@ export class UpHold {
   target(ray: RayLike, x: number, y: number, t: number, onSurface: Vec3, top: number, forward: Vec3 | null = null): Vec3 {
     const T = UP_HOLD;
     const last = this.hist[this.hist.length - 1];
+    // the hand's history starts at the press: nothing from before it counts as movement of the hold (a frame's time
+    // can be a little before the press's own: taken as the press's)
+    if (t < this.since) t = this.since;
     if (!last || last.x !== x || last.y !== y) this.hist.push({ t, x, y });
     while (this.hist.length > 2 && t - (this.hist[1] as { t: number }).t > T.window) this.hist.shift();
     const b = this.hist[this.hist.length - 1] as { t: number; x: number; y: number };
@@ -422,9 +428,11 @@ export class UpHold {
     this.anchor ??= this.out ?? onSurface;
     let up3: Vec3 = onSurface;
     const f = heldUp(ray, this.anchor, forward);
-    // held up from where it was taken: never below the lower of the surface and where it was taken (a lift over a
-    // station raises the surface itself; the hold does not need to)
-    const floor = Math.min(onSurface[1], this.anchor[1]);
+    // held up from where it was taken: brought down below the lower of the surface and where it was taken, it is on the
+    // surface again (a lift over a station raises the surface itself; the hold does not need to). Where it was taken
+    // allows a unit: a thing caught falling is pressed below its middle (the press aims where it is
+    // going, and arrives late on a busy machine), and that is not the hand bringing it down
+    const floor = Math.min(onSurface[1], this.anchor[1] - 1);
     if (f && f[1] >= floor - 0.05) up3 = [f[0], Math.min(top, f[1]), f[2]];
     else if (this.airborne) this.airborne = false; // brought down to the surface: on it again
     const w = this.w;
