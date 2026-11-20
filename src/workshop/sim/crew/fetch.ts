@@ -487,7 +487,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   /** The knock in progress, with where it started. */
   let knock: (FetchKnock & { x0: number; z0: number; h0: number; dx: number; dz: number }) | null = null;
   /** A hit heard this step, acted on at the next (`heard` never acts). */
-  let hit: { by: Id; strength: Strength | 'nudge'; dirX: number; dirZ: number; speed: number; mass: number; spinSign: number } | null = null;
+  /** (`txn`: R4, a thrown Patch's throw, which what its knock sets moving is charged to.) */
+  let hit: { by: Id; strength: Strength | 'nudge'; dirX: number; dirZ: number; speed: number; mass: number; spinSign: number; txn?: Cause } | null = null;
   /** A part to give back a toy's bounce to, at the next step. */
   let bounce: { id: Id; dv: Vec3 } | null = null;
   /** A nudge's look: at this part until this step. */
@@ -1148,7 +1149,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles(), ...loose]);
     const spin = h.spinSign * (K.spin[i] as number) * 2 * Math.PI;
     // what it carried falls, its rest charged to the throw (§ E5 rule 4)
-    const cause = ctx.history.chargeMachine(h.by);
+    // (R4: knocked by a thrown Patch, the throw's own transaction, so the lever takes the crate back with the rest of it)
+    const cause = h.txn ?? ctx.history.chargeMachine(h.by);
     const shoveSpeed = run / Math.max(1e-3, K.shove[i] as number);
     const dropped = letGo([h.dirX * shoveSpeed * 0.8, 1.2, h.dirZ * shoveSpeed * 0.8], [h.dirZ * 4, spin * 0.5, -h.dirX * 4], cause);
     if (dropped && isTxn(cause)) ctx.history.claim(dropped, cause, ctx.clock.step);
@@ -1212,7 +1214,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       const vz = last ? pv[2] - last[2] : nz;
       const torque = (-nz * vx + nx * vz) / Math.max(1e-6, Math.hypot(vx, vz));
       const spinSign = Math.abs(torque) > K.offCentre ? -Math.sign(torque) : knockRng.chance(0.5) ? 1 : -1;
-      const h = { by: PATCH_ID, strength: kind, dirX: nx, dirZ: nz, speed: e.speed, mass: T.patchMass, spinSign };
+      const h = { by: PATCH_ID, strength: kind, dirX: nx, dirZ: nz, speed: e.speed, mass: T.patchMass, spinSign, ...(e.txn !== undefined ? { txn: e.txn } : {}) };
       const rank = (q: Strength | 'nudge'): number => (q === 'nudge' ? 0 : q);
       if (!hit || rank(h.strength) > rank(hit.strength)) hit = h;
     }

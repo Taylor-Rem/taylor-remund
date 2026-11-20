@@ -52,7 +52,8 @@ interface Flight {
 }
 
 /** Loose parts Patch knocked in its flight (from its events). */
-// (S5 R4: and Fetch knocked by it: Fetch's slide drops the crate in its hands, as a crate's hit does)
+// (S5 R4: and Fetch knocked by it: Fetch's slide drops the crate in its hands, as a crate's hit does, charged to the
+// throw's transaction like a knocked crate)
 const knocked = (t: Tape): string[] => [
   ...t.of('patch.throw').filter((x) => x.e.phase === 'hit' && x.e.what !== undefined && /^(crate|tool)/.test(x.e.what)).map((x) => x.e.what as string),
   ...t.of('crew.knocked').filter((x) => x.e.by === 'patch').map((x) => x.e.id),
@@ -269,6 +270,8 @@ describe('Patch thrown (R4)', () => {
       expect(f.inside, `${line} ${f.insideAt}`).toBe(0);
       if (job !== null) expect(answer(t, job, 30).e.type, line).toBe('line.reply');
       else if (kind !== 3 && knocked(t).length === 0) expect(w.durable(), line).toEqual(before);
+      // (S5 R4) it knocked a crate, or Fetch (which drops what it carries): all of it is the throw's, one transaction
+      else if (kind !== 3) expect(w.undoStack().length, line).toBe(1);
       expect(f.overlap, `${line} ${f.overlapAt}`).toBeLessThanOrEqual(1);
     }
     if (process.env.PATCH_THROW_LOG) console.log(log.join('\n'));
