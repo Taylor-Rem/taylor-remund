@@ -77,8 +77,107 @@ describe('carry target', () => {
     const far = plane.target(rayAt(40, 30), 16, []);
     expect(far[0]).toBeCloseTo(10 + plane.tuning.margin, 6);
     expect(far[2]).toBeCloseTo(5 + plane.tuning.margin, 6);
+    // pointed far back, it is lifted up the upright face in front of the wall, never into it
     const back = plane.target(rayAt(0, -30), 32, []);
-    expect(back[2]).toBeCloseTo(-5 + 0.3, 6);
+    expect(back[2]).toBeCloseTo(plane.tuning.backLine + 0.3 + plane.tuning.footprintPad, 6);
+    expect(back[1]).toBeGreaterThan(1);
+  });
+
+  describe('the surface curves up at the back (Taylor, 2026-11-20: lift up rather than push back)', () => {
+    /** A camera like the home view's: up and in front, the pointer swept up the screen (the ray tilting up). */
+    const sweep = (k: number): RayLike => {
+      const origin: Vec3 = [0.5, 9, 14];
+      const a = -0.75 + k; // the ray's pitch, radians below the horizontal
+      const d = [0.02, -Math.sin(-a), -Math.cos(-a)];
+      const n = Math.hypot(d[0]!, d[1]!, d[2]!);
+      return { origin, dir: [d[0]! / n, d[1]! / n, d[2]! / n] };
+    };
+    const begin = () => {
+      const plane = new CarryPlane(bench);
+      plane.begin({ kind: 'part', halfX: 0.25, halfZ: 0.25, gripAboveBottom: 0.25 }, [0, 0.25, 0], 0, []);
+      return plane;
+    };
+
+    it('raising the pointer past the back of the bench lifts the thing: up to the top, never behind the upright face', () => {
+      const plane = begin();
+      const T = plane.tuning;
+      const zv = T.backLine + 0.25 + T.footprintPad;
+      let topY = 0;
+      for (let i = 0; i <= 400; i++) {
+        const p = plane.target(sweep(i * 0.002), 16 * i, []);
+        expect(p[2]).toBeGreaterThanOrEqual(zv - 1e-9);
+        topY = Math.max(topY, p[1]);
+      }
+      expect(topY).toBeCloseTo(T.top, 6);
+    });
+
+    it('on the pointer ray the whole way (under the pointer on screen), until the top', () => {
+      const plane = begin();
+      for (let i = 0; i <= 300; i++) {
+        const r = sweep(i * 0.002);
+        const p = plane.target(r, 16 * i, []);
+        if (p[1] >= plane.tuning.top - 1e-9) break;
+        // the point minus the origin is parallel to the ray
+        const v = [p[0] - r.origin[0], p[1] - r.origin[1], p[2] - r.origin[2]];
+        const n = Math.hypot(v[0]!, v[1]!, v[2]!);
+        expect(Math.abs((v[0]! * r.dir[0] + v[1]! * r.dir[1] + v[2]! * r.dir[2]) / n - 1)).toBeLessThan(1e-9);
+      }
+    });
+
+    it('no jump in place or in speed under a steady hand (level, fillet and upright face meet with the same slope)', () => {
+      const plane = begin();
+      const at = (k: number) => plane.hit(sweep(k), plane.height);
+      // the pieces it passes through
+      const thetas = [0.1, 0.3, 0.45].map((k) => at(k).theta);
+      expect(Math.min(...thetas)).toBe(0);
+      expect(Math.max(...thetas)).toBeCloseTo(Math.PI / 2, 6);
+      // each join, found by bisection: where the slope leaves 0, and where it reaches π/2
+      const join = (pass: (k: number) => boolean): number => {
+        let lo = 0;
+        let hi = 0.6;
+        for (let n = 0; n < 60; n++) {
+          const m = (lo + hi) / 2;
+          if (pass(m)) hi = m;
+          else lo = m;
+        }
+        return hi;
+      };
+      const speed = (k: number, e = 1e-7): number => {
+        const a = at(k).p;
+        const b = at(k + e).p;
+        return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / e;
+      };
+      for (const k of [join((m) => at(m).theta > 0), join((m) => at(m).theta >= Math.PI / 2 - 1e-12)]) {
+        const before = at(k - 1e-5).p;
+        const after = at(k + 1e-5).p;
+        // no jump in place: a 2e-5 turn of the hand moves it a hair
+        expect(Math.hypot(after[0] - before[0], after[1] - before[1], after[2] - before[2])).toBeLessThan(speed(k - 1e-5) * 2e-5 * 1.05 + 1e-9);
+        // nor in speed: just before and just after the join, within 1%
+        expect(Math.abs(speed(k + 1e-5) / speed(k - 1e-5) - 1)).toBeLessThan(0.01);
+      }
+    });
+
+    it('unrolled, the surface runs on: s is z over the bench and keeps falling round the curve and up the face', () => {
+      const plane = begin();
+      let last = Infinity;
+      for (let i = 0; i <= 400; i++) {
+        const h = plane.hit(sweep(i * 0.002), plane.height);
+        if (h.p[1] >= plane.tuning.top - 1e-9) break;
+        if (h.theta === 0) expect(h.s).toBeCloseTo(h.p[2], 9);
+        expect(h.s).toBeLessThan(last + 1e-9);
+        last = h.s;
+      }
+    });
+
+    it('over something tall under the upright face (the storefront), the whole profile rides over it', () => {
+      const plane = begin();
+      const store: Obstacle = { minX: -1, maxX: 1, minZ: -4.07, maxZ: -3.0, top: 2.83, bottom: 0 };
+      let p: Vec3 = [0, 0, 0];
+      // pointed over its front at the height the part would ride over it
+      for (let i = 0; i < 120; i++) p = plane.target(sweep(0.44), 16 * i, [store]);
+      expect(plane.height).toBeGreaterThan(2.83);
+      expect(p[1] - 0.25).toBeGreaterThan(2.83);
+    });
   });
 
   it('the plug rides a vertical plane in front of the jacks', () => {

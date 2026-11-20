@@ -2,10 +2,13 @@
  * Where a carried thing heads for (W2 brief § 2 "Carry target"): the pointer
  * ray meets a surface, and that point is the `carry` target for the grip.
  *
- * - A loose part rides a horizontal plane: its bottom a comfortable height
- *   (`clearance`) above whatever is under it, so the plane rises smoothly
- *   over tall things (eased, faster up than down) and the grip point stays
- *   on the pointer's ray, i.e. under the cursor, as far as the spring allows.
+ * - A loose part (or Fetch, or a unit) rides a surface that is level over the
+ *   bench, its bottom a comfortable height (`clearance`) above whatever is
+ *   under it, so it rises smoothly over tall things (eased, faster up than
+ *   down); near the back it curves up into an upright face in front of the
+ *   wall (`surfaceHit`), so raising the pointer further lifts the thing
+ *   instead of pushing it into the wall. The grip point stays on the
+ *   pointer's ray, i.e. under the cursor, as far as the spring allows.
  * - The cord's plug rides a vertical plane just in front of the board, so it
  *   slides over the jacks the way a hand would hold it.
  *
@@ -55,6 +58,16 @@ export const CARRY_TUNING = {
   /** The plug's plane sits this far in front of the jacks; and never lower than this. */
   plugStandoff: 0.22,
   plugFloor: 0.15,
+  /**
+   * (Taylor, 2026-11-20: "once the cursor reaches a certain height, it starts lifting them up rather than trying to
+   * continue lifting them backwards") The carry surface is level over the bench and curves up near the back: a
+   * quarter-round fillet of radius `fillet` turns it into an upright face whose carried part's back stands at
+   * `backLine` (just in front of the switchboard's front, z -3.90; the wall's face is at -5.0), up to `top` (the grip's
+   * height). Raising the pointer further up the screen lifts the thing instead of pushing it into the wall.
+   */
+  backLine: -3.85,
+  fillet: 0.6,
+  top: 7.5,
 } as const;
 
 export type CarryTuning = { -readonly [K in keyof typeof CARRY_TUNING]: number };
@@ -90,6 +103,76 @@ export function rayAtDepth(ray: RayLike, zp: number, out: [number, number, numbe
   out[1] = ray.origin[1] + ray.dir[1] * tt;
   out[2] = zp;
   return out;
+}
+
+/** Where a ray meets the carry surface, and where along it. */
+export interface SurfaceHit {
+  /** The point. */
+  readonly p: [number, number, number];
+  /**
+   * The surface unrolled: distance along its profile, equal to z on the level part and decreasing on round the fillet
+   * and up the upright face (so a hand measured in (x, s) moves the same on screen wherever it is).
+   */
+  readonly s: number;
+  /** The slope there: 0 on the level, π/2 on the upright face. */
+  readonly theta: number;
+}
+
+/**
+ * The carry surface's profile in (z, y), the same at every x: level at height `h` in front of `z0`, a quarter-round
+ * fillet of radius `r` behind it (centre (z0, h + r)), then upright at z = z0 - r up to `top`. Each piece meets the
+ * next with the same slope, so a steady hand moves the point without a jump in place or speed.
+ */
+export function surfaceHit(ray: RayLike, h: number, z0: number, r: number, top: number): SurfaceHit {
+  const [ox, oy, oz] = ray.origin;
+  const [dx, dy, dz] = ray.dir;
+  const at = (t: number): [number, number, number] => [ox + dx * t, oy + dy * t, oz + dz * t];
+  // the level, in front of the fillet
+  if (dy < -1e-6) {
+    const t = (h - oy) / dy;
+    const p = at(Math.max(0, t));
+    if (p[2] >= z0) return { p: [p[0], h, p[2]], s: p[2], theta: 0 };
+  }
+  // the fillet: where the ray leaves the circle, if that is on the lower back quarter
+  const ez = oz - z0;
+  const ey = oy - (h + r);
+  const a = dz * dz + dy * dy;
+  if (a > 1e-12) {
+    const b = 2 * (ez * dz + ey * dy);
+    const c = ez * ez + ey * ey - r * r;
+    const disc = b * b - 4 * a * c;
+    if (disc >= 0) {
+      const t = (-b + Math.sqrt(disc)) / (2 * a);
+      const p = at(Math.max(0, t));
+      if (t > 0 && p[2] <= z0 && p[1] <= h + r) {
+        const theta = Math.atan2(z0 - p[2], h + r - p[1]);
+        return { p, s: z0 - r * theta, theta };
+      }
+    }
+  }
+  // the upright face
+  const zv = z0 - r;
+  const base = z0 - (r * Math.PI) / 2;
+  if (dz < -1e-6) {
+    const t = (zv - oz) / dz;
+    const p = at(Math.max(0, t));
+    if (p[1] <= top) {
+      const y = Math.max(h + r, p[1]);
+      return { p: [p[0], y, zv], s: base - (y - h - r), theta: Math.PI / 2 };
+    }
+  }
+  // above the top of the face (a camera that sees higher, the phone's): a ceiling at `top` running back toward the
+  // camera, so the thing stays under the pointer (a corner here, not a fillet: it is reached only at the very top)
+  if (Math.abs(dy) > 1e-6 && (top - oy) / dy > 0) {
+    // (looking down at it from above, or up at it from a camera below it)
+    const t = (top - oy) / dy;
+    const p = at(t);
+    if (p[2] >= zv) return { p: [p[0], top, p[2]], s: base - (top - h - r) - (p[2] - zv), theta: Math.PI };
+  }
+  // a ray that passes over the top of the face and meets nothing of the surface (the pointer above the highest a
+  // thing may be carried, seen from high up): the top of the face, below where the ray crosses it
+  const tz = Math.abs(dz) > 1e-6 ? (zv - oz) / dz : 0;
+  return { p: [tz > 0 ? ox + dx * tz : ox, top, zv], s: base - (top - h - r), theta: Math.PI / 2 };
 }
 
 /**
@@ -137,7 +220,10 @@ export class CarryPlane {
       // the plane starts where the lift takes the grip: its bottom `clearance` above what is under it now
       const bottom = grip[1] - shape.gripAboveBottom;
       const under = floorUnder(grip[0], grip[2], shape.halfX + this.tuning.footprintPad, shape.halfZ + this.tuning.footprintPad, obstacles, this.bench.top, bottom + BELOW_SLACK);
-      this.h = Math.min(Math.max(bottom, under), under + 0.05) + this.tuning.clearance + shape.gripAboveBottom;
+      const carried = Math.min(Math.max(bottom, under), under + 0.05) + this.tuning.clearance + shape.gripAboveBottom;
+      // caught in the air: the surface starts where it was caught (the grip on the pointer's ray, no jump) and eases
+      // down to the carrying height from there
+      this.h = bottom > under + this.tuning.clearance ? Math.max(grip[1], carried) : carried;
     }
   }
 
@@ -168,8 +254,8 @@ export class CarryPlane {
     let goal = b.top + lift;
     const hx = s.halfX + T.footprintPad;
     const hz = s.halfZ + T.footprintPad;
-    // where the part is heading now, at the plane's current height: whatever it is already above stays under it
-    const now = rayAtHeight(ray, this.h, this.p);
+    // where the part is heading now, on the surface at its current height: whatever it is already above stays under it
+    const now = this.hit(ray, this.h).p;
     const nx = clamp(now[0], b.minX - T.margin, b.maxX + T.margin);
     const nz = clamp(now[2], b.minZ + s.halfZ, b.maxZ + T.margin);
     const bottomNow = this.h - s.gripAboveBottom;
@@ -180,7 +266,8 @@ export class CarryPlane {
         goal = hc;
         continue;
       }
-      const q = rayAtHeight(ray, hc, this.p);
+      // (the surface's level at hc: an obstacle under the upright face, the storefront say, lifts the whole profile)
+      const q = this.hit(ray, hc).p;
       const x = clamp(q[0], b.minX - T.margin, b.maxX + T.margin);
       const z = clamp(q[2], b.minZ + s.halfZ, b.maxZ + T.margin);
       if (o.maxX < x - hx || o.minX > x + hx || o.maxZ < z - hz || o.minZ > z + hz) continue;
@@ -189,8 +276,21 @@ export class CarryPlane {
     goal = Math.min(b.ceiling, goal);
     const rate = goal > this.h ? T.rise : T.fall;
     this.h += (goal - this.h) * (1 - Math.exp(-rate * dt));
-    const p = rayAtHeight(ray, this.h, this.p);
-    return [clamp(p[0], b.minX - T.margin, b.maxX + T.margin), this.h, clamp(p[2], b.minZ + s.halfZ, b.maxZ + T.margin)];
+    const p = this.hit(ray, this.h).p;
+    return [clamp(p[0], b.minX - T.margin, b.maxX + T.margin), p[1], clamp(p[2], b.minZ + s.halfZ, b.maxZ + T.margin)];
+  }
+
+  /**
+   * The carried part's surface with its level at `h`: level over the bench, curving up near the back so the part's
+   * back face never passes `backLine`, up to `top` (or the scene's ceiling). (For a plug: its own plane.)
+   */
+  hit(ray: RayLike, h: number): SurfaceHit {
+    const s = this.shape;
+    const T = this.tuning;
+    const halfZ = s?.kind === 'part' ? s.halfZ : 0.2;
+    const zv = Math.max(T.backLine + halfZ + T.footprintPad, this.bench.minZ + halfZ);
+    const top = Math.max(h + T.fillet, Math.min(T.top, this.bench.ceiling));
+    return surfaceHit(ray, h, zv + T.fillet, T.fillet, top);
   }
 
   /**

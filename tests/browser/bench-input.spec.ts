@@ -1441,3 +1441,384 @@ test('latency on the bench (§ E0): hover answers in the next frame, a grab with
   expect(lat.frame.grab.median).toBeLessThan(Math.max(50, ft.median * 1.5 + 17));
   expect(lat.frame.press.median).toBeLessThan(100);
 });
+
+// ── Carrying high and throwing up (Taylor, 2026-11-20) ─────────────────────────────────────────────────────────────
+// "allow grabbing to take things up high ... once the cursor reaches a certain height, it starts lifting them up";
+// "You should be able to throw them up ... throwing them up then catching them and back up again like juggling";
+// "it can be fun to throw them against the back wall too". A hand of CDP events on a 10 ms tick, mouse or touch.
+
+type V3 = [number, number, number];
+
+/** A hand of CDP events: pressed, moved on a 10 ms tick (not waiting on acknowledgements), let go. */
+function tickHand(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch') {
+  const send = (type: 'down' | 'move' | 'up', q: XY) =>
+    kind === 'mouse'
+      ? cdp.send('Input.dispatchMouseEvent', { type: type === 'down' ? 'mousePressed' : type === 'up' ? 'mouseReleased' : 'mouseMoved', x: q.x, y: q.y, button: 'left', buttons: type === 'up' ? 0 : 1, clickCount: 1 } as any)
+      : cdp.send('Input.dispatchTouchEvent', { type: type === 'down' ? 'touchStart' : type === 'up' ? 'touchEnd' : 'touchMove', touchPoints: type === 'up' ? [] : [{ x: q.x, y: q.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] } as any);
+  return {
+    async down(q: XY) {
+      if (kind === 'mouse') await page.mouse.move(q.x, q.y);
+      await send('down', q);
+    },
+    up: (q: XY) => send('up', q),
+    /** From a to b over ms; let go on the next tick (as a finger lifts while it moves) if asked. */
+    async drag(a: XY, b: XY, ms: number, release = false) {
+      const n = Math.max(2, Math.round(ms / 10));
+      const sends: Promise<unknown>[] = [];
+      await new Promise<void>((done) => {
+        let k = 0;
+        const tick = setInterval(() => {
+          k++;
+          const q = { x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n };
+          if (k <= n) sends.push(send('move', q));
+          else if (release) sends.push(send('up', b));
+          if (k > n) {
+            clearInterval(tick);
+            done();
+          }
+        }, 10);
+      });
+      await Promise.all(sends);
+    },
+  };
+}
+
+const posOf = (page: Page, id: string): Promise<V3> =>
+  page.evaluate((id) => {
+    const w = (window as any).__bench.ws.world;
+    return (id === 'patch' ? w.crewView('patch').view.at : w.motion(id).pose.p) as V3;
+  }, id);
+/** Its middle: a body's centre; Patch's `at` is its feet. */
+const middleOf = async (page: Page, id: string): Promise<V3> => {
+  const p = await posOf(page, id);
+  return id === 'patch' ? [p[0], p[1] + 0.6, p[2]] : p;
+};
+const projectP = (page: Page, p: V3) => page.evaluate((p) => (window as any).__bench.project(p) as XY, p);
+const heldId = (page: Page) => page.evaluate(() => (window as any).__bench.ws.world.holding()?.id ?? null);
+const sentV = (page: Page) => page.evaluate(() => (window as any).__i1v as V3 | null);
+
+async function hookRelease(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const W = window as any;
+    if (W.__i1hookedR) return;
+    W.__i1hookedR = true;
+    const w = W.__bench.ws.world;
+    const d0 = w.dispatch.bind(w);
+    w.dispatch = (i: any) => {
+      if (i.type === 'release') W.__i1v = i.velocity;
+      d0(i);
+    };
+  });
+}
+
+/** Take hold of `id` where it is plainly what is under the point; tries again if a press takes nothing. */
+async function takeHold(page: Page, hand: ReturnType<typeof tickHand>, id: string, kind: 'mouse' | 'touch'): Promise<XY> {
+  for (let i = 0; i < 4; i++) {
+    const s = await waitClear(page, id, kind);
+    await hand.down(s);
+    const ok = await pollFrames(page, () => heldId(page), 30).toBe(id).then(() => true, () => false);
+    if (ok) return { x: s.x, y: s.y };
+    await hand.up(s);
+    await frames(page, 30);
+  }
+  throw new Error(`could not take hold of ${id}`);
+}
+
+/** Carry the held `id` so it hangs over (x, z), steering by where it is on screen; the hand stays down. */
+async function carryOver(page: Page, hand: ReturnType<typeof tickHand>, id: string, from: XY, to: [number, number]): Promise<XY> {
+  let at = from;
+  for (let pass = 0; pass < 4; pass++) {
+    const p = await middleOf(page, id);
+    const here = await projectP(page, p);
+    const there = await projectP(page, [to[0], p[1], to[1]]);
+    const next = { x: at.x + (there.x - here.x), y: at.y + (there.y - here.y) };
+    if (Math.hypot(next.x - at.x, next.y - at.y) < 4) break;
+    await hand.drag(at, next, pass === 0 ? 500 : 200);
+    at = next;
+    await frames(page, 12);
+  }
+  return at;
+}
+
+/**
+ * Juggle `id`: flick it up, catch it on the way down above the bench, flick it up again; three catches running
+ * without it touching the bench, then let it fall. Returns an account of each throw and catch.
+ */
+async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id: string, start: [number, number], flickPx: number): Promise<string[]> {
+  const hand = tickHand(page, cdp, kind);
+  await hookRelease(page);
+  const say: string[] = [];
+  let at = await takeHold(page, hand, id, kind);
+  at = await carryOver(page, hand, id, at, start);
+  await frames(page, 20);
+  // the page watches it every frame from here: its lowest point between each throw and its catch
+  await page.evaluate((id) => {
+    const W = window as any;
+    const w = W.__bench.ws.world;
+    W.__i1j = { id, rec: [] as number[][] };
+    const look = () => {
+      if (!W.__i1j || W.__i1j.id !== id) return;
+      const p = id === 'patch' ? w.crewView('patch').view.at : w.motion(id).pose.p;
+      W.__i1j.rec.push([performance.now(), p[0], p[1], p[2], w.holding()?.id === id ? 1 : 0]);
+      requestAnimationFrame(look);
+    };
+    look();
+  }, id);
+  for (let k = 0; k < 3; k++) {
+    const from = await posOf(page, id);
+    await hand.drag(at, { x: at.x, y: at.y - flickPx }, 100, true);
+    await frames(page, 1);
+    const v = await sentV(page);
+    // catch it on its way down, at about the height it was thrown from, above the bench
+    const peak = await page.evaluate(
+      ([id, y0]) =>
+        new Promise<number[] | null>((done) => {
+          const w = (window as any).__bench.ws.world;
+          let top = -Infinity;
+          let last: number[] | null = null;
+          let last0: number[] | null = null;
+          let n = 0;
+          const look = () => {
+            const p = id === 'patch' ? w.crewView('patch').view.at : w.motion(id).pose.p;
+            top = Math.max(top, p[1]);
+            const vy = last ? p[1] - last[1]! : 0;
+            last = p;
+            // on its way down, half way back to where it was thrown from (a hand reaching up to meet it), and where
+            // it will be two frames on (the press takes about that long to arrive)
+            if (top > (y0 as number) + 0.5 && vy < 0 && p[1] < (y0 as number) + (top - (y0 as number)) * 0.5) {
+              const dx = p[0] - last0![0]!;
+              const dz = p[2] - last0![2]!;
+              return done([p[0] + 2 * dx, p[1] + 2 * vy, p[2] + 2 * dz, top]);
+            }
+            last0 = p;
+            if (++n > 600 || (n > 10 && top < (y0 as number) + 0.2 && p[1] < (y0 as number) - 0.3)) return done(null);
+            requestAnimationFrame(look);
+          };
+          look();
+        }),
+      [id, from[1]] as const,
+    );
+    if (!peak) {
+      say.push(`throw ${k + 1} from ${JSON.stringify(from.map((n) => +n.toFixed(2)))}: sent ${JSON.stringify(v?.map((n) => +n.toFixed(1)))}; it never rose 0.5 above where it was thrown from`);
+      break;
+    }
+    const p: V3 = [peak[0]!, peak[1]!, peak[2]!];
+    const q = await projectP(page, id === 'patch' ? [p[0], p[1] + 0.6, p[2]] : p);
+    await hand.down(q);
+    const ok = await pollFrames(page, () => heldId(page), 6).toBe(id).then(() => true, () => false);
+    const now = await middleOf(page, id);
+    const nowS = await projectP(page, now);
+    say.push(`throw ${k + 1} from ${JSON.stringify(from.map((n) => +n.toFixed(2)))}: sent ${JSON.stringify(v?.map((n) => +n.toFixed(1)))}, rose to ${peak[3]!.toFixed(2)}; caught at ${JSON.stringify(p.map((n) => +n.toFixed(2)))}: ${ok ? `held, ${Math.hypot(nowS.x - q.x, nowS.y - q.y).toFixed(0)} px from the pointer` : 'missed'}`);
+    if (!ok) break;
+    at = q;
+  }
+  // between the first throw and the last catch, never down on the bench
+  const lowest = await page.evaluate(() => {
+    const W = window as any;
+    const rec = W.__i1j.rec as number[][];
+    W.__i1j = null;
+    const first = rec.findIndex((r) => r[4] === 0);
+    const lastHeld = rec.map((r) => r[4]).lastIndexOf(1);
+    return Math.min(...rec.slice(Math.max(0, first), lastHeld + 1).map((r) => r[2]!));
+  });
+  say.push(`lowest between the first throw and the last catch: ${lowest.toFixed(2)}`);
+  // let it fall
+  await frames(page, 6);
+  await hand.up(at);
+  return say;
+}
+
+for (const [label, id, start, flickPx] of [
+  ['a crate', 'crate-2', [-3.5, 0.8], 60],
+  ['Fetch', 'fetch', [-3.0, 1.6], 60],
+  ['Patch', 'patch', [-3.5, 0.8], 60],
+] as const) {
+  test(`R5: juggling ${label} by mouse: flicked up, caught in the air, up again, three catches without touching the bench`, async ({ page }) => {
+    // WAITING on the Patch builder: a flick straight up is not yet a throw for Patch (its level speed is under
+    // `throwAt`, so it is set down at its feet at once). The test stands as the acceptance test for that change.
+    test.fixme(id === 'patch', 'waits on the Patch builder: a flick straight up is not yet a throw for Patch');
+    test.setTimeout(5 * 60_000);
+    await open(page, 1440, 900);
+    const cdp = await page.context().newCDPSession(page);
+    const say = await juggleIt(page, cdp, 'mouse', id, [start[0], start[1]], flickPx);
+    console.log(`[I1] R5 juggle ${id} by mouse: ${say.join(' | ')}`);
+    expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+    // never down on the bench in between (its middle above its own half height and a little)
+    const low = Number(say.at(-1)!.split(': ')[1]);
+    expect(low, 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(id === 'patch' ? 0.3 : 0.6);
+  });
+}
+
+test('R5: juggling a crate by touch at the phone framing (390x844)', async ({ browser }) => {
+  test.setTimeout(5 * 60_000);
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  await open(page, 390, 844);
+  const cdp = await ctx.newCDPSession(page);
+  await bringIntoView(page, fingerHand(cdp), 'crate-3', 'touch');
+  const p = await posOf(page, 'crate-3');
+  const say = await juggleIt(page, cdp, 'touch', 'crate-3', [p[0] - 0.5, p[2] - 1.5], 40);
+  console.log(`[I1] R5 juggle crate-3 by touch: ${say.join(' | ')}`);
+  expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
+  expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(0.6);
+  await ctx.close();
+});
+
+/** Raise the held thing by moving the pointer to the top of the screen, slowly; returns where the hand is. */
+async function raiseToTop(page: Page, hand: ReturnType<typeof tickHand>, from: XY): Promise<XY> {
+  const top = { x: from.x, y: 8 };
+  await hand.drag(from, top, 900);
+  await frames(page, 60);
+  return top;
+}
+
+for (const kind of ['mouse', 'touch'] as const) {
+  test(`R5: carried high by ${kind}: a crate raised toward the top of the screen goes as high as the carry allows and is under the pointer (within 30 px) up to the highest pointer position whose ray meets the surface below the top; above that it holds at the top and does not jump, jitter or fall as the pointer goes on, and comes back under the pointer when the pointer comes back down; let go, it falls to the bench; Patch raised off its stool is not pinned at the wall's foot`, async ({ browser }) => {
+    test.setTimeout(6 * 60_000);
+    const vp = kind === 'mouse' ? { width: 1440, height: 900 } : { width: 390, height: 844 };
+    const ctx = await browser.newContext(kind === 'mouse' ? { viewport: vp } : { viewport: vp, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    await open(page, vp.width, vp.height);
+    const cdp = await ctx.newCDPSession(page);
+    const hand = tickHand(page, cdp, kind);
+    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), 'crate-3', 'touch');
+    let at = await takeHold(page, hand, 'crate-3', kind);
+    // to the open left of the bench first, so the way up the screen crosses nothing tall (the console stands in the
+    // way straight back from where it starts, and a carry meets its face a moment before rising over it)
+    at = await carryOver(page, hand, 'crate-3', at, [-5.5, 2.0]);
+    // up the screen in steps of 24 px to the top, a moment at each: where it is, how far from the pointer, and whether
+    // the pointer's ray meets the carry surface below its top there
+    const steps: { y: number; p: V3; off: number; below: boolean }[] = [];
+    const look = async (q: XY) => {
+      await frames(page, 14);
+      const p = await posOf(page, 'crate-3');
+      const s = await projectP(page, p);
+      const below = await page.evaluate((q) => {
+        const ws = (window as any).__bench.ws;
+        const c = document.getElementById('stage') as HTMLCanvasElement;
+        const r = ws.stage.camera.screenToRay({ x: (q.x / c.clientWidth) * 2 - 1, y: -(q.y / c.clientHeight) * 2 + 1 });
+        const pl = ws.surface.plane;
+        const hit = pl.hit({ origin: [r.origin.x, r.origin.y, r.origin.z], dir: [r.direction.x, r.direction.y, r.direction.z] }, pl.height);
+        return hit.p[1] < pl.tuning.top - 1e-3;
+      }, q);
+      return { y: q.y, p, off: Math.hypot(s.x - q.x, s.y - q.y), below };
+    };
+    while (at.y > 8) {
+      const next = { x: at.x, y: Math.max(8, at.y - 24) };
+      await hand.drag(at, next, 120);
+      at = next;
+      steps.push(await look(at));
+    }
+    const fmt3 = (p: V3) => JSON.stringify(p.map((n) => +n.toFixed(2)));
+    console.log(`[I1] R5 raised by ${kind}: ${steps.map((st) => `${st.y.toFixed(0)}px ${fmt3(st.p)} ${st.off.toFixed(0)}px${st.below ? '' : ' (above the top)'}`).join(' | ')}`);
+    const highest = Math.max(...steps.map((st) => st.p[1]));
+    expect(highest, 'at least 3 units above the bench').toBeGreaterThanOrEqual(3);
+    for (const st of steps.filter((st) => st.below)) expect(st.off, `under the pointer at ${st.y.toFixed(0)} px`).toBeLessThan(30);
+    const over = steps.filter((st) => !st.below);
+    for (let i = 1; i < over.length; i++) {
+      const a = over[i - 1]!.p;
+      const b = over[i]!.p;
+      expect(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), 'above the top it holds: no jump, no jitter').toBeLessThan(0.15);
+    }
+    for (const st of over) expect(st.p[1], 'above the top it holds there: it does not fall').toBeGreaterThan(highest - 0.15);
+    // back down to the last position whose ray met the surface below the top: under the pointer again
+    const back = [...steps].reverse().find((st) => st.below) ?? steps[0]!;
+    const down = { x: at.x, y: back.y + 24 };
+    await hand.drag(at, down, 400);
+    at = down;
+    const again = await look(at);
+    expect(again.off, 'back under the pointer when it comes back down').toBeLessThan(30);
+    // let go with the hand still: it falls and comes to rest on the bench
+    await frames(page, 12);
+    await hand.up(at);
+    await pollFrames(page, async () => {
+      const q = await posOf(page, 'crate-3');
+      const w = await page.evaluate(() => (window as any).__bench.ws.world.part('crate-3').location.at);
+      return w === 'rest' && q[1] < 0.6;
+    }, 1200, 'it falls and comes to rest on the bench').toBe(true);
+    // Patch, lifted off its stool and raised
+    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), 'patch', 'touch');
+    await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
+    at = await takeHold(page, hand, 'patch', kind);
+    const lifted = { x: at.x, y: Math.max(8, at.y - (kind === 'mouse' ? 260 : 200)) };
+    await hand.drag(at, lifted, 700);
+    await frames(page, 40);
+    const q = await posOf(page, 'patch');
+    console.log(`[I1] R5 Patch raised by ${kind}: at ${JSON.stringify(q.map((n) => +n.toFixed(2)))}`);
+    expect(q[2], 'not pinned at the wall (z -4.42 is the wall face plus its radius)').toBeGreaterThan(-4.2);
+    expect(q[1], 'raised').toBeGreaterThan(1.5);
+    await frames(page, 6);
+    await hand.up(lifted);
+    await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 3600, 'Patch back on its stool').toBe('seated');
+    await ctx.close();
+  });
+}
+
+test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen from mid-bench strikes the wall before it lands; Patch the same reaches the wall well up', async ({ page }) => {
+  test.setTimeout(5 * 60_000);
+  await open(page, 1440, 900);
+  const cdp = await page.context().newCDPSession(page);
+  const hand = tickHand(page, cdp, 'mouse');
+  await hookRelease(page);
+  // the crate: every hit on something that is not a part, with where it was then
+  let at = await takeHold(page, hand, 'crate-2', 'mouse');
+  at = await carryOver(page, hand, 'crate-2', at, [-3.5, 0.8]);
+  await frames(page, 20);
+  await page.evaluate(() => {
+    const W = window as any;
+    const B = W.__bench;
+    const n0 = B.log.length;
+    W.__i1wall = [] as number[][];
+    const look = () => {
+      if (!W.__i1wall) return;
+      const hits = B.log.slice(n0).filter((l: any) => l.e.type === 'part.hit' && l.e.id === 'crate-2' && l.e.other === null).length;
+      const p = B.ws.world.motion('crate-2').pose.p;
+      W.__i1wall.push([hits, p[0], p[1], p[2]]);
+      if (W.__i1wall.length < 400) requestAnimationFrame(look);
+    };
+    look();
+  });
+  await hand.drag(at, { x: at.x, y: at.y - 200 }, 100, true);
+  await frames(page, 240);
+  const rec = await page.evaluate(() => {
+    const W = window as any;
+    const r = W.__i1wall as number[][];
+    W.__i1wall = null;
+    return r;
+  });
+  const first = rec.findIndex((r) => r[0]! > 0);
+  const atHit = rec[first] ?? null;
+  console.log(`[I1] R5 wall, crate: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; first hit on something fixed at ${JSON.stringify(atHit?.slice(1).map((n) => +n!.toFixed(2)))}`);
+  expect(atHit, 'it struck something fixed').not.toBeNull();
+  expect(atHit![3]!, 'the first thing it struck is the back wall (its back at the wall face)').toBeLessThan(-4.3);
+  expect(atHit![2]!, 'before it landed: up off the bench').toBeGreaterThan(0.6);
+  // Patch
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
+  at = await takeHold(page, hand, 'patch', 'mouse');
+  at = await carryOver(page, hand, 'patch', at, [-3.5, 0.8]);
+  await frames(page, 20);
+  await page.evaluate(() => {
+    const W = window as any;
+    const w = W.__bench.ws.world;
+    W.__i1pw = [] as any[];
+    const look = () => {
+      if (!W.__i1pw) return;
+      const v = w.crewView('patch').view;
+      W.__i1pw.push([v.state, v.at[1] + 0.6, v.at[2]]);
+      if (W.__i1pw.length < 300) requestAnimationFrame(look);
+    };
+    look();
+  });
+  await hand.drag(at, { x: at.x, y: at.y - 200 }, 100, true);
+  await frames(page, 120);
+  const pr = await page.evaluate(() => {
+    const W = window as any;
+    const r = W.__i1pw as any[];
+    W.__i1pw = null;
+    return r;
+  });
+  const wall = pr.find((r) => r[0] === 'wall');
+  console.log(`[I1] R5 wall, Patch: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; states ${pr.map((r) => r[0]).filter((s, i, a) => i === 0 || a[i - 1] !== s).join('>')}; at the wall its middle at ${wall ? (wall[1] as number).toFixed(2) : 'never'}`);
+  expect(wall, 'Patch reaches the wall').toBeTruthy();
+  expect(wall[1], 'its middle above 1.5').toBeGreaterThan(1.5);
+});
