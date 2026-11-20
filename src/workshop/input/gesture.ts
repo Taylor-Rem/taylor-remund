@@ -103,8 +103,18 @@ export interface GestureWorld {
   where?(id: Id): Vec3 | null;
   /** What `id` is to a hand (keyboard focus has no pointer to ask `at` with). */
   role?(id: Id): Role;
-  /** (R4) Where the hand is, for the throw: the pointer on a level plane through where it took hold. */
+  /**
+   * (R4) Where the hand is, for the throw: the pointer on the surface the carried thing rides (level through where it
+   * took hold, curving up at the back), unrolled into (x, height, s) so the measure is the same everywhere on it.
+   */
   handPoint?(x: number, y: number): Vec3;
+  /** Where the hand is on the plane through where it took hold that faces the camera (for a flick up the screen). */
+  handFacing?(x: number, y: number): Vec3 | null;
+  /**
+   * The throw: the hand's velocity measured in `handPoint`'s terms and on the facing plane (`handFacing`), made one
+   * velocity in the world where it let go.
+   */
+  throwFrom?(v: Vec3, onFacing: Vec3 | null): Vec3;
   /** The grip a grab names (default: the point the hand took it at; an arm that aims is taken where it points). */
   gripFor?(id: Id, what: HeldKind, point: Vec3): Vec3;
 }
@@ -234,6 +244,8 @@ export class Gestures {
   private active: Active | null = null;
   private holding: Holding | null = null;
   private readonly vel = new VelocityTracker();
+  /** The same hand on the plane facing the camera (a flick up the screen is read there). */
+  private readonly velFacing = new VelocityTracker();
   private out: Command[] = [];
   private hovered: Id | null = null;
   private cursor: Cursor = 'default';
@@ -341,6 +353,7 @@ export class Gestures {
         this.active = { k: 'carry', p: s.id, moved: false, fresh: false };
         h.tap = false;
         this.vel.reset();
+        this.velFacing.reset();
         this.sampleCarry(s.x, s.y, s.t);
         this.setCursor('grabbing');
         return;
@@ -838,6 +851,7 @@ export class Gestures {
     else this.intent({ type: 'grab', id, grip: this.world.gripFor?.(id, role, point) ?? point }, s.t);
     this.world.beginCarry(id, role, point, s.t);
     this.vel.reset();
+    this.velFacing.reset();
     if (!keys) {
       this.sampleCarry(s.x, s.y, s.t);
       this.setHover(null, s.t);
@@ -854,7 +868,11 @@ export class Gestures {
   private sampleCarry(x: number, y: number, t: number, fromEvent = true): void {
     if (!this.holding) return;
     const target = this.world.carryTarget(x, y, t);
-    if (fromEvent) this.vel.add(t, this.world.handPoint?.(x, y) ?? target);
+    if (fromEvent) {
+      this.vel.add(t, this.world.handPoint?.(x, y) ?? target);
+      const f = this.world.handFacing?.(x, y);
+      if (f) this.velFacing.add(t, f);
+    }
     this.intent({ type: 'carry', target }, t);
   }
 
@@ -877,13 +895,19 @@ export class Gestures {
     this.endHold(s.t);
   }
 
-  /** The hand's velocity at release, with a little loft so a flick arcs. */
+  /**
+   * The hand's velocity at release. A flick up the screen goes up (read on the plane facing the camera); a level or
+   * downward one is read on the surface and gets a little loft so it arcs, where it has no real upward part of its own.
+   */
   throwVelocity(t: number): Vec3 {
     // (R4) what the hand was doing when it threw, not the average of its last moments
-    const v = this.vel.throw(t);
+    const v0 = this.vel.throw(t);
+    const f = this.velFacing.count > 0 ? this.velFacing.throw(t) : null;
+    const v = this.world.throwFrom?.(v0, f) ?? v0;
     const hs = Math.hypot(v[0], v[2]);
-    const up = Math.max(v[1], 0) + Math.min(this.tuning.loftMax, hs * this.tuning.loft);
-    return [v[0], v[1] < 0 ? v[1] + up : up, v[2]];
+    const loft = Math.min(this.tuning.loftMax, hs * this.tuning.loft);
+    if (v[1] >= loft) return v;
+    return [v[0], v[1] < 0 ? v[1] + loft : loft, v[2]];
   }
 
   /** Let go where it is, throwing nothing (Esc, a cancelled pointer, a grab that became a pinch). */
@@ -911,6 +935,7 @@ export class Gestures {
     this.holding = null;
     this.world.endCarry();
     this.vel.reset();
+    this.velFacing.reset();
     this.setCursor('default');
     if (this.mouse) this.updateHover(t);
     else this.setHover(this.focus, t);

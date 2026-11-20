@@ -120,10 +120,40 @@ class Aim {
   }
 }
 
+/**
+ * Tune here: the plane a flick up the screen is read on leans back from upright by this share of the line of
+ * sight's own tilt. 1 is square to the line of sight (a flick up the screen goes up and as far back as the camera
+ * looks down: thrown high it slams the back wall); 0 is upright (straight up: juggling in place, but the wall out of
+ * reach). Between: up, drifting back a little, the wall in reach of a hard flick.
+ */
+export const FACING_TILT = 0.5;
+
+/** The plane through `p` facing a camera at `eye` (leaning back by `FACING_TILT` of the line of sight's tilt), and world up projected into it (normalised). */
+function facingAt(eye: Vec3, p: Vec3, tilt = FACING_TILT): { p: Vec3; n: Vec3; up: Vec3 } | null {
+  const d: Vec3 = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+  const hl = Math.hypot(d[0], d[2]);
+  if (hl < 1e-6) return null;
+  const down = Math.atan2(-d[1], hl) * tilt;
+  const n: Vec3 = [(d[0] / hl) * Math.cos(down), -Math.sin(down), (d[2] / hl) * Math.cos(down)];
+  const k = n[1];
+  const up: Vec3 = [-k * n[0], 1 - k * n[1], -k * n[2]];
+  const ul = Math.hypot(up[0], up[1], up[2]);
+  if (ul < 1e-6) return null;
+  return { p, n, up: [up[0] / ul, up[1] / ul, up[2] / ul] };
+}
+
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
   /** (R4) The height of the level plane the hand is measured on while it carries (where it took hold). */
   let handY: number | null = null;
+  /** The surface's slope under the hand at its last sample (0 level, π/2 upright). */
+  let handTheta = 0;
+  /**
+   * The plane through where the hand took hold that faces the camera (its normal the line of sight there), and the
+   * screen's up in it (world up less its part along the line of sight: partly up, partly back): a flick up the
+   * screen is read on it.
+   */
+  let facing: { p: Vec3; n: Vec3; up: Vec3 } | null = null;
   let carried: {
     id: Id;
     what: HeldKind | 'aim';
@@ -237,6 +267,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
       const w = deps.world();
       if (!w) return;
       handY = grip[1];
+      facing = facingAt(deps.ray(0, 0).origin, grip);
       plane ??= new CarryPlane(w.scene.bench, deps.carry);
       if (what === 'plug') {
         const cord = w.cord(id);
@@ -300,12 +331,46 @@ export function createSurface(deps: SurfaceDeps): Surface {
       plane?.end();
       carried = null;
       handY = null;
+      handTheta = 0;
+      facing = null;
+    },
+
+    handFacing(x, y) {
+      if (!facing) return null;
+      const ray = deps.ray(x, y);
+      const { p, n } = facing;
+      const dn = ray.dir[0] * n[0] + ray.dir[1] * n[1] + ray.dir[2] * n[2];
+      if (Math.abs(dn) < 1e-6) return null;
+      const t = ((p[0] - ray.origin[0]) * n[0] + (p[1] - ray.origin[1]) * n[1] + (p[2] - ray.origin[2]) * n[2]) / dn;
+      return [ray.origin[0] + ray.dir[0] * t, ray.origin[1] + ray.dir[1] * t, ray.origin[2] + ray.dir[2] * t];
+    },
+
+    throwFrom(v, onFacing) {
+      // (Taylor, 2026-11-20: "You should be able to throw them up") A flick with any part up the screen is read on
+      // the plane facing the camera: it leaves the hand going on as the pointer went on the screen, up and back as
+      // the line of sight sees up (and meets the back wall well up when thrown that way).
+      if (facing && onFacing) {
+        const u = onFacing[0] * facing.up[0] + onFacing[1] * facing.up[1] + onFacing[2] * facing.up[2];
+        if (u > 0) return onFacing;
+      }
+      // Down the screen or level: read on the surface it rides, unrolled (x, -, s), put back in the world where it let
+      // go: toward the room (s rising) is outward, as on the bench; away from the room runs along the surface there
+      if (v[2] >= 0 || handTheta <= 0) return v;
+      const along = -v[2];
+      return [v[0], v[1] + along * Math.sin(handTheta), -along * Math.cos(handTheta)];
     },
 
     handPoint(x, y) {
       const ray = deps.ray(x, y);
       const w = deps.world();
       const h = handY ?? w?.scene.bench.top ?? 0;
+      if (plane && carried && carried.what !== 'aim' && carried.what !== 'plug') {
+        // the surface the carried thing rides, unrolled, with its level held at the grab's height: (x, h, s), where s
+        // is z over the bench and runs on round the curve and up the upright face. Where it is, for the throw.
+        const hit = plane.hit(ray, h);
+        handTheta = hit.theta;
+        return [hit.p[0], h, hit.s];
+      }
       // a level plane through where the hand took hold (or the bench, for an arm that aims)
       const dy = ray.dir[1];
       const t = dy < -1e-6 ? (h - ray.origin[1]) / dy : 0;
