@@ -242,6 +242,51 @@ describe('Patch thrown (R4)', () => {
     expect(t.of('patch.throw').every((x) => Number.isFinite(x.e.speed))).toBe(true);
   }, 60_000);
 
+  test('from the carry in the open back lane: it carries on as far as the throw was hard (and a set-down stays put)', async () => {
+    const far = async (speed: number): Promise<number> => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      throwFrom(w, t, [-6.5, 0.95, -1.5], [speed, 0, 0]);
+      for (let i = 0; i < 4 * 60 && !['shake', 'look', 'walk'].includes(patchView(w).state); i++) t.run(1);
+      const v = patchView(w);
+      return Math.hypot(v.at[0] + 6.5, v.at[2] + 1.5);
+    };
+    const cap = await far(14), mid = await far(8), soft = await far(4);
+    expect(cap).toBeGreaterThanOrEqual(9);
+    expect(cap).toBeLessThanOrEqual(11);
+    expect(mid).toBeGreaterThanOrEqual(4);
+    expect(mid).toBeLessThanOrEqual(5);
+    expect(soft).toBeGreaterThanOrEqual(1);
+    expect(soft).toBeLessThanOrEqual(2);
+    if (process.env.PATCH_THROW_LOG) console.log('lane', cap.toFixed(2), mid.toFixed(2), soft.toFixed(2));
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(20);
+    throwFrom(w, t, [-6.5, 0.95, -1.5], [0, 0, 0]);
+    expect(patchView(w).state).not.toBe('fly');
+  }, 60_000);
+
+  test('let go touching Fetch, the phone, the console or the stack: no pop (never more than half a unit above the hand)', async () => {
+    const places: [string, (w: World) => Vec3][] = [
+      ['fetch', (w) => { const c = w.crewView('fetch')!; const p = w.motion(c.kind === 'fetch' ? c.body : '')!.pose.p; return [p[0] - 0.4, 0.95, p[2]]; }],
+      ['phone', () => [0.2, 0.95, 1.9]],
+      ['console', () => [-0.6, 0.95, 1.3]],
+      ['stack', () => [2.21 - 0.55, 0.95, 1.75]],
+    ];
+    for (const [name, at] of places) {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      const hand = at(w);
+      throwFrom(w, t, hand, [6, 0, 0]);
+      const v = patchView(w);
+      expect(v.at[1], name).toBeLessThanOrEqual(hand[1] + 0.5);
+      watch(w, t, 30);
+      expect(patchView(w).state, name).toBe('seated');
+    }
+  }, 120_000);
+
   test('a hundred seeded throws: every one ends on the stool, the job carried on, nothing durable changed by it', async () => {
     const r = rng(Number(process.env.PATCH_THROW_SEED ?? 20261119));
     const log: string[] = [];

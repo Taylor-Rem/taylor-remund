@@ -2037,7 +2037,8 @@ export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: n
   // one or two bounces, decaying
   const b = Math.abs(Math.sin(Math.PI * Math.min(1, k / 0.55) * (1 + hard))) * (1 - Math.min(1, k / 0.55)) * (0.12 + 0.3 * hard);
   // the roll: on round the way it was turning, to upright
-  const end = spin0 + ((((-spin0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
+  // (come in hard, it goes head over heels once more along the way it was going: the roll that carries it on)
+  const end = spin0 + ((((-spin0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) + (speed > 6 ? 2 * Math.PI : 0);
   const e = 1 - Math.pow(1 - Math.min(1, k / 0.75), 3);
   const spin = lerp(spin0, end, e);
   const sat = resolvePose(satOnBench(feet, yaw));

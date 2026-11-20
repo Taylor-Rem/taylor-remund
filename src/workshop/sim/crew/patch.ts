@@ -128,18 +128,26 @@ export const PATCH_TUNING = {
    * speed upward, at most `loftMax`.
    */
   throwMax: 14,
-  loft: 0.18,
-  loftMax: 1.6,
+  loft: 0.32,
+  loftMax: 4.5,
   /** R4: in the hand its body's middle hangs this far below the hand (the scruff); a sphere of `bodyR` for what it meets. */
   hangBelow: 0.6,
-  bodyR: 0.45,
+  /** R4: its body's sphere in the air (what it meets); `drawnR`: its drawn body's reach round its middle (S7: Revert keeps clear of it). */
+  bodyR: 0.35,
+  drawnR: 0.45,
+  /** R4: it has come down when its middle is this near the bench top (sat, its middle is about this high). */
+  restMid: 0.3,
+  /** R4: faster than this (level, units/s) as it crosses an open edge, it is gone (too fast to catch hold). */
+  catchSpeed: 8,
+  /** R4: let go inside or against a body, it is moved out the least way (sideways first), no more than this. */
+  clearMax: 0.5,
   /** R4: crossing an open edge with its middle this near the bench top (above, below), it catches the edge. */
   reachUp: 0.9,
   reachDown: 0.7,
   /** R4: landed: a bounce and a roll that eats the speed (`slide` seconds of it, at most `slideMax` units), sat up; a shake of the head. */
   land: 0.8,
-  slide: 0.12,
-  slideMax: 0.9,
+  slide: 0.18,
+  slideMax: 2.2,
   shake: 0.6,
   /** R4: thrown well clear of the bench: out of sight this long, then up the chute and onto the bench by the pad over `chuteFly`. */
   away: 0.5,
@@ -151,8 +159,9 @@ export const PATCH_TUNING = {
   wallAbove: 0.3,
   wallSpeed: 2.5,
   /** R4: stuck to the wall (s), then down it at up to this speed (units/s). */
-  stick: 0.25,
+  stick: 0.35,
   slideDown: 1.6,
+  slideMin: 0.4,
 } as const;
 
 export interface PatchSpec {
@@ -341,7 +350,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; txn: Cause | null } | null = null;
   const newFly = (v: Vec3, chute: boolean): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), txn: null });
   /** Met a wall flat: its outward direction, and how fast it came in. */
-  let walled: { out: Vec3; speed: number } | null = null;
+  let walled: { out: Vec3; speed: number; slideFrom?: number } | null = null;
   /** Fetch's and Revert's bodies as solids (in the air Patch stops against them). */
   function robotBodies(): Solid[] {
     const out: Solid[] = [];
@@ -364,7 +373,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const k = h > T.throwMax ? T.throwMax / h : 1;
     const vv: Vec3 = [v[0] * k, Math.min(T.loftMax, T.loft * h * k), v[2] * k];
     let q = p;
-    // (never starting inside a body, a robot or a part: above it)
+    // (never starting inside a body, a robot or a part: out of it the least way, sideways before up, at most
+    // `clearMax`; and if there is none, it is a hit there: it drops)
     const parts: Solid[] = [];
     for (const id of ctx.parts()) {
       const pp = ctx.pose(id);
@@ -372,7 +382,28 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const mode = ctx.mode(id);
       if (pp && h && mode !== 'gone' && mode !== 'chute') parts.push({ id, x: pp.p[0], z: pp.p[2], hx: h[0], hz: h[2], yaw: 0, y0: pp.p[1] - h[1], y1: pp.p[1] + h[1] });
     }
-    for (let i = 0; i < 4; i++) for (const o of [...SOLIDS, ...parts, ...robotBodies()]) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
+    const all = [...SOLIDS, ...parts, ...robotBodies()];
+    const clear = (c: Vec3): boolean => all.every((o) => !sphereMeets(o, c[0], c[1], c[2], T.bodyR));
+    if (!clear(q)) {
+      let found: Vec3 | null = null;
+      for (let ring = 1; ring <= 10 && !found; ring++) {
+        const r = (ring / 10) * T.clearMax;
+        for (let i = 0; i < 16 && !found; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const c: Vec3 = [q[0] + Math.cos(a) * r, q[1], q[2] + Math.sin(a) * r];
+          if (clear(c)) found = c;
+        }
+        if (!found && clear([q[0], q[1] + r, q[2]])) found = [q[0], q[1] + r, q[2]];
+      }
+      if (!found) {
+        at = q;
+        ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
+        ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(vv), what: all.find((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR))?.id ?? '' });
+        landAt(q, [0, 0, 0]);
+        return;
+      }
+      q = found;
+    }
     at = q;
     fly = newFly(vv, false);
     ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
@@ -476,7 +507,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const v = rv.view as { drawn: boolean; lift: number; x: number; z: number; heading: number };
       const h = ctx.halfExtents(rv.body);
       // (grown by the difference between Patch's drawn body, which Revert keeps clear of, and its route radius)
-      const g = Math.max(0, T.bodyR - R);
+      const g = Math.max(0, T.drawnR - R);
       if (v.drawn && v.lift > 0.5 && h) out.push({ id: rv.body, x: v.x, z: v.z, hx: h[0] + g, hz: h[2] + g, yaw: v.heading });
     }
     const top = ctx.scene.bench.top;
@@ -1193,7 +1224,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           const outside = (p: Vec3): boolean => !!e && (p[0] < e.minX || p[0] > e.maxX || p[2] > e.maxZ);
           if (!f.out && !f.chute && outside(np)) {
             // over an open edge: within reach of it, it catches it (as when let go there); well clear, it is gone
-            const over = np[1] <= top + T.reachUp && np[1] >= top - T.reachDown ? edgeFor(np) : null;
+            const over = np[1] <= top + T.reachUp && np[1] >= top - T.reachDown && Math.hypot(f.v[0], f.v[2]) <= T.catchSpeed ? edgeFor(np) : null;
             if (over) {
               fly = null;
               ledge = over;
@@ -1326,7 +1357,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             break;
           }
           if (state !== 'fly') break; // (slid off the tops it kept coming down on, or met a wall)
-          if (np[1] - T.bodyR <= top) {
+          if (np[1] <= top + T.restMid) {
             landAt(np, f.v);
             break;
           }
@@ -1371,9 +1402,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         case 'wall': {
           // R4: stuck flat to the wall a moment, then down it to the bench, where it lands and sits
           if (t < T.stick) break;
-          const v = Math.min(T.slideDown, (t - T.stick) * 4);
+          // (a slide that reads even from low on the wall: it takes at least `slideMin` seconds to the bench)
+          if (walled && walled.slideFrom === undefined) walled.slideFrom = at[1];
+          const drop = Math.max(0.05, (walled?.slideFrom ?? at[1]) - (ctx.scene.bench.top + T.restMid));
+          const v = Math.min(T.slideDown, (t - T.stick) * 4, drop / T.slideMin + 0.05);
           const ny = at[1] - v / HZ;
-          if (ny - T.bodyR <= ctx.scene.bench.top) {
+          if (ny <= ctx.scene.bench.top + T.restMid) {
             const w = walled;
             walled = null;
             landAt([at[0] + (w ? w.out[0] * 0.15 : 0), at[1], at[2] + (w ? w.out[2] * 0.15 : 0)], [0, 0, 0]);
