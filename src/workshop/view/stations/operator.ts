@@ -413,8 +413,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               blendFrom = null;
               break;
             case 'wall':
+              // flat against it at once, face to the room (no blend: a blend from the tumble shows its back)
               enter('wall', t, true);
-              blendDur = F.blendReact;
+              blendFrom = null;
               if (v.wall) landYaw = Math.atan2(v.wall.out[0], v.wall.out[2]) - SIDE_ON;
               landSpin = 0;
               break;
