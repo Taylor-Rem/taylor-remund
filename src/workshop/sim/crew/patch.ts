@@ -475,7 +475,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     if (rv && rv.kind === 'revert' && rv.body) {
       const v = rv.view as { drawn: boolean; lift: number; x: number; z: number; heading: number };
       const h = ctx.halfExtents(rv.body);
-      if (v.drawn && v.lift > 0.5 && h) out.push({ id: rv.body, x: v.x, z: v.z, hx: h[0], hz: h[2], yaw: v.heading });
+      // (grown by the difference between Patch's drawn body, which Revert keeps clear of, and its route radius)
+      const g = Math.max(0, T.bodyR - R);
+      if (v.drawn && v.lift > 0.5 && h) out.push({ id: rv.body, x: v.x, z: v.z, hx: h[0] + g, hz: h[2] + g, yaw: v.heading });
     }
     const top = ctx.scene.bench.top;
     for (const id of ctx.parts()) {

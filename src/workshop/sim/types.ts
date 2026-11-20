@@ -564,6 +564,10 @@ export interface RevertView extends MachineViewBase {
   readonly lift: number;
   /** The hatch's two leaf doors, 0 shut .. 1 open. */
   readonly hatch: number;
+  /** R3: seconds into its knock from below a hatch with crates on it (-1: not knocking). */
+  readonly knock: number;
+  /** R3: what stands in its way that it may not put away (a crate in a hand, Fetch, `patch`): it waits, looking at it; else null. */
+  readonly waitingFor: Id | null;
   /** The crank's angle, radians (it turns while a change runs backwards). */
   readonly crank: number;
   readonly cranking: boolean;

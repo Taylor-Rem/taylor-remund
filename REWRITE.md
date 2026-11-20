@@ -691,6 +691,12 @@ and a crank on its back. It lives in a cupboard under the bench.
   first. Every put-away has this one picture; nothing hops across the
   bench by itself. A crate the visitor takes out of the pan is the
   visitor's again.
+- *Its hatch cannot be blocked.* When it has wanted to come up for three
+  seconds (for the Button, the lever or a dry bench) and crates lie on its
+  hatch, it knocks twice from below, the leaves open, the crates drop in
+  and it comes up through; each is a put-away like any other and comes
+  back up the chute. Fetch or Patch on the hatch are waited for: they
+  leave by themselves.
 - *Left in peace:* if the bench stays tidy for two minutes it parks in the
   light from the window and powers down, one eye still open.
 - *Picked up:* it is heavy and goes limp.

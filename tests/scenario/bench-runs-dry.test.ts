@@ -150,7 +150,7 @@ describe('R3: can the visitor leave the bench with nothing for Fetch to carry?',
     }, 300_000);
   }
 
-  test('(e) the same as (b) with a crate left on Revert\'s hatch (it cannot come up): the dock\'s last resort sends a spare up the chute', async () => {
+  test('(e) the same as (b) with a crate left on Revert\'s hatch: Revert knocks it in from below and comes up (R3); the bench heals', async () => {
     const w = await settled('dry-e');
     const t = tape(w);
     let n = 0;
@@ -171,6 +171,7 @@ describe('R3: can the visitor leave the bench with nothing for Fetch to carry?',
     process.stderr.write(`\n${report}\n`);
     expect(at, report).not.toBeNull();
     expect(at!, report).toBeLessThan(DOCK_TUNING.lastResort + 30);
+    expect(trail.some((x) => x.includes('stuck')), report).toBe(true); // it found its hatch covered
     expect(trail.some((x) => x.includes('restocked')), report).toBe(true);
   }, 300_000);
 

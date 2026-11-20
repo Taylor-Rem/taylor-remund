@@ -69,8 +69,19 @@ export const REVERT_TUNING = {
   doors: 0.3,
   /** Back on its hatch with nothing to do (its card down): it stands this long, deadpan, then sinks. */
   homePause: 1.2,
-  /** Its hatch covered: it rattles the doors this long, then stays down. */
+  /**
+   * Its hatch covered: it rattles the doors. R3: after `knockAfter` seconds of wanting up with only crates lying on
+   * the leaves, it knocks from below (two jumps of the leaves at `knocks`, each bumping what lies on them up by
+   * `knockKick` units/s), and at `knockOpen` the leaves open and what lay on them drops in (a put-away: the
+   * dock sends the same crate back up the chute). Fetch, Patch, or a crate in someone's hands on the hatch: it
+   * waits for them to go (they do), at most `stuckWait`, then stays down as before.
+   */
   stuck: 1.2,
+  knockAfter: 3,
+  knocks: [0, 0.5] as readonly number[],
+  knockKick: 1.6,
+  knockOpen: 1.1,
+  stuckWait: 20,
   /** ...and does not try to come up to tidy again for this long. */
   stuckRetry: 20,
   /** Trundling: top speed, acceleration, turning on the spot. */
@@ -120,6 +131,8 @@ export const REVERT_TUNING = {
   backOff: 0.8,
   /** Something in its way: it waits this long, then gives up the trip. */
   blockedFor: 3,
+  /** R3: something in its way it may not put away (a crate in a hand, Fetch, Patch): it waits this long, looking at it, before it gives the trip up. */
+  waitFor: 10,
   /** A misfire: a jolt, a glare. */
   jolt: 0.6,
 } as const;
@@ -195,11 +208,13 @@ interface Route {
   backed: number;
   /** S7 round 2: the index of a point it reaches by backing straight off (to find room to turn onto its track), or -1. */
   readonly reverse: number;
+  /** R3: turning on the spot the long way round (+1 left, -1 right) because the short way swings into the layout; 0: the short way. */
+  turnDir: number;
 }
 
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 /** R3: Patch's states on its feet on the bench, and its footprint's radius there (Revert waits for it). */
-const PATCH_AFOOT = new Set(['walk', 'cross', 'look', 'stare', 'climb']);
+const PATCH_AFOOT = new Set(['walk', 'cross', 'look', 'stare', 'climb', 'land', 'shake', 'roll', 'dust']);
 const PATCH_R = 0.4;
 
 export function revert(spec: RevertSpec): UnitFactory {
@@ -254,6 +269,83 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let surveyFor: Id | null = null;
   /** R3: when it began its look round this time up (-1: not yet; Infinity: done until it next comes up). */
   let surveyFrom = -1;
+  /** R3: the knock from below a covered hatch: when it began (-1: not yet), and how many knocks so far. */
+  let knockAt = -1;
+  let knocked = 0;
+  /** R3: what is in its way while it waits (looked at), or null. */
+  let waitingFor: Id | null = null;
+  /** R3: a crate it may sweep up where it lies: loose on the bench, at rest, in nobody's hands or machine. */
+  function sweepable(id: Id): boolean {
+    const p = ctx.part(id);
+    return !!p && p.kind === 'crate' && p.location.at === 'rest' && ctx.mode(id) === 'free' && ctx.settled(id);
+  }
+  /** R3: what lies on its hatch now: crates it may knock in, and whether anything else is there (it waits). */
+  function onLeaves(): { crates: Id[]; other: boolean } {
+    const ids = blockers(spec.home.x, spec.home.z, spec.home.heading);
+    const crates: Id[] = [];
+    let other = false;
+    for (const id of ids) {
+      if (ctx.part(id)?.kind === 'crate' && ctx.mode(id) === 'free') crates.push(id);
+      else other = true;
+    }
+    return { crates, other };
+  }
+  /** R3: the leaves during a knock (steps since it began): a jump at each knock, flung open at `knockOpen`. */
+  function knockLeaves(k: number): number {
+    for (const t of T.knocks) {
+      const d = (k - steps(t)) / HZ;
+      if (d >= 0 && d < 0.25) return 0.22 * Math.sin((d / 0.25) * Math.PI);
+    }
+    return 0;
+  }
+  /** R3: one step of the stuck state: wait for the hatch to clear, or knock in the crates that lie on it. */
+  function stuckStep(now: number): void {
+    const T0 = T;
+    const leaves = onLeaves();
+    if (leaves.crates.length === 0 && !leaves.other) {
+      comeUp();
+      return;
+    }
+    if (knockAt < 0) {
+      if (ctx.bracketed || leaves.other || inState() < steps(T0.knockAfter)) {
+        if (inState() >= steps(T0.stuckWait)) {
+          nextAway = Math.max(nextAway, now + steps(T0.stuckRetry));
+          enter('below');
+          // a card it was to hold up goes up from below after all: said again now it is down, so the stick holds it
+          if (pendingCard !== null) {
+            const content = pendingCard;
+            pendingCard = null;
+            ctx.emit({ type: 'card', by: body, content });
+          }
+        }
+        return;
+      }
+      knockAt = now;
+    }
+    const k = now - knockAt;
+    while (knocked < T0.knocks.length && k >= steps(T0.knocks[knocked]!)) {
+      for (const id of leaves.crates) ctx.shove(id, [0, T0.knockKick, 0]);
+      knocked++;
+    }
+    if (k < steps(T0.knockOpen)) return;
+    if (ctx.bracketed) return; // (nothing is put away while a rung is bracketed: the leaves open after it)
+    if (leaves.other) {
+      knockAt = -1; // something came onto it meanwhile: it waits again
+      knocked = 0;
+      return;
+    }
+    // the leaves open: what lay on them drops in (each a put-away, said as its own drop is)
+    for (const id of leaves.crates) {
+      const from = ctx.pose(id);
+      if (!from) continue;
+      ctx.emit({ type: 'revert.sweep', id: body, part: id, from, to: { at: 'shipped' } });
+      ctx.putAway(id, { at: 'shipped' });
+    }
+    lastPutAway = now;
+    knockAt = -1;
+    knocked = 0;
+    comeUp();
+  }
   /** R3: when the visitor took the crate out of its pan (it looks at the empty pan). */
   let emptyPanAt = -Infinity;
   /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
@@ -354,8 +446,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const e = ctx.halfExtents(id);
       if (!p || !e) continue;
       if (p[1] - e[1] > ground + 2 * hy) continue; // above it
-      // a crate it may brush past by a little (it is wide); another robot (Fetch) whichever way it is turned
-      const r = ctx.part(id)?.kind === 'robot' ? Math.hypot(e[0], e[2]) + 0.03 : Math.max(e[0], e[2]) * 0.8;
+      // (R3: a crate at its full size and a little: a body that only brushes a crate still shoves it along, kinematic as it is; another robot whichever way it is turned)
+      const r = ctx.part(id)?.kind === 'robot' ? Math.hypot(e[0], e[2]) + 0.03 : Math.max(e[0], e[2]) + 0.02;
       const dx = p[0] - px;
       const dz = p[2] - pz;
       const lx = dx * c - dz * s;
@@ -452,7 +544,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     }
     pts.push(...via, [to.x, to.z]);
     if (spec.path.length === 0 && !legClear(x, z, pts[0]![0], pts[0]![1])) return false;
-    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse };
+    route = { pts, i: 0, purpose, heading: to.heading, blocked: 0, backed: 0, reverse, turnDir: 0 };
     if (purpose === 'cover' || purpose === 'sweep') away = true;
     if (state !== 'present') enter('trundle'); // presenting a card: it sets off once the card has been read
     return true;
@@ -608,6 +700,38 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     return null;
   }
 
+  /**
+   * R3: a stand on the near side of `part` (in its way), reached straight from where it is: a turn on the spot,
+   * a straight run to a point `APPROACH` (or less) behind the stand, a turn to face the part, and in. The
+   * nearest such, or null.
+   */
+  function nearStand(part: Id): { readonly at: RevertSpot; readonly pts: (readonly [number, number])[] } | null {
+    const p = ctx.pose(part)?.p;
+    const e = ctx.halfExtents(part);
+    if (!p || !e) return null;
+    const d = hz + Math.max(e[0], e[2]) + 0.12;
+    let best: { at: RevertSpot; pts: (readonly [number, number])[]; cost: number } | null = null;
+    for (let k = 0; k < 24; k++) {
+      const h = (k * Math.PI) / 12;
+      const sx = p[0] - Math.sin(h) * d;
+      const sz = p[2] - Math.cos(h) * d;
+      if (!room(sx, sz, h)) continue;
+      for (const approach of [APPROACH, APPROACH * 0.6, 0.3]) {
+        const qx = sx - Math.sin(h) * approach;
+        const qz = sz - Math.cos(h) * approach;
+        const cost = Math.hypot(qx - x, qz - z) + approach;
+        if (best && cost >= best.cost) continue;
+        if (!room(qx, qz, h)) continue;
+        const run = Math.atan2(qx - x, qz - z);
+        const short = Math.hypot(qx - x, qz - z) < 0.05;
+        if (!short && (!clearTurn(x, z, heading, run) || !clearRun(x, z, qx, qz) || !clearTurn(qx, qz, run, h))) continue;
+        if (short && !clearTurn(x, z, heading, h)) continue;
+        best = { at: { x: sx, z: sz, heading: h }, pts: [[qx, qz], [sx, sz]], cost };
+      }
+    }
+    return best;
+  }
+
   /** One step along the route. True when it has arrived (facing the spot's heading). */
   function drive(r: Route): boolean {
     const target = r.pts[r.i];
@@ -616,7 +740,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const d = wrap(r.heading - heading);
       const step = Math.sign(d) * Math.min(Math.abs(d), T.turn * dt);
       speed = 0;
-      if (!canTurn(heading + step)) return backOff(r);
+      if (!canTurn(heading + step)) return backOff(r, turnBlocker(heading + step));
       heading += step;
       turning = step / dt;
       return Math.abs(d) < 1e-3;
@@ -636,7 +760,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const nx = x + (dx / d) * stepLen;
       const nz = z + (dz / d) * stepLen;
       turning = 0;
-      if (blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
+      const by = blocker(nx, nz, heading, [x, z]);
+      if (by !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r, by);
       r.blocked = 0;
       speed = -T.backSpeed;
       x = nx;
@@ -651,12 +776,19 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       // turn on the spot first (treads counter-rotate); still rolling, it slows to a stop first and does not
       // speed up again until it faces the way (S7: a short leg after a sharp corner used to circle its point)
       speed = Math.max(0, speed - T.accel * dt);
-      const step = Math.sign(err) * Math.min(Math.abs(err), T.turn * dt);
-      if (!canTurn(heading + step)) return backOff(r);
+      let step = (r.turnDir || Math.sign(err)) * Math.min(r.turnDir ? T.turn * dt : Math.abs(err), T.turn * dt);
+      if (!canTurn(heading + step)) {
+        // R3: the short way round swings a corner into the layout (or a part): the long way, if that is clear
+        if (r.turnDir === 0 && canTurn(heading - step) && turnClearOfLayout(x, z, heading, heading - Math.sign(step) * 0.75 * Math.PI)) {
+          r.turnDir = -Math.sign(step);
+          step = -step;
+        } else return backOff(r, turnBlocker(heading + step));
+      }
       heading += step;
       turning = step / dt;
       if (speed <= 0) return false;
     } else {
+      r.turnDir = 0;
       heading += err * Math.min(1, 8 * dt);
       const stopping = (speed * speed) / (2 * T.accel);
       speed = d <= stopping + 1e-4 ? Math.max(0.15, speed - T.accel * dt) : Math.min(T.speed, speed + T.accel * dt);
@@ -664,8 +796,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     const stepLen = Math.min(d, speed * dt);
     const nx = x + Math.sin(heading) * stepLen;
     const nz = z + Math.cos(heading) * stepLen;
-    if (blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
+    const by = blocker(nx, nz, heading, [x, z]);
+    if (by !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r, by);
     r.blocked = 0;
+    waitingFor = null;
     x = nx;
     z = nz;
     return false;
@@ -675,11 +809,29 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
    * Something is in the way (a part, or the layout where it was not expected): it never pushes. It stops and
    * waits; after `blockedFor` it gives up the trip (a trip home given up: its way home is shut, it parks).
    */
-  function held(r: Route): false {
+  function held(r: Route, by: Id | null = null): false {
     speed = 0;
     turning = 0;
-    r.blocked += 1;
+    // R3: a crate lying in its way that it may put away: that crate is the next it takes (swept from a stand on
+    // its near side), then it goes on; anything else in its way (a crate in a hand or a machine, Fetch, Patch):
+    // it waits, looking at it, until it has moved or `waitFor` has passed, rather than give up and set off again
+    if (by !== null && r.blocked === 0 && !carrying && sweepable(by) && !(r.purpose === 'sweep' && sweeping?.part === by)) {
+      const stand = nearStand(by);
+      if (stand) {
+        sweeping = { part: by, stir: stirred(by), brushed: false };
+        waitingFor = null;
+        route = { pts: stand.pts, i: 0, purpose: 'sweep', heading: stand.at.heading, blocked: 0, backed: 0, reverse: -1, turnDir: 0 };
+        away = true;
+        return false;
+      }
+    }
+    if (by !== null) {
+      waitingFor = by;
+      r.blocked += 1;
+      if (r.blocked < steps(T.waitFor)) return false;
+    } else r.blocked += 1;
     if (r.blocked >= steps(T.blockedFor)) {
+      waitingFor = null;
       route = null;
       if (r.purpose === 'home') homeShutAt = ctx.clock.step;
       if (r.purpose === 'sweep') {
@@ -694,17 +846,23 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   function canTurn(h: number): boolean {
     if (fixedHit(x, z, h) && !fixedHit(x, z, heading)) return false;
     const already = new Set(blockers(x, z, heading));
+    already.delete('patch'); // (R3: Patch beside it is never swung into, however close it already stands)
     return blockers(x, z, h).every((id) => already.has(id));
   }
   /**
    * No room to turn (a corner would swing into something): it backs straight off a little, if the way back
    * is clear, and tries the turn again; at most `backOff` units a trip, then it waits like any blocked trip.
    */
-  function backOff(r: Route): false {
+  /** R3: the part a turn on the spot to `h` would swing into (one it does not already touch), or null. */
+  function turnBlocker(h: number): Id | null {
+    const already = new Set(blockers(x, z, heading));
+    return blockers(x, z, h).find((id) => !already.has(id)) ?? null;
+  }
+  function backOff(r: Route, by: Id | null = null): false {
     const stepLen = T.backSpeed * dt;
     const nx = x - Math.sin(heading) * stepLen;
     const nz = z - Math.cos(heading) * stepLen;
-    if (r.backed + stepLen > T.backOff || blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r);
+    if (r.backed + stepLen > T.backOff || blocker(nx, nz, heading, [x, z]) !== null || (fixedHit(nx, nz, heading) && !fixedHit(x, z, heading))) return held(r, by ?? blocker(nx, nz, heading, [x, z]));
     x = nx;
     z = nz;
     r.backed += stepLen;
@@ -721,9 +879,18 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       return;
     }
     if (blocker(spec.home.x, spec.home.z, spec.home.heading) !== null) {
-      enter('stuck'); // its hatch is covered: it will not push the visitor's things off it
+      // its hatch is covered: it rattles the leaves, and (R3) if only crates lie there, knocks them in
+      if (state !== 'stuck') {
+        enter('stuck');
+        knockAt = -1;
+        knocked = 0;
+      }
       return;
     }
+    comeUp();
+  }
+  /** Up through its hatch (nothing on it). */
+  function comeUp(): void {
     x = spec.home.x;
     z = spec.home.z;
     heading = spec.home.heading;
@@ -748,7 +915,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
    * falling, there is nobody to turn: the card goes up at once.
    */
   function showCard(content: string): void {
-    if (state === 'below' || state === 'sinking' || state === 'stuck' || state === 'held' || state === 'loose') {
+    // (R3: under a covered hatch it is coming up, by a knock if need be: it holds the card up once it is up)
+    if (state === 'below' || state === 'sinking' || state === 'held' || state === 'loose') {
       card = { content, at: ctx.clock.step };
       readUntil = ctx.clock.step;
       pendingCard = null;
@@ -908,7 +1076,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       else trip(spec.button, 'cover');
       return;
     }
-    if (now >= nextAway) {
+    // (never another crate while one is in its pan: home first)
+    if (now >= nextAway && !carrying) {
       const n = nextSweep();
       // R3: out to heal a dry bench, it takes in the scene before it sets off (the view's look round)
       // (once each time it comes up, at its hatch, whenever the heal begins: it may have been up a while)
@@ -1109,10 +1278,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         lift = Math.max(0, lift - dt / T.rise);
         if (lift <= 0) enter('below');
       }
-      if (state === 'stuck' && inState() >= steps(T.stuck)) {
-        nextAway = Math.max(nextAway, now + steps(T.stuckRetry));
-        enter('below');
-      }
+      if (state === 'stuck') stuckStep(now);
       const doorsWant = state === 'rising' || state === 'sinking' || (up() && onHatch()) ? 1 : 0;
       hatch = doorsWant ? Math.min(1, hatch + dt / T.doors) : Math.max(0, hatch - dt / T.doors);
 
@@ -1277,7 +1443,9 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         z,
         heading,
         lift,
-        hatch: state === 'stuck' ? 0.08 * Math.abs(Math.sin(inState() * 0.42)) : hatch,
+        hatch: state === 'stuck' ? (knockAt >= 0 ? knockLeaves(now - knockAt) : 0.08 * Math.abs(Math.sin(inState() * 0.42))) : hatch,
+        knock: state === 'stuck' && knockAt >= 0 ? (now - knockAt) / HZ : -1,
+        waitingFor: state === 'trundle' ? waitingFor : null,
         crank,
         cranking,
         speed,

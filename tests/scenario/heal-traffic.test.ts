@@ -3,8 +3,9 @@
 // rounds, Patch set down somewhere and walking home, while Revert sweeps, carries and drops. Revert never
 // overlaps Fetch or Patch, neither of them walks through Revert, and nobody stops for good: the belt is fed again.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, putOn, tape, FULL_BENCH } from './line-helpers.ts';
+import { benchWorld, putOn, tape, FULL_BENCH, AT } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
+import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import { steps, HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, PatchView, RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
@@ -14,6 +15,7 @@ const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'cr
 const SESSIONS = Number(process.env.TRAFFIC ?? 6);
 /** Patch's footprint on the bench (patch-route's own radius is about this). */
 const PATCH_R = 0.4;
+const REVERT_HOME = [-4.832, 0.372] as const;
 
 type Box = { x: number; z: number; hx: number; hz: number; h: number };
 /** Two boxes on the bench top overlap by more than `slack` (separating axes). */
@@ -48,7 +50,7 @@ function patchBox(w: World): Box | null {
   return { x: p.at[0], z: p.at[2], hx: PATCH_R, hz: PATCH_R, h: 0 };
 }
 
-async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<typeof rng>) => Vec3): Promise<{ fed: number | null; overlaps: string[]; heals: number }> {
+async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<typeof rng>) => Vec3): Promise<{ fed: number | null; overlaps: string[]; heals: number; swept: Id[]; padCrate: Id | null }> {
   const r = rng(`traffic-${seed}`);
   const w = await benchWorld(`traffic-${seed}`, { scene: FULL_BENCH });
   const t = tape(w);
@@ -77,10 +79,19 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
   const overlaps: string[] = [];
   let fed: number | null = null;
   let heals = 0;
+  const swept: Id[] = [];
+  const padCrate = CRATES.find((id) => {
+    const q = w.motion(id)?.pose.p;
+    return !!q && w.mode(id) === 'free' && w.touched(id) && Math.hypot(q[0] - AT.pad[0], q[2] - AT.pad[1]) < 0.45;
+  }) ?? null;
   for (let i = 0; i < steps(Number(process.env.TRAFFIC_SECS ?? 150)); i++) {
     for (const e of t.run(1)) {
       if (e.type === 'taken-in' && e.id === 'belt' && fed === null) fed = i / HZ;
-      if (e.type === 'revert.sweep' && e.to.at === 'rest') heals++;
+      if (e.type === 'revert.sweep' && e.to.at === 'rest') {
+        if (process.env.TRAFFIC_DBG) process.stderr.write(`\nSWEEP ${(i / HZ).toFixed(1)}s ${e.part} from ${e.from.p.map((v) => v.toFixed(2))} revert at ${(w.machine('revert-crew') as RevertView).x.toFixed(2)},${(w.machine('revert-crew') as RevertView).z.toFixed(2)} h ${(w.machine('revert-crew') as RevertView).heading.toFixed(2)} fetch ${w.motion('fetch')!.pose.p.map((v) => v.toFixed(2))} ${w.crew('fetch')?.state}`);
+        heals++;
+        swept.push(e.part);
+      }
     }
     if (process.env.TRAFFIC_DBG && (i % 120 === 0 || (i > 1900 && i < 2150 && i % 6 === 0))) {
       const rv = w.machine('revert-crew') as RevertView;
@@ -91,11 +102,12 @@ async function session(seed: number, patchAt?: Vec3, crateAt?: (r: ReturnType<ty
     const fb = fetchBox(w);
     const pb = patchBox(w);
     if (fb && overlap(rb, fb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Fetch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${fb.x.toFixed(2)},${fb.z.toFixed(2)} (${w.crew('fetch')?.state})`);
-    if (pb && overlap(rb, pb)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
+    // (the first second after the visitor lets go of Patch: it may be dropped against Revert; they part at once)
+    if (pb && overlap(rb, pb) && i >= steps(1)) overlaps.push(`${(i / HZ).toFixed(1)}s Revert/Patch at ${rb.x.toFixed(2)},${rb.z.toFixed(2)} (${(w.machine('revert-crew') as RevertView).state}) / ${pb.x.toFixed(2)},${pb.z.toFixed(2)} (${(w.machine('patch') as PatchView).state})`);
   }
-  if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${w.crew('fetch')?.state}`);
+  if (process.env.TRAFFIC_DBG) process.stderr.write(`\nseed ${seed} end: ${CRATES.map((id) => `${id} ${w.part(id)!.location.at}/${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(1)).join(',')}`).join(' | ')} revert ${(w.machine('revert-crew') as RevertView).state} fetch ${JSON.stringify(w.crew('fetch')).slice(0, 600)}`);
   w.dispose();
-  return { fed, overlaps, heals };
+  return { fed, overlaps, heals, swept, padCrate };
 }
 
 describe('the robots\' routes while the bench heals', () => {
@@ -126,4 +138,76 @@ describe('the robots\' routes while the bench heals', () => {
     process.stderr.write(`\n${report.join('\n')}\n`);
     expect(bad, report.join('\n')).toBe(0);
   }, 900_000);
+
+  test('seed 16 (five handled crates, one on Revert\'s hatch, nothing Fetch may take): it heals at a cap of five loose crates and of six (Revert knocks the crate on its hatch in)', async () => {
+    const T = DOCK_TUNING as { looseMax: number };
+    const was = T.looseMax;
+    const report: string[] = [];
+    try {
+      for (const cap of [5, 6]) {
+        T.looseMax = cap;
+        const s = await session(16);
+        report.push(`cap ${cap}: fed ${s.fed === null ? 'NEVER' : `${s.fed.toFixed(0)} s`}, heals ${s.heals}, overlaps ${s.overlaps.length}`);
+        expect(s.fed, report.join('; ')).not.toBeNull();
+        expect(s.overlaps).toEqual([]);
+      }
+    } finally {
+      T.looseMax = was;
+    }
+    process.stderr.write(`\nseed 16: ${report.join('; ')}\n`);
+  }, 600_000);
+
+  test('a handled crate left on Fetch\'s pad while Fetch starves: Revert sweeps it like any other, sharing the pad with Fetch waiting at its stand (never an overlap), and the belt is fed again', async () => {
+    let n = 0;
+    // the first crate the visitor handles goes on the pad, the rest into the back-left corner
+    const s = await session(200, undefined, () => (n++ === 0 ? [AT.pad[0], 0, AT.pad[1]] : [-8.2 + 0.7 * (n % 2), 0, -4.2 + 0.7 * Math.floor(n / 2)]));
+    process.stderr.write(`\npad: crate on the pad ${s.padCrate}; swept ${s.swept.join(', ')}; fed ${s.fed}; overlaps ${s.overlaps.length}${s.overlaps.length ? `: ${s.overlaps[0]}` : ''}\n`);
+    expect(s.padCrate).not.toBeNull();
+    expect(s.swept).toContain(s.padCrate);
+    expect(s.overlaps).toEqual([]);
+    expect(s.fed).not.toBeNull();
+  }, 600_000);
+
+  test('a handled crate set down on Revert\'s track between it and its target: it is swept first, then the target, and Revert never sets off and gives up behind it more than once', async () => {
+    const w = await benchWorld('traffic-track', { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(steps(20));
+    const TARGET: Vec3 = [2.3, 0, -0.3];
+    const ON_TRACK: Vec3 = [-3.7, 0, -1.58];
+    let n = 0;
+    let target: Id | null = null;
+    let blocker: Id | null = null;
+    for (let k = 0; k < 16; k++) {
+      const fresh = CRATES.filter((id) => w.mode(id) === 'free' && w.part(id)!.location.at === 'rest' && !w.touched(id));
+      const busy = CRATES.some((id) => ['machine', 'chute', 'crew'].includes(w.mode(id) ?? ''));
+      if (!fresh.length && !busy && k > 2) break;
+      for (const id of fresh) {
+        const i = n++;
+        const to: Vec3 = i === 0 ? TARGET : i === 1 ? ON_TRACK : [-8.2 + 0.7 * (i % 2), 0, -4.2 + 0.7 * Math.floor(i / 2)];
+        if (i === 0) target = id;
+        if (i === 1) blocker = id;
+        putOn(w, t, id, to);
+        t.run(steps(0.5));
+      }
+      t.run(steps(4));
+    }
+    expect(target && blocker).toBeTruthy();
+    if (process.env.TRAFFIC_DBG) process.stderr.write(`\nTRACK at start: ${CRATES.map((id) => `${id} ${w.mode(id)}${w.touched(id) ? '*' : ''}@${w.motion(id)!.pose.p.map((v) => v.toFixed(2))}`).join(' | ')}\n`);
+    const swept: Id[] = [];
+    let gaveUp = 0;
+    const r = (): RevertView => w.machine('revert-crew') as RevertView;
+    for (let i = 0; i < steps(150) && !swept.includes(target!); i++) {
+      if (process.env.TRAFFIC_DBG && i % 15 === 0 && i > steps(13) && i < steps(40)) process.stderr.write(`\nP ${(i / HZ).toFixed(2)} ${r().state} @${r().x.toFixed(2)},${r().z.toFixed(2)} h${r().heading.toFixed(2)} crate-2 ${w.motion('crate-2')!.pose.p.map((v) => v.toFixed(2))} ${w.mode('crate-2')}`);
+      for (const e of t.run(1)) {
+        if (e.type === 'revert.sweep' && e.to.at === 'rest') swept.push(e.part);
+        if (process.env.TRAFFIC_DBG && e.type === 'crew.state' && e.id === 'revert') process.stderr.write(`\nT ${(i / HZ).toFixed(1)} ${e.from}->${e.state} @${r().x.toFixed(2)},${r().z.toFixed(2)} h${r().heading.toFixed(2)} crate-2 ${w.motion('crate-2')!.pose.p.map((v) => v.toFixed(2))}`);
+        if (e.type === 'crew.state' && e.id === 'revert' && e.from === 'trundle' && e.state === 'idle' && Math.hypot(r().x - REVERT_HOME[0], r().z - REVERT_HOME[1]) > 0.1) gaveUp++;
+      }
+    }
+    process.stderr.write(`\ntrack: target ${target}, on the track ${blocker}; swept in order ${swept.join(', ')}; trips given up ${gaveUp}\n`);
+    expect(swept.indexOf(blocker!)).toBeGreaterThanOrEqual(0);
+    expect(swept.indexOf(blocker!)).toBeLessThan(swept.indexOf(target!));
+    expect(gaveUp).toBeLessThanOrEqual(1);
+    w.dispose();
+  }, 600_000);
 });
