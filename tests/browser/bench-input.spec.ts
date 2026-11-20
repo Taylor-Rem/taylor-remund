@@ -1073,6 +1073,7 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
       if (i.type === 'place' || i.type === 'grab') (window as any).__i1release = [i.type];
       if (i.type === 'release') {
         (window as any).__i1release = i.velocity;
+        (window as any).__i1releaseT = performance.now();
         // where it was let go from (the held part's body at that moment)
         const h = w.holding();
         (window as any).__i1from = h ? w.motion(h.id)?.pose.p : null;
@@ -1260,6 +1261,7 @@ async function crewThrows(page: Page, hand: ThrowHand, out: Record<string, strin
       const ws = w.__bench.ws;
       const rec: any[] = (w.__i1track = []);
       const t0 = performance.now();
+      w.__i1trackT = t0;
       w.__i1track0 = who === 'patch' ? ws.world.crewView('patch').view.at : ws.world.motion(who).pose.p;
       const look = () => {
         if (w.__i1track !== rec) return;
@@ -1276,8 +1278,38 @@ async function crewThrows(page: Page, hand: ThrowHand, out: Record<string, strin
       };
       look();
     }, who);
-  const record = () => page.evaluate(() => ({ rec: (window as any).__i1track as any[], p0: (window as any).__i1track0 as number[] }));
+  /** What was recorded from the release on (tracking starts before the press), and where the release was. */
+  const record = () =>
+    page.evaluate(() => {
+      const w = window as any;
+      const all = (w.__i1track ?? []) as any[];
+      const rel = typeof w.__i1releaseT === 'number' && w.__i1releaseT >= w.__i1trackT ? w.__i1releaseT - w.__i1trackT : Infinity;
+      const after = all.findIndex((x) => x.t >= rel);
+      const rec = after < 0 ? [] : all.slice(after);
+      // where it was let go: the last look before the release (the body in the hand)
+      const p0 = (all[Math.max(0, after - 1)] ?? all[0])?.p ?? null;
+      return { rec: rec.map((x) => ({ ...x, t: x.t - rel })), p0: p0 as number[], released: after >= 0 };
+    });
   const stop = () => page.evaluate(() => ((window as any).__i1track = null));
+  /** A failed wait's account: the states in order, where it is and what it is doing now, when tracking began. */
+  const account = async (who: string) => {
+    const { rec } = await record();
+    const now = await page.evaluate((who) => {
+      const w = window as any;
+      const ws = w.__bench.ws;
+      const v = who === 'patch' ? ws.world.crewView('patch').view : { state: ws.world.crew(who)?.state, at: ws.world.motion(who).pose.p };
+      return { state: v.state, at: v.at, began: w.__i1trackT - w.__i1releaseT };
+    }, who);
+    const all = await page.evaluate(() => ((window as any).__i1track ?? []) as any[]);
+    const rel = -now.began;
+    const around = all.filter((x) => x.t >= rel - 120 && x.t <= rel + 700).map((x) => `${(x.t - rel).toFixed(0)}ms ${x.state} ${fmt(x.p)}`);
+    return `states since the release ${statesOf(rec).join('>')} (all ${statesOf(all).join('>')}); now ${now.state} at ${fmt(now.at)}; tracking began ${rel.toFixed(0)} ms before the release; around the release: ${around.join(' | ')}`;
+  };
+  const failWith = (who: string) => async (e: unknown) => {
+    const a = await account(who);
+    console.log(`[I1] R4 ${who} not home: ${a}`);
+    throw new Error(`${String(e)}; ${a}`);
+  };
   const fmt = (v: number[]) => JSON.stringify(v.map((n) => +n.toFixed(2)));
   const statesOf = (rec: any[]) => rec.map((r) => r.state).filter((x, i, a) => i === 0 || a[i - 1] !== x);
 
@@ -1285,22 +1317,22 @@ async function crewThrows(page: Page, hand: ThrowHand, out: Record<string, strin
   {
     const fx = await page.evaluate(() => (window as any).__bench.ws.world.motion('fetch').pose.p[0] as number);
     const dir: [number, number] = [fx > 0 ? -1 : 1, 0];
-    const r = await hand(dir, 1.2, 100, 0, 10, 'fetch');
     await track('fetch');
+    const r = await hand(dir, 1.2, 100, 0, 10, 'fetch');
     // back at work: on its wheels (the crew's body again, upright), not held, not on its jets, not still shaking off
     const back = (x: any) => x.mode === 'crew' && x.up > 0.97 && !['held', 'jetpack', 'shrug'].includes(x.state);
     await pollFrames(page, async () => {
       const { rec } = await record();
       const flew = rec.findIndex((x) => x.mode !== 'crew');
       return flew >= 0 && rec.slice(flew).some(back);
-    }, 1200, 'Fetch back at work').toBe(true);
+    }, 1200, 'Fetch back at work').toBe(true).catch(failWith('fetch'));
     const { rec, p0 } = await record();
     await stop();
     const flew = rec.findIndex((x) => x.mode !== 'crew');
     const home = rec.slice(flew).find(back);
     const far = Math.max(...rec.map((x) => Math.hypot(x.p[0] - p0[0]!, x.p[2] - p0[2]!)));
     const tumble = Math.max(...rec.map((x) => 1 - x.up));
-    const secs = (home.t - rec[0]!.t) / 1000;
+    const secs = home.t / 1000;
     out['Fetch'] = `velocity ${fmt(r.v ?? [])}; flew ${far.toFixed(2)} units, tumbled ${tumble.toFixed(2)}; states ${statesOf(rec).join('>')}; upright at its tape ${secs.toFixed(1)} s after the release (${r.gaps})`;
     console.log(`[I1] R4 crew ${JSON.stringify(out)}`);
     expect(flew, 'Fetch flies (a free body, not the crew one)').toBeGreaterThanOrEqual(0);
@@ -1310,19 +1342,19 @@ async function crewThrows(page: Page, hand: ThrowHand, out: Record<string, strin
   // Patch off its stool toward the front-left: it flies, lands, and is back on its stool
   {
     await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
-    const r = await hand([-Math.SQRT1_2, Math.SQRT1_2], 1.2, 100, 0, 10, 'patch');
     await track('patch');
+    const r = await hand([-Math.SQRT1_2, Math.SQRT1_2], 1.2, 100, 0, 10, 'patch');
     await pollFrames(page, async () => {
       const st = statesOf((await record()).rec);
       return st.includes('fly') && st.at(-1) === 'seated';
-    }, 3600, 'Patch back on its stool').toBe(true);
+    }, 3600, 'Patch back on its stool').toBe(true).catch(failWith('patch'));
     const { rec, p0 } = await record();
     await stop();
     const st = statesOf(rec);
     const far = Math.max(...rec.map((x) => Math.hypot(x.p[0] - p0[0]!, x.p[2] - p0[2]!)));
     const flyAt = rec.findIndex((x) => x.state === 'fly');
     const seated = rec.slice(flyAt).find((x) => x.state === 'seated');
-    out['Patch'] = `velocity ${fmt(r.v ?? [])}; flew ${far.toFixed(2)} units; states ${st.join('>')}; on its stool ${((seated.t - rec[0]!.t) / 1000).toFixed(1)} s after the release (${r.gaps})`;
+    out['Patch'] = `velocity ${fmt(r.v ?? [])}; flew ${far.toFixed(2)} units; states ${st.join('>')}; on its stool ${(seated.t / 1000).toFixed(1)} s after the release (${r.gaps})`;
     console.log(`[I1] R4 crew ${JSON.stringify(out)}`);
     expect(st.slice(0, 2), 'Patch flies from the hand').toContain('fly');
     expect(st, 'and lands').toContain('land');
