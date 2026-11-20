@@ -89,7 +89,8 @@ describe('Fetch\'s jetpack', () => {
     ['off the front edge', [-1.0, 1.5, b.maxZ + 0.6], [0, 0, 2]],
     ['off the left end', [b.minX - 0.6, 1.5, 1.0], [-2, 0, 0]],
     ['off the right end', [b.maxX + 0.6, 3.4, 1.5], [2, 0, 0]],
-    ['over the back wall', [-1.0, 7.5, b.minZ + 0.6], [0, 1, -4]],
+    // (not over the back wall: its body stands 9 high since 2026-11-20, above the top of the lift, so Fetch let go
+    // there meets the wall and comes down on the bench: throw-up.test.ts, "at the back wall")
     ['thrown from far out', [b.maxX + 0.9, 3, b.maxZ + 0.9], [6, 3, 6]],
   ];
   test.each(cases)('%s: it flies back and is rolling on its tape within five seconds of leaving the edge', async (_name, to, velocity) => {

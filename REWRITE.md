@@ -987,7 +987,11 @@ anything, nobody left on their back. A throw up is at most twelve units a
 second for a small crate (it rises about four and a half and is back in a
 second and a half) and never carries anything past seven units; a hard
 flick up from the middle of the bench leans back and meets the back wall
-well up. What leaves the bench, on any side and at any height, is thrown
+well up. Nothing goes over the back wall: its body stands above anything
+a hand can lift or throw a thing to (the drawn wall runs on up out of the
+picture, so "over" would be through the boards), and Patch meets it no
+more than five units up, where the whole of it shows. What leaves the
+bench, on its front or its ends, is thrown
 back up the chute onto the pad or beside it; what comes to rest up high
 where no hand reaches goes home the same way. *Feedback:* its note, its shadow,
 the crew's eyes. *Reset:* what leaves the bench comes back up the chute;

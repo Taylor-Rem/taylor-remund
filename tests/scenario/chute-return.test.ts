@@ -40,7 +40,8 @@ function backAndStill(w: World, t: Tape, id: string, max = 12): { at: Vec3 | nul
 
 const EDGES: [string, Vec3, Vec3][] = [
   ['the front', [0.5, 1.5, 4.2], [0, 0, 1]],
-  ['the back (over the wall: it stands 6 high)', [-3, 7, -4.2], [0, 0.2, -1]],
+  // (not the back: the wall's body stands 9 high since 2026-11-20, above anything a hand can lift or throw a thing
+  // to, so nothing leaves the bench that way: throw-up.test.ts, "at the back wall", holds it to that)
   ['the left end', [-8.2, 1.5, 0], [-1, 0, 0]],
   ['the right end', [8.2, 1.5, 1.5], [1, 0, 0]],
 ];

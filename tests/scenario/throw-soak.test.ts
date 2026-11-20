@@ -59,7 +59,7 @@ function plan(seed: number, w: World): Throw {
   const r = rng(`throw-soak-${seed}`);
   const THROWN_IDS = [...LOOSE, 'patch'];
   const id = THROWN_IDS[r.int(THROWN_IDS.length)] as string;
-  // (R4) from anywhere up to the top of the carry (a grip height of 7.5, over the back wall's top): mostly bench height, one in four high
+  // (R4) from anywhere up to the top of the carry (a grip height of 7.5; the back wall's body stands above it): mostly bench height, one in four high
   const from: [number, number, number] = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 7.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
   const cap = LOOSE_TUNING.throwMax * 1.05; // a little over: the world clamps it
   const k = r.int(10);
