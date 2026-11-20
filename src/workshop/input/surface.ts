@@ -121,26 +121,31 @@ class Aim {
 }
 
 /**
- * Tune here: the plane a flick up the screen is read on leans back from upright by this share of the line of
- * sight's own tilt. 1 is square to the line of sight (a flick up the screen goes up and as far back as the camera
- * looks down: thrown high it slams the back wall); 0 is upright (straight up: juggling in place, but the wall out of
- * reach). Between: up, drifting back a little, the wall in reach of a hard flick.
+ * Tune here: how a flick up the screen leaves the hand. It is read on an upright plane through where the hand took
+ * hold, square to the line of sight across the bench: up the screen is straight up, so a gentle flick goes up and
+ * comes back down where it went up (Taylor: "throwing them up then catching them and back up again like juggling").
+ * A hard one leans back the way the camera looks down, so it goes up and back and meets the back wall well up ("it
+ * can be fun to throw them against the back wall too"): no lean below `from` u/s, all of the line of sight's tilt
+ * from `full` u/s, eased between.
  */
-export const FACING_TILT = 0.5;
+export const UP_FLICK = { from: 9, full: 20 } as const;
 
-/** The plane through `p` facing a camera at `eye` (leaning back by `FACING_TILT` of the line of sight's tilt), and world up projected into it (normalised). */
-function facingAt(eye: Vec3, p: Vec3, tilt = FACING_TILT): { p: Vec3; n: Vec3; up: Vec3 } | null {
+/** The upright plane through `p` square to the line of sight from `eye` across the bench, its up (world up), and the line of sight's downward tilt. */
+function facingAt(eye: Vec3, p: Vec3): { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null {
   const d: Vec3 = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
   const hl = Math.hypot(d[0], d[2]);
   if (hl < 1e-6) return null;
-  const down = Math.atan2(-d[1], hl) * tilt;
+  const pitch = Math.atan2(-d[1], hl);
+  const down = 0;
   const n: Vec3 = [(d[0] / hl) * Math.cos(down), -Math.sin(down), (d[2] / hl) * Math.cos(down)];
   const k = n[1];
   const up: Vec3 = [-k * n[0], 1 - k * n[1], -k * n[2]];
   const ul = Math.hypot(up[0], up[1], up[2]);
   if (ul < 1e-6) return null;
-  return { p, n, up: [up[0] / ul, up[1] / ul, up[2] / ul] };
+  return { p, n, up: [up[0] / ul, up[1] / ul, up[2] / ul], pitch };
 }
+
+const smooth = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
@@ -149,11 +154,10 @@ export function createSurface(deps: SurfaceDeps): Surface {
   /** The surface's slope under the hand at its last sample (0 level, π/2 upright). */
   let handTheta = 0;
   /**
-   * The plane through where the hand took hold that faces the camera (its normal the line of sight there), and the
-   * screen's up in it (world up less its part along the line of sight: partly up, partly back): a flick up the
-   * screen is read on it.
+   * The upright plane through where the hand took hold, square to the line of sight across the bench; its up (world
+   * up) and the line of sight's downward tilt: a flick up the screen is read on it (`UP_FLICK`).
    */
-  let facing: { p: Vec3; n: Vec3; up: Vec3 } | null = null;
+  let facing: { p: Vec3; n: Vec3; up: Vec3; pitch: number } | null = null;
   let carried: {
     id: Id;
     what: HeldKind | 'aim';
@@ -351,7 +355,17 @@ export function createSurface(deps: SurfaceDeps): Surface {
       // the line of sight sees up (and meets the back wall well up when thrown that way).
       if (facing && onFacing) {
         const u = onFacing[0] * facing.up[0] + onFacing[1] * facing.up[1] + onFacing[2] * facing.up[2];
-        if (u > 0) return onFacing;
+        if (u > 0) {
+          // a hard flick leans back by the line of sight's tilt (eased in with speed): at the back wall
+          const sp = Math.hypot(onFacing[0], onFacing[1], onFacing[2]);
+          const k = smooth((sp - UP_FLICK.from) / (UP_FLICK.full - UP_FLICK.from));
+          const a = k * facing.pitch;
+          const h = Math.hypot(facing.n[0], facing.n[2]) || 1;
+          const bx = facing.n[0] / h;
+          const bz = facing.n[2] / h; // away from the camera, level
+          const vy = onFacing[1];
+          return [onFacing[0] + vy * Math.sin(a) * bx, vy * Math.cos(a), onFacing[2] + vy * Math.sin(a) * bz];
+        }
       }
       // Down the screen or level: read on the surface it rides, unrolled (x, -, s), put back in the world where it let
       // go: toward the room (s rising) is outward, as on the bench; away from the room runs along the surface there

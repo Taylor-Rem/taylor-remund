@@ -153,3 +153,43 @@ describe('the first action ends attract mode; a hover does not', () => {
     expect(w.attract().on).toBe(false);
   });
 });
+
+describe('surface: a flick up the screen throws up (Taylor, 2026-11-20)', () => {
+  /** A camera up and in front of the bench, as the home view's. */
+  const cam = (x: number, y: number): RayLike => {
+    const d = [x / 1000, -0.55 - y / 1000, -1];
+    const n = Math.hypot(d[0]!, d[1]!, d[2]!);
+    return { origin: [0, 9, 14], dir: [d[0]! / n, d[1]! / n, d[2]! / n] };
+  };
+  const carrying = () => {
+    const s = surface(world(), cam);
+    s.beginCarry('crate-1', 'part', [-3, 1, 0.8], 0);
+    return s;
+  };
+
+  it('a gentle flick up is straight up (juggling: it comes down where it went up)', () => {
+    const v = carrying().throwFrom!([0, 0, -2], [0, 7, 0]);
+    expect(v[1]).toBeCloseTo(7, 6);
+    expect(Math.hypot(v[0], v[2])).toBeLessThan(1e-9);
+  });
+
+  it('a hard flick up leans back the way the camera looks down: up and back, at the wall', () => {
+    const v = carrying().throwFrom!([0, 0, -10], [0, 25, 0]);
+    expect(Math.hypot(v[0], v[1], v[2])).toBeCloseTo(25, 6);
+    expect(v[2]).toBeLessThan(-8);
+    expect(v[1]).toBeGreaterThan(15);
+  });
+
+  it('a flick down the screen is read on the surface: toward the room, not into the bench', () => {
+    const v = carrying().throwFrom!([1, 0, 9], [1, -6, 0]);
+    expect(v).toEqual([1, 0, 9]);
+  });
+
+  it('the hand on the upright plane through the grip, square to the line of sight across the bench', () => {
+    const s = carrying();
+    const a = s.handFacing!(0, 0)!;
+    const b = s.handFacing!(0, -100)!; // up the screen
+    expect(b[1]).toBeGreaterThan(a[1]);
+    expect(b[2]).toBeCloseTo(a[2], 6);
+  });
+});

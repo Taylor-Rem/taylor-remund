@@ -2,10 +2,13 @@
  * Where a carried thing heads for (W2 brief § 2 "Carry target"): the pointer
  * ray meets a surface, and that point is the `carry` target for the grip.
  *
- * - A loose part rides a horizontal plane: its bottom a comfortable height
- *   (`clearance`) above whatever is under it, so the plane rises smoothly
- *   over tall things (eased, faster up than down) and the grip point stays
- *   on the pointer's ray, i.e. under the cursor, as far as the spring allows.
+ * - A loose part (or Fetch, or a unit) rides a surface that is level over the
+ *   bench, its bottom a comfortable height (`clearance`) above whatever is
+ *   under it, so it rises smoothly over tall things (eased, faster up than
+ *   down); near the back it curves up into an upright face in front of the
+ *   wall (`surfaceHit`), so raising the pointer further lifts the thing
+ *   instead of pushing it into the wall. The grip point stays on the
+ *   pointer's ray, i.e. under the cursor, as far as the spring allows.
  * - The cord's plug rides a vertical plane just in front of the board, so it
  *   slides over the jacks the way a hand would hold it.
  *
@@ -153,11 +156,23 @@ export function surfaceHit(ray: RayLike, h: number, z0: number, r: number, top: 
   if (dz < -1e-6) {
     const t = (zv - oz) / dz;
     const p = at(Math.max(0, t));
-    const y = Math.min(top, Math.max(h + r, p[1]));
-    return { p: [p[0], y, zv], s: base - (y - h - r), theta: Math.PI / 2 };
+    if (p[1] <= top) {
+      const y = Math.max(h + r, p[1]);
+      return { p: [p[0], y, zv], s: base - (y - h - r), theta: Math.PI / 2 };
+    }
   }
-  // a ray that never comes back to the surface (above the horizon, looking forward): the top of the face
-  return { p: [ox, top, zv], s: base - (top - h - r), theta: Math.PI / 2 };
+  // above the top of the face (a camera that sees higher, the phone's): a ceiling at `top` running back toward the
+  // camera, so the thing stays under the pointer (a corner here, not a fillet: it is reached only at the very top)
+  if (Math.abs(dy) > 1e-6 && (top - oy) / dy > 0) {
+    // (looking down at it from above, or up at it from a camera below it)
+    const t = (top - oy) / dy;
+    const p = at(t);
+    if (p[2] >= zv) return { p: [p[0], top, p[2]], s: base - (top - h - r) - (p[2] - zv), theta: Math.PI };
+  }
+  // a ray that passes over the top of the face and meets nothing of the surface (the pointer above the highest a
+  // thing may be carried, seen from high up): the top of the face, below where the ray crosses it
+  const tz = Math.abs(dz) > 1e-6 ? (zv - oz) / dz : 0;
+  return { p: [tz > 0 ? ox + dx * tz : ox, top, zv], s: base - (top - h - r), theta: Math.PI / 2 };
 }
 
 /**
