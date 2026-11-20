@@ -266,10 +266,11 @@ describe('nothing stays where no hand and no robot can reach', () => {
 });
 
 describe('at the back wall (I1, 2026-11-20: a crate flicked hard up the screen ended behind the wall)', () => {
-  // every part fired at the wall at the caps from 0.5, 2 and 6 away, level and 45 degrees up: from the bench's floor part of
-  // the carry never through it and never over it; from the raised part (5.3) over it by design, and then home by the chute
+  // every part fired at the wall at the caps from 0.5, 2 and 6 away, level and 45 degrees up, from the bench's floor part
+  // of the carry and from the raised part (5.3, 7.3): never through it and never over it (the wall's body stands above
+  // anything a hand can lift or throw a thing to: the drawn wall runs on up, so "over" was through the boards)
   for (const id of ['crate-1', 'crate-2', 'crate-3', 'fetch', 'revert'] as const) {
-    test(`${id}: never through the wall; over it only from high up, and then home`, async () => {
+    test(`${id}: never through the wall and never over it, from any height a hand can reach`, async () => {
       const report: string[] = [];
       for (const away of [0.5, 2, 6]) {
         for (const [ang, y] of [[0, 1.2], [45, 1.2], [0, 2.2], [45, 2.2], [0, 5.3], [45, 5.3], [0, 7.3], [45, 7.3]] as const) {
@@ -299,7 +300,7 @@ describe('at the back wall (I1, 2026-11-20: a crate flicked hard up the screen e
             const m = w.motion(id)!;
             if (m.mode === 'free' && m.pose.p[2] < -5.3) behindAt = Math.max(behindAt, m.pose.p[1]);
           }
-          if (y < 3 && behindAt > -Infinity) report.push(`${away} away, ${ang} deg from ${y}: behind the wall at y ${behindAt.toFixed(2)}`);
+          if (behindAt > -Infinity) report.push(`${away} away, ${ang} deg from ${y}: behind the wall at y ${behindAt.toFixed(2)}`);
           // whatever happened: within ten more seconds it is back on the bench (or Fetch at work, Revert gone home)
           t.run(steps(10));
           const p = w.motion(id)!.pose.p;

@@ -234,6 +234,36 @@ describe('Patch thrown (R4)', () => {
     expect(f.states.at(-1)).toBe('seated');
   }, 60_000);
 
+  // R5 (Taylor, 2026-11-20: "it can be fun to throw them against the back wall too"): flicked hard up the screen from
+  // the top of a lift it goes up and back, and met the wall above where the wall's body used to end (6): it sailed
+  // over and came down at the wall's foot. The wall stands above anything it can reach; from high it slides faster.
+  for (const [from, v] of [[[-3.5, 1.6, 0.8], [0, 27, -15.3]], [[-3.5, 4.2, 0.8], [0, 27, -15.3]], [[-6, 6.8, -1], [0, 2, -12]]] as const) {
+    test(`thrown up and back from ${from[1]} up: it meets the wall well up, sticks, slides down and sits, in under three seconds`, async () => {
+      const w = await benchWorld(1);
+      const t = tape(w);
+      t.run(20);
+      throwFrom(w, t, [...from], [...v]);
+      const seen: string[] = [];
+      let metAt = -1, top = 0, downAfter = -1, minZ = Infinity;
+      for (let i = 0; i < 6 * HZ; i++) {
+        t.run(1);
+        const pv = patchView(w);
+        if (seen.at(-1) !== pv.state) seen.push(pv.state);
+        top = Math.max(top, pv.at[1]);
+        minZ = Math.min(minZ, pv.at[2]);
+        if (pv.state === 'wall' && metAt < 0) metAt = pv.at[1];
+        if (pv.state === 'wall') downAfter = pv.stateTime;
+      }
+      expect(seen.slice(0, 3), seen.join('>')).toEqual(['fly', 'wall', 'land']);
+      expect(metAt, 'well up the wall (above where it left the hand, or above where the wall\'s body used to end)').toBeGreaterThan(Math.min(from[1] + 0.5, 6));
+      expect(top, 'never past the top of its flight').toBeLessThanOrEqual(T.topMid + 0.01);
+      expect(minZ, 'never into the wall').toBeGreaterThan(-5 + T.bodyR * 0.8);
+      expect(downAfter, 'the slide is over in time').toBeLessThan(3);
+      const f = watch(w, t, 30);
+      expect(f.states.at(-1)).toBe('seated');
+    }, 60_000);
+  }
+
   test('the sound of a throw: thrown, landed (and gone and back up the chute off the bench), each with its speed', async () => {
     const w = await benchWorld(1);
     const t = tape(w);

@@ -184,6 +184,8 @@ export const PATCH_TUNING = {
   stick: 0.35,
   slideDown: 1.6,
   slideMin: 0.4,
+  /** R5: from high on the wall it comes down faster, so the slide is never much longer than this (s) once it is moving. */
+  slideMost: 1.4,
 } as const;
 
 export interface PatchSpec {
@@ -1644,7 +1646,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           // (a slide that reads even from low on the wall: it takes at least `slideMin` seconds to the bench)
           if (walled && walled.slideFrom === undefined) walled.slideFrom = at[1];
           const drop = Math.max(0.05, (walled?.slideFrom ?? at[1]) - (ctx.scene.bench.top + T.restMid));
-          const v = Math.min(T.slideDown, (t - T.stick) * 4, drop / T.slideMin + 0.05);
+          const v = Math.min(Math.max(T.slideDown, drop / T.slideMost), (t - T.stick) * 4, drop / T.slideMin + 0.05);
           const ny = at[1] - v / HZ;
           if (ny <= ctx.scene.bench.top + T.restMid) {
             const w = walled;

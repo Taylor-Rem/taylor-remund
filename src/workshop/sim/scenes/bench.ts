@@ -50,7 +50,12 @@ const DEG = Math.PI / 180;
 export const AT = {
   /** 18 × 10 (ART-P2 § 2). */
   bench: { minX: -9, maxX: 9, minZ: -5, maxZ: 5 },
-  backWall: { c: [0, 3, -5.15], half: [10.5, 3, 0.15] } as Box,
+  /**
+   * The wall behind the bench: its body stands 9 high, above anything a hand can lift (7.5) or throw (7.2) a thing to,
+   * so nothing passes over it (the drawn wall runs on up out of the picture; at 6 high a crate thrown from the top of
+   * the lift went through the drawn boards, and Patch thrown up and back sailed over instead of meeting it).
+   */
+  backWall: { c: [0, 4.5, -5.15], half: [10.5, 4.5, 0.15] } as Box,
 
   // ── the back row: board, stool (the tool wall, lamp, sign and window hang on the wall: no bodies) ──
   /**

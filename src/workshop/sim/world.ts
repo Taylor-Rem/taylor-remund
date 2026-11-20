@@ -55,8 +55,8 @@ export function throwCap(mass: number): number {
  * R4 (Taylor: "you should be able to throw them up ... like juggling"): a release velocity clamped for a part of this
  * mass let go at height `y` (its centre, world units): the level part to `throwCap(mass)`; downward to the same; upward
  * to `upMax` scaled by mass as the throw is (a small crate 12 u/s: about 4.5 up in about 0.75 s, back down in 1.5), and
- * never so fast that its centre would rise past `upApex` (under the scene's 8-unit ceiling with room; from the bench,
- * under the 6-unit back wall's top as well).
+ * never so fast that its centre would rise past `upApex` (under the scene's 8-unit ceiling with room, and under the
+ * top of the back wall's body, which stands 9 high so that nothing goes over it).
  */
 export function clampThrow(v: Vec3, mass: number, y: number, gravity: number): Vec3 {
   const T = LOOSE_TUNING;
