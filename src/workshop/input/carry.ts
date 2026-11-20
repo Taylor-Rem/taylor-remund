@@ -350,7 +350,7 @@ export function heldUp(ray: RayLike, anchor: Vec3, forward: Vec3 | null = null):
   return [x, y, anchor[2]];
 }
 
-export const UP_HOLD = { speed: 300, reach: 8, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
+export const UP_HOLD = { speed: 300, reach: 5, ratio: 1.5, rise: 0, fall: 0.15, window: 50, still: 60, flick: 160 } as const;
 
 export class UpHold {
   private readonly hist: { t: number; x: number; y: number }[] = [];
