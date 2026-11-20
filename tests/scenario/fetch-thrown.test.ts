@@ -82,16 +82,17 @@ describe('Fetch thrown', () => {
     let shook = false;
     let back = -1;
     for (let i = 0; i < 10 * HZ && back < 0; i++) {
-      for (const e of t.run(1)) if (e.type === 'crew.state' && e.id === 'fetch' && e.state === 'shrug') shook = true;
+      // it shakes itself off where it lies, or (come down where it cannot stand) hops off it on its jets first
+      for (const e of t.run(1)) if (e.type === 'crew.state' && e.id === 'fetch' && (e.state === 'shrug' || e.state === 'jetpack')) shook = true;
       const m = w.motion('fetch')!.pose;
       maxSpeed = Math.max(maxSpeed, Math.hypot(m.p[0] - prev.p[0], m.p[2] - prev.p[2]) * HZ);
       spin = Math.max(spin, 1 - upY(m.q));
       prev = m;
-      if (shook && backAtWork(w) && w.crew('fetch')!.state !== 'shrug') back = i / HZ;
+      if (shook && backAtWork(w) && w.crew('fetch')!.state !== 'shrug' && w.crew('fetch')!.state !== 'return') back = i / HZ;
     }
     expect(maxSpeed, 'it keeps its momentum (about the cap for its mass)').toBeGreaterThan(8);
     expect(spin, 'it tumbles').toBeGreaterThan(0.05);
-    expect(shook, 'it shakes itself off').toBe(true);
+    expect(shook, 'it shakes itself off (or hops off what it landed on)').toBe(true);
     expect(back, 'back at work within ten seconds').toBeGreaterThan(0);
     w.dispose();
   }, 60_000);
