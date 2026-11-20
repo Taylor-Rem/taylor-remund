@@ -208,6 +208,7 @@ const camPos = (page: Page) => page.evaluate(() => (window as any).__bench.ws.st
  */
 async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' | 'touch', margin = 1): Promise<Disc> {
   const vp = page.viewportSize()!;
+  let missed = 0;
   for (let k = 0; k < 6; k++) {
     const d = (await screenOf(page, id))!;
     const mx = Math.min(80, vp.width * 0.18) * margin;
@@ -232,6 +233,17 @@ async function bringIntoView(page: Page, hand: Hand, id: string, kind: 'mouse' |
       return Math.hypot(now.focus[0] - v.focus[0], now.focus[2] - v.focus[2]);
     }, was);
     const panned = (await pans(page)) > pans0 || moved > 1e-3;
+    if (!panned) {
+      // what the drag did instead (logged every time; one miss is tried again, as a person whose drag did nothing
+      // drags again; two in a row fail)
+      const did = await page.evaluate(() => {
+        const B = (window as any).__bench;
+        return JSON.stringify({ holding: B.ws.world.holding(), last: B.log.slice(-4).map((l: any) => l.e.type) });
+      });
+      console.log(`[I1] bringIntoView ${id}: a drag from ${JSON.stringify(spot)} to ${JSON.stringify(to)} did not pan: ${did}`);
+      missed++;
+      if (missed < 2) continue;
+    } else missed = 0;
     expect(panned, 'one finger (or the mouse) on empty bench pans').toBe(true);
     if (moved < 1e-3) {
       // at the pan limit: as far as a pan goes at this zoom. On screen is enough; off it is a fault to report
@@ -285,7 +297,13 @@ async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY
     // pressed once it has been plainly there for three looks running (a person waits for the robot to pass)
     streak = r.p ? streak + 1 : 0;
     if (r.p && streak >= 3) return r.p as Disc;
-    if ((await frameNo(page)) - f0 > limit) throw new Error(`${id} never came clear in ${limit} frames (${r.why})`);
+    if ((await frameNo(page)) - f0 > limit) {
+      const at = await page.evaluate((id) => {
+        const w = (window as any).__bench.ws.world;
+        return JSON.stringify({ at: w.part?.(id)?.location ?? null, p: w.motion(id)?.pose.p.map((n: number) => +n.toFixed(2)), mode: w.motion(id)?.mode });
+      }, id);
+      throw new Error(`${id} never came clear in ${limit} frames (${r.why}; it is ${at})`);
+    }
     await page.waitForTimeout(40);
   }
 }
@@ -1039,7 +1057,9 @@ test('R3: the first hover, the first grab and the first press of a visit are eac
 /** A hand whose samples reach the page further apart than this (ms, median) is not a person's: not measured. */
 const COARSE_MS = 25;
 
-async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession): Promise<Record<string, string>> {
+type ThrowHand = (dir: [number, number], d: number, ms: number, pauseMs?: number, dt?: number, who?: string) => Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }>;
+
+async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, which: 'crate' | 'crew' = 'crate'): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const id = 'crate-3';
   const pose = () => page.evaluate((id) => (window as any).__bench.ws.world.motion(id).pose.p as number[], id);
@@ -1070,6 +1090,15 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession):
       { capture: true },
     );
   });
+  /** Where a hand takes hold: a crate's or Fetch's top, Patch's middle. */
+  const topOf = async (who: string): Promise<number[]> => {
+    if (who === 'patch') {
+      const a = await page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.at as number[]);
+      return [a[0]!, a[1]! + 0.6, a[2]!];
+    }
+    const p = await page.evaluate((who) => (window as any).__bench.ws.world.motion(who).pose.p as number[], who);
+    return [p[0]!, p[1]! + 0.2, p[2]!];
+  };
   const sent = () => page.evaluate(() => (window as any).__i1release as number[] | null);
   const releasedFrom = () => page.evaluate(() => (window as any).__i1from as number[]);
   /**
@@ -1078,16 +1107,19 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession):
    * once, or after `pauseMs` of stillness. Returns where it was let go, the velocity sent, the event intervals
    * the page measured.
    */
-  const hand = async (dir: [number, number], d: number, ms: number, pauseMs = 0, dt = 10): Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }> => {
-    await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
+  const hand = async (dir: [number, number], d: number, ms: number, pauseMs = 0, dt = 10, who = id, retries = 2): Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }> => {
+    if (who === id) await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
     // on a phone the crate may have gone out of the frame: a finger pans it back in, as a visitor's would
-    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), id, 'touch');
-    await waitClear(page, id, kind);
-    const p = await pose();
-    const top = [p[0]!, p[1]! + 0.2, p[2]!];
-    // pressed where the crate is plainly what is under the point (nothing of the crew passing over it)
-    const s = await waitClear(page, id, kind, await at(top));
-    const e = await at([top[0]! + dir[0] * d, top[1]!, top[2]! + dir[1] * d]);
+    if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), who, 'touch');
+    await waitClear(page, who, kind);
+    const top = await topOf(who);
+    // pressed where the thing is plainly what is under the point (nothing else of the crew passing over it)
+    // (one of the crew moves and is not a box: pressed at whatever point of it is its own now, the stroke kept parallel)
+    const a = await at(top);
+    // (a crate whose top is hidden behind something, the belt motor's housing say, is pressed where it shows)
+    const s = who === id ? await waitClear(page, who, kind, a, 90).catch(() => waitClear(page, who, kind)) : await waitClear(page, who, kind);
+    const e0 = await at([top[0]! + dir[0] * d, top[1]!, top[2]! + dir[1] * d]);
+    const e = { x: e0.x + s.x - a.x, y: e0.y + s.y - a.y };
     const mouse = (type: string, q: XY) => cdp.send('Input.dispatchMouseEvent', { type, x: q.x, y: q.y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 } as any);
     const touch = (type: string, q: XY | null) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: q ? [{ x: q.x, y: q.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] : [] } as any);
     if (kind === 'mouse') {
@@ -1095,7 +1127,19 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession):
       await frames(page, 2);
       await mouse('mousePressed', s);
     } else await touch('touchStart', s);
-    await pollFrames(page, held, 120).toBe(id);
+    if (who !== id) {
+      // a robot can roll out from under the point between the look and the press: let go and try again (twice)
+      const got = await pollFrames(page, held, 30).toBe(who).then(() => true, () => false);
+      if (!got) {
+        const what = await page.evaluate(() => JSON.stringify((window as any).__bench.ws.world.holding()));
+        console.log(`[I1] R4 ${who}: the press at ${JSON.stringify(s)} took ${what}; again`);
+        if (kind === 'mouse') await mouse('mouseReleased', s);
+        else await touch('touchEnd', null);
+        await frames(page, 30);
+        if (retries > 0) return hand(dir, d, ms, pauseMs, dt, who, retries - 1);
+      }
+    }
+    await pollFrames(page, held, 120).toBe(who);
     await page.evaluate(() => ((window as any).__i1moves = []));
     // each event sent on its own tick, not waiting for the one before to be acknowledged (the round trip is
     // slower than a hand on a busy machine); the page reports the intervals it actually received them at
@@ -1128,6 +1172,9 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession):
     const load = (await import('node:os')).loadavg()[0]!.toFixed(1);
     return { from: await releasedFrom(), v: await sent(), gaps: `${moves.length} events, intervals median ${med.toFixed(1)} ms, max ${(gaps.at(-1) ?? 0).toFixed(1)}, load ${load}`, median: med };
   };
+  /** What the crate last touched (the world's contact list), for a short throw's account. */
+  const touching = () => page.evaluate((id) => JSON.stringify((window as any).__bench.log.filter((l: any) => l.e.type === 'part.hit' && (l.e.id === id || l.e.other === id)).slice(-3).map((l: any) => l.e)), id);
+  if (which === 'crew') return crewThrows(page, hand, out);
   const fmt = (v: (number | string)[] | null) => JSON.stringify(v?.map((n) => (typeof n === "number" ? +n.toFixed(2) : n)));
   // a set-down: carried a little way, held still, let go: it stays where it is put
   {
@@ -1149,38 +1196,138 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession):
     const q = await pose();
     const d = Math.hypot(q[0]! - r.from[0]!, q[2]! - r.from[2]!);
     const coarse = r.median > COARSE_MS;
-    out['firm flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}carried ${d.toFixed(2)} units (velocity ${fmt(r.v)}; ${r.gaps})`;
+    out['firm flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}carried ${d.toFixed(2)} units from ${fmt(r.from)} to ${fmt(q)} (velocity ${fmt(r.v)}; ${r.gaps}; last hits ${await touching()})`;
     console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
     if (coarse) continue;
-    expect.soft(d, 'a firm flick carries it at least 4 units').toBeGreaterThanOrEqual(4);
+    // hard since S5's cap (14 u/s for a small crate): it was soft while the cap was 7.5
+    expect(d, 'a firm flick carries it at least 4 units').toBeGreaterThanOrEqual(4);
     break;
   }
-  // a hard flick off the front edge (+z): about 30 u/s; it leaves the bench and comes back
+  // a hard flick off the left end, a little toward the back (on from where the firm flick left it): about 28 u/s by
+  // the hand, 14 by the world cap. (Not +z, nor straight -x: the firm flick leaves the crate beside the belt motor
+  // housing, x -7.3..-6.0, z 3.3..4.9, 1.26 high, and a crate thrown at that stops against it, as it should.)
+  // It leaves the bench and comes back
+  // First it is carried back 2.5 units and set down: a crate lifted on the phone framing rises toward the camera
+  // (0.7 to 1.9 units of z seen in the runs: the hand's plane is above the bench), which put it back beside the housing.
+  const away: [number, number] = [-0.8, -0.6];
+  await hand([0, -1], 2.5, 400, 250);
   {
     const returned = () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id);
     let before = await returned();
-    let r = await hand([0, 1], 3, 100);
+    let r = await hand(away, 2, 70);
     let left = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
         before = await returned();
-        r = await hand([0, 1], 3, 100);
+        r = await hand(away, 2, 70);
       }
       left = await pollFrames(page, async () => (await pose())[1]! < -0.2, 600, 'off the bench')
         .toBe(true)
         .then(() => true)
         .catch(() => false);
       const coarse = r.median > COARSE_MS;
-      out['hard flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}velocity ${fmt(r.v)}; left the bench: ${left} (${r.gaps})`;
+      out['hard flick'] = `${coarse ? 'hand too coarse, not measured: ' : ''}velocity ${fmt(r.v)}; left the bench: ${left}${left ? '' : `, from ${fmt(r.from)} ended at ${fmt(await pose())} (${await where(id)}), last hits ${await touching()}`} (${r.gaps})`;
       console.log(`[I1] R4 ${kind} ${JSON.stringify(out)}`);
       if (coarse && !left) continue;
       if (!coarse) expect.soft(left, 'a hard flick takes it off the bench').toBe(true);
       break;
     }
     if (left) {
-      await pollFrames(page, () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id), 2400, 'it comes back').toBe(before + 1);
+      await pollFrames(page, returned, 2400, 'it comes back')
+        .toBe(before + 1)
+        .catch(async (e) => {
+          // where it is instead, and what the world said of it since it went
+          const said = await page.evaluate((id) => JSON.stringify((window as any).__bench.log.filter((l: any) => l.e.id === id && l.e.type !== 'part.hit').slice(-8).map((l: any) => l.e)), id);
+          console.log(`[I1] R4 ${kind} not back: at ${fmt(await pose())} (${await where(id)}), said ${said}`);
+          throw e;
+        });
       await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'and comes to rest').toBe(true);
     }
+  }
+  return out;
+}
+
+/**
+ * R4, the crew thrown by mouse (S5's recoveries seen from a hand): Fetch flicked across open bench flies, lands, and
+ * within 10 s is upright at its tape; Patch flicked off its stool toward the front-left flies, lands, and walks
+ * back to its stool. The page records every frame from the release: Fetch's body mode, crew state and uprightness,
+ * Patch's state.
+ */
+async function crewThrows(page: Page, hand: ThrowHand, out: Record<string, string>): Promise<Record<string, string>> {
+  const track = (who: string) =>
+    page.evaluate((who) => {
+      const w = window as any;
+      const ws = w.__bench.ws;
+      const rec: any[] = (w.__i1track = []);
+      const t0 = performance.now();
+      w.__i1track0 = who === 'patch' ? ws.world.crewView('patch').view.at : ws.world.motion(who).pose.p;
+      const look = () => {
+        if (w.__i1track !== rec) return;
+        const t = performance.now() - t0;
+        if (who === 'patch') {
+          const v = ws.world.crewView('patch').view;
+          rec.push({ t, state: v.state, p: v.at });
+        } else {
+          const m = ws.world.motion(who);
+          const q = m.pose.q;
+          rec.push({ t, mode: m.mode, state: ws.world.crew(who)?.state, p: m.pose.p, up: 1 - 2 * (q[0] ** 2 + q[2] ** 2) });
+        }
+        requestAnimationFrame(look);
+      };
+      look();
+    }, who);
+  const record = () => page.evaluate(() => ({ rec: (window as any).__i1track as any[], p0: (window as any).__i1track0 as number[] }));
+  const stop = () => page.evaluate(() => ((window as any).__i1track = null));
+  const fmt = (v: number[]) => JSON.stringify(v.map((n) => +n.toFixed(2)));
+  const statesOf = (rec: any[]) => rec.map((r) => r.state).filter((x, i, a) => i === 0 || a[i - 1] !== x);
+
+  // Fetch across open bench: toward the middle of the bench from wherever it is on its tape
+  {
+    const fx = await page.evaluate(() => (window as any).__bench.ws.world.motion('fetch').pose.p[0] as number);
+    const dir: [number, number] = [fx > 0 ? -1 : 1, 0];
+    const r = await hand(dir, 1.2, 100, 0, 10, 'fetch');
+    await track('fetch');
+    // back at work: on its wheels (the crew's body again, upright), not held, not on its jets, not still shaking off
+    const back = (x: any) => x.mode === 'crew' && x.up > 0.97 && !['held', 'jetpack', 'shrug'].includes(x.state);
+    await pollFrames(page, async () => {
+      const { rec } = await record();
+      const flew = rec.findIndex((x) => x.mode !== 'crew');
+      return flew >= 0 && rec.slice(flew).some(back);
+    }, 1200, 'Fetch back at work').toBe(true);
+    const { rec, p0 } = await record();
+    await stop();
+    const flew = rec.findIndex((x) => x.mode !== 'crew');
+    const home = rec.slice(flew).find(back);
+    const far = Math.max(...rec.map((x) => Math.hypot(x.p[0] - p0[0]!, x.p[2] - p0[2]!)));
+    const tumble = Math.max(...rec.map((x) => 1 - x.up));
+    const secs = (home.t - rec[0]!.t) / 1000;
+    out['Fetch'] = `velocity ${fmt(r.v ?? [])}; flew ${far.toFixed(2)} units, tumbled ${tumble.toFixed(2)}; states ${statesOf(rec).join('>')}; upright at its tape ${secs.toFixed(1)} s after the release (${r.gaps})`;
+    console.log(`[I1] R4 crew ${JSON.stringify(out)}`);
+    expect(flew, 'Fetch flies (a free body, not the crew one)').toBeGreaterThanOrEqual(0);
+    expect(far, 'Fetch carries on past where it was let go').toBeGreaterThan(2);
+    expect(secs, 'upright at its tape within 10 s').toBeLessThan(10);
+  }
+  // Patch off its stool toward the front-left: it flies, lands, and is back on its stool
+  {
+    await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
+    const r = await hand([-Math.SQRT1_2, Math.SQRT1_2], 1.2, 100, 0, 10, 'patch');
+    await track('patch');
+    await pollFrames(page, async () => {
+      const st = statesOf((await record()).rec);
+      return st.includes('fly') && st.at(-1) === 'seated';
+    }, 3600, 'Patch back on its stool').toBe(true);
+    const { rec, p0 } = await record();
+    await stop();
+    const st = statesOf(rec);
+    const far = Math.max(...rec.map((x) => Math.hypot(x.p[0] - p0[0]!, x.p[2] - p0[2]!)));
+    const flyAt = rec.findIndex((x) => x.state === 'fly');
+    const seated = rec.slice(flyAt).find((x) => x.state === 'seated');
+    out['Patch'] = `velocity ${fmt(r.v ?? [])}; flew ${far.toFixed(2)} units; states ${st.join('>')}; on its stool ${((seated.t - rec[0]!.t) / 1000).toFixed(1)} s after the release (${r.gaps})`;
+    console.log(`[I1] R4 crew ${JSON.stringify(out)}`);
+    expect(st.slice(0, 2), 'Patch flies from the hand').toContain('fly');
+    expect(st, 'and lands').toContain('land');
+    expect(far, 'it goes somewhere').toBeGreaterThan(1.5);
+    expect(st.at(-1), 'back on its stool').toBe('seated');
   }
   return out;
 }
@@ -1198,6 +1345,13 @@ test('R4: throwing: a firm flick carries a crate, a hard one takes it off the be
   const touch = await throwTests(p2, 'touch', cdp);
   console.log(`[I1] R4 touch: ${JSON.stringify(touch)}`);
   await ctx.close();
+});
+
+test('R4: throwing the crew by mouse: Fetch across open bench is upright at its tape within 10 s; Patch off its stool flies, lands and is back on it', async ({ page }) => {
+  test.setTimeout(5 * 60_000);
+  await open(page, 1440, 900);
+  const crew = await throwTests(page, 'mouse', await page.context().newCDPSession(page), 'crew');
+  console.log(`[I1] R4 crew: ${JSON.stringify(crew)}`);
 });
 
 test('latency on the bench (§ E0): hover answers in the next frame, a grab within 50 ms, a handle within 100 ms', async ({ page }) => {
