@@ -742,8 +742,11 @@ Patch's place: it never walks the bench.
   against Fetch, Revert and anything a machine holds. Meeting a wall, the
   board, the storefront or the dock side-on, it sticks flat for a quarter
   of a second and slides down. Over the bench's edge low, it catches the
-  ledge; thrown well clear, it is out of sight for under a second and
-  comes back up the chute.
+  ledge; thrown hard over it, it is out of sight for about a second and
+  comes back up the chute. It always gets back on its stool: a crate that
+  has come to rest at the stool's foot is nudged aside. Let go while
+  touching something, it is thrown all the same unless the throw points
+  into that thing.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
