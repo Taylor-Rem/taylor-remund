@@ -193,6 +193,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let flyYaw = 0;
     let landSpin = 0;
     let landYaw = 0;
+    let landFromWall = false;
     let glance = 0;
     let glanced = 0;
     let stopped = 0;
@@ -394,7 +395,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               blendDur = F.blendReact;
               break;
             case 'land':
-              if (prev !== 'wall') {
+              // off a wall: the facing it had stuck to the wall (face to the room) is kept to the sit
+              landFromWall = prev === 'wall';
+              if (!landFromWall) {
                 landSpin = flySpin;
                 landYaw = flyYaw;
               }
@@ -410,8 +413,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               blendFrom = null;
               break;
             case 'wall':
+              // flat against it at once, face to the room (no blend: a blend from the tumble shows its back)
               enter('wall', t, true);
-              blendDur = F.blendReact;
+              blendFrom = null;
               if (v.wall) landYaw = Math.atan2(v.wall.out[0], v.wall.out[2]) - SIDE_ON;
               landSpin = 0;
               break;
@@ -567,7 +571,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'land':
-            pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced ? 0 : landSpin, v.thrown?.speed ?? 0);
+            pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
             break;
           case 'shake':
             pose = shakeOff(reduced ? SHAKE_LENGTH : sT, seatSpace(v.at), landYaw);
