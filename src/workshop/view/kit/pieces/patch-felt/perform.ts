@@ -1957,30 +1957,45 @@ export function tumble(t: number, mid: V3, spin: number, yaw: number): PatchPose
 export function splat(t: number, mid: V3, yaw: number, stick: number): PatchPose {
   const sliding = smoothstep(stick, stick + 0.15, t);
   const quiver = t < stick ? Math.sin(t * 60) * 0.04 * (1 - t / stick) : 0;
+  // stuck: an X. The arms flung out and up flat against the wall (about ten and two: the upper arm out to the
+  // side, the forearm bent up in the wall's plane, stretched a little as a toy's are), legs wide apart, the tail
+  // out to one side, the head tipped back against the wall, eyes wide. Sliding: the arms trail up over the head.
+  const flung = J(-0.2, 1.2, 1.2, 1.2, 0, 0);
+  const trail = J(1.9, 1.15, 0, 0.15, 0, 0);
+  const arm: ArmJoints = {
+    swing: lerp(flung.swing, trail.swing, sliding),
+    abduct: lerp(flung.abduct, trail.abduct, sliding),
+    twist: lerp(flung.twist, trail.twist, sliding),
+    elbow: lerp(flung.elbow, trail.elbow, sliding),
+    wrist: 0,
+    roll: 0,
+  };
+  const k = lerp(1.4, 1.15, sliding);
   return toPose(
     resolvePose({
       ...SEATED,
-      // (a little out from the wall: its back and the tail flat against it)
+      // (its back and the tail flat against the wall)
       body: aboutMiddle(mid, -0.05 + quiver, yaw, quiver * 2),
       legs: [
-        { lift: -1.05, splay: 0.75, knee: -0.2 },
-        { lift: -1.05, splay: 0.75, knee: -0.2 },
+        { lift: -1.05, splay: 0.9, knee: -0.15 },
+        { lift: -1.05, splay: 0.9, knee: -0.15 },
       ],
       lean: [-0.2, 0],
       twist: 0,
-      arms: { left: J(lerp(1.4, 1.9, sliding), 1.15, 0, 0.15, 0, 0), right: J(lerp(1.4, 1.9, sliding), 1.15, 0, 0.15, 0, 0) },
+      arms: { left: arm, right: arm },
+      armScale: [k, k],
       headYaw: 0,
-      headPitch: -0.05,
+      headPitch: lerp(0.4, 0.15, sliding),
       headTilt: quiver * 3,
-      gaze: [0, 0],
-      lids: [lerp(0.15, 0.55, sliding), lerp(0.17, 0.6, sliding)],
-      lidsLow: [0.1, 0.1],
-      brows: [0.7, 0.65],
+      gaze: [0, 0.2],
+      lids: [lerp(0.1, 0.5, sliding), lerp(0.12, 0.55, sliding)],
+      lidsLow: [0.05, 0.05],
+      brows: [0.8, 0.75],
       browTilt: [0.25, 0.25],
-      mouth: [-0.45, -0.4],
-      ears: [-0.6, -0.6],
-      tail: [-0.6, 0],
-      tailLift: 0.6,
+      mouth: [-0.5, -0.45],
+      ears: [-0.7, -0.7],
+      tail: [-0.6, 0.6],
+      tailLift: 0.2,
       boom: 0.35,
     }),
   );
