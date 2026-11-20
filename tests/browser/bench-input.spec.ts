@@ -1969,9 +1969,11 @@ test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen f
   const cdp = await page.context().newCDPSession(page);
   const hand = tickHand(page, cdp, 'mouse');
   await hookRelease(page);
-  // the crate: every hit on something that is not a part, with where it was then
+  // the crate: every hit on something that is not a part, with where it was then. Thrown from open bench: at
+  // (-3.5, 0.8), where this began, it lay against the UNDO lever's housing (its left face at x -3.29, z -0.11 to 0.81),
+  // and in one run in six it grazed that as it left the hand and met the wall two units to the left, or not at all
   let at = await takeHold(page, hand, 'crate-2', 'mouse');
-  at = await carryOver(page, hand, 'crate-2', at, [-3.5, 0.8]);
+  at = await carryOver(page, hand, 'crate-2', at, [-4.4, 0.8]);
   await frames(page, 20);
   await page.evaluate(() => {
     const W = window as any;
@@ -1995,20 +1997,24 @@ test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen f
     W.__i1wall = null;
     return r;
   });
-  // (a hit on something that is not a part is the wall, a station or one of the crew. The lead saw two runs in twenty
-  // where the first such hit was at the hand, the moment the crate was let go, and did not find what it met there
-  // (Fetch's lane passes under that spot). What is asked is that it meets the wall up off the bench without having
-  // come down on the bench first.)
+  // (a hit on something that is not a part is the wall, the bench or a station's housing: the first one is to be the
+  // wall, up off the bench, without the crate having come down on the bench first)
   const first = rec.findIndex((r, i) => i > 0 && r[0]! > rec[i - 1]![0]! && r[3]! < -4.3);
   const atHit = rec[first] ?? null;
-  console.log(`[I1] R5 wall, crate: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; struck the wall at ${JSON.stringify(atHit?.slice(1).map((n) => +n!.toFixed(2)))}`);
+  // every place the count of such hits went up (the first is the question: the wall, or something on the way to it)
+  const ups = rec.filter((r, i) => i > 0 && r[0]! > rec[i - 1]![0]!).map((r) => r.slice(1).map((n) => +n!.toFixed(2)));
+  console.log(`[I1] R5 wall, crate: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; from ${JSON.stringify(rec[0]!.slice(1).map((n) => +n!.toFixed(2)))}; struck the wall at ${JSON.stringify(atHit?.slice(1).map((n) => +n!.toFixed(2)))}; hits on what is not a part at ${JSON.stringify(ups.slice(0, 4))}`);
+  if (!atHit) {
+    const back = rec.reduce((m, r) => (r[3]! < m[3]! ? r : m), rec[0]!);
+    console.log(`[I1] R5 wall, crate NOT FOUND: ${rec.length} frames; furthest back ${JSON.stringify(back.slice(1).map((n) => +n!.toFixed(2)))}; every 6th frame ${JSON.stringify(rec.filter((_, i) => i % 6 === 0).slice(0, 30).map((r) => r.slice(1).map((n) => +n!.toFixed(1))))}`);
+  }
   expect(atHit, 'it struck the back wall (its back at the wall face)').not.toBeNull();
   expect(atHit![2]!, 'up off the bench').toBeGreaterThan(0.6);
   expect(Math.min(...rec.slice(0, first + 1).map((r) => r[2]!)), 'before it landed: never down on the bench on the way').toBeGreaterThan(0.5);
   // Patch
   await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.world.crewView('patch').view.state), 1800, 'Patch on its stool').toBe('seated');
   at = await takeHold(page, hand, 'patch', 'mouse');
-  at = await carryOver(page, hand, 'patch', at, [-3.5, 0.8]);
+  at = await carryOver(page, hand, 'patch', at, [-4.4, 0.8]);
   await frames(page, 20);
   await page.evaluate(() => {
     const W = window as any;
