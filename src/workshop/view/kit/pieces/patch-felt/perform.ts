@@ -1948,22 +1948,64 @@ export function tumble(t: number, mid: V3, spin: number, yaw: number): PatchPose
   );
 }
 
-/** Sat on the bench where it came to rest: legs out in front, propped on its paws, a little dazed. */
+/**
+ * Met a wall flat (R4, the simulation's `wall`): the old gag. Spread flat against it, its back to the wall and its
+ * face to the room (the silhouette that reads from the visitor's side: a starfish with a face), stuck a moment
+ * (`stick` s, a quiver), then sliding down it, arms dragged up, to the bench. `mid` is the simulation's `at` (its
+ * middle, root space), `yaw` the way it faces (out of the wall).
+ */
+export function splat(t: number, mid: V3, yaw: number, stick: number): PatchPose {
+  const sliding = smoothstep(stick, stick + 0.15, t);
+  const quiver = t < stick ? Math.sin(t * 60) * 0.04 * (1 - t / stick) : 0;
+  return toPose(
+    resolvePose({
+      ...SEATED,
+      // (a little out from the wall: its back and the tail flat against it)
+      body: aboutMiddle(mid, -0.05 + quiver, yaw, quiver * 2),
+      legs: [
+        { lift: -1.05, splay: 0.75, knee: -0.2 },
+        { lift: -1.05, splay: 0.75, knee: -0.2 },
+      ],
+      lean: [-0.2, 0],
+      twist: 0,
+      arms: { left: J(lerp(1.4, 1.9, sliding), 1.15, 0, 0.15, 0, 0), right: J(lerp(1.4, 1.9, sliding), 1.15, 0, 0.15, 0, 0) },
+      headYaw: 0,
+      headPitch: -0.05,
+      headTilt: quiver * 3,
+      gaze: [0, 0],
+      lids: [lerp(0.15, 0.55, sliding), lerp(0.17, 0.6, sliding)],
+      lidsLow: [0.1, 0.1],
+      brows: [0.7, 0.65],
+      browTilt: [0.25, 0.25],
+      mouth: [-0.45, -0.4],
+      ears: [-0.6, -0.6],
+      tail: [-0.6, 0],
+      tailLift: 0.6,
+      boom: 0.35,
+    }),
+  );
+}
+
+/**
+ * Sat on the bench where it came to rest: plonked down, legs out in front in a V with the knees a little bent,
+ * paws down on the bench beside it, upright with a slight dazed slump (read at home framing: a small sat
+ * figure, not one lying on its back).
+ */
 function satOnBench(feet: V3, yaw: number): PatchPose {
   return {
     ...SEATED,
-    body: { at: [feet[0], feet[1] + 0.02, feet[2]], rot: [-0.08, yaw, 0] },
-    legs: [{ lift: 0.1, splay: 0.35, knee: 0.15 }, { lift: 0.05, splay: 0.4, knee: 0.25 }],
-    lean: [-0.12, 0],
+    body: { at: [feet[0], feet[1] + 0.01, feet[2]], rot: [0.04, yaw, 0] },
+    legs: [{ lift: 0.12, splay: 0.45, knee: 0.4 }, { lift: 0.08, splay: 0.5, knee: 0.55 }],
+    lean: [0.08, 0],
     twist: 0,
-    arms: { left: J(-0.35, 0.45, 0, 0.2, 0.3, 0.4), right: J(-0.35, 0.45, 0, 0.2, 0.3, 0.4) },
+    arms: { left: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4), right: J(-0.1, 0.6, 0, 0.3, 0.3, 0.4) },
     headYaw: 0,
-    headPitch: 0,
-    headTilt: 0,
+    headPitch: -0.05,
+    headTilt: 0.12,
     ...FACE.flat,
-    ears: [0.3, 0.3],
-    tail: [0.4, 0.3],
-    tailLift: -0.4,
+    ears: [0.35, 0.25],
+    tail: [0.5, 0.35],
+    tailLift: -0.35,
     boom: 0.15,
   };
 }
@@ -1984,12 +2026,12 @@ export function landed(t: number, feet: V3, yaw: number, spin0: number, speed: n
   const e = 1 - Math.pow(1 - Math.min(1, k / 0.75), 3);
   const spin = lerp(spin0, end, e);
   const sat = resolvePose(satOnBench(feet, yaw));
-  if (k >= 0.75) {
-    const u = smoothstep(0.75, 1, k);
-    return toPose(mixPose(resolvePose(tumble(0.3, [feet[0], feet[1] + MIDDLE * 0.9, feet[2]], 0, yaw)), sat, 0.6 + 0.4 * u));
-  }
+  // from the tumble into the sit, all the way by the last fifth (then a small settle)
   const air = resolvePose(tumble(0.3 + t, [feet[0], feet[1] + MIDDLE * 0.9 + b, feet[2]], spin, yaw));
-  return toPose(mixPose(air, sat, 0.6 * smoothstep(0.3, 0.75, k)));
+  const w = smoothstep(0.25, 0.8, k);
+  const p = mixPose(air, sat, w);
+  const settle = k > 0.8 ? Math.sin(Math.PI * smoothstep(0.8, 1, k)) * 0.04 : 0;
+  return toPose({ ...p, body: { at: [p.body.at[0], p.body.at[1] - settle, p.body.at[2]], rot: p.body.rot } });
 }
 
 /** Sat on the bench after a throw (R4, the simulation's `shake`, 0.6 s): a shake of the head, and the eyes clear. */

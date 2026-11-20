@@ -142,8 +142,17 @@ export const PATCH_TUNING = {
   slideMax: 0.9,
   shake: 0.6,
   /** R4: thrown well clear of the bench: out of sight this long, then up the chute and onto the bench by the pad over `chuteFly`. */
-  away: 1.6,
+  away: 0.5,
   chuteFly: 1.0,
+  /** R4: a loose part it meets in the air gets this share of its velocity; it keeps this share of its own level speed. */
+  knock: 0.8,
+  keep: 0.25,
+  /** R4: a fixed body met side-on, at least this much taller than its middle and this fast (units/s): a wall it sticks to. */
+  wallAbove: 0.3,
+  wallSpeed: 2.5,
+  /** R4: stuck to the wall (s), then down it at up to this speed (units/s). */
+  stick: 0.25,
+  slideDown: 1.6,
 } as const;
 
 export interface PatchSpec {
@@ -329,7 +338,23 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   // ── R4: thrown ──
   const SOLIDS: Solid[] = solidsOf(ctx.scene);
   /** In the air: its velocity; past an open edge and going (out); coming back from the chute. */
-  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number } | null = null;
+  let fly: { v: Vec3; out: boolean; chute: boolean; tops: number; gone: boolean; knocked: Set<Id>; txn: Cause | null } | null = null;
+  const newFly = (v: Vec3, chute: boolean): NonNullable<typeof fly> => ({ v, out: false, chute, tops: 0, gone: false, knocked: new Set(), txn: null });
+  /** Met a wall flat: its outward direction, and how fast it came in. */
+  let walled: { out: Vec3; speed: number } | null = null;
+  /** Fetch's and Revert's bodies as solids (in the air Patch stops against them). */
+  function robotBodies(): Solid[] {
+    const out: Solid[] = [];
+    for (const who of ['fetch', 'revert']) {
+      const c = ctx.crewView(who);
+      if (!c || (c.kind !== 'fetch' && c.kind !== 'revert')) continue;
+      const p = ctx.pose(c.body);
+      const h = ctx.halfExtents(c.body);
+      if (!p || !h) continue;
+      out.push({ id: c.body, x: p.p[0], z: p.p[2], hx: h[0], hz: h[2], yaw: 0, y0: p.p[1] - h[1], y1: p.p[1] + h[1] });
+    }
+    return out;
+  }
   /** Landed: from where it came down to where the roll ends, and how fast it came in. */
   let landing: { from: Vec3; to: Vec3; speed: number } | null = null;
   /** Thrown from `p` (its middle, world) with the hand's velocity `v`. */
@@ -339,18 +364,59 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     const k = h > T.throwMax ? T.throwMax / h : 1;
     const vv: Vec3 = [v[0] * k, Math.min(T.loftMax, T.loft * h * k), v[2] * k];
     let q = p;
-    // (never starting inside a body: above it)
-    for (const o of SOLIDS) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
+    // (never starting inside a body, a robot or a part: above it)
+    const parts: Solid[] = [];
+    for (const id of ctx.parts()) {
+      const pp = ctx.pose(id);
+      const h = ctx.halfExtents(id);
+      const mode = ctx.mode(id);
+      if (pp && h && mode !== 'gone' && mode !== 'chute') parts.push({ id, x: pp.p[0], z: pp.p[2], hx: h[0], hz: h[2], yaw: 0, y0: pp.p[1] - h[1], y1: pp.p[1] + h[1] });
+    }
+    for (let i = 0; i < 4; i++) for (const o of [...SOLIDS, ...parts, ...robotBodies()]) if (sphereMeets(o, q[0], q[1], q[2], T.bodyR)) q = [q[0], o.y1 + T.bodyR + 0.01, q[2]];
     at = q;
-    fly = { v: vv, out: false, chute: false, tops: 0 };
+    fly = newFly(vv, false);
+    ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: length(vv) });
     landing = null;
     lookAt = null;
     if (Math.hypot(vv[0], vv[2]) > 0.1) heading = Math.atan2(vv[0], vv[2]);
     enter('fly');
   }
   /** Where a throw comes down: where it stands (clear of every body), and the roll on from there that eats its speed. */
+  /**
+   * Can the visitor see a raccoon sat at `p` (feet, world)? Nothing tall between its middle and the visitor's eye
+   * (`spec.visitor`). The simulation does not know the camera; the visitor's point is where Patch looks to look at
+   * the visitor, and the camera looks from about there.
+   */
+  function inView(p: Vec3): boolean {
+    const a: Vec3 = [p[0], p[1] + 0.45, p[2]];
+    const b = spec.visitor;
+    for (let i = 1; i <= 12; i++) {
+      const k = i / 12;
+      const q: Vec3 = [a[0] + (b[0] - a[0]) * k * 0.5, a[1] + (b[1] - a[1]) * k * 0.5, a[2] + (b[2] - a[2]) * k * 0.5];
+      if (SOLIDS.some((o) => sphereMeets(o, q[0], q[1], q[2], 0.05))) return false;
+    }
+    return true;
+  }
+  /** Where it comes to rest: clear of every body, and in the visitor's view if a point within a unit is. */
+  function restingAt(p: Vec3): Vec3 {
+    const c = standingAt(p);
+    if (inView(c)) return c;
+    for (let ring = 1; ring <= 10; ring++) {
+      const rad = ring * 0.1;
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const q: Pt = [c[0] + Math.cos(a) * rad, c[2] + Math.sin(a) * rad];
+        if (clearPoint(q, R, STATICS, routeBench)?.[0] !== q[0] || !legClear(pt(c), q, R, STATICS)) continue;
+        const g3 = onGround(q);
+        if (inView(g3)) return g3;
+      }
+    }
+    return c;
+  }
+
   function landAt(p: Vec3, v: Vec3): void {
-    const from = standingAt([p[0], spec.foot[1], p[2]]);
+    const from = restingAt([p[0], spec.foot[1], p[2]]);
+    ctx.emit({ type: 'patch.throw', phase: 'landed', speed: length(v) });
     const sp = Math.hypot(v[0], v[2]);
     let roll = Math.min(T.slideMax, sp * T.slide);
     const dir: Pt = sp > 1e-6 ? [v[0] / sp, v[2] / sp] : [0, 0];
@@ -478,7 +544,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   };
   const seconds = (): number => (ctx.clock.step - since) / HZ;
   const lengthOf = (s: PatchState): number =>
-    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust, cross: T.crossOn + T.crossOver + T.crossOff, land: T.land, shake: T.shake, away: T.away } as Record<string, number>)[s] ?? Infinity);
+    s === 'roll' ? (roll ? rollSeconds(roll.from, roll.to) : 0) : (({ plug: T.plug, notice: T.notice, drawer: T.drawer, work: T.work, check: T.check, reply: T.reply, stare: T.stare, look: T.look, duck: T.duck, catch: T.catchHold + T.catchSet, bonk: T.bonk, climb: T.climb, ledge: T.ledge, haul: T.haul, dust: T.dust, cross: T.crossOn + T.crossOver + T.crossOff, land: T.land, shake: T.shake, away: T.away, wall: Infinity } as Record<string, number>)[s] ?? Infinity);
 
   /**
    * R1: where a release at `p` goes over an open edge (with the hand's travel carried on for `fling`
@@ -714,6 +780,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         ledge = null;
         fly = null;
         landing = null;
+        walled = null;
         way = null;
         crossing = null;
         afoot = false;
@@ -1138,6 +1205,15 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             f.out = true;
           }
           if (f.out) {
+            if (!f.gone) {
+              f.gone = true;
+              ctx.emit({ type: 'patch.throw', phase: 'gone', speed: length(f.v) });
+            }
+            // (past the edge it still never goes through a body: met side-on, it falls straight)
+            if (SOLIDS.some((o) => sphereMeets(o, np[0], np[1], np[2], T.bodyR))) {
+              f.v = [0, Math.min(f.v[1], 0), 0];
+              np = [at[0], at[1] + f.v[1] / HZ, at[2]];
+            }
             at = np;
             if (np[1] < top - 1.5) {
               fly = null;
@@ -1145,10 +1221,80 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             }
             break;
           }
-          // never through a fixed body: met from the side, it stops there and drops; come down on its top, tipped off
+          // loose parts in its way are knocked, each once a throw (as a thrown crate knocks them: they join the
+          // throw's transaction, so their rests are its); it gives up most of its level speed and comes down past
+          const knockedNow: Solid[] = [];
+          for (const id of ctx.parts()) {
+            const mode = ctx.mode(id);
+            if (mode === 'gone' || mode === 'chute' || ctx.part(id)?.kind === 'robot') continue;
+            const pp = ctx.pose(id);
+            const h = ctx.halfExtents(id);
+            if (!pp || !h) continue;
+            const reach = T.bodyR + Math.max(h[0], h[1], h[2]) * 0.85;
+            if (dist(pp.p, np) > reach) continue;
+            // (one in a machine or in the crew's hands is not knocked: it is in its way, like a body)
+            if (f.knocked.has(id) || mode !== 'free') {
+              // knocked already: after that it is in its way like anything else (it does not pass through it)
+              knockedNow.push({ id, x: pp.p[0], z: pp.p[2], hx: h[0], hz: h[2], yaw: 0, y0: pp.p[1] - h[1], y1: pp.p[1] + h[1] });
+              continue;
+            }
+            f.knocked.add(id);
+            if (!ctx.bracketed) {
+              f.txn ??= ctx.history.open('release', id, ctx.clock.step);
+              ctx.history.claim(id, f.txn, ctx.clock.step);
+              const sp = Math.hypot(f.v[0], f.v[2]);
+              ctx.shove(id, [f.v[0] * T.knock, Math.max(0, f.v[1]) * 0.3 + Math.min(1.5, 0.3 + sp * 0.15), f.v[2] * T.knock]);
+            }
+            ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: id });
+            f.v = [f.v[0] * T.keep, Math.min(f.v[1], 0.5), f.v[2] * T.keep];
+            // (this step it goes no further in: the part moves off it under the knock; come down on it from above,
+            // it is tipped off it as off any top, below)
+            np = [at[0], at[1] + f.v[1] / HZ, at[2]];
+            knockedNow.push({ id, x: pp.p[0], z: pp.p[2], hx: h[0], hz: h[2], yaw: 0, y0: pp.p[1] - h[1], y1: pp.p[1] + h[1] });
+          }
+          // Fetch and Revert are solid to it: it stops against them and drops beside them (and a part it has knocked)
+          for (const b of [...robotBodies(), ...knockedNow]) {
+            if (!sphereMeets(b, np[0], np[1], np[2], T.bodyR)) continue;
+            if (!f.knocked.has(b.id)) {
+              f.knocked.add(b.id);
+              ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: b.id });
+            }
+            // (resting on top of it: off it by its nearer side, as off any top)
+            if (at[1] >= b.y1) {
+              const d = offTop(b, at[0], at[2]);
+              f.v = [d[0] * 2.2, Math.max(f.v[1], 0.6), d[1] * 2.2];
+              np = [at[0] + f.v[0] / HZ, at[1] + f.v[1] / HZ, at[2] + f.v[2] / HZ];
+              continue;
+            }
+            const ax = at[0] - b.x, az = at[2] - b.z;
+            const an = Math.hypot(ax, az) || 1;
+            f.v = [(ax / an) * 1.5, Math.min(f.v[1], 0), (az / an) * 1.5];
+            np = [at[0] + f.v[0] / HZ, at[1] + f.v[1] / HZ, at[2] + f.v[2] / HZ];
+            if (sphereMeets(b, np[0], np[1], np[2], T.bodyR) && distanceTo(b, np[0], np[2]) < distanceTo(b, at[0], at[2])) np = [at[0], np[1], at[2]];
+          }
+          // never through a fixed body: met from the side, it stops there and drops (a wall, met flat, it sticks to
+          // and slides down); come down on its top, tipped off
           for (const o of SOLIDS) {
             if (!sphereMeets(o, np[0], np[1], np[2], T.bodyR)) continue;
-            if (at[1] - T.bodyR >= o.y1 - 0.03) {
+            const side = at[1] - T.bodyR < o.y1 - 0.03;
+            const sp = Math.hypot(f.v[0], f.v[2]);
+            if (side && o.y1 >= at[1] + T.wallAbove && sp >= T.wallSpeed && !f.chute) {
+              // the old gag: flat against it, stuck a moment, then down it to the bench
+              const n = offTop(o, at[0], at[2]);
+              const nx = -f.v[0] / sp, nz = -f.v[2] / sp;
+              const out: Vec3 = n[0] * nx + n[1] * nz > 0.3 ? [n[0], 0, n[1]] : [nx, 0, nz];
+              ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: o.id, wall: true });
+              walled = { out, speed: length(f.v) };
+              fly = null;
+              heading = Math.atan2(-out[0], -out[2]);
+              enter('wall');
+              break;
+            }
+            if (side && !f.knocked.has(o.id)) {
+              f.knocked.add(o.id);
+              ctx.emit({ type: 'patch.throw', phase: 'hit', speed: length(f.v), what: o.id });
+            }
+            if (!side) {
               // tipped off by the nearer side of its top (a long body, such as the belt: across it, not along);
               // come down on tops a few times over (in among the ramp's steps), it slides off to where it can stand
               f.tops += 1;
@@ -1170,7 +1316,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             }
             break;
           }
-          if (state !== 'fly') break; // (slid off the tops it kept coming down on)
+          if (state !== 'fly') break; // (slid off the tops it kept coming down on, or met a wall)
           if (np[1] - T.bodyR <= top) {
             landAt(np, f.v);
             break;
@@ -1181,6 +1327,12 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             break;
           }
           if (Math.hypot(f.v[0], f.v[2]) > 0.3) heading = Math.atan2(f.v[0], f.v[2]);
+          // the last word: whatever moved it this step, it does not end the step in a fixed body
+          if (SOLIDS.some((o) => sphereMeets(o, np[0], np[1], np[2], T.bodyR * 0.95))) {
+            const fall: Vec3 = [at[0], np[1], at[2]];
+            np = SOLIDS.some((o) => sphereMeets(o, fall[0], fall[1], fall[2], T.bodyR * 0.95)) ? at : fall;
+            f.v = [0, Math.min(f.v[1], 0), 0];
+          }
           at = np;
           break;
         }
@@ -1207,6 +1359,20 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
             enter('look');
           }
           break;
+        case 'wall': {
+          // R4: stuck flat to the wall a moment, then down it to the bench, where it lands and sits
+          if (t < T.stick) break;
+          const v = Math.min(T.slideDown, (t - T.stick) * 4);
+          const ny = at[1] - v / HZ;
+          if (ny - T.bodyR <= ctx.scene.bench.top) {
+            const w = walled;
+            walled = null;
+            landAt([at[0] + (w ? w.out[0] * 0.15 : 0), at[1], at[2] + (w ? w.out[2] * 0.15 : 0)], [0, 0, 0]);
+            break;
+          }
+          at = [at[0], ny, at[2]];
+          break;
+        }
         case 'away': {
           // R4: thrown well clear of the bench: out of sight; then up the chute and onto the bench by the pad
           if (t < length_) break;
@@ -1219,8 +1385,9 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           const tf = T.chuteFly;
           const v: Vec3 = [(land[0] - c.from[0]) / tf, (land[1] + T.bodyR - c.from[1]) / tf - 0.5 * g * tf, (land[2] - c.from[2]) / tf];
           at = c.from;
-          fly = { v, out: false, chute: true, tops: 0 };
+          fly = newFly(v, true);
           heading = Math.atan2(v[0], v[2]);
+          ctx.emit({ type: 'patch.throw', phase: 'chute', speed: length(v) });
           enter('fly');
           break;
         }
@@ -1290,6 +1457,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       crossing = null;
       fly = null;
       landing = null;
+      walled = null;
       afoot = false;
       trail.length = 0;
       stoolX = restX;
@@ -1323,6 +1491,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
         shelf: spec.shelf,
         foot: footNow(),
         ledge: ledge && (state === 'ledge' || state === 'haul' || state === 'dust') ? { edge: ledge.edge, at: ledge.at, up: ledge.up, out: ledge.out } : null,
+        wall: state === 'wall' && walled ? { out: walled.out, stick: T.stick } : null,
         thrown: state === 'fly' || state === 'land' ? { v: fly ? fly.v : null, speed: landing ? landing.speed : fly ? length(fly.v) : 0, chute: fly?.chute ?? false } : null,
         walk: state === 'walk' || state === 'cross' ? { pace, scamper: pace > T.walk, next: way ? onGround(way.points[0] ?? way.cross?.from ?? pt(footNow())) : null, waiting: state === 'walk' && seconds() >= T.setOff && (way === null || blockedAt >= 0) } : null,
       };

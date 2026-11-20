@@ -221,3 +221,28 @@ describe('over the edge (R1)', () => {
     expect(Math.abs(side.body.rot[1] - Math.PI)).toBeLessThan(1e-6);
   });
 });
+
+describe('thrown (R4)', () => {
+  const mid: PF.V3 = [1, 0.6, 1];
+  it('the tumble turns about its middle: wherever it has turned to, its middle is where the simulation has it', () => {
+    for (const spin of [0, 1, 2.5, 4]) {
+      const p = PF.tumble(0.3, mid, spin, 0.4);
+      expect(finite(p)).toBe(true);
+      const m = new Vector3(0, 0.3, 0).applyMatrix4(PF.nodeMatrix(p, ['body']));
+      expect(m.distanceTo(new Vector3(...mid))).toBeLessThan(1e-6);
+    }
+  });
+  it('the landing, the shake and the wall are finite throughout and end sat up', () => {
+    for (const t of [0, 0.2, 0.5, 0.8]) expect(finite(PF.landed(t, [1, -0.43, 1], 0.3, 2, 5))).toBe(true);
+    for (const t of [0, 0.3, 0.6]) expect(finite(PF.shakeOff(t, [1, -0.43, 1], 0.3))).toBe(true);
+    for (const t of [0, 0.1, 0.25, 0.6]) expect(finite(PF.splat(t, mid, 0.3, 0.25))).toBe(true);
+    const end = PF.resolvePose(PF.landed(PF.LAND_LENGTH, [1, -0.43, 1], 0.3, 2, 5));
+    expect(Math.abs(end.body.rot[0])).toBeLessThan(0.2); // upright
+    expect(end.body.at[1]).toBeLessThan(-0.3); // down on the bench, not on the stool
+  });
+  it('stuck to the wall it quivers in place; then it slides with its arms dragged up', () => {
+    const a = PF.resolvePose(PF.splat(0.1, mid, 0.3, 0.25));
+    const b = PF.resolvePose(PF.splat(0.6, mid, 0.3, 0.25));
+    expect(b.arms.left.swing).toBeGreaterThan(a.arms.left.swing);
+  });
+});

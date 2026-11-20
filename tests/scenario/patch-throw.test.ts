@@ -46,16 +46,40 @@ interface Flight {
   /** The deepest it went into a fixed body in the air (0: never). */
   inside: number;
   insideAt: string;
+  /** The most steps running its sphere was inside a loose part or a robot's body in the air (one: the step of contact). */
+  overlap: number;
+  overlapAt: string;
 }
+
+/** Loose parts Patch knocked in its flight (from its events). */
+const knocked = (t: Tape): string[] => t.of('patch.throw').filter((x) => x.e.phase === 'hit' && x.e.what !== undefined && /^(crate|tool)/.test(x.e.what)).map((x) => x.e.what as string);
 
 /** Until it is back on its stool (or `limit` s), watching the flight. */
 function watch(w: World, t: Tape, limit: number): Flight {
-  const f: Flight = { states: [], inside: 0, insideAt: '' };
+  const f: Flight = { states: [], inside: 0, insideAt: '', overlap: 0, overlapAt: '' };
+  const run = new Map<string, number>();
   for (let i = 0; i < limit * HZ; i++) {
     t.run(1);
     const v = patchView(w);
     if (f.states[f.states.length - 1] !== v.state) f.states.push(v.state);
     if (v.state === 'fly') {
+      // a loose part or a robot: never inside it for more than the step it is met
+      for (const part of w.parts()) {
+        const id = part.id;
+        const m = w.motion(id);
+        const h = w.halfExtents(id);
+        if (!m || !h) continue;
+        // inside: more than halfway into its sphere (its box, near enough: the parts sit upright)
+        const box = { id, x: m.pose.p[0], z: m.pose.p[2], hx: h[0], hz: h[2], yaw: 0, y0: m.pose.p[1] - h[1], y1: m.pose.p[1] + h[1] };
+        const inside = sphereMeets(box, v.at[0], v.at[1], v.at[2], T.bodyR * 0.5);
+        // (while a Button rung plays Patch is held where it is and the world rewinds round it: not counted)
+        const n = inside ? (run.get(id) ?? 0) + (w.bracketed ? 0 : 1) : 0;
+        run.set(id, n);
+        if (n > f.overlap) {
+          f.overlap = n;
+          f.overlapAt = `${id} at ${v.at.map((x) => x.toFixed(2)).join(',')}`;
+        }
+      }
       for (const o of SOLIDS)
         if (sphereMeets(o, v.at[0], v.at[1], v.at[2], T.bodyR * 0.8)) {
           f.inside = Math.max(f.inside, 1);
@@ -83,8 +107,11 @@ describe('Patch thrown (R4)', () => {
     expect(f.states.slice(0, 5)).toEqual(['fly', 'land', 'shake', 'look', 'walk']);
     expect(f.states.at(-1)).toBe('seated');
     expect(f.inside, f.insideAt).toBe(0);
-    expect(w.durable()).toEqual(before);
-    expect(w.undoStack()).toEqual([]);
+    // nothing durable changed, unless it knocked a crate on the way (then that is one transaction, the throw's)
+    if (knocked(t).length === 0) {
+      expect(w.durable()).toEqual(before);
+      expect(w.undoStack()).toEqual([]);
+    } else expect(w.undoStack().length).toBe(1);
   }, 60_000);
 
   test('against the back wall: it stops there and drops, never through it', async () => {
@@ -125,8 +152,80 @@ describe('Patch thrown (R4)', () => {
     expect(f.states.at(-1)).toBe('seated');
   }, 60_000);
 
+  test('thrown at the stack of crates: it knocks them (one at least goes more than half a unit), all come to rest in a valid place, charged to the throw', async () => {
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(20);
+    const at0 = new Map([...w.parts()].map((p) => [p.id, w.motion(p.id)!.pose.p]));
+    throwFrom(w, t, [-1.5, 2.1, 1.75], [9, 0, 0]);
+    const f = watch(w, t, 30);
+    expect(f.states.at(-1)).toBe('seated');
+    expect(knocked(t).length).toBeGreaterThan(0);
+    t.run(5 * 60);
+    const moved = [...w.parts()].filter((p) => p.kind === 'crate').map((p) => Math.hypot(w.motion(p.id)!.pose.p[0] - at0.get(p.id)![0], w.motion(p.id)!.pose.p[2] - at0.get(p.id)![2]));
+    expect(Math.max(...moved)).toBeGreaterThan(0.5);
+    for (const p of w.parts()) {
+      if (p.kind !== 'crate') continue;
+      const loc = w.durable().find((d) => d.target === p.id && d.field === 'location');
+      expect(loc, p.id).toBeTruthy();
+      const where = (loc!.value as { at: string }).at;
+      expect(['rest', 'in', 'on', 'shipped'], `${p.id} ${JSON.stringify(loc!.value)}`).toContain(where);
+      if (where === 'rest') expect(w.motion(p.id)!.pose.p[1]).toBeGreaterThan(-0.01); // on the bench (or a machine), not under it
+    }
+    // charged to one transaction: the throw's
+    expect(w.undoStack().length).toBe(1);
+    expect(f.overlap, f.overlapAt).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  test('thrown at Fetch: it stops against it and drops beside it, never inside its body; the event names Fetch', async () => {
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(20);
+    const fc = w.crewView('fetch')!;
+    const body = fc.kind === 'fetch' ? fc.body : '';
+    const fp = w.motion(body)!.pose.p;
+    throwFrom(w, t, [fp[0] - 3, 2.2, fp[2]], [9, 0, 0]);
+    const f = watch(w, t, 30);
+    expect(f.states.at(-1)).toBe('seated');
+    expect(t.of('patch.throw').some((x) => x.e.phase === 'hit' && x.e.what === body)).toBe(true);
+    expect(f.overlap, f.overlapAt).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  test('the wall: met flat it sticks a moment, slides down it and sits', async () => {
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(20);
+    throwFrom(w, t, [-5, 3.2, 1], [0, 0, -9]);
+    const seen: string[] = [];
+    let stuckAt: number[] | null = null;
+    for (let i = 0; i < 4 * 60; i++) {
+      t.run(1);
+      const v = patchView(w);
+      if (seen.at(-1) !== v.state) seen.push(v.state);
+      if (v.state === 'wall' && v.stateTime < 0.2) stuckAt = stuckAt ?? [...v.at];
+      if (v.state === 'wall' && v.stateTime > 0 && v.stateTime < T.stick - 0.02) expect(v.at).toEqual(stuckAt);
+    }
+    expect(seen.slice(0, 3)).toEqual(['fly', 'wall', 'land']);
+    expect(t.of('patch.throw').some((x) => x.e.phase === 'hit' && x.e.wall === true)).toBe(true);
+    const f = watch(w, t, 30);
+    expect(f.states.at(-1)).toBe('seated');
+  }, 60_000);
+
+  test('the sound of a throw: thrown, landed (and gone and back up the chute off the bench), each with its speed', async () => {
+    const w = await benchWorld(1);
+    const t = tape(w);
+    t.run(20);
+    throwFrom(w, t, [2, 3.5, 4], [0, 0, 12]);
+    watch(w, t, 30);
+    const phases = t.of('patch.throw').map((x) => x.e.phase);
+    expect(phases.slice(0, 2)).toEqual(['thrown', 'gone']);
+    expect(phases).toContain('chute');
+    expect(phases).toContain('landed');
+    expect(t.of('patch.throw').every((x) => Number.isFinite(x.e.speed))).toBe(true);
+  }, 60_000);
+
   test('a hundred seeded throws: every one ends on the stool, the job carried on, nothing durable changed by it', async () => {
-    const r = rng(20261119);
+    const r = rng(Number(process.env.PATCH_THROW_SEED ?? 20261119));
     const log: string[] = [];
     for (let k = 0; k < 100; k++) {
       const from: Vec3 = [-8 + r() * 16, 1.2 + r() * 2.6, -3.5 + r() * 8];
@@ -152,7 +251,8 @@ describe('Patch thrown (R4)', () => {
       expect(patchView(w).at, line).toEqual(PATCHLAMP.patch.seat.map((x, i) => (i === 0 ? x + (patchView(w).stool.x - patchView(w).stool.rest) : x)));
       expect(f.inside, `${line} ${f.insideAt}`).toBe(0);
       if (job !== null) expect(answer(t, job, 30).e.type, line).toBe('line.reply');
-      else if (kind !== 3) expect(w.durable(), line).toEqual(before);
+      else if (kind !== 3 && knocked(t).length === 0) expect(w.durable(), line).toEqual(before);
+      expect(f.overlap, `${line} ${f.overlapAt}`).toBeLessThanOrEqual(1);
     }
     if (process.env.PATCH_THROW_LOG) console.log(log.join('\n'));
   }, 600_000);
