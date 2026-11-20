@@ -50,13 +50,17 @@ interface Throw {
   readonly v: Vec3;
   readonly what: string;
   readonly rung: boolean;
+  /** R4 (juggling): caught again this many times, each after `catchAfter` s, and thrown back up from where the hand is. */
+  readonly juggles: number;
+  readonly catchAfter: number;
 }
 
 function plan(seed: number, w: World): Throw {
   const r = rng(`throw-soak-${seed}`);
   const THROWN_IDS = [...LOOSE, 'patch'];
   const id = THROWN_IDS[r.int(THROWN_IDS.length)] as string;
-  const from: Vec3 = [r.range(-7.5, 7.5), r.range(1.0, 2.2), r.range(-3.8, 4.2)];
+  // (R4) from anywhere up to the top of the lift (5.5): mostly bench height, one in four high
+  const from: Vec3 = [r.range(-7.5, 7.5), r.int(4) === 0 ? r.range(2.2, 5.5) : r.range(1.0, 2.2), r.range(-3.8, 4.2)];
   const cap = LOOSE_TUNING.throwMax * 1.05; // a little over: the world clamps it
   const k = r.int(10);
   let dir: Vec3;
@@ -85,8 +89,12 @@ function plan(seed: number, w: World): Throw {
   const l = Math.hypot(dir[0], dir[2]) || 1;
   const speed = r.range(0.5, cap);
   // the hand's loft: I1 sends 0.18 of the horizontal speed upward, at most 1.6; sometimes a lob, sometimes down
-  const up = r.int(5) === 0 ? r.range(-2, 4) : Math.min(1.6, 0.18 * speed);
-  return { id, from, v: [(dir[0] / l) * speed, up, (dir[2] / l) * speed], what: `${what} at ${speed.toFixed(1)}`, rung: r.int(6) === 0 };
+  // the hand's loft; one in five a lob or a throw down; one in five thrown up hard (the world clamps it); one in ten dropped still
+  const u = r.int(10);
+  const up = u < 2 ? r.range(-2, 4) : u < 4 ? r.range(6, 16) : Math.min(1.6, 0.18 * speed);
+  const drop = u === 9;
+  const juggles = r.int(6) === 0 ? 1 + r.int(3) : 0;
+  return { id, from, v: drop ? [0, 0, 0] : [(dir[0] / l) * speed, up, (dir[2] / l) * speed], what: `${drop ? 'dropped' : `${what} at ${speed.toFixed(1)}, ${up.toFixed(1)} up`}${juggles ? `, juggled ${juggles}` : ''}`, rung: r.int(6) === 0, juggles, catchAfter: r.range(0.15, 1.1) };
 }
 
 async function session(seed: number): Promise<string[]> {
@@ -143,6 +151,20 @@ async function session(seed: number): Promise<string[]> {
       run(1);
     }
     w.dispatch({ type: 'release', velocity: th.v });
+    // (R4) juggled: caught in the air again and thrown back up from where the hand catches it
+    for (let j = 0; j < th.juggles && th.id !== 'patch'; j++) {
+      run(steps(th.catchAfter));
+      const m = w.motion(th.id);
+      if (!m || m.mode !== 'free') break;
+      w.dispatch({ type: 'grab', id: th.id, grip: m.pose.p });
+      run(1);
+      if (w.holding()?.id !== th.id) break;
+      for (let i = 0; i < 20; i++) {
+        w.dispatch({ type: 'carry', target: [m.pose.p[0], Math.max(1.0, Math.min(5.5, m.pose.p[1])), m.pose.p[2]] });
+        run(1);
+      }
+      w.dispatch({ type: 'release', velocity: [th.v[0] * 0.3, 12, th.v[2] * 0.3] });
+    }
     thrownAt = w.step;
     rested.clear();
     lateFrom = w.step + steps(SETTLE - 4);

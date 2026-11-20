@@ -36,6 +36,7 @@ import { qaxis, qmul, qyaw } from '../math.ts';
 import { rampAt, rampDoor, rampLength, rampNearest } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { Beat, CHANGED_SINCE, Lamp, OK } from '../machine.ts';
+import { distanceTo, obstacles } from '../crew/fetch-knock.ts';
 
 /** Content ids of the marks it writes (the words are in src/content/line.json). */
 /** (I1 R1) The id of a dock's hand bell, from the dock's id. */
@@ -401,7 +402,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     });
   }
   /** Out of the chute's mouth, up over the deflector's row and down onto the pad: a ballistic arc with its top at `apex`. */
-  function throwToPad(id: Id, half: Vec3): void {
+  function throwToPad(id: Id, half: Vec3, cause: Cause = 'system'): void {
     const pad = spec.pad as NonNullable<DockSpec['pad']>;
     const from = pad.from;
     // how it will lie: square to the pad (a turned crate reaches further toward the stand, or its middle further from
@@ -422,7 +423,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       const ext = half[0] * Math.abs(ux * Math.cos(a) - uz * Math.sin(a)) + half[2] * Math.abs(ux * Math.sin(a) + uz * Math.cos(a));
       [cx, cz] = [pad.near[0] + ux * ext, pad.near[1] + uz * ext];
     }
-    throwTo(id, [cx, ctx.scene.bench.top + half[1] + 0.005, cz], yaw0, spin, 'system');
+    throwTo(id, [cx, ctx.scene.bench.top + half[1] + 0.005, cz], yaw0, spin, cause);
   }
   /** Out of the chute's mouth on an arc with its top at the pad's `apex`, tumbling by whole turns, to land square at `to`. */
   function throwTo(id: Id, to: Vec3, yaw0: number, spin: number, cause: Cause): void {
@@ -438,6 +439,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const f: Flight = { id, age: 0, from, to, vx: dx / time, vz: dz / time, vy, time, yaw0, spin, axis: [-dz / l, 0, dx / l], down: false, cause };
     ctx.launch(id, { p: from, q: qyaw(yaw0) }, [0, 0, 0], [0, 0, 0], cause);
     if (!ctx.take(id, spec.id)) return; // (never: it was just put into the world, free)
+    // (R4) a part thrown back is still the transaction that threw it off: back into its window (taking it left it)
+    if (isTxn(cause)) ctx.history.claim(id, cause, ctx.clock.step);
     flights.push(f);
     ctx.emit({ type: 'restock.launched', id: spec.id, part: id, from, to, flight: time });
   }
@@ -445,7 +448,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
    * R2: a robot the dock refused, thrown back up the chute to land on its wheels by its stand at the pad (or the next
    * free place along its tape: never onto whatever stands there, nor where a crate is landing). The crew's.
    */
-  function throwHome(id: Id): void {
+  function throwHome(id: Id, cause: Cause = 'crew'): void {
     const pad = spec.pad as NonNullable<DockSpec['pad']>;
     const homes = pad.home as NonNullable<DockSpec['pad']>['home'] & object;
     const half = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
@@ -459,8 +462,70 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         const h = ctx.halfExtents(o) ?? [0.3, 0.3, 0.3];
         return Math.hypot(p[0] - hx, p[2] - hz) > mine + Math.hypot(h[0], h[2]) + 0.05;
       }) && flights.every((f) => Math.hypot(f.to[0] - hx, f.to[2] - hz) > mine + 0.7);
-    const [hx, hz] = homes.find(free) ?? (homes[0] as readonly [number, number]);
-    throwTo(id, [hx, ctx.scene.bench.top + half[1] + 0.005, hz], rng.range(-0.08, 0.08), 0, 'crew');
+    // (R4) none of its tape's points free (another robot, big Revert, or crates there): the nearest free spot by the pad
+    // (the tape is Fetch's: another robot, Revert, lands by the pad, never on Fetch's stand)
+    const own = id === ctx.scene.runner.id;
+    const [hx, hz] = (own ? homes.find(free) : undefined) ?? besidePad(id, half) ?? (homes[0] as readonly [number, number]);
+    throwTo(id, [hx, ctx.scene.bench.top + half[1] + 0.005, hz], rng.range(-0.08, 0.08), 0, cause);
+  }
+
+  /** R4: the fixed bodies and the mouths on the bench (where nothing thrown back may land). */
+  const BODIES = obstacles(ctx.scene);
+  /**
+   * R4: where a part thrown back up the chute lands: on the pad if nothing stands on it or is landing on it; else the
+   * nearest free spot beside it (rings round the pad, clear of every body and mouth, of every part, and of every
+   * landing already in the air).
+   */
+  function besidePad(id: Id, half: Vec3): readonly [number, number] | null {
+    const pad = spec.pad as NonNullable<DockSpec['pad']>;
+    const b = ctx.scene.bench;
+    const ext = Math.hypot(half[0], half[2]);
+    for (const r of [0.85, 1.1, 1.35, 1.6, 1.9, 2.2]) {
+      const n = Math.max(12, Math.round(r * 14));
+      let best: readonly [number, number] | null = null;
+      let bestD = Infinity;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const px = pad.at[0] + Math.cos(a) * r;
+        const pz = pad.at[1] + Math.sin(a) * r;
+        if (px - ext < b.minX + 0.1 || px + ext > b.maxX - 0.1 || pz - ext < b.minZ + 0.1 || pz + ext > b.maxZ - 0.1) continue;
+        if (BODIES.some((o) => distanceTo(o, px, pz) < ext + 0.05)) continue;
+        const crowded = ctx.parts().some((o) => {
+          if (o === id) return false;
+          const m = ctx.mode(o);
+          const q = ctx.pose(o)?.p;
+          if (!q || m === 'gone' || m === 'chute' || q[1] > b.top + 2.5) return false;
+          const h = ctx.halfExtents(o) ?? [0.3, 0.3, 0.3];
+          return Math.hypot(q[0] - px, q[2] - pz) < ext + Math.hypot(h[0], h[2]) + 0.05;
+        });
+        if (crowded || flights.some((f) => Math.hypot(f.to[0] - px, f.to[2] - pz) < ext + 0.7)) continue;
+        // the nearest to the pad's stand side first (toward the bench's middle), then round
+        const d = Math.hypot(px - (pad.near?.[0] ?? pad.at[0]), pz - (pad.near?.[1] ?? pad.at[1]));
+        if (d < bestD) [best, bestD] = [[px, pz], d];
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /** R4: anything due out of the return chute is thrown back onto the pad (or beside it), as a replacement is. */
+  function catchReturn(id: Id, cause: Cause | null): boolean {
+    if (!spec.pad) return false;
+    const part = ctx.part(id);
+    if (!part) return false;
+    if (part.kind === 'robot' && spec.pad.home) {
+      throwHome(id, cause ?? 'crew');
+      return true;
+    }
+    const half = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
+    if (!padTaken()) {
+      throwToPad(id, half, cause ?? 'system');
+      return true;
+    }
+    const at = besidePad(id, half);
+    if (!at) return false; // nowhere free: the old pop out of the chute's mouth
+    throwTo(id, [at[0], ctx.scene.bench.top + half[1] + 0.005, at[1]], rng.range(-0.1, 0.1), 0, cause ?? 'system');
+    return true;
   }
   function flightPose(f: Flight): Pose {
     const t = Math.min(f.time, f.age / HZ);
@@ -572,6 +637,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         if (to.at === 'in' && to.mouth === spec.mouth && !queue.some((s) => s.id === rs.target) && ctx.take(rs.target, spec.id)) take(rs.target, ctx.history.chargeMachine(rs.target));
       }
     },
+
+    catchReturn,
 
     reset() {
       starvedSince = -1;
