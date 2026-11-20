@@ -103,7 +103,9 @@ describe('Fetch\'s jetpack', () => {
     expect(cut).toHaveLength(1);
     // never through the chute: it flew
     expect(r.ev.some((e) => e.type === 'part.returned' && e.id === 'fetch')).toBe(false);
-    expect(r.rolling).toBeLessThanOrEqual(4.2);
+    // (2026-11-20: physics carries it over and down out of sight before the jets take it, so the time includes its
+    // own fall; was 4.2 when the script took it at the edge)
+    expect(r.rolling).toBeLessThanOrEqual(5);
     console.log(`${_name}: back on its tape ${r.rolling.toFixed(2)} s after leaving the edge`);
     w.dispose();
   }, 60_000);

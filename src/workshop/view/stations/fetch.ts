@@ -297,6 +297,9 @@ export class FetchPerformer {
       this.frozenAt = null;
     } else if (this.frozenAt === null) this.frozenAt = i.time;
     const act = this.act;
+    // its jetpack took it falling past the edge (the bottom of its fall is under the bench top), not a hop from standing:
+    // read from the plan, not the phase (a fall's own phase may be over before a frame is drawn)
+    const fromEdge = act === 'jetpack' && !!m.jet && m.jet.from[1] < m.jet.to[1] - i.half[1];
     // R2: riding (set on the belt by the visitor), the door, thrown home by the chute, and home again
     const ride = act === 'held' && i.mode === 'machine' ? (i.ride ?? null) : null;
     if (ride !== this.ride) {
@@ -330,7 +333,9 @@ export class FetchPerformer {
       this.rightHoldUntil = -Infinity;
       this.righting = 1;
       this.squash.kick(-3.2);
-    } else if (grounded && this.drawn && this.lastMode === 'free' && this.lastRootPos.distanceTo(upNow) < 1.5 && new Vector3(0, 1, 0).applyQuaternion(this.lastQ).y < 0.8) {
+    } else if (grounded && this.drawn && this.lastMode === 'free' && !fromEdge && this.lastRootPos.distanceTo(upNow) < 1.5 && new Vector3(0, 1, 0).applyQuaternion(this.lastQ).y < 0.8) {
+      // (not when its jetpack takes it falling past the edge: the simulation carries the tumble on and rights it out
+      // of sight, and the view draws exactly that, below)
       // R4: thrown, it lay on its side or back and the simulation has it up again: it lies there a beat, dazed,
       // then pushes itself up with the arm it lies on (the simulation's heading untouched: the view draws the getting up)
       this.yaw.set(m.heading);
@@ -1171,7 +1176,7 @@ export class FetchPerformer {
       const jp = jetpackBeat({ phase: jet.phase, phaseTime: jet.phaseTime, phaseLength: jet.phaseLength, thrust: jet.thrust, sinceIgnite: i.time - this.ignitedAt, sinceCut: i.time - this.cutAt, t: st, reducedMotion: rm });
       pose = { ...pose, ...jp, headYaw: pose.headYaw ?? 0, headPitch: pose.headPitch ?? 0, headRoll: pose.headRoll ?? 0, gaze: pose.gaze ?? [0, 0], wheel: pose.wheel ?? 0, flag: pose.flag ?? 0 };
       // R4: a hop that starts standing (off a stack, a tray, a wedge), not from below the edge: a crouch first
-      if (this.jetFirst === null) this.jetFirst = jet.phase;
+      if (this.jetFirst === null) this.jetFirst = fromEdge ? 'fall' : jet.phase;
       if (this.jetFirst !== 'fall' && jet.phase === 'ignite' && !rm) {
         const c = jet.phaseTime / Math.max(0.05, jet.phaseLength);
         pose.squash = c < 0.55 ? 0.8 * Math.sin((Math.PI / 2) * (c / 0.55)) : -0.45;
@@ -1273,7 +1278,16 @@ export class FetchPerformer {
 
     // ── the root ──
     const root = this.rootM;
-    if (grounded) {
+    // over the edge on its jetpack (taken falling): the body is drawn exactly as the simulation turns it, as it was
+    // while it fell loose (the tumble carries on, the simulation rights it out of sight), the hand's twist running out
+    const edgeFlight = grounded && fromEdge && !inHand;
+    if (edgeFlight) {
+      if (rm) this.twist.set(0);
+      else this.twist.step(0, db);
+      const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), this.twist.x).multiply(Q);
+      const pos = P.clone().add(new Vector3(0, -i.half[1], 0).applyQuaternion(q));
+      root.compose(pos, q, new Vector3(1, 1, 1));
+    } else if (grounded) {
       const pos = new Vector3(P.x, P.y - i.half[1], P.z).addScaledVector(fwd, shuffle);
       let q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw + this.bodyTurn.x);
       if (this.righting > 0) {
@@ -1321,7 +1335,7 @@ export class FetchPerformer {
       }
       root.compose(pos, q, new Vector3(1, 1, 1));
     }
-    if (grounded) this.twist.set(0);
+    if (grounded && !edgeFlight) this.twist.set(0);
     this.lastRootPos.setFromMatrixPosition(root);
     this.drawn = true;
     if (!frozen) this.lastQ.setFromRotationMatrix(root);
