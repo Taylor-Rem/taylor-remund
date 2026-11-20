@@ -344,6 +344,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
    * or put down anywhere, it is in the way of a knocked Fetch's slide; down its hatch, shipped or in the
    * visitor's hand it is not).
    */
+  /** (R4) the loose parts lying on the bench, as footprints (not the one in its hands). */
+  function looseObstacles(): Obstacle[] {
+    const out: Obstacle[] = [];
+    for (const id of ctx.parts()) {
+      if (id === spec.id || id === carrying || ctx.mode(id) !== 'free') continue;
+      const p = ctx.pose(id);
+      const hh = ctx.halfExtents(id);
+      if (!p || !hh || p.p[1] > ctx.scene.bench.top + 2) continue;
+      out.push({ id, x: p.p[0], z: p.p[2], hx: hh[0] + 0.03, hz: hh[2] + 0.03, yaw: yawOf(p.q) });
+    }
+    return out;
+  }
   function robotObstacles(): Obstacle[] {
     const out: Obstacle[] = [];
     for (const id of ctx.parts()) {
@@ -1130,7 +1142,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const st = h.strength as Strength;
     const i = st - 1;
     const want = (K.distance[i] as number) * k;
-    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles()]);
+    // (R4) knocked by Patch it stops short of loose parts too: Patch's throw changes nothing durable (its rule), so Fetch's
+    // slide under it must not shove a crate on
+    const loose = h.by === PATCH_ID ? looseObstacles() : [];
+    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles(), ...loose]);
     const spin = h.spinSign * (K.spin[i] as number) * 2 * Math.PI;
     // what it carried falls, its rest charged to the throw (§ E5 rule 4)
     const cause = ctx.history.chargeMachine(h.by);
@@ -1190,7 +1205,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       nx /= nl;
       nz /= nl;
       const kind = classify(e.speed, T.patchMass * e.speed);
-      if (kind === 0) continue;
+      if (kind === 0 || kind === 'nudge') continue; // (a slow Patch drops beside it: nothing to answer)
       const last = patchLast;
       // spun by its side: which way it was going across the line to Fetch's centre (from its last steps), else either way
       const vx = last ? pv[0] - last[0] : nx;

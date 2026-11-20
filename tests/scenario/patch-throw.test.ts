@@ -52,7 +52,11 @@ interface Flight {
 }
 
 /** Loose parts Patch knocked in its flight (from its events). */
-const knocked = (t: Tape): string[] => t.of('patch.throw').filter((x) => x.e.phase === 'hit' && x.e.what !== undefined && /^(crate|tool)/.test(x.e.what)).map((x) => x.e.what as string);
+// (S5 R4: and Fetch knocked by it: Fetch's slide drops the crate in its hands, as a crate's hit does)
+const knocked = (t: Tape): string[] => [
+  ...t.of('patch.throw').filter((x) => x.e.phase === 'hit' && x.e.what !== undefined && /^(crate|tool)/.test(x.e.what)).map((x) => x.e.what as string),
+  ...t.of('crew.knocked').filter((x) => x.e.by === 'patch').map((x) => x.e.id),
+];
 
 /** Until it is back on its stool (or `limit` s), watching the flight. */
 function watch(w: World, t: Tape, limit: number): Flight {
