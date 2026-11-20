@@ -427,7 +427,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     for (const o of touching) {
       if (q[1] >= o.y1) continue; // (over it, not against its side: it leaves it whichever way it is thrown)
       const n = offTop(o, q[0], q[2]);
-      if (-(vv[0] * n[0] + vv[2] * n[1]) <= T.intoBody) continue;
+      const into = -(vv[0] * n[0] + vv[2] * n[1]);
+      if (into <= T.intoBody) continue;
+      // (more along the face than into it, as a sweep past a corner is: it glances off and slides along it)
+      if (into < Math.abs(vv[0] * n[1] - vv[2] * n[0])) continue;
       // (into its face, but glancing off its corner: a tenth of a second on along the throw it is clear of it)
       const ahead: Vec3 = [q[0] + vv[0] * 0.1, q[1], q[2] + vv[2] * 0.1];
       if (!sphereMeets(o, ahead[0], ahead[1], ahead[2], T.bodyR)) continue;

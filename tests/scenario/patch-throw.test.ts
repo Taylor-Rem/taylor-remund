@@ -4,7 +4,7 @@
 // hundred seeded throws (any place, direction and speed to the cap; some while it holds a job, some with the
 // Button pressed meanwhile) all end with Patch on its stool, the job carried on, nothing durable changed by it.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape } from './line-helpers.ts';
+import { benchWorld, FULL_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { PATCHLAMP, answer, patchView, send } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -353,9 +353,9 @@ describe('Patch thrown (R4)', () => {
 
   // I1's two failing records: held against the back wall, the hand sweeping -x along it at y 1.2 and let go
   // front-left at 12 u/s at x 2.52 (its middle at the board's end) and at x 2.3 (its middle in the board's desk)
-  for (const x of [2.52, 2.3]) {
-    test(`I1's record: let go at x ${x} over the board's end, the hand front-left at 12: it flies`, async () => {
-      const w = await benchWorld(1);
+  for (const [x, full] of [[2.52, false], [2.3, false], [2.38, true], [2.3, true], [2.6, true]] as const) {
+    test(`I1's record: let go at x ${x} over the board's end${full ? ' (the whole bench: the board panel on its desk)' : ''}, the hand front-left at 12: it flies`, async () => {
+      const w = full ? await benchWorld(1, { scene: FULL_BENCH }) : await benchWorld(1);
       const t = tape(w);
       t.run(20);
       const s = patchView(w).at;
