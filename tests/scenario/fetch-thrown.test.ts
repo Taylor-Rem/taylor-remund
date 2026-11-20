@@ -4,7 +4,9 @@
 // down on its jets to the nearest free point of its tape), on the belt (stood on its wheels before the belt takes
 // it), off the bench (the jetpack, unchanged). The whole-bench proof is tests/scenario/throw-soak.test.ts.
 import { describe, expect, test } from 'vitest';
-import { AT, benchWorld, FULL_BENCH, LINE, onBelt, tape, type Tape } from './line-helpers.ts';
+import { AT, benchWorld, FULL_BENCH, LINE, onBelt, putOn, tape, waitFor, type Tape } from './line-helpers.ts';
+import { plug, textAndWait, traySpot } from './patchlamp-helpers.ts';
+import { FETCH_TUNING } from '../../src/workshop/sim/crew/fetch.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -150,4 +152,50 @@ describe('Fetch thrown', () => {
     expect(upY(w.motion('fetch')!.pose.q), 'upright as it rides').toBeGreaterThan(0.99);
     w.dispose();
   }, 60_000);
+});
+
+// R4 follow-up (discovery 7: "anything on the platen can be changed, a robot included"): Fetch SET on the platen's
+// tray waits there for the visitor to paint it: 45 s, and not at all while they are at it (a text within 20 s, a call
+// open, the cord worked within 10 s or in hand, anything in hand); once its paint job is answered it leaves as a thrown
+// Fetch does (2.5 s). Thrown onto the tray it leaves after 2.5 s (the soak).
+describe('Fetch set on the platen\'s tray to be painted', () => {
+  const onTray = (w: World): boolean => w.mode('fetch') === 'machine' && w.part('fetch')!.location.at === 'in';
+  test('left alone it waits 45 s, then hops off', async () => {
+    const w = await benchWorld('r4-tray-wait');
+    const t = tape(w);
+    t.run(10);
+    putOn(w, t, 'fetch', traySpot(), 160);
+    expect(waitFor(w, t, 'fetch', 'in', 400)).toBe(true);
+    t.run(steps(FETCH_TUNING.leaveMachineSet - 3));
+    expect(onTray(w), 'still there after 42 s').toBe(true);
+    t.run(steps(8));
+    expect(onTray(w), 'gone by 50 s').toBe(false);
+    w.dispose();
+  }, 120_000);
+  test('the visitor at it: texting every 15 s keeps it there past 45 s; its paint job answered, it leaves within seconds', async () => {
+    const w = await benchWorld('r4-tray-paint');
+    const t = tape(w);
+    t.run(10);
+    putOn(w, t, 'fetch', traySpot(), 160);
+    expect(waitFor(w, t, 'fetch', 'in', 400)).toBe(true);
+    t.run(steps(30));
+    plug(w, t, 'jack-storefront'); // the cord worked (not the platen yet): a text goes to the storefront
+    for (let k = 0; k < 2; k++) {
+      t.run(steps(12));
+      textAndWait(w, t, 'hello');
+    }
+    expect(onTray(w), 'still there at about 60 s while the visitor texts').toBe(true);
+    plug(w, t, 'jack-platen');
+    const r = textAndWait(w, t, 'paint it violet');
+    expect(r.words).toBe('Painted it violet. I checked. Patched.');
+    expect(w.part('fetch')!.colour).toBe('paint-violet');
+    let left = -1;
+    for (let i = 0; i < steps(8) && left < 0; i++) {
+      t.run(1);
+      if (!onTray(w)) left = i / HZ;
+    }
+    expect(left, 'painted, it hops off within a few seconds').toBeGreaterThan(0);
+    expect(left).toBeLessThan(FETCH_TUNING.leaveMachine + 1);
+    w.dispose();
+  }, 180_000);
 });
