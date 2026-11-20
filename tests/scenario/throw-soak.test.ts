@@ -207,7 +207,9 @@ async function session(seed: number): Promise<string[]> {
           if (p[1] < -0.05 && Math.abs(p[0]) < 9 && Math.abs(p[2]) < 5) fails.push(`${label}: ${id} inside the bench at (${p.map((v) => v.toFixed(2)).join(', ')})`);
           continue;
         }
-        if (insideBox(p, s.pose, (s.shape as { half: Vec3 }).half, 0.02)) fails.push(`${label}: ${id} inside ${s.id} (${mode})`);
+        // (going through the dock's door: the dock carries it into its bay, inside its collider, to ship it)
+        const shipping = mode === 'machine' && s.id === 'dock' && w.part(id)?.location.at === 'in';
+        if (!shipping && insideBox(p, s.pose, (s.shape as { half: Vec3 }).half, 0.02)) fails.push(`${label}: ${id} inside ${s.id} (${mode})`);
       }
       for (const o of LOOSE) {
         if (o === id) continue;
