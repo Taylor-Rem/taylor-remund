@@ -358,8 +358,9 @@ describe('Patch thrown (R4)', () => {
 
   // I1's two failing records: held against the back wall, the hand sweeping -x along it at y 1.2 and let go
   // front-left at 12 u/s at x 2.52 (its middle at the board's end) and at x 2.3 (its middle in the board's desk)
-  for (const [x, full] of [[2.52, false], [2.3, false], [2.38, true], [2.3, true], [2.6, true]] as const) {
-    test(`I1's record: let go at x ${x} over the board's end${full ? ' (the whole bench: the board panel on its desk)' : ''}, the hand front-left at 12: it flies`, async () => {
+  // (and I1's third: the hand at 1.31, z -4.40, its middle 0.71 up: into the panel's foot as well as the desk)
+  for (const [x, full, hy, hz] of [[2.52, false, 1.15, -4.42], [2.3, false, 1.15, -4.42], [2.38, true, 1.15, -4.42], [2.3, true, 1.15, -4.42], [2.6, true, 1.15, -4.42], [2.3, true, 1.31, -4.4]] as const) {
+    test(`I1's record: let go at x ${x}, ${hy} up, z ${hz} over the board's end${full ? ' (the whole bench: the board panel on its desk)' : ''}, the hand front-left at 12: it flies`, async () => {
       const w = full ? await benchWorld(1, { scene: FULL_BENCH }) : await benchWorld(1);
       const t = tape(w);
       t.run(20);
@@ -367,18 +368,18 @@ describe('Patch thrown (R4)', () => {
       w.dispatch({ type: 'drag', id: 'patch', target: [s[0], 2.4, s[2]] });
       t.run(1);
       for (let i = 1; i <= 30; i++) {
-        w.dispatch({ type: 'drag', id: 'patch', target: [s[0] + ((3.37 - s[0]) * i) / 30, 2.4 + ((1.39 - 2.4) * i) / 30, s[2] + ((-4.42 - s[2]) * i) / 30] });
+        w.dispatch({ type: 'drag', id: 'patch', target: [s[0] + ((3.37 - s[0]) * i) / 30, 2.4 + ((hy + 0.24 - 2.4) * i) / 30, s[2] + ((hz - s[2]) * i) / 30] });
         t.run(1);
       }
       for (let i = 1; i <= 6; i++) {
-        w.dispatch({ type: 'drag', id: 'patch', target: [3.37 + ((x - 3.37) * i) / 6, 1.39 - (0.24 * i) / 6, -4.42] });
+        w.dispatch({ type: 'drag', id: 'patch', target: [3.37 + ((x - 3.37) * i) / 6, hy + 0.24 - (0.24 * i) / 6, hz] });
         t.run(1);
       }
-      w.dispatch({ type: 'drag', id: 'patch', target: [x, 1.15, -4.42], end: true, velocity: [-8.5, 0, 8.8] });
+      w.dispatch({ type: 'drag', id: 'patch', target: [x, hy, hz], end: true, velocity: [-8.5, 0, 8.8] });
       t.run(1);
       const first = patchView(w);
       expect(first.state).toBe('fly');
-      expect(first.at[1]).toBeLessThanOrEqual(1.15 + 0.5);
+      expect(first.at[1]).toBeLessThanOrEqual(hy + 0.5);
       // and it goes somewhere: hanging over the desk it starts from the desk's top (in front of the panel), not
       // boxed in between the board's end, the stool and the wall (I1's 1.44-unit run)
       const p0 = first.at;

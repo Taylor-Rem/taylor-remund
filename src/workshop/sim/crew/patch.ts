@@ -430,9 +430,10 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       // hanging below the hand over a low body (the board's desk, the console), its middle is in it: up onto its
       // top first, where the hand is anyway, if that is no more than `clearMax` above the hand
       const hand = q[1] + T.hangBelow;
-      const under = all.filter((o) => sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
+      // (the low bodies it hangs into, whose tops are under the hand: not a tall one beside them, the board's panel)
+      const under = all.filter((o) => o.y1 <= hand && sphereMeets(o, q[0], q[1], q[2], T.bodyR * 0.8));
       // (clear of the top by its whole flight sphere: on it, not in it, so it comes down on it and is tipped off)
-      const top = Math.max(...under.map((o) => o.y1)) + T.bodyR + 0.01;
+      const top = under.length ? Math.max(...under.map((o) => o.y1)) + T.bodyR + 0.01 : Infinity;
       if (top <= hand + T.clearMax && !deep([q[0], top, q[2]])) found = [q[0], top, q[2]];
       // (and the top taken by something standing on it, the board's panel on its desk: the nearest clear place
       // on that top, before anywhere at its own height)
