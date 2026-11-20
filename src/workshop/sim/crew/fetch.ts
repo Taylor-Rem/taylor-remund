@@ -118,6 +118,9 @@ export const FETCH_TUNING = {
   leaveMachine: 2.5,
   /** (R4 follow-up) standing with a crate it cannot take anywhere this long (beyond the belt's pace, 5 s), it sets it down. */
   holdIdleMax: 7,
+  /** (R4) a thrown Patch knocks it as a part of this mass would (a small crate's: 4 u/s a strength-1 knock, 9 a 2, 14 a 3); after its slide it looks at Patch this long. */
+  patchMass: 0.06,
+  patchLook: 0.7,
   /** ...but set there on purpose (on the platen's tray, to be painted: discovery 7; time to notice it, open the phone, plug the cord and type), it waits this long first. */
   leaveMachineSet: 45,
   /** ...and while the visitor is at it, not at all: a text within this long, the cord worked within this long (s). */
@@ -341,6 +344,18 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
    * or put down anywhere, it is in the way of a knocked Fetch's slide; down its hatch, shipped or in the
    * visitor's hand it is not).
    */
+  /** (R4) the loose parts lying on the bench, as footprints (not the one in its hands). */
+  function looseObstacles(): Obstacle[] {
+    const out: Obstacle[] = [];
+    for (const id of ctx.parts()) {
+      if (id === spec.id || id === carrying || ctx.mode(id) !== 'free') continue;
+      const p = ctx.pose(id);
+      const hh = ctx.halfExtents(id);
+      if (!p || !hh || p.p[1] > ctx.scene.bench.top + 2) continue;
+      out.push({ id, x: p.p[0], z: p.p[2], hx: hh[0] + 0.03, hz: hh[2] + 0.03, yaw: yawOf(p.q) });
+    }
+    return out;
+  }
   function robotObstacles(): Obstacle[] {
     const out: Obstacle[] = [];
     for (const id of ctx.parts()) {
@@ -1127,7 +1142,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const st = h.strength as Strength;
     const i = st - 1;
     const want = (K.distance[i] as number) * k;
-    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles()]);
+    // (R4) knocked by Patch it stops short of loose parts too: Patch's throw changes nothing durable (its rule), so Fetch's
+    // slide under it must not shove a crate on
+    const loose = h.by === PATCH_ID ? looseObstacles() : [];
+    const run = clearRun(x, z, h.dirX, h.dirZ, want, footprint, ctx.scene.bench, [...OBSTACLES, ...robotObstacles(), ...loose]);
     const spin = h.spinSign * (K.spin[i] as number) * 2 * Math.PI;
     // what it carried falls, its rest charged to the throw (§ E5 rule 4)
     const cause = ctx.history.chargeMachine(h.by);
@@ -1155,9 +1173,19 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   /** Read a step's hits: one involving Fetch (or the crate in its hands) and a free part. */
   /** Parts it shoved about itself while knocked (sliding into them): their bounce off it a moment later is not a throw. */
   const shovedByMe = new Map<Id, number>();
+  /** (R4) Patch: where it is now (its view's `at`), and where it was the step before (for the side it came by). */
+  const PATCH_ID = 'patch';
+  let patchLast: Vec3 | null = null;
+  let patchNow: Vec3 | null = null;
+  function patchAt(): Vec3 | null {
+    const c = ctx.crewView(PATCH_ID);
+    return c?.kind === 'patch' ? c.view.at : null;
+  }
   function hear(events: readonly SimEvent[]): void {
     const now = ctx.clock.step;
     for (const [id, until] of shovedByMe) if (until < now) shovedByMe.delete(id);
+    patchLast = patchNow;
+    patchNow = patchAt();
     for (const e of events) {
       if (e.type !== 'part.hit' || e.other === null) continue;
       // sliding into things while knocked, or anything the part in its own hands bumps
@@ -1165,6 +1193,29 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       if (mine !== null && (e.id === mine || e.other === mine)) shovedByMe.set(e.id === mine ? e.other : e.id, now + steps(1.5));
     }
     if (!knockable()) return;
+    // (R4) a thrown Patch met it (it stops against Fetch and drops beside it): knocked as by a thrown crate of Patch's
+    // weight, away from where Patch came from (Patch stops on that side), spun by its side; not while it shakes itself off
+    for (const e of events) {
+      if (e.type !== 'patch.throw' || e.phase !== 'hit' || e.what !== spec.id || state === 'shrug') continue;
+      const pv = patchAt();
+      if (!pv) continue;
+      let nx = x - pv[0];
+      let nz = z - pv[2];
+      const nl = Math.hypot(nx, nz) || 1;
+      nx /= nl;
+      nz /= nl;
+      const kind = classify(e.speed, T.patchMass * e.speed);
+      if (kind === 0 || kind === 'nudge') continue; // (a slow Patch drops beside it: nothing to answer)
+      const last = patchLast;
+      // spun by its side: which way it was going across the line to Fetch's centre (from its last steps), else either way
+      const vx = last ? pv[0] - last[0] : nx;
+      const vz = last ? pv[2] - last[2] : nz;
+      const torque = (-nz * vx + nx * vz) / Math.max(1e-6, Math.hypot(vx, vz));
+      const spinSign = Math.abs(torque) > K.offCentre ? -Math.sign(torque) : knockRng.chance(0.5) ? 1 : -1;
+      const h = { by: PATCH_ID, strength: kind, dirX: nx, dirZ: nz, speed: e.speed, mass: T.patchMass, spinSign };
+      const rank = (q: Strength | 'nudge'): number => (q === 'nudge' ? 0 : q);
+      if (!hit || rank(h.strength) > rank(hit.strength)) hit = h;
+    }
     for (const e of events) {
       if (e.type !== 'part.hit' || e.other === null) continue;
       const mine = (id: Id): boolean => id === spec.id || (id === carrying && carrying !== null);
@@ -1229,7 +1280,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     z = kn.z0 + kn.dz * kn.distance * e;
     heading = kn.h0 + kn.spin * e;
     v = f < 1 ? (kn.distance / kn.shove) * 3 * (1 - f) * (1 - f) : 0;
-    if (t >= kn.shove + kn.wobble) {
+    // (R4) knocked by a thrown Patch: once its slide is done it looks at Patch (not the visitor), a beat longer
+    const byPatch = kn.by === PATCH_ID;
+    if (byPatch && f >= 1) lookAt = patchAt();
+    if (t >= kn.shove + kn.wobble + (byPatch ? T.patchLook : 0)) {
       heading = wrap(heading);
       knock = null;
       s = nearest(x, z);
@@ -1611,7 +1665,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       if (hit) {
         const h = hit;
         hit = null;
-        if (knockable() && ctx.mode(h.by) !== undefined) {
+        if (knockable() && (ctx.mode(h.by) !== undefined || h.by === PATCH_ID)) {
           if (h.strength === 'nudge') {
             nudge = { id: h.by, until: now + steps(K.nudgeLook) };
             ctx.emit({ type: 'crew.nudged', id: spec.id, by: h.by });
