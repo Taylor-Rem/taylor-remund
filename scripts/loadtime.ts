@@ -4,6 +4,9 @@
 // 6 s on Fast 4G; first paint at most 200 KB).
 //
 //   node scripts/loadtime.ts [--path /dev/handoff/] [--runs 3] [--throttle both|none|fast4g]
+//        [--path /,/dev/bench/]  several pages, measured ALTERNATING in one session (run 1 of each, then
+//                            run 2 of each, …), so a change in the machine's load falls on all of them alike
+//                            (P3 B1: `/` against `/dev/bench/`)
 //        [--dist <dir>]      measure an existing build (default: build one with the dev pages
 //                            into a temporary folder, WORKSHOP_DEV_PAGES=1 astro build --outDir)
 //        [--w 1440 --h 900]  [--profile]  CPU profile: inclusive time per chunk (per piece)
@@ -587,7 +590,8 @@ async function main(): Promise<number> {
     console.log(USAGE);
     return 0;
   }
-  const path = String(v['path'] ?? '/dev/handoff/');
+  const paths = String(v['path'] ?? '/dev/handoff/').split(',').map((p) => p.trim()).filter(Boolean);
+  const path = paths[0]!;
   const runs = Number(v['runs'] ?? 3);
   const which = String(v['throttle'] ?? 'both');
   const throttles: ThrottleName[] = which === 'both' ? ['none', 'fast4g'] : which === 'none' || which === 'fast4g' ? [which] : [];
@@ -608,6 +612,7 @@ async function main(): Promise<number> {
   }
   const server = await serveDist(dist);
   const url = server.origin + path;
+  const urlOf = (p: string): string => server.origin + p;
   const all: Run[] = [];
   try {
     if (v['record']) {
@@ -629,24 +634,32 @@ async function main(): Promise<number> {
       return 0;
     }
     for (const t of throttles) {
-      console.log(`\n${path} at ${w}×${h}, ${t === 'none' ? 'unthrottled' : 'Fast 4G (9 Mbit/s, 165 ms)'}, ${runs} cold run(s)`);
-      const mine: Run[] = [];
-      if (!v['no-trace'] || v['profile']) {
-        // one instrumented run for the breakdown (tracing and sampling slow the page: not counted)
-        const run = await coldLoad(url, { w, h, throttle: t, trace: !v['no-trace'], profile: !!v['profile'] });
-        if (isSoftware(run.renderer)) console.log(`WARNING software renderer (${run.renderer}): timings are meaningless`);
-        console.log('  instrumented run (trace' + (v['profile'] ? ' + CPU profile' : '') + '; slower, not counted):');
-        console.log(describe(run, true));
-        all.push(run);
+      const mine = new Map<string, Run[]>(paths.map((p) => [p, []]));
+      for (const p of paths) {
+        console.log(`\n${p} at ${w}×${h}, ${t === 'none' ? 'unthrottled' : 'Fast 4G (9 Mbit/s, 165 ms)'}, ${runs} cold run(s)${paths.length > 1 ? `, alternating with ${paths.filter((x) => x !== p).join(', ')}` : ''}`);
+        if (!v['no-trace'] || v['profile']) {
+          // one instrumented run for the breakdown (tracing and sampling slow the page: not counted)
+          const run = await coldLoad(urlOf(p), { w, h, throttle: t, trace: !v['no-trace'], profile: !!v['profile'] });
+          if (isSoftware(run.renderer)) console.log(`WARNING software renderer (${run.renderer}): timings are meaningless`);
+          console.log('  instrumented run (trace' + (v['profile'] ? ' + CPU profile' : '') + '; slower, not counted):');
+          console.log(describe(run, true));
+          all.push(run);
+        }
       }
       for (let i = 0; i < runs; i++) {
-        const run = await coldLoad(url, { w, h, throttle: t, trace: false, profile: false });
-        console.log(describe(run, i === 0 && !!v['no-trace']));
-        mine.push(run);
-        all.push(run);
+        for (const p of paths) {
+          const run = await coldLoad(urlOf(p), { w, h, throttle: t, trace: false, profile: false });
+          console.log(`${paths.length > 1 ? `  [${p}] ` : ''}${describe(run, i === 0 && !!v['no-trace'])}`);
+          mine.get(p)!.push(run);
+          all.push(run);
+        }
       }
-      console.log(`  ⇒ picture: ${spread(mine.map((r) => picturePaint(r.page) ?? NaN))}`);
-      console.log(`  ⇒ usable:  ${spread(mine.map((r) => r.page.usable ?? NaN))}`);
+      for (const p of paths) {
+        const rs = mine.get(p)!;
+        const tag = paths.length > 1 ? ` ${p}` : '';
+        console.log(`  ⇒${tag} picture: ${spread(rs.map((r) => picturePaint(r.page) ?? NaN))}`);
+        console.log(`  ⇒${tag} usable:  ${spread(rs.map((r) => r.page.usable ?? NaN))}`);
+      }
     }
     if (v['json']) writeFileSync(String(v['json']), JSON.stringify(all, null, 1));
     return 0;

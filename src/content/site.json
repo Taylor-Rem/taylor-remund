@@ -35,6 +35,14 @@
     "navSite": { "text": "Site", "kind": "ui", "provisional": true, "source": "new for the Paper layout (P3, A1): accessible name of the site links (screen readers only); for Taylor to approve" },
     "navPage": { "text": "On this page", "kind": "ui", "provisional": true, "source": "new for the Paper layout (P3, A1): accessible name of a page's own section links (screen readers only); for Taylor to approve" }
   },
+  "home": {
+    "skip": { "text": "Skip to the text", "kind": "ui" },
+    "read": { "text": "Read", "kind": "ui", "source": "REWRITE.md § B6, § B7 (the strip offers Read)" },
+    "back": { "text": "Back to the workshop", "kind": "ui" },
+    "sound": { "text": "Sound", "kind": "ui" },
+    "links": { "text": "Links", "kind": "ui", "source": "the placeholder strip's nav label (src/layouts/Stage.astro at c4bbefe)" },
+    "restart": { "text": "Start the workshop again", "kind": "ui", "source": "REWRITE.md § E7 (a button to restart the workshop)" }
+  },
   "notFound": {
     "title": { "text": "Not found", "kind": "ui" }
   }

@@ -28,7 +28,7 @@
 // Exit codes: 0 ok, 1 failed or stale, 2 usage.
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isMain, REPO_ROOT } from './lib/cli.ts';
@@ -39,7 +39,7 @@ export const TABLE_JSON = 'src/workshop/view/kit/bake-table.json';
 /** The bake's code: what turns an input into values. A change here makes old values wrong. */
 export const CODE_FILES = ['src/workshop/view/kit/surface.ts', 'src/workshop/view/kit/bvh.ts', 'src/workshop/view/kit/rng.ts', 'src/workshop/view/kit/bake.ts', 'src/workshop/view/kit/bake-format.ts'];
 /** What shapes the pieces the pages build (a change here only costs misses). */
-export const INPUT_TREES = ['src/workshop/view', 'src/workshop/sim', 'src/content', 'public/fonts', 'src/dev-pages/vignette.astro', 'src/dev-pages/bench.astro', 'src/dev-pages/handoff.astro'];
+export const INPUT_TREES = ['src/workshop/view', 'src/workshop/sim', 'src/content', 'public/fonts', 'src/dev-pages/vignette.astro', 'src/dev-pages/bench.astro', 'src/dev-pages/handoff.astro', 'src/workshop/shell/bench-stage.ts'];
 
 export interface TableInfo {
   format: number;
@@ -82,9 +82,8 @@ export function inputsHash(root = REPO_ROOT): string {
   const files: string[] = [];
   for (const t of INPUT_TREES) {
     const p = join(root, t);
-    if (t.endsWith('.astro')) {
-      if (existsSync(p)) files.push(p);
-    } else walk(p, files);
+    if (existsSync(p) && statSync(p).isFile()) files.push(p);
+    else walk(p, files);
   }
   const skip = new Set([TABLE_BIN, TABLE_JSON].map((f) => join(root, f)));
   return hashFiles(root, files.filter((f) => !skip.has(f)));
@@ -138,6 +137,10 @@ export const RUNS: readonly Run[] = [
   { path: '/dev/bench/?hud=0&manual=1', w: 1440, h: 900, dpr: 1, play: BENCH_PLAY },
   { path: '/dev/bench/?hud=0&manual=1&tier=low', w: 1440, h: 900, dpr: 1, play: BENCH_PLAY },
   { path: '/dev/bench/?hud=0&manual=1', w: 390, h: 844, dpr: 2, play: BENCH_PLAY },
+  // the home page builds the bench's pieces through the same glue (shell/bench-stage.ts); its stage tiers,
+  // as a visitor's machine gets them (it has no hooks to play with: the start is what it records)
+  { path: '/?tier=high', w: 1440, h: 900, dpr: 1, play: '0' },
+  { path: '/?tier=low', w: 1440, h: 900, dpr: 1, play: '0' },
 ];
 
 const READY = `(() => { const h = window.__handoff; return (h && typeof h.usableAt === 'number') || (!h && !!(window.__vignette || window.__bench) && window.__ready === true); })()`;

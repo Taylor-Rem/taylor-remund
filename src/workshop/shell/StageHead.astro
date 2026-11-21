@@ -21,13 +21,7 @@
 //
 // The page sets the stage root's background colour (no colour is typed here).
 import { picturePreloads, type PosterSet } from './poster.ts';
-export interface Preload {
-  href: string;
-  /** Default fetch (what the stage's code does with it: fetch()). */
-  as?: 'fetch' | 'script' | 'font' | 'image';
-  type?: string;
-  priority?: 'high' | 'low' | 'auto';
-}
+import type { Preload } from './stage-preloads.ts';
 interface Props {
   preload?: Preload[];
   /** The picture set, its files (the page's `?url` glob) and their folder: the picture is preloaded first. */

@@ -7,6 +7,7 @@
 // what the history says it should (the replay check, tests/scenario/standins/replay.ts).
 //
 // In verify: UNDO_SOAK sessions (default 12). The big one: UNDO_SOAK=3000 npx vitest run tests/scenario/undo-soak.test.ts
+// (its time limit grows with the count: a second a session; 3000 did not fit the fixed ten minutes on 2026-11-21)
 // One seed alone, with the shortest failing prefix: UNDO_SEED=<n> npx vitest run tests/scenario/undo-soak.test.ts
 import { expect, test } from 'vitest';
 import { benchWorld, FULL_BENCH, LINE, onBelt } from './line-helpers.ts';
@@ -175,7 +176,7 @@ async function session(seed: number, maxActions: number): Promise<Outcome & { ac
   }
 }
 
-test(`undo soak: ${ONLY ?? SESSIONS} seeded session(s) of a visitor and then the lever pulled dry, on the whole bench`, { timeout: 600_000 }, async () => {
+test(`undo soak: ${ONLY ?? SESSIONS} seeded session(s) of a visitor and then the lever pulled dry, on the whole bench`, { timeout: Math.max(600_000, SESSIONS * 1_000) }, async () => {
   const seeds = ONLY !== null ? [ONLY] : Array.from({ length: SESSIONS }, (_, i) => i);
   const failures = new Map<string, { seed: number; shortest: number; log: string[]; at: string }>();
   for (const seed of seeds) {
