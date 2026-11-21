@@ -151,7 +151,8 @@ for (const width of [320, 390, 1280]) {
     await page.evaluate(() => document.fonts.ready);
     const broken = await page.evaluate(() =>
       Array.from(document.querySelectorAll<HTMLElement>('.price, .package-note .part'))
-        .filter((el) => el.getClientRects().length > 1)
+        // on more than one line: its boxes do not all share one top (an inline box with a child has several boxes on one line)
+        .filter((el) => new Set(Array.from(el.getClientRects()).map((r) => Math.round(r.top))).size > 1)
         .map((el) => el.textContent ?? ''),
     );
     expect(broken).toEqual([]);
