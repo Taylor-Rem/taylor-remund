@@ -21,7 +21,8 @@
  * (`scripts/poster.ts`): change one and the pictures must be rendered again.
  */
 import { Box3, Vector3 } from 'three';
-import { bootWorkshop, type BootOptions, type BootStation, type Workshop } from './boot.ts';
+import { bootWorkshop, type BootOptions, type BootStation, type Framings, type Inset, type Workshop } from './boot.ts';
+import type { Stage } from '../view/stage/index.ts';
 import { loadStage, type HandoffState } from './loader.ts';
 import type { PosterSet } from './poster.ts';
 import { LOOK } from '../view/stage/index.ts';
@@ -30,7 +31,6 @@ import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
 import { bench as BENCH } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
-import { staticBox } from '../view/vignette.ts';
 
 export type BenchBootOptions = Omit<BootOptions, 'manual' | 'onProgress'>;
 
@@ -58,6 +58,49 @@ export interface BenchGlueOptions {
 /** The plan view's box (the dev page's ?plan=1). */
 export const PLAN_BOX = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.01, 5.4));
 
+/**
+ * The bench's stations as § C names them, each with the box its framing shows whole (P3 B2: judged in pictures at
+ * 1440×900 and 390×844; § B6 "zooms between the whole bench and one station"). In the controls list's order:
+ * the Button first (§ B3: the most obvious thing on the bench), then the centre, the front, the wall. A loose part
+ * is framed with the station whose box holds it now (the belt's before the Button's: the crate stack is the belt's).
+ */
+export const STATION_BOXES = {
+  /** The Button on its console, the UNDO lever, Revert's hatch. */
+  button: { min: [-6.0, 0, -0.6], max: [0.8, 2.0, 1.45] },
+  /** Patch at the board, the stool, the platen, the storefront, the phone. */
+  patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
+  /** The belt from the chute to the dock: the stack, Fetch's lane, the striker. */
+  line: { min: [-7.8, 0, 0.6], max: [7.4, 2.2, 5.0] },
+  /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
+  top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
+} as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
+export type BenchStation = keyof typeof STATION_BOXES;
+export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
+/** Which box a loose part is looked for in first (the boxes overlap; the wall's holds no loose part). */
+const PART_ORDER: readonly BenchStation[] = ['line', 'button', 'patchlamp'];
+
+/** The box of a station's framing, grown so what it frames lies in what the page leaves uncovered (`inset`). */
+export function stationBox(st: BenchStation, inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 }, view: { width: number; height: number; pitch: number } | null = null): Box3 {
+  const s = STATION_BOXES[st];
+  const box = new Box3(new Vector3(...s.min), new Vector3(...s.max));
+  if (!view) return box;
+  const W = Math.max(1, view.width);
+  const H = Math.max(1, view.height);
+  const frac = (px: number, of: number): number => Math.min(0.6, Math.max(0, px / of));
+  const l = frac(inset.left, W), r = frac(inset.right, W), t = frac(inset.top, H), b = frac(inset.bottom, H);
+  const w = box.max.x - box.min.x;
+  const keep = Math.max(0.3, 1 - l - r);
+  box.min.x -= (w * l) / keep;
+  box.max.x += (w * r) / keep;
+  // up the screen is back (−z) and up (+y): the box's height on screen, in z at the camera's pitch
+  const p = (view.pitch * Math.PI) / 180;
+  const tall = (box.max.z - box.min.z) * Math.sin(p) + (box.max.y - box.min.y) * Math.cos(p);
+  const keepY = Math.max(0.3, 1 - t - b);
+  box.min.z -= (tall * t) / keepY / Math.sin(p);
+  box.max.z += (tall * b) / keepY / Math.sin(p);
+  return box;
+}
+
 export interface BenchGlue {
   /** Load the bench's pieces and station views (the loader's first phase). */
   prepare(): Promise<Bench>;
@@ -65,8 +108,8 @@ export interface BenchGlue {
   readonly bench: Bench;
   /** The boot options for the loaded bench (a tier may be given: a stage rebuilt at another tier). */
   bootOptions(tier?: Tier): BenchBootOptions;
-  /** The four shots (button, fetch, patch, cord): the box each frames. */
-  readonly shots: Record<'button' | 'fetch' | 'patch' | 'cord', () => Box3>;
+  /** The shots: each station's (top, patchlamp, button, line), and fetch, patch, cord: the box each frames. */
+  readonly shots: Record<BenchStation | 'fetch' | 'patch' | 'cord', () => Box3>;
   /** Is the phone's framing in use? */
   portrait(): boolean;
 }
@@ -83,10 +126,10 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
   };
   const portrait = (): boolean => !plan && (o.view === 'phone' || (o.view !== 'wide' && innerWidth < innerHeight));
   const shots: BenchGlue['shots'] = {
-    button: () => {
-      const c = staticBox(loaded().scene, 'console')!.getCenter(new Vector3());
-      return new Box3(new Vector3(c.x - 1.5, 0, c.z - 1.0), new Vector3(c.x + 1.6, 1.4, c.z + 1.4));
-    },
+    top: () => stationBox('top'),
+    patchlamp: () => stationBox('patchlamp'),
+    button: () => stationBox('button'),
+    line: () => stationBox('line'),
     fetch: () => {
       const b = loaded();
       const m = b.world()?.motion('fetch');
@@ -146,14 +189,56 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
           Object.assign(LOOK.focus, FRAMING.blur);
           stage.camera.cutTo(stage.camera.home());
         },
-        onFrameRequest(id, stage) {
-          const box = id === 'button' ? shots.button() : id === 'fetch' ? shots.fetch() : id === 'cord' || id?.startsWith('jack') ? shots.cord() : null;
-          if (box) stage.camera.easeTo(stage.camera.frame(box));
-          else stage.camera.easeTo(stage.camera.home());
-        },
+        framings: framings(),
       };
     },
   };
+
+  /** P3 B2: every station framed whole (shell/boot.ts `Framings`); the whole bench is the home framing. */
+  function framings(): Framings {
+    const v = new Vector3();
+    const inBox = (st: BenchStation, p: Vec3): boolean => {
+      const s = STATION_BOXES[st];
+      return p[0] >= s.min[0] && p[0] <= s.max[0] && p[2] >= s.min[2] && p[2] <= s.max[2];
+    };
+    const view = (stage: Stage): { width: number; height: number; pitch: number } => ({ width: canvas.clientWidth, height: canvas.clientHeight, pitch: stage.camera.pitch });
+    const ease = (stage: Stage, box: Box3): void => {
+      stage.camera.easeTo(stage.camera.frame(box));
+      // the depth of field follows: what is framed is what is sharp
+      const c = box.getCenter(v);
+      stage.camera.focusOn({ x: c.x, y: Math.min(c.y, 1), z: c.z });
+    };
+    return {
+      stations: BENCH_STATIONS,
+      of(id) {
+        const w = loaded().world();
+        if (!w) return null;
+        // a loose part (a crate, Fetch): framed where it is now
+        const m = w.motion(id);
+        if (m && m.mode !== 'gone' && m.mode !== 'chute') {
+          const hit = PART_ORDER.find((st) => inBox(st, m.pose.p));
+          if (hit) return hit;
+        }
+        // the phone's pick target stands for the line (its station's)
+        const st = w.interactable(id)?.station ?? (id === 'phone' ? w.interactable('line')?.station : undefined);
+        return st && (BENCH_STATIONS as readonly string[]).includes(st) ? st : null;
+      },
+      show(st, stage, inset) {
+        if (st === null || !(BENCH_STATIONS as readonly string[]).includes(st)) {
+          stage.camera.easeTo(stage.camera.home());
+          stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
+          return;
+        }
+        ease(stage, stationBox(st as BenchStation, inset, view(stage)));
+      },
+      thing(id, stage) {
+        const w = loaded().world();
+        const p = w?.motion(id)?.pose.p ?? null;
+        if (!p) return;
+        ease(stage, new Box3(new Vector3(p[0] - 1.6, 0, p[2] - 0.9), new Vector3(p[0] + 1.6, 1.6, p[2] + 0.9)));
+      },
+    };
+  }
 }
 
 /** What `window.__posters` holds (shell/StagePicture.astro). */
