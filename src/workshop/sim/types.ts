@@ -850,13 +850,31 @@ export interface PatchView extends MachineViewBase {
    * still from high or thrown up (it comes down falling, not tumbling along); `top` hanging at the top of a throw
    * up, a moment before it falls. Present in `shake` too, for the size of its "really?".)
    */
-  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean } | null;
+  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; /** (`flight: 'body'`) How much of the float at the top of a throw up is on now, 0..1 (`top` is this over a half). */ readonly float?: number } | null;
   /**
    * R4: met a wall flat (state `wall`): `out` the wall's outward direction where it met it (unit, horizontal;
    * Patch faces it, spread), `stick` seconds stuck there, then it slides down it (`at`, its middle, moving down)
    * to the bench, where it lands and sits. Null otherwise.
    */
   readonly wall: { readonly out: Vec3; readonly stick: number } | null;
+  /**
+   * 2026-11-20 (prototype, `PatchSpec.flight: 'body'`; absent for the scripted Patch). Patch's own body while it is in
+   * the world: in the hand (`held`: the world carries it as it carries a part) and loose (state `fly`: thrown,
+   * tumbling, lying; the engine's). `id` the part (kind robot; `WorldView.motion(id)` has the same poses); `pose`
+   * now and `prev` a step ago (draw between them); `half` its box, the hand's grip at the middle of its top. `at`
+   * follows it: its middle while loose, `PATCH_TUNING.hangBelow` above its middle while held. Null while the
+   * script has Patch (the body is out of the world).
+   */
+  readonly body?: { readonly id: Id; readonly pose: Pose; readonly prev: Pose; readonly half: Vec3; readonly held: boolean } | null;
+  /**
+   * (`flight: 'body'`) The script has just taken over from the body: `pose` is how and where the body last was (how
+   * it lay as the get-up began; how it met the wall; how it went over the edge), `hard` how hard it had come down
+   * (0 a set-down .. 1 a hard landing: the beats that follow are scaled by it). Through `land` (the get-up): it
+   * stays sat as it landed for `rise` seconds, then, if where it lay is no place to stand, hops from `from` to `to`
+   * (its feet) along an arc `arc` high over the rest of `stateLength`; `at` is that move. Also set through `wall`
+   * and the first moments of `ledge` (the catch: `at` eased from the body's place to the edge). Null otherwise.
+   */
+  readonly lay?: { readonly pose: Pose; readonly hard: number; readonly from: Vec3; readonly to: Vec3; readonly arc: number; readonly rise: number } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

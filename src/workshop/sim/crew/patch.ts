@@ -59,6 +59,7 @@ import { bodiesOf, legClear } from './fetch-route.ts';
 import type { Pt } from './fetch-route.ts';
 import { PATCH_ROUTE, clearPoint, crossPoints, offTop, planWay, solidsOf, sphereMeets, stepClear } from './patch-route.ts';
 import type { BeltCrossing, Solid, Way } from './patch-route.ts';
+import { embodyPatch } from './patch-body.ts';
 
 /** Seconds, units, units per second. Tune here. */
 export const PATCH_TUNING = {
@@ -247,6 +248,13 @@ export interface PatchSpec {
    * rolls back to rest.
    */
   readonly runner?: { readonly rest: number; readonly jacks: Readonly<Record<Id, number>>; readonly quiet: number };
+  /**
+   * 2026-11-20 (prototype): how it is held and thrown. `script` (the default): everything in this file, a point on
+   * a scripted arc. `body`: a real physics body from the hand taking hold until the script takes over to recover
+   * (`sim/crew/patch-body.ts`, which wraps this unit); `bodyPart` is that body, a `crewBody` part of the scene.
+   */
+  readonly flight?: 'script' | 'body';
+  readonly bodyPart?: Id;
 }
 
 export interface PatchUnit extends MachineUnit {
@@ -1847,5 +1855,93 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       };
     },
   };
+  // ── 2026-11-20 (prototype): a real body while it is held and thrown. Everything above is the scripted Patch and is
+  // not changed by this; with `flight: 'body'` the module wraps this unit's intent, pre, post, heard, reset and view,
+  // and reaches the script's own state only through the closures below. ──
+  if (spec.flight === 'body') {
+    const walkable = (q: Pt): boolean => planWay(q, pt(footNow()), R, offFoot([...STATICS, ...movers()]), routeBench, BELT, 0) !== null;
+    embodyPatch(ctx, spec, unit, {
+      T,
+      state: () => state,
+      seconds,
+      length: () => length_,
+      enter,
+      at: () => at,
+      setAt: (p) => void (at = p),
+      heading: () => heading,
+      setHeading: (h) => void (heading = h),
+      seatNow,
+      footNow,
+      solids: SOLIDS,
+      standingAt,
+      canStand: (p) => {
+        const c = standingAt(p);
+        return Math.hypot(c[0] - p[0], c[2] - p[2]) < 0.02 && walkable(pt(c));
+      },
+      restAt: (p) => {
+        // (as `restingAt`, without its move into the visitor's view: where it lies is where it gets up, if it can)
+        const c0 = standingAt(p);
+        if (walkable(pt(c0))) return c0;
+        const bodies = [...STATICS, ...movers()];
+        for (let ring = 1; ring <= 6; ring++) {
+          const rad = ring * 0.25;
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            const q: Pt = [c0[0] + Math.cos(a) * rad, c0[2] + Math.sin(a) * rad];
+            if (clearPoint(q, R, bodies, routeBench)?.[0] === q[0] && walkable(q)) return onGround(q);
+          }
+        }
+        return c0;
+      },
+      edgeFor,
+      grabbed: () => {
+        // (what `intent` does as the hand takes hold of the scripted Patch)
+        trail.length = 0;
+        gripOff = null;
+        ledge = null;
+        fly = null;
+        landing = null;
+        walled = null;
+        way = null;
+        crossing = null;
+        afoot = false;
+        interrupt();
+        back = null;
+        if (roll?.home) roll = null;
+        if (holding) letGoOfCatch();
+        for (const w of watched) w.answer = null;
+        lookAt = spec.visitor;
+        enter('held');
+      },
+      idle: () => {
+        // (what `pre` does every step before its state's own part)
+        const desk = deskOf(ctx);
+        if (desk && desk.onCancel !== onCancel) desk.onCancel = onCancel;
+        watch();
+        if (call || desk?.next()) busyAt = ctx.clock.step;
+      },
+      setLanding: (l) => void (landing = l),
+      setWalled: (w) => void (walled = w),
+      setLedge: (l) => void (ledge = l),
+      ledge: () => ledge,
+      setAfoot: (on) => void (afoot = on),
+      setLookAt: (p) => void (lookAt = p),
+      walkHome: (elapsed) => {
+        // (`walkBack`, entered part-way into its set-off)
+        if (dist(at, footNow()) < 0.15) {
+          way = null;
+          enter('climb');
+          return;
+        }
+        planBack(false);
+        pace = way && way.length > T.scamperOver ? T.scamper : T.walk;
+        blockedAt = -1;
+        enter('walk', elapsed);
+      },
+      carryOn,
+      shakeLength,
+      flopLength: (fall) => landLength(fall, true) - T.land,
+    });
+  }
   return unit;
 }
