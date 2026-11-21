@@ -14,7 +14,9 @@
 // rung's own time, if one played, on top), its body out of the world, nothing in the hand. From the moment the
 // script takes over (every state but `held`, `fly` and `away`) no step may have Patch below the bench top, inside a
 // fixed body, or anywhere that is not a number. Nothing durable is changed by Patch: its body's own fields never
-// change, and the only things a throw's transaction ever writes are the places of parts it knocked.
+// change, and the only things a throw's transaction ever writes are fields of the parts it knocked (where each came
+// to rest; and, § E5 rule 4, what a machine then did to one that came to rest in its mouth: a crate knocked onto the
+// belt and struck is the throw's too, so the lever takes all of it back). Never a setting, never its own body.
 //
 // It prints how long recovery took (median, 95th, slowest) and the slowest ten with where they lay.
 //
@@ -229,9 +231,9 @@ async function session(seed: number): Promise<Outcome> {
     if (w.holding()) fail(`still in the hand`);
     // nothing durable is Patch's doing but the places of parts a throw knocked
     if (JSON.stringify(w.durable().filter((d) => d.target === BODY)) !== JSON.stringify(body0)) fail(`its body's durable fields changed`);
-    // (the stack holds every field a transaction still owns: a throw's are only where parts it knocked came to rest)
+    // (the stack holds every field a transaction still owns: a throw's are only fields of parts it knocked)
     const throws = w.undoStack().filter((x) => x.kind === 'release');
-    for (const x of throws) for (const e of x.entries) if (e.field !== 'location' || !w.part(e.target) || e.target === BODY) fail(`a throw wrote ${e.target}.${e.field}`);
+    for (const x of throws) for (const e of x.entries) if (!w.part(e.target) || e.target === BODY) fail(`a throw wrote ${e.target}.${e.field}`);
     if (throws.length > out.throws) fail(`${throws.length} throws on the stack after ${out.throws}`);
   } catch (e) {
     out.fails.push(`threw ${(e as Error).stack?.split('\n').slice(0, 4).join(' | ')}`);
