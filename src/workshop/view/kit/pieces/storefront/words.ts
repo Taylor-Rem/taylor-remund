@@ -115,11 +115,14 @@ function fit(text: string, adv: Advance, inWords: boolean): WordsLayout {
     const baselines = lines.map((_, i) => area.top + top + cap * (1 + i * LINE_PITCH));
     const layout: WordsLayout = { lines, cap, condense, widths, baselines, px: capPx(cap, 'front', { pxPerUnit: DEFAULT_VIEW.pxPerUnit, pitchDeg: DEFAULT_VIEW.pitchDeg - WORDS.leanDeg }) };
     const balance = (l: WordsLayout): number => Math.min(...l.widths) / Math.max(...l.widths);
+    // (E1, 2026-11-21) between two splits that squeeze alike (within 1%) the later one wins: the browsers'
+    // own text measures differ in the third digit, and a strict `>` broke YOUR NAME HERE as YOUR / NAME HERE
+    // in Firefox and YOUR NAME / HERE in Chromium and WebKit (and in the picture the stage hands over from)
     const better =
       !best ||
       cap > best.cap * 1.04 ||
       (cap > best.cap * 0.96 &&
-        (n < best.lines.length || (n === best.lines.length && (balance(layout) > balance(best) + 0.05 || (balance(layout) > balance(best) - 0.05 && condense > best.condense)))));
+        (n < best.lines.length || (n === best.lines.length && (balance(layout) > balance(best) + 0.05 || (balance(layout) > balance(best) - 0.05 && condense > best.condense * 0.99)))));
     if (better) best = layout;
   }
   return best!;
