@@ -160,7 +160,20 @@ describe('Patch is lifted off its stool', () => {
     const before = w.durable();
     w.dispatch({ type: 'drag', id: 'patch', target: [SEAT[0], 2.5, SEAT[2] + 1] });
     t.run(1);
-    w.dispatch({ type: 'drag', id: 'patch', target: PATCHLAMP.patch.foot, end: true });
+    // (brought down to the foot of its stool and held there a moment, then let go: a set-down. Until 2026-11-20 the
+    // hand jumped there in one step; the bench's Patch, a body, reads a hand that jumps 0.23 toward the board in a
+    // step as a throw at it at 14 units/s, and splats: see the hand-in)
+    const foot = PATCHLAMP.patch.foot;
+    for (let i = 1; i <= 30; i++) {
+      const k = i / 30;
+      w.dispatch({ type: 'drag', id: 'patch', target: [SEAT[0] + (foot[0] - SEAT[0]) * k, 2.5 + (foot[1] + 0.9 - 2.5) * k, SEAT[2] + 1 + (foot[2] - SEAT[2] - 1) * k] });
+      t.run(1);
+    }
+    for (let i = 0; i < 20; i++) {
+      w.dispatch({ type: 'drag', id: 'patch', target: [foot[0], foot[1] + 0.9, foot[2]] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'drag', id: 'patch', target: [foot[0], foot[1] + 0.9, foot[2]], end: true });
     t.run(1);
     // (the bench's Patch, a body since 2026-11-20, comes down the little way onto its feet first: then it climbs,
     // with no step between)
