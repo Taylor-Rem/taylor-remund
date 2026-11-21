@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
-import { gpuArgs } from '../../playwright.config.ts';
+import { readFileSync } from 'node:fs';
+import type { Page } from '@playwright/test';
+import { test, expect, ENGINES, stageAt } from './engines/engine.ts';
 
 // The keyboard path on `/` (P3 B2; REWRITE.md § B6 keyboard column, § B7, § E8 Browser row "the keyboard path
 // presses the Button and hears the result announced", § E9). From a fresh page, with the keyboard only: the Tab
@@ -7,17 +8,19 @@ import { gpuArgs } from '../../playwright.config.ts';
 // the stage round the focused thing, `?` and Esc, a station's address, and the camera's cut under reduced motion.
 //
 // Engine-neutral in its body (no CDP, nothing Chromium-only): what it reads of the stage it reads through the
-// loader's own `window.__handoff` (shell/loader.ts), as home.spec.ts does. Chromium draws the bench with the GPU
-// (system Chrome, `gpuArgs`); another engine's project gets its own browser.
-
-test.use({
-  channel: async ({ browserName }, use) => use(browserName === 'chromium' ? 'chrome' : undefined),
-  launchOptions: async ({ browserName }, use) => use(browserName === 'chromium' ? { args: gpuArgs } : {}),
-});
+// loader's own `window.__handoff` (shell/loader.ts), as home.spec.ts does. engine.ts's `test`: Chromium draws the
+// bench with the GPU (system Chrome, `gpuArgs`) at the tier it is given; Firefox and WebKit, whose WebGL is
+// software here, at `?tier=low` (`stageAt`). The tests tagged ENGINES run in all three (the Tab path, the Button
+// pressed and heard, a crate to the belt by the keys); the rest are Chromium's.
+//
+// Tab here is plain Tab in every engine: Playwright's WebKit on Linux moves focus to links and buttons with it
+// (as Firefox and Chromium do). Safari on macOS needs Option+Tab for links by default; not this build.
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(180_000);
 
 const VIEW = { width: 1280, height: 720 };
+/** The live region's sentences, as content says them (never typed here). */
+const SAID = JSON.parse(readFileSync(new URL('../../src/content/world.json', import.meta.url), 'utf8')).said as Record<string, { text: string }>;
 
 interface Ws {
   world: { button(): { presses: number }; part(id: string): { location: { at: string; mouth?: string } } | undefined; motion(id: string): { mode: string } | undefined };
@@ -71,9 +74,9 @@ async function tabTo(page: Page, text: string | RegExp, max = 40): Promise<void>
 
 const said = (page: Page): Promise<string> => page.locator('#controls-said').innerText();
 
-test('Tab: the skip link, the strip, then the list, then the legal line; every stop visible; the canvas is no stop', async ({ page }) => {
+test('Tab: the skip link, the strip, then the list, then the legal line; every stop visible; the canvas is no stop', { tag: ENGINES }, async ({ page, browserName }) => {
   await page.setViewportSize(VIEW);
-  await page.goto('/');
+  await page.goto(stageAt('/', browserName));
   await live(page);
   const order: string[] = [];
   for (let i = 0; i < 60; i++) {
@@ -96,16 +99,17 @@ test('Tab: the skip link, the strip, then the list, then the legal line; every s
   expect(await page.locator('#controls').evaluate((e) => e.getBoundingClientRect().width)).toBeLessThan(4);
 });
 
-test('Tab to the Button, Enter presses it, and the live region says what it did', async ({ page }) => {
+test('Tab to the Button, Enter presses it, and the live region says what it did', { tag: ENGINES }, async ({ page, browserName }) => {
   await page.setViewportSize(VIEW);
-  await page.goto('/');
+  await page.goto(stageAt('/', browserName));
   await live(page);
   expect(await said(page)).toBe(''); // nothing done, nothing heard
   await tabTo(page, 'Big Red Button');
   const before = await ws(page, (w) => w.world.button().presses);
   await page.keyboard.press('Enter');
   await expect.poll(() => ws(page, (w) => w.world.button().presses)).toBe(before + 1);
-  await expect.poll(() => said(page)).toContain('Big Red Button pressed.');
+  // the first rung's sentence, word for word as content has it
+  await expect.poll(() => said(page)).toContain(SAID['rung1']!.text);
   // then Revert's card
   await expect.poll(() => said(page), { timeout: 20_000 }).toContain('card:');
   // focus stayed on the Button's own button, which now says how often it was pressed
@@ -189,9 +193,9 @@ test('the mark on the stage stands round the focused thing (the Button, a crate)
   }
 });
 
-test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, and it is on the belt', async ({ page }) => {
+test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, and it is on the belt', { tag: ENGINES }, async ({ page, browserName }) => {
   await page.setViewportSize(VIEW);
-  await page.goto('/');
+  await page.goto(stageAt('/', browserName));
   await live(page);
   await tabTo(page, /^(Small|Medium|Large) crate/);
   const crate = (await stop(page)).id!;
