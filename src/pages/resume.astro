@@ -5,29 +5,16 @@
 // #skills, #projects, #patchlamp, #experience, #contact.
 import Paper from '../layouts/Paper.astro';
 import { resume, isLink } from '../content/resume.ts';
-import { site } from '../content/site.ts';
+import { personJsonLd } from '../content/person.ts';
 import { renderInline } from '../components/paper/inline.ts';
 import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
 
-const { page, nav, about, figures, skills, projects, experience, contact, person } = resume;
+const { page, nav, about, figures, skills, projects, experience, contact } = resume;
 const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
-const ORIGIN = 'https://taylorremund.com';
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-// Person structured data: only what the page itself states.
-const current = experience.roles[0]!;
-const sameAs = contact.links.filter((l) => /^https:\/\//.test(l.href)).map((l) => l.href);
-const jsonLd = JSON.stringify({
-  '@context': 'https://schema.org',
-  '@type': 'Person',
-  name: site.strip.name.text,
-  url: `${ORIGIN}/`,
-  image: `${ORIGIN}${about.photo.src}`,
-  sameAs,
-  jobTitle: current.title.text,
-  worksFor: { '@type': 'Organization', name: current.employer.text },
-  address: { '@type': 'PostalAddress', addressLocality: person.locality.text, addressRegion: person.region.text },
-}).replace(/</g, '\\u003c');
+// Person structured data: only what the page itself states (the home page carries the same).
+const jsonLd = personJsonLd();
 const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: l.text, href: l.href, cta: l === nav.contact }));
 ---
 <Paper
