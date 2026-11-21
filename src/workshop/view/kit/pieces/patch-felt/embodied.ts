@@ -15,7 +15,7 @@
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { bodyMatrix, type ArmJoints, type BodyPlace, type LegJoints, type PatchPose } from './rig.ts';
-import { SEATED, mixPose, resolvePose, shakeOff, toPose, type FullPose, type V3 } from './perform.ts';
+import { SEATED, flop, mixPose, resolvePose, shakeOff, toPose, type FullPose, type V3 } from './perform.ts';
 import { clamp, clamp01, lerp, smoothstep } from '../../../anim/ease.ts';
 
 export type Q4 = [number, number, number, number];
@@ -165,10 +165,21 @@ export interface GetUpOptions {
   /** The way it faces sat up (root space yaw). */
   yaw: number;
   visitor: V3;
+  /**
+   * Come down hard from a fall (dropped from high, or thrown up) and stopped upright: the flop. It tips over flat on
+   * its front where it stands, lies a beat like someone waiting for applause, and pushes itself up (the scripted
+   * Patch's own gag, `flop`, here begun from the pose its body had). `fall`: how far it fell (units).
+   */
+  flop?: { fall: number };
 }
 
-/** Anticipation: the last of the sit-up, a crouch (s). */
+/** The flop: it needs at least this long (s) of the sit-up, and tips over in this long. */
+const FLOP_LEAST = 0.55;
+const FLOP_TIP = 0.22;
+/** Anticipation: the last of the sit-up, a crouch (s); how far it leans into it (rad) and squashes down. */
 const CROUCH = 0.1;
+const CROUCH_LEAN = 0.18;
+const CROUCH_SQUASH = 0.16;
 
 /**
  * The script takes over from where and how the body lies (the simulation's `land` with a `lay`): over `rise` it sits
@@ -182,15 +193,27 @@ export function gettingUp(t: number, o: GetUpOptions): { pose: PatchPose; place:
   if (t < o.rise || !hop) {
     const u = o.rise > 1e-3 ? clamp01(t / o.rise) : 1;
     const s = sat(o.from);
-    // up in one push: quick off the bench, easing into the sit (a little past upright and back)
-    const e = 1 - (1 - u) ** 3;
-    const over = Math.sin(Math.PI * u) * 0.06 * (1 - u);
-    const place = pitched(mixPlace(o.lie, placeOf(s.body), e), over);
-    const limbs = mixPose(resolvePose(o.limbs), resolvePose(s), smoothstep(0.05, 0.85, u));
+    // (how upright it lay: its own up against the world's)
+    va.set(0, 1, 0).applyQuaternion(qa.set(o.lie.q[0], o.lie.q[1], o.lie.q[2], o.lie.q[3]));
+    const flopping = !!o.flop && o.rise >= FLOP_LEAST && va.y > 0.8;
+    let place: Place, limbs: FullPose;
+    if (flopping) {
+      // the flop: over onto its front (falling over, so gathering speed), then the scripted flop's own beat and push-up
+      const f = flop(Math.min(t, o.rise), o.from, o.yaw, o.flop!.fall, o.rise);
+      const tip = clamp01(t / FLOP_TIP);
+      place = mixPlace(o.lie, placeOf(f.body), tip * tip);
+      limbs = mixPose(resolvePose(o.limbs), resolvePose(f), smoothstep(0, 1, tip));
+    } else {
+      // up in one push: quick off the bench, easing into the sit (a little past upright and back)
+      const e = 1 - (1 - u) ** 3;
+      const over = Math.sin(Math.PI * u) * 0.06 * (1 - u);
+      place = pitched(mixPlace(o.lie, placeOf(s.body), e), over);
+      limbs = mixPose(resolvePose(o.limbs), resolvePose(s), smoothstep(0.05, 0.85, u));
+    }
     // the crouch before a hop: down on its haunches, paws back, ears forward
     const c = hop && o.rise > 1e-3 ? smoothstep(o.rise - Math.min(CROUCH, o.rise * 0.6), o.rise, t) : 0;
     const pose = crouched(limbs, c);
-    return { pose: toPose(pose), place: c > 0 ? pitched(place, 0.18 * c) : place, squash: 1 - 0.16 * c };
+    return { pose: toPose(pose), place: c > 0 ? pitched(place, CROUCH_LEAN * c) : place, squash: 1 - CROUCH_SQUASH * c };
   }
   const k = clamp01((t - o.rise) / (o.length - o.rise));
   const s = resolvePose(sat(o.feet));
@@ -212,9 +235,11 @@ export function gettingUp(t: number, o: GetUpOptions): { pose: PatchPose; place:
     tail: [lerp(s.tail[0], -0.2, air), s.tail[1]],
     tailLift: lerp(s.tailLift, -0.5 + 1.2 * k, air),
   };
-  // the stretch off the bench (the first third), and nothing at the top
+  // the stretch off the bench (the first third), and nothing at the top; the crouch it springs from let go of over
+  // its first frames (the spring is quick, never a jump)
   const stretch = 0.16 * Math.sin(Math.PI * clamp01(k / 0.4)) * (k < 0.4 ? 1 : 0);
-  return { pose: toPose(pose), place: pitched(placeOf(toPose(s).body), lean), squash: 1 + stretch };
+  const c = o.rise > 1e-3 ? 1 - smoothstep(0, 0.18, k) : 0;
+  return { pose: toPose(crouched(pose, c)), place: pitched(placeOf(toPose(s).body), lean + CROUCH_LEAN * c), squash: (1 - CROUCH_SQUASH * c) * (1 + stretch) };
 }
 
 /** A sat pose drawn down into a crouch by `c` (0..1): the anticipation before a hop. */

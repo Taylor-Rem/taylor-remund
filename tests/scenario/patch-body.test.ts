@@ -611,6 +611,41 @@ describe('the gags are reactions to what the engine did', () => {
     w.dispose();
   }, 120_000);
 
+  test('thrown at the back wall from against it (the hand goes on into the wall): the wall gag there; only touching it, or held against it, none', async () => {
+    for (const [name, past, sticks, hold] of [['pressed', 1.2, true, 0], ['touching', -0.32, false, 0], ['held against it', 1.2, false, 30]] as const) {
+      const { w, t } = await world();
+      const from: Vec3 = [-5.5, 1.6, -3.2];
+      lift(w, t, from);
+      // the hand goes on toward (and past) the wall's face; the body cannot follow it through
+      const wall = bench.bench.minZ;
+      let hand: Vec3 = from;
+      for (let i = 0; i < 24; i++) {
+        hand = [from[0], from[1], from[2] + ((wall - past - from[2]) * (i + 1)) / 24];
+        w.dispatch({ type: 'carry', target: hand });
+        t.run(1);
+      }
+      for (let i = 0; i < hold; i++) {
+        w.dispatch({ type: 'carry', target: hand });
+        t.run(1);
+      }
+      const mark = t.events.length;
+      w.dispatch({ type: 'release' });
+      const watch = watcher(w, t);
+      const s = watch.step();
+      const walled = t.events.slice(mark).some((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.wall === true);
+      expect(walled, name).toBe(sticks);
+      expect(s.state, name).toBe(sticks ? 'wall' : 'fly');
+      if (sticks) {
+        // where its body was, its back to the wall; the view is given the pose it had
+        expect(patch(w).lay?.pose, name).toBeTruthy();
+        expect(Math.abs(patch(w).at[2] - wall), name).toBeLessThan(0.6);
+        expect(t.events.slice(mark).filter((x) => x.e.type === 'patch.throw' && x.e.phase === 'thrown').length, name).toBe(1);
+      }
+      expect(home(w, t).at(-1)).toBe('seated');
+      w.dispose();
+    }
+  }, 120_000);
+
   test('a wall met slowly, or glancing, is only the engine\'s bounce: no stick', async () => {
     for (const [name, from, v] of [
       ['slowly', [-5.5, 1.4, -3.4], [0, 0, -3.5]],

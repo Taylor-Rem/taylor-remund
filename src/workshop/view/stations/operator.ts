@@ -34,7 +34,7 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
 import { HZ, PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
-import { SCRUFF as SCRUFF_AT, setNode } from '../kit/pieces/patch-felt/rig.ts';
+import { SCRUFF as SCRUFF_AT, TAIL, bodyMatrix, setNode } from '../kit/pieces/patch-felt/rig.ts';
 import { CORE, dirIntoBody, flung, gettingUp, intoBody, offsetOf, offsetSize, placeOf, placed, withOffset, type Offset, type Place } from '../kit/pieces/patch-felt/embodied.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
@@ -89,7 +89,7 @@ export const OPERATOR_FEEL = {
    */
   bodyGrab: 0.15,
   /** met a wall flat: from the pose its body had at the hit to flat against it (a few frames; the scripted splat cut there in one); */
-  bodyFlatten: 0.1,
+  bodyFlatten: 0.13,
   /** caught the edge: from where its body was to the hang (the simulation's own ease there); */
   bodyCatch: 0.2,
   /** come to rest, the script taking over how it lay; and sat at the wall's foot after the slide. */
@@ -117,6 +117,8 @@ export const OPERATOR_FEEL = {
   squashDamp: 0.45,
   /** The squash as its hop lands. */
   hopSquash: 0.2,
+  /** Come down from a fall this hard (the simulation's 0..1) or harder and stopped upright, it flops flat on its front before it gets up. */
+  flopHard: 0.4,
 };
 /** R2: the walk's first seconds: a look at the visitor and a turn, no step (the simulation's). */
 const SET_OFF: number = PATCH_TUNING.setOff;
@@ -888,7 +890,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             if (bodied && v.lay && lie) {
               // the body Patch: from how it lay into sitting up over the simulation's `rise`, then its hop
               landYaw = v.heading - SIDE_ON;
-              const g = gettingUp(reduced ? v.stateLength : sT, { lie: lie.place, limbs: lie.limbs, rise: v.lay.rise, from: seatSpace(v.lay.from), to: seatSpace(v.lay.to), feet: seatSpace(atI), length: v.stateLength, yaw: landYaw, visitor: boardToRoot(VISITOR_BOARD, stoolB) });
+              const g = gettingUp(reduced ? v.stateLength : sT, { lie: lie.place, limbs: lie.limbs, rise: v.lay.rise, from: seatSpace(v.lay.from), to: seatSpace(v.lay.to), feet: seatSpace(atI), length: v.stateLength, yaw: landYaw, visitor: boardToRoot(VISITOR_BOARD, stoolB), ...(v.thrown?.drop && v.lay.hard >= F.flopHard && !reduced ? { flop: { fall: v.thrown.fall } } : {}) });
               pose = g.pose;
               getUp = g;
               if (sT > v.lay.rise && v.stateLength - v.lay.rise > 1e-3) hopped = true;
@@ -1062,7 +1064,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               const u = (t - off.at) / off.dur;
               // (out of a moving pose: it lets go at once and eases in)
               if (u >= 1) off = null;
-              else place = withOffset(target, off.o, 1 - outCubic(clamp01(u)));
+              else place = withOffset(target, off.o, (1 - clamp01(u)) ** 2);
             }
             let squash: NonNullable<PatchPose['body']>['squash'];
             if (Math.abs(sq) > 0.004) squash = { along: [sqN.x, sqN.y, sqN.z], by: 1 - sq, about: place.mid };
@@ -1075,7 +1077,23 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             // the tail streams behind it (not folded at the top of a throw up, where it swishes; less in the hand)
             const tl = Math.hypot(trail[0], trail[1], trail[2]);
             const tw = smoothstep(0.08, 0.45, tl) * (1 - foldK) * (bd?.held ? 0.6 : 1) * (phys ? 1 : 0);
-            if (tw > 0.01) pose.stream = { dir: [trail[0] / tl, trail[1] / tl, trail[2] / tl], w: tw };
+            if (tw > 0.01) {
+              const dir: V3 = [trail[0] / tl, trail[1] / tl, trail[2] / tl];
+              // (never through the bench: over it, the stream is bent up by what the tail's length would take it under)
+              tv.set(0, TAIL.y, TAIL.z).applyMatrix4(bodyMatrix(placed(place)));
+              if (overBench(tv.x, tv.z)) {
+                const lim = Math.max(-1, Math.min(1, (tv.y - (w.scene.bench.top - root.position.y) / S - 0.07) / 0.5));
+                const down = dirIntoBody(place, [0, -1, 0]);
+                for (let i = 0; i < 2; i++) {
+                  const dn = dir[0] * down[0] + dir[1] * down[1] + dir[2] * down[2];
+                  if (dn <= lim) break;
+                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! - down[a]! * (dn - lim);
+                  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! / l;
+                }
+              }
+              pose.stream = { dir, w: tw };
+            }
           } else if (Math.abs(sq) > 0.004) {
             // (the last of a squash over the script's own pose: the hop's landing, about its seat)
             const b = pose.body ?? {};

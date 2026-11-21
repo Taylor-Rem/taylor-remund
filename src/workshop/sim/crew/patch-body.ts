@@ -63,6 +63,8 @@ export const PATCH_BODY_TUNING = {
   wallSquare: 0.7,
   /** The face must be at least this wide either side (not a post). */
   wallFace: 0.25,
+  /** Let go with the hand this far (units) or more past where the wall holds its body, into the wall: the gag too (it was thrown at the wall from against it). */
+  wallPress: 0.45,
 
   // ── the ledge, and gone ──
   /** Over an open edge no faster than this (level), not falling faster than `catchFall`, its middle this near the bench top: it catches the edge. */
@@ -134,8 +136,11 @@ export const PATCH_BODY_TUNING = {
   getUp: 0.15,
   getUpOver: 0.25,
   getUpHard: 0.2,
-  /** After a fall (let go still, or thrown up), up to this share of the scripted flop's extra time lying flat, by how hard. */
-  flop: 0.5,
+  /**
+   * After a fall (let go still, or thrown up), up to this share of the scripted flop's extra time down, by how hard:
+   * all of it (the view plays the flop in it when it stopped upright: over onto its front, a beat, and up).
+   */
+  flop: 1,
   /** A hop to where it can stand: this long, and more by the distance (units); its arc this high, and more by the distance. */
   hop: 0.28,
   hopPer: 0.12,
@@ -267,8 +272,9 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   let air: Air | null = null;
   /** Where the body comes into the world if the hand takes hold now (asked by the world right after the grab). */
   let pending: Pose | null = null;
-  /** The hand, for a drag that did not come through the world's grab (no body in the hand). */
+  /** The hand, for a drag that did not come through the world's grab (no body in the hand); and where it was over its last few steps. */
   let hand: Vec3 = spec.seat;
+  const hands: { step: number; p: Vec3 }[] = [];
   /** Hits heard at the end of the last step: who (null: something fixed). */
   let heardHits: (Id | null)[] = [];
   /** The pose it lay in when the script took over, how hard it had come down, the move it gets up with, and the shake and look to come (s). */
@@ -410,6 +416,52 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
 
   /** How hard it came down, 0..1. */
   const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, a.impact);
+
+  /** Flat against a wall (`n`: level, out of it), then down it: the script's `wall` takes over from the pose its body had. */
+  function splatOn(pose: Pose, what: Id, n: readonly [number, number], speed: number, took: number): void {
+    ctx.stow(body, pose);
+    ctx.emit({ type: 'patch.throw', phase: 'hit', speed, what, wall: true });
+    wallOut = [n[0], 0, n[1]];
+    slideFrom = null;
+    phase = 'wall';
+    lay = { pose, hard: smooth(B.softFrom, B.hardAt, took), from: pose.p, to: pose.p, arc: 0, rise: 0, home: false, fall: 0, speed, shake: 0, look: 0 };
+    air = null;
+    host.setLanding(null);
+    host.setLedge(null);
+    host.setLookAt(null);
+    host.setWalled({ out: wallOut, speed });
+    host.setAt(pose.p);
+    host.setHeading(Math.atan2(-n[0], -n[1]));
+    host.enter('wall');
+  }
+
+  /**
+   * Let go while the hand was throwing it into a wall it is against (the hand `wallPress` or more past where the wall
+   * holds its body, and still going into the wall's face at a throw's speed): the wall gag there, as the scripted
+   * Patch's was. A throw up the screen at the back wall is this: the hand goes on into the wall and the body cannot.
+   * Just touching a wall, held against one, or set down against one, is not.
+   */
+  function pressedTo(pose: Pose): { o: Solid; n: readonly [number, number] } | null {
+    const met = against(pose);
+    if (!met) return null;
+    const flat = Math.hypot(met.n[0], met.n[2]);
+    if (flat <= 0.8 || pose.p[1] >= met.o.y1 - 0.03) return null;
+    const n: readonly [number, number] = [met.n[0] / flat, met.n[2] / flat];
+    const o = met.o;
+    const c = Math.cos(o.yaw), sn = Math.sin(o.yaw);
+    const face = Math.abs(c * n[0] - sn * n[1]) > Math.abs(sn * n[0] + c * n[1]) ? o.hz : o.hx;
+    if (o.y1 < pose.p[1] + T.wallAbove || pose.p[1] > T.wallMeet || face < B.wallFace) return null;
+    const grip = add(pose.p, rotate(pose.q, SCRUFF));
+    const push = -((hand[0] - grip[0]) * n[0] + (hand[2] - grip[2]) * n[1]);
+    // (and the hand went into the wall at a throw's speed in its last quarter second: a throw at it, not a thing
+    // held against it. The fastest of those steps: the world stops the hand itself at the bench's edge)
+    let going = 0;
+    for (let i = 1; i < hands.length; i++) {
+      const a = hands[i - 1]!, b = hands[i]!;
+      if (b.step > a.step) going = Math.max(going, (-((b.p[0] - a.p[0]) * n[0] + (b.p[2] - a.p[2]) * n[1]) * HZ) / (b.step - a.step));
+    }
+    return push >= B.wallPress && going >= T.throwAt ? { o, n } : null;
+  }
 
   /**
    * Where it goes to get on its feet from `p` (the bench under where it lies): the nearest place it can stand AND
@@ -718,18 +770,8 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
         const face = alongX ? o.hz : o.hx;
         if (!a.chute && !a.out && side && o.y1 >= p[1] + T.wallAbove && p[1] <= T.wallMeet && into >= B.wallInto && into >= B.wallSquare * level(a.v) && face >= B.wallFace) {
           // the wall gag: it really met a wall, side-on, square and fast. Flat against it, then down it (the script's)
-          ctx.stow(body, pose);
-          ctx.emit({ type: 'patch.throw', phase: 'hit', speed: before, what: o.id, wall: true });
-          wallOut = [n[0], 0, n[1]];
-          slideFrom = null;
-          phase = 'wall';
           // (how hard: the wall took all of the speed it came in with, and what the engine had already turned back)
-          lay = { pose, hard: smooth(B.softFrom, B.hardAt, Math.max(a.impact, before)), from: p, to: p, arc: 0, rise: 0, home: false, fall: 0, speed: before, shake: 0, look: 0 };
-          air = null;
-          host.setWalled({ out: wallOut, speed: before });
-          host.setAt(p);
-          host.setHeading(Math.atan2(-n[0], -n[1]));
-          host.enter('wall');
+          splatOn(pose, o.id, n, before, Math.max(a.impact, before));
           return;
         }
         if (!a.met.has(o.id) && before >= B.hitSpeed) {
@@ -817,10 +859,14 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       grab = null;
       returns = 0;
       thrownAs = null;
+      hands.length = 0;
       phase = 'held';
       host.grabbed();
     }
     hand = intent.target;
+    if (hands.length > 0 && hands[hands.length - 1]!.step === ctx.clock.step) hands[hands.length - 1] = { step: ctx.clock.step, p: hand };
+    else hands.push({ step: ctx.clock.step, p: hand });
+    while (hands.length > 1 && ctx.clock.step - hands[0]!.step > 15) hands.shift();
     if (!inWorld()) host.setAt(hand); // (the world's grab brings the body in right after this; a bare drag has none)
     if (intent.end) {
       if (ctx.mode(body) === 'gone') {
@@ -831,7 +877,16 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
         now = pose;
         prev = pose;
       }
-      if (ctx.mode(body) === 'free') fly(false);
+      if (ctx.mode(body) === 'free') {
+        const pressed = pressedTo(ctx.pose(body) as Pose);
+        fly(false);
+        if (pressed) {
+          // (thrown at the wall from against it: its body has no speed to show for it, the hand's push stands for it)
+          const speed = Math.max(T.throwAt, length(ctx.velocity(body)?.linvel ?? [0, 0, 0]));
+          if (air && !air.thrown) ctx.emit({ type: 'patch.throw', phase: 'thrown', speed });
+          splatOn(ctx.pose(body) as Pose, pressed.o.id, pressed.n, speed, B.hardAt * 0.6);
+        }
+      }
     }
     return true;
   };
