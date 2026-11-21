@@ -38,7 +38,7 @@ const ONLY = process.env.THROW_SEED !== undefined ? Number(process.env.THROW_SEE
 const LOOSE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'revert'] as const;
 /** Seconds after the throw by which the bench is itself again. */
 const SETTLE = 14;
-const THROWN = { n: 0, script: 0 };
+const THROWN = { n: 0, script: 0, patch: 0, patchJuggled: 0 };
 /**
  * Fetch come down on the belt rides it to the dock, the dock refuses it and the chute throws it home (R2): the whole
  * of that way at the line's own pace, its longest: the belt's length at its slowest detent, the ramp and the bay at the
@@ -181,6 +181,10 @@ async function session(seed: number, scene: SceneDesc = FULL_BENCH): Promise<str
     if (w.holding()?.id !== th.id) return []; // not to hand now (in the dock's door, a rung): nothing to throw
     if (scene === FULL_BENCH) THROWN.n++;
     else THROWN.script++;
+    if (scene === FULL_BENCH && th.id === 'patch') {
+      THROWN.patch++;
+      if (th.juggles) THROWN.patchJuggled++;
+    }
     for (let i = 0; i < 50; i++) {
       w.dispatch({ type: 'carry', target: th.from });
       run(1);
@@ -293,7 +297,7 @@ test(`every throw recovers: ${ONLY ?? SESSIONS} seeded throw${(ONLY ?? SESSIONS)
   const seeds = ONLY !== null ? [ONLY] : Array.from({ length: SESSIONS }, (_, i) => FROM + i);
   const fails: string[] = [];
   for (const s of seeds) fails.push(...(await session(s)));
-  console.log(`thrown: ${THROWN.n} of ${seeds.length}`);
+  console.log(`thrown: ${THROWN.n} of ${seeds.length} (Patch ${THROWN.patch}, of them juggled ${THROWN.patchJuggled})`);
   if (fails.length) console.log(fails.join('\n'));
   expect(fails).toEqual([]);
 }, 3_600_000);
