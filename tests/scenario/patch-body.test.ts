@@ -820,7 +820,8 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     ['getting up', (s, w) => s.state === 'land' && patch(w).stateTime > 0.1, OPEN, [9, 0, 0]],
     ['shaking its head', (s) => s.state === 'shake', OPEN, [10, 0, 0]],
     ['stuck to the wall', (s) => s.state === 'wall', [-5.5, 2.2, -1.2], [0, 0, -10]],
-    ['hanging from the edge', (s, w) => s.state === 'ledge' && patch(w).stateTime > 0.5, [-7.8, 1.0, -1], [-3, 0, 0]],
+    // (a stated velocity gets no loft: let go near enough the left end that it goes over it before it is down)
+    ['hanging from the edge', (s, w) => s.state === 'ledge' && patch(w).stateTime > 0.5, [-8.5, 1.0, -1], [-3, 0, 0]],
     ['walking home', (s, w) => s.state === 'walk' && s.speed > 0.5 && patch(w).stateTime > 1, OPEN, [6, 0, 0]],
     ['climbing its stool', (s, w) => s.state === 'climb' && patch(w).stateTime > 0.3, [2.6, 1.0, -2.2], [0, 0, 0]],
   ];
