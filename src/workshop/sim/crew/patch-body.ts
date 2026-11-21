@@ -537,17 +537,26 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     return best;
   }
 
-  /** The hand's fastest level velocity over its last quarter second (the world stops the hand itself at the bench's edge). */
-  function handThrow(): Vec3 {
+  /**
+   * The hand's fastest level velocity over its last quarter second. Near the back of the bench the world's hand
+   * cannot go further back and a flick up the screen takes it up instead: there, going up at a flick's speed, it is
+   * a flick away from the visitor at that speed (up the screen is away, as the visitor sees it).
+   */
+  function handThrow(p: Vec3): Vec3 {
     let best: Vec3 = [0, 0, 0];
+    let up = 0;
     for (let i = 1; i < hands.length; i++) {
       const a = hands[i - 1]!, b = hands[i]!;
       if (b.step <= a.step) continue;
       const k = HZ / (b.step - a.step);
       const v: Vec3 = [(b.p[0] - a.p[0]) * k, 0, (b.p[2] - a.p[2]) * k];
       if (level(v) > level(best)) best = v;
+      up = Math.max(up, (b.p[1] - a.p[1]) * k);
     }
-    return best;
+    if (level(best) >= B.wallHand || up < B.wallHand) return best;
+    const dx = p[0] - spec.visitor[0], dz = p[2] - spec.visitor[2];
+    const l = Math.hypot(dx, dz) || 1;
+    return [(dx / l) * up, 0, (dz / l) * up];
   }
 
   /**
@@ -968,7 +977,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       }
       if (ctx.mode(body) === 'free') {
         // thrown at a wall beside it (the hand going into the wall at a throw's speed): at the wall it goes, level
-        const hv = handThrow();
+        const hv = handThrow((ctx.pose(body) as Pose).p);
         const at = level(hv) >= B.wallHand ? wallAhead(ctx.pose(body) as Pose, hv, B.wallReach) : null;
         fly(false);
         if (at) {

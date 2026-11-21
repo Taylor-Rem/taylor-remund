@@ -203,11 +203,13 @@ function flats(): { front: FullPose; back: FullPose } {
   return FLATS;
 }
 
-/** Flat on the bench at `from` from how it lies: over onto its front or its back, whichever is the less to turn. */
+/** Flat on the bench at `from` from how it lies: over onto its front, or (lying on its back already) flat on its back. */
 function flatFor(lie: Place, from: V3): { place: Place; limbs: FullPose } {
   const q = new Quaternion(lie.q[0], lie.q[1], lie.q[2], lie.q[3]);
   const f = new Vector3(0, 0, 1).applyQuaternion(q);
-  const front = f.y <= 0;
+  // (onto its front unless it is plainly on its back already: stopped upright it goes over on its face, the joke
+  // the scripted fall always was, and the one that reads from above)
+  const front = f.y <= 0.5;
   const turned = new Quaternion().setFromUnitVectors(f, new Vector3(0, front ? -1 : 1, 0)).multiply(q);
   return { place: { mid: [from[0], from[1] + FLAT_UP, from[2]], q: [turned.x, turned.y, turned.z, turned.w] }, limbs: front ? flats().front : flats().back };
 }
