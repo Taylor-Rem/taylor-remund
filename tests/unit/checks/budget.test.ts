@@ -14,17 +14,16 @@ describe('budget', () => {
     const out = r.render();
     expect(out).toMatch(/gzip -9/);
     expect(out).toMatch(/ok {5}first paint of \/ .*: \d+(\.\d)? KB of 200\.0 KB/);
-    expect(out).toMatch(/EXEMPT \/resume\/ \(legacy passthrough until P3\): \d+ third-party requests/);
+    expect(out).toMatch(/ok {5}\/resume\/: no third-party request/);
     expect(out).toMatch(/EXEMPT \/ai\/ \(legacy passthrough until P3\)/);
     expect(out).toMatch(/ok {5}\/privacy\/: no third-party request/);
     expect(out).toMatch(/sound: no dist\/sounds\//);
   });
 
-  it('without the exemption list, the legacy pages fail on Google Fonts and simpleicons', () => {
+  it('without the exemption list, the legacy pages fail on Google Fonts', () => {
     const s = makeSite();
     const f = fails(checkBudget({ dist: s.dist, exempt: [] }));
-    expect(f).toMatch(/\/resume\/: third-party request: link\[rel=stylesheet\] https:\/\/fonts\.googleapis\.com/);
-    expect(f).toMatch(/\/resume\/: third-party request: img\[src\] https:\/\/cdn\.simpleicons\.org/);
+    expect(f).toMatch(/\/ai\/: third-party request: link\[rel=stylesheet\] https:\/\/fonts\.googleapis\.com/);
     expect(f).toMatch(/\/ai\/: third-party request: link\[rel=preconnect\] https:\/\/fonts\.gstatic\.com/);
   });
 

@@ -1,18 +1,48 @@
 ---
-// Provisional layout for the conventional pages (REWRITE.md § F1). For P0 it
-// borrows the legacy stylesheet (/style.css, served by the temporary legacy
-// passthrough) so the legal typography still applies. It loads nothing from
-// any other origin: no Google Fonts.
+// The layout of the conventional pages, "the paperwork" (REWRITE.md § F1):
+// /resume/, /ai/, the compliance pages, the 404, the case study. A document
+// from the workshop's filing drawer: warm paper, ink, one stencil name.
+//
+// No JavaScript. Nothing from any other origin: the fonts are this site's
+// (public/fonts/README.txt), the colours are the workshop's palette emitted
+// as custom properties (src/styles/paper-tokens.ts). Every word comes from
+// src/content/ (site.json for the furniture; the page passes its own).
+//
+// Slots: the default slot is the page's <main> content. A page may pass
+// `pageNav` (its own section links, shown after the site links).
+import '../styles/paper.css';
 import { site } from '../content/site.ts';
+import { tokensCss } from '../styles/paper-tokens.ts';
+import { externalAttrs, printAttrs } from '../components/paper/links.ts';
 import Footer from './Footer.astro';
 
+interface Link {
+  text: string;
+  href: string;
+}
 interface Props {
   title: string;
-  description: string;
-  /** The page's robots meta, exactly as the legacy page had it; omit for none. */
+  /** The meta description; omit for none (the 404). */
+  description?: string;
+  /** The page's robots meta, exactly as the live page had it; omit for none. */
   robots?: string;
+  /** Root-relative path for <link rel="canonical">; false for none (the 404). Defaults to this page's path. */
+  canonical?: string | false;
+  /** Open Graph tags, only where the live page has them, with the same values. */
+  og?: { title: string; description: string; type: string; url: string };
+  /** The page's own section links (in-page anchors). */
+  pageNav?: Link[];
+  /** Fonts the page's first screen uses beyond Sans Regular, Mono Regular and the stencil. */
+  preload?: string[];
+  /** Raw JSON-LD for the page (built from content by the page). */
+  jsonLd?: string;
 }
-const { title, description, robots } = Astro.props;
+const { title, description, robots, og, pageNav = [], preload = [], jsonLd } = Astro.props;
+const canonicalPath = Astro.props.canonical ?? Astro.url.pathname;
+const canonical = canonicalPath === false ? null : new URL(canonicalPath, 'https://taylorremund.com').href;
+const here = Astro.url.pathname;
+const fonts = ['/fonts/IBMPlexSans-Regular-Latin1.woff2', '/fonts/IBMPlexMono-Regular-Latin1.woff2', '/fonts/workshop-stencil.woff2', ...preload];
+const { strip, paper } = site;
 ---
 <!doctype html>
 <html lang="en">
@@ -20,35 +50,49 @@ const { title, description, robots } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <meta name="description" content={description} />
+    {description && <meta name="description" content={description} />}
     {robots && <meta name="robots" content={robots} />}
-    <link rel="stylesheet" href="/style.css" />
+    {canonical && <link rel="canonical" href={canonical} />}
+    {og && <meta property="og:title" content={og.title} />}
+    {og && <meta property="og:description" content={og.description} />}
+    {og && <meta property="og:type" content={og.type} />}
+    {og && <meta property="og:url" content={og.url} />}
+    {fonts.map((f) => <link rel="preload" href={f} as="font" type="font/woff2" crossorigin />)}
+    <style is:inline set:html={tokensCss()}></style>
+    {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   </head>
-  <body>
-    <nav class="navbar">
-      <div class="nav-container">
-        <a href="/" class="nav-logo">{site.strip.name.text}</a>
-        <ul class="paper-nav">
-          <li><a href={site.nav.resume.href}>{site.nav.resume.text}</a></li>
-          <li><a href={site.nav.services.href}>{site.nav.services.text}</a></li>
-        </ul>
+  <body class="paper">
+    <a class="skip" href="#content">{paper.skip.text}</a>
+    <header class="masthead">
+      <div class="masthead-row">
+        <a class="name" href="/">{strip.name.text}</a>
+        <nav class="site-nav" aria-label={paper.navSite.text}>
+          <ul>
+            {strip.links.map((link) => (
+              <li>
+                <a
+                  href={link.href}
+                  aria-current={link.href === here ? 'page' : undefined}
+                  class={link.href.startsWith('/') ? 'local' : undefined}
+                  {...printAttrs(link.href)}
+                  {...externalAttrs(link.href)}
+                >{link.text}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </div>
-    </nav>
-    <slot />
+      {pageNav.length > 0 && (
+        <nav class="page-nav" aria-label={paper.navPage.text}>
+          <ul>
+            {pageNav.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
+          </ul>
+        </nav>
+      )}
+    </header>
+    <main id="content" tabindex="-1">
+      <slot />
+    </main>
     <Footer />
   </body>
 </html>
-
-<style>
-  .paper-nav {
-    display: flex;
-    gap: 24px;
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .paper-nav a {
-    color: var(--text-soft);
-    text-decoration: none;
-  }
-</style>

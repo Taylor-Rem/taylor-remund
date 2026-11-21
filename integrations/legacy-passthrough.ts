@@ -4,17 +4,16 @@ import { fileURLToPath } from 'node:url';
 import type { AstroIntegration } from 'astro';
 
 /**
- * TEMPORARY (until phase P3, REWRITE.md § F1): `/resume/` and `/ai/` are served
+ * TEMPORARY (until phase P3, REWRITE.md § F1): `/ai/` and the case study are served
  * as the old hand-written files, byte for byte, together with the old
  * stylesheet and script their relative links point at. When those pages move
  * into the Paper layout, delete this integration and the entries below.
  *
- * `/style.css` is also what the provisional Paper layout links for the legal
- * typography; that goes away with this file too.
+ * `/style.css` and `/script.js` stay while `/ai/` and the case study need them.
  */
 const PASSTHROUGH: Record<string, string> = {
   // URL path (as served)  -> source under legacy/
-  'resume/index.html': 'legacy/resume/index.html',
+  // /resume/ moved to the Paper layout (src/pages/resume.astro) in P3.
   'ai/index.html': 'legacy/ai/index.html',
   // (2026-11-19 on main: the case study the résumé's cards link to; it arrives here with a merge of main)
   'case-studies/ledger-repair/index.html': 'legacy/case-studies/ledger-repair/index.html',

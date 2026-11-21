@@ -1,0 +1,26 @@
+skill-icons.svg: the skill icons on /resume/ (#skills), served from this site.
+
+Until 2026-11-21 the page loaded each icon from https://cdn.simpleicons.org/<slug>/<hex>
+(a third-party request; REWRITE.md § 1, § F1). Exactly the 22 icons that page referenced
+were fetched from those same URLs once, on 2026-11-21 (the CDN reported last-modified
+2026-09-20), and joined into one sprite: one <symbol id="<slug>"> per icon, its single path
+filled with the colour the live page asked for, <title> dropped (the icons are decorative:
+the page shows them aria-hidden, beside the skill's name).
+
+  slug        colour     slug        colour     slug         colour
+  claude      #D97757    html5       #E34F26    flask        #000000
+  anthropic   #191919    css         #663399    nodedotjs    #339933
+  vuedotjs    #4FC08D    vuetify     #1867C0    mysql        #4479A1
+  javascript  #F7DF1E    php         #777BB4    postgresql   #4169E1
+  flutter     #02569B    laravel     #FF2D20    sqlite       #003B57
+  dart        #0175C2    rust        #000000    cloudflare   #F38020
+  python      #3776AB    git         #F05032    selenium     #43B02A
+  pandas      #150458
+
+All 22 still existed upstream; none is missing.
+
+Licence: the Simple Icons project (https://simpleicons.org, https://github.com/simple-icons/simple-icons)
+publishes its SVG data under CC0 1.0 Universal. The logos themselves are trademarks of their
+owners; they are shown here, as on the live page, to name the tools.
+
+sha256 of skill-icons.svg as committed: 56fddceb66c4e170fe4e10ae4fa972ee463132068737b432cf4ea5aa1b221545

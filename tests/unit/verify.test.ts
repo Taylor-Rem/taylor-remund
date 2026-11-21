@@ -6,7 +6,7 @@ const names = (steps: { name: string }[]) => steps.map((s) => s.name);
 describe('verify: the step list', () => {
   it('runs typecheck, unit, build, then the seven checks, in that order', () => {
     expect(names([...STEPS])).toEqual(['typecheck', 'unit', 'build', ...CHECKS]);
-    expect(CHECKS).toEqual(['check-urls', 'check-legal', 'check-links', 'budget', 'check-layers', 'check-look', 'check-claims']);
+    expect(CHECKS).toEqual(['check-urls', 'check-legal', 'check-links', 'budget', 'check-layers', 'check-look', 'check-claims', 'check-text']);
   });
 
   it('runs each check as node scripts/<name>.ts --dist dist and requires the file', () => {

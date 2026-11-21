@@ -1,0 +1,121 @@
+---
+// /resume/ (REWRITE.md § 2, § F1): the engineer's view, carried whole from the
+// live page into the Paper layout. Every word is src/content/resume.json; this
+// file holds structure only. Anchors that must keep working (§ 2): #about,
+// #skills, #projects, #patchlamp, #experience, #contact.
+import Paper from '../layouts/Paper.astro';
+import { resume, isLink } from '../content/resume.ts';
+import { site } from '../content/site.ts';
+import { renderInline } from '../components/paper/inline.ts';
+import { externalAttrs, printAttrs } from '../components/paper/links.ts';
+
+const { page, nav, about, figures, skills, projects, experience, contact, person } = resume;
+const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
+const ORIGIN = 'https://taylorremund.com';
+const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+// Person structured data: only what the page itself states.
+const current = experience.roles[0]!;
+const sameAs = contact.links.filter((l) => /^https:\/\//.test(l.href)).map((l) => l.href);
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  name: site.strip.name.text,
+  url: `${ORIGIN}/`,
+  image: `${ORIGIN}${about.photo.src}`,
+  sameAs,
+  jobTitle: current.title.text,
+  worksFor: { '@type': 'Organization', name: current.employer.text },
+  address: { '@type': 'PostalAddress', addressLocality: person.locality.text, addressRegion: person.region.text },
+}).replace(/</g, '\\u003c');
+const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: l.text, href: l.href }));
+---
+<Paper
+  title={page.title.text}
+  description={page.description.text}
+  og={{ title: page.og.title.text, description: page.og.description.text, type: page.og.type, url: page.og.url }}
+  pageNav={pageNav}
+  preload={['/fonts/IBMPlexSans-SemiBold-Latin1.woff2']}
+  jsonLd={jsonLd}
+>
+  <section class="section about" id="about" aria-labelledby="about-title">
+    <p class="tape">{about.eyebrow.text}</p>
+    <h1 class="title" id="about-title">{about.heading.text}</h1>
+    <p class="lead" set:html={rich(about.subtitle.text)} />
+    <div class="about-text">
+      <img class="photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} />
+      {about.paragraphs.map((p) => <p set:html={rich(p.text)} />)}
+    </div>
+    <ul class="figures">
+      {figures.map((f) => (
+        <li><span class="figure-number">{f.number.text}</span> <span class="figure-label">{f.label.text}</span></li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="section" id="skills" aria-labelledby="skills-title">
+    <p class="tape">{skills.eyebrow.text}</p>
+    <h2 class="title" id="skills-title">{skills.heading.text}</h2>
+    <div class="skill-groups">
+      {skills.groups.map((g) => (
+        <div class="skill-group">
+          <h3 class="skill-group-title">{g.title.text}</h3>
+          <ul class="skills">
+            {g.items.map((s) => (
+              <li>{s.icon && <svg class="skill-icon" aria-hidden="true" focusable="false" width="16" height="16"><use href={`/assets/skill-icons.svg#${s.icon}`} /></svg>}{s.text}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="section" id="projects" aria-labelledby="projects-title">
+    <p class="tape">{projects.eyebrow.text}</p>
+    <h2 class="title" id="projects-title">{projects.heading.text}</h2>
+    <p class="intro" set:html={rich(projects.intro.text)} />
+    <div class="entries">
+      {projects.entries.map((e) => (
+        <article class="entry project" id={e.id} aria-labelledby={`p-${slug(e.title.text)}`}>
+          <p class="entry-label">{e.label.text}</p>
+          <h3 class="entry-title" id={`p-${slug(e.title.text)}`}>{e.title.text}</h3>
+          <p class="entry-subtitle">{e.subtitle.text}</p>
+          <div class="entry-body">{e.paragraphs.map((p) => <p set:html={rich(p.text)} />)}</div>
+          <ul class="tags">{e.tags.map((t) => <li>{t.text}</li>)}</ul>
+          {e.links.length > 0 && (
+            <ul class="entry-links">
+              {e.links.map((l) => isLink(l)
+                ? <li><a href={l.href} {...printAttrs(l.href)} {...externalAttrs(l.href)}>{l.text}</a></li>
+                : <li class="private">{l.text}</li>)}
+            </ul>
+          )}
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="section" id="experience" aria-labelledby="experience-title">
+    <p class="tape">{experience.eyebrow.text}</p>
+    <h2 class="title" id="experience-title">{experience.heading.text}</h2>
+    <div class="entries">
+      {experience.roles.map((r) => (
+        <article class="entry role">
+          <h3 class="entry-title">{r.title.text}</h3>
+          <p class="role-employer">{r.employer.text}</p>
+          <p class="role-meta"><span class="role-dates">{r.dates.text}</span> <span class="role-place">{r.place.text}</span></p>
+          <ul class="bullets">{r.bullets.map((b) => <li set:html={rich(b.text)} />)}</ul>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="section contact" id="contact" aria-labelledby="contact-title">
+    <p class="tape">{contact.eyebrow.text}</p>
+    <h2 class="title" id="contact-title">{contact.heading.text}</h2>
+    <p class="intro" set:html={rich(contact.text.text)} />
+    <ul class="link-list">
+      {contact.links.map((l) => <li><a href={l.href} {...printAttrs(l.href)} {...externalAttrs(l.href)}>{l.text}</a></li>)}
+    </ul>
+  </section>
+</Paper>
+
