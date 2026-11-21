@@ -8,6 +8,8 @@ import { startPlay } from './fetch-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING, throwCap } from '../../src/workshop/sim/world.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
+import { REVERT_TUNING } from '../../src/workshop/sim/crew/revert.ts';
+import { REVERT } from '../../src/workshop/sim/scenes/bench.ts';
 import type { Pose, RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const upY = (q: readonly number[]): number => 1 - 2 * ((q[0] as number) ** 2 + (q[2] as number) ** 2);
@@ -161,6 +163,25 @@ describe('dropped from the top of the carry (7.5: about 15.5 u/s down at the ben
     ['Fetch', (w) => { const p = w.motion('fetch')!.pose.p; return [p[0], 7.5, p[2]]; }],
     ['Patch\'s stool', () => [3.02, 7.5, -3.46]],
   ];
+  /**
+   * What Revert's own rules add up to, dropped at (x, z) (2026-11-20, measured onto Fetch: 15 s to its hatch, and when
+   * its way off knocks a crate where Fetch cannot take it, 25 s more for that heal). One trip on its track at its own
+   * pace: off the track to its nearest point and a stand's reach beyond (1), the whole track (it may be dropped at the
+   * far end), at `speed`; at every waypoint (the join, each of the track's, the stand) a quarter turn on the spot and a
+   * stop and start (`speed / accel`), and once a trip a half turn more (the long way round a part, or turning round at
+   * an end). Off its perch: the farthest exit (2.2) and a half turn.
+   */
+  const R = REVERT_TUNING;
+  const TRACK = REVERT.path.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - REVERT.path[i]![0], p[1] - REVERT.path[i]![1]), 0);
+  const trip = (x: number, z: number): number => {
+    const spur = Math.min(...REVERT.path.map((p) => Math.hypot(p[0] - x, p[1] - z))) + 1;
+    return (TRACK + spur) / R.speed + (REVERT.path.length + 1) * (Math.PI / 2 / R.turn + R.speed / R.accel) + Math.PI / R.turn;
+  };
+  const offPerch = 2.2 / R.speed + Math.PI / R.turn;
+  /** Down off what it landed on and home: the beat, off, righted, one trip, the pause on its hatch and the sink. */
+  const homeBy = (x: number, z: number): number => R.perchBeat + offPerch + R.righting + trip(x, z) + R.homePause + R.rise;
+  /** And when it puts away a crate its landing or its way off knocked loose: a glance, out, the sweep (and the brushed crate's settle), and home again with it. */
+  const healBy = (x: number, z: number): number => R.glance + trip(x, z) + R.sweep + R.settle + trip(x, z);
   for (const [what, at] of REVERT_ONTO) {
     // (S7, 2026-11-20: up on something (a crate, Patch's stool, the striker's top) it gets itself down: off a low thing
     // it trundles, from higher it goes down and comes back up through its hatch)
@@ -178,13 +199,19 @@ describe('dropped from the top of the carry (7.5: about 15.5 u/s down at the ben
         const m = w.motion(id)!;
         if (m.mode === 'free' || m.mode === 'crew') expect(m.pose.p[1], `${id} pushed into the bench`).toBeGreaterThan(0.1);
       }
+      const [dx, , dz] = w.motion('revert')!.pose.p;
+      const from = w.step;
       let home = false;
-      for (let i = 0; i < steps(40) && !home; i++) {
-        t.run(1);
+      let swept = false;
+      for (let i = 0; i < steps(homeBy(dx, dz) + healBy(dx, dz)) && !home; i++) {
+        if (t.run(1).some((e) => e.type === 'revert.sweep')) swept = true;
         home = (w.machine('revert-crew') as RevertView).state === 'below';
       }
+      const took = (w.step - from) / HZ;
+      if (process.env.REVERT_DROP_LOG) console.log(`Revert onto ${what}: below after ${took.toFixed(1)} s${swept ? ' (a heal on the way)' : ''}; rules: ${homeBy(dx, dz).toFixed(1)} s home, ${healBy(dx, dz).toFixed(1)} s a heal`);
       if (process.env.REVERT_DROP_LOG) console.log('LOG', what, t.events.filter((x) => ['crew.knocked', 'crew.nudged', 'part.hit', 'crew.state'].includes(x.e.type) && JSON.stringify(x.e).match(/revert|fetch|crate-3/)).slice(0, 40).map((x) => `${(x.step / HZ).toFixed(2)} ${JSON.stringify(x.e).slice(0, 110)}`).join('\n'));
-      if (!home) console.log(`Revert dropped onto ${what}: not home after 40 s, ${(w.machine('revert-crew') as RevertView).state} at ${w.motion('revert')!.pose.p.map((v) => v.toFixed(2)).join(',')}`);
+      if (home) expect(took, swept ? 'home, with the heal of a crate it knocked loose, inside its rules' : 'home inside its rules').toBeLessThanOrEqual(homeBy(dx, dz) + (swept ? healBy(dx, dz) : 0));
+      if (!home) console.log(`Revert dropped onto ${what}: not home after ${(homeBy(dx, dz) + healBy(dx, dz)).toFixed(1)} s, ${(w.machine('revert-crew') as RevertView).state} at ${w.motion('revert')!.pose.p.map((v) => v.toFixed(2)).join(',')}`);
       expect(home, 'Revert went home').toBe(true);
       w.dispose();
     }, 90_000);
