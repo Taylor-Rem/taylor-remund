@@ -869,10 +869,13 @@ export interface PatchView extends MachineViewBase {
   /**
    * (`flight: 'body'`) The script has just taken over from the body: `pose` is how and where the body last was (how
    * it lay as the get-up began; how it met the wall; how it went over the edge), `hard` how hard it had come down
-   * (0 a set-down .. 1 a hard landing: the beats that follow are scaled by it). Through `land` (the get-up): it
-   * stays sat as it landed for `rise` seconds, then, if where it lay is no place to stand, hops from `from` to `to`
-   * (its feet) along an arc `arc` high over the rest of `stateLength`; `at` is that move. Also set through `wall`
-   * and the first moments of `ledge` (the catch: `at` eased from the body's place to the edge). Null otherwise.
+   * (0 a set-down .. 1 a hard landing: the beats that follow are scaled by it). Through `land` (the get-up) and the
+   * `shake` after it: it stays as it landed, getting up, for `rise` seconds, then, if where it lay is no place to
+   * stand, hops from `from` to `to` (its feet) along an arc `arc` high over the rest of `stateLength`; `at` is that
+   * move (`arc` 0 and `from` at `to`: it gets up where it lies). Also set through `wall` (how it met it), and the
+   * first moments of `ledge` (the catch: `at` eased from the body's place to the edge). And one `land` has no body
+   * before it: stood waiting on its walk home too long, it hops on toward its stool (`rise` 0, `pose` upright where
+   * it stood). Null otherwise.
    */
   readonly lay?: { readonly pose: Pose; readonly hard: number; readonly from: Vec3; readonly to: Vec3; readonly arc: number; readonly rise: number } | null;
 }

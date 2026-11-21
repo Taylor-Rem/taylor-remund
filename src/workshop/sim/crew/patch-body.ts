@@ -13,10 +13,16 @@
  *   held    the world carries Patch's body (a `crewBody` part) exactly as it carries a held part: weight in the
  *           hand, lag, contacts. `at` follows the body. Nothing here moves it.
  *   air     let go: the body is the engine's. No arc of its own, no rule per thing it meets. This module only
- *           watches: what it met (for sound), where it is (the edge), how it lies.
+ *           watches: what it met (for sound), where it is (the edge), how it lies. (One thing is added, because the
+ *           world offers a crew member's body to no machine: down on the running belt it is carried along it.)
  *   then the script takes over FROM WHERE AND HOW IT LIES (the body is stowed, its last pose kept for the view):
  *           it gets up there, or hops to the nearest place it can stand and walk home from; a shake, a look, the
  *           walk home (all the scripted Patch's own, their lengths scaled by how hard it came down).
+ *
+ * Recovery is the part that must never fail, so two things are this module's and not the script's: where it gets on
+ * its feet is always a place it can walk home from (`haven`: the script's search, then wider, at last the foot of its
+ * own stool); and its walk home, which is the script's and can wait on the crew for as long as they stand in its way,
+ * is watched: stood in one place for `stuck` seconds it hops on toward its stool (`watchWalk`).
  *
  * The gags are reactions to what the engine did:
  *   the float   a throw that is nearly straight up lingers at its top: gravity is eased on the body near the apex by
@@ -41,7 +47,7 @@ import type { Solid } from './patch-route.ts';
 import { distanceTo } from './fetch-knock.ts';
 import { offTop, sphereMeets } from './patch-route.ts';
 import { HZ, steps } from '../clock.ts';
-import { add, cross, dot, length, qnormalize, qyaw, rotate, scale, sub, yawOf } from '../math.ts';
+import { add, cross, dot, finitePose, finiteVec, length, qnormalize, qyaw, rotate, scale, sub, yawOf } from '../math.ts';
 
 /** Seconds, units, units per second. Tune here. */
 export const PATCH_BODY_TUNING = {
@@ -120,8 +126,8 @@ export const PATCH_BODY_TUNING = {
    * two units, 9; a hard throw across the bench 11 to 13; a fall from four units, or a throw straight up at the
    * most, 13 to 14; a fall from the top of the carry 16 and more.
    */
-  softFrom: 4,
-  hardAt: 18,
+  softFrom: 3.5,
+  hardAt: 16,
   /**
    * The whole bit, from the moment it first touches down to its first step home, is about this long: `bitLeast` for
    * a set-down, `bitMost` for the hardest landing (the scripted Patch took 2.9 to 4.5 s every time). Its tumble
@@ -144,10 +150,10 @@ export const PATCH_BODY_TUNING = {
   /** Nearer than this, where it can stand is where it lies (no hop: it shifts as it gets up). */
   hopOver: 0.1,
   /** The shake of the head: none below `shakeFrom`; from `shakeLeast` up to the scripted length. */
-  shakeFrom: 0.25,
+  shakeFrom: 0.18,
   shakeLeast: 0.3,
   /** The look at the visitor: none below `lookFrom` (it turns to its way at once); from `lookLeast` up to the scripted length. */
-  lookFrom: 0.5,
+  lookFrom: 0.6,
   lookLeast: 0.4,
 } as const;
 
@@ -647,6 +653,11 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     const vel = ctx.velocity(body) as { linvel: Vec3; angvel: Vec3 };
     const p = pose.p;
     const v = vel.linvel;
+    if (!finitePose(pose) || !finiteVec(v)) {
+      // the engine has lost it (it never has: a safety net): out of sight from where it last was, and back by the chute
+      goAway({ p: a.p, q: [0, 0, 0, 1] }, a.out, 0);
+      return;
+    }
     a.ticks += 1;
     a.peak = Math.max(a.peak, p[1]);
 

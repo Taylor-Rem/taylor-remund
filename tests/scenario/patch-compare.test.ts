@@ -8,10 +8,11 @@
 //
 //   npx vitest run tests/scenario/patch-compare.test.ts --silent=false
 import { expect, test } from 'vitest';
-import { FULL_BENCH, LENS, benchBody, fling, lift, patch, watcher, world } from './patch-body-helpers.ts';
+import { FULL_BENCH, LENS, benchBody, lift, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
-import { HZ } from '../../src/workshop/sim/clock.ts';
+import { startPlay } from './fetch-helpers.ts';
+import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { AT } from '../../src/workshop/sim/scenes/bench.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Lens, Vec3 } from '../../src/workshop/sim/types.ts';
@@ -19,10 +20,23 @@ import type { Lens, Vec3 } from '../../src/workshop/sim/types.ts';
 interface Way {
   readonly name: string;
   /** Where the hand holds it before the throw, the hand's velocity, for how many steps; the lens if it is a flick up the screen. */
-  readonly from: Vec3 | ((w: World) => Vec3);
+  readonly from: Vec3;
   readonly v: Vec3;
   readonly n?: number;
   readonly lens?: Lens;
+  /** Something to wait for before Patch is lifted. */
+  readonly ready?: (w: World, t: Tape) => void;
+}
+
+/** Play mode, and Fetch come to stand at its stand by the pad, empty-handed (it stands there a while). */
+function fetchAtPad(w: World, t: Tape): void {
+  startPlay(w);
+  for (let i = 0; i < steps(90); i++) {
+    t.run(1);
+    const f = w.crew('fetch')!;
+    if (!f.carrying && f.state === 'idle' && Math.hypot(f.x - -2.9, f.z - 2.78) < 0.05 && i > steps(8)) return;
+  }
+  throw new Error('Fetch did not come to stand at the pad');
 }
 
 const motor = AT.beltMotor.c;
@@ -33,9 +47,8 @@ const WAYS: readonly Way[] = [
   { name: 'at the back wall', from: [-5.5, 2.2, -1.2], v: [0, 0, -10] },
   { name: "at the UNDO lever's housing", from: [-7.4, 1.4, 0.35], v: [9, 0, 0] },
   { name: 'into the crate stack', from: [6.0, 1.2, 1.8], v: [-9, 0, 0] },
-  // (down at it from above and to its right, clear of the striker's post; from where Fetch will be in the second it
-  // takes the hand to get there and throw)
-  { name: 'at Fetch', from: (w) => { const m = w.motion('fetch')!; const f = m.pose.p; return [f[0] + (f[0] - m.prev.p[0]) * HZ + 3.3, f[1] + 2.4, f[2] + (f[2] - m.prev.p[2]) * HZ]; }, v: [-9.5, -6, 0], n: 12 },
+  // (Fetch stood at its stand by the pad, (-2.9, 2.78); from its right along its tape, at its middle's height)
+  { name: 'at Fetch', from: [-2.9 + 1.7 + (9 * 13.5) / HZ, 1.25, 2.78], v: [-9, 0, 0], ready: fetchAtPad },
   { name: 'off the left end, gently', from: [-7.8, 1.0, -1], v: [-3, 0, 0] },
   { name: 'off the front, hard', from: [-4, 1.6, 1.6], v: [0, 0, 12] },
   { name: 'dropped from high', from: [-6.5, 6, -2], v: [0, 0, 0], n: 4 },
@@ -57,17 +70,9 @@ interface Row {
 }
 
 function run(w: World, t: Tape, way: Way): Row {
-  // (a place that depends on where something is: lifted first, then carried there in half a second)
-  if (typeof way.from === 'function') lift(w, t, [1.5, 3.5, 1.5], 0);
-  const from = typeof way.from === 'function' ? way.from(w) : way.from;
-  if (typeof way.from === 'function') {
-    const a = patch(w).at;
-    for (let i = 1; i <= 36; i++) {
-      const k = Math.min(1, i / 24);
-      w.dispatch({ type: 'carry', target: [a[0] + (from[0] - a[0]) * k, a[1] + (from[1] - a[1]) * k, a[2] + (from[2] - a[2]) * k] });
-      t.run(1);
-    }
-  } else lift(w, t, from);
+  way.ready?.(w, t);
+  const from = way.from;
+  lift(w, t, from);
   const watch = watcher(w, t);
   // the hand's last steps (watched, for its speed in the hand), and the release: it gets up to speed over a tenth of
   // a second and holds it, so what it holds has caught it up
