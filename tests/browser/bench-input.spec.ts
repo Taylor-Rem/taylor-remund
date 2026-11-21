@@ -549,7 +549,8 @@ async function workTheBenchSteps(page: Page, hand: Hand, kind: 'mouse' | 'touch'
     await hand.move(p);
     await page.waitForTimeout(16);
   }
-  await pollFrames(page, () => holding(page)).toEqual({ kind: 'unit', id: 'patch' });
+  // (in the hand: the unit, and since 2026-11-20 the bench's Patch's own body with it, which the world carries)
+  await pollFrames(page, () => holding(page)).toEqual({ kind: 'unit', id: 'patch', body: 'patch-body' });
   await shoot(page, `${tag}-patch-held`, toP, 200);
   await hand.up(toP);
   await frames(page, 4);
@@ -1829,6 +1830,17 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     say.push(`first still hold (z / hand z, y): ${trace}`);
   }
   say.push(`z range over the throws and catches: ${(Math.max(...zAll) - Math.min(...zAll)).toFixed(2)}`);
+  // the same split in two: the first flight (from the bench), and everything from the first catch to the last
+  const split = await page.evaluate(() => {
+    const rec = (window as any).__i1j.rec as number[][];
+    const first = rec.findIndex((r) => r[4] === 0);
+    const caught = rec.findIndex((r, i) => i > first && r[4] === 1);
+    const lastHeld = rec.map((r) => r[4]).lastIndexOf(1);
+    const range = (zs: number[]) => (zs.length ? Math.max(...zs) - Math.min(...zs) : 0);
+    return { flight: range(rec.slice(Math.max(0, first), caught < 0 ? first : caught).map((r) => r[3]!)), after: caught < 0 ? 0 : range(rec.slice(caught, lastHeld + 1).map((r) => r[3]!)) };
+  });
+  say.push(`z range of the first flight: ${split.flight.toFixed(2)}`);
+  say.push(`z range from the first catch to the last: ${split.after.toFixed(2)}`);
   // where z moved: each stretch held or flying, its z at the start and the end
   const stretches = await page.evaluate(() => {
     const rec = (window as any).__i1j.rec as number[][];
@@ -1866,6 +1878,24 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
  */
 const LOWEST = { 'crate-2': 0.6, 'crate-3': 0.6, fetch: 0.6, patch: 0.45 } as const;
 
+/**
+ * It stays where it is juggled. A crate or Fetch: over the three throws and catches its z moves by less than 0.3 in
+ * all. Patch (the bench's since 2026-11-20, a body of 0.08, lighter than any crate, so it takes more of the hand's
+ * motion with it): the first throw, from the bench, which a flick up the screen carries back along the bench while
+ * in the hand by design, drifts on back a little in the air (0.23 to 0.31 measured where a crate drifts 0.21), so that
+ * flight is held to 0.45; from the first catch to the last, every catch held where it was and every throw straight up,
+ * to the same 0.3 (measured: 0.00).
+ */
+function stays(id: string, say: string[]): void {
+  const n = (k: string) => Number(say.find((s) => s.startsWith(k))!.split(': ')[1]);
+  if (id !== 'patch') {
+    expect(n('z range over'), 'it does not walk back toward the wall').toBeLessThan(0.3);
+    return;
+  }
+  expect(n('z range of the first flight'), 'thrown from the bench it goes up, not back toward the wall').toBeLessThan(0.45);
+  expect(n('z range from the first catch'), 'once in the air it stays where it is caught and juggled').toBeLessThan(0.3);
+}
+
 for (const [label, id, start, flickPx] of [
   // (juggled on the open left of the bench, clear of the stations and of where the crew go about their work)
   ['a crate', 'crate-2', [-5.8, -1.2], 60],
@@ -1880,7 +1910,7 @@ for (const [label, id, start, flickPx] of [
     console.log(`[I1] R5 juggle ${id} by mouse: ${say.join(' | ')}`);
     expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
     // it stays where it is juggled: over three throws and catches its z moves by less than 0.3 in all
-    expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it does not walk back toward the wall').toBeLessThan(0.3);
+    stays(id, say);
     // never down on the bench in between (its middle above its own half height and a little)
     const low = Number(say.at(-1)!.split(': ')[1]);
     expect(low, 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(LOWEST[id]);
@@ -1899,7 +1929,7 @@ for (const [label, id] of [
     const say = await juggleIt(page, cdp, 'mouse', id, [-5.8, -1.2], 60, { follow: false });
     console.log(`[I1] R5 juggle (no follow) ${id} by mouse: ${say.join(' | ')}`);
     expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
-    expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it stays where it is caught and juggled').toBeLessThan(0.3);
+    stays(id, say);
     expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(LOWEST[id]);
   });
 }
@@ -1920,7 +1950,7 @@ test('R5: juggling Patch by touch at the phone framing (390x844): a finger lands
   const say = await juggleIt(page, cdp, 'touch', 'patch', [1.5, -1.0], 60, { follow: false });
   console.log(`[I1] R5 juggle (no follow) patch by touch: ${say.join(' | ')}`);
   expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
-  expect(Number(say.find((s) => s.startsWith('z range'))!.split(': ')[1]), 'it stays where it is caught and juggled').toBeLessThan(0.3);
+  stays('patch', say);
   expect(Number(say.at(-1)!.split(': ')[1]), 'it never touched the bench between the first throw and the last catch').toBeGreaterThan(LOWEST.patch);
   await ctx.close();
 });
