@@ -8,7 +8,10 @@
  *
  *   - Focus on a thing's button: the stage marks it (view/stations/focus.ts)
  *     and frames its station when focus moves into a new one; inside a
- *     station the camera keeps still (shell/boot.ts).
+ *     station the camera keeps still while the thing is comfortably in view.
+ *     Either way, once the camera rests, the thing lies in what the page
+ *     leaves uncovered (the strip, this list, the legal line): `Framing.bring`
+ *     in shell/boot.ts holds the rule.
  *   - Enter or Space (a click, as a screen reader sends it): a handle is
  *     used; a part is picked up, and the list becomes its destinations (the
  *     mouths that would take it; the jacks, for the plug): focus one and the
@@ -314,12 +317,10 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
       if (st !== ws.framing.station) sideFor(st);
       ws.input.focusOn(t.id);
     } else if (t.kind === 'dest') {
-      // where it would go is in view (the dock, from the Button's station)
+      // where it would go is in view (the dock, from the Button's station; the belt's feed on a phone)
       const st = ws.framing.of(t.id);
-      if (st !== null && st !== ws.framing.station) {
-        sideFor(st);
-        ws.framing.frame(st, 'focus');
-      }
+      if (st !== null && st !== ws.framing.station) sideFor(st);
+      ws.framing.bring(t.id);
       ws.input.chooseDestination(t.id);
     } else if (t.kind === 'put') ws.input.chooseDestination(null);
     else if (t.kind === 'station') {

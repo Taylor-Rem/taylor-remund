@@ -9,8 +9,14 @@
  *
  * Steady: it never blinks or pulses (§ E9: nothing flashes). It follows its
  * target (a crate moving on the belt) because it is rebuilt every frame from
- * the box. Drawn over everything, unlit, not shadowed, in `paper`; one mesh,
- * one draw call, drawn only when something is focused.
+ * the box. Drawn over everything, unlit, not shadowed; one mesh, one draw
+ * call, drawn only when something is focused.
+ *
+ * Two tones (K2), so it reads on every ground the bench has: each bracket is
+ * `paper` laid on a slightly wider bracket of `ink`. On the lit wood, cream
+ * paper and the red Button the ink edge is what stands out; on the dark wall
+ * and the switchboard the paper does. Within the one draw call the ink quads
+ * come first and the paper quads after (no depth test: later is on top).
  *
  * Sizes are in CSS pixels of the stage (read from the window: the view has
  * no renderer), so it reads the same at the home framing on a laptop and on
@@ -20,6 +26,7 @@ import { Box3, Vector3, type BufferAttribute, type PerspectiveCamera } from 'thr
 import type { Id } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import { focusMarkMesh, FOCUS_MARK_VERTS } from '../kit/stage-helpers.ts';
+import { linear } from '../palette.ts';
 
 /** Tune here: CSS px. */
 export const FOCUS_FEEL = {
@@ -29,13 +36,20 @@ export const FOCUS_FEEL = {
   arm: 15,
   armShare: 0.38,
   thick: [3.5, 2] as const,
-  /** Brightness of each weight (the colour is the material's `paper`). */
+  /** The ink edge round each bar, each side, by weight. */
+  edge: [1.75, 1.25] as const,
+  /** Brightness of the paper of each weight. */
   shade: [1, 0.78] as const,
 } as const;
 
+/** The two tones (linear, for vertex colours: the material is white). */
+const PAPER = linear('paper');
+const INK = linear('ink');
+
 export function createFocusView(): StationViewFactory {
   return (ctx: ViewContext): StationView => {
-    const mesh = focusMarkMesh(2, ctx.materials.focusMark());
+    // two marks (the focus, the keys' destination), each two layers (ink, then paper)
+    const mesh = focusMarkMesh(4, ctx.materials.focusMark());
     ctx.scene.add(mesh);
     const pos = mesh.geometry.getAttribute('position') as BufferAttribute;
     const col = mesh.geometry.getAttribute('color') as BufferAttribute;
@@ -43,7 +57,7 @@ export function createFocusView(): StationViewFactory {
     const box = new Box3();
     const v = new Vector3();
 
-    /** Write mark `m` round `id`'s box; false when it has no box or is off screen. */
+    /** Write mark `m` (layers 2m: ink, 2m+1: paper) round `id`'s box; false when it has no box or is off screen. */
     function mark(m: number, id: Id, weight: 0 | 1): boolean {
       if (!ctx.targetBox?.(id, box)) return false;
       const H = Math.max(1, (globalThis as { innerHeight?: number }).innerHeight ?? 900);
@@ -61,24 +75,31 @@ export function createFocusView(): StationViewFactory {
       x0 -= F.margin * px; x1 += F.margin * px; y0 -= F.margin * py; y1 += F.margin * py;
       const side = Math.min((x1 - x0) / px, (y1 - y0) / py);
       const arm = Math.min(F.arm, side * F.armShare);
-      const ax = arm * px, ay = arm * py, tx = F.thick[weight] * px, ty = F.thick[weight] * py;
       const z = Math.max(-0.999, Math.min(0.999, z0));
-      let k = m * FOCUS_MARK_VERTS;
-      const quad = (qx0: number, qy0: number, qx1: number, qy1: number): void => {
-        for (const [x, y] of [[qx0, qy0], [qx1, qy0], [qx1, qy1], [qx0, qy1]] as const) {
-          v.set(x, y, z).unproject(camera);
-          pos.setXYZ(k, v.x, v.y, v.z);
-          const s = F.shade[weight];
-          col.setXYZ(k, s, s, s);
-          k++;
-        }
-      };
-      // four brackets: each a horizontal and a vertical bar meeting at the corner
-      for (const [cx, sx] of [[x0, 1], [x1, -1]] as const)
-        for (const [cy, sy] of [[y0, 1], [y1, -1]] as const) {
-          quad(Math.min(cx, cx + sx * ax), Math.min(cy, cy + sy * ty), Math.max(cx, cx + sx * ax), Math.max(cy, cy + sy * ty));
-          quad(Math.min(cx, cx + sx * tx), Math.min(cy, cy + sy * ay), Math.max(cx, cx + sx * tx), Math.max(cy, cy + sy * ay));
-        }
+      const s = F.shade[weight];
+      for (const layer of [0, 1] as const) {
+        // the ink layer: every bar grown by the edge on each side (out past the corner and the arm's end too)
+        const e = layer === 0 ? F.edge[weight] : 0;
+        const ex = e * px, ey = e * py;
+        const ax = arm * px + 2 * ex, ay = arm * py + 2 * ey, tx = F.thick[weight] * px + 2 * ex, ty = F.thick[weight] * py + 2 * ey;
+        const [r, g, b] = layer === 0 ? INK : [PAPER[0] * s, PAPER[1] * s, PAPER[2] * s];
+        let k = (2 * m + layer) * FOCUS_MARK_VERTS;
+        const quad = (qx0: number, qy0: number, qx1: number, qy1: number): void => {
+          for (const [x, y] of [[qx0, qy0], [qx1, qy0], [qx1, qy1], [qx0, qy1]] as const) {
+            v.set(x, y, z).unproject(camera);
+            pos.setXYZ(k, v.x, v.y, v.z);
+            col.setXYZ(k, r, g, b);
+            k++;
+          }
+        };
+        // four brackets: each a horizontal and a vertical bar meeting at the corner (the ink's corner an edge out)
+        for (const [cx0, sx] of [[x0, 1], [x1, -1]] as const)
+          for (const [cy0, sy] of [[y0, 1], [y1, -1]] as const) {
+            const cx = cx0 - sx * ex, cy = cy0 - sy * ey;
+            quad(Math.min(cx, cx + sx * ax), Math.min(cy, cy + sy * ty), Math.max(cx, cx + sx * ax), Math.max(cy, cy + sy * ty));
+            quad(Math.min(cx, cx + sx * tx), Math.min(cy, cy + sy * ay), Math.max(cx, cx + sx * tx), Math.max(cy, cy + sy * ay));
+          }
+      }
       return true;
     }
 
@@ -91,8 +112,8 @@ export function createFocusView(): StationViewFactory {
         const carried = frame.keyDest !== null && frame.focused === frame.held;
         if (frame.focused !== null && !carried && mark(n, frame.focused, 0)) n++;
         if (frame.keyDest !== null && frame.keyDest !== frame.focused && mark(n, frame.keyDest, 1)) n++;
-        // a quad is six indices
-        mesh.geometry.setDrawRange(0, n * (FOCUS_MARK_VERTS / 4) * 6);
+        // a quad is six indices; a mark is two layers
+        mesh.geometry.setDrawRange(0, 2 * n * (FOCUS_MARK_VERTS / 4) * 6);
         mesh.visible = n > 0;
         if (n > 0) {
           pos.needsUpdate = true;

@@ -19,7 +19,25 @@
  *
  * Not said here: what the phone panel says itself in its own live region (a
  * text sent, Patch on it, the reply, "Now on the …" while it is open), so
- * nothing is said twice.
+ * nothing is said twice. A change Patch makes for a text is his answer and
+ * the phone's to say; a change the visitor makes with their own hand while a
+ * text is in flight (the belt's dial or lever: the belt's change comes in the
+ * same frame as the `handle.worked` that made it) is the visitor's, and is
+ * said.
+ *
+ * A part let go (K2): what is said is what the world has decided, as soon as
+ * it has decided it, and only once per letting go.
+ *   - Let go fast: "thrown", at once (where it lands is the crew's business
+ *     and the chute's).
+ *   - Let go slowly: nothing until the world settles it, which it does in
+ *     one step: the part comes to rest (`part.rested`), and in that same step
+ *     a mouth under it has either taken it in (`taken-in`) or not. Taken in:
+ *     where it went ("on the belt"); not: "put down". Never both, never one
+ *     and later the other for the same letting go.
+ *   - Taken in at the letting go itself (the keys' Enter over a mouth):
+ *     where it went, in that frame.
+ *   - Picked up again, gone off the bench's edge (the chute: "came back" is
+ *     said when it does), or a reset before it rests: nothing for the drop.
  */
 import type { Id, SimEvent, WorldView } from '../../sim/types.ts';
 import { SAID, fill, textOf, type SaidKey } from './words.ts';
@@ -29,8 +47,8 @@ import { plainName } from './model.ts';
 export const ANNOUNCE_TUNING = {
   /** A part let go faster than this (units/s) was thrown; slower, put down. */
   thrown: 1.5,
-  /** Steps a "put down" waits to hear whether the part came to rest in a mouth (then that is said instead). */
-  settle: 90,
+  /** Steps a slow letting go is followed before it is forgotten unsaid (the world settles a part long before). */
+  settle: 600,
 } as const;
 
 /** What the page knows that the events do not. */
@@ -47,8 +65,8 @@ const RUNG_SAID: Readonly<Record<number, SaidKey>> = { 1: 'rung1', 2: 'rung2', 3
 export class Announcer {
   /** Texts in flight on the phone (n): their effects are Patch's answer, which the phone panel says. */
   private texts = new Set<number>();
-  /** "Put down", held until the part has had time to come to rest in a mouth. */
-  private pending = new Map<Id, { step: number; key: SaidKey }>();
+  /** Parts let go slowly, not yet settled by the world (the step each was let go). */
+  private pending = new Map<Id, number>();
 
   /** The sentences for one frame's events (none, most frames). */
   hear(w: WorldView, events: readonly SimEvent[], ctx: HearContext): string[] {
@@ -68,6 +86,9 @@ export class Announcer {
       return out;
     }
     const takenIn = new Set(events.flatMap((e) => (e.type === 'taken-in' ? [e.part] : [])));
+    // the visitor's own hand on a handle this frame (the dial, the lever): what changed with it is theirs, text or no
+    // text (a handle commits in the step it is worked; Patch's answer to a text commits in steps of its own)
+    const worked = events.some((e) => e.type === 'handle.worked');
     let belt: { speed: boolean; run: boolean } | null = null;
     let lamp = false;
     for (const e of events) {
@@ -82,7 +103,12 @@ export class Announcer {
         case 'part.released':
           if (takenIn.has(e.id)) break;
           if (e.speed > ANNOUNCE_TUNING.thrown) say('thrown', { thing: name(e.id) });
-          else this.pending.set(e.id, { step: w.step, key: 'putDown' });
+          else this.pending.set(e.id, w.step);
+          break;
+        case 'part.rested':
+          // settled: in a mouth (`taken-in`, this same step) or where it lies
+          if (!this.pending.delete(e.id)) break;
+          if (!takenIn.has(e.id)) say('putDown', { thing: name(e.id) });
           break;
         case 'taken-in': {
           if (!w.touched(e.part)) break;
@@ -129,8 +155,9 @@ export class Announcer {
         case 'effect': {
           const f = e.effect;
           // the visitor's own change (a transaction), not one Patch makes for a text (the phone says those)
-          if (typeof f.cause !== 'string' || !f.cause.startsWith('t') || this.texts.size > 0) break;
+          if (typeof f.cause !== 'string' || !f.cause.startsWith('t')) break;
           const kind = w.machine(f.target)?.kind;
+          if (this.texts.size > 0 && !(kind === 'belt' && worked)) break;
           if (kind === 'belt') {
             belt ??= { speed: false, run: false };
             if (f.field === 'speed') belt.speed = true;
@@ -164,11 +191,10 @@ export class Announcer {
       }
     }
     if (lamp) say('lamp');
-    // a "put down" that did not come to rest in a mouth in time is said now
-    for (const [id, p] of this.pending) {
-      if (w.step - p.step < ANNOUNCE_TUNING.settle) continue;
-      this.pending.delete(id);
-      say(p.key, { thing: name(id) });
+    // a part let go that left the bench (the chute brings it back, and says so), or was never settled: forgotten
+    for (const [id, at] of this.pending) {
+      const mode = w.motion(id)?.mode;
+      if (mode === 'chute' || mode === 'gone' || w.step - at > ANNOUNCE_TUNING.settle) this.pending.delete(id);
     }
     return out;
   }

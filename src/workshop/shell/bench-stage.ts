@@ -117,12 +117,22 @@ export function framedView(stage: Stage, box: Box3, inset: Inset, width: number,
   const l = frac(inset.left, W), r = frac(inset.right, W), t = frac(inset.top, H), b = frac(inset.bottom, H);
   const keep = Math.max(KEEP_MIN, Math.min(1 - l - r, 1 - t - b));
   const c = boxTarget(box, new Vector3());
-  const d = fitDistance(box, c, cam.fov, W / H, cam.pitch, cam.margin) / keep;
+  // (K2) the distance the camera will rest at: its zoom limits hold (never past home, never closer than a station),
+  // and the slide below is measured at that distance, not at the one asked for
+  const zoom = Math.min(1, Math.max(0, cam.zoomForDistance(fitDistance(box, c, cam.fov, W / H, cam.pitch, cam.margin) / keep)));
+  const d = distanceForZoom(cam, zoom);
   const tall = 2 * d * Math.tan(((cam.fov / 2) * Math.PI) / 180);
   const wide = tall * (W / H);
   const p = (cam.pitch * Math.PI) / 180;
   // content goes right when the left is covered (the camera left), down when the top is (the camera up the screen: back)
-  return { focus: [c.x - ((l - r) / 2) * wide, c.y, c.z - (((t - b) / 2) * tall) / Math.sin(p)], zoom: cam.zoomForDistance(d) };
+  return { focus: [c.x - ((l - r) / 2) * wide, c.y, c.z - (((t - b) / 2) * tall) / Math.sin(p)], zoom };
+}
+
+/** The camera's distance at `zoom` (the inverse of `zoomForDistance`, which is linear in the distance's log). */
+function distanceForZoom(cam: Pick<Stage['camera'], 'zoomForDistance'>, zoom: number): number {
+  const at1 = cam.zoomForDistance(1);
+  const perE = cam.zoomForDistance(Math.E) - at1;
+  return Math.abs(perE) < 1e-9 ? 1 : Math.exp((zoom - at1) / perE);
 }
 
 export interface BenchGlue {
@@ -225,11 +235,13 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       const s = STATION_BOXES[st];
       return p[0] >= s.min[0] && p[0] <= s.max[0] && p[2] >= s.min[2] && p[2] <= s.max[2];
     };
-    const ease = (stage: Stage, box: Box3, inset: Inset): void => {
-      stage.camera.easeTo(framedView(stage, box, inset, canvas.clientWidth, canvas.clientHeight));
+    const ease = (stage: Stage, box: Box3, inset: Inset): View => {
+      const to = framedView(stage, box, inset, canvas.clientWidth, canvas.clientHeight);
+      stage.camera.easeTo(to);
       // the depth of field follows: what is framed is what is sharp
       const c = box.getCenter(v);
       stage.camera.focusOn({ x: c.x, y: Math.min(c.y, 1), z: c.z });
+      return to;
     };
     return {
       stations: BENCH_STATIONS,
@@ -248,11 +260,12 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       },
       show(st, stage, inset) {
         if (st === null || !(BENCH_STATIONS as readonly string[]).includes(st)) {
-          stage.camera.easeTo(stage.camera.home());
+          const home = stage.camera.home();
+          stage.camera.easeTo(home);
           stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
-          return;
+          return home;
         }
-        ease(stage, stationBox(st as BenchStation, portrait()), inset);
+        return ease(stage, stationBox(st as BenchStation, portrait()), inset);
       },
       freeSide(st) {
         // a station right of the bench's middle (Patchlamp: the platen, the storefront) leaves the left free; the
@@ -261,11 +274,10 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
         const s = STATION_BOXES[st as BenchStation];
         return (s.min[0] + s.max[0]) / 2 > 1.5 ? 'left' : 'right';
       },
-      thing(_id, box, stage, inset) {
-        if (!box) return;
+      thing(box, stage, inset) {
         // the thing with some of the bench round it
         const c = box.getCenter(new Vector3());
-        ease(stage, new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset);
+        return ease(stage, new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset);
       },
     };
   }
