@@ -847,10 +847,19 @@ export interface PatchView extends MachineViewBase {
    * and a roll over `stateLength`, ending sat up (`speed`: how fast it came in). Then `shake` (sat, a shake of the
    * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
    * (Up, R4: `fall` how far it has fallen from the top of its flight (`fly`) or fell (`land`, `shake`); `drop` let go
-   * still from high or thrown up (it comes down falling, not tumbling along); `top` hanging at the top of a throw
-   * up, a moment before it falls. Present in `shake` too, for the size of its "really?".)
+   * still from high or thrown up (it comes down falling, not tumbling along); `top` in the float at the top of a
+   * throw up (R5: gravity eased off there, still moving: `PATCH_TUNING.floatGrav`); `float` how much this throw
+   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over; 0 for anything but a throw up). Present
+   * in `shake` too, for the size of its "really?".)
    */
-  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; /** (`flight: 'body'`) How much of the float at the top of a throw up is on now, 0..1 (`top` is this over a half). */ readonly float?: number } | null;
+  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; readonly float: number } | null;
+  /**
+   * R5: where `at` was at the end of the step before, in the same sense as `at` now, for drawing between the two
+   * steps (`Frame.alpha`). The very same array as `at` (`prevAt === at`) when there is nothing to draw between: a
+   * jump (taken into the hand, let go onto the seat, the snap to an edge, out of sight, a reset) or a new state whose
+   * `at` means something else (its feet after its middle).
+   */
+  readonly prevAt: Vec3;
   /**
    * R4: met a wall flat (state `wall`): `out` the wall's outward direction where it met it (unit, horizontal;
    * Patch faces it, spread), `stick` seconds stuck there, then it slides down it (`at`, its middle, moving down)
@@ -862,10 +871,12 @@ export interface PatchView extends MachineViewBase {
    * the world: in the hand (`held`: the world carries it as it carries a part) and loose (state `fly`: thrown,
    * tumbling, lying; the engine's). `id` the part (kind robot; `WorldView.motion(id)` has the same poses); `pose`
    * now and `prev` a step ago (draw between them); `half` its box, the hand's grip at the middle of its top. `at`
-   * follows it: its middle while loose, `PATCH_TUNING.hangBelow` above its middle while held. Null while the
-   * script has Patch (the body is out of the world).
+   * (and `prevAt`) follow it: its middle while loose, `PATCH_TUNING.hangBelow` above its middle while held. `float`:
+   * how much of the float at the top of a throw up is on at this moment, 0..1 (it comes on and goes smoothly through
+   * the top; `thrown.float` is how much this throw floats at all, `thrown.top` when its pull is down by more than a
+   * third). Null while the script has Patch (the body is out of the world).
    */
-  readonly body?: { readonly id: Id; readonly pose: Pose; readonly prev: Pose; readonly half: Vec3; readonly held: boolean } | null;
+  readonly body?: { readonly id: Id; readonly pose: Pose; readonly prev: Pose; readonly half: Vec3; readonly held: boolean; readonly float: number } | null;
   /**
    * (`flight: 'body'`) The script has just taken over from the body: `pose` is how and where the body last was (how
    * it lay as the get-up began; how it met the wall; how it went over the edge), `hard` how hard it had come down

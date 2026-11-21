@@ -217,7 +217,7 @@ describe('let go: it goes on as it was going', () => {
 
 describe('in the air: the engine\'s, and never still', () => {
   /** The steps from the hand to its first contact. */
-  async function flight(v: Vec3, lens = true, from: Vec3 = [-6, 1.6, 0.5]): Promise<{ S: Sample[]; floats: number[]; tops: boolean[]; w: World; t: Tape; v0: Vec3 }> {
+  async function flight(v: Vec3, lens = true, from: Vec3 = [-6, 1.6, 0.5]): Promise<{ S: Sample[]; floats: number[]; tops: boolean[]; weights: Set<number>; w: World; t: Tape; v0: Vec3 }> {
     const { w, t } = await world();
     lift(w, t, from, 30);
     fling(w, t, from, v, 16, lens ? LENS : undefined);
@@ -225,6 +225,7 @@ describe('in the air: the engine\'s, and never still', () => {
     const watch = watcher(w, t);
     const floats: number[] = [];
     const tops: boolean[] = [];
+    const weights = new Set<number>();
     for (let i = 0; i < 6 * HZ; i++) {
       const before = t.events.length;
       const s = watch.step();
@@ -236,14 +237,16 @@ describe('in the air: the engine\'s, and never still', () => {
         break;
       }
       expect(s.state).toBe('fly');
-      floats.push(patch(w).thrown?.float ?? -1);
+      // (how much of the float is on now; `thrown.float`, how much this throw floats at all, is the same all the way)
+      floats.push(patch(w).body?.float ?? -1);
       tops.push(patch(w).thrown?.top ?? false);
+      weights.add(Math.round((patch(w).thrown?.float ?? -1) * 1e6) / 1e6);
     }
-    return { S: watch.samples, floats, tops, w, t, v0 };
+    return { S: watch.samples, floats, tops, weights, w, t, v0 };
   }
 
   test('thrown nearly straight up it lingers at the top (about the old hang\'s extra air time) and never stops: no step without motion', async () => {
-    const { S, floats, tops, w, v0 } = await flight([0, 0, -12]);
+    const { S, floats, tops, weights, w, v0 } = await flight([0, 0, -12]);
     // a flick up the screen at 12 units/s is a throw straight up at 0.7 of that
     expect(v0[1]).toBeGreaterThan(7.5);
     expect(level(v0)).toBeLessThan(0.5);
@@ -259,6 +262,7 @@ describe('in the air: the engine\'s, and never still', () => {
     expect(up - plain).toBeGreaterThan(0.09);
     expect(up - plain).toBeLessThan(0.24);
     // the view is told: the float rises to nearly all of it at the top and is gone on the way down; `top` at the top
+    expect([...weights]).toEqual([1]); // (straight up and hard: it floats all it can, and the view is told so all the way)
     expect(Math.max(...floats)).toBeGreaterThan(0.9);
     expect(floats[0]).toBeLessThan(0.05);
     expect(floats.at(-1)).toBeLessThan(0.05);
@@ -270,7 +274,7 @@ describe('in the air: the engine\'s, and never still', () => {
   }, 60_000);
 
   test('with sideways drift the drift goes on through the top, untouched; the float is less the more it leans', async () => {
-    const { S, floats, w, v0 } = await flight([5, 0, -12]);
+    const { S, floats, weights, w, v0 } = await flight([5, 0, -12]);
     expect(v0[0]).toBeGreaterThan(4.2);
     expect(v0[1]).toBeGreaterThan(7.5);
     const apex = S.reduce((m, s, i) => (s.mid[1] > S[m]!.mid[1] ? i : m), 0);
@@ -282,10 +286,15 @@ describe('in the air: the engine\'s, and never still', () => {
     // it leans (its level speed more than half its upward speed): some float, not all of it
     expect(Math.max(...floats)).toBeGreaterThan(0.1);
     expect(Math.max(...floats)).toBeLessThan(0.8);
+    expect(weights.size).toBe(1);
+    expect(Math.abs(([...weights][0] as number) - floatWeight(v0))).toBeLessThan(0.05); // (`v0` is its first step in the air, a step of gravity on from the throw itself)
+    expect([...weights][0]).toBeGreaterThan(0.1);
+    expect([...weights][0]).toBeLessThan(0.8);
     w.dispose();
     // and a throw across the bench has none at all
     const across = await flight([10, 0, 0], false, OPEN);
     expect(Math.max(...across.floats)).toBe(0);
+    expect([...across.weights]).toEqual([0]);
     across.w.dispose();
   }, 60_000);
 
@@ -894,7 +903,7 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
       expect(up.state).toBe('fly');
       expect(up.v[1], `throw ${n}`).toBeGreaterThan(5);
       // caught as it floats at the top
-      const apex = watch.until((s) => (patch(w).thrown?.float ?? 0) > 0.6 || s.state !== 'fly', 3);
+      const apex = watch.until((s) => (patch(w).body?.float ?? 0) > 0.6 || s.state !== 'fly', 3);
       expect(apex?.state, `throw ${n}: at the top`).toBe('fly');
       expect(patch(w).thrown?.top).toBe(true);
       const was = middle(w);

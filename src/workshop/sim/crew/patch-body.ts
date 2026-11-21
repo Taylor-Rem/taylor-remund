@@ -1004,13 +1004,18 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     const held = m === 'held';
     const a = air;
     const vel = ctx.velocity(body)?.linvel ?? [0, 0, 0];
+    // (held, `at` is the hand as the scripted Patch has it: its middle hangs `hangBelow` under it)
+    const sense = (p: Vec3): Vec3 => (held ? [p[0], p[1] + T.hangBelow, p[2]] : p);
+    const at = sense(pose.p);
     return {
       ...v,
-      // (held, `at` is the hand as the scripted Patch has it: its middle hangs `hangBelow` under it)
-      at: held ? [pose.p[0], pose.p[1] + T.hangBelow, pose.p[2]] : pose.p,
+      at,
+      // (a step ago, in the same sense; `at` itself when its body has only now come into the world: nothing to draw between)
+      prevAt: prev && prev !== pose ? sense(prev.p) : at,
       heading: held ? yawOf(pose.q) : v.heading,
-      thrown: !held && a ? { v: vel, speed: length(vel), chute: a.chute, fall: Math.max(0, a.peak - pose.p[1]), drop: a.drop, top: a.float > 0.5, float: a.float } : v.thrown,
-      body: { id: body, pose, prev: prev ?? pose, half, held },
+      // (`float`: how much this throw floats at its top; `top`: its pull down by more than a third, as the scripted Patch's)
+      thrown: !held && a ? { v: vel, speed: length(vel), chute: a.chute, fall: Math.max(0, a.peak - pose.p[1]), drop: a.drop, top: a.float * B.floatDepth > 1 / 3, float: a.lift } : v.thrown,
+      body: { id: body, pose, prev: prev ?? pose, half, held, float: held || !a ? 0 : a.float },
       lay: null,
     };
   };
