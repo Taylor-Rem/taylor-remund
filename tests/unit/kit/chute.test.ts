@@ -68,7 +68,10 @@ describe('the return chute', () => {
   });
 
   it('nothing hangs in the mouth: the throat stays open', () => {
-    expect(p.root.children ?? []).toHaveLength(0);
+    // T1: its one node is the station lamp, on the top of the run, far from the mouth
+    expect((p.root.children ?? []).map((c) => c.name)).toEqual(['lamp']);
+    const lamp = new Vector3().setFromMatrixPosition(p.sockets!['lamp']!), mouth = new Vector3().setFromMatrixPosition(p.sockets!['mouth']!);
+    expect(lamp.distanceTo(mouth)).toBeGreaterThan(0.6);
   });
 
   it('run and aim: inside the cap at the longest run, and the sockets follow', () => {
@@ -77,7 +80,7 @@ describe('the return chute', () => {
       const b = K.budget(q, CAP);
       if (process.env['CHUTE_TRIS']) console.warn(JSON.stringify(o), b.text.split('\n')[0]);
       expect(q.triangles).toBeLessThanOrEqual(CAP);
-      expect(b.meshes).toBeLessThanOrEqual(2);
+      expect(b.meshes).toBeLessThanOrEqual(3); // T1: + the lit lens of the station lamp
       const walk = (n: PieceNode): void => {
         for (const part of n.parts) checkGeometry(part.geometry);
         for (const c of n.children ?? []) walk(c);

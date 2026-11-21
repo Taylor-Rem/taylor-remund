@@ -30,6 +30,7 @@ import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
 import { bevelBox, sheet, stud } from '../../cheap.ts';
 import { world } from '../../../labels/content.ts';
+import { pilotLamp } from '../../details.ts';
 import { phonePixels, phoneRegion } from '../../../labels/index.ts';
 
 const DEG = Math.PI / 180;
@@ -48,6 +49,9 @@ export const PHONE = {
   screenY: 0.365,
   /** How far it leans back from upright, degrees. */
   lean: 15,
+  /** T1: the foot plate's shelf in front of the ledge, and the line lamp's lens radius on it. */
+  lampShelf: 0.15,
+  lampR: 0.034,
 } as const;
 
 export interface PhoneScreenRef {
@@ -100,11 +104,12 @@ export function phone(o: PhoneOptions = {}): Piece {
   const lean = PHONE.lean * DEG;
   {
     // the foot plate: a rounded brass plate on four rubber feet
-    const pw = w + 0.08, pd = 0.34;
+    // T1: it runs PHONE.lampShelf further forward than it did, a shelf for the line's lamp at its front right
+    const pw = w + 0.08, pd = 0.34 + PHONE.lampShelf;
     // its underside sits on the feet a hair over the bench, where no view reaches: no base, no base bevel
-    const plate = extrude(rrect(pw, pd, 0, -pd / 2 + 0.06), plateT, { axis: 'y', radius: 0.04, bevel: 0.007, bevelBase: 0, caps: 'end', segs: 2, detail, support: false });
+    const plate = extrude(rrect(pw, pd, 0, -pd / 2 + 0.06 + PHONE.lampShelf), plateT, { axis: 'y', radius: 0.04, bevel: 0.007, bevelBase: 0, caps: 'end', segs: 2, detail, support: false });
     b.add(setFinish(part('brass', transform(plate, T(0, 0.012, 0)), 'brass', { seed: seed + 1, shade: 0.9, warm: 0.03 }), 0.2));
-    for (const [x, z] of [[-pw / 2 + 0.05, 0.03], [pw / 2 - 0.05, 0.03], [-pw / 2 + 0.05, -pd + 0.1], [pw / 2 - 0.05, -pd + 0.1]] as const) {
+    for (const [x, z] of [[-pw / 2 + 0.05, 0.03 + PHONE.lampShelf], [pw / 2 - 0.05, 0.03 + PHONE.lampShelf], [-pw / 2 + 0.05, -pd + 0.1], [pw / 2 - 0.05, -pd + 0.1]] as const) {
       // under the plate's corners: a sliver of each shows at its edge
       const foot = lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.022, 0.014, { fillet: 0.004, segs: 1 }).to(0, 0.014), { segs: 6, detail, band: 0, caps: false });
       b.add(part('rubber', transform(foot, T(x, 0, z)), 'ink', { seed: seed + 2 }));
@@ -128,6 +133,19 @@ export function phone(o: PhoneOptions = {}): Piece {
     // the strut's hinge: a brass knuckle on the plate
     const kn = lathe(profile(0, 0).to(0.02, 0, { sharp: true }).to(0.02, 0.26).to(0, 0.26), { segs: 8, detail, band: 0 });
     b.add(part('brass', transform(kn, chain(T(-0.13, 0.012 + plateT + 0.02, -0.28), new Matrix4().makeRotationZ(-Math.PI / 2))), 'brass', { seed: seed + 7 }));
+  }
+
+  // ====================================================================
+  // THE LINE'S LAMP (T1): the phone line's own pilot lamp, on the foot plate's shelf at the front right,
+  // nodes `lamp` > `lamp.lit` / `lamp.unlit` (the view swaps them). Lit while a text is on the line.
+  // ====================================================================
+  const lampM = chain(T(w / 2 - 0.07, 0.012 + plateT, footZ + 0.058 + (PHONE.lampShelf - 0.018) / 2), new Matrix4().makeRotationY(R.range(0, Math.PI)));
+  {
+    const pl = pilotLamp({ r: PHONE.lampR, seed: seed + 40, flange: false, unlit: 'glass' });
+    b.add(...pl.fixed.map((q) => ({ ...q, geometry: transform(q.geometry, lampM) })));
+    const lamp = b.node('lamp', lampM);
+    lamp.node('lamp.lit', new Matrix4().makeScale(1e-4, 1e-4, 1e-4)).add(pl.lit);
+    lamp.node('lamp.unlit').add(pl.unlit);
   }
 
   // ====================================================================
@@ -184,6 +202,7 @@ export function phone(o: PhoneOptions = {}): Piece {
   }
 
   b.socket('screen', chain(pivot, T(0, PHONE.screenY, -0.012)));
+  b.socket('lamp', lampM);
   return b.build();
 }
 

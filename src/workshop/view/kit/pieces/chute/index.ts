@@ -19,7 +19,8 @@
  * bench whose front edge is z = 5, with no yaw. Below the apron the riser
  * goes on down into the dark (to y = CHUTE.bottom) and is built plain.
  *
- * Nothing moves: a part pops out of the mouth and the view gives the duct
+ * Nothing moves but the station lamp's twin lenses (`lamp.lit` / `lamp.unlit`
+ * under `lamp`, T1): a part pops out of the mouth and the view gives the duct
  * a shake (the whole piece) with the clunk.
  *
  * Sockets: `mouth` (the middle of the opening; +Z points out of it),
@@ -43,6 +44,7 @@ import { grain } from '../../space.ts';
 import { rng } from '../../rng.ts';
 import { bevelBox, hexHead, sheet, stud } from '../../cheap.ts';
 import { tint } from '../../surface.ts';
+import { pilotLamp } from '../../details.ts';
 
 const DEG = Math.PI / 180;
 
@@ -91,6 +93,9 @@ export interface ChuteOptions extends KitOptions {
   /** From `chuteLabels(labels)`; without it the riser carries no stencil (clay, tests). */
   labels?: ChuteLabelRefs;
 }
+
+/** T1: the station lamp's lens radius (world units). */
+export const CHUTE_LAMP_R = 0.07;
 
 /** The arrow's capital height (world units): 27 px at 60 px a unit. */
 export const ARROW_CAP = 0.45;
@@ -341,8 +346,26 @@ export function chute(o: ChuteOptions = {}): Piece {
   }
 
   // ======================================================================
+  // THE STATION LAMP (T1): a pilot lamp on the top of the run, just past the bend over the bench's edge, where
+  // the camera looks down on it. Nodes `lamp` > `lamp.lit` / `lamp.unlit` (the view swaps them).
+  // ======================================================================
+  const lampM = (() => {
+    const { p, tan } = along(dp.points, dp.sRun + Math.min(0.22, (dp.sBend2 - dp.sRun) * 0.35));
+    const acr = new Vector3().crossVectors(tan, new Vector3(0, 1, 0)).normalize();
+    return chain(T(p.x + acr.x * 0.12, p.y + half - 0.004, p.z + acr.z * 0.12), new Matrix4().makeRotationY(R.range(0, Math.PI)));
+  })();
+  {
+    const pl = pilotLamp({ r: CHUTE_LAMP_R, seed: seed + 400, material: 'metal', unlit: 'metal' });
+    b.add(...pl.fixed.map((q) => ({ ...q, geometry: transform(q.geometry, lampM) })));
+    const lamp = b.node('lamp', lampM);
+    lamp.node('lamp.lit', new Matrix4().makeScale(1e-4, 1e-4, 1e-4)).add(pl.lit);
+    lamp.node('lamp.unlit').add(pl.unlit);
+  }
+
+  // ======================================================================
   // SOCKETS
   // ======================================================================
+  b.socket('lamp', lampM);
   b.socket('mouth', mouthM);
   const land = dp.end.clone().addScaledVector(dp.heading, 0.7);
   b.socket('land', T(land.x, 0, land.z));
