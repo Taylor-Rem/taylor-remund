@@ -162,6 +162,8 @@ export const LOOSE_TUNING = {
   /** Touching something, the held part's speed and its change of velocity are held to these (units/s, units/s²): a push, not a ram. */
   carryPush: 11,
   carryPushAccel: 420,
+  /** ...and into a FIXED thing it touches (a machine, the bench, a wall) it presses at no more than this (units/s): the rest of its way is along the face. */
+  carryPress: 1,
   /** How high a part rises when picked up before the pointer moves, units. */
   lift: 0.35,
   /** Levelling: how fast the held part turns toward level (1/s) and its angular speed limit. */
@@ -445,6 +447,8 @@ export function createWorld(opts: WorldOptions): World {
 
   physics.setGravity(scene.gravity);
   for (const s of scene.statics) physics.addStatic(s);
+  /** Everything fixed (the bench, the walls, the machines' bodies): what a held thing is not pressed into. */
+  const fixed = new Set<Id>(scene.statics.map((s) => s.id));
 
   // ── parts: durable fields, bodies, registry entries ──
   for (const spec of scene.parts) {
@@ -556,12 +560,6 @@ export function createWorld(opts: WorldOptions): World {
 
   // ── loose-part control ──
   function setMode(l: Loose, mode: BodyMode): void {
-    // In the hand a thing has no grip on what it touches (`PhysicsPort.setSlip`), so that pressed against a face on
-    // its way to the hand it slides along the face. (Found on the page, 2026-11-21: a crate carried over the console
-    // into the side of the UNDO lever's housing stayed there while the pointer went on round the corner, one run in
-    // four of a juggling test's carry to its place.) The Button's rewind restores the engine's own copy of this with
-    // the mode it had.
-    if ((l.mode === 'held') !== (mode === 'held') && physics.hasBody(l.id)) physics.setSlip(l.id, mode === 'held');
     l.mode = mode;
   }
 
@@ -828,7 +826,18 @@ export function createWorld(opts: WorldOptions): World {
     const want = sub(desired, st.linvel);
     const slowing = dot(want, st.linvel) < 0 && length(desired) < length(st.linvel);
     const dv = clampLength(want, (slowing ? T.carryBrake : accel) / HZ);
-    const v = add(st.linvel, dv);
+    let v = add(st.linvel, dv);
+    // Into a FIXED thing it touches it presses only lightly (`carryPress`): the rest of its way is along the face.
+    // Pressed in at the carry's strength, the face's push back, times the thing's own grip, was more than its pull
+    // along the face whenever the hand was further through the face than along it, and it stayed there: a crate
+    // carried over the console into the side of the UNDO lever's housing, the pointer gone on round the corner (found
+    // on the page 2026-11-21, one run in four of a juggling test's carry to its place). Loose things it still
+    // pushes with all it has, and what rests on it still rides on it (its grip is its own, as ever).
+    for (const c of physics.touching(l.id)) {
+      if (!fixed.has(c.other)) continue;
+      const into = -dot(v, c.normal);
+      if (into > T.carryPress) v = add(v, scale(c.normal, into - T.carryPress));
+    }
     // level-ish, leaning into the motion, with a little sway
     const hv: Vec3 = [v[0], 0, v[2]];
     const hs = length(hv);

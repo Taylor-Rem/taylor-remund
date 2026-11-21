@@ -100,12 +100,11 @@ export interface PhysicsPort {
   setGravityScale(id: Id, scale: number): void;
   setDamping(id: Id, linear: number, angular: number): void;
   /**
-   * A slipping body has no grip on anything it touches (its friction is nothing, against anything). For a thing in
-   * the hand: pressed against a face on its way to where the hand is, it slides along the face. With its own grip,
-   * the press itself held it there (the face's push back, times the grip, was more than the sideways pull whenever
-   * the hand was further through the face than along it).
+   * What a body touches now (as the last step left it): each thing, and the way out of that thing toward this body
+   * (a unit vector, world). The hand reads it so as not to press a held thing into a fixed face (`world.ts`
+   * `driveHeld`).
    */
-  setSlip(id: Id, slip: boolean): void;
+  touching(id: Id): { readonly other: Id; readonly normal: Vec3 }[];
 
   state(id: Id): BodyState;
   pose(id: Id): Pose;

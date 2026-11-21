@@ -1,10 +1,12 @@
-// A thing in the hand has no grip on what it touches (world.ts `setMode`, PhysicsPort.setSlip).
+// A thing in the hand is not pressed into a fixed face it touches (world.ts `driveHeld`, `carryPress`).
 //
 // Found on the page, 2026-11-21: carried from the stack toward the left of the bench, a crate went over the console
 // and into the side of the UNDO lever's housing, and stayed there while the pointer went on round the corner (one run
 // in four of a juggling test's carry to its place; in another the crate came free late and ended two units off).
 // The hand was pulling it mostly INTO the face, and the face's push back, times the crate's grip, was more than the
-// sideways pull: its own friction held it to the face. In the hand it slides; let go, it has its grip again.
+// sideways pull: its own friction held it to the face. Now only a light press of its way into a fixed thing is kept
+// and the rest runs along the face. (The first fix took its grip away while it was held. That let go of everything
+// resting ON a held thing too: the crate on top of one being carried slid off it. Its grip is its own.)
 import { expect, test } from 'vitest';
 import { benchWorld, tape } from './line-helpers.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
@@ -54,24 +56,57 @@ test('pressed against a machine\'s face on its way to the hand, a held thing sli
   }
 });
 
-test('the hand straight through a face holds it against the face, still: it does not creep along it', async () => {
+test('the hand straight through the housing: it comes round to the hand, and at no step is it inside the housing', async () => {
   const w = await benchWorld('hand-slip');
   const t = tape(w);
   t.run(30);
   toTheHousing(w, t);
+  const undo = w.scene.statics.find((x) => x.id === 'undo')!;
+  const half = (undo.shape as { half: Vec3 }).half;
   const hand: Vec3 = [-6, 1.74, 0.1];
-  for (let i = 0; i < 30; i++) {
+  let reached = -1;
+  for (let i = 1; i <= 2 * HZ; i++) {
     w.dispatch({ type: 'carry', target: hand });
     t.run(1);
+    const p = at(w);
+    // (its middle never within the housing's body: 0.2 inside any face of it, under its top)
+    const inside = Math.abs(p[0] - undo.pose.p[0]) < half[0] - 0.2 && Math.abs(p[2] - undo.pose.p[2]) < half[2] - 0.2 && p[1] < undo.pose.p[1] + half[1];
+    expect(inside, `step ${i}: at ${p.map((n) => n.toFixed(2))}`).toBe(false);
+    if (reached < 0 && Math.hypot(p[0] - hand[0], p[1] - hand[1], p[2] - hand[2]) < 0.1) reached = i;
   }
-  const a = at(w);
-  for (let i = 0; i < 60; i++) {
-    w.dispatch({ type: 'carry', target: hand });
+  expect(reached, `it came to the hand (it is at ${at(w).map((n) => n.toFixed(2))})`).toBeGreaterThan(0);
+  w.dispose();
+});
+
+// The crate that sits on a held crate goes where it goes (carrying a stack by its bottom crate). This is what the
+// first fix for the above broke, and a test of Fetch's knock (which throws the middle of the stack) caught it.
+test('what rests on a held thing rides on it', async () => {
+  const w = await benchWorld('hand-slip');
+  const t = tape(w);
+  t.run(30);
+  // crate-2 sits on crate-1 at the stack
+  const lower = w.motion('crate-1')!.pose.p;
+  const upper0 = at(w);
+  expect(upper0[1], 'crate-2 is on crate-1').toBeGreaterThan(lower[1] + 0.3);
+  expect(Math.hypot(upper0[0] - lower[0], upper0[2] - lower[2])).toBeLessThan(0.2);
+  w.dispatch({ type: 'grab', id: 'crate-1', grip: lower });
+  // lifted, and carried over the open bench beside the stack at a walking pace (1.3 units in under a second), and
+  // held there
+  const to: Vec3 = [lower[0] - 1.2, lower[1] + 0.6, lower[2] + 0.4];
+  for (let i = 1; i <= 50; i++) {
+    const k = i / 50;
+    const e = k * k * (3 - 2 * k);
+    w.dispatch({ type: 'carry', target: [lower[0] + (to[0] - lower[0]) * e, lower[1] + (to[1] - lower[1]) * e, lower[2] + (to[2] - lower[2]) * e] });
     t.run(1);
   }
-  const b = at(w);
-  expect(b[0], 'against the face, not through it').toBeGreaterThan(-1.71);
-  expect(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), 'still').toBeLessThan(0.03);
+  for (let i = 0; i < 40; i++) {
+    w.dispatch({ type: 'carry', target: to });
+    t.run(1);
+  }
+  const held = w.motion('crate-1')!.pose.p;
+  const on = at(w);
+  expect(on[1], `crate-2 is still on it (crate-1 at ${held.map((n) => n.toFixed(2))}, crate-2 at ${on.map((n) => n.toFixed(2))})`).toBeGreaterThan(held[1] + 0.3);
+  expect(Math.hypot(on[0] - held[0], on[2] - held[2]), 'over it').toBeLessThan(0.3);
   w.dispose();
 });
 

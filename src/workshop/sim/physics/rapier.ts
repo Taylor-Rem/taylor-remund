@@ -52,7 +52,7 @@ export async function createRapierPhysics(options: Partial<PhysicsOptions> = {})
 }
 
 function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
-  const { World, EventQueue, RigidBodyDesc, ColliderDesc, ActiveEvents, RigidBodyType, CoefficientCombineRule } = RAPIER;
+  const { World, EventQueue, RigidBodyDesc, ColliderDesc, ActiveEvents, RigidBodyType } = RAPIER;
 
   let gravity = opts.gravity;
   let world = new World({ x: 0, y: gravity, z: 0 });
@@ -67,8 +67,6 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
   /** id → rigid body handle (bodies and statics). Handles survive snapshot/restore. */
   const bodyHandle = new Map<Id, number>();
   const bodyOrder: Id[] = [];
-  /** Each body's own friction (what `setSlip(id, false)` gives it back). */
-  const gripOf = new Map<Id, number>();
   const statics = new Set<Id>();
   const sensors = new Map<Id, number>(); // id → collider handle
   /** collider handle → owner id */
@@ -126,7 +124,6 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
           .setContactForceEventThreshold(RAPIER_TUNING.contactForceThreshold);
         owner.set(world.createCollider(desc, rb).handle, d.id);
       }
-      gripOf.set(d.id, d.friction);
       bodyHandle.set(d.id, rb.handle);
       bodyOrder.push(d.id);
     },
@@ -135,7 +132,6 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       const rb = body(id);
       for (let i = 0; i < rb.numColliders(); i++) owner.delete(rb.collider(i).handle);
       world.removeRigidBody(rb);
-      gripOf.delete(id);
       bodyHandle.delete(id);
       bodyOrder.splice(bodyOrder.indexOf(id), 1);
     },
@@ -178,15 +174,24 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       rb.setLinearDamping(linear);
       rb.setAngularDamping(angular);
     },
-    setSlip(id, slip) {
+    touching(id) {
       const rb = body(id);
-      const grip = gripOf.get(id) ?? 0;
+      const out: { other: Id; normal: Vec3 }[] = [];
       for (let i = 0; i < rb.numColliders(); i++) {
         const c = rb.collider(i);
-        // (nothing against anything: the least of the two, not their mean)
-        c.setFriction(slip ? 0 : grip);
-        c.setFrictionCombineRule(slip ? CoefficientCombineRule.Min : CoefficientCombineRule.Average);
+        world.contactPairsWith(c, (o) => {
+          const other = owner.get(o.handle);
+          if (other === undefined || other === id) return;
+          world.contactPair(c, o, (manifold, flipped) => {
+            if (manifold.numContacts() === 0) return;
+            // (the manifold's normal runs from its first shape to its second; `flipped`: its first shape is the other one)
+            const n = manifold.normal();
+            const k = flipped ? 1 : -1;
+            out.push({ other, normal: [n.x * k, n.y * k, n.z * k] });
+          });
+        });
       }
+      return out;
     },
 
     state(id): BodyState {
