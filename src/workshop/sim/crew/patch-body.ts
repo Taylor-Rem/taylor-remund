@@ -574,14 +574,21 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   function arcFor(from: Vec3, q: Vec3): number {
     const far = Math.hypot(q[0] - from[0], q[1] - from[1], q[2] - from[2]);
     let h = B.hopHigh + B.hopHighPer * far;
-    const inside = (): boolean => {
-      for (let i = 1; i < 48; i++) {
-        const k = i / 48;
-        const p: Vec3 = [lerp(from[0], q[0], k), lerp(from[1], q[1], k) + 4 * h * k * (1 - k), lerp(from[2], q[2], k)];
-        if (host.solids.some((o) => p[1] < o.y1 + 0.02 && p[1] > o.y0 && distanceTo(o, p[0], p[2]) <= 0.02)) return true;
-      }
-      return false;
-    };
+    // (which bodies stand under each point of the way does not change with the arc's height: found once. Found
+    // again for every height tried, the search for the lowest hop took 40 ms of one step where it lay behind the
+    // machines at the back)
+    const N = 48;
+    const under: { k: number; y: number; over: Solid[] }[] = [];
+    for (let i = 1; i < N; i++) {
+      const k = i / N;
+      const x = lerp(from[0], q[0], k), z = lerp(from[2], q[2], k);
+      const over = host.solids.filter((o) => distanceTo(o, x, z) <= 0.02);
+      if (over.length) under.push({ k, y: lerp(from[1], q[1], k), over });
+    }
+    const inside = (): boolean => under.some(({ k, y, over }) => {
+      const py = y + 4 * h * k * (1 - k);
+      return over.some((o) => py < o.y1 + 0.02 && py > o.y0);
+    });
     for (let i = 0; i < 24 && inside(); i++) h += 0.25;
     return h;
   }
@@ -607,7 +614,8 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
         for (let i = 0; i < 16; i++) {
           const a = (i / 16) * Math.PI * 2;
           const q: Vec3 = [to[0] + Math.cos(a) * ring * 0.1, top, to[2] + Math.sin(a) * ring * 0.1];
-          if (!host.canStand(q) || !host.inView(q)) continue;
+          // (whether it is seen first: that is cheap, and `canStand` plans the whole walk home from the place)
+          if (!host.inView(q) || !host.canStand(q)) continue;
           to = q;
           break seen;
         }
@@ -624,10 +632,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
         for (const far of [0.7, 1.4, 2.1])
           for (let i = 0; i < 8; i++) {
             const a = (i / 8) * Math.PI * 2;
-            const q = host.restAt([ground[0] + Math.cos(a) * far, top, ground[2] + Math.sin(a) * far]);
+            // (the hop it would make first, which is cheap; whether it can walk home from there, which plans the
+            // whole walk, only of a place that would be taken: asked of all twenty-four it was 120 ms of one step)
+            const q = host.standingAt([ground[0] + Math.cos(a) * far, top, ground[2] + Math.sin(a) * far]);
             const h = arcTo(q);
             const cost = h + 0.3 * Math.hypot(q[0] - from[0], q[2] - from[2]);
-            if (cost < best - 1e-9) [best, to, arc] = [cost, q, h];
+            if (cost < best - 1e-9 && host.canStand(q)) [best, to, arc] = [cost, q, h];
           }
       }
     }

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { obstacles, distanceTo } from '../../../src/workshop/sim/crew/fetch-knock.ts';
 import { bodiesOf, legClear } from '../../../src/workshop/sim/crew/fetch-route.ts';
 import type { Pt } from '../../../src/workshop/sim/crew/fetch-route.ts';
-import { PATCH_ROUTE, clearPoint, planWay } from '../../../src/workshop/sim/crew/patch-route.ts';
+import { PATCH_ROUTE, clearPoint, planWay, wayExists } from '../../../src/workshop/sim/crew/patch-route.ts';
 import type { BeltCrossing } from '../../../src/workshop/sim/crew/patch-route.ts';
 import { AT, LINE, bench, PATCHLAMP } from '../../../src/workshop/sim/scenes/bench.ts';
 
@@ -57,4 +57,40 @@ describe("Patch's way back", () => {
     expect(w.cross).toBeNull();
     expect(w.points.length).toBeGreaterThan(1);
   });
+  // `wayExists` is `planWay` asked only whether (it stops at the first way that is open). Where Patch gets up is
+  // chosen with it, so the two must never disagree: a place taken for walkable that the planner then finds shut
+  // would leave Patch standing where it cannot leave.
+  test('`wayExists` says exactly what `planWay` says, from every clear place on the bench, with the belt and without, with a crate in the way and with the belt drifting', () => {
+    const crate = { id: 'crate-x', x: FOOT[0] + 0.9, z: FOOT[1] + 0.4, hx: 0.3, hz: 0.3, yaw: 0.4 };
+    // a pen of four boards round an open spot: inside it a place is clear to stand on and shut in
+    let spot: Pt | null = null;
+    for (let x = B.minX + 1.5; x <= B.maxX - 1.5 && !spot; x += 0.5)
+      for (let z = B.minZ + 1.5; z <= B.maxZ - 1.5 && !spot; z += 0.5) if (BODIES.every((o) => distanceTo(o, x, z) >= 1.3) && Math.hypot(x - FOOT[0], z - FOOT[1]) > 2) spot = [x, z];
+    expect(spot, 'an open spot for the pen').toBeTruthy();
+    const [px, pz] = spot!;
+    const pen = [
+      { id: 'pen-n', x: px, z: pz - 0.6, hx: 0.75, hz: 0.08, yaw: 0 },
+      { id: 'pen-s', x: px, z: pz + 0.6, hx: 0.75, hz: 0.08, yaw: 0 },
+      { id: 'pen-w', x: px - 0.6, z: pz, hx: 0.08, hz: 0.75, yaw: 0 },
+      { id: 'pen-e', x: px + 0.6, z: pz, hx: 0.08, hz: 0.75, yaw: 0 },
+    ];
+    let asked = 0, open = 0;
+    for (const [bodies, belt, drift] of [[BODIES, BELT, 0], [BODIES, null, 0], [[...BODIES, crate], BELT, 0], [BODIES, BELT, 0.8], [BODIES, BELT, -0.8], [[...BODIES, ...pen], BELT, 0]] as const) {
+      const froms: Pt[] = [[px, pz], [px + 0.15, pz - 0.1]];
+      for (let x = B.minX + 0.3; x <= B.maxX - 0.3; x += 0.55) for (let z = B.minZ + 0.3; z <= B.maxZ - 0.3; z += 0.55) froms.push([x, z]);
+      for (const from of froms) {
+        if (!bodies.every((o) => distanceTo(o, from[0], from[1]) >= R - 1e-9)) continue;
+        const way = planWay(from, FOOT, R, bodies, B, belt, drift) !== null;
+        expect(wayExists(from, FOOT, R, bodies, B, belt, drift), `from ${from[0].toFixed(2)}, ${from[1].toFixed(2)}${belt ? '' : ' (no belt)'}${drift ? ` drift ${drift}` : ''}${bodies.length > BODIES.length + 1 ? ' (pen)' : ''}`).toBe(way);
+        asked++;
+        if (way) open++;
+      }
+    }
+    // (and the question is a real one: inside the pen it is shut)
+    expect(planWay([px, pz], FOOT, R, [...BODIES, ...pen], B, BELT, 0), 'inside the pen there is no way').toBeNull();
+    expect(wayExists([px, pz], FOOT, R, [...BODIES, ...pen], B, BELT, 0)).toBe(false);
+    expect(asked).toBeGreaterThan(1500);
+    expect(open).toBeGreaterThan(asked * 0.5);
+    expect(open).toBeLessThan(asked);
+  }, 120_000);
 });
