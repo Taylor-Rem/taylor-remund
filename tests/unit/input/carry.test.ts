@@ -114,6 +114,62 @@ describe('carry target', () => {
     }
   });
 
+  // (the browser's touch juggling test, 2026-11-21: one run in four the crate was caught 0.22 above the height it is
+  // carried at over the Button's console, too low for a face through the grip; it went on a level with no face and
+  // the next flick walked it 1.7 back along the bench. Caught 0.28 above, it went straight up.)
+  it('caught in flight at about the height it is carried at, or under it: the next flick up the screen still goes up where it is held', () => {
+    const lowShape = { kind: 'part' as const, halfX: 0.2, halfZ: 0.2, gripAboveBottom: 0.3 };
+    for (const top of [0, 1.06]) {
+      const under: Obstacle[] = top > 0 ? [box(1, 0.5, top, 1.5)] : [];
+      // the grip above what is under it: 0.65 is where it is carried (0.70 as it is taken); a face through the grip needs 0.78
+      for (const above of [0.77, 0.72, 0.66, 0.55, 0.4]) {
+        const grip: Vec3 = [1, top + above, 0.5];
+        const plane = new CarryPlane(bench);
+        plane.begin(lowShape, grip, 0, under, true);
+        const through = (y: number): RayLike => rayAt(grip[0], grip[2], y);
+        let t = 0;
+        // held still: it stays under the pointer and settles at the height it is carried at, without going back
+        let held = plane.target(through(grip[1]), (t += 16), under);
+        const first = held;
+        for (let i = 0; i < 40; i++) {
+          const p = plane.target(through(grip[1]), (t += 16), under);
+          expect(Math.hypot(p[1] - held[1], p[2] - held[2]), `${top} ${above}: no jump while held`).toBeLessThan(0.05);
+          held = p;
+        }
+        expect(Math.hypot(first[1] - grip[1], first[2] - grip[2]), `${top} ${above}: taken where it was, or lifted to the carrying height along the ray`).toBeLessThan(above >= 0.7 ? 0.05 : 0.6);
+        expect(held[1], `${top} ${above}: at the carrying height`).toBeGreaterThan(top + 0.6);
+        expect(held[1]).toBeLessThan(top + 0.8);
+        expect(Math.abs(held[2] - first[2]), `${top} ${above}: where it was taken`).toBeLessThan(0.12);
+        // the flick: the pointer a unit and a half up the screen, in ten frames
+        let p = held;
+        for (let k = 1; k <= 10; k++) p = plane.target(through(grip[1] + k * 0.15), (t += 16), under);
+        expect(p[1], `${top} ${above}: up`).toBeGreaterThan(held[1] + 1.2);
+        expect(Math.abs(p[2] - held[2]), `${top} ${above}: at the depth it was held at, not back along the bench`).toBeLessThan(0.12);
+        // and down again with the pointer, to where it was
+        for (let k = 9; k >= 0; k--) p = plane.target(through(grip[1] + k * 0.15), (t += 16), under);
+        for (let i = 0; i < 40; i++) p = plane.target(through(grip[1]), (t += 16), under);
+        expect(Math.hypot(p[1] - held[1], p[2] - held[2]), `${top} ${above}: back where it was held`).toBeLessThan(0.05);
+        // the same when the flick's first movement arrives with the press (the first call already up the screen):
+        // the face stands where it was caught, not where the pointer has got to
+        const late = new CarryPlane(bench);
+        late.begin(lowShape, grip, 0, under, true);
+        let q = late.target(through(grip[1] + 0.6), 16, under);
+        for (let k = 5; k <= 10; k++) q = late.target(through(grip[1] + k * 0.15), 16 * (k - 3), under);
+        expect(q[1], `${top} ${above}: up, the press and the flick together`).toBeGreaterThan(held[1] + 1.2);
+        expect(Math.abs(q[2] - held[2]), `${top} ${above}: at the depth it was caught at, the press and the flick together`).toBeLessThan(0.12);
+        // carried forward of there on the level (toward the visitor), the face is let go: the pointer up the
+        // screen then carries it back along the bench, as anything picked up
+        for (let k = 1; k <= 10; k++) p = plane.target(rayAt(grip[0], grip[2] + k * 0.1, grip[1]), (t += 16), under);
+        const forward = p;
+        expect(forward[2]).toBeGreaterThan(held[2] + 0.8);
+        for (let k = 9; k >= -10; k--) p = plane.target(rayAt(grip[0], grip[2] + k * 0.1, grip[1]), (t += 16), under);
+        for (let i = 0; i < 40; i++) p = plane.target(rayAt(grip[0], grip[2] - 1, grip[1]), (t += 16), under);
+        expect(p[2], `${top} ${above}: let go of, it is carried back along the level`).toBeLessThan(held[2] - 0.8);
+        expect(p[1]).toBeLessThan(top + 0.8);
+      }
+    }
+  });
+
   it('nothing under the bench is a level to carry over: a part stowed below it, the bench\'s own body', () => {
     // (found on the page 2026-11-20: spare crates stowed four units under the bench were taken for levels, and a
     // carried crate sank to the bench top when its own level stopped making sense near the back)
