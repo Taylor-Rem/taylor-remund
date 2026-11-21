@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { checkBudget } from '../../../scripts/budget.ts';
-import { edit, makeSite, write } from './helpers.ts';
+import { edit, legacy, makeSite, write } from './helpers.ts';
 
 const fails = (r: { failures: string[] }): string => r.failures.join('\n');
 
 describe('budget', () => {
-  it('passes the minimal site, printing the measured numbers and the legacy exemptions', () => {
+  it('passes the minimal site, printing the measured numbers, with no page exempt', () => {
     const s = makeSite();
     const r = checkBudget({ dist: s.dist });
     expect(r.failures).toEqual([]);
@@ -15,14 +15,16 @@ describe('budget', () => {
     expect(out).toMatch(/gzip -9/);
     expect(out).toMatch(/ok {5}first paint of \/ .*: \d+(\.\d)? KB of 200\.0 KB/);
     expect(out).toMatch(/ok {5}\/resume\/: no third-party request/);
-    expect(out).toMatch(/EXEMPT \/ai\/ \(legacy passthrough until P3\)/);
+    expect(out).toMatch(/ok {5}\/ai\/: no third-party request/);
+    expect(out).not.toMatch(/EXEMPT/);
     expect(out).toMatch(/ok {5}\/privacy\/: no third-party request/);
     expect(out).toMatch(/sound: no dist\/sounds\//);
   });
 
-  it('without the exemption list, the legacy pages fail on Google Fonts', () => {
+  it('the old hand-written /ai/ would fail on Google Fonts: no page is exempt', () => {
     const s = makeSite();
-    const f = fails(checkBudget({ dist: s.dist, exempt: [] }));
+    write(join(s.dist, 'ai/index.html'), legacy('ai/index.html'));
+    const f = fails(checkBudget({ dist: s.dist }));
     expect(f).toMatch(/\/ai\/: third-party request: link\[rel=stylesheet\] https:\/\/fonts\.googleapis\.com/);
     expect(f).toMatch(/\/ai\/: third-party request: link\[rel=preconnect\] https:\/\/fonts\.gstatic\.com/);
   });

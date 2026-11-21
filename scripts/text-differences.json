@@ -151,6 +151,38 @@
       "new": "Skip to content → #content | Taylor Remund → / | Résumé → /resume/ | GitHub → https://github.com/Taylor-Rem | LinkedIn → https://linkedin.com/in/taylor-remund-88169124a | Email → mailto:remundtaylor3@gmail.com | Patchlamp → /#patchlamp | Services → /ai/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
       "why": "The links of the same shared furniture (see the furniture text entry for this page).",
       "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture text",
+      "live": "Taylor Remund Packages Patchlamp Why Me FAQ Home Book a Session Taylor Remund · 2026 · This site is run the self-serve way: plain files, edited by asking Claude. Patchlamp · Résumé · Privacy · Terms · SMS",
+      "new": "Skip to content Taylor Remund Résumé GitHub LinkedIn Email Packages Patchlamp Why Me FAQ Book a Session Taylor Remund · 2026 Patchlamp · Services · Privacy · Terms · SMS",
+      "why": "The shared furniture of the Paper layout replaces the page's own nav and footer. Top: his name (stencil) and the strip's four links (Résumé, GitHub, LinkedIn, Email; REWRITE.md § B7), plus the page's own section links where it has them; /ai/ is out of the main navigation and in the footer (§ F1). New words: \"Skip to content\" (site.json paper.skip). Footer: \"Taylor Remund · <build year>\" and Patchlamp · Services · Privacy · Terms · SMS. Dropped: the footer sentence about how the site is run, which stops being true with this rewrite; its replacement is Taylor's to word (§ F1, § Decisions G4). /ai/: the page's own nav keeps its words, its order and its call to action, \"Book a Session\" (the fourth mailto: with subject \"AI Working Session\"), in the layout's row of section links; its \"Home\" link is dropped (his name links home, as on every page); its footer's \"Résumé\" link is dropped (Résumé is the first link at the top) and \"Services\" is added (the shared footer).",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture link",
+      "live": "Taylor Remund → / | Packages → #packages | Patchlamp → #patchlamp | Why Me → #why | FAQ → #faq | Home → / | Book a Session → mailto:remundtaylor3@gmail.com subject=AI Working Session | Patchlamp → /#patchlamp | Résumé → /resume/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "new": "Skip to content → #content | Taylor Remund → / | Résumé → /resume/ | GitHub → https://github.com/Taylor-Rem | LinkedIn → https://linkedin.com/in/taylor-remund-88169124a | Email → mailto:remundtaylor3@gmail.com | Packages → #packages | Patchlamp → #patchlamp | Why Me → #why | FAQ → #faq | Book a Session → mailto:remundtaylor3@gmail.com subject=AI Working Session | Patchlamp → /#patchlamp | Services → /ai/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "why": "The links of the same shared furniture (see the furniture text entry for /ai/). The \"Book a Session\" mailto: keeps its address and subject.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture text",
+      "live": "Taylor Remund Portfolio Résumé Get in Touch Taylor Remund · 2026 Portfolio · Résumé · Privacy · Terms · SMS",
+      "new": "Skip to content Taylor Remund Résumé GitHub LinkedIn Email Taylor Remund · 2026 Patchlamp · Services · Privacy · Terms · SMS",
+      "why": "The shared furniture of the Paper layout replaces the page's own nav and footer. Top: his name (stencil) and the strip's four links (Résumé, GitHub, LinkedIn, Email; REWRITE.md § B7), plus the page's own section links where it has them; /ai/ is out of the main navigation and in the footer (§ F1). New words: \"Skip to content\" (site.json paper.skip). Footer: \"Taylor Remund · <build year>\" and Patchlamp · Services · Privacy · Terms · SMS. Dropped: the footer sentence about how the site is run, which stops being true with this rewrite; its replacement is Taylor's to word (§ F1, § Decisions G4). /case-studies/ledger-repair/: its old nav (\"Portfolio\", \"Résumé\", \"Get in Touch\" → /resume/#contact) and footer (\"Portfolio · Résumé · Privacy · Terms · SMS\") are replaced by the shared ones: his name links home, Résumé is at the top, Email replaces \"Get in Touch\" as the way to reach him; the footer adds Patchlamp and Services.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture link",
+      "live": "Taylor Remund → / | Portfolio → / | Résumé → /resume/ | Get in Touch → /resume/#contact | Portfolio → / | Résumé → /resume/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "new": "Skip to content → #content | Taylor Remund → / | Résumé → /resume/ | GitHub → https://github.com/Taylor-Rem | LinkedIn → https://linkedin.com/in/taylor-remund-88169124a | Email → mailto:remundtaylor3@gmail.com | Patchlamp → /#patchlamp | Services → /ai/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "why": "The links of the same shared furniture (see the furniture text entry for /case-studies/ledger-repair/).",
+      "approval": "pending Taylor"
     }
   ]
 }

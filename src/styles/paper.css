@@ -1029,3 +1029,499 @@ h1.title {
     break-inside: avoid;
   }
 }
+
+/* ======================================================================
+   /ai/: the services page as a rate sheet (A2). Every class below is used
+   only by src/pages/ai.astro; nothing above is restyled.
+   ====================================================================== */
+
+/* A price never wraps apart from its unit (CLAUDE.md § Content rules). */
+.price,
+.package-note .part {
+  white-space: nowrap;
+}
+
+/* ---------- calls to action: plain, obvious, the one thing to do next ---------- */
+.actions {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.75rem;
+}
+.section > .actions {
+  margin-top: 1.5rem;
+}
+.paper a.action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  margin: 0;
+  padding: 0.65rem 1.15rem 0.7rem;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+  line-height: 1.25;
+  text-decoration: none;
+}
+.paper a.action:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+.paper a.action-outline {
+  background: transparent;
+  color: var(--ink);
+}
+.paper a.action-outline:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.paper a.action-quiet {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- rows: how it works, why me ---------- */
+.rows {
+  list-style: none;
+  border-top: 2px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+}
+.section > .rows {
+  margin-top: 1.75rem;
+}
+.row {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  column-gap: 0.75rem;
+  align-items: baseline;
+  padding: 1rem 0 1.1rem;
+}
+.row + .row {
+  border-top: 1px solid var(--rule);
+}
+.row-mark {
+  font-family: var(--mono);
+  font-size: 1.75rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.row-title {
+  font-weight: 600;
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+.row-body > * + * {
+  margin-top: 0.35rem;
+}
+/* "3+ yrs", "Live", "100%": the figure stands over its line on a phone. */
+.credentials .row {
+  display: block;
+}
+.credentials .row-mark {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.section > .note {
+  margin-top: 1.5rem;
+}
+
+/* ---------- packages: ruled entries, the price at the head ---------- */
+.rates {
+  border-bottom: 2px solid var(--ink);
+}
+.package > * + * {
+  margin-top: 0.5rem;
+}
+.package-name {
+  font-weight: 600;
+  font-size: 1.3125rem;
+  line-height: 1.25;
+}
+.package-for {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.paper .package-price {
+  margin-top: 1rem;
+  font-family: var(--mono);
+  font-size: clamp(2.25rem, 10vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.paper .package-note {
+  margin-top: 0.45rem;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+.package-note .sep {
+  color: var(--ink-soft);
+}
+.paper .package-items {
+  margin-top: 1.1rem;
+}
+.paper .package-action {
+  margin-top: 1.35rem;
+}
+.section > .rates + .note {
+  margin-top: 1.25rem;
+}
+
+/* ---------- the Patchlamp panel: a slip from the other product's drawer ---------- */
+.section.patchlamp {
+  padding-top: 2rem;
+}
+.panel {
+  border: 2px solid var(--ink);
+  border-left-width: 6px;
+  background: var(--paper-deep);
+  padding: 1.1rem 1.1rem 0.35rem;
+}
+.panel > * + * {
+  margin-top: 0.75rem;
+}
+.panel-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.lamp {
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--brass);
+  box-shadow: 0 0 0 2px var(--paper-deep), 0 0 0 3px var(--ink);
+}
+.panel > .panel-kicker + .panel-title {
+  margin-top: 0.5rem;
+}
+.panel-title {
+  font-weight: 600;
+  font-size: 1.3125rem;
+  line-height: 1.25;
+}
+.panel-price {
+  font-variant-numeric: tabular-nums;
+}
+.panel-price strong {
+  font-size: 1.375em;
+}
+.panel > .panel-links {
+  margin-top: 0.25rem;
+}
+.paper .panel-links a.primary {
+  text-decoration-thickness: 2px;
+}
+
+/* ---------- FAQ: questions as run-in heads ---------- */
+.faq {
+  border-top: 2px solid var(--ink);
+}
+.section > .faq {
+  margin-top: 1.5rem;
+}
+.faq-item {
+  padding: 1rem 0 1.05rem;
+  border-bottom: 1px solid var(--rule);
+}
+.faq-q {
+  display: inline;
+  font-weight: 600;
+  font-size: 1em;
+  line-height: inherit;
+}
+.faq-a {
+  display: inline;
+}
+
+/* ---------- the closing: start with a session ---------- */
+.section.closing {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--ink);
+}
+
+@media (min-width: 37.5rem) {
+  .row {
+    grid-template-columns: 3rem minmax(0, 1fr);
+  }
+  .credentials .row {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+  .credentials .row-mark {
+    margin: 0;
+  }
+  .panel {
+    padding: 1.4rem 1.5rem 0.5rem;
+  }
+}
+
+@media (min-width: 60rem) {
+  /* The rows and the packages span the sheet: the mark or the name hangs in the margin. */
+  .section > .rows,
+  .section > .rates {
+    grid-column: 1 / -1;
+  }
+  .row,
+  .credentials .row {
+    grid-template-columns: var(--label) minmax(0, var(--measure));
+    column-gap: var(--gap);
+    padding: 1.25rem 0 1.35rem;
+  }
+  .row-mark {
+    font-size: 2.25rem;
+  }
+  .package {
+    display: grid;
+    grid-template-columns: var(--label) minmax(0, var(--measure));
+    grid-template-rows: auto auto auto auto 1fr;
+    column-gap: var(--gap);
+    align-items: start;
+    padding: 1.75rem 0 2rem;
+  }
+  .package > * {
+    grid-column: 2;
+  }
+  .package > .package-name {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 0.2rem;
+  }
+  .package > .package-for {
+    grid-column: 1;
+    grid-row: 2 / 6;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+  .paper .package > .package-price {
+    grid-row: 1;
+    margin-top: 0;
+    font-size: 3.25rem;
+  }
+  .package > .package-note {
+    grid-row: 2;
+  }
+  .package > .package-items {
+    grid-row: 3;
+  }
+  .package > .package-action {
+    grid-row: 4;
+  }
+  .section.patchlamp {
+    padding-top: 2.5rem;
+  }
+  .section.closing {
+    margin-top: 4.5rem;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .section.closing > .title {
+    grid-row: 1;
+    border-top: 2px solid var(--ink);
+    padding-top: 1.25rem;
+  }
+}
+
+@media print {
+  .paper a.action,
+  .paper a.action-outline {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .paper a.action-quiet {
+    min-height: 0;
+    font-size: 8pt;
+  }
+  .actions {
+    column-gap: 6mm;
+  }
+  .section > .actions {
+    margin-top: 2.5mm;
+  }
+  /* The rows and the packages: the same margin column as on screen. */
+  .section > .rows,
+  .section > .rates {
+    grid-column: 1 / -1;
+  }
+  .row,
+  .credentials .row {
+    display: grid;
+    grid-template-columns: var(--label) minmax(0, 1fr);
+    column-gap: var(--gap);
+    padding: 2mm 0;
+    break-inside: avoid;
+  }
+  .row-mark {
+    font-size: 14pt;
+  }
+  .credentials .row-mark {
+    margin: 0;
+  }
+  .row-title {
+    font-size: 10pt;
+  }
+  .package {
+    grid-template-rows: auto auto auto auto 1fr;
+  }
+  .package > .package-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .package > .package-for {
+    grid-column: 1;
+    grid-row: 2 / 6;
+  }
+  .paper .package > .package-price {
+    grid-row: 1;
+    margin-top: 0;
+    font-size: 22pt;
+  }
+  .package > .package-note {
+    grid-row: 2;
+  }
+  .package > .package-items {
+    grid-row: 3;
+  }
+  .package > .package-action {
+    grid-row: 4;
+  }
+  .package-name {
+    font-size: 11pt;
+  }
+  .paper .package-note {
+    font-size: 8.5pt;
+  }
+  .panel {
+    padding: 3mm 4mm 1mm;
+    border-width: 1px;
+    border-left-width: 3px;
+    break-inside: avoid;
+  }
+  .panel-title {
+    font-size: 11pt;
+  }
+  .panel-links a,
+  .panel-links li {
+    min-height: 0;
+    padding: 0;
+  }
+  .lamp {
+    box-shadow: none;
+    border: 1px solid var(--ink);
+  }
+  .faq-item {
+    padding: 1.5mm 0;
+    break-inside: avoid;
+  }
+  .section.closing {
+    margin-top: 6mm;
+    padding-top: 3mm;
+    border-top: 1px solid var(--ink);
+    break-inside: avoid;
+  }
+  .section.closing > .title {
+    border-top: 0;
+    padding-top: 0;
+  }
+}
+
+/* ======================================================================
+   The case studies: long-form documents (A2). Used only by
+   src/pages/case-studies/*.astro.
+   ====================================================================== */
+.article-meta {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.5rem 0;
+}
+.article > .article-meta {
+  margin-top: 1.25rem;
+}
+.article > .lead {
+  margin-top: 1.5rem;
+}
+.article-head {
+  font-weight: 600;
+  font-size: 1.25rem;
+  line-height: 1.3;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.25rem;
+}
+.article > .article-head {
+  margin-top: 2.25rem;
+}
+.article > .article-head + * {
+  margin-top: 0.6rem;
+}
+.article > .bullets li + li {
+  margin-top: 0.6rem;
+}
+.pointer {
+  border-left: 3px solid var(--brass);
+  padding: 0.2rem 0 0.2rem 1rem;
+  color: var(--ink-soft);
+}
+.article > .pointer {
+  margin-top: 2.5rem;
+}
+
+@media (min-width: 60rem) {
+  /* Margin heads, as the compliance pages have them: each section's head hangs
+     in the left column, and one rule runs across both columns above it. */
+  .article > .article-head {
+    grid-column: 1;
+    margin-top: 2.75rem;
+    padding-top: 0.85rem;
+    font-size: 1.0625rem;
+  }
+  .article > .article-head + * {
+    margin-top: 2.75rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--rule);
+  }
+}
+
+@media print {
+  .article > .article-head {
+    grid-column: 1;
+    font-size: 10pt;
+    margin-top: 5mm;
+    padding-top: 1.5mm;
+  }
+  .article > .article-head + * {
+    margin-top: 5mm;
+    padding-top: 1.5mm;
+    border-top: 1px solid var(--rule);
+  }
+  .article > .bullets li + li {
+    margin-top: 1mm;
+  }
+  .article > .pointer {
+    margin-top: 6mm;
+  }
+}

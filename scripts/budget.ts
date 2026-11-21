@@ -16,7 +16,6 @@ import type { HtmlRef } from './lib/refs.ts';
 import { cssRefs } from './lib/css.ts';
 import { classify, resolveToFile, urlPathForFile } from './lib/urls.ts';
 import { findImports, tokenize } from './lib/jstok.ts';
-import { LEGACY_PASSTHROUGH } from './site.ts';
 
 /** Budgets, decimal units (1 KB = 1,000 bytes). */
 export const BUDGETS = {
@@ -32,8 +31,6 @@ const JS_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascri
 
 export interface BudgetOptions {
   dist: string;
-  /** Pages exempt from the third-party and JS rows (default: LEGACY_PASSTHROUGH). */
-  exempt?: readonly string[];
   /** Stage pages whose whole transfer is measured if the build has them (default: $BUDGET_STAGE_PAGES or STAGE_PAGES). */
   stagePages?: readonly string[];
 }
@@ -332,7 +329,6 @@ export function firstPaintOfHome(dist: string, cache: Map<string, number>): { to
 export function checkBudget(opts: BudgetOptions): Report {
   const r = new Report('budget');
   const dist = opts.dist;
-  const exempt = opts.exempt ?? LEGACY_PASSTHROUGH;
   if (!isDir(dist)) {
     r.fail(`build output not found: ${dist} (run the build first)`);
     return r;
@@ -397,12 +393,7 @@ export function checkBudget(opts: BudgetOptions): Report {
   for (const p of pages) {
     const urlPath = urlPathForFile(p);
     const scan = scanPage(dist, join(dist, p));
-    const isExempt = exempt.includes(urlPath);
     const third = [...new Set(scan.thirdParty)];
-    if (isExempt) {
-      r.exempt(`${urlPath} (legacy passthrough until P3): ${third.length} third-party request${third.length === 1 ? '' : 's'}, ${formatBytes(scan.jsBytes)} JavaScript — not enforced`);
-      continue;
-    }
     for (const t of third) r.fail(`${urlPath}: third-party request: ${t}`);
     if (third.length === 0) r.ok(`${urlPath}: no third-party request`);
     if (p !== 'index.html') row(r, `${urlPath}: JavaScript (raw, inline + referenced + imported)`, scan.jsBytes, BUDGETS.conventionalJs);

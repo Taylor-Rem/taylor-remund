@@ -13,11 +13,12 @@ export const SITE_HOSTS: readonly string[] = ['taylorremund.com', 'www.taylorrem
 export const SITE_ORIGIN = 'https://taylorremund.com';
 
 /**
- * Pages still served as byte-identical passthrough of the legacy files. Each
- * is exempt from the budget's third-party and JavaScript rows, printed as
- * EXEMPT so the debt stays on screen. This list must be empty by gate G3.
+ * Files of the old site that must not be in the build any more: the
+ * stylesheet and script the hand-written pages used. Since P3 (A2) no page is
+ * served from legacy/; check-urls fails a page that is a byte-identical copy
+ * of its legacy file, and any of these in the output.
  */
-export const LEGACY_PASSTHROUGH: readonly string[] = ['/ai/', '/case-studies/ledger-repair/'];
+export const LEGACY_FILES_GONE: readonly string[] = ['style.css', 'script.js'];
 
 /** What a page's robots meta must be: exactly this content, none at all, or not checked. */
 export type Robots = { content: string } | 'none' | 'unchecked';
@@ -36,16 +37,14 @@ export interface PageSpec {
   callouts: number;
   /** Must never be linked from any page nor listed in a sitemap. */
   unlinked: boolean;
-  /** Served as a byte-identical copy of the legacy file (see LEGACY_PASSTHROUGH). */
-  legacyPassthrough: boolean;
-  /** Source path of the legacy page (for passthrough and parity checks). */
+  /** Source path of the legacy page (for the parity checks). */
   legacyFile: string | null;
 }
 
 const NOINDEX: Robots = { content: 'noindex, follow' };
 
-function page(p: Omit<PageSpec, 'legacyPassthrough'>): PageSpec {
-  return { ...p, legacyPassthrough: LEGACY_PASSTHROUGH.includes(p.path) };
+function page(p: PageSpec): PageSpec {
+  return p;
 }
 
 export const PAGES: readonly PageSpec[] = [
@@ -154,7 +153,6 @@ if (isMain(import.meta.url)) {
         `robots=${robots}`,
         p.compliance ? `compliance(callouts=${p.callouts})` : '',
         p.unlinked ? 'unlinked' : '',
-        p.legacyPassthrough ? 'LEGACY PASSTHROUGH' : '',
       ].filter(Boolean).join('  '),
     );
   }

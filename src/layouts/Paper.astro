@@ -88,7 +88,7 @@ const { strip, paper } = site;
       {pageNav.length > 0 && (
         <nav class="page-nav" aria-label={paper.navPage.text}>
           <ul>
-            {pageNav.map((link) => <li><a href={link.href} class={link.cta ? 'cta' : undefined}>{link.text}</a></li>)}
+            {pageNav.map((link) => <li><a href={link.href} class={link.cta ? 'cta' : undefined} {...mailAttrs(link.href)}>{link.text}</a></li>)}
           </ul>
         </nav>
       )}
