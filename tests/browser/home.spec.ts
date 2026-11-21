@@ -130,22 +130,21 @@ test.describe('the stage', () => {
     await expect(page.locator('#paperwork h2').first()).toBeVisible();
     await expect(page.locator('#stage-root')).toBeHidden();
     expect(await scrolls(page)).toBe(true);
-    await page.waitForTimeout(200);
-    expect(await running()).toBe(false);
+    await expect.poll(running).toBe(false);
     const back = page.getByRole('link', { name: 'Back to the workshop', exact: true });
     await expect(back).toBeVisible();
     await back.click();
     await expect(page.locator('html')).not.toHaveClass(/reading/);
     await expect(page.locator('#stage-root')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Read', exact: true })).toBeFocused();
-    expect(await running()).toBe(true);
+    await expect.poll(running).toBe(true);
     expect(new URL(page.url()).hash).toBe('');
     // Read again, then the browser's Back
     await page.getByRole('link', { name: 'Read', exact: true }).click();
     await expect(page.locator('html')).toHaveClass(/reading/);
     await page.goBack();
     await expect(page.locator('html')).not.toHaveClass(/reading/);
-    expect(await running()).toBe(true);
+    await expect.poll(running).toBe(true);
     expect(w.errors).toEqual([]);
   });
 
@@ -156,7 +155,8 @@ test.describe('the stage', () => {
     await expect(page.locator('html')).toHaveClass(/reading/);
     await expect(page.locator('#contact h2')).toBeInViewport();
     await live(page);
-    expect(await page.evaluate(() => (window as unknown as { __handoff: { workshop: { loop: { running: boolean } } } }).__handoff.workshop.loop.running)).toBe(false);
+    // the stage came up behind the paperwork and does not run there
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __handoff: { workshop: { loop: { running: boolean } } } }).__handoff.workshop.loop.running)).toBe(false);
     // later, from the stage
     await page.goto('/?tier=low');
     await live(page);

@@ -117,7 +117,7 @@ const headScript = `(function () {
         background: currentColor; vertical-align: 0.3em; opacity: 0.8;
       }
       .ways { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 18px; }
-      .ways ul { display: contents; }
+      .ways ul { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 18px; margin: 0; padding: 0; }
       .ways li { list-style: none; }
       .ways a, .ways button {
         display: inline-block; min-height: 24px; padding: 1px 0;
@@ -150,7 +150,7 @@ const headScript = `(function () {
         .who { margin-bottom: 4px; }
         .who .role::after { content: ''; display: block; }
         .who .line .sep { display: none; }
-        .ways { column-gap: 16px; }
+        .ways, .ways ul { column-gap: 16px; }
       }
 
       /* ── the picture, in the plain document: the first screen ── */
