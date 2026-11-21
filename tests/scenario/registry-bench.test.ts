@@ -38,9 +38,6 @@ const KNOWN_FAULTS = [
   // either a capped jack is not an interactable, or its affordance is 'plug' (refused). Lead/owner to rule.
   'jack-reserved-1: no affordance and no mouth (nothing a visitor can do with it)',
   'jack-reserved-2: no affordance and no mouth (nothing a visitor can do with it)',
-  // sim/machines/dock.ts:695 (12c85e3, the hand bell) names it `name.dock.bell`; there is no such entry in
-  // src/content/line.json nor in content.ts BY_ID, so the bell has no words for a screen reader.
-  'dock-bell: name "name.dock.bell" is not a content id (src/workshop/view/labels/content.ts BY_ID)',
 ];
 
 test('every interactable on the whole bench has a name in content, a tell, a misfire and an affordance', async () => {
