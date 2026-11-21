@@ -370,6 +370,8 @@ export function checkBudget(opts: BudgetOptions): Report {
     for (const page of list) {
       if (!resolveToFile(dist, page)) continue;
       const sc = stageClosure(dist, page, cache);
+      // a page without a script is no stage page (yet): no row
+      if (!sc.items.some(([f]) => JS_EXT.test(f))) continue;
       for (const [f, n] of sc.items.slice(0, 8)) r.info(`         ${formatBytes(n).padStart(9)}  ${f}`);
       r.info(`         ${formatBytes(sc.items.slice(8).reduce((s, [, n]) => s + n, 0)).padStart(9)}  ${sc.items.length - 8} more files`);
       for (const u of sc.unresolved) r.note(`${page}: ${u} (not found in the build: not counted)`);
