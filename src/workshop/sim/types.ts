@@ -397,6 +397,8 @@ export type SimEvent =
    * hand or a machine moves it, it is not Fetch's work (Revert's heal and the dock's last resort hear this).
    */
   | { readonly type: 'crew.gaveUp'; readonly id: Id; readonly part: Id }
+  /** A crew member stopped on its way because another stands where it must go or turn (`for`): it waits for it to move. */
+  | { readonly type: 'crew.waiting'; readonly id: Id; readonly for: Id }
   /** S5: Fetch's jets light (`at`: where it is), below the bench's edge after going over it. */
   | { readonly type: 'jet.ignited'; readonly id: Id; readonly at: Vec3 }
   /** S5: Fetch cuts its jets over its landing point (`at`), a hair above its tape: the drop and the bounce follow. */

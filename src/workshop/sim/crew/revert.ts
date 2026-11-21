@@ -966,6 +966,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       }
     }
     if (by !== null) {
+      // (it says so: a crew member standing idle in its way hears it and gives way)
+      if (waitingFor !== by) ctx.emit({ type: 'crew.waiting', id: body, for: by });
       waitingFor = by;
       r.blocked += 1;
       if (r.blocked < steps(T.waitFor)) return false;
