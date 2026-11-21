@@ -104,7 +104,7 @@ export function watch(page: Page, origin: string): Watch {
  */
 export const HEAVY = [/\/_astro\/home\.[^/]*\.js$/, /\/_astro\/three\.[^/]*\.js$/, /\/_astro\/rapier\.[^/]*\.js$/, /\/_astro\/stations\.[^/]*\.js$/, /\/_astro\/pieces\.[^/]*\.js$/, /\/_astro\/early\.[^/]*\.js$/, /\.wasm(\?|$)/, /bake-table/, /\/_astro\/worker-/, /\/fonts\/workshop-(stencil|print|sign)\.woff2/];
 
-type Win = Window & { __handoff?: { phase: string; failed: string | null; workshop: any } };
+type Win = Window & { __handoff?: { phase: string; failed: string | null; workshop: any; canvas?: HTMLCanvasElement } };
 
 /**
  * Until the stage is live, its workshop there (within SLOW; if not, the test says where the loader got to and
