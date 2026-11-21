@@ -65,6 +65,9 @@ export const ALLOW: readonly { path: string; match: RegExp; reason: string }[] =
   { path: 'src/workshop/audio/audition.ts', match: /[\s\S]/, reason: "the sound audition's scene names (a developer's listening tool, written to WAV file names)" },
   { path: 'src/workshop/shell/loader.ts', match: /^(gave up after repeated faults|the graphics context was lost and did not come back|the stage could not be rebuilt after a lost graphics context|the stage could not be built again at another tier|to usable)$/, reason: "why the stage gave up (window.__handoff.failed, for tests and the console) and a performance mark's name" },
   { path: 'src/workshop/view/vignette.ts', match: /^(view: \w+|stand-in \(.*\)|none yet|set \(static body\))$/, reason: "the vignette's slot report (which piece fills each slot) for check-vignette and the console" },
+  { path: 'src/workshop/shell/home.ts', match: /^(slow frames|frames slowed|saved setting)$/, reason: 'why a tier was chosen: the data-tier-why attribute and the ?debug panel, for people helping debug (shell/tier.ts holds the rest under its `why` keys)' },
+  { path: 'src/workshop/shell/settings-host.ts', match: /^saved setting$/, reason: 'why a tier was chosen (as shell/home.ts)' },
+  { path: 'src/workshop/ui/playtest/log.ts', match: /^(ask the tester|workshop playtest)$/, reason: "fields of the ?playtest=1 log file itself (its kind, and a note to the observer who reads the saved file); never on the page" },
 ];
 
 export interface Hit {

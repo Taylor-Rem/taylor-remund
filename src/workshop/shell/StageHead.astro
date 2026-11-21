@@ -22,29 +22,40 @@
 // The page sets the stage root's background colour (no colour is typed here).
 import { picturePreloads, type PosterSet } from './poster.ts';
 import type { Preload } from './stage-preloads.ts';
+import { reducedFromStored } from './saved.ts';
 interface Props {
   preload?: Preload[];
   /** The picture set, its files (the page's `?url` glob) and their folder: the picture is preloaded first. */
   posters?: { set: PosterSet; files: Record<string, string>; dir: string };
+  /**
+   * P3 B3: the storage key of the visitor's motion setting (shell/saved.ts `MOTION_KEY`), on a page that has
+   * the settings: reduced motion is then the EFFECTIVE one (the setting, or the system's while it is followed).
+   * Without it, the system's setting alone. Either way `motion-reduced` on <html> says so before the first paint.
+   */
+  motionKey?: string;
 }
-const { preload = [], posters } = Astro.props;
+const { preload = [], posters, motionKey } = Astro.props;
+// (the same rule as shell/saved.ts, whose source is run here)
+const headScript = `(function () {
+    var d = document.documentElement;
+    d.classList.add('js');
+    var q = new URLSearchParams(location.search);
+    var m = null;
+    ${motionKey ? `try { m = localStorage.getItem(${JSON.stringify(motionKey)}); } catch (e) {}` : ''}
+    var reduce = (${reducedFromStored.toString()})(m, matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (reduce) d.classList.add('motion-reduced');
+    if (q.has('band')) d.classList.add('poster-mode');
+    else if (!reduce) d.classList.add('warming');
+    setTimeout(function () {
+      if (!window.__handoff) d.classList.remove('warming');
+    }, 8000);
+  })();`;
 // The picture first (§ E7: first paint within a second on Fast 4G): one preload per band, each with the
 // media range that selects exactly the band the <picture> will pick, ahead of everything else in the head.
 const pictureLinks = posters ? picturePreloads(posters.set, (f) => posters.files[`${posters.dir}${f}`] ?? '') : [];
 ---
 {pictureLinks.map((l) => <link rel="preload" as="image" type={l.type} media={l.media} imagesrcset={l.srcset} imagesizes={l.sizes} fetchpriority="high" />)}
-<script is:inline>
-  (function () {
-    var d = document.documentElement;
-    d.classList.add('js');
-    var q = new URLSearchParams(location.search);
-    if (q.has('band')) d.classList.add('poster-mode');
-    else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) d.classList.add('warming');
-    setTimeout(function () {
-      if (!window.__handoff) d.classList.remove('warming');
-    }, 8000);
-  })();
-</script>
+<script is:inline set:html={headScript}></script>
 {preload.map((p) => <link rel="preload" href={p.href} as={p.as ?? 'fetch'} type={p.type} crossorigin="anonymous" fetchpriority={p.priority ?? 'auto'} />)}
 <style is:global>
   .stage-root { position: fixed; inset: 0; overflow: hidden; --warm: 0.42; }
@@ -55,7 +66,6 @@ const pictureLinks = posters ? picturePreloads(posters.set, (f) => posters.files
   .stage-root canvas.stage { opacity: 0; pointer-events: none; touch-action: none; transition: opacity 0.15s linear; }
   .stage-root.live canvas.stage, html.poster-mode .stage-root canvas.stage, .stage-root.direct canvas.stage { opacity: 1; pointer-events: auto; }
   html.poster-mode .stage-root picture { display: none; }
-  @media (prefers-reduced-motion: reduce) {
-    .stage-root img.poster, .stage-root canvas.stage { transition: none !important; }
-  }
+  /* reduced motion (the effective setting, set by the script above): the swap is a cut */
+  html.motion-reduced .stage-root img.poster, html.motion-reduced .stage-root canvas.stage { transition: none !important; }
 </style>

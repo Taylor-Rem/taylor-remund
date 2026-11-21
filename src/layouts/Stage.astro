@@ -28,6 +28,7 @@ import StagePicture from '../workshop/shell/StagePicture.astro';
 import { BENCH_POSTERS, BENCH_POSTER_FILES, BENCH_POSTER_DIR } from '../workshop/shell/bench-pictures.ts';
 import { STAGE_PRELOADS } from '../workshop/shell/stage-preloads.ts';
 import { FAILURES_KEY, quickStill } from '../workshop/shell/tier.ts';
+import { MOTION_KEY, QUALITY_KEY } from '../workshop/shell/saved.ts';
 import { PAPERWORK_IDS } from '../workshop/ui/strip/strip.ts';
 import { site } from '../content/site.ts';
 import { personJsonLd } from '../content/person.ts';
@@ -47,13 +48,15 @@ const legalLinks = site.footer.links.filter((link) => LEGAL_PATHS.includes(link.
 // The head's decision, before the first paint (the same rule as shell/tier.ts `quickStill`, whose source is
 // run here): the Still tier when the address, data-saver, an earlier failure or a browser without WebGL 2 says
 // so; else the stage's layout from the first paint. An address that names the paperwork opens it.
+// The visitor's saved quality (shell/saved.ts) is read here too: "still picture" is settled before the first paint.
 const headScript = `(function () {
   var d = document.documentElement;
   var q = new URLSearchParams(location.search);
-  var failures = 0;
+  var failures = 0, saved = null;
   try { failures = Number(sessionStorage.getItem(${JSON.stringify(FAILURES_KEY)})) || 0; } catch (e) {}
+  try { saved = localStorage.getItem(${JSON.stringify(QUALITY_KEY)}); } catch (e) {}
   var c = navigator.connection;
-  var still = (${quickStill.toString()})({ override: q.get('tier'), saveData: !!(c && c.saveData), failures: failures, saved: null, hasWebgl2Api: typeof WebGL2RenderingContext !== 'undefined' });
+  var still = (${quickStill.toString()})({ override: q.get('tier'), saveData: !!(c && c.saveData), failures: failures, saved: saved, hasWebgl2Api: typeof WebGL2RenderingContext !== 'undefined' });
   if (still) { d.classList.remove('warming'); d.classList.add('still'); return; }
   d.classList.add('stage-on');
   var ids = ${JSON.stringify(PAPERWORK_IDS)};
@@ -71,7 +74,7 @@ const headScript = `(function () {
     <meta name="description" content={description} />
     <link rel="canonical" href="https://taylorremund.com/" />
     <script type="application/ld+json" set:html={personJsonLd()} />
-    <StageHead posters={{ set: BENCH_POSTERS, files: BENCH_POSTER_FILES, dir: BENCH_POSTER_DIR }} />
+    <StageHead posters={{ set: BENCH_POSTERS, files: BENCH_POSTER_FILES, dir: BENCH_POSTER_DIR }} motionKey={MOTION_KEY} />
     <script is:inline set:html={headScript}></script>
     <link rel="preload" href="/fonts/workshop-tape.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     <style is:global>
@@ -140,24 +143,41 @@ const headScript = `(function () {
         border: 1.5px solid currentColor; box-sizing: border-box; vertical-align: 0.08em;
       }
       .sound[aria-pressed='true']::before { background: currentColor; }
-      /* Read, the way back and the sound are the stage's: without it, Read is a link to the text below */
-      .back, .sound { display: none !important; }
-      html.stage-on .sound { display: inline-block !important; }
+      /* the drawn glyphs stand in for the words on a phone (below); the words stay the accessible names */
+      .ways .glyph { display: none; }
+      .sound[aria-pressed='true'] .glyph .off, .sound[aria-pressed='false'] .glyph .on { display: none; }
+      /* Read, the way back and the sound are the stage's: without it, Read is a link to the text below.
+         The settings control needs a script (shell/home-early.ts wires it): without one it is not shown */
+      .back, .sound, .settings-open { display: none !important; }
+      html.stage-on .sound, html.js .settings-open { display: inline-block !important; }
+      .settings-open[aria-expanded='true'] { color: var(--cream); border-bottom-color: currentColor; }
       html.stage-on.reading .back { display: inline-block !important; }
       html.stage-on.reading .read { display: none; }
       @media (pointer: coarse) {
         /* touch: every target at least 44 px, the line itself unchanged */
         .ways, .ways ul { align-items: center; }
         .ways a, .ways button { min-height: 44px; display: inline-flex; align-items: center; margin: -11px 0; }
-        html.stage-on .sound, html.stage-on.reading .back { display: inline-flex !important; }
+        html.stage-on .sound, html.js .settings-open, html.stage-on.reading .back { display: inline-flex !important; }
       }
-      /* a phone held upright: the name line on two lines, the links in a row under it */
+      /* a phone held upright: the name line on two lines, the links in a row under it; sound and settings as
+         glyphs, each a 44 px square at the row's end */
       @media (max-width: 640px) {
         .strip { display: block; padding-top: 10px; font-size: 15px; }
         .who { margin-bottom: 4px; }
         .who .role::after { content: ''; display: block; }
         .who .line .sep { display: none; }
-        .ways, .ways ul { column-gap: 16px; }
+        .ways, .ways ul { column-gap: 14px; }
+        /* two 44 px squares side by side, not overlapping, their glyphs 46 px apart (the second may reach into the gutter) */
+        .ways .sound, .ways .settings-open { width: 44px; min-height: 44px; justify-content: center; border-bottom: 0; }
+        .ways .sound { margin: -11px -6px -11px -10px; }
+        .ways .settings-open { margin: -11px -16px -11px -6px; }
+        html.stage-on .ways .sound, html.js .ways .settings-open { display: inline-flex !important; }
+        .ways .sound::before { display: none; }
+        .ways .glyph { display: block; }
+        .ways .sound .word, .ways .settings-open .word {
+          position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+        }
+        .ways .sound:hover, .ways .settings-open:hover, .settings-open[aria-expanded='true'] { color: var(--cream); }
       }
 
       /* ── the picture, in the plain document: the first screen ── */
@@ -205,7 +225,7 @@ const headScript = `(function () {
         </nav>
         <a class="read" href="#paperwork">{home.read.text}</a>
         <a class="back" href="./">{home.back.text}</a>
-        <button class="sound" type="button" aria-pressed="true">{home.sound.text}</button>
+        <button class="sound" type="button" aria-pressed="true"><svg class="glyph" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 7.5h3l4.5-3.8v12.6L6 12.5H3z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path class="on" d="M13.2 7.2a4 4 0 0 1 0 5.6M15.6 4.9a7.3 7.3 0 0 1 0 10.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="word">{home.sound.text}</span></button>
         <slot name="strip-end" />
       </div>
     </header>
