@@ -114,7 +114,8 @@ export async function startHome(o: HomeOptions): Promise<void> {
       const now = performance.now();
       const prev = last;
       last = now;
-      if (stepping || prev === null) return;
+      // (only once the stage is live: the loader's settling frames before the swap are not the visit's)
+      if (stepping || prev === null || current === null) return;
       const step = gov.frame(now - prev, now);
       if (step) setTimeout(() => void take(step), 0);
     },

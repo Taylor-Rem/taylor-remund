@@ -141,6 +141,7 @@ const headScript = `(function () {
       html.stage-on.reading .read { display: none; }
       @media (pointer: coarse) {
         /* touch: every target at least 44 px, the line itself unchanged */
+        .ways, .ways ul { align-items: center; }
         .ways a, .ways button { min-height: 44px; display: inline-flex; align-items: center; margin: -11px 0; }
         html.stage-on .sound, html.stage-on.reading .back { display: inline-flex !important; }
       }
