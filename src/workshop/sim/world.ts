@@ -43,6 +43,10 @@ import { createButton } from './machines/button.ts';
 import { createCord } from './machines/cord.ts';
 import { createFetch, FETCH_TUNING } from './crew/fetch.ts';
 import { vignette } from './scenes/vignette.ts';
+import { createTells } from './tells.ts';
+import type { TellsUnit } from './tells.ts';
+import { SAVED_VERSION, parseSaved, savedText } from './saved.ts';
+import type { WorldSaved } from './saved.ts';
 
 /** How loose parts feel. Tune here (§ E0: "polish time goes to feel"). */
 /** How much of the light crates' throw a part of this mass gets (1 for a small or middle crate, less for a heavy part). */
@@ -285,6 +289,11 @@ export interface World extends WorldView {
   recover(): void;
   /** R2: who hears the step's faults from now on (a stage rebuilt on the same world brings a new guard); null: strict. */
   setOnFault(f: ((fault: StepFault) => void) | null): void;
+  /**
+   * P3 (§ E10): what this visit would remember, now: one plain JSON value with a version (`sim/saved.ts`). The world
+   * emits `saved.changed` in the step it changes. Give it back next visit as `WorldOptions.saved` (through `parseSaved`).
+   */
+  saved(): WorldSaved;
   dispose(): void;
 }
 
@@ -299,6 +308,11 @@ export interface WorldOptions {
   readonly runner?: Partial<typeof FETCH_TUNING>;
   /** What a visit remembers of the Button (§ B4): its rung, presses, cover, deck, what was used, reduced motion. */
   readonly button?: ButtonSaved;
+  /**
+   * P3 (§ E10): what the last visit remembered (`World.saved()` then, read back through `parseSaved`). Checked again
+   * here: a value that is not a valid snapshot is ignored (the visit starts fresh). Wins over `button` where both say.
+   */
+  readonly saved?: WorldSaved;
   /**
    * R2: lenient mode (the production page only). Without it (development, every test) an error in a step is
    * thrown as it always was. With it, an error thrown by one unit in one phase of a step (`pre`, `post`,
@@ -428,6 +442,10 @@ export function createWorld(opts: WorldOptions): World {
   let bracket: Bracket | null = null;
   let held: Holding | null = null;
   let lastInput = 0;
+  /** P3 (§ B10): reduced motion is on (the `motion` intent; at creation, a saved Button's). */
+  let reduced = opts.button?.reducedMotion === true;
+  /** P3 (§ B10): the bench is still (`SimContext.still`): reduced, the visitor has not acted, no rung playing. */
+  let still = false;
   let lastChuteRelease = -Infinity;
   let hovered: Id | null = null;
   /** S6: where the hand last was while it holds a unit (`Holding.kind === 'unit'`): letting go happens there. */
@@ -1243,6 +1261,12 @@ export function createWorld(opts: WorldOptions): World {
     get bracketed() {
       return bracket !== null;
     },
+    get still() {
+      return still;
+    },
+    get reducedMotion() {
+      return reduced;
+    },
     holding: () => held,
     hold(h) {
       held = h;
@@ -1461,7 +1485,12 @@ export function createWorld(opts: WorldOptions): World {
     return frame;
   }
 
-  const button: ButtonUnit = createButton(ctx, opts.button);
+  // P3: what the last visit remembered, checked again (the shell should have parsed it; nothing unchecked gets in)
+  const restored = opts.saved !== undefined ? parseSaved(opts.saved) : null;
+  const buttonSaved: ButtonSaved | undefined = restored
+    ? { ...restored.button, used: restored.used, ...(reduced ? { reducedMotion: true } : {}) }
+    : opts.button;
+  const button: ButtonUnit = createButton(ctx, buttonSaved);
   const cord: CordUnit = createCord(ctx);
   const runner: FetchUnit = createFetch(ctx, opts.runner);
   units = [button, cord, runner];
@@ -1487,6 +1516,84 @@ export function createWorld(opts: WorldOptions): World {
     return undefined;
   }
   for (const m of mouths) if (!machines.has(m.machine)) throw new Error(`scene: mouth "${m.id}" belongs to "${m.machine}", which is not a machine of this world`);
+
+  // ── P3: the tells (§ B3), after every other unit: they read what this step's units did ──
+  const ladder = scene.button.ladder;
+  const tellStations = ladder?.stations ?? scene.button.flinch.map((id) => ({ id, at: scene.button.at }));
+  const tellAt = new Map<Id, Vec3>(tellStations.map((s) => [s.id, s.at]));
+  /** The ladder station a handle id belongs to (itself, or the longest station id it starts with and a '-'), as `used.ts` reads it. */
+  const stationOf = (id: Id): Id | null => {
+    if (tellAt.has(id)) return id;
+    let best: Id | null = null;
+    for (const s of tellAt.keys()) if (id.startsWith(`${s}-`) && (best === null || s.length > best.length)) best = s;
+    return best;
+  };
+  /** A text in hand or waiting on a phone line (a crew text left from attract mode counts too: it is answered). */
+  const lineBusy = (): boolean => {
+    for (const m of machines.values()) {
+      const v = m.view();
+      if (v.kind === 'line' && (v.job !== null || v.waiting > 0)) return true;
+    }
+    return false;
+  };
+  const tells: TellsUnit = createTells(ctx, {
+    stations: tellStations,
+    used: button.used(),
+    home: scene.button.at,
+    busy: () => held !== null || bracket !== null || button.view().phase !== 'idle' || lineBusy(),
+  });
+  units.push(tells);
+  unitById.set(tells.id, tells);
+  /**
+   * Where an intent that counts as an action happened (the tells' "nearest"), read before it is handled (a release
+   * is where the hand had the thing). Null: nowhere new (it keeps the last place).
+   */
+  function actPoint(intent: Intent): Vec3 | null {
+    switch (intent.type) {
+      case 'grab':
+        return intent.grip;
+      case 'release':
+        return heldBody()?.pose.p ?? (held?.kind === 'unit' ? unitHand : held?.kind === 'plug' ? (cord.view().plugAt ?? null) : null);
+      case 'place':
+        return typeof intent.at === 'string' ? (mouthById.get(intent.at)?.drop ?? scene.cord.jacks.find((j) => j.id === intent.at)?.at ?? null) : intent.at;
+      case 'drag':
+        return intent.target;
+      case 'press':
+      case 'turn': {
+        if (intent.id === scene.button.id || intent.id === button.view().coverId) return scene.button.at;
+        const s = stationOf(intent.id);
+        if (s !== null) return tellAt.get(s) ?? null;
+        return loose.has(intent.id) ? lp(intent.id).pose.p : null;
+      }
+      case 'unplug':
+        return scene.cord.jacks.find((j) => j.id === cord.view().jack)?.at ?? null;
+      case 'plug':
+        return intent.jack !== null ? (scene.cord.jacks.find((j) => j.id === intent.jack)?.at ?? null) : null;
+      case 'text':
+        return ladder?.line !== undefined ? (tellAt.get(ladder.line) ?? null) : null;
+      case 'undo':
+        return ladder?.lever !== undefined ? (tellAt.get(ladder.lever) ?? null) : null;
+      default:
+        return null;
+    }
+  }
+
+  // ── P3: the visit's snapshot (§ E10) ──
+  const savedNow = (): WorldSaved => {
+    const b = button.saved();
+    return { v: SAVED_VERSION, button: { rung: b.rung, reached: b.reached, presses: b.presses, cover: b.cover, deck: { left: [...b.deck.left], last: b.deck.last } }, used: [...button.used().list()] };
+  };
+  let savedKey = savedText(savedNow());
+
+  // ── P3: reduced motion in the world (§ B10) ──
+  /** An intent that is the visitor doing something (not the pointer passing, not a carry, not a setting of the page). */
+  const wakes = (intent: Intent): boolean => intent.type !== 'hover' && intent.type !== 'carry' && intent.type !== 'motion';
+  function setStill(on: boolean): void {
+    if (on === still) return;
+    still = on;
+    for (const u of units) u.still?.(on);
+    emit({ type: 'still', on });
+  }
   /** How the visit began: what "Reset the workshop" goes back to. */
   const initial = store.snapshot();
 
@@ -1592,6 +1699,7 @@ export function createWorld(opts: WorldOptions): World {
       case 'reset':
         return reset();
       case 'motion':
+        reduced = intent.reduced;
         button.setReducedMotion(intent.reduced);
         return false; // a setting of the page, not an action in the world
       default:
@@ -1619,8 +1727,13 @@ export function createWorld(opts: WorldOptions): World {
       return hovered;
     },
     get reducedMotion() {
-      return button.view().reducedMotion;
+      return reduced;
     },
+    get still() {
+      return still;
+    },
+    tells: () => tells.view(),
+    saved: () => savedNow(),
     undoId: scene.button.ladder?.lever ?? null,
 
     dispatch(intent) {
@@ -1646,10 +1759,18 @@ export function createWorld(opts: WorldOptions): World {
         }
       };
       for (const intent of pending) {
+        // P3: the visitor is doing something: a still bench is itself again before it is handled (a hand may be reaching for Fetch)
+        if (still && wakes(intent)) setStill(false);
         guard('intent', 'intent', () => {
-          if (handle(intent) && intent.type !== 'hover' && intent.type !== 'carry') playMode = true;
+          const at = intent.type === 'hover' || intent.type === 'carry' ? null : actPoint(intent);
+          if (handle(intent) && intent.type !== 'hover' && intent.type !== 'carry') {
+            playMode = true;
+            tells.acted(at);
+          }
         }, intent);
       }
+      // P3 (§ B10): still while reduced motion is on and the visitor has not acted (and never through a rung)
+      setStill(reduced && !playMode && bracket === null);
       for (const u of units) if (u.pre) guard(u.id, 'pre', () => u.pre!());
       guard('world', 'step', () => {
         if (bracket?.phase === 'rewind') {
@@ -1677,6 +1798,12 @@ export function createWorld(opts: WorldOptions): World {
       });
       for (const u of units) if (u.post) guard(u.id, 'post', () => u.post!());
       guard('world', 'step', () => history.endStep(clock.step));
+      // P3 (§ E10): say so when what the visit would remember has changed (only then: the page saves on it)
+      const key = savedText(savedNow());
+      if (key !== savedKey) {
+        savedKey = key;
+        emit({ type: 'saved.changed' });
+      }
       const heard = events.slice(from);
       for (const u of units) if (u.heard) guard(u.id, 'heard', () => u.heard!(heard));
     },

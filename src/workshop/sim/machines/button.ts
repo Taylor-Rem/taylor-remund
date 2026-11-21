@@ -36,6 +36,8 @@ import type { SimContext, Unit } from '../context.ts';
 import type { LadderSpec } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
 import { createUsed } from '../used.ts';
+import type { Used } from '../used.ts';
+import type { WorldSaved } from '../saved.ts';
 
 /** Timings in seconds; tune here. */
 export const BUTTON_TUNING = {
@@ -100,6 +102,10 @@ export interface ButtonUnit extends Unit {
   view(): ButtonView;
   /** S6: reduced motion at run time: from the next press a rung is the card and the lamp dip only. */
   setReducedMotion(on: boolean): void;
+  /** P3: what a visit remembers of the Button (`sim/saved.ts`): its rung, the rung reached, presses, cover, deck. */
+  saved(): WorldSaved['button'];
+  /** P3: what the visitor has used (the tells read it; it is fed here, `sim/used.ts`). */
+  used(): Pick<Used, 'has' | 'list'>;
 }
 
 /** The content id of a ladder rung's card. */
@@ -143,9 +149,11 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
   const stations: readonly { readonly id: Id; readonly at: Vec3 }[] = ladder?.stations ?? spec.flinch.map((id) => ({ id, at: spec.at }));
   const used = createUsed(ctx, stations.map((s) => s.id), { lever: ladder?.lever ?? null, cord: ladder?.cord ?? null, line: ladder?.line ?? null, saved: saved?.used });
 
-  let presses = saved?.presses ?? 0;
-  let rung = saved?.rung ?? 0;
-  let reached = Math.min(4, Math.max(0, saved?.reached ?? rung));
+  // (P3: whatever it is given, only whole numbers in range reach the ladder; `parseSaved` has checked a stored one)
+  const wholeIn = (v: unknown, min: number, max: number, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) ? Math.min(max, Math.max(min, v)) : fallback);
+  let presses = wholeIn(saved?.presses, 0, Number.MAX_SAFE_INTEGER, 0);
+  let rung = wholeIn(saved?.rung, 0, 4, 0);
+  let reached = wholeIn(saved?.reached ?? rung, 0, 4, rung);
   let phase: RungPhase = 'idle';
   let phaseStart = 0;
   let script: RungScript | null = null;
@@ -368,6 +376,8 @@ export function createButton(ctx: SimContext, saved?: ButtonSaved): ButtonUnit {
     setReducedMotion(on) {
       reduced = on;
     },
+    saved: () => ({ rung, reached, presses, cover: cover === 'none' ? 'none' : 'shut', deck: { left: [...deckLeft], last: deckLast } }),
+    used: () => used,
     intent(intent: Intent): boolean {
       // the Button is the first unit: it sees every handle's intent (what the visitor has used)
       if (!ctx.bracketed) used.intent(intent);

@@ -33,6 +33,8 @@ import { CORD_FEEL, Rope } from './cord.ts';
 import { JACKS, BOARD_WHOLE, cordPlug, cordGeometry, updateCord, poseSwitchboard, type JackName, type SwitchboardPose } from '../kit/pieces/switchboard/index.ts';
 import { damp, inOutCubic, outCubic } from '../anim/index.ts';
 import { patchlampBus, jackName } from './patchlamp-bus.ts';
+import { lampOn } from './line.ts';
+import { TELL_SECONDS } from '../../sim/index.ts';
 
 /** Tune here: units, seconds, rates in 1/s. */
 export const BOARD_FEEL = {
@@ -186,6 +188,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
     let refuseAt = -Infinity;
     const refuseFrom = new Vector3();
     let homeAt = -Infinity; // a drop away from any jack: hangs on the way home
+    let cordTellUntil = -Infinity; // P3: the cord's tell (it has no lamp: the lens of its jack blinks)
     const offer: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
     const offerV: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
     const shown: SwitchboardPose = { lamps: {}, collars: {} };
@@ -219,6 +222,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
             seat = F.seatFrom;
             seatV = 0;
           }
+          if (e.type === 'tell' && e.id === 'cord') cordTellUntil = t + TELL_SECONDS;
           if (e.type === 'card' && e.by === 'cord' && lastHeld) {
             refuseAt = t;
             refuseFrom.copy(lastHeld);
@@ -328,6 +332,13 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
         const ringing = jackName(line?.ringing ?? null);
         const pickedUp = patch && patch.state !== 'seated' && patch.state !== 'notice' && patch.state !== 'roll';
         const cordIn = jackName(v.jack);
+        // P3 (§ B3): a tell for a station with no lamp of its own blinks a lens instead, slowly, at the station lamps'
+        // rate (`lampOn`): the phone line and the cord, the lens of the jack the cord is in; the desk lamp, its own jack's
+        const telling = new Set<string>();
+        if ((line?.lamp === 'blink' || t < cordTellUntil) && cordIn) telling.add(cordIn);
+        const lampV = w.machine('lamp');
+        const lampJack = lampV?.kind === 'lamp' && lampV.lamp === 'blink' ? jackName(lampV.jack) : null;
+        if (lampJack) telling.add(lampJack);
         for (const j of JACKS) {
           // collars: lifted while offered; the nearest stands tallest; all breathe, out of step
           const off = offering.has(j);
@@ -356,6 +367,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
           } else delete shown.collars![j];
           // lenses: in its jack, a call waiting (blinking until Patch has it in hand), or offered (glowing, breathing)
           let lit = cordIn === j && !v.lifted ? 1 : 0;
+          if (telling.has(j) && !v.lifted) lit = lampOn('blink', t) ? 1 : 0;
           if (ringing === j) lit = pickedUp ? 1 : (t / F.ringPeriod) % 1 < F.ringDuty || reduced ? 1 : 0;
           if (off) lit = 1;
           if (lastLamp[j] !== lit) {

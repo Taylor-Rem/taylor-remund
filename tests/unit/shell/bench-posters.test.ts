@@ -12,7 +12,7 @@ import type { Stage } from '../../../src/workshop/view/stage/index.ts';
 import { FRAMING, homeBox, homeEdge } from '../../../src/workshop/view/bench.ts';
 import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
 
-const SET_PATH = join(process.cwd(), 'src/dev-pages/bench/posters.json');
+const SET_PATH = join(process.cwd(), 'src/assets/bench/posters.json');
 const set = JSON.parse(readFileSync(SET_PATH, 'utf8')) as PosterSet;
 
 function fakeStage(w: number, h: number): Stage {
@@ -20,7 +20,7 @@ function fakeStage(w: number, h: number): Stage {
   rig.setAspect(w / h);
   return { camera: rig, renderer: { domElement: { clientWidth: w, clientHeight: h, width: w, height: h } } } as unknown as Stage;
 }
-/** The page's framing (src/dev-pages/bench.astro frameCamera, not the plan view). */
+/** The page's framing (shell/bench-stage.ts frameCamera, not the plan view). */
 function frameBench(stage: Stage, w: number, h: number): void {
   const aspect = w < h ? 0.5 : w / h;
   stage.camera.stationSize = 1.9;

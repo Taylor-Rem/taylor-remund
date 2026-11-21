@@ -42,6 +42,17 @@ import { pixelSize } from '../src/workshop/shell/poster.ts';
 
 export const DEFAULT_SET = 'src/dev-pages/handoff/posters.json';
 export const DEFAULT_PAGE = '/dev/handoff/';
+
+/**
+ * Every set of loading pictures, the page it is rendered from (a page with the poster hooks: `?band=`,
+ * `window.__ready`), and the pages that show it. The bench's one set is rendered from `/dev/bench/` (the
+ * home page carries no test hooks) and shown by `/` and `/dev/bench/` alike: same bench, same framing
+ * (shell/bench-stage.ts). `--set` with one of these paths picks its page; `--page` overrides.
+ */
+export const SETS: readonly { set: string; page: string; shownOn: readonly string[] }[] = [
+  { set: 'src/dev-pages/handoff/posters.json', page: '/dev/handoff/', shownOn: ['/dev/handoff/'] },
+  { set: 'src/assets/bench/posters.json', page: '/dev/bench/', shownOn: ['/', '/dev/bench/'] },
+];
 /** What draws the picture: every file under these is hashed. */
 export const INPUT_TREES = ['src/workshop/sim', 'src/workshop/view', 'src/workshop/shell', 'src/content', 'public/fonts'];
 
@@ -70,8 +81,9 @@ export function inputsHash(root: string, set: PosterSet, page: string): string {
   return h.digest('hex').slice(0, 20);
 }
 
-/** The page source behind a dev page path (/dev/handoff/ → src/dev-pages/handoff.astro). */
+/** The page source behind a page path (/dev/handoff/ → src/dev-pages/handoff.astro; / → src/pages/index.astro). */
 export function pageSource(path: string): string {
+  if (path === '/' || path === '') return 'src/pages/index.astro';
   const stem = path.replace(/^\/dev\/?/, '').replace(/\/$/, '');
   return stem ? `src/dev-pages/${stem}.astro` : 'src/dev-pages/index.astro';
 }
@@ -371,8 +383,10 @@ async function main(): Promise<number> {
     console.log(USAGE);
     return 0;
   }
-  const setPath = resolve(REPO_ROOT, String(v['set'] ?? DEFAULT_SET));
-  const page = String(v['page'] ?? DEFAULT_PAGE);
+  const setArg = String(v['set'] ?? DEFAULT_SET);
+  const setPath = resolve(REPO_ROOT, setArg);
+  const known = SETS.find((s) => resolve(REPO_ROOT, s.set) === setPath);
+  const page = String(v['page'] ?? known?.page ?? DEFAULT_PAGE);
   const set = JSON.parse(readFileSync(setPath, 'utf8')) as PosterSet;
   const hash = inputsHash(REPO_ROOT, set, pageSource(page));
 
