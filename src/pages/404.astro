@@ -1,23 +1,15 @@
 ---
-// Placeholder 404 (REWRITE.md § F1): a heading and the four links.
+// The 404 (REWRITE.md § F1): on the Paper layout, a heading and the four
+// links. Its picture, "a machine that is not there", is a later phase (P4).
+import Paper from '../layouts/Paper.astro';
 import { site } from '../content/site.ts';
-import Footer from '../layouts/Footer.astro';
+import { mailAttrs } from '../components/paper/links.ts';
 ---
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{site.notFound.title.text} | {site.strip.name.text}</title>
-    <meta name="robots" content="noindex" />
-  </head>
-  <body>
-    <main>
-      <h1>{site.notFound.title.text}</h1>
-      <ul>
-        {site.strip.links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
-      </ul>
-    </main>
-    <Footer />
-  </body>
-</html>
+<Paper title={`${site.notFound.title.text} | ${site.strip.name.text}`} robots="noindex" canonical={false}>
+  <section class="section not-found">
+    <h1 class="title">{site.notFound.title.text}</h1>
+    <ul class="link-list">
+      {site.strip.links.map((link) => <li><a href={link.href} {...mailAttrs(link.href)}>{link.text}</a></li>)}
+    </ul>
+  </section>
+</Paper>

@@ -76,6 +76,10 @@ export const HOME_BODY = `<section id="patchlamp"><h2>Patchlamp</h2>
     <section id="about"><img src="/assets/taylor.jpg" alt="" width="220" height="220"><a href="/resume/#experience">Résumé</a></section>
     <section id="contact"><a href="mailto:remundtaylor3@gmail.com">Email</a></section>`;
 
+export const RESUME_BODY = `<section id="about"><img src="/assets/taylor.jpg" alt="Taylor Remund" width="220" height="220"></section>
+    <section id="skills"></section><section id="projects"><article id="patchlamp"></article></section>
+    <section id="experience"></section><section id="contact"><a href="mailto:remundtaylor3@gmail.com">Email</a></section>`;
+
 export interface Site {
   root: string;
   dist: string;
@@ -84,7 +88,7 @@ export interface Site {
 
 /**
  * A minimal site that passes every dist check: Paper pages for /, the four
- * compliance pages and 404; /resume/ and /ai/ as legacy passthrough; the
+ * compliance pages, /resume/ and 404; /ai/ as legacy passthrough; the
  * assets of § 2. The fake root holds CNAME, legal-reference/ and legacy/.
  */
 export function makeSite(): Site {
@@ -99,7 +103,8 @@ export function makeSite(): Site {
   write(join(dist, 'index.html'), paperPage('Taylor Remund', HOME_BODY));
   write(join(dist, 'styles/paper.css'), 'body{margin:0;font-family:system-ui}\n');
   // Legacy passthrough pages and what they reference.
-  for (const p of ['ai/index.html', 'resume/index.html', 'style.css', 'script.js']) write(join(dist, p), legacy(p));
+  for (const p of ['ai/index.html', 'style.css', 'script.js']) write(join(dist, p), legacy(p));
+  write(join(dist, 'resume/index.html'), paperPage('Résumé', RESUME_BODY));
   for (const a of ['og.png', 'taylor.jpg', 'icons.svg', 'exchange-room-1280.jpg', 'exchange-room-1280.webp', 'exchange-room-640.jpg', 'exchange-room-640.webp']) {
     write(join(dist, 'assets', a), legacy(`assets/${a}`));
   }
