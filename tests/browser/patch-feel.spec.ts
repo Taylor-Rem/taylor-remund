@@ -259,10 +259,12 @@ interface Measured {
   driftShare: number | null;
   hits: number;
   floatSteps: number;
+  /** The turn in the frame it met a wall flat (rad), when it did. */
+  splatTurn: number | null;
 }
 
 function measure(name: string, frames: FrameRow[], steps: StepRow[], release: number, hits: number[], benchTop: number): Measured {
-  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, rollBack: null, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0 };
+  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, rollBack: null, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0, splatTurn: null };
   const fr = frames.filter((f) => f.s >= release - 30);
   // the release: the first frame drawn after the release step
   const i0 = fr.findIndex((f) => f.s >= release && f.st !== 'held');
@@ -271,11 +273,20 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
   for (let i = 1; i < fr.length; i++) {
     const a = fr[i - 1]!, b = fr[i]!;
     if (DESIGNED_JUMP.has(a.st) || DESIGNED_JUMP.has(b.st)) continue;
+    // (met a wall flat: the splat, a collision drawn as a cut to the spread figure face to the room, by design (the
+    // operator's 'wall'); counted apart, not against TURN)
+    if (a.st === 'fly' && b.st === 'wall') {
+      m.splatTurn = turned(a, b);
+      continue;
+    }
     // (per second of whichever clock moved more between the frames: the simulation's (the stage's time, where Patch
     // is) or the frame's own (the view's damped turns and spins run on it); a late frame can have little of one and
     // much of the other)
     const dt = Math.max(b.t - a.t, b.dt, 1 / 240);
-    const j = len(sub(sub(middle(b), simRef(b)), sub(middle(a), simRef(a)))) / dt;
+    // (where the simulation's own point jumps, a change of state with nothing to draw between (it came down and was
+    // put clear of a body, say), the drawn body's own speed is what counts: it should not jump with it)
+    const simJumped = b.prev === null && a.st !== b.st;
+    const j = (simJumped ? len(sub(middle(b), middle(a))) : len(sub(sub(middle(b), simRef(b)), sub(middle(a), simRef(a))))) / dt;
     const r = turned(a, b) / dt;
     if (j > m.jump) { m.jump = j; m.jumpAt = `${a.st}>${b.st} step ${b.s}`; }
     if (r > m.turn) { m.turn = r; m.turnAt = `${a.st}>${b.st} step ${b.s}`; }
