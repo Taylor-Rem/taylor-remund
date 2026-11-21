@@ -283,6 +283,8 @@ const pans = (page: Page): Promise<number> => page.evaluate(() => (window as any
 async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY | null = null, limit = 1800): Promise<Disc> {
   const f0 = await frameNo(page);
   let streak = 0;
+  let lastLook = -Infinity;
+  const looks: string[] = [];
   for (;;) {
     const r = await page.evaluate(
       ([id, kind, at]) => {
@@ -313,12 +315,24 @@ async function waitClear(page: Page, id: string, kind: 'mouse' | 'touch', at: XY
     // pressed once it has been plainly there for three looks running (a person waits for the robot to pass)
     streak = r.p ? streak + 1 : 0;
     if (r.p && streak >= 3) return r.p as Disc;
-    if ((await frameNo(page)) - f0 > limit) {
+    // what the crew is doing while it waits (for the failure's message: what stood in the way, and why)
+    const fr = (await frameNo(page)) - f0;
+    if (!r.p && fr - lastLook >= 120) {
+      lastLook = fr;
+      looks.push(await page.evaluate(() => {
+        const w = (window as any).__bench.ws.world;
+        const f = w.crew('fetch');
+        const rv = w.machine('revert-crew');
+        const h = w.holding?.();
+        return `step ${w.step}: fetch ${f.state}${f.carrying ? `+${f.carrying}` : ''} (${w.motion('fetch').mode}) at ${f.x.toFixed(2)},${f.z.toFixed(2)}; revert ${rv?.state ?? '-'}; held ${h?.id ?? '-'}; play ${w.playMode}`;
+      }));
+    }
+    if (fr > limit) {
       const at = await page.evaluate((id) => {
         const w = (window as any).__bench.ws.world;
         return JSON.stringify({ at: w.part?.(id)?.location ?? null, p: w.motion(id)?.pose.p.map((n: number) => +n.toFixed(2)), mode: w.motion(id)?.mode });
       }, id);
-      throw new Error(`${id} never came clear in ${limit} frames (${r.why}; it is ${at})`);
+      throw new Error(`${id} never came clear in ${limit} frames (${r.why}; it is ${at}); while it waited: ${looks.join(' | ')}`);
     }
     await page.waitForTimeout(40);
   }
@@ -945,7 +959,10 @@ async function phoneCycles(page: Page, kind: 'mouse' | 'touch', n: number): Prom
         await page.keyboard.press('Escape');
         seq.push('esc');
       } else {
-        const p2 = await page.evaluate(() => (window as any).__bench.ws.surface.screen('phone') as XY);
+        // the phone again, where it can be seen: a press made blind at its middle (until 2026-11-21) now and then landed
+        // on Fetch rolling past and picked it up, and Fetch then hung on the pointer over the phone for good (the
+        // waits below never press while something covers it)
+        const p2 = await waitClear(page, 'phone', kind);
         await press(p2);
         seq.push('phone');
       }
