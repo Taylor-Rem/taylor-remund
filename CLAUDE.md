@@ -31,7 +31,8 @@ in the same commit.
 ## Stack
 
 Astro (static output, directory URLs) · TypeScript · Three.js used
-directly (`WebGLRenderer`) · Rapier for loose parts only · Vitest ·
+directly (`WebGLRenderer`) · Rapier for loose parts only (the crew are loose parts while
+held or thrown) · Vitest ·
 Playwright · `shot` for page audits. Runtime dependencies are exactly two:
 `three` and `@dimforge/rapier3d` (the plain package: Vite serves its
 `.wasm` as a separate file that loads in parallel, § E6). Versions are
