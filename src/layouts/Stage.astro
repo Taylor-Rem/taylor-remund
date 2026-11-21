@@ -1,16 +1,61 @@
 ---
-// The home page layout (REWRITE.md § B7, § E6): the strip and the paperwork in
-// plain HTML, and the element the 3D stage will mount into. Placeholder for
-// P0: no stage script, no styling yet.
+// The home page's layout (REWRITE.md § B3, § B6, § B7, § E6, § E7, § E9; P3 B1).
+//
+// Before JavaScript, and for a browser that will never run the stage, this is
+// a plain document that scrolls: a link to the paperwork (the first thing focus
+// lands on), the strip (who he is, the four links, Read), the still picture of
+// the bench, the paperwork (the page's own content: <main id="paperwork">), and
+// the legal line. The strip lies over the top of the picture, on the dark wall
+// above the sign.
+//
+// With the stage (the head's script decides before the first paint, so nothing
+// shifts; shell/tier.ts, shell/home-early.ts): the stage fills the viewport and
+// the page does not scroll; the strip lies over its top, the legal line over its
+// bottom; Read swaps the stage for the paperwork (ui/strip/strip.ts).
+//
+// The mode is a class on <html>: `stage-on` (the stage owns the screen),
+// `reading` (the paperwork instead of the stage), `still` (the plain document:
+// the Still tier, or after a failure, with the restart button over the picture).
+// No class at all: no JavaScript, the same plain document.
+//
+// Where later work mounts:
+//   slot "strip-end"   after Read and Sound in the strip: the settings control.
+//   slot "over-stage"  after the stage root, before the paperwork: the controls
+//                      list and its live region, the settings panel. Their script
+//                      reaches the running workshop with shell/home.ts `onWorkshop`.
+import StageHead from '../workshop/shell/StageHead.astro';
+import StagePicture from '../workshop/shell/StagePicture.astro';
+import { BENCH_POSTERS, BENCH_POSTER_FILES, BENCH_POSTER_DIR } from '../workshop/shell/bench-pictures.ts';
+import { STAGE_PRELOADS } from '../workshop/shell/stage-preloads.ts';
+import { FAILURES_KEY, quickStill } from '../workshop/shell/tier.ts';
+import { PAPERWORK_IDS } from '../workshop/ui/strip/strip.ts';
 import { site } from '../content/site.ts';
-import Footer from './Footer.astro';
 
 interface Props {
   title: string;
   description: string;
 }
 const { title, description } = Astro.props;
-const { strip } = site;
+const { strip, home } = site;
+const links = strip.links;
+
+// The head's decision, before the first paint (the same rule as shell/tier.ts `quickStill`, whose source is
+// run here): the Still tier when the address, data-saver, an earlier failure or a browser without WebGL 2 says
+// so; else the stage's layout from the first paint. An address that names the paperwork opens it.
+const headScript = `(function () {
+  var d = document.documentElement;
+  var q = new URLSearchParams(location.search);
+  var failures = 0;
+  try { failures = Number(sessionStorage.getItem(${JSON.stringify(FAILURES_KEY)})) || 0; } catch (e) {}
+  var c = navigator.connection;
+  var still = (${quickStill.toString()})({ override: q.get('tier'), saveData: !!(c && c.saveData), failures: failures, saved: null, hasWebgl2Api: typeof WebGL2RenderingContext !== 'undefined' });
+  if (still) { d.classList.remove('warming'); d.classList.add('still'); return; }
+  d.classList.add('stage-on');
+  var ids = ${JSON.stringify(PAPERWORK_IDS)};
+  var h = '';
+  try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {}
+  if (ids.indexOf(h) >= 0) d.classList.add('reading');
+})();`;
 ---
 <!doctype html>
 <html lang="en">
@@ -19,18 +64,155 @@ const { strip } = site;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href="https://taylorremund.com/" />
+    <StageHead posters={{ set: BENCH_POSTERS, files: BENCH_POSTER_FILES, dir: BENCH_POSTER_DIR }} />
+    <script is:inline set:html={headScript}></script>
+    <link rel="preload" href="/fonts/workshop-tape.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <style is:global>
+      /* The strip's face is the label tape's (public/fonts/README.txt: printable ASCII and é; no middle dot, so
+         the separators are drawn), under its own family name: the labels register "Workshop Tape" themselves. */
+      @font-face {
+        font-family: 'Strip Tape';
+        src: url('/fonts/workshop-tape.woff2') format('woff2');
+        font-weight: 600;
+        font-display: block;
+      }
+      :root {
+        color-scheme: dark;
+        /* the back wall in the shadow at the top of the picture, and the cream of the sign's letters */
+        --wall: #12292c;
+        --cream: #f2e6c9;
+        --cream-soft: #e3d6b8;
+        --gutter: 16px;
+      }
+      html, body { margin: 0; background: var(--wall); color: var(--cream); }
+      body { font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      a { color: inherit; }
+      :focus-visible { outline: 2px solid var(--cream); outline-offset: 3px; border-radius: 2px; }
+      .stage-root { background: var(--wall); }
+
+      /* ── the skip link: off screen until focused ── */
+      .skip {
+        position: absolute; left: var(--gutter); top: 8px; z-index: 40;
+        padding: 8px 12px; background: var(--wall); color: var(--cream);
+        font: 600 15px/22px 'Strip Tape', system-ui, sans-serif; letter-spacing: 0.03em;
+        transform: translateY(-300%);
+      }
+      .skip:focus { transform: none; }
+
+      /* ── the strip: one quiet line of cream on the wall, over the top of the picture ── */
+      .strip {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 30;
+        display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: 28px;
+        padding: 6px var(--gutter) 0;
+        font: 600 15px/22px 'Strip Tape', system-ui, sans-serif; letter-spacing: 0.03em;
+        color: var(--cream);
+        pointer-events: none; /* the stage under the gaps stays the stage's */
+      }
+      .strip a, .strip button, .strip .ways > * { pointer-events: auto; }
+      .who { margin: 0; font: inherit; }
+      .who > span { white-space: nowrap; }
+      .sep::before {
+        content: ''; display: inline-block; width: 3px; height: 3px; margin: 0 0.55em; border-radius: 50%;
+        background: currentColor; vertical-align: 0.3em; opacity: 0.8;
+      }
+      .ways { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 18px; }
+      .ways ul { display: contents; }
+      .ways li { list-style: none; }
+      .ways a, .ways button {
+        display: inline-block; min-height: 24px; padding: 1px 0;
+        color: var(--cream-soft); text-decoration: none; border-bottom: 1px solid transparent;
+      }
+      .ways a:hover, .ways button:hover { color: var(--cream); border-bottom-color: currentColor; }
+      .ways button {
+        font: inherit; letter-spacing: inherit; background: none; border-top: 0; border-left: 0; border-right: 0;
+        margin: 0; cursor: pointer;
+      }
+      /* sound: a small lamp before the word, lit while the sound is on */
+      .sound::before {
+        content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%;
+        border: 1.5px solid currentColor; box-sizing: border-box; vertical-align: 0.08em;
+      }
+      .sound[aria-pressed='true']::before { background: currentColor; }
+      /* Read, the way back and the sound are the stage's: without it, Read is a link to the text below */
+      .back, .sound { display: none !important; }
+      html.stage-on .sound { display: inline-block !important; }
+      html.stage-on.reading .back { display: inline-block !important; }
+      html.stage-on.reading .read { display: none; }
+      @media (pointer: coarse) {
+        /* touch: every target at least 44 px, the line itself unchanged */
+        .ways a, .ways button { min-height: 44px; display: inline-flex; align-items: center; margin: -11px 0; }
+        html.stage-on .sound, html.stage-on.reading .back { display: inline-flex !important; }
+      }
+      /* a phone held upright: the name line on two lines, the links in a row under it */
+      @media (max-width: 640px) {
+        .strip { display: block; padding-top: 10px; font-size: 15px; }
+        .who { margin-bottom: 4px; }
+        .who .role::after { content: ''; display: block; }
+        .who .line .sep { display: none; }
+        .ways { column-gap: 16px; }
+      }
+
+      /* ── the picture, in the plain document: the first screen ── */
+      html:not(.stage-on) .stage-root { position: relative; inset: auto; height: 100vh; height: 100svh; }
+      .stage-note {
+        position: absolute; left: 0; right: 0; bottom: 18%; z-index: 5; display: flex; justify-content: center;
+      }
+      .stage-note[hidden] { display: none; }
+      .restart {
+        font: 600 16px/22px 'Strip Tape', system-ui, sans-serif; letter-spacing: 0.04em;
+        color: var(--cream); background: var(--wall); border: 1.5px solid var(--cream-soft); border-radius: 3px;
+        padding: 10px 18px; min-height: 44px; cursor: pointer;
+      }
+      .restart:hover { background: #1b3a3d; }
+
+      /* ── the paperwork: plain and semantic; its type comes later from the plain pages' stylesheet ── */
+      #paperwork { max-width: 42rem; margin: 0 auto; padding: 40px var(--gutter) 64px; }
+      #paperwork h2 { font-size: 1.5rem; line-height: 1.25; margin: 2.5rem 0 0.75rem; }
+      #paperwork section { scroll-margin-top: 16px; }
+
+      /* ── the legal line ── */
+      .legal { padding: 16px var(--gutter) 24px; font: 13px/20px system-ui, sans-serif; color: var(--cream-soft); }
+      .legal p { margin: 0; display: flex; gap: 16px; }
+      .legal a { color: inherit; display: inline-block; min-height: 24px; }
+      @media (pointer: coarse) { .legal a { min-height: 44px; display: inline-flex; align-items: center; } }
+
+      /* ── with the stage: it owns the screen, the page does not scroll ── */
+      html.stage-on:not(.reading), html.stage-on:not(.reading) body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+      html.stage-on .strip { position: fixed; }
+      html.stage-on:not(.reading) #paperwork { visibility: hidden; }
+      html.stage-on:not(.reading) .legal { position: fixed; right: 0; bottom: 0; z-index: 30; padding: 0 var(--gutter) 6px; pointer-events: none; }
+      html.stage-on:not(.reading) .legal a { pointer-events: auto; }
+      /* reading: the paperwork is the page; the stage is hidden (and stopped: shell/home.ts) */
+      html.stage-on.reading .stage-root { visibility: hidden; }
+      html.stage-on.reading .strip { position: relative; padding-bottom: 8px; }
+    </style>
   </head>
   <body>
+    <a class="skip" href="#paperwork">{home.skip.text}</a>
     <header class="strip">
-      <p><a href="/">{strip.name.text}</a> &middot; {strip.role.text} &middot; {strip.line.text}</p>
-      <nav aria-label="Links">
-        <ul>
-          {strip.links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
-        </ul>
-      </nav>
+      <h1 class="who"><span class="name">{strip.name.text}</span><span class="role"><span class="sep" aria-hidden="true"></span>{strip.role.text}</span><span class="line"><span class="sep" aria-hidden="true"></span>{strip.line.text}</span></h1>
+      <div class="ways">
+        <nav aria-label={home.links.text}>
+          <ul>{links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}</ul>
+        </nav>
+        <a class="read" href="#paperwork">{home.read.text}</a>
+        <a class="back" href="./">{home.back.text}</a>
+        <button class="sound" type="button" aria-pressed="true">{home.sound.text}</button>
+        <slot name="strip-end" />
+      </div>
     </header>
-    <div id="stage"></div>
+    <StagePicture set={BENCH_POSTERS} files={BENCH_POSTER_FILES} dir={BENCH_POSTER_DIR}>
+      <div class="stage-note" hidden><button class="restart" type="button">{home.restart.text}</button></div>
+    </StagePicture>
+    <template id="stage-preloads">{STAGE_PRELOADS.map((p) => <link rel="preload" href={p.href} as={p.as ?? 'fetch'} type={p.type} crossorigin="anonymous" fetchpriority={p.priority ?? 'auto'} />)}</template>
+    <slot name="over-stage" />
     <slot />
-    <Footer />
+    <footer class="legal">
+      <p>{site.footer.links.map((link) => <a href={link.href}>{link.text}</a>)}</p>
+    </footer>
+    <script>
+      import '../workshop/shell/home-early.ts';
+    </script>
   </body>
 </html>
