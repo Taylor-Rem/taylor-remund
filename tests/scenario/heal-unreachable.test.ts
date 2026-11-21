@@ -31,7 +31,7 @@ function laidOut(at: Record<string, Vec3>): SceneDesc {
       return q ? { ...p, pose: { p: q, q: [0, 0, 0, 1] as const }, shipped: false } : { ...p, shipped: true };
     }),
     runner: { ...FULL_BENCH.runner, carrying: undefined },
-  } as SceneDesc;
+  } as unknown as SceneDesc;
 }
 async function setOut(seed: string, at: Record<string, Vec3>, handled: readonly Id[]): Promise<{ w: World; t: Tape }> {
   const w = await benchWorld(seed, { scene: laidOut(at) });
