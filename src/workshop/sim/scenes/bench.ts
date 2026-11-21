@@ -475,6 +475,8 @@ export const PATCHLAMP = (() => {
       shelf: AT.keyshelf,
       lever: [AT.undo.c[0], AT.undo.c[1] + AT.undo.half[1], AT.undo.c[2]] as Vec3,
       visitor: [0.6, 2.4, 14] as Vec3,
+      /** The stage's eye, as a way: up toward the visitor by the camera's pitch (33°: view/stage/camera.ts `CameraRig`). */
+      sight: [0, Math.sin((33 * Math.PI) / 180), Math.cos((33 * Math.PI) / 180)] as Vec3,
       phone: AT.phone.c,
     },
   };

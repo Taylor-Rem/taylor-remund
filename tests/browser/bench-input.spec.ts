@@ -1444,12 +1444,19 @@ test('R4: throwing the crew by mouse: Fetch across open bench is upright at its 
 
 /**
  * R4 (Taylor: "When you throw Patch, his 'grab' box stays on his stool, so if you try to grab him again before he
- * reaches his stool it doesn't work"): Patch flicked off its stool is taken again where it is: by mouse while it sits
- * after landing and while it walks home, by touch at the phone framing while it walks. The glove opens over Patch
- * wherever it is, not over the empty stool. Pressed where the simulation has Patch (its middle, projected), not where
- * its target says it is; `world.holding()` is Patch at each grab.
+ * reaches his stool it doesn't work"); § B5: "Wherever it is, it can be taken hold of". Patch thrown off its stool
+ * as a hand throws it (pressed, held a moment so the grab lands, flicked front-left) is taken again where it is: by
+ * mouse while it is down after landing and while it walks home, by touch at the phone framing while it walks.
+ *
+ * Patch is alive, so the test never judges a press by a look taken a round trip before it. The page judges each
+ * press itself, at the instant of the press: a capture-phase `pointerdown` listener records what the input's own pick
+ * (`surface.at`) says is under that very event, Patch's state then, the glove (hover), and, a few frames later,
+ * whether the world's hand has Patch. The assertions are about those facts, recorded together: (i) every press the
+ * page judged to be ON Patch took Patch; (ii) before it is seated again there was at least one such press in each
+ * case, in the case's states (a press that missed because Patch had moved, or Fetch passed in front, is pressed again,
+ * as a visitor clicks again; it is not a failure); (iii) the empty stool is not Patch while Patch is elsewhere.
  */
-test('R4: Patch thrown is taken again where it is: sitting after landing and walking home by mouse, walking home by touch', async ({ page }) => {
+test('R4: Patch thrown is taken again where it is: down after landing and walking home by mouse, walking home by touch', async ({ page }) => {
   test.setTimeout(6 * 60_000);
   const W = () =>
     page.evaluate(() => {
@@ -1464,18 +1471,36 @@ test('R4: Patch thrown is taken again where it is: sitting after landing and wal
     const lift = v.state === 'fly' || v.state === 'held' ? 0 : 0.3;
     return { ...(await project([v.at[0]!, v.at[1]! + lift, v.at[2]!])), state: v.state };
   };
-  /** What the pointer would take at a point (the input's own pick). */
-  const under = (q: XY, kind: 'mouse' | 'touch') => page.evaluate(([q, kind]) => (window as any).__bench.ws.surface.at(q.x, q.y, kind, null).id as string | null, [q, kind] as const);
-  /** I1's cadence (CDP events every 10 ms): pressed at `s`, moved `dx, dy` px over `ms`, let go (after a stillness, if `still`). */
-  const flick = async (cdp: CDPSession, kind: 'mouse' | 'touch', s: XY, dx: number, dy: number, ms: number, still = false, holdMs = 120) => {
+  type Press = { n: number; kind: string; x: number; y: number; id: string | null; state: string; hover: string | null; busy: string | null; took: boolean | null };
+  /** The presses the page has judged so far (each settled: `took` known). */
+  const presses = async (): Promise<Press[]> => {
+    await page.waitForFunction(() => ((window as any).__r4presses as Press[]).every((p) => p.took !== null), null, { timeout: 0, polling: 50 });
+    return page.evaluate(() => (window as any).__r4presses as Press[]);
+  };
+  const say = (p: Press) => `#${p.n} ${p.kind} at ${Math.round(p.x)},${Math.round(p.y)}: ${p.id ?? 'nothing'} (Patch ${p.state}${p.hover !== null ? `, glove over ${p.hover}` : ''}${p.busy ? `, the hand already holding ${p.busy}` : ''}) took Patch ${p.took}`;
+  /** I1's cadence (CDP events every 10 ms): pressed at `s`, held `holdMs` (the grab lands), moved `dx, dy` px over `ms`, let go (after a stillness, if `still`). */
+  const flick = async (cdp: CDPSession, kind: 'mouse' | 'touch', s: XY, dx: number, dy: number, ms: number, still = false, holdMs = 120, keep: (() => Promise<boolean>) | null = null) => {
     const mouse = (type: string, q: XY, buttons: number) => cdp.send('Input.dispatchMouseEvent', { type, x: q.x, y: q.y, button: 'left', buttons, clickCount: 1 } as any);
     const touch = (type: string, q: XY | null) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: q ? [{ x: q.x, y: q.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] : [] } as any);
-    if (kind === 'mouse') {
-      await page.mouse.move(s.x, s.y);
-      await frames(page, 2);
-      await mouse('mousePressed', s, 1);
-    }
+    if (kind === 'mouse') await mouse('mousePressed', s, 1);
     else await touch('touchStart', s);
+    // (a press that took something else is let go soon, as a hand lets go of the wrong thing: after a little drag,
+    // so that it is not a tap, which would keep the thing in the hand until the next press)
+    if (keep && !(await keep())) {
+      for (let k = 1; k <= 3; k++) {
+        await new Promise((r) => setTimeout(r, 10));
+        const q = { x: s.x + (dx * k) / 3, y: s.y + (dy * k) / 3 };
+        if (kind === 'mouse') await mouse('mouseMoved', q, 1);
+        else await touch('touchMove', q);
+      }
+      if (kind === 'mouse') await mouse('mouseReleased', { x: s.x + dx, y: s.y + dy }, 0);
+      else await touch('touchEnd', null);
+      await frames(page, 2);
+      return;
+    }
+    // the hold: a hand's moment before the flick, and at least a frame, so the grab has landed before the hand moves
+    await page.waitForTimeout(holdMs);
+    await frames(page, 1);
     const n = Math.max(2, Math.round(ms / 10));
     for (let k = 1; k <= n; k++) {
       await new Promise((r) => setTimeout(r, 10));
@@ -1492,59 +1517,116 @@ test('R4: Patch thrown is taken again where it is: sitting after landing and wal
     const cdp = await page.context().newCDPSession(page);
     await pollFrames(page, async () => (await W()).state, 1800, 'Patch on its stool').toBe('seated');
     if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), 'patch', 'touch');
-    // each time the world holds Patch in a hand (looked for every frame while the hand is down)
+    // the page's judge of every press, at the press
     await page.evaluate(() => {
-      const w = (window as any).__bench.ws.world;
-      (window as any).__r4takes = 0;
-      let was = false;
-      const look = () => {
-        const now = w.holding()?.id === 'patch';
-        if (now && !was) (window as any).__r4takes++;
-        was = now;
-        requestAnimationFrame(look);
+      const Wn = window as any;
+      const ws = Wn.__bench.ws;
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      Wn.__r4presses = [];
+      // the glove: what it was open over in any frame since the pointer last moved (it is redrawn each frame, so at
+      // the press it can be a frame behind the pick)
+      Wn.__r4gloved = new Set<string>();
+      addEventListener('pointermove', () => Wn.__r4gloved.clear(), { capture: true });
+      const glove = () => {
+        const h = ws.gestures.hover;
+        if (h) Wn.__r4gloved.add(h);
+        requestAnimationFrame(glove);
       };
-      look();
+      requestAnimationFrame(glove);
+      addEventListener(
+        'pointerdown',
+        (e: PointerEvent) => {
+          const r = canvas.getBoundingClientRect();
+          const kind = e.pointerType === 'touch' ? 'touch' : 'mouse';
+          const rec = { n: Wn.__r4presses.length + 1, kind, x: e.clientX - r.left, y: e.clientY - r.top, id: ws.surface.at(e.clientX - r.left, e.clientY - r.top, kind, null).id, state: ws.world.crewView('patch').view.state, hover: kind === 'mouse' ? (Wn.__r4gloved.has('patch') ? 'patch' : ws.gestures.hover) : null, busy: ws.world.holding()?.id ?? null, took: null as boolean | null };
+          Wn.__r4presses.push(rec);
+          // a few frames later (inside the hold): has the world's hand got Patch?
+          let k = 0;
+          const look = () => {
+            if (++k < 4) requestAnimationFrame(look);
+            else rec.took = ws.world.holding()?.id === 'patch';
+          };
+          requestAnimationFrame(look);
+        },
+        { capture: true },
+      );
     });
-    const takes = () => page.evaluate(() => (window as any).__r4takes as number);
+    /**
+     * Where a visitor would press Patch, the first frame Patch is in one of `states` and some of it shows: a point of
+     * its disc on screen (the page's own, `surface.screen`) that the input's pick says is Patch, its middle first (Fetch
+     * may stand in front of part of it, as a visitor sees). `home` once it is climbing or seated.
+     */
+    const placeWhen = (states: string[], kind: 'mouse' | 'touch') =>
+      page
+        .waitForFunction(
+          ([states, kind]) => {
+            const ws = (window as any).__bench.ws;
+            const st = ws.world.crewView('patch').view.state as string;
+            if (st === 'climb' || st === 'seated') return { home: true };
+            const d = ws.surface.screen('patch');
+            if (!states.includes(st) || !d) return null;
+            for (const [u, v] of [[0, 0], [0, -0.3], [0, 0.3], [-0.3, 0], [0.3, 0], [-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3], [0, -0.55], [0, 0.55]] as const) {
+              const q = { x: d.x + u * d.r, y: d.y + v * d.r };
+              if (ws.surface.at(q.x, q.y, kind, null).id === 'patch') return { home: false, ...q };
+            }
+            return null;
+          },
+          [states, kind] as const,
+          { timeout: 0, polling: 'raf' },
+        )
+        .then((h) => h.jsonValue() as Promise<{ home: true } | { home: false; x: number; y: number }>);
     const throwIt = async (): Promise<XY> => {
-      const seat = await middle();
-      expect(await under(seat, kind), 'Patch on its stool is the target').toBe('patch');
-      const n = await takes();
-      // front-left on screen, a short sharp flick (I1's crew throw), after a moment's hold so the grab lands first
-      await flick(cdp, kind, seat, -70, 70, 100, false, 120);
-      expect(await takes(), 'Patch taken off its stool').toBe(n + 1);
+      const seat = (await screenOf(page, 'patch'))!;
+      const from = (await presses()).length;
+      // front-left on screen, a short sharp flick (I1's crew throw), after the hold; pressed again if the press was
+      // not on Patch (Fetch passing in front of its stool)
+      for (let tries = 0; tries < 5; tries++) {
+        if (kind === 'mouse') {
+          await page.mouse.move(seat.x, seat.y);
+          await frames(page, 2);
+        }
+        await flick(cdp, kind, seat, -70, 70, 100);
+        if ((await presses()).slice(from).some((p) => p.id === 'patch')) break;
+        await frames(page, 30);
+      }
+      const p = (await presses()).slice(from).filter((p) => p.id === 'patch');
+      expect(p.map(say), 'Patch on its stool is pressed').toHaveLength(1);
+      expect(p[0]!.took, `and taken off it: ${say(p[0]!)}`).toBe(true);
       await pollFrames(page, async () => (await W()).state !== 'held', 120).toBe(true);
       return seat;
     };
-    /** Taken again where it is now, in one of `states`: the glove over it first (mouse), then the press. */
+    /** Pressed where the page draws Patch, while it is in one of `states`, until a press is judged on it (or it is home). */
     const takeAgain = async (states: string[], what: string) => {
-      await pollFrames(page, async () => states.includes((await W()).state), 1800, `Patch ${what}`).toBe(true);
-      // pressed while the point is plainly Patch's (Fetch may pass in front)
-      let q: XY | null = null;
-      for (let k = 0; k < 240 && !q; k++) {
-        const m = await middle();
-        if (!states.includes(m.state)) break;
-        if ((await under(m, kind)) === 'patch') q = m;
-        else await frames(page, 1);
+      const from = (await presses()).length;
+      for (let tries = 0; tries < 20; tries++) {
+        const at = await placeWhen(states, kind);
+        if (at.home) break;
+        if (kind === 'mouse') {
+          await page.mouse.move(at.x, at.y);
+          await frames(page, 1);
+        }
+        await flick(cdp, kind, at, 0, -12, 60, true, 120, () => page.evaluate(() => { const p = ((window as any).__r4presses as Press[]).at(-1); return p?.id === 'patch' && !p.busy; }));
+        const mine = (await presses()).slice(from);
+        if (mine.some((p) => p.id === 'patch' && !p.busy)) break;
+        // missed (Patch moved, or something passed in front): a visitor clicks again
       }
-      const v = await W();
-      expect(q, `Patch ${what} (${v.state} at ${JSON.stringify(v.at.map((x) => +x.toFixed(2)))}) is the target at its own middle`).not.toBeNull();
-      if (kind === 'mouse') {
-        await page.mouse.move(q!.x, q!.y);
-        await frames(page, 2);
-        expect(await hovered(page), `the glove opens over Patch ${what}`).toBe('patch');
-      }
-      const n = await takes();
-      await flick(cdp, kind, q!, 0, -12, 60, true);
-      expect(await takes(), `the world took Patch ${what}`).toBe(n + 1);
+      const mine = (await presses()).slice(from);
+      console.log(`[I1] R4 take again ${what}: ${mine.map(say).join('; ')}`);
+      // (a press while the hand already holds something is not a take: it carries or sets down what it holds)
+      const on = mine.filter((p) => p.id === 'patch' && !p.busy);
+      // (i) every press the page judged on Patch took Patch
+      for (const p of on) expect(p.took, `the press on Patch ${what} took it: ${say(p)}`).toBe(true);
+      // (ii) at least one, while it was in the case's states, before it was home
+      expect(on.filter((p) => states.includes(p.state)).map(say), `a press on Patch ${what} before it was home (${mine.map(say).join('; ') || 'no press'})`).not.toHaveLength(0);
+      if (kind === 'mouse') expect(on.some((p) => p.hover === 'patch'), `the glove was open over Patch ${what} at a press on it`).toBe(true);
     };
     if (kind === 'mouse') {
       await throwIt();
-      await takeAgain(['shake', 'look'], 'sitting after landing');
+      await takeAgain(['land', 'shake', 'look'], 'down after landing');
       await pollFrames(page, async () => (await W()).state, 3600, 'Patch back on its stool').toBe('seated');
       const seat = await throwIt();
       await pollFrames(page, async () => (await W()).state === 'walk', 1800, 'Patch walking home').toBe(true);
-      // the empty stool is not Patch while Patch is elsewhere
+      // (iii) the empty stool is not Patch while Patch is elsewhere
       const m = await middle();
       if (Math.hypot(m.x - seat.x, m.y - seat.y) > 80) {
         await page.mouse.move(seat.x, seat.y);

@@ -16,7 +16,8 @@ import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo } from './fetch-knock.ts';
 import { legClear, route } from './fetch-route.ts';
 import type { SceneDesc } from '../scene.ts';
-import { yawOf } from '../math.ts';
+import { qconj, rotate, yawOf } from '../math.ts';
+import type { Quat, Vec3 } from '../types.ts';
 import type { Pt } from './fetch-route.ts';
 
 export const PATCH_ROUTE = {
@@ -186,6 +187,35 @@ export function sphereMeets(o: Solid, x: number, y: number, z: number, r: number
   const dy = Math.max(0, o.y0 - y, y - o.y1);
   const d = distanceTo(o, x, z);
   return d * d + dy * dy < r * r;
+}
+
+/** A box anywhere, turned any way (a loose part's: its middle, its turn, its half extents in its own frame). */
+export interface Box {
+  readonly c: Vec3;
+  readonly q: Quat;
+  readonly half: Vec3;
+}
+
+/** Does the straight segment from `a` to `b` pass through a box grown by `margin` on every side? (In the box's own frame, slab by slab.) */
+export function segmentMeetsBox(a: Vec3, b: Vec3, box: Box, margin = 0): boolean {
+  const inv = qconj(box.q);
+  const p = rotate(inv, [a[0] - box.c[0], a[1] - box.c[1], a[2] - box.c[2]]);
+  const e = rotate(inv, [b[0] - box.c[0], b[1] - box.c[1], b[2] - box.c[2]]);
+  let t0 = 0, t1 = 1;
+  for (let i = 0; i < 3; i++) {
+    const h = (box.half[i] as number) + margin;
+    const s = p[i] as number, d = (e[i] as number) - s;
+    if (Math.abs(d) < 1e-12) {
+      if (s < -h || s > h) return false;
+      continue;
+    }
+    let u = (-h - s) / d, v = (h - s) / d;
+    if (u > v) [u, v] = [v, u];
+    t0 = Math.max(t0, u);
+    t1 = Math.min(t1, v);
+    if (t0 > t1) return false;
+  }
+  return true;
 }
 
 /** The way off a body's top from (x, z): out by its nearer side (unit, world x and z). */
