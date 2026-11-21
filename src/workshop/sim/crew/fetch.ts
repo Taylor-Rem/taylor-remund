@@ -100,6 +100,8 @@ export const FETCH_TUNING = {
   fumbleRecover: 0.7,
   /** In the offer: looks at the crate this long, then out at the visitor. */
   offerLook: 0.9,
+  /** Knocked by a thrown Patch: after its slide it looks at Patch this long (s) before it goes back to work. */
+  patchLook: 0.7,
   /** Ignored this long, it fetches the crate back (§ B3). */
   /** R1 (Taylor, 2026-11-19: "it just takes him too long to get back to things"): 5 s, was 12. */
   ignoredFor: 5,
@@ -499,7 +501,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   /** The visitor did its job for it this step: salute at the next. */
   let saluteDue = false;
   /** The knock in progress, with where it started. */
-  let knock: (FetchKnock & { x0: number; z0: number; h0: number; dx: number; dz: number }) | null = null;
+  let knock: (FetchKnock & { x0: number; z0: number; h0: number; dx: number; dz: number; byPatch: boolean }) | null = null;
   /** A hit heard this step, acted on at the next (`heard` never acts). */
   let hit: { by: Id; strength: Strength | 'nudge'; dirX: number; dirZ: number; speed: number; mass: number; spinSign: number } | null = null;
   /** A part to give back a toy's bounce to, at the next step. */
@@ -1204,7 +1206,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     armBack = null;
     hands = null;
     v = 0;
-    knock = { by: h.by, strength: st, dir: Math.atan2(h.dirX, h.dirZ), distance: run, spin, shove: K.shove[i] as number, wobble: K.wobble[i] as number, x0: x, z0: z, h0: heading, dx: h.dirX, dz: h.dirZ };
+    knock = { by: h.by, strength: st, dir: Math.atan2(h.dirX, h.dirZ), distance: run, spin, shove: K.shove[i] as number, wobble: K.wobble[i] as number, x0: x, z0: z, h0: heading, dx: h.dirX, dz: h.dirZ, byPatch: isPatch(h.by) };
     // the toy's bounce, at the next step
     const u = h.speed;
     bounce = { id: h.by, dv: toyBounce([h.dirX, 0, h.dirZ], u, h.mass, selfMass, (selfE + (MATERIAL[ctx.part(h.by)?.material ?? 'wood'].restitution ?? 0.2)) / 2) };
@@ -1279,6 +1281,22 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
   }
 
+  /**
+   * Patch, thrown, is its body (a part, as far as a knock knows): is `id` that body now? And where Patch is: its
+   * body's middle while it is in the world, else where its view has it. (REWRITE.md § B5: "A thrown Patch knocks it
+   * the same way... it drops what it carries, looks at Patch, and goes back to work". The look was keyed to a hit
+   * only the scripted flight announced, and was lost when Patch became a body, 2026-11-20; found by the test ported
+   * when the scripted flight was retired.)
+   */
+  function isPatch(id: Id): boolean {
+    const c = ctx.crewView('patch');
+    return c?.kind === 'patch' && c.view.body?.id === id;
+  }
+  function patchAt(): Vec3 | null {
+    const c = ctx.crewView('patch');
+    return c?.kind === 'patch' ? (c.view.body?.pose.p ?? c.view.at) : null;
+  }
+
   function knocked(): void {
     const kn = knock;
     if (!kn) {
@@ -1293,7 +1311,9 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     z = kn.z0 + kn.dz * kn.distance * e;
     heading = kn.h0 + kn.spin * e;
     v = f < 1 ? (kn.distance / kn.shove) * 3 * (1 - f) * (1 - f) : 0;
-    if (t >= kn.shove + kn.wobble) {
+    // knocked by a thrown Patch: once its slide is done it looks at Patch (not the visitor), a beat longer
+    if (kn.byPatch && f >= 1) lookAt = patchAt();
+    if (t >= kn.shove + kn.wobble + (kn.byPatch ? T.patchLook : 0)) {
       heading = wrap(heading);
       knock = null;
       s = nearest(x, z);
