@@ -96,12 +96,13 @@ const BODY_TURN = 0.05;
  * middle: across the bench (world units; nothing moves it sideways, so this is slack), and above it: the whole figure
  * is lifted by what its lowest drawn part needs to stay above the bench top (ground.ts). The body's box is the core of
  * its trunk only (0.24 to 0.34 from its middle); the felt trunk is 0.36 from its axis, and the head and ears stand
- * 0.9 to 1.1 from its middle. So lying on its side it is drawn about 0.1 above where the box lies, and as it rolls over
- * its head on the bench it rides up to 0.75 above it (measured 0.45 to 0.72), which reads as rolling over its head. In
- * the air, clear of the bench, this is 0. Never below it.
+ * 0.9 to 1.15 from its middle. So lying on its side it is drawn about 0.1 above where the box lies, and as it rolls
+ * over its head on the bench it rides up above it by what the head and the ears need (measured over 25 throws: 0.31
+ * to 0.91), which reads as rolling over its head but is the figure off its body by that much. In the air, clear of
+ * the bench, this is 0. Never below it.
  */
 const BODY_LEVEL = 0.05;
-const BODY_LIFT = 0.8;
+const BODY_LIFT = 1.0;
 /**
  * The grab is the body Patch's one named takeover in these throws: its body comes into the world where the script
  * had Patch sat, about where it is drawn, and what the figure is off by is let go of over OPERATOR_FEEL.bodyGrab

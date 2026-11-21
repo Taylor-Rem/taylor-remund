@@ -204,8 +204,9 @@ export function gettingUp(t: number, o: GetUpOptions): { pose: PatchPose; place:
       place = mixPlace(o.lie, placeOf(f.body), tip * tip);
       limbs = mixPose(resolvePose(o.limbs), resolvePose(f), smoothstep(0, 1, tip));
     } else {
-      // up in one push: quick off the bench, easing into the sit (a little past upright and back)
-      const e = 1 - (1 - u) ** 3;
+      // up in one push: quick off the bench, easing into the sit (a little past upright and back). Never faster at
+      // its start than twice its mean: from flat on its head, half a turn in the 0.4 s it is given, that is 16 rad/s
+      const e = 1 - (1 - u) ** 2;
       const over = Math.sin(Math.PI * u) * 0.06 * (1 - u);
       place = pitched(mixPlace(o.lie, placeOf(s.body), e), over);
       limbs = mixPose(resolvePose(o.limbs), resolvePose(s), smoothstep(0.05, 0.85, u));
