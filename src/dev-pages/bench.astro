@@ -15,9 +15,6 @@
 //   ?room=0            without the room (P1's bench top and 21-wide wall, the stage's fall-off)
 //   ?shot=left|right   panned as far as a visitor can to each end at the home zoom
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
-//   ?patch=script      the scripted Patch (sim scene `benchScript`: its flight is hand-written, sim/crew/patch.ts), for
-//                      comparing; without it (or ?patch=body) the bench's Patch: a real physics body while it is held
-//                      and thrown (sim scene `bench`, which is `benchBody`; sim/crew/patch-body.ts).
 //
 // Picture first (B1, REWRITE.md § B3, § E6): by default the page starts from
 // the bench's still picture (src/dev-pages/bench/, rendered from this page by
@@ -94,7 +91,7 @@ const preload = [
       import { LOOK } from '../workshop/view/stage/index.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
       import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
-      import { bench as BENCH, benchScript as BENCH_SCRIPT, benchBody as BENCH_BODY } from '../workshop/sim/scenes/bench.ts';
+      import { bench as BENCH } from '../workshop/sim/scenes/bench.ts';
       import { loadBench, homeBox, homeEdge, FRAMING, LAYOUT, spotBox, type Spot, type StationKey } from '../workshop/view/bench.ts';
       import { staticBox } from '../workshop/view/vignette.ts';
       import { lanePath } from '../workshop/sim/path.ts';
@@ -102,8 +99,6 @@ const preload = [
       import type { View } from '../workshop/view/stage/camera.ts';
 
       const q = new URLSearchParams(location.search);
-      // ?patch=script: the scripted Patch; ?patch=body: the body Patch; neither: the bench's own (the body Patch)
-      const BENCH_SCENE = q.get('patch') === 'script' ? BENCH_SCRIPT : q.get('patch') === 'body' ? BENCH_BODY : BENCH;
       const tier = q.get('tier') === 'low' ? 'low' : 'high';
       const manual = q.get('manual') === '1';
       const seed = Number(q.get('seed') ?? 1);
@@ -147,7 +142,7 @@ const preload = [
       // the scene's loading is the loader's first phase (its progress warms the picture)
       let bench!: Awaited<ReturnType<typeof loadBench>>;
       const prepare = async (): Promise<void> => {
-        bench = await loadBench({ scene: BENCH_SCENE, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}), ...(seat !== undefined ? { seat } : {}) });
+        bench = await loadBench({ scene: BENCH, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}), ...(seat !== undefined ? { seat } : {}) });
       };
       if (direct) await prepare();
       const portrait = (): boolean => !plan && (q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight));

@@ -1,13 +1,14 @@
 /**
- * Patch with a real body while it is held and thrown (prototype, 2026-11-20; `PatchSpec.flight: 'body'`).
+ * Patch with a real body while it is held and thrown (2026-11-20; `PatchSpec.bodyPart`).
  *
  * Taylor, 2026-11-20: "Patch should feel fun and physically convincing, retain momentum when thrown, interact
  * naturally with the environment, and always be able to recover and return to his stool ... prototype using a real
  * physics body for Patch while he's being thrown, tumbling, and interacting with the environment, with scripted
- * behavior taking over when appropriate for recovery." It is the pattern Fetch and Revert already follow.
+ * behavior taking over when appropriate for recovery." It is the pattern Fetch and Revert already follow. Taylor
+ * played it the same day and kept it; until 2026-11-21 a Patch whose flight was hand-written stood beside it.
  *
- * The scripted Patch (`patch.ts`) is untouched and is still everything Patch does on its stool, on its feet, at the
- * wall and on the ledge. This module wraps that unit (`embodyPatch`) and owns one window: from the hand taking hold
+ * The script (`patch.ts`) is everything Patch does on its stool, on its feet, at the wall and on the ledge. This
+ * module wraps that unit (`embodyPatch`, called by it as it is made) and owns one window: from the hand taking hold
  * to the script taking over again.
  *
  *   held    the world carries Patch's body (a `crewBody` part) exactly as it carries a held part: weight in the
@@ -17,7 +18,7 @@
  *           world offers a crew member's body to no machine: down on the running belt it is carried along it.)
  *   then the script takes over FROM WHERE AND HOW IT LIES (the body is stowed, its last pose kept for the view):
  *           it gets up there, or hops to the nearest place it can stand and walk home from; a shake, a look, the
- *           walk home (all the scripted Patch's own, their lengths scaled by how hard it came down).
+ *           walk home (all the script's own, their lengths scaled by how hard it came down).
  *
  * Recovery is the part that must never fail, so two things are this module's and not the script's: where it gets on
  * its feet is always a place it can walk home from (`haven`: the script's search, then wider, at last the foot of its
@@ -26,8 +27,8 @@
  *
  * The gags are reactions to what the engine did:
  *   the float   a throw that is nearly straight up lingers at its top: gravity is eased on the body near the apex by
- *               a weight that fades smoothly to nothing as the throw leans over (the one rule both Patches have:
- *               patch-float.ts). Its drift is untouched;
+ *               a weight that fades smoothly to nothing as the throw leans over (patch-float.ts). Its drift is
+ *               untouched;
  *   the wall    a tall fixed body met side-on, square and fast: flat against it a moment, then down it (the scripted
  *               `wall` state and its slide). A glancing or slow contact is the engine's bounce;
  *   the ledge   over an open edge low and slow it catches the edge (the scripted `ledge`, `haul`, `dust`), eased
@@ -125,10 +126,10 @@ export const PATCH_BODY_TUNING = {
 
   // ── the walk home, watched ──
   /**
-   * The walk home is the scripted Patch's, and it can wait: for a gap on the belt, for a crate where it would step
+   * The walk home is the script's, and it can wait: for a gap on the belt, for a crate where it would step
    * down, for the crew. Stood within `stuckRoom` of one spot for `stuck` seconds on its way, it stops waiting and
    * hops on toward its stool: `rescueHop` or more at a time, over whatever is in the way; at last onto the stool's
-   * foot itself. (The scripted Patch waits for as long as they stand there. Longer than the script's own last
+   * foot itself. (The script alone waits for as long as they stand there. Longer than the script's own last
    * step at the stool's foot, `PATCH_TUNING.lastStep`, so that is tried first.)
    */
   stuck: 6.5,
@@ -208,7 +209,7 @@ export const PATCH_BODY_SHAPE: {
 export type Ledge = { readonly edge: 'front' | 'left' | 'right'; readonly at: Vec3; readonly up: Vec3; readonly out: Vec3 };
 export type Landing = { readonly from: Vec3; readonly to: Vec3; readonly speed: number; readonly fall: number; readonly drop: boolean };
 
-/** What this module needs of the scripted Patch (closures over its own state; `patch.ts` makes it in one place). */
+/** What this module needs of the script (closures over its own state; `patch.ts` makes it in one place). */
 export interface PatchHost {
   readonly T: typeof PATCH_TUNING;
   state(): PatchState;
@@ -234,7 +235,7 @@ export interface PatchHost {
   inView(p: Vec3): boolean;
   /** The open edge a point is past, or null. */
   edgeFor(p: Vec3): Ledge | null;
-  /** Taken hold of: what the scripted Patch does about its job, its catch, its way (it ends in `held`). */
+  /** Taken hold of: what the script does about its job, its catch, its way (it ends in `held`). */
   grabbed(): void;
   /** What every step does whatever its state (the desk's hook, parts thrown at it, the line's quiet). */
   idle(): void;
@@ -297,10 +298,10 @@ function qmix(a: Quat, b: Quat, k: number): Quat {
   return qnormalize([lerp(a[0], b[0] * s, k), lerp(a[1], b[1] * s, k), lerp(a[2], b[2] * s, k), lerp(a[3], b[3] * s, k)]);
 }
 
-/** Wrap the scripted Patch `unit` so that it is held and thrown as a real body (`spec.bodyPart`). */
+/** Wrap Patch's script, `unit`, so that it is held and thrown as a real body (`spec.bodyPart`). */
 export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, host: PatchHost): void {
   const part = spec.bodyPart;
-  if (!part || ctx.mode(part) === undefined) throw new Error(`patch: flight 'body' needs its body part ("${part}") in the scene, as a crewBody`);
+  if (!part || ctx.mode(part) === undefined) throw new Error(`patch: its body part ("${part}") must be in the scene, as a crewBody`);
   const body: Id = part;
   const B = PATCH_BODY_TUNING;
   const T = host.T;
@@ -845,7 +846,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       for (const other of hits) {
         if (other !== null) {
           // a loose part or a robot, by real contact. Fetch answers a part that hits it itself (by momentum): no
-          // `patch.throw` hit for it, which would make it play its scripted Patch-knock as well
+          // `patch.throw` hit for it (one was the scripted Patch's, which Fetch answered with a knock of its own)
           if (a.met.has(other) || other === ctx.scene.runner.id || before < B.hitSpeed) continue;
           a.met.add(other);
           let txn = ctx.history.chargeMachine(body);
@@ -942,7 +943,6 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   }
 
   // ── the unit, wrapped ──
-  const intent0 = unit.intent?.bind(unit);
   const pre0 = unit.pre?.bind(unit) ?? ((): void => {});
   const post0 = unit.post?.bind(unit);
   const heard0 = unit.heard?.bind(unit);
@@ -950,7 +950,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   const view0 = unit.view.bind(unit);
 
   unit.intent = (intent: Intent): boolean => {
-    if (intent.type !== 'drag' || intent.id !== id) return intent0?.(intent) ?? false;
+    if (intent.type !== 'drag' || intent.id !== id) return false;
     if (ctx.bracketed || phase === 'away') return false; // (out of sight: nothing to take hold of)
     if (phase !== 'held') {
       // taken hold of: in the air its body simply becomes held where it is; from the script it comes into the world
@@ -1182,7 +1182,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     const held = m === 'held';
     const a = air;
     const vel = ctx.velocity(body)?.linvel ?? [0, 0, 0];
-    // (held, `at` is the hand as the scripted Patch has it: its middle hangs `hangBelow` under it)
+    // (held, `at` is the hand as the script has it: its middle hangs `hangBelow` under it)
     const sense = (p: Vec3): Vec3 => (held ? [p[0], p[1] + T.hangBelow, p[2]] : p);
     const at = sense(pose.p);
     return {

@@ -166,7 +166,7 @@ export class Score {
     this.cues.push({ id, gain: o.gain ?? 1, pan: o.pan ?? this.panOf(at ?? null), ...(o.rate !== undefined ? { rate: o.rate } : {}), ...(o.param !== undefined ? { param: o.param } : {}), ...(o.lowpass !== undefined ? { lowpass: o.lowpass } : {}) });
   }
 
-  /** Patch's own body part, if this Patch has one (null: the scripted Patch). */
+  /** Patch's own body part (null until its view has named it: the first time it is taken hold of). */
   private patchBody(w: WorldView): Id | null {
     const c = w.crewView('patch');
     const b = c && c.kind === 'patch' ? (c.view as PatchView).body : undefined;
