@@ -688,14 +688,15 @@ export const bench: SceneDesc = {
  *   0.06). What it hits moves by the contact: measured, a small crate standing on the bench goes on at a third to a
  *   half of the speed it was hit at (it is struck above its middle and tips as much as it slides). The scripted
  *   Patch gave a crate 0.8 of its own speed by rule.
- * - Felt, not rubber and not a brick: enough grip that it tumbles rather than slides (0.55; at 0.35 it lands and
- *   skids on its side like a box), a small bounce (0.25), a spin that it keeps for a second or so (0.8 a second; at
- *   3.5 its first touchdown stopped it turning and it then toppled about where it lay for a second more), and no drag
- *   from the air (a throw up keeps its drift). Thrown across the open bench at 10 it comes down after a quarter turn,
- *   goes on at 6, and tumbles on the way it was going, two turns in all, each bounce lower, for about a second and a
- *   half. Measured against a small crate thrown the same way (the means of four lanes;
+ * - Felt, not rubber and not a brick: enough grip that it tumbles rather than slides (0.6; at 0.35 it lands and skids
+ *   on its side like a box), next to no bounce of its own (0.05: what bounce it has is its tumbling over its own
+ *   edges), a spin that it keeps for a second or so (1.2 a second; at 3.5 its first touchdown stopped it turning and
+ *   it then toppled about where it lay for a second more), and no drag from the air (a throw up keeps its drift).
+ *   Thrown across the open bench at 10 it comes down after a quarter turn, goes on at 6, and tumbles on the way it
+ *   was going, each bounce lower, for a little over a second; at 14, the hardest throw, its first touchdown is a
+ *   vault a unit high. Measured against a small crate thrown the same way (the means of four lanes;
  *   tests/scenario/patch-body.test.ts prints them): at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2 units,
- *   Patch 4.0, 7.3 and 9.2.
+ *   Patch 4.2, 5.5 and 8.9.
  * - Material `paper` is for the things that read a part's material: what Fetch takes its weight to be when hit
  *   (its box as paper weighs 0.05; Fetch's own figure for Patch was 0.06) and the sound of a contact.
  */
@@ -713,7 +714,7 @@ export const PATCH_BODY: PartSpec = {
   half: [0.26, 0.34, 0.24],
   round: 0.12,
   mass: 0.08,
-  feel: { friction: 0.55, restitution: 0.25, linearDamping: 0, angularDamping: 0.8 },
+  feel: { friction: 0.6, restitution: 0.05, linearDamping: 0, angularDamping: 1.2 },
 };
 
 /**

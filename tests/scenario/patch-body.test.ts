@@ -913,7 +913,8 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     ['in the air, rising', (s) => s.state === 'fly' && s.v[1] > 2, OPEN, [3, 9, 0]],
     ['in the air, falling', (s) => s.state === 'fly' && s.v[1] < -3, OPEN, [3, 9, 0]],
     ['tumbling on the bench', (s, w) => s.state === 'fly' && s.mid[1] < 0.6 && s.speed > 1 && s.speed < 5 && w.step > 0, OPEN, [9, 0, 0]],
-    ['lying, just before it gets up', (s) => s.state === 'fly' && s.speed < 0.3 && s.mid[1] < 0.5, OPEN, [6, 0, 0]],
+    // (slow enough to be "plainly down": the script takes over a few steps on)
+    ['lying, just before it gets up', (s) => s.state === 'fly' && s.speed < 0.8 && s.mid[1] < 0.5, OPEN, [6, 0, 0]],
     ['getting up', (s, w) => s.state === 'land' && patch(w).stateTime > 0.1, OPEN, [9, 0, 0]],
     ['shaking its head', (s) => s.state === 'shake', OPEN, [10, 0, 0]],
     ['stuck to the wall', (s) => s.state === 'wall', [-5.5, 2.2, -1.2], [0, 0, -10]],

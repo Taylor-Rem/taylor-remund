@@ -10,7 +10,7 @@
  * not become a roar).
  */
 import { HZ } from '../sim/index.ts';
-import type { Id, SimEvent, Vec3, WorldView } from '../sim/index.ts';
+import type { Id, PatchView, SimEvent, Vec3, WorldView } from '../sim/index.ts';
 import { soundDef } from './voices.ts';
 
 /** One sound to start now. */
@@ -56,6 +56,12 @@ export const SCORE_TUNING = {
   hitRange: 22,
   /** The same part does not knock twice within this long (s): resting jitter is not a drum roll. */
   hitGap: 0.08,
+  /**
+   * Patch with a body of its own (the 2026-11-20 prototype): after its first touchdown (its thud) each further bounce
+   * on the bench or a fixed thing is a pat, this much of a knock's loudness for its speed, and none below `patchPatMin`.
+   */
+  patchPat: 0.6,
+  patchPatMin: 0.08,
   /** (R4) A contact's speed is the fastest the part went over this long before it (s). */
   speedWindow: 0.1,
   /** (R4) A throw is heard (a whoosh) from this release speed (units/s): below it a let-go is a set-down. */
@@ -114,6 +120,9 @@ export class Score {
   private lastHatch = 0;
   /** (R4) Patch stuck to a wall: its height last frame (null until seen), until it starts down. */
   private patchWall: { y: number | null } | null = null;
+  /** Patch's own body, when it has one (the prototype's `PatchView.body`; remembered while the script has Patch), and whether this throw has come down yet. */
+  private patchBodyId: Id | null = null;
+  private patchDown = false;
   /** (S5 jet) After the cut: where it lands, and whether the touchdown has been heard. */
   private jetDown: { y: number; touched: boolean } | null = null;
   /**
@@ -157,12 +166,22 @@ export class Score {
     this.cues.push({ id, gain: o.gain ?? 1, pan: o.pan ?? this.panOf(at ?? null), ...(o.rate !== undefined ? { rate: o.rate } : {}), ...(o.param !== undefined ? { param: o.param } : {}), ...(o.lowpass !== undefined ? { lowpass: o.lowpass } : {}) });
   }
 
+  /** Patch's own body part, if this Patch has one (null: the scripted Patch). */
+  private patchBody(w: WorldView): Id | null {
+    const c = w.crewView('patch');
+    const b = c && c.kind === 'patch' ? (c.view as PatchView).body : undefined;
+    if (b) this.patchBodyId = b.id;
+    return this.patchBodyId;
+  }
+
   private event(w: WorldView, e: SimEvent, now: number): void {
     const T = SCORE_TUNING;
     switch (e.type) {
       case 'part.released': {
         // (R4) a throw: the whoosh it leaves through, never louder than the landing it leads to; below `throwMin` silence
         this.note(e.id, now, e.speed);
+        // (Patch's own body let go: its throw's sounds are `patch.throw`'s, not a paper crate's whoosh as well)
+        if (e.id === this.patchBody(w)) return;
         if (e.speed < T.throwMin) return;
         this.whoosh(now, e.speed, this.posOf(w, e.id));
         // Fetch is the thing thrown: its yelp (its own two seconds, apart from the lift's)
@@ -174,12 +193,15 @@ export class Score {
         const at = this.posOf(w, 'patch');
         switch (e.phase) {
           case 'thrown':
+            this.patchDown = false;
             this.play('patch.fly', now, { param: clamp(0.15 + 0.035 * e.speed, 0.15, 0.55) }, at);
             if (e.speed >= T.throwMin) this.whoosh(now, e.speed, at);
             return;
           case 'landed':
+            this.patchDown = true;
             return this.play('patch.thud', now, { gain: Math.max(0.3, hitGain(e.speed)) }, at);
           case 'hit':
+            this.patchDown = true;
             if (e.wall) {
               this.patchWall = { y: null };
               return this.play('patch.pat', now, { gain: Math.max(0.5, hitGain(e.speed)) }, at);
@@ -188,6 +210,7 @@ export class Score {
           case 'gone':
             return this.play('patch.fall', now, {}, at);
           case 'chute':
+            this.patchDown = false;
             this.play('chute.launch', now, {}, at);
             return this.play('patch.rise', now, {}, at);
         }
@@ -201,6 +224,19 @@ export class Score {
       case 'part.hit': {
         const p = w.part(e.id);
         if (!p || e.strength < T.hitSoft) return;
+        // Patch's own body: its contacts are `patch.throw`'s to sound (a thud, a bump, a pat on a wall), never a paper
+        // crate's knock as well. What is added here is only what the script never had: after its first touchdown it
+        // tumbles on, and each further bounce on something fixed is a soft pat
+        const pb = this.patchBody(w);
+        if (pb !== null && (e.id === pb || e.other === pb)) {
+          if (e.id !== pb || e.other !== null || !this.patchDown) return;
+          const g = hitGain(this.peak(pb, now)) * T.patchPat;
+          const last = this.lastHit.get(pb);
+          if (g < T.patchPatMin || (last !== undefined && now - last < T.hitGap * 2 && now >= last)) return;
+          this.lastHit.set(pb, now);
+          this.play('patch.pat', now, { gain: g }, this.posOf(w, pb));
+          return;
+        }
         // the faster of the two, as it was coming in (a crate dropped on a resting one: the dropped one's speed)
         const g = hitGain(Math.max(this.peak(e.id, now), e.other ? this.peak(e.other, now) : 0));
         if (g <= 0) return;
