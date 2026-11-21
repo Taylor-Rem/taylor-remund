@@ -177,26 +177,6 @@ export interface Pixels {
   data: number[];
 }
 
-/** A screenshot of the page, shrunk to `w`×`h` and read back as RGBA (decoded in the page: the same code in every engine). */
-export async function screenshotPixels(page: Page, w = 96, h = 60): Promise<Pixels> {
-  const png = (await page.screenshot({ timeout: SLOW })).toString('base64');
-  const data = await page.evaluate(
-    async ([src, w, h]) => {
-      const img = new Image();
-      img.src = `data:image/png;base64,${src}`;
-      await img.decode();
-      const c = document.createElement('canvas');
-      c.width = w;
-      c.height = h;
-      const g = c.getContext('2d')!;
-      g.drawImage(img, 0, 0, w, h);
-      return Array.from(g.getImageData(0, 0, w, h).data);
-    },
-    [png, w, h] as const,
-  );
-  return { w, h, data };
-}
-
 /**
  * The stage's canvas as drawn, shrunk to `w`×`h` and read back as RGBA: read in an animation frame, after the
  * stage's own frame has drawn (its drawing buffer is not kept past the frame). The canvas only: not the strip.
