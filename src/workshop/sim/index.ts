@@ -35,6 +35,11 @@ export { DT, HZ } from './clock.ts';
 export { rng } from './rng.ts';
 export type { Rng } from './rng.ts';
 export { registryProblems } from './registry.ts';
+// P3: what a visit remembers (§ E10), the tells (§ B3)
+export { parseSaved, savedText, FRESH_SAVED, SAVED_VERSION } from './saved.ts';
+export type { WorldSaved, SavedCover } from './saved.ts';
+export { TELL_TUNING } from './tells.ts';
+export { TELL_SECONDS } from './machine.ts';
 // the Patchlamp station (S3): the words Patch understands, and the station's tunings and numbers
 export { parse, MAX_TEXT, UNDO_REPLIES, PAINTS, PICTURES, JACKS, REPLY_IDS, jackOf } from './instruct/index.ts';
 export type { Colour, Instruction, Jack, LampColour, Parsed, Picture, Refusal, RefusalReason, Reply, ReplyId, ReplyLine, Verb } from './instruct/index.ts';
