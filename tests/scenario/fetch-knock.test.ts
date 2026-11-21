@@ -97,7 +97,11 @@ describe('knocked', () => {
     const held = w.crew('fetch')!.carrying!;
     expect(held).not.toBeNull();
     const before = w.part(held)!.location;
-    const ev = throwAndSee(w, 'crate-2', { yaw: THROW_YAW - 0.5, speed: 6.5 });
+    // (the loose S, not the stack's top: taking crate-2 off the stack sends Fetch rolling to restock it with the crate
+    // in its hands, so it was a moving target; the old carry's lag let the throw land short and graze it by luck,
+    // the new one misses it clean. Fetch must be waiting for the throw to be the test's)
+    const ev = throwAndSee(w, 'crate-3', { yaw: THROW_YAW - 0.5, speed: 7.4 });
+    expect(ev.some((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'roll'), 'Fetch waits for the throw').toBe(false);
     const k = knocks(ev);
     expect(k).toHaveLength(1);
     expect(k[0]!.dropped).toBe(held);

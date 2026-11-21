@@ -1786,7 +1786,11 @@ async function juggleIt(page: Page, cdp: CDPSession, kind: 'mouse' | 'touch', id
     const rec = (window as any).__i1j.rec as number[][];
     return stills.flatMap(([a, b]) => rec.slice(a, b).map((r) => r[3]!));
   }, stills);
-  const zAll = [zs[0]!, ...flown, ...held];
+  // (from where the first throw LEAVES the hand, not where the hand took it: since 2026-11-20 a flick up the screen
+  // carries a thing on the bench back along it while in the hand and throws it up at the release, so the first flick
+  // from the bench moves it back by design; from there on it is in the air, and every catch must hold it where it is)
+  void zs;
+  const zAll = [...flown, ...held];
   if (stills.length) {
     say.push(`z while held still after the catches: ${(Math.min(...held)).toFixed(2)}..${(Math.max(...held)).toFixed(2)}`);
     // the first still hold, every fifth frame: its z, and the hand's (the carry target's) z and y
@@ -2069,7 +2073,7 @@ test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen f
     return r;
   });
   const wall = pr.find((r) => r[0] === 'wall');
-  console.log(`[I1] R5 wall, Patch: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; states ${pr.map((r) => r[0]).filter((s, i, a) => i === 0 || a[i - 1] !== s).join('>')}; at the wall its middle at ${wall ? (wall[1] as number).toFixed(2) : 'never'}`);
+  console.log(`[I1] R5 wall, Patch: sent ${JSON.stringify((await sentV(page))?.map((n) => +n.toFixed(1)))}; states ${pr.map((r) => r[0]).filter((s, i, a) => i === 0 || a[i - 1] !== s).join('>')}; at the wall its middle at ${wall ? (wall[1] as number).toFixed(2) : 'never'}; furthest back z ${Math.min(...pr.map((r) => r[2] as number)).toFixed(2)}, highest middle ${Math.max(...pr.map((r) => r[1] as number)).toFixed(2)}; every 10th frame (state, middle y, z) ${JSON.stringify(pr.filter((_, i) => i % 10 === 0).map((r) => [r[0], +(r[1] as number).toFixed(2), +(r[2] as number).toFixed(2)]))}`);
   expect(wall, 'Patch reaches the wall').toBeTruthy();
   expect(wall[1], 'its middle above 1.5').toBeGreaterThan(1.5);
 });
@@ -2144,7 +2148,9 @@ test('R5: a press on a thing in the air takes the thing when it is in front of t
   await page.evaluate(() => {
     (window as any).__i1setV = [0, 16.7, 0];
   });
-  await hand.drag(at, { x: at.x, y: at.y - 100 }, 100, true);
+  // (let go where it is held, the throw set as above: since 2026-11-20 a flick up the screen carries the thing back
+  // along the bench while it is in the hand, and this one took the crate 2.9 back, behind the shade, before it left)
+  await hand.up(at);
   const hit = await page.evaluate(
     ([d]) =>
       new Promise<number[] | null>((done) => {
