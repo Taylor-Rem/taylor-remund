@@ -63,6 +63,7 @@ export const OPERATOR_FEEL = {
   blendLand: 0.12,
   /** R5: the slowest a turn between performances may be done at (rad/s): a big turn gets a longer blend, so it reads as a turn. */
   turnRate: 7,
+  turnRateMoving: 14,
   /** R4 up: how fast the arms fold at the top of a throw up and unfold after (1/s). */
   foldRate: 14,
   /** R5: in the air, how fast its facing follows the way it is going (1/s): a rebound turns it round, not flips it. */
@@ -818,6 +819,10 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             const fa = resolvePose(blendFrom), ta = resolvePose(pose).body.rot;
             fa.body.rot = [ta[0] + wrapAngle(fa.body.rot[0] - ta[0]), ta[1] + wrapAngle(fa.body.rot[1] - ta[1]), ta[2] + wrapAngle(fa.body.rot[2] - ta[2])];
             blendFrom = toPose(fa);
+            // (and a big turn gets the time to read as a turn: never faster than `turnRate` on average, nor, out of a
+            // moving pose (eased out, quickest at its start), than `turnRateMoving` at its start)
+            const turn = Math.max(Math.abs(fa.body.rot[0] - ta[0]), Math.abs(fa.body.rot[1] - ta[1]), Math.abs(fa.body.rot[2] - ta[2]));
+            blendDur = Math.max(blendDur, blendOpts.moving ? (2 * turn) / F.turnRateMoving : turn / F.turnRate);
           }
           // (R5, let go: how far the drawn middle was from the simulation's, carried and let go of over the blend)
           if (blendOpts.keepMiddle) {

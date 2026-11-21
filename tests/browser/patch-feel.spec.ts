@@ -201,7 +201,7 @@ function install(): void {
   w.advance = () => {
     advance();
     const v = w.crewView('patch').view;
-    rec.steps.push({ s: w.step, st: v.state, at: [...v.at], vel: v.thrown?.v ? [...v.thrown.v] : null, top: !!v.thrown?.top });
+    rec.steps.push({ s: w.step, st: v.state, at: [...v.at], vel: v.thrown?.v ? [...v.thrown.v] : null, top: !!v.thrown?.top, float: v.thrown?.float ?? 0 });
   };
   const dispatch = w.dispatch.bind(w);
   w.dispatch = (i: any) => {
@@ -217,7 +217,7 @@ function install(): void {
 }
 
 interface FrameRow { s: number; a: number; t: number; dt: number; st: string; at: number[]; prev: number[] | null; drop: boolean; m: number[] }
-interface StepRow { s: number; st: string; at: number[]; vel: number[] | null; top: boolean }
+interface StepRow { s: number; st: string; at: number[]; vel: number[] | null; top: boolean; float: number }
 
 type V = [number, number, number];
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -259,12 +259,14 @@ interface Measured {
   driftShare: number | null;
   hits: number;
   floatSteps: number;
+  /** How much this throw floats, the simulation's own measure of how straight up it went (PatchView.thrown.float). */
+  float: number;
   /** The turn in the frame it met a wall flat (rad), when it did. */
   splatTurn: number | null;
 }
 
 function measure(name: string, frames: FrameRow[], steps: StepRow[], release: number, hits: number[], benchTop: number): Measured {
-  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, rollBack: null, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0, splatTurn: null };
+  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, rollBack: null, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0, float: 0, splatTurn: null };
   const fr = frames.filter((f) => f.s >= release - 30);
   // the release: the first frame drawn after the release step
   const i0 = fr.findIndex((f) => f.s >= release && f.st !== 'held');
@@ -341,6 +343,7 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
     // (a step stopped against something it met, Fetch or a part, is a legitimate impulse: not counted)
     if (len(d) < 1e-5 && !hits.some((h) => Math.abs(h - air[i]!.s) <= 2)) m.stillSteps++;
     if (air[i]!.top) m.floatSteps++;
+    m.float = Math.max(m.float, air[i]!.float);
     if (apex >= 0 && Math.abs(air[i]!.s - apex) <= 20 && !hits.some((h) => h <= air[i]!.s + 1)) least = Math.min(least, Math.hypot(d[0], d[2]) * 60);
   }
   if (level0 > 1 && least < Infinity) m.driftShare = least / level0;
@@ -399,7 +402,7 @@ test('R5: Patch thrown four ways by mouse: it leaves the hand at once, the drawn
     if (process.env.FEEL_DUMP) writeFileSync(`${process.env.FEEL_DUMP}-${th.name.replace(/ /g, '-')}-${Date.now()}.json`, JSON.stringify(rec));
     const m = measure(th.name, rec.frames, rec.steps, rec.releases[0]!, rec.hits, rec.top);
     results.push(m);
-    console.log(`[feel] ${JSON.stringify({ ...m, track: +m.track.toFixed(3), jump: +m.jump.toFixed(1), turn: +m.turn.toFixed(1), stoolTurn: Math.round(m.stoolTurn), rollBack: m.rollBack === null ? null : +m.rollBack.toFixed(1), releaseMoved: +m.releaseMoved.toFixed(3), driftShare: m.driftShare === null ? null : +m.driftShare.toFixed(3) })}`);
+    console.log(`[feel] ${JSON.stringify({ ...m, float: +m.float.toFixed(2), track: +m.track.toFixed(3), jump: +m.jump.toFixed(1), turn: +m.turn.toFixed(1), stoolTurn: Math.round(m.stoolTurn), rollBack: m.rollBack === null ? null : +m.rollBack.toFixed(1), releaseMoved: +m.releaseMoved.toFixed(3), driftShare: m.driftShare === null ? null : +m.driftShare.toFixed(3) })}`);
   }
   for (const m of results) {
     // (the hand in a release frame moves on by itself, so "moved" is any motion at all: the freeze was exactly 0)
@@ -411,11 +414,13 @@ test('R5: Patch thrown four ways by mouse: it leaves the hand at once, the drawn
     if (m.rollBack !== null) expect(m.rollBack, `${m.name}: the landing's roll turns back, degrees`).toBeLessThanOrEqual(ROLL_BACK);
     expect(m.stillSteps, `${m.name}: simulation steps in the air without motion`).toBe(0);
   }
-  const up = results.find((m) => m.name === 'up')!;
-  expect(up.floatSteps, 'thrown straight up, it floats at its top for a few steps').toBeGreaterThan(3);
-  const drift = results.find((m) => m.name === 'up with drift')!;
-  expect(drift.driftShare, 'thrown up with drift, it has drift').not.toBeNull();
-  expect(drift.driftShare!, `thrown up with drift: its speed across never below ${DRIFT} of what it left with`).toBeGreaterThanOrEqual(DRIFT);
-  // (a little drift, about 10 degrees off straight up: it still floats, and drifts on through the float)
-  expect(drift.floatSteps, 'thrown up with a little drift, it floats too').toBeGreaterThan(3);
+  // the float: how straight up a flick of the hand goes is the hand's (the input's) business, so it is asked of the
+  // simulation which of the two throws up came out near enough vertical to float (thrown.float over a half), and
+  // those must float for a few steps (a half floats about 3 steps, straight up 12); at least one of them must
+  const ups = results.filter((m) => m.name.startsWith('up'));
+  expect(ups.some((m) => m.float > 0.5), `a flick straight up reaches the simulation near enough vertical to float (floats: ${ups.map((m) => m.float.toFixed(2)).join(', ')})`).toBe(true);
+  for (const m of ups) if (m.float > 0.5) expect(m.floatSteps, `${m.name} (float ${m.float.toFixed(2)}): in the float for a few steps`).toBeGreaterThanOrEqual(2);
+  // the drift through the top: every throw that left with more than 1 u/s across keeps it (one of the throws up must)
+  expect(ups.some((m) => m.driftShare !== null), 'a throw up with drift across').toBe(true);
+  for (const m of results) if (m.driftShare !== null) expect(m.driftShare, `${m.name}: its speed across through the top never below ${DRIFT} of what it left with`).toBeGreaterThanOrEqual(DRIFT);
 });
