@@ -250,6 +250,13 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
         }
         ease(stage, stationBox(st as BenchStation, inset, view(stage), portrait()));
       },
+      freeSide(st) {
+        // a station right of the bench's middle (Patchlamp: the platen, the storefront) leaves the left free; the
+        // camera cannot pan far enough to clear the right for it (its pan limits at a wide framing)
+        if (st === null || !(BENCH_STATIONS as readonly string[]).includes(st)) return 'right';
+        const s = STATION_BOXES[st as BenchStation];
+        return (s.min[0] + s.max[0]) / 2 > 1.5 ? 'left' : 'right';
+      },
       thing(_id, box, stage, inset) {
         if (!box) return;
         // the thing with some of the bench round it

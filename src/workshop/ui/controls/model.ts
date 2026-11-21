@@ -136,6 +136,19 @@ export function listModel(src: ControlsSource): ListModel {
     if (!l) byStation.set(st, (l = []));
     l.push({ id, label: itemLabel(src, id) });
   }
+  // two things that would read the same (two bare small crates) are told apart by a number, in list order
+  const all = [...byStation.values()].flat();
+  const count = new Map<string, number>();
+  for (const it of all) count.set(it.label, (count.get(it.label) ?? 0) + 1);
+  const nth = new Map<string, number>();
+  for (const l of byStation.values())
+    for (let i = 0; i < l.length; i++) {
+      const it = l[i]!;
+      if ((count.get(it.label) ?? 0) < 2) continue;
+      const n = (nth.get(it.label) ?? 0) + 1;
+      nth.set(it.label, n);
+      l[i] = { id: it.id, label: `${it.label} ${n}` };
+    }
   const stations: ListStation[] = [];
   for (const [id, items] of byStation) if (items.length > 0) stations.push({ id, name: STATION_NAMES[id] ?? id, items });
   let hold: ListModel['hold'] = null;
@@ -145,10 +158,23 @@ export function listModel(src: ControlsSource): ListModel {
       id: src.held.id,
       what: src.held.what,
       label: fill(LIST.holding, { thing }),
-      dests: src.destinations.map((d) => ({ id: d, label: plainName(w, d) })),
+      dests: numbered(src.destinations.map((d) => ({ id: d, label: plainName(w, d) }))),
     };
   }
   return { stations, hold, busy };
+}
+
+/** Same-named entries told apart by a number, in order ("Reserved jack 1", "Reserved jack 2"). */
+function numbered(items: readonly ListItem[]): ListItem[] {
+  const count = new Map<string, number>();
+  for (const it of items) count.set(it.label, (count.get(it.label) ?? 0) + 1);
+  const nth = new Map<string, number>();
+  return items.map((it) => {
+    if ((count.get(it.label) ?? 0) < 2) return it;
+    const n = (nth.get(it.label) ?? 0) + 1;
+    nth.set(it.label, n);
+    return { id: it.id, label: `${it.label} ${n}` };
+  });
 }
 
 /** A string that changes when what the list shows changes (the DOM is touched only then). */

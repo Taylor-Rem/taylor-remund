@@ -54,6 +54,8 @@ import { LIST } from './words.ts';
     color: var(--cream);
     font: 14px/20px system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
+  /* on the side the framed station leaves free (Patchlamp, right of the middle: the left) */
+  .controls.left { right: auto; left: var(--gutter); }
   .controls[hidden], html:not(.stage-on) .controls, html.reading .controls { display: none; }
   .controls:not(.open):not(:focus-within) {
     /* visually hidden, still in the page and in the Tab order */
@@ -88,7 +90,7 @@ import { LIST } from './words.ts';
   }
   /* a phone held upright: a sheet along the bottom, under the bench's centre cluster */
   @media (max-width: 640px) {
-    .controls { left: var(--gutter); right: var(--gutter); top: auto; bottom: 34px; width: auto; max-height: 40vh; max-height: 40dvh; }
+    .controls, .controls.left { left: var(--gutter); right: var(--gutter); top: auto; bottom: 34px; width: auto; max-height: 40vh; max-height: 40dvh; }
   }
 
   /* ── the strip's opener (Stage.astro's `strip-end` slot): with the stage, on a screen wider than a phone ── */

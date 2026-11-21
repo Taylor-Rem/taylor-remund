@@ -76,6 +76,8 @@ export interface Framings {
   of(id: Id): string | null;
   /** Ease (under reduced motion: cut) to station `st`, or to the whole bench (null). */
   show(st: string | null, stage: Stage, inset: Inset): void;
+  /** The side of the screen a framing of `st` leaves freer (the page puts what it lays over the stage there). */
+  freeSide(st: string | null): 'left' | 'right';
   /** Bring one thing (its pick box, `box`) into view without leaving its station (focus moved to it while it is off screen). */
   thing(id: Id, box: Box3 | null, stage: Stage, inset: Inset): void;
 }
@@ -95,6 +97,8 @@ export interface Framing {
   readonly stations: readonly string[];
   /** The station `id` is framed with now (`Framings.of`), or null. */
   of(id: Id): string | null;
+  /** The side of the screen a framing of `st` leaves freer (`Framings.freeSide`; right when there are none). */
+  freeSide(st: string | null): 'left' | 'right';
   /** Frame station `st` (null: the whole bench). */
   frame(st: string | null, why: FrameWhy): void;
   /** Called on every framing, with its reason. */
@@ -591,6 +595,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     },
     stations: framings?.stations ?? [],
     of: (id) => framings?.of(id) ?? null,
+    freeSide: (st) => framings?.freeSide(st) ?? 'right',
     frame(st, why) {
       if (!framings) {
         if (st === null) stage.camera.easeTo(stage.camera.home());

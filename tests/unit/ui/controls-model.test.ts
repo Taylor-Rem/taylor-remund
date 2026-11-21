@@ -97,7 +97,7 @@ describe('the list', () => {
     expect(part.hold?.label).toBe('Holding: Small crate. Where should it go?');
     expect(part.hold?.dests.map((d) => d.label)).toEqual(['Belt', 'Dock', 'Platen']);
     const plug = listModel(source(w, { held: { id: 'cord', what: 'plug' }, keys: true }));
-    expect(plug.hold?.dests.map((d) => d.label)).toEqual(['Reserved jack', 'Reserved jack', 'Storefront jack', 'Platen jack', 'Belt jack', 'Lamp jack']);
+    expect(plug.hold?.dests.map((d) => d.label)).toEqual(['Reserved jack 1', 'Reserved jack 2', 'Storefront jack', 'Platen jack', 'Belt jack', 'Lamp jack']);
     // held by the pointer (tap-then-tap), the list stays the list
     expect(listModel(source(w, { held: { id: 'crate-3', what: 'part' } })).hold).toBeNull();
   });

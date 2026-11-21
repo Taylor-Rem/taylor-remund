@@ -241,14 +241,23 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     const top = strip ? Math.max(0, strip.getBoundingClientRect().bottom) : 0;
     const bottomLine = legal ? Math.max(0, H - legal.getBoundingClientRect().top) : 0;
     let right = 0;
+    let left = 0;
     let bottom = bottomLine;
     if (shown() && !root.hidden) {
       const r = root.getBoundingClientRect();
       // a panel at the side (wide screens) or a sheet along the bottom (a phone)
-      if (r.width < W * 0.7) right = Math.max(0, W - r.left);
-      else bottom = Math.max(bottom, H - r.top);
+      if (r.width < W * 0.7) {
+        if (r.left < W / 2) left = Math.max(0, r.right);
+        else right = Math.max(0, W - r.left);
+      } else bottom = Math.max(bottom, H - r.top);
     }
-    ws.framing.setInset({ top, right, bottom, left: 0 });
+    ws.framing.setInset({ top, right, bottom, left });
+  };
+  /** The panel stands on the side the station about to be framed leaves free (then the insets are measured). */
+  const sideFor = (st: string | null): void => {
+    if (st === null) return;
+    root.classList.toggle('left', ws.framing.freeSide(st) === 'left');
+    measure();
   };
   const setOpen = (v: boolean): void => {
     open = v;
@@ -297,16 +306,25 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     if (quiet) return;
     const t = idOf(e.target);
     if (!t) return;
-    if (t.kind === 'id') ws.input.focusOn(t.id);
-    else if (t.kind === 'dest') {
+    if (t.kind === 'id') {
+      const st = ws.framing.of(t.id);
+      if (st !== ws.framing.station) sideFor(st);
+      ws.input.focusOn(t.id);
+    } else if (t.kind === 'dest') {
       // where it would go is in view (the dock, from the Button's station)
       const st = ws.framing.of(t.id);
-      if (st !== null && st !== ws.framing.station) ws.framing.frame(st, 'focus');
+      if (st !== null && st !== ws.framing.station) {
+        sideFor(st);
+        ws.framing.frame(st, 'focus');
+      }
       ws.input.chooseDestination(t.id);
     } else if (t.kind === 'put') ws.input.chooseDestination(null);
     else if (t.kind === 'station') {
       ws.input.focusOn(null);
-      if (ws.framing.station !== t.id) ws.framing.frame(t.id, 'focus');
+      if (ws.framing.station !== t.id) {
+        sideFor(t.id);
+        ws.framing.frame(t.id, 'focus');
+      }
     }
   };
   const onFocusOut = (e: FocusEvent): void => {
