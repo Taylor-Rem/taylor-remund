@@ -67,6 +67,14 @@ export interface SimContext {
 
   readonly playMode: boolean;
   readonly bracketed: boolean;
+  /**
+   * P3 (§ B10): the bench is still. Reduced motion is on and the visitor has not yet acted: nothing on the bench
+   * moves by itself (the crew hold where they are, the belt is stopped, attract mode and the crew's idle behaviour
+   * wait). False from the visitor's first action, and whenever reduced motion is off. Never true while a rung plays.
+   */
+  readonly still: boolean;
+  /** P3 (§ B10): reduced motion is on (the crew's idle behaviour stays off for as long as it is, play mode included). */
+  readonly reducedMotion: boolean;
   /** What the visitor holds, if anything. */
   holding(): Holding | null;
   /** Take the visitor's hand for a non-part thing (the plug). */
@@ -185,6 +193,12 @@ export interface Unit {
   post?(): void;
   /** The Button's bracket opened or closed (the crew freezes). */
   bracket?(on: boolean): void;
+  /**
+   * P3 (§ B10): the bench went still (`SimContext.still` true) or came back to life. Called at the start of a
+   * step's intents, before the visitor's first action is handled, so a crew member holding still is itself again
+   * before a hand reaches it; and after them, when reduced motion was just switched on or off.
+   */
+  still?(on: boolean): void;
   /**
    * "Reset the workshop" is about to put every durable field back to its start: drop every transient
    * job and timer (work under the crew or the system too) and go idle. `restored` follows.

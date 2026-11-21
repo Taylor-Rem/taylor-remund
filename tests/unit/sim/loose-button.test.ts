@@ -147,7 +147,7 @@ describe('the Button, rung 1 (§ B4), bracketed (§ E5)', () => {
     const before = poses(world);
     world.dispatch({ type: 'press', id: 'button' });
     const first = run(world, 1);
-    expect(types(first).filter((t) => t !== 'crew.state')).toEqual(['handle.worked', 'button.pressed', 'rung.started', 'rung.beat', 'misfire', 'misfire', 'rung.beat', 'rung.beat']);
+    expect(types(first).filter((t) => t !== 'crew.state')).toEqual(['handle.worked', 'button.pressed', 'rung.started', 'rung.beat', 'misfire', 'misfire', 'rung.beat', 'rung.beat', 'saved.changed']);
     expect(first.flatMap((e) => (e.type === 'rung.beat' ? [e.beat] : []))).toEqual(['flinch', 'shove', 'revert']);
     expect(first).toContainEqual({ type: 'button.pressed', rung: 1, presses: 1 });
     expect(first).toContainEqual({ type: 'misfire', id: 'lamp', level: 1 });

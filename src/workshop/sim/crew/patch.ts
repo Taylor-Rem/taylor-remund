@@ -751,7 +751,8 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     },
 
     pre() {
-      if (ctx.bracketed) {
+      // (P3, § B10: and while the bench is still: reduced motion on, the visitor not yet acted; a crew job waits mid-stage)
+      if (ctx.bracketed || ctx.still) {
         since += 1; // frozen: no stage advances while a rung plays
         return;
       }
