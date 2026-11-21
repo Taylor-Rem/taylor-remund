@@ -118,6 +118,14 @@ export const FETCH_TUNING = {
   leaveMachine: 2.5,
   /** (R4 follow-up) standing with a crate it cannot take anywhere this long (beyond the belt's pace, 5 s), it sets it down. */
   holdIdleMax: 7,
+  /**
+   * (2026-11-20) Idle and in another robot's way (Revert waiting for it, beside the pad with nowhere to turn): it rolls
+   * along its tape to the point within `giveWayReach` that is furthest from the one waiting, and stays clear this long
+   * before it goes back to its waiting place. Without it the two waited for each other for good: Fetch at the pad's
+   * stand for a crate, Revert for Fetch, and the chute for Revert to leave the pad's side.
+   */
+  giveWay: 4,
+  giveWayReach: 2.5,
   /** (R4) a thrown Patch knocks it as a part of this mass would (a small crate's: 4 u/s a strength-1 knock, 9 a 2, 14 a 3); after its slide it looks at Patch this long. */
   patchMass: 0.06,
   patchLook: 0.7,
@@ -538,6 +546,33 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let heldLastQ: Quat | null = null;
   /** Steps it has hung about slowly past the edge without falling (on something out there): the script takes it. */
   let edgeStill = 0;
+  /** (2026-11-20) Another robot that said it waits for it (`crew.waiting`), not yet answered; and until when it keeps out of the way. */
+  let waitedOnBy: Id | null = null;
+  let waitedAt = -Infinity;
+  let clearUntil = -Infinity;
+  /**
+   * Idle, and another robot waits for it: it rolls along its tape to the point within `giveWayReach` furthest from
+   * that one (if that is any further than here), and keeps there `giveWay` seconds. True when it set off.
+   */
+  function giveWay(): boolean {
+    const by = ctx.clock.step - waitedAt < steps(1) ? waitedOnBy : null; // (heard while it was busy, and gone stale: not now)
+    waitedOnBy = null;
+    const q = by ? ctx.pose(by)?.p : undefined;
+    if (!q || carrying) return false;
+    const away = (sv: number): number => {
+      const [px, pz] = at(sv);
+      return Math.hypot(px - q[0], pz - q[2]);
+    };
+    let best = s;
+    for (let k = -10; k <= 10; k++) {
+      const sv = clampLane(s + (k / 10) * T.giveWayReach);
+      if (away(sv) > away(best)) best = sv;
+    }
+    if (away(best) < away(s) + 0.3) return false;
+    clearUntil = ctx.clock.step + steps(T.giveWay);
+    rollTo(best, 'lap');
+    return true;
+  }
   let armBack: { from: Vec3; at: number; dur: number } | null = null;
 
   const enter = (next: FetchState): void => {
@@ -1596,6 +1631,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       fumbled = null;
       giveUpUntil = -Infinity;
       lastPlaced = -Infinity;
+      waitedOnBy = null;
+      clearUntil = -Infinity;
       purpose = 'lap';
       v = 0;
       shrugThenReturn = false;
@@ -1609,6 +1646,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
 
     heard(events) {
       hear(events);
+      for (const e of events) if (e.type === 'crew.waiting' && e.for === spec.id && e.id !== spec.id) [waitedOnBy, waitedAt] = [e.id, ctx.clock.step];
       // R4 follow-up: what the visitor does that says they are at the platen (see `visitorBusy`)
       for (const e of events) {
         if (e.type === 'line.sent' && e.by !== 'crew') {
@@ -1817,6 +1855,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
               // where its next crate lands: not at the feed, where from the camera it stands in front of the UNDO plate
               const pad = rounds.pad;
               const home = standS('pad', pad[0], pad[1]);
+              if (giveWay()) break;
+              if (ctx.clock.step < clearUntil) break; // (out of another's way a while: then back)
               if (Math.abs(s - home) > 0.02) {
                 rollTo(home, 'lap');
                 break;
