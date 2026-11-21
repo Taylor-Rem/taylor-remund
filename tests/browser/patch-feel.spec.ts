@@ -321,7 +321,7 @@ function bodyAt(f: FrameRow): { p: V; R: M3 } {
   return { p: [b.pp[0]! + (b.p[0]! - b.pp[0]!) * k, b.pp[1]! + (b.p[1]! - b.pp[1]!) * k, b.pp[2]! + (b.p[2]! - b.pp[2]!) * k], R: turnOfQ(q.map((x) => x / l)) };
 }
 /** The middle of the drawn trunk: 0.26 up the body bone (its matrix whole: its scale, and its squash about this very point). The body's box is drawn about it. */
-const trunk = (f: FrameRow): V => { const o = boneAt(f), u = col(f, 1); return [o[0] + 0.26 * u[0], o[1] + 0.26 * u[1], o[2] + 0.26 * u[2]]; };
+const trunk = (f: FrameRow): V => { const o = boneAt(f), u = col(f, 1); return [o[0] + (0.34 / 1.5) * u[0], o[1] + (0.34 / 1.5) * u[1], o[2] + (0.34 / 1.5) * u[2]]; };
 const wrap = (x: number): number => Math.atan2(Math.sin(x), Math.cos(x));
 /** The simulation's `at` drawn between steps, as the view should draw it. */
 const simAt = (f: FrameRow): V => (f.prev ? [f.prev[0]! + (f.at[0]! - f.prev[0]!) * f.a, f.prev[1]! + (f.at[1]! - f.prev[1]!) * f.a, f.prev[2]! + (f.at[2]! - f.prev[2]!) * f.a] : (f.at as V));

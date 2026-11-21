@@ -1353,7 +1353,19 @@ export function createWorld(opts: WorldOptions): World {
       const l = loose.get(id);
       if (l && l.crew && l.mode === 'free') physics.setGravityScale(id, gravityScale);
     },
-    crewFor: (part, handle) => crewHandles.set(part, handle),
+    crewFor(part, handle) {
+      crewHandles.set(part, handle);
+      // its own body as its unit describes it (boxes fixed together, and its feel): the engine's body is made again
+      // so, once, while it is still out of the world
+      const b = handle.body;
+      const l = loose.get(part);
+      if (!b || !l || !l.crew || l.mode !== 'gone') return;
+      const feel = { ...(feelOf.get(part) ?? MATERIAL[l.material]), ...b.feel };
+      physics.removeBody(part);
+      physics.addBody({ id: part, kind: 'dynamic', shape: { type: 'compound', parts: b.parts.map((p) => ({ half: p.half, at: { p: p.at, q: [0, 0, 0, 1] as const }, ...(p.round !== undefined ? { radius: p.round } : {}), ...(p.share !== undefined ? { share: p.share } : {}) })) }, pose: HIDDEN, mass: l.mass, friction: feel.friction, restitution: feel.restitution, linearDamping: feel.linearDamping, angularDamping: feel.angularDamping, ccd: true });
+      physics.setEnabled(part, false);
+      feelOf.set(part, feel);
+    },
     undo: (req) => performUndo(req),
     putAway(part, at) {
       if (bracket) throw new Error('world: nothing is put away while a Button rung is bracketed (§ E5)');

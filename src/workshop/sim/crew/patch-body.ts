@@ -63,8 +63,25 @@ export const PATCH_BODY_TUNING = {
   wallSquare: 0.7,
   /** The face must be at least this wide either side (not a post). */
   wallFace: 0.25,
-  /** Let go with the hand this far (units) or more past where the wall holds its body, into the wall: the gag too (it was thrown at the wall from against it). */
-  wallPress: 0.45,
+  /** ...and the visitor must see that face: its way out within about seventy degrees of the way to them. */
+  wallSeen: 0.35,
+  /** The gag is taken this long (s) before its body would touch the wall, its middle `wallFlat` off the face. */
+  wallAhead: 0.034,
+  wallFlat: 0.32,
+  /**
+   * Let go with the hand going at a flick's speed (`wallHand` or more) into such a wall no further off than `wallReach` (a flick up the
+   * screen beside the back wall, which the world's hand reads as a throw up): it is thrown at the wall, level, at
+   * the hand's speed (no slower than `wallThrow`), with no more than `wallUp` of upward speed.
+   */
+  wallReach: 1.6,
+  wallHand: 6,
+  wallThrow: 7,
+  wallUp: 2.5,
+  // ── the big fall ──
+  /** Down from a fall this hard (0..1) or harder, however it lies: it is down for the flop (the view's: flat, a beat, the push-up), this long (s) to this long at the hardest. */
+  flopFrom: 0.4,
+  flopLeast: 1.0,
+  flopMost: 1.5,
 
   // ── the ledge, and gone ──
   /** Over an open edge no faster than this (level), not falling faster than `catchFall`, its middle this near the bench top: it catches the edge. */
@@ -160,6 +177,37 @@ export const PATCH_BODY_TUNING = {
   lookFrom: 0.6,
   lookLeast: 0.4,
 } as const;
+
+/**
+ * Patch's body as the engine collides it (given to the world as this unit is made: `CrewHandle.body`), in the body's
+ * own frame: the origin the middle of its trunk, +Y up the body, +Z its front; world units.
+ *
+ * Two rounded boxes, as near the felt as boxes come: the trunk (the felt trunk is 0.36 either side of its axis, 0.32
+ * to its front and 0.35 to its back, and stands 0.78 from its seat; the box is as tall as the scene's part, 0.68, so
+ * the hand's grip at its top is the scruff and its bottom is the seat) and the head (a ball 0.34 across its middle,
+ * 0.69 above the trunk's). So it rolls over its own head instead of the figure riding up over a body that has none,
+ * and the felt does not sink into what it touches. The ears, the limbs and the tail are felt only: the view folds
+ * them out of the way of the bench.
+ *
+ * Its feel (it overrides the scene part's): grip 0.45, next to no bounce of its own (0.05), its spin lost at 2 a
+ * second, no drag from the air. Measured down four lanes of the open bench against a small crate thrown the same way:
+ * at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2 units; Patch 3.2, 5.8 and 8.3, in about a second, its first
+ * touchdown keeping two thirds of its speed (10.6 to 7.4, 12.7 to 9.1), no bounce higher than half a unit (at 0.6 and
+ * 1.2 the hardest throw vaulted a unit and a quarter off its first touchdown and wandered up to 1.8 off its line;
+ * now 0.2 to 0.7), half a turn to a turn on the way.
+ */
+export const PATCH_BODY_SHAPE: {
+  parts: { half: Vec3; at: Vec3; round: number; share: number }[];
+  feel: { friction: number; restitution: number; linearDamping: number; angularDamping: number };
+} = {
+  parts: [
+    // (all of its weight is its trunk's: its middle, and what it turns about, are the trunk's middle, as the hand,
+    // the throw and the view have it; the head only collides)
+    { half: [0.33, 0.34, 0.3], at: [0, 0, 0], round: 0.15, share: 1 },
+    { half: [0.3, 0.31, 0.29], at: [0, 0.66, 0.03], round: 0.145, share: 0 },
+  ],
+  feel: { friction: 0.45, restitution: 0.05, linearDamping: 0, angularDamping: 2 },
+};
 
 export type Ledge = { readonly edge: 'front' | 'left' | 'right'; readonly at: Vec3; readonly up: Vec3; readonly out: Vec3 };
 export type Landing = { readonly from: Vec3; readonly to: Vec3; readonly speed: number; readonly fall: number; readonly drop: boolean };
@@ -261,7 +309,9 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   const B = PATCH_BODY_TUNING;
   const T = host.T;
   const id = spec.id;
-  const half = ctx.halfExtents(body) as Vec3;
+  /** Its trunk (the first of its boxes; as tall as the scene's part), and all of them. */
+  const SHAPE = PATCH_BODY_SHAPE.parts;
+  const half: Vec3 = SHAPE[0]!.half;
   const top = ctx.scene.bench.top;
   const g = ctx.scene.gravity;
   /** Where the hand has it (its scruff), in its own frame. */
@@ -300,7 +350,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   };
   const upOf = (q: Quat): number => 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
   /** How far its box reaches below its middle as it lies. */
-  const reachDown = (q: Quat): number => Math.abs(rotate(q, [1, 0, 0])[1]) * half[0] + Math.abs(rotate(q, [0, 1, 0])[1]) * half[1] + Math.abs(rotate(q, [0, 0, 1])[1]) * half[2];
+  const reachDown = (q: Quat): number => reach(q, [0, -1, 0]);
   const outside = (p: Vec3): boolean => {
     const e = spec.edge;
     return !!e && (p[0] < e.minX || p[0] > e.maxX || p[2] > e.maxZ);
@@ -310,7 +360,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     return p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ || p[1] < top - 0.2;
   };
   /** How far its box reaches from its middle along the unit direction `d`, as it is turned. */
-  const reach = (q: Quat, d: Vec3): number => Math.abs(dot(rotate(q, [1, 0, 0]), d)) * half[0] + Math.abs(dot(rotate(q, [0, 1, 0]), d)) * half[1] + Math.abs(dot(rotate(q, [0, 0, 1]), d)) * half[2];
+  function reach(q: Quat, d: Vec3): number {
+    const ax = rotate(q, [1, 0, 0]), ay = rotate(q, [0, 1, 0]), az = rotate(q, [0, 0, 1]);
+    let far = -Infinity;
+    for (const b of SHAPE) far = Math.max(far, dot(rotate(q, b.at), d) + Math.abs(dot(ax, d)) * b.half[0] + Math.abs(dot(ay, d)) * b.half[1] + Math.abs(dot(az, d)) * b.half[2]);
+    return far;
+  }
   /** The fixed body its box is touching (the one it is deepest against), and the unit direction out of that body to its middle. */
   function against(pose: Pose): { o: Solid; n: Vec3 } | null {
     let best: { o: Solid; n: Vec3 } | null = null;
@@ -388,6 +443,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       const p = ctx.pose(body)?.p ?? host.at();
       return Math.atan2(spec.visitor[0] - p[0], spec.visitor[2] - p[2]);
     },
+    body: PATCH_BODY_SHAPE,
   });
 
   // ── let go ──
@@ -415,10 +471,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   }
 
   /** How hard it came down, 0..1. */
-  const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, a.impact);
+  // (the most one contact took of its velocity, or three quarters of the speed it first came down at, whichever is
+  // more: it skids on from a throw across now, so no one contact takes much, and it was still thrown across the bench)
+  const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, Math.max(a.impact, a.landing * 0.75));
 
   /** Flat against a wall (`n`: level, out of it), then down it: the script's `wall` takes over from the pose its body had. */
-  function splatOn(pose: Pose, what: Id, n: readonly [number, number], speed: number, took: number): void {
+  function splatOn(pose: Pose, what: Id, n: readonly [number, number], speed: number, took: number, flat: Vec3 = pose.p): void {
     ctx.stow(body, pose);
     ctx.emit({ type: 'patch.throw', phase: 'hit', speed, what, wall: true });
     wallOut = [n[0], 0, n[1]];
@@ -430,37 +488,66 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     host.setLedge(null);
     host.setLookAt(null);
     host.setWalled({ out: wallOut, speed });
-    host.setAt(pose.p);
+    // (flat against the wall; the view takes the figure there from the pose its body had, over a few frames)
+    host.setAt(flat);
     host.setHeading(Math.atan2(-n[0], -n[1]));
     host.enter('wall');
   }
 
+  /** Does the visitor see this face of a fixed body flat-on enough for the gag (its way out of the body is toward them)? */
+  function faceSeen(at: Vec3, n: readonly [number, number]): boolean {
+    const dx = spec.visitor[0] - at[0], dz = spec.visitor[2] - at[2];
+    return (n[0] * dx + n[1] * dz) / (Math.hypot(dx, dz) || 1) >= B.wallSeen;
+  }
+
   /**
-   * Let go while the hand was throwing it into a wall it is against (the hand `wallPress` or more past where the wall
-   * holds its body, and still going into the wall's face at a throw's speed): the wall gag there, as the scripted
-   * Patch's was. A throw up the screen at the back wall is this: the hand goes on into the wall and the body cannot.
-   * Just touching a wall, held against one, or set down against one, is not.
+   * The wall it is about to meet flat: a tall fixed body's face (not its corner, not a post), one the visitor sees,
+   * that `v` takes it into square and fast, and no further off than `within` (units, from the nearest of its body).
+   * The gag is decided here, a step before the engine would bounce it off whichever corner arrived first: thrown
+   * hard at the back wall, the board or the storefront it splats every time; brushing a wall, meeting something low,
+   * or going into the far side of a machine where nobody would see it, it gets the engine's honest bounce.
    */
-  function pressedTo(pose: Pose): { o: Solid; n: readonly [number, number] } | null {
-    const met = against(pose);
-    if (!met) return null;
-    const flat = Math.hypot(met.n[0], met.n[2]);
-    if (flat <= 0.8 || pose.p[1] >= met.o.y1 - 0.03) return null;
-    const n: readonly [number, number] = [met.n[0] / flat, met.n[2] / flat];
-    const o = met.o;
-    const c = Math.cos(o.yaw), sn = Math.sin(o.yaw);
-    const face = Math.abs(c * n[0] - sn * n[1]) > Math.abs(sn * n[0] + c * n[1]) ? o.hz : o.hx;
-    if (o.y1 < pose.p[1] + T.wallAbove || pose.p[1] > T.wallMeet || face < B.wallFace) return null;
-    const grip = add(pose.p, rotate(pose.q, SCRUFF));
-    const push = -((hand[0] - grip[0]) * n[0] + (hand[2] - grip[2]) * n[1]);
-    // (and the hand went into the wall at a throw's speed in its last quarter second: a throw at it, not a thing
-    // held against it. The fastest of those steps: the world stops the hand itself at the bench's edge)
-    let going = 0;
+  function wallAhead(pose: Pose, v: Vec3, within: number): { o: Solid; n: readonly [number, number]; into: number; flat: Vec3 } | null {
+    const p = pose.p;
+    const lv = level(v);
+    if (lv < B.wallInto || p[1] > T.wallMeet) return null;
+    let best: { o: Solid; n: readonly [number, number]; into: number; flat: Vec3; gap: number } | null = null;
+    for (const o of host.solids) {
+      if (o.y1 < p[1] + T.wallAbove || p[1] < o.y0) continue;
+      const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
+      const dx = p[0] - o.x, dz = p[2] - o.z;
+      const ux = c * dx - s * dz, uz = s * dx + c * dz;
+      // beside one face of it (not over it, not off a corner)
+      const ox = Math.abs(ux) - o.hx, oz = Math.abs(uz) - o.hz;
+      if (ox > 0 === oz > 0) continue;
+      const alongX = ox > 0;
+      const nl: readonly [number, number] = alongX ? [Math.sign(ux), 0] : [0, Math.sign(uz)];
+      const n: readonly [number, number] = [c * nl[0] + s * nl[1], -s * nl[0] + c * nl[1]];
+      const face = alongX ? o.hz : o.hx;
+      if (face < B.wallFace || (alongX ? Math.abs(uz) : Math.abs(ux)) > face - 0.1) continue;
+      const into = -(v[0] * n[0] + v[2] * n[1]);
+      if (into < B.wallInto || into < B.wallSquare * lv) continue;
+      const far = alongX ? ox : oz;
+      const gap = far - reach(pose.q, [-n[0], 0, -n[1]]);
+      if (gap > within) continue;
+      const on: Vec3 = [p[0] - n[0] * far, p[1], p[2] - n[1] * far];
+      if (!faceSeen(on, n)) continue;
+      if (!best || gap < best.gap) best = { o, n, into, gap, flat: [on[0] + n[0] * B.wallFlat, p[1], on[2] + n[1] * B.wallFlat] };
+    }
+    return best;
+  }
+
+  /** The hand's fastest level velocity over its last quarter second (the world stops the hand itself at the bench's edge). */
+  function handThrow(): Vec3 {
+    let best: Vec3 = [0, 0, 0];
     for (let i = 1; i < hands.length; i++) {
       const a = hands[i - 1]!, b = hands[i]!;
-      if (b.step > a.step) going = Math.max(going, (-((b.p[0] - a.p[0]) * n[0] + (b.p[2] - a.p[2]) * n[1]) * HZ) / (b.step - a.step));
+      if (b.step <= a.step) continue;
+      const k = HZ / (b.step - a.step);
+      const v: Vec3 = [(b.p[0] - a.p[0]) * k, 0, (b.p[2] - a.p[2]) * k];
+      if (level(v) > level(best)) best = v;
     }
-    return push >= B.wallPress && going >= T.throwAt ? { o, n } : null;
+    return best;
   }
 
   /**
@@ -561,6 +648,8 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     };
     const look = home ? 0 : want(B.lookFrom, lerp(B.lookLeast, T.look, (hard - B.lookFrom) / (1 - B.lookFrom)), B.lookLeast);
     rise += want(0, B.getUpHard * hard + (drop ? host.flopLength(fall) * B.flop * hard : 0), 0);
+    // the big fall is the joke whatever way it came down, and whatever its tumble took of the bit
+    if (drop && !home && hard >= B.flopFrom) rise = Math.max(rise, lerp(B.flopLeast, B.flopMost, (hard - B.flopFrom) / (1 - B.flopFrom)));
     lay = { pose, hard, from, to, arc, rise, home, fall, speed, shake, look };
     phase = 'getup';
     host.setLanding({ from, to, speed, fall, drop });
@@ -721,6 +810,14 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     }
     a.ticks += 1;
     a.peak = Math.max(a.peak, p[1]);
+    // a wall it is about to meet flat, in the visitor's sight: the gag, from the pose it has
+    if (!a.chute && !a.out) {
+      const w = wallAhead(pose, v, Math.max(0.03, level(v) * B.wallAhead));
+      if (w) {
+        splatOn(pose, w.o.id, w.n, length(v), Math.max(a.impact, w.into), w.flat);
+        return;
+      }
+    }
 
     // what it met in the last step (heard at its end): `a.v` is how it was going before
     const hits = heardHits;
@@ -759,19 +856,11 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
           continue;
         }
         const o = met.o;
-        // met side-on: the way out of it is level (not its top), and its face goes on up above Patch's middle
-        const flat = Math.hypot(met.n[0], met.n[2]);
-        const n: readonly [number, number] = flat > 1e-6 ? [met.n[0] / flat, met.n[2] / flat] : [0, 0];
-        const into = -(a.v[0] * n[0] + a.v[2] * n[1]);
-        const side = flat > 0.8 && p[1] < o.y1 - 0.03;
-        // the face it met: how wide (the fixed body's extent along that face)
-        const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
-        const alongX = Math.abs(c * n[0] - s * n[1]) > Math.abs(s * n[0] + c * n[1]);
-        const face = alongX ? o.hz : o.hx;
-        if (!a.chute && !a.out && side && o.y1 >= p[1] + T.wallAbove && p[1] <= T.wallMeet && into >= B.wallInto && into >= B.wallSquare * level(a.v) && face >= B.wallFace) {
-          // the wall gag: it really met a wall, side-on, square and fast. Flat against it, then down it (the script's)
-          // (how hard: the wall took all of the speed it came in with, and what the engine had already turned back)
-          splatOn(pose, o.id, n, before, Math.max(a.impact, before));
+        // (a wall met flat that the look-ahead did not take: it came at it under the look-ahead's reach, or turned
+        // into it: judged on how it was going a step ago)
+        const w = !a.chute && !a.out ? wallAhead({ p: a.p, q: pose.q }, a.v, 0.6) : null;
+        if (w && w.o === o) {
+          splatOn(pose, o.id, w.n, before, Math.max(a.impact, before), [w.flat[0], p[1], w.flat[2]]);
           return;
         }
         if (!a.met.has(o.id) && before >= B.hitSpeed) {
@@ -878,13 +967,19 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
         prev = pose;
       }
       if (ctx.mode(body) === 'free') {
-        const pressed = pressedTo(ctx.pose(body) as Pose);
+        // thrown at a wall beside it (the hand going into the wall at a throw's speed): at the wall it goes, level
+        const hv = handThrow();
+        const at = level(hv) >= B.wallHand ? wallAhead(ctx.pose(body) as Pose, hv, B.wallReach) : null;
         fly(false);
-        if (pressed) {
-          // (thrown at the wall from against it: its body has no speed to show for it, the hand's push stands for it)
-          const speed = Math.max(T.throwAt, length(ctx.velocity(body)?.linvel ?? [0, 0, 0]));
-          if (air && !air.thrown) ctx.emit({ type: 'patch.throw', phase: 'thrown', speed });
-          splatOn(ctx.pose(body) as Pose, pressed.o.id, pressed.n, speed, B.hardAt * 0.6);
+        if (at) {
+          const v = ctx.velocity(body)?.linvel ?? [0, 0, 0];
+          const want = Math.min(T.throwMax, Math.max(B.wallThrow, level(hv)));
+          const into = -(v[0] * at.n[0] + v[2] * at.n[1]);
+          ctx.shove(body, [-at.n[0] * Math.max(0, want - into), Math.min(0, B.wallUp - v[1]), -at.n[1] * Math.max(0, want - into)]);
+          if (air && !air.thrown) {
+            air.thrown = true;
+            ctx.emit({ type: 'patch.throw', phase: 'thrown', speed: want });
+          }
         }
       }
     }
