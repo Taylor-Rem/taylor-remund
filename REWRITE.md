@@ -452,6 +452,15 @@ everywhere, which is what lets someone guess right the first time.
    throws up, and what is in the air can be caught and thrown again
    (his test: "throwing them up then catching them and back up again like
    juggling").
+   What is thrown is the motion the thing itself had in the hand: it
+   trails the pointer by its weight and leaves with what it was doing, so
+   a hand that has stopped before letting go throws nothing, and a harder
+   flick throws harder, up to a soft ceiling. Pushed into a machine or a
+   stack, a carried thing goes up its face and onto its top; pushed from
+   behind, over it; carried along behind one, it stays on the bench
+   behind it (the hand was rebuilt on these rules on 2026-11-20 and 21,
+   after a review whose direction he gave: "Don't just address the
+   individual symptoms. Fix the underlying interaction model").
 2. **If it has a mouth, it takes anything loose.** Every machine has one
    verb and applies it to whatever arrives. A machine never answers with a
    bare refusal: it either does its verb, or says specifically what it
@@ -484,7 +493,7 @@ Machines and their verbs in release 1:
 | The belt | its whole surface | carries it, at the speed and direction set | size | where it is |
 | The striker | under the arm at the end of the belt | strikes it; it sounds | size, material | nothing |
 | The dock | the roll-up door | ships it: out, with a bell (the bell also rings when the visitor presses it; that changes nothing) | nothing | marks; where it is |
-| The bench edge | anything that falls off | sends it back up the return chute; the crew save themselves instead (Patch catches the edge, hangs, hauls itself up and walks back to its stool; Fetch drops out of sight and flies back to its tape on a little jetpack), neither ever carried by physics (Taylor, 2026-11-19) | nothing | where it is |
+| The bench edge | anything that falls off | sends it back up the return chute; the crew save themselves instead (Patch, going over low and slowly, catches the edge, hangs, hauls itself up and walks back to its stool; thrown hard over it, it comes back up the chute; Fetch falls out of sight and flies back to its tape on a little jetpack). They are bodies while they are held or thrown, and the save takes over from the motion they really had (Taylor, 2026-11-20; until then neither was ever carried by physics, his ruling of 2026-11-19) | nothing | where it is |
 
 **The feedback grammar**, the same everywhere:
 
@@ -768,29 +777,46 @@ Patch's place: it never walks the bench.
   way, steps that plant, a scamper when the way is long; round the
   machines, the crates and Fetch, never through them; over the belt by
   climbing its rail and being carried a step or two.
-- *Thrown* (Taylor, 2026-11-19): it flies on an arc of its own, tumbling,
-  limbs out and tail streaming; it is never carried by physics. It lands
-  at the nearest clear point, bounces, rolls up to sitting, shakes its
-  head, gives the visitor the look and walks home. It knocks loose crates
-  and tools out of its way and comes down just past them; it stops
-  against Fetch, Revert and anything a machine holds. Meeting a wall, the
-  board, the storefront or the dock side-on, it sticks flat for a quarter
-  of a second and slides down. Over the bench's edge low, it catches the
-  ledge; thrown hard over it, it is out of sight for about a second and
-  comes back up the chute. It always gets back on its stool: a crate that
+- *Thrown* (Taylor, 2026-11-19; a real body since 2026-11-20): in the hand
+  and in the air Patch is a body the physics engine carries, as a crate
+  is. It hangs from the hand and trails it by its weight, leaves it with
+  the motion it had, tumbles, and bounces, slides and stops by what it
+  meets, limbs out and tail streaming; loose crates, tools and Fetch are
+  shoved by the contact itself. (Until 2026-11-20 it flew on a
+  hand-written arc of its own and was never carried by physics, his
+  ruling of the 19th. On the 20th he asked for "a real physics body for
+  Patch while he's being thrown, tumbling, and interacting with the
+  environment, with scripted behavior taking over when appropriate for
+  recovery", played it, and kept it: "I was worried when you switched him
+  to being an actual physics body that it would lose the exaggerated
+  physics and cartooniness but it feels great!") The script takes over
+  only where it has come to rest, and from how it really lies: it gets up
+  there if it can stand there and walk home, and otherwise hops to the
+  nearest place it can, one the visitor can see when there is one near;
+  it shakes its head when it came down hard enough to earn that, gives
+  the visitor the look after a harder landing still, and walks home. The
+  gags are its answers to what the engine did. Meeting, square and fast,
+  a wall it can be flat against (something as tall as itself that faces
+  the visitor: the back wall, the board's panel, the storefront, the
+  dock, the UNDO lever's housing), it sticks flat for a third of a second
+  and slides down; anything lower, slower or glancing is an honest
+  bounce. Over the bench's edge low and slowly, it catches the ledge;
+  thrown hard over it, it is out of sight for about a second and comes
+  back up the chute. It always gets back on its stool: a crate that
   has come to rest at the stool's foot is nudged aside, and with one
   lying there its way home still goes round every other crate (it does
-  not stand behind one waiting for the bench to be cleared). Let go while
-  touching something, it is thrown all the same unless the throw points
-  into that thing. Let go still from up high it falls, knowing it, and
-  lands in a flop that grows with the fall, sits up and dusts off. Thrown
-  up it rises, hangs a moment at the top with its arms folded, and falls;
-  it can be caught in the air and thrown again. "Up" means more up than
-  across (within about 27 degrees of straight up): a throw across the
-  bench with lift in it goes over its top without a stop, head over
-  heels, and lands in its roll like any other throw (Taylor, 2026-11-20,
-  of the hang and the flop on such a throw: "Patch freezes mid air for
-  several frames"). Wherever it is, it can be
+  not stand behind one waiting for the bench to be cleared). Let go still
+  from up high it falls, knowing it, and however it comes down it ends
+  flat in a flop, lies there a beat, and pushes itself up. Thrown up it
+  rises, hangs a moment at the top with its arms folded, and falls; it
+  can be caught in the air and thrown again. "Up" means very nearly
+  straight up (all of the hang within about 10 degrees of it, none from
+  30): a throw across the bench with lift in it goes over its top without
+  a stop and tumbles on like any other throw (Taylor, 2026-11-20, of the
+  hang on such a throw: "Patch freezes mid air for several frames"; and
+  of what to keep: "I like the idea of a brief hang at the apex, but it
+  shouldn't interrupt significant horizontal movement or feel like an
+  accidental freeze"). Wherever it is, it can be
   taken hold of, and no part of it ever goes below the floor.
 - *Hit by a thrown part* (Taylor, 2026-11-18): it answers in character (a
   duck, a catch, the look); it is never hurt.
@@ -1128,8 +1154,8 @@ least the first three minutes.
 | Site shell | **Astro**, static output, directory URLs | Shared layouts for eight pages, content files with a checked schema, no JavaScript on pages that need none. Cost: Pages moves from "serve the branch" to an Actions build. |
 | 3D library | **Three.js** in TypeScript, used directly | One persistent scene driven by a simulation loop. React Three Fiber would add React to a stack that has none; the Vue equivalent is younger. Cost: the project writes its own small conventions for lifecycle and disposal. |
 | Renderer | **`WebGLRenderer`** (WebGL 2) | Nothing in this look needs WebGPU, and it is the widest-supported and best-documented path. Reports on WebGPU in Firefox and on phones conflicted when checked. |
-| Physics | **Rapier** for loose parts only | Stable stacking, sensors, snapshots. Cost: its WebAssembly file is 3.08 MB before compression (measured from the package); compressed size is measured in P2. It loads after first paint and sits behind an adapter so it can be swapped. |
-| Machines and crew | Scripted state machines on a fixed 60 Hz step | Predictable, testable, cheap. Physics is for things that tumble, not for things that perform. |
+| Physics | **Rapier** for loose parts only (the crew are loose parts while they are held or thrown, since 2026-11-20) | Stable stacking, sensors, snapshots. Cost: its WebAssembly file is 3.08 MB before compression (measured from the package); compressed size is measured in P2. It loads after first paint and sits behind an adapter so it can be swapped. |
+| Machines and crew | Scripted state machines on a fixed 60 Hz step | Predictable, testable, cheap. Physics is for things that tumble, not for things that perform: a crew member is a body while it tumbles and a script again from where it comes to rest. |
 | Geometry | Built in code from a parts kit (§ E3) | No modelling tool is available; the look is designed to suit it. Proven or replaced at G1. |
 | Animation | A small in-house timeline driven by the simulation clock | Lets reduced motion be honoured in one place and keeps behaviour testable. |
 | Audio | Web Audio directly | Synthesised notes plus a few samples; no library needed. |
@@ -1928,7 +1954,8 @@ music. More than one room.
 
 - One fixed camera angle means only one side of anything needs to be good.
 - One robot rig serves every robot. Patch never walks the bench (§ B5).
-- Machines are scripted; only loose parts are simulated.
+- Machines are scripted; only loose parts are simulated, the crew among
+  them while they are held or thrown (§ B5).
 - Undo restores recorded values; nothing needs inverse code.
 - A crate opens to one standing card, the same mechanism for all of them.
 - The Button's rewind builds the recording that hold-to-rewind will need.
