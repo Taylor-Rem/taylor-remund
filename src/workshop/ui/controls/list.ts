@@ -84,6 +84,10 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     return e;
   };
   const body = el('div', 'controls-body');
+  // Not a Tab stop of its own. Firefox puts a scrolling box in the Tab order, and while the list is hidden (a
+  // 1px clip) this one scrolls: Tab from the strip landed on it, the list opened round it, it stopped scrolling,
+  // and Firefox dropped the focus to the page, so Tab never reached the list's buttons (E2, 2026-11-21).
+  body.tabIndex = -1;
   const hold = el('div', 'controls-hold');
   hold.hidden = true;
   const holdLabel = el('p', 'controls-hold-label');
