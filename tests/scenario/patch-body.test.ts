@@ -12,7 +12,7 @@
 //   - and the scripted Patch (`bench`) is what it was.
 // The seeded soak (every throw ends on the stool) is tests/scenario/patch-body-soak.test.ts.
 import { describe, expect, test } from 'vitest';
-import { BODY, FULL_BENCH, LENS, PATCH_BODY, benchBody, fling, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
+import { BODY, FULL_BENCH, LENS, PATCH_BODY, SOLIDS, benchBody, fling, fmt, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
@@ -947,6 +947,135 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     expect(w.holding()).toBeNull();
     w.dispose();
   }, 240_000);
+});
+
+describe('from every awkward place it gets home', () => {
+  // Taylor, 2026-11-20: "I don't want a physics simulation that occasionally leaves Patch trapped behind a machine or
+  // unable to return to his stool." Every fixed body on the bench: let go on top of it, and pressed against each of
+  // its four sides (behind it, between it and its neighbour, in its corner with the wall); and the bench's four
+  // corners. One bench, one after another, so what an earlier one knocked about is in the way of the next.
+  test('let go on top of every fixed body, against every side of it, and in every corner of the bench: on its stool each time, never inside anything on the way', async () => {
+    const { w, t } = await world();
+    const b = AT.bench;
+    const places: { name: string; hand: Vec3 }[] = [];
+    for (const o of SOLIDS) {
+      const c = Math.cos(o.yaw), sn = Math.sin(o.yaw);
+      places.push({ name: `on ${o.id}`, hand: [o.x, o.y1 + 2 * HALF[1] + 0.12, o.z] });
+      for (const [lx, lz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        // just off that side, a hand's height up (or the body's own height up its face, for a low one)
+        const d = (lx !== 0 ? o.hx : o.hz) + 0.2;
+        const x = o.x + c * lx * d + sn * lz * d, z = o.z - sn * lx * d + c * lz * d;
+        if (x < b.minX + 0.2 || x > b.maxX - 0.2 || z < b.minZ + 0.2 || z > b.maxZ - 0.2) continue;
+        places.push({ name: `against ${o.id} (${lx},${lz})`, hand: [x, Math.min(o.y1, 0.5) + 2 * HALF[1], z] });
+      }
+    }
+    for (const [x, z] of [[b.minX + 0.3, b.minZ + 0.3], [b.maxX - 0.3, b.minZ + 0.3], [b.minX + 0.3, b.maxZ - 0.3], [b.maxX - 0.3, b.maxZ - 0.3]] as const) places.push({ name: `corner (${x}, ${z})`, hand: [x, 1.1, z] });
+    expect(places.length).toBeGreaterThan(100);
+    const took: { name: string; s: number; lay: string }[] = [];
+    for (const pl of places) {
+      lift(w, t, pl.hand, 12);
+      w.dispatch({ type: 'release' });
+      const from = w.step;
+      let lay = '-';
+      let seated = false;
+      for (let i = 0; i < 45 * HZ && !seated; i++) {
+        t.run(1);
+        const v = patch(w);
+        if (v.lay) lay = `(${fmt(v.lay.pose.p)}) > (${fmt(v.lay.to)})`;
+        if (v.state !== 'held' && v.state !== 'fly' && v.state !== 'away') {
+          expect(v.at[1], `${pl.name}: below the bench top in ${v.state}`).toBeGreaterThanOrEqual(-1e-6);
+          const inside = insideSolid(v.at);
+          if (inside && !(inside === 'stool' && v.state === 'climb') && !(inside === 'belt-bed' && v.state === 'cross')) expect.fail(`${pl.name}: inside ${inside} in ${v.state} at (${fmt(v.at)})`);
+        }
+        seated = v.state === 'seated';
+      }
+      expect(seated, `${pl.name}: on its stool (${patch(w).state} at ${fmt(patch(w).at)}; lay ${lay})`).toBe(true);
+      took.push({ name: pl.name, s: (w.step - from) / HZ, lay });
+    }
+    took.sort((x, y) => y.s - x.s);
+    console.log(`${places.length} places; the slowest:\n${took.slice(0, 6).map((x) => `  ${x.s.toFixed(1)} s  ${x.name}: lay ${x.lay}`).join('\n')}`);
+    w.dispose();
+  }, 600_000);
+});
+
+describe('where the scripted Patch does not get home, and this one does', () => {
+  // Found by the test above and by the soak (2026-11-20); both are true of the scripted Patch on `bench` today.
+  // (1) Let go past the right end by the storefront, its ledge catch hauls it up into the slot between the storefront
+  // and the pallets, which it cannot walk out of: it stands there for good.
+  test('past the right end by the storefront: no catch where the haul would stand it shut in; it falls, comes back by the chute, and is on its stool', async () => {
+    const { w, t } = await world();
+    const hand: Vec3 = [AT.bench.maxX + 0.3, 0.8 + HALF[1], -2.7];
+    lift(w, t, hand, 20);
+    w.dispatch({ type: 'release' });
+    const states = home(w, t);
+    expect(states).not.toContain('ledge');
+    expect(states.slice(0, 4)).toEqual(['held', 'fly', 'away', 'fly']);
+    expect(states.at(-1)).toBe('seated');
+    // (and the scripted Patch, let go the same: still standing in the slot a minute later)
+    const s = await world(FULL_BENCH);
+    lift(s.w, s.t, [hand[0], 0.8, hand[2]], 20);
+    s.w.dispatch({ type: 'release' });
+    const old = home(s.w, s.t, 60);
+    expect(old).toContain('ledge');
+    expect(old.at(-1)).toBe('walk');
+    s.w.dispose();
+    w.dispose();
+  }, 120_000);
+
+  // (2) Its walk home waits for whatever of the crew stands in its way, for as long as it stands there: at the belt
+  // with Fetch stood where it would step down (the soak's seed 543: 45 s and counting), or at its own stool with Fetch
+  // on the spot. Here the visitor holds Fetch on that spot, so it is certain. The walk is the scripted Patch's still;
+  // this Patch is watched on it, and stood in one place for `stuck` seconds it hops on toward its stool.
+  for (const scene of [benchBody, FULL_BENCH]) {
+    const body = scene === benchBody;
+    test(`the visitor holds Fetch on the spot at the foot of Patch's stool: ${body ? 'it waits a while, then hops onto the spot and climbs up' : 'the scripted Patch waits for as long as Fetch is held there'}`, async () => {
+      const { w, t } = await world(scene);
+      // Patch thrown down the bench, so the hand is free while it tumbles and comes back
+      lift(w, t, [-1, 1.6, -1.5]);
+      w.dispatch({ type: 'release', velocity: [-7, 2, 0] });
+      t.run(2);
+      // Fetch taken and held over the foot of the stool
+      const foot = patch(w).foot;
+      const f0 = w.motion('fetch')!.pose.p;
+      w.dispatch({ type: 'grab', id: 'fetch', grip: f0 });
+      t.run(1);
+      expect(w.holding()?.id).toBe('fetch');
+      const over: Vec3 = [foot[0], 1.3, foot[2]];
+      const watch = watcher(w, t);
+      let hopped: Sample | null = null;
+      let seated = false;
+      for (let i = 0; i < 40 * HZ && !seated; i++) {
+        const k = Math.min(1, i / 50);
+        w.dispatch({ type: 'carry', target: [f0[0] + (over[0] - f0[0]) * k, over[1] + 1.2 * Math.sin(Math.PI * k), f0[2] + (over[2] - f0[2]) * k] });
+        const s = watch.step();
+        const lay = patch(w).lay;
+        if (!hopped && s.state === 'land' && lay && lay.rise === 0 && lay.arc > 0) hopped = s;
+        seated = s.state === 'seated';
+      }
+      expect(w.holding()?.id, 'Fetch is still in the hand').toBe('fetch');
+      const S = watch.samples;
+      // it came back and stood waiting, a unit or so short of its stool
+      const waited = S.filter((s) => s.state === 'walk' && s.speed < 0.05 && Math.hypot(s.at[0] - foot[0], s.at[2] - foot[2]) < 2).length / HZ;
+      if (!body) {
+        expect(seated).toBe(false);
+        expect(S.at(-1)!.state).toBe('walk');
+        expect(waited).toBeGreaterThan(20);
+      } else {
+        expect(waited).toBeGreaterThan(B.stuck - 1);
+        expect(waited).toBeLessThan(B.stuck + 2);
+        expect(hopped, 'the hop').not.toBeNull();
+        // the hop: onto the foot of its stool, a move with a duration, then the climb
+        expect(patch(w).foot).toEqual(foot);
+        const from = S.indexOf(hopped!);
+        const hop = S.slice(from).filter((s, i, a) => s.state === 'land' && (i === 0 || a[i - 1]!.state === 'land'));
+        expect(hop.length).toBeGreaterThan(steps(B.hop) - 2);
+        for (const s of hop) expect(s.speed / HZ, 'no jump').toBeLessThan(0.3);
+        expect(seated, `on its stool (${S.at(-1)!.state})`).toBe(true);
+      }
+      w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+      w.dispose();
+    }, 120_000);
+  }
 });
 
 describe('its work, and the other ways of letting go', () => {

@@ -697,7 +697,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
     }
     const top = ctx.scene.bench.top;
     for (const id of ctx.parts()) {
-      if (ctx.mode(id) !== 'free') continue;
+      if (ctx.mode(id) !== 'free' || id === spec.bodyPart) continue; // (`flight: 'body'`: its own body is not a thing in its way)
       const p = ctx.pose(id);
       const h = ctx.halfExtents(id);
       if (!p || !h || p.p[1] - h[1] > top + 0.3) continue;

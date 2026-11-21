@@ -125,9 +125,16 @@ export function watcher(w: World, t: Tape): { samples: Sample[]; step(): Sample;
   };
 }
 
-/** Is the point inside a fixed body by more than `margin` (0: on its surface counts as out)? */
+/**
+ * Is the point inside a fixed body by more than `margin` (0: on its top or a side counts as out)? A point on the
+ * bench top under a body that stands on the bench is inside it (its feet in a machine's footprint).
+ */
 export function insideSolid(p: Vec3, margin = 0.03): string | null {
-  for (const o of SOLIDS) if (p[1] > o.y0 + margin && p[1] < o.y1 - margin && distanceTo(o, p[0], p[2]) <= 0 && inset(o, p) > margin) return o.id;
+  for (const o of SOLIDS) {
+    // (above its bottom: for one that stands on the bench itself, the bench top under it counts)
+    const above = o.y0 < 0.01 ? p[1] > o.y0 - 1e-6 : p[1] > o.y0 + margin;
+    if (above && p[1] < o.y1 - margin && distanceTo(o, p[0], p[2]) <= 0 && inset(o, p) > margin) return o.id;
+  }
   return null;
 }
 /** How far inside a body's footprint a point is (its distance to the nearest side). */

@@ -102,6 +102,17 @@ export const PATCH_BODY_TUNING = {
   /** On the stool's top this near the seat: it is home already. */
   onSeat: 0.3,
 
+  // ── the walk home, watched ──
+  /**
+   * The walk home is the scripted Patch's, and it can wait: for a gap on the belt, for a crate where it would step
+   * down, for the crew. Stood within `stuckRoom` of one spot for `stuck` seconds on its way, it stops waiting and
+   * hops on toward its stool: `rescueHop` or more at a time, over whatever is in the way; at last onto the stool's
+   * foot itself. (The scripted Patch waits there until the bench is cleared, and in two places for good.)
+   */
+  stuck: 6.5,
+  stuckRoom: 0.4,
+  rescueHop: 1.6,
+
   // ── the get-up, by how hard it came down (0 a set-down .. 1 a hard landing) ──
   /**
    * How hard: the most any one contact took out of its velocity (units/s), from `softFrom` (0) to `hardAt` (1).
@@ -406,6 +417,43 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, a.impact);
 
   /**
+   * Where it goes to get on its feet from `p` (the bench under where it lies): the nearest place it can stand AND
+   * walk home from. Near first (the script's own search, a unit and a half round); then wider, ring by ring; and if
+   * the whole bench round it is shut (it never has been), the foot of its own stool, which is home. Recovery never
+   * ends on a spot it cannot leave.
+   */
+  function haven(p: Vec3): Vec3 {
+    const near = host.restAt(p);
+    if (host.canStand(near)) return near;
+    const b = ctx.scene.bench;
+    for (let rad = 1.75; rad <= 8; rad += 0.5) {
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const q: Vec3 = [p[0] + Math.cos(a) * rad, top, p[2] + Math.sin(a) * rad];
+        if (q[0] < b.minX + 0.3 || q[0] > b.maxX - 0.3 || q[2] < b.minZ + 0.3 || q[2] > b.maxZ - 0.3) continue;
+        if (host.canStand(q)) return q;
+      }
+    }
+    return host.footNow();
+  }
+
+  /** The arc a hop from `from` to `q` needs: its own (by the distance), raised until no point of it is inside a fixed body. */
+  function arcFor(from: Vec3, q: Vec3): number {
+    const far = Math.hypot(q[0] - from[0], q[1] - from[1], q[2] - from[2]);
+    let h = B.hopHigh + B.hopHighPer * far;
+    const inside = (): boolean => {
+      for (let i = 1; i < 48; i++) {
+        const k = i / 48;
+        const p: Vec3 = [lerp(from[0], q[0], k), lerp(from[1], q[1], k) + 4 * h * k * (1 - k), lerp(from[2], q[2], k)];
+        if (host.solids.some((o) => p[1] < o.y1 + 0.02 && p[1] > o.y0 && distanceTo(o, p[0], p[2]) <= 0.02)) return true;
+      }
+      return false;
+    };
+    for (let i = 0; i < 24 && inside(); i++) h += 0.25;
+    return h;
+  }
+
+  /**
    * The script takes over from where and how it lies: `pose` (the body's, already out of the world). It gets up
    * there if it can stand there and walk home; else it hops, along a small arc, to the nearest place it can.
    */
@@ -418,22 +466,8 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     // on its own stool: it is home
     const home = Math.hypot(pose.p[0] - seat[0], pose.p[2] - seat[2]) < B.onSeat && Math.abs(low - seat[1]) < 0.12;
     const stand = low - top <= B.onBench && host.canStand(ground);
-    /** The arc a hop to `q` needs: its own (by the distance), raised until no point of it is inside a fixed body. */
-    const arcTo = (q: Vec3): number => {
-      const far = Math.hypot(q[0] - from[0], q[1] - from[1], q[2] - from[2]);
-      let h = B.hopHigh + B.hopHighPer * far;
-      const inside = (): boolean => {
-        for (let i = 1; i < 48; i++) {
-          const k = i / 48;
-          const p: Vec3 = [lerp(from[0], q[0], k), lerp(from[1], q[1], k) + 4 * h * k * (1 - k), lerp(from[2], q[2], k)];
-          if (host.solids.some((o) => p[1] < o.y1 + 0.02 && p[1] > o.y0 && distanceTo(o, p[0], p[2]) <= 0.02)) return true;
-        }
-        return false;
-      };
-      for (let i = 0; i < 24 && inside(); i++) h += 0.25;
-      return h;
-    };
-    let to = home ? seat : stand ? ground : host.restAt(ground);
+    const arcTo = (q: Vec3): number => arcFor(from, q);
+    let to = home ? seat : stand ? ground : haven(ground);
     let arc = 0;
     if (!home && Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]) > B.hopOver) {
       arc = arcTo(to);
@@ -514,7 +548,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       return;
     }
     returns += 1;
-    const land = host.standingAt([c.pad[0], top, c.pad[1]]);
+    const land = haven([c.pad[0], top, c.pad[1]]);
     if (returns > B.chuteTries) {
       // it has come back and gone again: this time the chute's throw is the script's own, onto its feet by the pad
       const from: Vec3 = [c.from[0], Math.max(top, c.from[1] - half[1]), c.from[2]];
@@ -561,6 +595,43 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       lay = null;
       phase = 'script';
     }
+  }
+
+  // ── the walk home, watched ──
+  /** Where it has been standing on its walk home, and for how many steps. */
+  let stood: { at: Vec3; ticks: number } | null = null;
+  function watchWalk(): void {
+    if (host.state() !== 'walk') {
+      stood = null;
+      return;
+    }
+    const at = host.at();
+    if (!stood || Math.hypot(at[0] - stood.at[0], at[2] - stood.at[2]) > B.stuckRoom) {
+      stood = { at, ticks: 0 };
+      return;
+    }
+    stood.ticks += 1;
+    if (stood.ticks < steps(B.stuck)) return;
+    stood = null;
+    // it has waited long enough: a hop on toward its stool, to the first place along the way that is nearer home
+    // and that it can stand and walk home from; none short of the stool: onto the stool's foot
+    const foot = host.footNow();
+    const d = Math.hypot(foot[0] - at[0], foot[2] - at[2]);
+    let to = foot;
+    for (let far = B.rescueHop; far < d - 0.5; far += 0.8) {
+      const q = host.standingAt([at[0] + ((foot[0] - at[0]) * far) / d, top, at[2] + ((foot[2] - at[2]) * far) / d]);
+      if (Math.hypot(foot[0] - q[0], foot[2] - q[2]) < d - far * 0.6 && host.canStand(q)) {
+        to = q;
+        break;
+      }
+    }
+    const from: Vec3 = [at[0], Math.max(top, at[1]), at[2]];
+    lay = { pose: { p: add(from, UP), q: qyaw(host.heading()) }, hard: 0, from, to, arc: arcFor(from, to), rise: 0, home: false, fall: 0, speed: 0, shake: 0, look: 0 };
+    phase = 'getup';
+    host.setLanding({ from, to, speed: 0, fall: 0, drop: false });
+    host.setLookAt(null);
+    host.setHeading(Math.atan2(to[0] - from[0], to[2] - from[2]));
+    host.enter('land', 0, B.hop + B.hopPer * Math.hypot(to[0] - from[0], to[2] - from[2]));
   }
 
   // ── a step in the air ──
@@ -643,7 +714,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     // over an open edge: low and slow it catches it; fast or high it simply falls
     if (!a.out && outside(p)) {
       const over = p[1] <= top + B.reachUp && p[1] >= top - B.reachDown && level(v) <= B.catchSpeed && v[1] >= -B.catchFall ? host.edgeFor(p) : null;
-      if (over) {
+      // (and only where the haul stands it just in from the edge, at a place it can walk home from. Where that spot
+      // is taken, the scripted catch hauls it to the nearest clear one however far, through whatever is between; and
+      // by the storefront's end it stands it in the slot behind the pallets, shut in for good. There it does not
+      // catch: it falls, and comes back by the chute)
+      const inFrom = over ? Math.hypot(over.up[0] - (over.at[0] - over.out[0] * T.ledgeIn), over.up[2] - (over.at[2] - over.out[2] * T.ledgeIn)) : 0;
+      if (over && inFrom < 0.3 && host.canStand(over.up)) {
         ctx.stow(body, pose);
         air = null;
         lay = { pose, hard: hardness(a), from: p, to: over.at, arc: 0, rise: 0, home: false, fall: 0, speed: length(v), shake: 0, look: 0 };
@@ -681,8 +757,10 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     if (riding) ctx.shove(body, [(surface - v[0]) * B.beltGrip, 0, 0]);
     // plainly down (slow where it lies, and held up: its fall is not gathering), at rest, or loose too long
     const held = a.float < 0.02 && Math.abs(v[1] - a.v[1]) < 0.15;
+    // (riding, it is slow when it goes as the belt goes; and it rolls a little as the bed under it, which does not
+    // itself move, drags on it: that turning is the carry's, not a tumble still to wait out)
     const over: Vec3 = riding ? [v[0] - surface, v[1], v[2]] : v;
-    a.slow = length(over) < B.slowLinear && length(vel.angvel) < B.slowAngular && held ? a.slow + 1 : 0;
+    a.slow = length(over) < B.slowLinear && (riding || length(vel.angvel) < B.slowAngular) && held ? a.slow + 1 : 0;
     if (level(v) > 0.3) host.setHeading(Math.atan2(v[0], v[2]));
     host.setAt(p);
     a.v = v;
@@ -706,6 +784,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       // where Patch is
       pending = inWorld() ? (ctx.pose(body) as Pose) : scripted();
       if (air?.float) ctx.buoy(body, 1);
+      stood = null;
       air = null;
       lay = null;
       grab = null;
@@ -740,8 +819,24 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     return { body, pose, grip: add(pose.p, rotate(pose.q, SCRUFF)) };
   };
 
+  /** The scripted state each of this module's phases runs under. */
+  const UNDER: Readonly<Record<Exclude<Phase, 'script'>, PatchState>> = { held: 'held', air: 'fly', catch: 'ledge', wall: 'wall', getup: 'land', shake: 'shake', look: 'look', away: 'away' };
+
   unit.pre = (): void => {
-    if (ctx.bracketed || phase === 'script' || phase === 'held') return pre0(); // (a rung plays: frozen, as the script is)
+    if (phase !== 'script' && host.state() !== UNDER[phase]) {
+      // the script has moved on by itself (nothing does that today; a safety net): its body goes with it
+      if (ctx.mode(body) === 'free') ctx.stow(body, ctx.pose(body) as Pose);
+      phase = 'script';
+      air = null;
+      lay = null;
+      grab = null;
+    }
+    if (ctx.bracketed || phase === 'held') return pre0(); // (a rung plays: frozen, as the script is)
+    if (phase === 'script') {
+      pre0();
+      watchWalk();
+      return;
+    }
     if (phase === 'catch') {
       // the script's `ledge` (it holds `at` at the edge); over it, the catch: eased there from where the body was
       pre0();
@@ -877,6 +972,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     pending = null;
     heardHits = [];
     returns = 0;
+    stood = null;
     now = null;
     prev = null;
     reset0?.();
