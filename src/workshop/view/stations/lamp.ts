@@ -49,6 +49,7 @@ import type { Piece } from '../kit/types.ts';
 import { HOME, JOINTS, aimLamp, armFrames, type Joint, type LampPose } from '../kit/pieces/lamp/aim.ts';
 import { nodeTransforms } from '../kit/pieces/lamp/pose.ts';
 import { Spring, clamp, lerp, smoothstep } from '../anim/index.ts';
+import { lampOn } from './station-lamp.ts';
 import * as pieceRegistry from '../kit/pieces/registry.ts';
 
 /** Tune here. Times in seconds. */
@@ -186,6 +187,7 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
 
     // the light's colour, crossing over (only with the simulation's lamp: the stage's own colour otherwise)
     // on / off: when it was last switched on (the catch), and whether the shade shows lit
+    const pilot: { lit: Object3D | null | undefined; unlit: Object3D | null | undefined; shown: number } = { lit: undefined, unlit: undefined, shown: -1 };
     let wasOn: boolean | null = null;
     let onAt = -Infinity;
 
@@ -229,6 +231,15 @@ export function createLampView(opts: LampViewOptions = {}): (ctx: ViewContext) =
         }
         const mv = w.machine(id);
         const lv: SimLampView | null = mv && mv.kind === 'lamp' ? mv : null;
+        // T1: the station's own pilot lamp on the clamp (never the bulb: that is the room's light)
+        pilot.lit ??= root.getObjectByName('pilot.lit') ?? null;
+        pilot.unlit ??= root.getObjectByName('pilot.unlit') ?? null;
+        const pOn = lv && lampOn(lv.lamp, now) ? 1 : 0;
+        if (pOn !== pilot.shown && pilot.lit && pilot.unlit) {
+          pilot.lit.scale.setScalar(pOn ? 1 : 1e-4);
+          pilot.unlit.scale.setScalar(pOn ? 1e-4 : 1);
+          pilot.shown = pOn;
+        }
 
         // the level asked for: the simulation's lamp, else its setting (older scenes), else what was asked
         let target: number;

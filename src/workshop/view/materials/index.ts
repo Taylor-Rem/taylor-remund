@@ -13,7 +13,7 @@
  * Labels can be passed now or later with `setLabels` (the label textures are
  * made by view/labels, which may be built after the materials).
  */
-import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { AdditiveBlending, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
@@ -90,6 +90,13 @@ export interface WorkshopMaterials extends Materials {
    * (no depth test), not fogged, not tone-mapped away, vertex colour carrying each mark's weight. Shared.
    */
   focusMark(): MeshBasicMaterial;
+  /**
+   * T1: the glow round a lit station lamp (view/effects/lamp-halos.ts): `amber-glow`, added to what is behind
+   * it, a soft radial falloff from the quad's uv (a bright core, a long skirt, zero at the rim), depth-tested
+   * without depth write so a robot in front hides it, not fogged. Vertex colour carries each halo's level.
+   * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
+   */
+  halo(): MeshBasicMaterial;
 }
 
 type Pbr = MeshStandardMaterial | MeshPhysicalMaterial;
@@ -258,6 +265,38 @@ function buildFocusMark(): MeshBasicMaterial {
   return m;
 }
 
+/** A lit station lamp's glow: see WorkshopMaterials.halo. */
+function buildHalo(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial();
+  m.name = 'workshop/halo';
+  m.color.copy(tok('amber-glow'));
+  m.vertexColors = true;
+  m.transparent = true;
+  m.blending = AdditiveBlending;
+  m.depthTest = true;
+  m.depthWrite = false;
+  m.fog = false;
+  m.toneMapped = true;
+  m.defines = { USE_UV: '' };
+  m.customProgramCacheKey = () => 'workshop:halo';
+  m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+    shader.fragmentShader = inject(
+      shader.fragmentShader,
+      'color_fragment',
+      /* glsl */ `
+{
+  // a warm core and a long soft skirt, exactly zero at the rim; the level rides in the vertex colour's red
+  float r = clamp(length(vUv * 2.0 - 1.0), 0.0, 1.0);
+  float f = exp(-9.0 * r * r) * 0.75 + exp(-2.6 * r * r) * 0.25;
+  diffuseColor.rgb *= f * (1.0 - r * r) * vColor.r;
+  diffuseColor.a = 1.0;
+}`,
+      'replace',
+    );
+  };
+  return m;
+}
+
 /** The blob-shadow decal: see WorkshopMaterials.decal. */
 function buildDecal(): MeshBasicMaterial {
   const m = new MeshBasicMaterial();
@@ -306,6 +345,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const noise = sh.noise;
   let decal: MeshBasicMaterial | undefined;
   let focusMark: MeshBasicMaterial | undefined;
+  let halo: MeshBasicMaterial | undefined;
   let labels: Labels | undefined = opts.labels;
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
@@ -346,6 +386,10 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     focusMark() {
       focusMark ??= buildFocusMark();
       return focusMark;
+    },
+    halo() {
+      halo ??= buildHalo();
+      return halo;
     },
     of,
     textured(cls, key) {
@@ -394,6 +438,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       decal = undefined;
       focusMark?.dispose();
       focusMark = undefined;
+      halo?.dispose();
+      halo = undefined;
     },
   };
   return api;

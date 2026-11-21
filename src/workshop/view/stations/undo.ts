@@ -29,6 +29,7 @@ import { Spring } from '../anim/index.ts';
 import { createHops, type PartHops } from './hops.ts';
 import { nodeBounds, proxyOn } from './proxy.ts';
 import { lineOwnsRestore } from './line.ts';
+import { lampOn } from './station-lamp.ts';
 
 /** Tune here. Fractions of the lever's travel, seconds. */
 export const UNDO_FEEL = {
@@ -45,8 +46,6 @@ export const UNDO_FEEL = {
   /** A misfire's rattle on top of the twitch. */
   rattle: 0.04,
   rattleHz: 17,
-  /** The slow blink of a tell (Hz; the § B4 limit is three a second). */
-  blinkHz: 1.25,
   /** Hovered: the latch stirs (fraction of its squeeze), the lever leans a hair (fraction of travel), eased (1/s). */
   hoverLatch: 0.3,
   hoverPull: 0.018,
@@ -167,7 +166,7 @@ export function createUndoView(opts: UndoViewOptions): (ctx: ViewContext) => Und
           pose.pull = p;
           pose.latch = Math.max(0, Math.min(1, latch.x + F.hoverLatch * hover * (0.85 + 0.15 * Math.sin(now * 9))));
           // its lamp: lit while there is something to undo; a slow blink as a tell
-          pose.lamp = v.lamp === 'blink' ? Math.sin(2 * Math.PI * F.blinkHz * now) > -0.2 : v.armed;
+          pose.lamp = lampOn(v.lamp, now);
         }
         state.pull = pose.pull ?? 0;
         state.latch = pose.latch ?? 0;

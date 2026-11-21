@@ -91,7 +91,7 @@ export function createPlaten(ctx: SimContext, spec: PlatenSpec): PlatenUnit {
       const r = ctx.commit([{ target: part.id, field: 'location', after: { at: 'in', station: spec.station, mouth } }], cause);
       if (r.refused.length > 0) return { ok: false, wanted: CHANGED_SINCE };
       if (!ctx.take(part.id, id)) return OK;
-      lamp.used();
+      lamp.used(part.id);
       hold(part.id);
       return OK;
     },

@@ -16,6 +16,8 @@
  *  - Each lens: lit while the cord is in its jack; a call waiting on it
  *    (`LineView.ringing`) blinks it until Patch has it in hand.
  *  - The drawers are Patch's: the operator view poses them (patchlamp-bus).
+ *  - T1: the cord's own lamp, in the keyshelf in front of its root (`lamp.cord`): dark, steady while the plug
+ *    is in the hand, blinking slowly as the cord's tell (`StationLamps`). No tell blinks a jack's lens.
  *  - A Button misfire: the plug jumps in its jack and reseats.
  *
  * The cord is P1's rope (stations/cord.ts `Rope`) drawn with the
@@ -33,8 +35,10 @@ import { CORD_FEEL, Rope } from './cord.ts';
 import { JACKS, BOARD_WHOLE, cordPlug, cordGeometry, updateCord, poseSwitchboard, type JackName, type SwitchboardPose } from '../kit/pieces/switchboard/index.ts';
 import { damp, inOutCubic, outCubic } from '../anim/index.ts';
 import { patchlampBus, jackName } from './patchlamp-bus.ts';
-import { lampOn } from './line.ts';
-import { TELL_SECONDS } from '../../sim/index.ts';
+import { lampOn } from './station-lamp.ts';
+import { StationLamps } from './tells.ts';
+
+const HIDDEN_SCALE = 1e-4;
 
 /** Tune here: units, seconds, rates in 1/s. */
 export const BOARD_FEEL = {
@@ -188,7 +192,10 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
     let refuseAt = -Infinity;
     const refuseFrom = new Vector3();
     let homeAt = -Infinity; // a drop away from any jack: hangs on the way home
-    let cordTellUntil = -Infinity; // P3: the cord's tell (it has no lamp: the lens of its jack blinks)
+    // T1: the cord's own lamp in the keyshelf: dark, steady while the plug is in the hand, blinking as a tell
+    const cordLamps = new StationLamps();
+    const cordLit = board.getObjectByName('lamp.cord.lit'), cordUnlit = board.getObjectByName('lamp.cord.unlit');
+    let cordLampShown = -1;
     const offer: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
     const offerV: Record<JackName, number> = { storefront: 0, platen: 0, belt: 0, lamp: 0 };
     const shown: SwitchboardPose = { lamps: {}, collars: {} };
@@ -212,6 +219,7 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
         const pv = w.crewView('patch');
         const patch = pv?.kind === 'patch' ? (pv.view as PatchView) : null;
 
+        cordLamps.heard(frame.events, t);
         for (const e of frame.events) {
           if (e.type === 'cord.plugged') {
             const target = jackAt.get(e.jack);
@@ -222,7 +230,6 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
             seat = F.seatFrom;
             seatV = 0;
           }
-          if (e.type === 'tell' && e.id === 'cord') cordTellUntil = t + TELL_SECONDS;
           if (e.type === 'card' && e.by === 'cord' && lastHeld) {
             refuseAt = t;
             refuseFrom.copy(lastHeld);
@@ -332,13 +339,14 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
         const ringing = jackName(line?.ringing ?? null);
         const pickedUp = patch && patch.state !== 'seated' && patch.state !== 'notice' && patch.state !== 'roll';
         const cordIn = jackName(v.jack);
-        // P3 (§ B3): a tell for a station with no lamp of its own blinks a lens instead, slowly, at the station lamps'
-        // rate (`lampOn`): the phone line and the cord, the lens of the jack the cord is in; the desk lamp, its own jack's
-        const telling = new Set<string>();
-        if ((line?.lamp === 'blink' || t < cordTellUntil) && cordIn) telling.add(cordIn);
-        const lampV = w.machine('lamp');
-        const lampJack = lampV?.kind === 'lamp' && lampV.lamp === 'blink' ? jackName(lampV.jack) : null;
-        if (lampJack) telling.add(lampJack);
+        // T1 (§ B1): a jack's lens means one thing, someone on that line; every station's tell is its own lamp now
+        // (the cord's in the keyshelf below, the phone line's on the phone's easel, the desk lamp's on its clamp)
+        const cordLampOn = lampOn(cordLamps.state(w, 'cord', t), t) ? 1 : 0;
+        if (cordLampOn !== cordLampShown && cordLit && cordUnlit) {
+          cordLit.scale.setScalar(cordLampOn ? 1 : HIDDEN_SCALE);
+          cordUnlit.scale.setScalar(cordLampOn ? HIDDEN_SCALE : 1);
+          cordLampShown = cordLampOn;
+        }
         for (const j of JACKS) {
           // collars: lifted while offered; the nearest stands tallest; all breathe, out of step
           const off = offering.has(j);
@@ -367,7 +375,6 @@ export function createSwitchboardView(o: SwitchboardViewOptions): StationViewFac
           } else delete shown.collars![j];
           // lenses: in its jack, a call waiting (blinking until Patch has it in hand), or offered (glowing, breathing)
           let lit = cordIn === j && !v.lifted ? 1 : 0;
-          if (telling.has(j) && !v.lifted) lit = lampOn('blink', t) ? 1 : 0;
           if (ringing === j) lit = pickedUp ? 1 : (t / F.ringPeriod) % 1 < F.ringDuty || reduced ? 1 : 0;
           if (off) lit = 1;
           if (lastLamp[j] !== lit) {

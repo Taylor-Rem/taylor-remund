@@ -27,6 +27,7 @@ import {
   poseStorefront, setFasciaWords, storefrontContent, storefrontLabels, type StorefrontLabelRefs, type WindowPicture,
 } from '../kit/pieces/storefront/index.ts';
 import { patchlampBus } from './patchlamp-bus.ts';
+import { lampOn } from './station-lamp.ts';
 
 /** Tune here: seconds. Each beat's length forwards (an undo runs `undoSpeed` times quicker, a reset `resetSpeed`). */
 export const STOREFRONT_FEEL = {
@@ -37,9 +38,8 @@ export const STOREFRONT_FEEL = {
   picture: 1.6,
   undoSpeed: 1.6,
   resetSpeed: 3,
-  /** The lamp's wink when the plug seats in its jack, and its tell's blink period. */
+  /** The lamp's wink when the plug seats in its jack (its tell's blink is every station's: station-lamp.ts). */
   wink: 0.5,
-  blink: 1.2,
   /** A misfire's jolt of the awning (fraction of its travel). */
   jolt: 0.12,
 };
@@ -172,8 +172,9 @@ export function createStorefrontView(o: StorefrontViewOptions): StationViewFacto
         first = false;
 
         // the station lamp; a wink as the plug seats in its jack; a misfire jolts the awning
-        let lamp = v.lamp === 'steady' ? 1 : v.lamp === 'blink' ? ((t / F.blink) % 1 < 0.5 ? 1 : 0) : 0;
-        if (v.answered < F.wink) lamp = reduced ? 1 : (v.answered / F.wink) * 3 % 1 < 0.6 ? 1 : 0;
+        let lamp = lampOn(v.lamp, t) ? 1 : 0;
+        // one wink, lit while it lasts (T1: three flashes in half a second was six a second, over § E9's three)
+        if (v.answered < F.wink) lamp = 1;
         if (lamp !== lampShown) {
           poseStorefront(obj, { lamp });
           lampShown = lamp;

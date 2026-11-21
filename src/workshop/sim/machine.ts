@@ -101,8 +101,14 @@ export class Lamp {
   tell(): void {
     this.#tellUntil = this.ctx.clock.step + steps(TELL_SECONDS);
   }
-  /** The station was used: a tell stops. */
-  used(): void {
+  /**
+   * The station was used: a tell stops. Used BY THE VISITOR: a handle of theirs, an instruction of theirs, or the
+   * station's verb on a part they have touched (`ctx.touched`, the same reading as `sim/used.ts`). A machine that
+   * does its verb on whatever arrives passes the part, so the crew's own traffic (Fetch feeding the belt all
+   * through play mode) does not put out a blink meant for the visitor (2026-11-21: it did, within seconds).
+   */
+  used(part?: Id): void {
+    if (part !== undefined && !this.ctx.touched(part)) return;
     this.#tellUntil = -1;
   }
   reset(): void {

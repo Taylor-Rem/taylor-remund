@@ -35,6 +35,7 @@ import { splitStatic, type StaticPool } from './set.ts';
 import { posePlaten, setPaint, REST, type PlatenPose } from '../kit/pieces/platen/index.ts';
 import { clamp01, inOutCubic, inOutQuad, outBack, outCubic, smoothstep } from '../anim/index.ts';
 import { patchlampBus } from './patchlamp-bus.ts';
+import { lampOn } from './station-lamp.ts';
 import { WIPE_AXIS, partsHooks, unhook, type PartWork, type PartWorker } from './parts.ts';
 
 /** Tune here: seconds; the beat's phases as fractions of it. */
@@ -46,7 +47,6 @@ export const PLATEN_FEEL = {
   /** The answer when the plug seats: a nod of the arm (its swing), over this long. */
   nod: 0.7,
   nodSwing: 0.16,
-  blink: 1.2,
   /** The wipe runs under the stream: from this point of the colour beat to that one. */
   wipe: [0.33, 0.7] as readonly [number, number],
 };
@@ -250,7 +250,7 @@ export function createPlatenView(o: PlatenViewOptions): StationViewFactory {
           pose.swing = Math.abs(0.12 * v.misfire.level * Math.sin(s * 24) * Math.exp(-s * 5));
           pose.pressure = REST.pressure + 0.3 * Math.exp(-s * 4);
         }
-        pose.lamp = v.lamp === 'steady' ? 1 : v.lamp === 'blink' ? ((t / F.blink) % 1 < 0.5 ? 1 : 0) : v.answered < F.nod ? 1 : 0;
+        pose.lamp = v.lamp !== 'dark' ? (lampOn(v.lamp, t) ? 1 : 0) : v.answered < F.nod ? 1 : 0;
         // a crate carries its own tape (the parts view lays it); the platen's blank strip is for anything else
         const ownTape = !part || part.kind === 'crate';
         const key = `${pose.swing!.toFixed(4)}|${pose.dip!.toFixed(4)}|${pose.flow!.toFixed(4)}|${pose.tray!.toFixed(3)}|${pose.press!.toFixed(4)}|${pose.tape!.toFixed(4)}|${pose.level!.toFixed(3)}|${pose.pressure!.toFixed(3)}|${pose.wheel!.toFixed(3)}|${pose.lamp}|${ownTape}`;

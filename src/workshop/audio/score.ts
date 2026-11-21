@@ -389,8 +389,12 @@ export class Score {
         if (!f || f.state === 'held' || mode === 'held' || mode === 'gone' || mode === 'chute') return;
         return this.play('fetch.chirp', now, {}, [f.x, 0, f.z]);
       }
-      case 'tell':
-        return this.play('tell.tick', now, {}, this.posOf(w, e.id));
+      case 'tell': {
+        // T1: the second time round for a station its lid rattles (the view), with its sound; never with reduced motion
+        const last = (w as Partial<Pick<WorldView, 'tells'>>).tells?.().last ?? null;
+        const rattle = !w.reducedMotion && last !== null && last.id === e.id && last.times > 1;
+        return this.play(rattle ? 'tell.rattle' : 'tell.tick', now, {}, this.posOf(w, e.id));
+      }
       case 'misfire': {
         const kind = w.machine(e.id)?.kind;
         // the striker, the dock and the chute misfire through their own events (`struck`, `door`, `flap`)

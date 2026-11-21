@@ -5,7 +5,8 @@ import { describe, expect, test } from 'vitest';
 import { run, stubWorld } from './helpers.ts';
 import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
 import { TELL_TUNING } from '../../../src/workshop/sim/tells.ts';
-import { TELL_SECONDS } from '../../../src/workshop/sim/machine.ts';
+import { Lamp, TELL_SECONDS } from '../../../src/workshop/sim/machine.ts';
+import type { SimContext } from '../../../src/workshop/sim/context.ts';
 import { steps } from '../../../src/workshop/sim/clock.ts';
 import { parseSaved } from '../../../src/workshop/sim/saved.ts';
 import type { World, WorldOptions } from '../../../src/workshop/sim/world.ts';
@@ -96,6 +97,27 @@ describe('tells: each word of the rule', () => {
     expect(m?.lamp).toBe('blink');
     run(w, steps(TELL_SECONDS) + 1);
     expect(w.machine(id!)?.lamp).not.toBe('blink');
+  });
+
+  // (2026-11-21: the belt's, the striker's and the dock's blinks could be put out by a crate the crew carried
+  // down the belt: any part arriving counted as the station being used)
+  test('a blink ends when the VISITOR uses the station: a part they have not touched passing through does not put it out', () => {
+    const touched = new Set<Id>(['theirs']);
+    const clock = { step: 0 };
+    const lamp = new Lamp({ clock, touched: (id: Id) => touched.has(id) } as unknown as SimContext);
+    lamp.tell();
+    expect(lamp.state(false)).toBe('blink');
+    lamp.used('the-crews'); // the station did its verb on a crate Fetch brought
+    expect(lamp.state(false)).toBe('blink');
+    expect(lamp.state(true)).toBe('blink'); // (over a steady lamp the blink wins: it is the hint)
+    lamp.used('theirs'); // on a crate the visitor has touched
+    expect(lamp.state(false)).toBe('dark');
+    lamp.tell();
+    lamp.used(); // a handle or an instruction of theirs: no part to ask about
+    expect(lamp.state(true)).toBe('steady');
+    lamp.tell();
+    clock.step = steps(TELL_SECONDS);
+    expect(lamp.state(false)).toBe('dark'); // and it ends by itself
   });
 
   test('one at a time, every twelve seconds, nearest first; moving on rather than nagging; only then round again', () => {
