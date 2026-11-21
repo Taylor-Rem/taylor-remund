@@ -32,6 +32,7 @@ import { MOTION_KEY, QUALITY_KEY } from '../workshop/shell/saved.ts';
 import { PAPERWORK_IDS } from '../workshop/ui/strip/strip.ts';
 import { site } from '../content/site.ts';
 import { personJsonLd } from '../content/person.ts';
+import { mailAttrs } from '../components/paper/links.ts';
 
 interface Props {
   title: string;
@@ -207,6 +208,24 @@ const headScript = `(function () {
       /* ── with the stage: it owns the screen, the page does not scroll ── */
       html.stage-on:not(.reading), html.stage-on:not(.reading) body { height: 100%; overflow: hidden; overscroll-behavior: none; }
       html.stage-on .strip { position: fixed; }
+      /* The strip and the legal line lie on the dark wall and the bench's dark front at the home view. Zoomed in on a
+         station, anything may pass behind them (the switchboard's cream label tape did): the page then says `away`
+         (shell/home.ts) and a shade of the wall's own colour comes up behind their words. At home there is none. */
+      html.stage-on .strip::before, html.stage-on .legal::before {
+        content: ''; position: fixed; left: 0; right: 0; z-index: -1; pointer-events: none;
+        opacity: 0; transition: opacity 0.2s linear;
+      }
+      html.stage-on .strip::before {
+        top: 0; height: 64px;
+        background: linear-gradient(to bottom, color-mix(in srgb, var(--wall) 94%, transparent), color-mix(in srgb, var(--wall) 86%, transparent) 55%, transparent);
+      }
+      html.stage-on .legal::before {
+        bottom: 0; height: 44px;
+        background: linear-gradient(to top, color-mix(in srgb, var(--wall) 92%, transparent), color-mix(in srgb, var(--wall) 80%, transparent) 55%, transparent);
+      }
+      html.stage-on.away:not(.reading) .strip::before, html.stage-on.away:not(.reading) .legal::before { opacity: 1; }
+      html.motion-reduced .strip::before, html.motion-reduced .legal::before { transition: none; }
+      @media (max-width: 640px) { html.stage-on .strip::before { height: 132px; } }
       html.stage-on:not(.reading) #paperwork { visibility: hidden; }
       html.stage-on:not(.reading) .legal { position: fixed; right: 0; bottom: 0; z-index: 30; padding: 0 var(--gutter) 6px; pointer-events: none; }
       html.stage-on:not(.reading) .legal a { pointer-events: auto; }
@@ -221,7 +240,7 @@ const headScript = `(function () {
       <h1 class="who"><span class="name">{strip.name.text}</span><span class="role"><span class="sep" aria-hidden="true"></span>{strip.role.text}</span><span class="line"><span class="sep" aria-hidden="true"></span>{strip.line.text}</span></h1>
       <div class="ways">
         <nav aria-label={home.links.text}>
-          <ul>{links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}</ul>
+          <ul>{links.map((link) => <li><a href={link.href} {...mailAttrs(link.href)}>{link.text}</a></li>)}</ul>
         </nav>
         <a class="read" href="#paperwork">{home.read.text}</a>
         <a class="back" href="./">{home.back.text}</a>
