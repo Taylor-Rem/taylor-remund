@@ -2172,6 +2172,53 @@ test('R5: thrown at the back wall by mouse: a crate flicked hard up the screen f
   expect(met![1], 'its middle above 1.5').toBeGreaterThan(1.5);
 });
 
+// The hand puts a thing on a tall machine. Among the real bench's bodies the carry's level rule once went for the
+// bench BEHIND a machine a crate was being pushed up the face of, through it, and the crate stayed pinned to the face
+// (tests/unit/input/carry-bench.test.ts has the rule; this is the page, with the crate a body that the face stops).
+test('feel: a crate pushed up the screen into the UNDO lever\'s housing goes up its face and onto its top; let go there, it rests on the housing', async ({ page }) => {
+  test.setTimeout(4 * 60_000);
+  await open(page, 1440, 900);
+  const cdp = await page.context().newCDPSession(page);
+  const hand = tickHand(page, cdp, 'mouse');
+  const undo = (await page.evaluate(() => {
+    const s = ((window as any).__bench.ws.world.scene.statics as any[]).find((x) => x.id === 'undo');
+    return { x: s.pose.p[0], z: s.pose.p[2], hx: s.shape.half[0], hz: s.shape.half[2], top: s.pose.p[1] + s.shape.half[1] };
+  })) as { x: number; z: number; hx: number; hz: number; top: number };
+  let at = await takeHold(page, hand, 'crate-2', 'mouse');
+  // to the open bench in front of the housing
+  at = await carryOver(page, hand, 'crate-2', at, [undo.x, undo.z + undo.hz + 1.2]);
+  await frames(page, 20);
+  const start = await posOf(page, 'crate-2');
+  expect(start[1], `carried at the bench's level in front of it (${start.map((n) => n.toFixed(2))})`).toBeLessThan(1.2);
+  expect(start[2], 'in front of its face').toBeGreaterThan(undo.z + undo.hz);
+  // straight up the screen, 24 px at a time, until it is over the housing
+  const trail: string[] = [];
+  let over = false;
+  let highest = start[1];
+  for (let i = 0; i < 36 && !over; i++) {
+    const next = { x: at.x, y: at.y - 24 };
+    await hand.drag(at, next, 120);
+    at = next;
+    await frames(page, 8);
+    const p = await posOf(page, 'crate-2');
+    trail.push(`${p[1].toFixed(2)}@z${p[2].toFixed(2)}`);
+    // on the way it only goes up (it climbs the face; it is never let down behind it)
+    expect(p[1], `step ${i}: ${trail.join(' ')}`).toBeGreaterThan(highest - 0.15);
+    highest = Math.max(highest, p[1]);
+    over = Math.abs(p[0] - undo.x) < undo.hx && Math.abs(p[2] - undo.z) < undo.hz && p[1] > undo.top;
+  }
+  expect(over, `it came over the housing (top ${undo.top.toFixed(2)}, z ${(undo.z - undo.hz).toFixed(2)}..${(undo.z + undo.hz).toFixed(2)}): height@z ${trail.join(' ')}`).toBe(true);
+  expect(await heldId(page)).toBe('crate-2');
+  await frames(page, 30);
+  await hand.up(at);
+  await pollFrames(page, async () => (await page.evaluate(() => (window as any).__bench.ws.world.part('crate-2').location.at)) === 'rest', 300, 'at rest').toBe(true);
+  const end = await posOf(page, 'crate-2');
+  expect(end[1], `resting on the housing (${end.map((n) => n.toFixed(2))})`).toBeGreaterThan(undo.top);
+  expect(end[1]).toBeLessThan(undo.top + 0.8);
+  expect(Math.abs(end[0] - undo.x)).toBeLessThan(undo.hx);
+  expect(Math.abs(end[2] - undo.z)).toBeLessThan(undo.hz);
+});
+
 test('R5: a press on a thing in the air takes the thing when it is in front of the lamp\'s shade along the ray', async ({ page }) => {
   test.setTimeout(5 * 60_000);
   await open(page, 1440, 900);
@@ -2215,9 +2262,8 @@ test('R5: a press on a thing in the air takes the thing when it is in front of t
   // Since 2026-11-20 the carry keeps a thing at its level until it would run into something (input/carry.ts
   // `levelFor`). The straight way from the stack relied on the old carry hopping onto whatever the pointer passed
   // above, and left the crate on the console beside the housing, pressed into its corner, 0.3 from it; pushed into the
-  // housing from in front it stays pressed to its face at the phone's level, and from behind to its back at the
-  // bench's: the level over the housing never makes sense for the pointer before the crate meets it (the ray at that
-  // height is well in front of where it meets the bench). Where it is set down is the set-up; the press is the test.)
+  // housing from in front it stayed pressed to its face, which was a fault of the carry's level rule, since fixed (the
+  // test above carries a crate onto this housing by hand). Where it is set down is the set-up; the press is the test.)
   const undoTop = await page.evaluate(() => {
     const s = ((window as any).__bench.ws.world.scene.statics as any[]).find((x) => x.id === 'undo');
     return (s.pose.p[1] as number) + (s.shape.half[1] as number);

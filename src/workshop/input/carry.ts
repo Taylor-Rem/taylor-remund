@@ -339,49 +339,69 @@ export class CarryPlane {
   private levelFor(ray: RayLike, obstacles: readonly Obstacle[], lift: number, hx: number, hz: number, halfZ: number): number {
     const b = this.bench;
     const tallest = Math.min(this.tuning.top, b.ceiling);
-    const probe = (level: number): { q: Vec3; clear: boolean; over: boolean } => {
+    const probe = (level: number): { q: Vec3; clear: boolean; over: boolean; support: number; block: Obstacle | null } => {
       const q = this.inBounds(this.hit(ray, level + lift).p, halfZ);
-      let clear = true;
       let support = b.top;
+      let block: Obstacle | null = null;
       for (const o of obstacles) {
         // (not the bench itself and what is under it; not a wall, which nothing is carried over: the surface's own
         // upright face keeps a carried thing in front of it)
         if (o.top <= b.top || o.top > tallest || !overlaps(o, q[0], q[2], hx, hz)) continue;
         if (o.top <= level + BELOW_SLACK) support = Math.max(support, o.top);
         // (taller, and not something hanging well above the carried thing: it would run into it)
-        else if (o.bottom < level + lift + ABOVE_SLACK) clear = false;
+        else if (o.bottom < level + lift + ABOVE_SLACK && (!block || o.top > block.top)) block = o;
       }
       // (over something of just that height: what is under it there stands as high as the level, no lower)
-      return { q, clear, over: clear && Math.abs(support - level) <= BELOW_SLACK };
+      return { q, clear: !block, over: !block && Math.abs(support - level) <= BELOW_SLACK, support, block };
     };
     const cur = probe(this.level);
-    if (cur.over) return this.level;
+    // (over a thing: at its top exactly. It may have come onto it from a rung of the ladder just under that.)
+    if (cur.over) return cur.support;
     // On its way over a thing, or off it: it keeps that thing's level while the pointer still has to do with the
     // thing, i.e. while the ray, between where it would hold the part on the bench and where it holds it over the
-    // thing, passes over the thing. (Going up the screen onto a tall crate the part first hangs in front of it, at
-    // its height; without this it dropped behind the crate as soon as the bench there was free.)
+    // thing, passes over the thing. (Pushed into a tall thing from behind, it is held at the thing's height, beyond
+    // it, until it has come over its top.)
     if (cur.clear && this.level > b.top + BELOW_SLACK) {
       const a = this.inBounds(this.hit(ray, b.top + lift).p, halfZ);
       for (const o of obstacles) if (Math.abs(o.top - this.level) <= BELOW_SLACK && segmentOver(o, a[0], a[2], cur.q[0], cur.q[2], hx, hz)) return this.level;
     }
-    const levels = [b.top];
-    for (const o of obstacles) if (o.top > b.top && o.top <= tallest && !levels.some((l) => Math.abs(l - o.top) < 1e-6)) levels.push(o.top);
+    // The levels there are: the top of everything, and a fine ladder between them, so that a part hanging against a
+    // face goes up and down it as the pointer does. Along one pointer ray a higher level is nearer the visitor and a
+    // lower one is further in: so UP is the way out of anything, and DOWN is only ever as far as is clear. (Until
+    // 2026-11-21 it took whichever level made sense nearest to where it was, on either side: going up the screen in
+    // front of the UNDO lever's housing it climbed the face a unit and then went for the bench BEHIND the housing,
+    // through it, and the crate stayed pinned to the face; pushed at the housing from behind it went for the bench in
+    // front, likewise. Found on the real bench's bodies by the adoption's builder; the tests had one obstacle.)
+    const levels: number[] = [];
+    for (let l = b.top; l <= tallest + 1e-9; l += LADDER) levels.push(l);
+    for (const o of obstacles) if (o.top > b.top && o.top <= tallest) levels.push(o.top);
     levels.sort((x, y) => x - y);
-    const here = this.last;
-    let best: number | null = null;
-    let bestD = Infinity;
-    let lowestClear: number | null = null;
-    for (const l of levels) {
-      const pr = probe(l);
-      if (pr.clear && lowestClear === null) lowestClear = l;
-      if (!pr.over) continue;
-      const d = here ? Math.hypot(pr.q[0] - here[0], pr.q[1] - here[1], pr.q[2] - here[2]) : l;
-      if (d < bestD) {
-        bestD = d;
-        best = l;
+    if (cur.block) {
+      const o = cur.block;
+      // it would run into something. From behind it (what is in the way is between it and the visitor, and the way
+      // out is through it): over its top, at its height, wherever along the ray that is.
+      const from = this.last ?? cur.q;
+      if (from[2] < o.minZ && o.top <= tallest) return o.top;
+      // from in front of it, or beside it: up its face, the least that clears it
+      for (const l of levels) {
+        if (l <= this.level) continue;
+        const pr = probe(l);
+        if (pr.clear) return pr.over ? pr.support : l;
       }
+      return tallest;
     }
-    return best ?? lowestClear ?? (levels[levels.length - 1] as number);
+    // Clear, over nothing of this height and done with what it was over: down, as far as is clear, onto the first
+    // thing it would be over.
+    let low = this.level;
+    for (let i = levels.length - 1; i >= 0; i--) {
+      const l = levels[i] as number;
+      if (l >= this.level) continue;
+      const pr = probe(l);
+      if (!pr.clear) break;
+      if (pr.over) return pr.support;
+      low = l;
+    }
+    return low;
   }
 
   /**
@@ -435,5 +455,7 @@ function segmentOver(o: Obstacle, x0: number, z0: number, x1: number, z1: number
 const BELOW_SLACK = 0.05;
 /** An obstacle whose bottom is this far above the carried grip's height hangs over the carried part, not in its way. */
 const ABOVE_SLACK = 1.0;
+/** The rungs between the tops of things: how finely a part hanging against a face goes up and down it (its height is eased besides). */
+const LADDER = 0.05;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
