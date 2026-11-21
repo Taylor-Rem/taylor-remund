@@ -11,7 +11,8 @@
 //      fresh bench has it.
 //
 // The length is an environment variable (verify runs the default):
-//   SOAK_BENCH_MINUTES=60 VITEST_MAX_WORKERS=4 npx vitest run tests/scenario/soak-bench.test.ts   (the hour)
+//   SOAK_BENCH_MINUTES=60 VITEST_MAX_WORKERS=4 npx vitest run tests/scenario/soak-bench.test.ts   (the hour:
+//   about 45 s on one core on the reference laptop; on this machine behind …/shots/p2/lead/soak.lock)
 //   SOAK_BENCH_SEED=<any>   another script (default soak-bench-script)
 import { expect, test } from 'vitest';
 import './rapier-node.ts';
