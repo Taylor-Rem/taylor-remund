@@ -1,9 +1,9 @@
-// Helpers for Patch's body (the 2026-11-20 prototype: `PatchSpec.flight: 'body'`, scene `benchBody`): a hand that
-// takes hold, carries and lets go as the page does (grab, a carry each step, a release that states no velocity), and
-// what the tests measure: where Patch's middle is, step by step, whichever Patch it is.
-import { benchWorld, FULL_SCRIPT_BENCH, tape } from './line-helpers.ts';
+// Helpers for Patch's body (sim/crew/patch-body.ts; the bench's part `PATCH_BODY`): a hand that takes hold, carries
+// and lets go as the page does (grab, a carry each step, a release that states no velocity), and what the tests
+// measure: where Patch's middle is, step by step.
+import { benchWorld, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
-import { benchBody, PATCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
+import { bench, PATCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { solidsOf } from '../../src/workshop/sim/crew/patch-route.ts';
 import { distanceTo } from '../../src/workshop/sim/crew/fetch-knock.ts';
@@ -12,13 +12,9 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Lens, PatchView, Vec3 } from '../../src/workshop/sim/types.ts';
 
-/**
- * `SCRIPT`: the whole bench with the scripted Patch (`benchScript`), for comparing. (The bench itself, `bench`, is
- * `benchBody` since 2026-11-20.)
- */
-export { benchBody, PATCH_BODY, FULL_SCRIPT_BENCH as SCRIPT };
+export { bench, PATCH_BODY };
 export const BODY = PATCH_BODY.id;
-export const SOLIDS = solidsOf(benchBody);
+export const SOLIDS = solidsOf(bench);
 /** The page's lens at the home view (as the hand tests take it). */
 export const LENS: Lens = { away: [0, -1], tilt: 0.7 };
 
@@ -27,7 +23,7 @@ export const len = (v: Vec3): number => Math.hypot(v[0], v[1], v[2]);
 export const level = (v: Vec3): number => Math.hypot(v[0], v[2]);
 export const fmt = (v: readonly number[], d = 2): string => v.map((x) => x.toFixed(d)).join(', ');
 
-export async function world(scene: SceneDesc = benchBody, seed: number | string = 'patch-body'): Promise<{ w: World; t: Tape }> {
+export async function world(scene: SceneDesc = bench, seed: number | string = 'patch-body'): Promise<{ w: World; t: Tape }> {
   const w = await benchWorld(seed, { scene });
   const t = tape(w);
   t.run(30);
@@ -35,8 +31,8 @@ export async function world(scene: SceneDesc = benchBody, seed: number | string 
 }
 
 /**
- * Where Patch's middle is, whichever Patch it is: its body's middle while its body is in the world; else from `at`
- * as the scripted Patch means it (the hand when held, its middle in the air and at the wall, its feet otherwise).
+ * Where Patch's middle is: its body's middle while its body is in the world; else from `at` as the script means it
+ * (the hand when held, its middle at the wall, on the ledge and out of sight, its feet otherwise).
  */
 export function middle(w: World): Vec3 {
   const v = patch(w);
@@ -97,7 +93,7 @@ export interface Sample {
   /** Its velocity over the step (units/s), from its middle. */
   readonly v: Vec3;
   readonly speed: number;
-  /** Is its body in the world (the body Patch only)? */
+  /** Is its body in the world? */
   readonly body: boolean;
   readonly at: Vec3;
 }

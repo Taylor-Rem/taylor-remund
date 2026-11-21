@@ -11,16 +11,13 @@
 //   - no robot is left off its wheels (Fetch upright on its tape or busy; Revert on its treads or below);
 //   - and Fetch is back at work (not held, not mid-flight).
 //
-// It runs on the bench as shipped: `bench`, whose Patch has a real body since 2026-11-20 (and is then juggled too, as
-// a crate is). A shorter run on the scripted Patch (`benchScript`) is kept while that Patch exists: THROW_SOAK_SCRIPT
-// sessions (default 8).
+// It runs on the bench as shipped: `bench`, whose Patch has a real body (and is then juggled too, as a crate is).
 //
 // In verify: THROW_SOAK sessions (default 16). The big one: THROW_SOAK=3000 npx vitest run tests/scenario/throw-soak.test.ts
 // One seed: THROW_SEED=<n> npx vitest run tests/scenario/throw-soak.test.ts
 // Another stretch of seeds: THROW_SOAK_FROM=<first> (default 1)
 import { expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH, FULL_SCRIPT_BENCH, LINE, AT } from './line-helpers.ts';
-import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
+import { benchWorld, FULL_BENCH, LINE, AT } from './line-helpers.ts';
 import { rampLength } from '../../src/workshop/sim/ramp.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import { BELT_TUNING } from '../../src/workshop/sim/machines/belt.ts';
@@ -32,13 +29,12 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { Pose, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const SESSIONS = Number(process.env.THROW_SOAK ?? 16);
-const SCRIPT_SESSIONS = Number(process.env.THROW_SOAK_SCRIPT ?? 8);
 const FROM = Number(process.env.THROW_SOAK_FROM ?? 1);
 const ONLY = process.env.THROW_SEED !== undefined ? Number(process.env.THROW_SEED) : null;
 const LOOSE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'revert'] as const;
 /** Seconds after the throw by which the bench is itself again. */
 const SETTLE = 14;
-const THROWN = { n: 0, script: 0, patch: 0, patchJuggled: 0 };
+const THROWN = { n: 0, patch: 0, patchJuggled: 0 };
 /**
  * Fetch come down on the belt rides it to the dock, the dock refuses it and the chute throws it home (R2): the whole
  * of that way at the line's own pace, its longest: the belt's length at its slowest detent, the ramp and the bay at the
@@ -126,12 +122,13 @@ function plan(seed: number, w: World): Throw {
   return { id, from, v: drop ? [0, 0, 0] : [(dir[0] / l) * speed, up, (dir[2] / l) * speed], what: `${drop ? 'dropped' : `${what} at ${speed.toFixed(1)}, ${up.toFixed(1)} up`}${juggles ? `, juggled ${juggles}` : ''}`, rung: r.int(6) === 0, juggles, catchAfter: r.range(0.15, 1.1) };
 }
 
-async function session(seed: number, scene: SceneDesc = FULL_BENCH): Promise<string[]> {
+async function session(seed: number): Promise<string[]> {
+  const scene = FULL_BENCH;
   let wRef: World | null = null;
   const p0of = (id: string): Vec3 => wRef!.motion(id)!.pose.p as Vec3;
   const w = await benchWorld(`throw-soak-${seed}`, { scene });
-  /** Patch's own body, when it has one (the bench's Patch since 2026-11-20): it is juggled as a crate is. */
-  const patchBody = scene.parts.find((p) => p.crewBody)?.id ?? null;
+  /** Patch's own body: it is juggled as a crate is. */
+  const patchBody = scene.parts.find((p) => p.crewBody)?.id as string;
   wRef = w;
   /** Parts that have come to rest (or been taken into a machine) since the throw: moving later is someone's work (Revert's pan). */
   const rested = new Set<string>();
@@ -179,9 +176,8 @@ async function session(seed: number, scene: SceneDesc = FULL_BENCH): Promise<str
     w.dispatch({ type: 'grab', id: th.id, grip: p0 });
     run(1);
     if (w.holding()?.id !== th.id) return []; // not to hand now (in the dock's door, a rung): nothing to throw
-    if (scene === FULL_BENCH) THROWN.n++;
-    else THROWN.script++;
-    if (scene === FULL_BENCH && th.id === 'patch') {
+    THROWN.n++;
+    if (th.id === 'patch') {
       THROWN.patch++;
       if (th.juggles) THROWN.patchJuggled++;
     }
@@ -190,11 +186,10 @@ async function session(seed: number, scene: SceneDesc = FULL_BENCH): Promise<str
       run(1);
     }
     w.dispatch({ type: 'release', velocity: th.v });
-    // (R4) juggled: caught in the air again and thrown back up from where the hand catches it
-    // (the scripted Patch is not: its flight is its own; Patch with a body is, by its body)
-    for (let j = 0; j < th.juggles && (th.id !== 'patch' || patchBody !== null); j++) {
+    // (R4) juggled: caught in the air again and thrown back up from where the hand catches it (Patch by its body)
+    for (let j = 0; j < th.juggles; j++) {
       run(steps(th.catchAfter));
-      const m = w.motion(th.id === 'patch' ? patchBody! : th.id);
+      const m = w.motion(th.id === 'patch' ? patchBody : th.id);
       if (!m || m.mode !== 'free') break;
       w.dispatch({ type: 'grab', id: th.id, grip: m.pose.p });
       run(1);
@@ -298,15 +293,6 @@ test(`every throw recovers: ${ONLY ?? SESSIONS} seeded throw${(ONLY ?? SESSIONS)
   const fails: string[] = [];
   for (const s of seeds) fails.push(...(await session(s)));
   console.log(`thrown: ${THROWN.n} of ${seeds.length} (Patch ${THROWN.patch}, of them juggled ${THROWN.patchJuggled})`);
-  if (fails.length) console.log(fails.join('\n'));
-  expect(fails).toEqual([]);
-}, 3_600_000);
-
-test.skipIf(SCRIPT_SESSIONS === 0)(`every throw recovers with the scripted Patch: ${ONLY ?? SCRIPT_SESSIONS} seeded throw${(ONLY ?? SCRIPT_SESSIONS) === 1 ? '' : 's'} on the whole bench (benchScript)`, async () => {
-  const seeds = ONLY !== null ? [ONLY] : Array.from({ length: SCRIPT_SESSIONS }, (_, i) => FROM + i);
-  const fails: string[] = [];
-  for (const s of seeds) fails.push(...(await session(s, FULL_SCRIPT_BENCH)));
-  console.log(`thrown (scripted Patch): ${THROWN.script} of ${seeds.length}`);
   if (fails.length) console.log(fails.join('\n'));
   expect(fails).toEqual([]);
 }, 3_600_000);

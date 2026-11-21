@@ -1,48 +1,62 @@
-// R4: a unit let go of gets the hand's velocity from the world (the drag intent's `velocity`), as a part does;
-// a reset and a tap-placing ('place') send none. Seen through the scripted Patch (`benchScript`: a unit with no body
-// of its own, which flies when it gets one). The bench's Patch has a body since 2026-11-20: let go, its body is thrown
-// as a part is (tests/scenario/patch-body.test.ts).
+// R4: a unit the hand holds that has no body of its own (the lamp by its shade) is let go with the hand's velocity
+// from the world (the drag intent's `velocity`), as a part is; a set-down states zero, and a tap-placing ('place') and
+// a reset send none. Until 2026-11-21 this was seen through the scripted Patch, the one such unit that flew; Patch has
+// a body now (let go, its body is thrown as a part is: tests/scenario/patch-body.test.ts), so a probe unit that
+// records its drags stands in for it here.
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
-import { benchScript } from '../../../src/workshop/sim/scenes/bench.ts';
-import type { PatchView } from '../../../src/workshop/sim/types.ts';
+import { vignette } from '../../../src/workshop/sim/scenes/vignette.ts';
+import type { Intent } from '../../../src/workshop/sim/types.ts';
+import type { Unit } from '../../../src/workshop/sim/context.ts';
+
+type Drag = Extract<Intent, { type: 'drag' }>;
 
 const lift = () => {
-  const { world } = stubWorld(1, { scene: benchScript });
+  const drags: Drag[] = [];
+  const probe: Unit = {
+    id: 'probe',
+    holds: (what) => what === 'probe',
+    intent(intent) {
+      if (intent.type !== 'drag' || intent.id !== 'probe') return false;
+      drags.push(intent);
+      return true;
+    },
+  };
+  const { world } = stubWorld(1, { scene: { ...vignette, units: [...(vignette.units ?? []), () => probe] } });
   run(world, 2);
-  const patch = (): PatchView => world.machine('patch') as PatchView;
-  const seat = patch().at;
-  world.dispatch({ type: 'grab', id: 'patch', grip: [seat[0], seat[1] + 1, seat[2]] });
+  world.dispatch({ type: 'grab', id: 'probe', grip: [0, 1, 0] });
   run(world, 1);
-  world.dispatch({ type: 'carry', target: [-6, 1.2, -2] }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
+  expect(world.holding()).toEqual({ kind: 'unit', id: 'probe' });
+  world.dispatch({ type: 'carry', target: [-2, 1.2, -1] });
   run(world, 1);
-  return { world, patch };
+  const end = (): Drag | undefined => drags.find((d) => d.end);
+  return { world, end };
 };
 
 describe("a unit let go of gets the hand's velocity", () => {
-  test('release with a velocity: the unit receives it (Patch is thrown with it)', () => {
-    const { world, patch } = lift();
+  test('release with a velocity: the unit receives it', () => {
+    const { world, end } = lift();
     world.dispatch({ type: 'release', velocity: [4, 1, -2] });
     run(world, 1);
-    const v = patch();
-    expect(v.state).toBe('fly');
-    expect(v.thrown?.v?.[0]).toBeCloseTo(4, 6);
-    expect(v.thrown?.v?.[2]).toBeCloseTo(-2, 6);
+    expect(end()?.velocity?.[0]).toBeCloseTo(4, 6);
+    expect(end()?.velocity?.[2]).toBeCloseTo(-2, 6);
+    expect(world.holding()).toBeNull();
   });
-  test('release with none, a placing, and a reset: no velocity (a set-down, not a throw)', () => {
+  test('a set-down states zero; a placing and a reset state none', () => {
     const a = lift();
     a.world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     run(a.world, 1);
-    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
-    for (let i = 0; i < 60 && a.patch().state === 'fly'; i++) run(a.world, 1);
-    expect(['walk', 'climb']).toContain(a.patch().state);
+    expect(a.end()?.velocity).toEqual([0, 0, 0]);
     const b = lift();
     b.world.dispatch({ type: 'place', at: [-3, 0, 1] });
     run(b.world, 1);
-    expect(['walk', 'climb']).toContain(b.patch().state);
+    expect(b.end()).toBeTruthy();
+    expect(b.end()?.velocity).toBeUndefined();
     const c = lift();
     c.world.dispatch({ type: 'reset' });
     run(c.world, 1);
-    expect(c.patch().state).toBe('seated');
+    expect(c.end()).toBeTruthy();
+    expect(c.end()?.velocity).toBeUndefined();
+    expect(c.world.holding()).toBeNull();
   });
 });
