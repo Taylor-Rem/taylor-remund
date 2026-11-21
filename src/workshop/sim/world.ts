@@ -737,7 +737,9 @@ export function createWorld(opts: WorldOptions): World {
   function letGoOfPart(l: Loose, stated: Vec3 | undefined, kind: 'release' | 'place', lens?: Lens): void {
     const st = physics.state(l.id);
     const own = stated === undefined;
-    const hand = own ? asSeen(handsOwn(thrownFrom(trail, hands), lens), lens) : stated;
+    // (pressed against something as it is let go, it has only what it has now: what it had on its way there was
+    // spent on the thing it met. Found by the Patch body's builder: pressed on the belt motor at 1.0 it left at 3.1.)
+    const hand = own ? asSeen(handsOwn(thrownFrom(l.contacts.size > 0 ? trail.slice(-2) : trail, hands), lens), lens) : stated;
     trail.length = 0;
     hands.length = 0;
     if (kind === 'release' && cancelledPickUp(l, hand)) return;

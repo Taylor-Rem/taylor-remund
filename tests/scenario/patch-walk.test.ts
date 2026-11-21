@@ -200,6 +200,15 @@ function place(w: World, t: Tape, id: string, to: Vec3): void {
   w.dispatch({ type: 'grab', id, grip: w.motion(id)!.pose.p });
   t.run(1);
   expect(w.holding()?.id, `${id} to hand`).toBe(id);
+  // (up and over what stands between, as the page's carry rides over what it would run into: a hand that pushes
+  // does not ram a crate through the platen's plinth, as the old carry's straight line here relied on)
+  const from = w.motion(id)!.pose.p;
+  for (let i = 1; i <= 50; i++) {
+    const k = i / 50;
+    const e = k * k * (3 - 2 * k);
+    w.dispatch({ type: 'carry', target: [from[0] + (to[0] - from[0]) * e, Math.max(to[1], from[1]) + 2.4 * Math.sin(Math.PI * k), from[2] + (to[2] - from[2]) * e] });
+    t.run(1);
+  }
   // (carried until it is there and still: let go on the way, it slides on)
   for (let i = 0, there = 0; i < 400 && there < 15; i++) {
     w.dispatch({ type: 'carry', target: to });
