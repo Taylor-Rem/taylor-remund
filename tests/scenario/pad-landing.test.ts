@@ -161,3 +161,13 @@ test(`the pad: ${SESSIONS} seeded sessions with a crate lying on or beside it; w
   const off = [...counts].filter(([k]) => k.endsWith('off the pad') || k.endsWith('gave up')).reduce((a, [, v]) => a + v, 0);
   expect(off, 'landings that end where Fetch cannot take them').toBeLessThanOrEqual(Math.floor(n / 100));
 }, 3_600_000);
+
+// Two of the 200 (seeds 74 and 138): Revert has swept the crate off the pad's side and turns to carry it home; Fetch,
+// idle at the pad's stand waiting for its next crate, is in the way of that turn. Revert waited for Fetch, Fetch for the
+// pad, and the chute for Revert to leave the pad's side, for good. Now Revert says it waits and Fetch gives way.
+test('Revert waiting for Fetch beside the pad: Fetch gives way, Revert goes on, and what waited in the chute lands and is taken', async () => {
+  for (const seed of [74, 138]) {
+    const out = await session(seed);
+    expect(out.landings.map((l) => `${l.how} ${l.fate}`), `seed ${seed}: ${out.neighbour}`).toEqual(['return taken', 'replacement taken']);
+  }
+}, 120_000);
