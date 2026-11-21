@@ -28,7 +28,7 @@ import { gloveCursors, POSE_OF, type GlovePose } from '../ui/cursor.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, StepFault, Vec3, World, WorldSaved, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
-import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOptions } from '../view/stage/index.ts';
+import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOptions, type View } from '../view/stage/index.ts';
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
 import { createLabels, type LabelsOptions, type WorkshopLabels } from '../view/labels/index.ts';
 import { realize } from '../view/kit/realize.ts';
@@ -74,12 +74,16 @@ export interface Framings {
   readonly stations: readonly string[];
   /** The station `id` is framed with (an interactable's own; a loose part: where it is now), or null. */
   of(id: Id): string | null;
-  /** Ease (under reduced motion: cut) to station `st`, or to the whole bench (null). */
-  show(st: string | null, stage: Stage, inset: Inset): void;
+  /** Ease (under reduced motion: cut) to station `st`, or to the whole bench (null); returns the view it eases to. */
+  show(st: string | null, stage: Stage, inset: Inset): View;
   /** The side of the screen a framing of `st` leaves freer (the page puts what it lays over the stage there). */
   freeSide(st: string | null): 'left' | 'right';
-  /** Bring one thing (its pick box, `box`) into view without leaving its station (focus moved to it while it is off screen). */
-  thing(id: Id, box: Box3 | null, stage: Stage, inset: Inset): void;
+  /**
+   * The view that shows one thing (its box, `box`) with some of the bench round it, in what the page leaves
+   * uncovered (focus moved to it and it would not be in view): the boot corrects it for the camera's limits and
+   * eases there.
+   */
+  thing(box: Box3, stage: Stage, inset: Inset): View;
 }
 
 /**
@@ -101,6 +105,11 @@ export interface Framing {
   freeSide(st: string | null): 'left' | 'right';
   /** Frame station `st` (null: the whole bench). */
   frame(st: string | null, why: FrameWhy): void;
+  /**
+   * Keyboard focus moved to `id` (a control, or where the keys' held thing may go): its station is framed if it is
+   * another one, and once the camera rests the thing lies in what the page leaves uncovered (§ E9).
+   */
+  bring(id: Id): void;
   /** Called on every framing, with its reason. */
   on(f: (st: string | null, why: FrameWhy) => void): () => void;
   /** What of the canvas the page covers now (framings keep clear of it). */
@@ -194,6 +203,17 @@ export function measure(name: string, start: number): void {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
 
+/** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
+export const KEEP_CLEAR = {
+  /** CSS px the focused thing's box keeps inside the clear area (the mark stands about this far outside the box). */
+  pad: 12,
+  /** Corrections tried against the camera's limits, and how far each draws the view in or out (zoom, 0..1). */
+  tries: 6,
+  zoomStep: 0.15,
+  /** A mouth as a destination: the half-width of the spot over its drop point (world units). */
+  drop: 0.45,
+} as const;
+
 /**
  * Give the browser a turn: paint, answer input, run a CSS transition.
  * `scheduler.yield()` where there is one (the continuation keeps its
@@ -281,7 +301,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     reducedMotion: opts.reducedMotion,
     realize: (piece, o) => realize(piece, materials, o),
     pickable: (id, object, o) => picking.add(id, object, o),
-    targetBox: (id, out) => picking.worldBox(id, out),
+    targetBox: (id, out) => focusBox(id, out),
     stage,
     picking,
   };
@@ -423,6 +443,18 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     return !drawnHits.some((h) => isShown(h.object));
   };
   const corner = new Vector3();
+  /**
+   * K2: what a keyboard focus stands for on the stage (the mark round it, the framing that keeps it in view): its pick
+   * box; a mouth (where the keys' held part may go) has none of its own worth framing (the belt's runs the bench's
+   * length; the dock and the platen have none), so it stands for the spot over its drop point where the part goes.
+   */
+  const focusBox = (id: Id, out: Box3): Box3 | null => {
+    const mouth = (world.scene.mouths ?? []).find((m) => m.id === id);
+    if (!mouth) return picking.worldBox(id, out);
+    const [x, y, z] = mouth.drop;
+    const r = KEEP_CLEAR.drop;
+    return out.set(corner.set(x - r, y, z - r), upp.set(x + r, y + 2 * r, z + r));
+  };
   /** A pick target's proxy on screen (CSS px): centre and half of its larger side. */
   const screenOf = (id: Id): { x: number; y: number; r: number } | null => {
     const b = picking.worldBox(id, box3);
@@ -543,10 +575,12 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   const ndcOf = (p: readonly [number, number]): { x: number; y: number } => CameraRig.ndc(p[0], p[1], canvas.clientWidth || 1, canvas.clientHeight || 1);
   const camera = {
     pan(dx: number, dz: number) {
+      pendingBring = null;
       const step = stage.camera.distance * 0.06;
       stage.camera.panBy(dx * step, dz * step);
     },
     zoom(f: number) {
+      pendingBring = null;
       stage.camera.zoomBy(f);
     },
     back() {
@@ -591,6 +625,97 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const y1 = h - inset.bottom - (h - inset.top - inset.bottom) * 0.06;
     return s.x > x0 && s.x < x1 && s.y > y0 && s.y < y1;
   };
+  // ── K2: what has focus rests in what the page leaves uncovered (§ E9 "focus is always visible") ──
+  //
+  // The rule. Focus moving to a thing (a control in the list, the canvas's own Tab, a destination while the keys
+  // hold something) frames its station when it is another station's; then, with the camera where it will come to
+  // rest, the thing's box must lie inside the canvas less what the page covers (the strip, an open list, the legal
+  // line), `KEEP_CLEAR.pad` px in (the mark stands just outside the box). When it would not (a phone frames a wide
+  // station by its middle; a list panel covers one end of the bench; a crate has gone down the belt), the camera
+  // eases to the thing itself instead, corrected for the camera's own limits. Inside a station, a thing already
+  // comfortably in view leaves the camera still: no lurch on every Tab. Focus moving on while the camera is still
+  // easing is judged when it comes to rest.
+  /** Where the focused thing must be: the canvas less what the page covers, `pad` CSS px further in. */
+  const clearOf = (pad: number): { x0: number; y0: number; x1: number; y1: number } => {
+    const w = canvas.clientWidth || 1;
+    const h = canvas.clientHeight || 1;
+    return { x0: inset.left + pad, y0: inset.top + pad, x1: w - inset.right - pad, y1: h - inset.bottom - pad };
+  };
+  const rectBox = new Box3();
+  /** `id`'s focus box on screen with the camera as it is now (CSS px of the canvas), or null. */
+  const rectOf = (id: Id): { x0: number; y0: number; x1: number; y1: number } | null => {
+    const b = focusBox(id, rectBox);
+    if (!b) return null;
+    const w = canvas.clientWidth || 1;
+    const h = canvas.clientHeight || 1;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z);
+      const s = stage.camera.worldToScreen(corner);
+      const sx = ((s.x + 1) / 2) * w;
+      const sy = ((1 - s.y) / 2) * h;
+      x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+    }
+    return { x0, y0, x1, y1 };
+  };
+  /** Is `id` inside what the page leaves uncovered, `pad` px in, with the camera as it is now? */
+  const clear = (id: Id, pad: number): boolean => {
+    const r = rectOf(id);
+    if (!r) return true;
+    const c = clearOf(pad);
+    return r.x0 >= c.x0 && r.x1 <= c.x1 && r.y0 >= c.y0 && r.y1 <= c.y1;
+  };
+  /** The camera put at `v` (its own limits applied, as when it rests there), `f` asked, the camera put back. */
+  const atView = <T>(v: View, f: () => T): T => {
+    const cam = stage.camera;
+    const was = cam.view();
+    cam.cutTo(v);
+    const out = f();
+    cam.cutTo(was);
+    return out;
+  };
+  /** The view the last framing eases to (null: none since the visitor last moved the camera). */
+  let resting: View | null = null;
+  /** Focus moved on inside a station while the camera was easing: judged once it rests. */
+  let pendingBring: Id | null = null;
+  /**
+   * `v` corrected until `id` lies in the clear area at rest: the camera's limits (it never zooms out past home nor
+   * pans past the bench's ends) can hold a view short of where it was asked to go, so the residue is slid out (and
+   * the view drawn in a little where the limits leave no room to slide, out where the thing is too big for the
+   * area). Returns the view as the camera will rest there.
+   */
+  const settle = (id: Id, v0: View): View => {
+    const cam = stage.camera;
+    const p = (cam.pitch * Math.PI) / 180;
+    let v = v0;
+    let last: View | null = null;
+    for (let i = 0; i < KEEP_CLEAR.tries; i++) {
+      const r = atView(v, () => ({ rect: rectOf(id), rest: cam.view(), d: cam.distance }));
+      if (!r.rect) return r.rest;
+      const c = clearOf(KEEP_CLEAR.pad);
+      const { rect } = r;
+      if (rect.x0 >= c.x0 && rect.x1 <= c.x1 && rect.y0 >= c.y0 && rect.y1 <= c.y1) return r.rest;
+      const stuck = last !== null && Math.hypot(r.rest.focus[0] - last.focus[0], r.rest.focus[2] - last.focus[2]) < 1e-3 && Math.abs(r.rest.zoom - last.zoom) < 1e-3;
+      last = r.rest;
+      const u = (2 * r.d * Math.tan((cam.fov * Math.PI) / 360)) / Math.max(1, canvas.clientHeight || 1);
+      const big = rect.x1 - rect.x0 > c.x1 - c.x0 || rect.y1 - rect.y0 > c.y1 - c.y0;
+      const dx = (c.x0 + c.x1) / 2 - (rect.x0 + rect.x1) / 2;
+      const dy = (c.y0 + c.y1) / 2 - (rect.y0 + rect.y1) / 2;
+      // content right by dx: the camera left; content down by dy: the camera up the screen (up and back: the pan
+      // range binds along the bench sooner than the focus's height does)
+      const zoom = big ? r.rest.zoom - KEEP_CLEAR.zoomStep : stuck ? r.rest.zoom + KEEP_CLEAR.zoomStep : r.rest.zoom;
+      const f = r.rest.focus;
+      v = { focus: [f[0] - dx * u, f[1] + dy * u * Math.cos(p), f[2] - dy * u * Math.sin(p)], zoom: Math.min(1, Math.max(0, zoom)) };
+    }
+    return atView(v, () => cam.view());
+  };
+  /** Ease to `id` itself (its station stays framed: the address and the list's side are the station's). */
+  const showThing = (id: Id, box: Box3): void => {
+    if (!framings) return;
+    const v = settle(id, framings.thing(box, stage, inset));
+    resting = v;
+    stage.camera.easeTo(v);
+  };
   // P3 B2: the station framed now; the page's framings say what each looks like (shell/bench-stage.ts)
   const framings = opts.framings ?? null;
   const framed: { station: string | null } = { station: null };
@@ -603,14 +728,40 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     of: (id) => framings?.of(id) ?? null,
     freeSide: (st) => framings?.freeSide(st) ?? 'right',
     frame(st, why) {
+      pendingBring = null;
       if (!framings) {
         if (st === null) stage.camera.easeTo(stage.camera.home());
         return;
       }
       const known = st !== null && framings.stations.includes(st) ? st : null;
       framed.station = known;
-      framings.show(known, stage, inset);
+      resting = framings.show(known, stage, inset);
       for (const f of framingListeners) guard.run('ui:framing', () => f(known, why));
+    },
+    bring(id) {
+      if (!framings) {
+        // focusing a control brings it into view (§ E9); one already in view is left where it is
+        if (!onScreen(id)) opts.onFrameRequest?.(id, stage);
+        return;
+      }
+      pendingBring = null;
+      const st = framings.of(id);
+      const box = focusBox(id, new Box3());
+      if (st !== null && st !== framed.station) {
+        // § E9 "focusing one frames it": focus moving into a station frames the station ...
+        framing.frame(st, 'focus');
+        if (!box || !resting) return;
+        const target = resting;
+        // ... unless the thing would not be in view once the camera rests there: then the thing itself
+        if (atView(target, () => clear(id, KEEP_CLEAR.pad))) stage.camera.easeTo(target);
+        else showThing(id, box);
+        return;
+      }
+      if (!box) return;
+      // moving on inside it, the camera keeps still (no lurch on every Tab) unless the thing is out of the clear
+      // area (a crate gone down the belt, one end of a wide station on a phone)
+      if (stage.camera.easing) pendingBring = id;
+      else if (!clear(id, KEEP_CLEAR.pad)) showThing(id, box);
     },
     on(f) {
       framingListeners.add(f);
@@ -620,20 +771,19 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       inset = { ...inset, ...i };
     },
   };
+  /** Once per frame: a focus that moved on while the camera eased is judged now it rests. */
+  const keepFocusClear = (): void => {
+    if (pendingBring === null || stage.camera.easing) return;
+    const id = pendingBring;
+    pendingBring = null;
+    if (gestures.focused !== id && gestures.keyHold?.dest !== id) return;
+    const box = focusBox(id, new Box3());
+    if (box && !clear(id, KEEP_CLEAR.pad)) showThing(id, box);
+  };
   const dom: DomInput = attachInput(canvas, gestures, {
     intent: fromInput,
     focus(id) {
-      if (id === null) return;
-      if (framings) {
-        // § E9 "focusing one frames it": focus moving into a station frames the station; moving on inside it, the
-        // camera keeps still (no lurch on every Tab), unless the thing is out of view (a crate gone down the belt)
-        const st = framings.of(id);
-        if (st !== null && st !== framed.station) framing.frame(st, 'focus');
-        else if (!stage.camera.easing && !onScreen(id)) framings.thing(id, picking.worldBox(id, new Box3()), stage, inset);
-        return;
-      }
-      // focusing a control brings it into view (§ E9); one already in view is left where it is
-      if (!onScreen(id)) opts.onFrameRequest?.(id, stage);
+      if (id !== null) framing.bring(id);
     },
     pan(from, to) {
       const a = stage.camera.benchPoint(ndcOf(from), scene.bench.top);
@@ -641,10 +791,12 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       if (!a || !b) return;
       v3.copy(a);
       v3b.copy(b);
+      pendingBring = null;
       stage.camera.panBy(v3.x - v3b.x, v3.z - v3b.z);
     },
     nudge: (dx, dz) => camera.pan(dx, dz),
     zoom(f, at) {
+      pendingBring = null;
       stage.camera.zoomBy(f, at ? ndcOf(at) : undefined);
       // § B6: pinched (or wheeled, or `-`) out to the whole bench: the station is no longer framed
       if (f > 1 && framed.station !== null && stage.camera.zoom <= 1e-3) {
@@ -703,6 +855,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       opts.onFrame?.(frame, workshop);
       // (P3 B2) the page's own listeners: the controls list, its live region
       for (const f of frameListeners) guard.run('ui:frame', () => f(frame));
+      // (K2) a focus that moved on while the camera eased, judged now it rests
+      guard.run('ui:focus', keepFocusClear);
     },
   });
   driverRef.d = driver;

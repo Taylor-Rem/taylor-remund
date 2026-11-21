@@ -72,6 +72,7 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.cord': raw.names.cord as Entry,
   'name.jack.storefront': raw.names.jack.storefront as Entry,
   'name.jack.lamp': raw.names.jack.lamp as Entry,
+  'name.dock.bell': raw.names.dock.bell as Entry,
   // the line (S2: src/content/line.json)
   'name.belt.dial': line.names.dial as Entry,
   'name.belt.lever': line.names.lever as Entry,
