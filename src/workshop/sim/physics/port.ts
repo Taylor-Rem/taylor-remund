@@ -99,6 +99,12 @@ export interface PhysicsPort {
   /** Gravity multiplier for one body (0 while held). */
   setGravityScale(id: Id, scale: number): void;
   setDamping(id: Id, linear: number, angular: number): void;
+  /**
+   * What a body touches now (as the last step left it): each thing, and the way out of that thing toward this body
+   * (a unit vector, world). The hand reads it so as not to press a held thing into a fixed face (`world.ts`
+   * `driveHeld`).
+   */
+  touching(id: Id): { readonly other: Id; readonly normal: Vec3 }[];
 
   state(id: Id): BodyState;
   pose(id: Id): Pose;

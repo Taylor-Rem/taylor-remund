@@ -174,6 +174,25 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       rb.setLinearDamping(linear);
       rb.setAngularDamping(angular);
     },
+    touching(id) {
+      const rb = body(id);
+      const out: { other: Id; normal: Vec3 }[] = [];
+      for (let i = 0; i < rb.numColliders(); i++) {
+        const c = rb.collider(i);
+        world.contactPairsWith(c, (o) => {
+          const other = owner.get(o.handle);
+          if (other === undefined || other === id) return;
+          world.contactPair(c, o, (manifold, flipped) => {
+            if (manifold.numContacts() === 0) return;
+            // (the manifold's normal runs from its first shape to its second; `flipped`: its first shape is the other one)
+            const n = manifold.normal();
+            const k = flipped ? 1 : -1;
+            out.push({ other, normal: [n.x * k, n.y * k, n.z * k] });
+          });
+        });
+      }
+      return out;
+    },
 
     state(id): BodyState {
       const rb = body(id);

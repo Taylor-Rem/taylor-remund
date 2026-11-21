@@ -23,12 +23,12 @@ async function withRevertUp(seed: string): Promise<{ w: World; t: Tape }> {
   return { w, t };
 }
 /** Carry Revert by the hand and let it go still, its body steered over `to` (as revert-thrown's `carry`). */
-function setDown(w: World, t: Tape, to: Vec3): void {
+function setDown(w: World, t: Tape, to: Vec3, passes = 3, each = 90): void {
   w.dispatch({ type: 'grab', id: 'revert', grip: w.motion('revert')!.pose.p });
   t.run(1);
   let target: Vec3 = [...to];
-  for (let pass = 0; pass < 3; pass++) {
-    for (let i = 0; i < 90; i++) {
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 0; i < each; i++) {
       w.dispatch({ type: 'carry', target });
       t.run(1);
     }
@@ -65,7 +65,12 @@ function watch(w: World, t: Tape, secs: number) {
 describe('Revert is never left standing with no way home', () => {
   test('set down on the floor at (-3.57, 1.85) facing the visitor, by the UNDO housing and Fetch\'s tape, with no way onto its track: it stands `stranded` s, sinks where it stands, comes up at its hatch, no card', async () => {
     const { w, t } = await withRevertUp('stranded');
-    setDown(w, t, [-2.0, 0.9, 1.95]);
+    // (Carried straight to the place and let go there, in a second. Until 2026-11-21 this aimed a unit and a half
+    // past it, at (-2.0, 1.95), and held on for four and a half seconds: the place was where Fetch, coming along its
+    // lane meanwhile, and the housing's corner between them wedged a Revert that the hand was pressing into both.
+    // The hand no longer presses a held thing into a fixed face (it slides along it), so that wedge is not where it
+    // ends up; the place is what this test is about, not the way there.)
+    setDown(w, t, [-3.57, 0.9, 1.85], 1, 60);
     const r = watch(w, t, 25);
     process.stderr.write(`\nstranded: came to stand at ${JSON.stringify(r.firstIdle?.map((n) => +n.toFixed(2)))}, idle away ${r.longest.toFixed(1)} s, sank at ${JSON.stringify(r.sankAt?.map((n) => +n.toFixed(2)))}, below at ${r.below.toFixed(1)} s, up again at ${r.upAgain.toFixed(1)} s\n`);
     // (the layout: it came to stand there, which is where it was found idle for good)

@@ -119,6 +119,7 @@ export function createStubPhysics(options: StubOptions = {}): StubPhysics {
       get(id).gravityScale = s;
     },
     setDamping() {},
+    touching: () => [],
     state(id): BodyState {
       const b = get(id);
       return { pose: b.pose, linvel: b.linvel, angvel: b.angvel, sleeping: b.sleeping };
