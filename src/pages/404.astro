@@ -3,12 +3,13 @@
 // links. Its picture, "a machine that is not there", is a later phase (P4).
 import Paper from '../layouts/Paper.astro';
 import { site } from '../content/site.ts';
+import { mailAttrs } from '../components/paper/links.ts';
 ---
 <Paper title={`${site.notFound.title.text} | ${site.strip.name.text}`} robots="noindex" canonical={false}>
   <section class="section not-found">
     <h1 class="title">{site.notFound.title.text}</h1>
     <ul class="link-list">
-      {site.strip.links.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
+      {site.strip.links.map((link) => <li><a href={link.href} {...mailAttrs(link.href)}>{link.text}</a></li>)}
     </ul>
   </section>
 </Paper>

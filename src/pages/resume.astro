@@ -7,7 +7,7 @@ import Paper from '../layouts/Paper.astro';
 import { resume, isLink } from '../content/resume.ts';
 import { site } from '../content/site.ts';
 import { renderInline } from '../components/paper/inline.ts';
-import { externalAttrs, printAttrs } from '../components/paper/links.ts';
+import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
 
 const { page, nav, about, figures, skills, projects, experience, contact, person } = resume;
 const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
@@ -28,7 +28,7 @@ const jsonLd = JSON.stringify({
   worksFor: { '@type': 'Organization', name: current.employer.text },
   address: { '@type': 'PostalAddress', addressLocality: person.locality.text, addressRegion: person.region.text },
 }).replace(/</g, '\\u003c');
-const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: l.text, href: l.href }));
+const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: l.text, href: l.href, cta: l === nav.contact }));
 ---
 <Paper
   title={page.title.text}
@@ -42,7 +42,7 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
     <p class="tape">{about.eyebrow.text}</p>
     <h1 class="title" id="about-title">{about.heading.text}</h1>
     <p class="lead" set:html={rich(about.subtitle.text)} />
-    <img class="photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} />
+    <img class="photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} fetchpriority="high" />
     <div class="about-text">
       {about.paragraphs.map((p) => <p set:html={rich(p.text)} />)}
     </div>
@@ -114,7 +114,7 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
     <h2 class="title" id="contact-title">{contact.heading.text}</h2>
     <p class="intro" set:html={rich(contact.text.text)} />
     <ul class="link-list">
-      {contact.links.map((l) => <li><a href={l.href} {...printAttrs(l.href)} {...externalAttrs(l.href)}>{l.text}</a></li>)}
+      {contact.links.map((l) => <li><a href={l.href} {...printAttrs(l.href)} {...externalAttrs(l.href)} {...mailAttrs(l.href)}>{l.text}</a></li>)}
     </ul>
   </section>
 </Paper>

@@ -13,12 +13,14 @@
 import '../styles/paper.css';
 import { site } from '../content/site.ts';
 import { tokensCss } from '../styles/paper-tokens.ts';
-import { externalAttrs, printAttrs } from '../components/paper/links.ts';
+import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
 import Footer from './Footer.astro';
 
 interface Link {
   text: string;
   href: string;
+  /** The page's call to action (the live page marked "Get in Touch" so: class nav-cta). */
+  cta?: boolean;
 }
 interface Props {
   title: string;
@@ -76,6 +78,7 @@ const { strip, paper } = site;
                   class={link.href.startsWith('/') ? 'local' : undefined}
                   {...printAttrs(link.href)}
                   {...externalAttrs(link.href)}
+                  {...mailAttrs(link.href)}
                 >{link.text}</a>
               </li>
             ))}
@@ -85,7 +88,7 @@ const { strip, paper } = site;
       {pageNav.length > 0 && (
         <nav class="page-nav" aria-label={paper.navPage.text}>
           <ul>
-            {pageNav.map((link) => <li><a href={link.href}>{link.text}</a></li>)}
+            {pageNav.map((link) => <li><a href={link.href} class={link.cta ? 'cta' : undefined}>{link.text}</a></li>)}
           </ul>
         </nav>
       )}

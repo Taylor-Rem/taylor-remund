@@ -30,3 +30,11 @@ export function printAttrs(href: string, text?: string): Record<string, string> 
 export function externalAttrs(href: string): Record<string, string> {
   return /^https?:\/\//.test(href) ? { target: '_blank', rel: 'noopener' } : {};
 }
+
+/**
+ * `data-mail` on a link to the site's own address: the marker the site tools
+ * (`shot design`, `site mail`) use to find the contact address when it changes.
+ */
+export function mailAttrs(href: string): Record<string, string> {
+  return href.startsWith('mailto:') ? { 'data-mail': '' } : {};
+}
