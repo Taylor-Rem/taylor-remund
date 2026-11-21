@@ -30,7 +30,10 @@
  *  | back out | Esc | (the strip / back button) |
  *
  * A drag that starts on something usable never pans. The keyboard column
- * (Tab, Enter/Space, arrows, U, Esc) is `key()` below.
+ * (Tab, Enter/Space, arrows, U, Esc) is `key()` below; the page's controls
+ * list (ui/controls) drives the same recogniser through `focusOn`, `key` and
+ * `chooseDestination`, so pointer, canvas keys and list never disagree about
+ * what is held.
  */
 import type { Id, Intent, Lens, Vec3 } from '../sim/types.ts';
 
@@ -614,6 +617,43 @@ export class Gestures {
     }
   }
 
+  /**
+   * Keyboard: focus moves to `id` from outside the canvas (the page's controls list, ui/controls: each of its
+   * buttons stands for one of `usable()`), or off the stage (null). The same focus Tab gives inside the canvas:
+   * the view marks it, Enter (`key`) uses it.
+   */
+  focusOn(id: Id | null, t: number): void {
+    this.lastT = t;
+    this.setFocus(id, t);
+  }
+
+  /** Keyboard: while the keys hold something, where it may go now (`GestureWorld.destinations`); else none. */
+  get destinations(): readonly Id[] {
+    const h = this.holding;
+    if (!h?.key) return [];
+    return this.world.destinations?.(h.what) ?? [];
+  }
+
+  /**
+   * Keyboard: while the keys hold something, choose where it goes (one of `destinations`; null: none, held where it
+   * is). The held thing moves over it, as Tab through the destinations does; Enter then puts it there.
+   */
+  chooseDestination(id: Id | null, t: number): boolean {
+    this.lastT = t;
+    const h = this.holding;
+    if (!h?.key) return false;
+    if (id === null) {
+      if (h.key.dest !== null) {
+        h.key.dest = null;
+        this.setHover(null, t);
+      }
+      return true;
+    }
+    if (!this.destinations.includes(id)) return false;
+    this.aimAt(h, id, t);
+    return true;
+  }
+
   /** The stage lost keyboard focus (Tab left it, a click elsewhere): no focus is shown. */
   blur(t: number): void {
     if (this.focus !== null) this.setFocus(null, t);
@@ -736,7 +776,7 @@ export class Gestures {
     if (id === this.focus) return;
     this.focus = id;
     this.out.push({ type: 'focus', id });
-    // the focused thing lifts as a hovered one does (until the view draws its own focus mark)
+    // the focused thing lifts as a hovered one does (and the view marks it: view/stations/focus.ts)
     if (!this.mouse || this.hovered === null || id !== null) this.setHover(id, t);
   }
 
@@ -763,13 +803,18 @@ export class Gestures {
     if (list.length === 0) return false;
     const i = h.key.dest === null ? -1 : list.indexOf(h.key.dest);
     const j = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
-    const dest = list[j]!;
+    this.aimAt(h, list[j]!, t);
+    return true;
+  }
+
+  /** The keys' held thing heads for destination `dest` (held over it; the plug before its jack). */
+  private aimAt(h: Holding, dest: Id, t: number): void {
+    if (!h.key) return;
     const p = this.world.where?.(dest);
     h.key.dest = dest;
     if (p) h.key.at = h.what === 'plug' ? [p[0], p[1], p[2] + 0.22] : [p[0], p[1] + this.tuning.keyLift, p[2]];
     this.setHover(dest, t);
     this.intent({ type: 'carry', target: h.key.at }, t);
-    return true;
   }
 
   private keyMove(dx: number, dz: number, t: number): void {
