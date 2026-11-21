@@ -1,11 +1,12 @@
 ---
 // No robots meta: /sms/ is the public opt-in page Twilio's reviewer checks.
 import Legal from '../layouts/Legal.astro';
+import { site } from '../content/site.ts';
 import record from '../../legal-reference/sms.html?raw';
 ---
 <Legal
   id="sms"
   record={record}
-  title="Text-Message Website Updates | Taylor Remund"
-  description="How clients on Taylor Remund's text-message plan update their website by texting, and the SMS terms that apply."
+  title={site.pages.sms.title.text}
+  description={site.pages.sms.description.text}
 />
