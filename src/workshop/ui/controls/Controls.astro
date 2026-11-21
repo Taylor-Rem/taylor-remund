@@ -88,14 +88,17 @@ import { LIST } from './words.ts';
   @media (pointer: coarse) {
     .controls button { min-height: 44px; }
   }
-  /* a phone held upright: a sheet along the bottom, under the bench's centre cluster */
+  /* a phone held upright: a sheet under the strip, over the wall (the camera can slide the bench down clear of it;
+     it cannot lift the bench's front, where the Button is, above a sheet at the bottom). `top` is set to the
+     strip's foot by list.ts */
   @media (max-width: 640px) {
-    .controls, .controls.left { left: var(--gutter); right: var(--gutter); top: auto; bottom: 34px; width: auto; max-height: 40vh; max-height: 40dvh; }
+    .controls, .controls.left { left: var(--gutter); right: var(--gutter); top: var(--controls-top, 160px); bottom: auto; width: auto; max-height: 30vh; max-height: 30dvh; }
+    .controls-title { padding: 6px 14px 4px; }
   }
 
   /* ── the strip's opener (Stage.astro's `strip-end` slot): with the stage, on a screen wider than a phone ── */
   html .controls-opener { display: none !important; }
   html.stage-on:not(.reading) .controls-opener:not([hidden]) { display: inline-block !important; }
   @media (pointer: coarse) { html.stage-on:not(.reading) .controls-opener:not([hidden]) { display: inline-flex !important; } }
-  @media (max-width: 640px) { html.stage-on .controls-opener:not([hidden]) { display: none !important; } }
+  @media (max-width: 640px) { html.stage-on:not(.reading) .controls-opener:not([hidden]) { display: none !important; } }
 </style>

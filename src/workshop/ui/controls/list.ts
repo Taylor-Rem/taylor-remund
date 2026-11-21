@@ -242,16 +242,19 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     const bottomLine = legal ? Math.max(0, H - legal.getBoundingClientRect().top) : 0;
     let right = 0;
     let left = 0;
-    let bottom = bottomLine;
+    let topIn = top;
+    const bottom = bottomLine;
+    // (a phone's sheet hangs from the strip's foot)
+    root.style.setProperty('--controls-top', `${Math.round(top + 6)}px`);
     if (shown() && !root.hidden) {
       const r = root.getBoundingClientRect();
-      // a panel at the side (wide screens) or a sheet along the bottom (a phone)
+      // a panel at the side (wide screens) or a sheet under the strip (a phone)
       if (r.width < W * 0.7) {
         if (r.left < W / 2) left = Math.max(0, r.right);
         else right = Math.max(0, W - r.left);
-      } else bottom = Math.max(bottom, H - r.top);
+      } else topIn = Math.max(top, r.bottom);
     }
-    ws.framing.setInset({ top, right, bottom, left });
+    ws.framing.setInset({ top: topIn, right, bottom, left });
   };
   /** The panel stands on the side the station about to be framed leaves free (then the insets are measured). */
   const sideFor = (st: string | null): void => {

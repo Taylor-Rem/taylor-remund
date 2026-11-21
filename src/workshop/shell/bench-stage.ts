@@ -22,7 +22,8 @@
  */
 import { Box3, Vector3 } from 'three';
 import { bootWorkshop, type BootOptions, type BootStation, type Framings, type Inset, type Workshop } from './boot.ts';
-import type { Stage } from '../view/stage/index.ts';
+import type { Stage, View } from '../view/stage/index.ts';
+import { boxTarget, fitDistance } from '../view/stage/camera.ts';
 import { loadStage, type HandoffState } from './loader.ts';
 import type { PosterSet } from './poster.ts';
 import { LOOK } from '../view/stage/index.ts';
@@ -95,29 +96,33 @@ export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
 const PART_ORDER: readonly BenchStation[] = ['line', 'button', 'patchlamp'];
 
 /** The box of a station's framing, grown so what it frames lies in what the page leaves uncovered (`inset`). */
-export function stationBox(st: BenchStation, inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 }, view: { width: number; height: number; pitch: number } | null = null, portrait = false): Box3 {
+export function stationBox(st: BenchStation, portrait = false): Box3 {
   const s = (portrait ? STATION_BOXES_PORTRAIT : STATION_BOXES)[st];
-  const box = new Box3(new Vector3(...s.min), new Vector3(...s.max));
-  return view ? clear(box, inset, view) : box;
+  return new Box3(new Vector3(...s.min), new Vector3(...s.max));
 }
 
-/** Grow `box` so that, framed, what it held lies in the part of the view the page leaves uncovered (`inset`). */
-function clear(box: Box3, inset: Inset, view: { width: number; height: number; pitch: number }): Box3 {
-  const W = Math.max(1, view.width);
-  const H = Math.max(1, view.height);
+/** Tune here: the least share of the view's width or height a framing keeps clear of what the page covers. */
+const KEEP_MIN = 0.45;
+
+/**
+ * The view that frames `box` in the part of the canvas the page leaves uncovered (`inset`, CSS px): fitted to that
+ * window (farther by the covered share), and slid so the box sits in its middle. The camera's own limits (it never
+ * zooms out past home, nor pans past the bench) still hold when it eases there.
+ */
+export function framedView(stage: Stage, box: Box3, inset: Inset, width: number, height: number): View {
+  const W = Math.max(1, width);
+  const H = Math.max(1, height);
+  const cam = stage.camera;
   const frac = (px: number, of: number): number => Math.min(0.6, Math.max(0, px / of));
   const l = frac(inset.left, W), r = frac(inset.right, W), t = frac(inset.top, H), b = frac(inset.bottom, H);
-  const w = box.max.x - box.min.x;
-  const keep = Math.max(0.3, 1 - l - r);
-  box.min.x -= (w * l) / keep;
-  box.max.x += (w * r) / keep;
-  // up the screen is back (−z) and up (+y): the box's height on screen, in z at the camera's pitch
-  const p = (view.pitch * Math.PI) / 180;
-  const tall = (box.max.z - box.min.z) * Math.sin(p) + (box.max.y - box.min.y) * Math.cos(p);
-  const keepY = Math.max(0.3, 1 - t - b);
-  box.min.z -= (tall * t) / keepY / Math.sin(p);
-  box.max.z += (tall * b) / keepY / Math.sin(p);
-  return box;
+  const keep = Math.max(KEEP_MIN, Math.min(1 - l - r, 1 - t - b));
+  const c = boxTarget(box, new Vector3());
+  const d = fitDistance(box, c, cam.fov, W / H, cam.pitch, cam.margin) / keep;
+  const tall = 2 * d * Math.tan(((cam.fov / 2) * Math.PI) / 180);
+  const wide = tall * (W / H);
+  const p = (cam.pitch * Math.PI) / 180;
+  // content goes right when the left is covered (the camera left), down when the top is (the camera up the screen: back)
+  return { focus: [c.x - ((l - r) / 2) * wide, c.y, c.z - (((t - b) / 2) * tall) / Math.sin(p)], zoom: cam.zoomForDistance(d) };
 }
 
 export interface BenchGlue {
@@ -220,9 +225,8 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       const s = STATION_BOXES[st];
       return p[0] >= s.min[0] && p[0] <= s.max[0] && p[2] >= s.min[2] && p[2] <= s.max[2];
     };
-    const view = (stage: Stage): { width: number; height: number; pitch: number } => ({ width: canvas.clientWidth, height: canvas.clientHeight, pitch: stage.camera.pitch });
-    const ease = (stage: Stage, box: Box3): void => {
-      stage.camera.easeTo(stage.camera.frame(box));
+    const ease = (stage: Stage, box: Box3, inset: Inset): void => {
+      stage.camera.easeTo(framedView(stage, box, inset, canvas.clientWidth, canvas.clientHeight));
       // the depth of field follows: what is framed is what is sharp
       const c = box.getCenter(v);
       stage.camera.focusOn({ x: c.x, y: Math.min(c.y, 1), z: c.z });
@@ -248,7 +252,7 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
           stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
           return;
         }
-        ease(stage, stationBox(st as BenchStation, inset, view(stage), portrait()));
+        ease(stage, stationBox(st as BenchStation, portrait()), inset);
       },
       freeSide(st) {
         // a station right of the bench's middle (Patchlamp: the platen, the storefront) leaves the left free; the
@@ -261,7 +265,7 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
         if (!box) return;
         // the thing with some of the bench round it
         const c = box.getCenter(new Vector3());
-        ease(stage, clear(new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset, view(stage)));
+        ease(stage, new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset);
       },
     };
   }
