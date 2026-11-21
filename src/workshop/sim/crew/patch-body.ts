@@ -83,6 +83,13 @@ export const PATCH_BODY_TUNING = {
   /** After this many returns in one outing the chute sets it down by the pad itself (it cannot bounce off for ever). */
   chuteTries: 2,
 
+  // ── the belt ──
+  /**
+   * Lying on the running belt it is carried, as anything is: each step its level velocity along the belt gains this
+   * share of what it lacks of the surface's (the grip of felt on the belt; it tumbles on meanwhile).
+   */
+  beltGrip: 0.25,
+
   // ── when the script takes over ──
   /** Plainly down: slower than these (units/s, rad/s), held up by something, for this long (the last of its rocking is not waited out). */
   slowLinear: 0.8,
@@ -317,6 +324,14 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
    * and whose footprint comes within `r` of it (0: under its middle itself). Never below the bench top.
    */
   const floorUnder = (p: Vec3, r = 0): number => Math.max(top, ...host.solids.filter((o) => o.y1 <= p[1] + 0.05 && distanceTo(o, p[0], p[2]) <= r).map((o) => o.y1));
+  /** The belt's bed, and its surface's speed now (+X; 0 when it is stopped, or the scene has none). */
+  const BED = spec.belt ? (host.solids.find((o) => o.id === spec.belt?.bed) ?? null) : null;
+  function beltSurface(): number {
+    const v = spec.belt ? (ctx.machine(spec.belt.id) as { view?: () => { kind: string; surface?: number } } | undefined)?.view?.() : undefined;
+    return v && v.kind === 'belt' ? (v.surface ?? 0) : 0;
+  }
+  /** Is its body down on the belt's bed (its lowest point on the bed's top, its middle over it)? */
+  const onBelt = (pose: Pose): boolean => !!BED && distanceTo(BED, pose.p[0], pose.p[2]) <= 0 && Math.abs(pose.p[1] - reachDown(pose.q) - BED.y1) < 0.08;
   /** A pose for the body out of every fixed body (a hair's push, where the script had Patch against one). */
   function clear(p: Pose): Pose {
     let c = p.p;
@@ -659,9 +674,15 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       ctx.buoy(body, 1);
     }
 
-    // plainly down (slow, and held up: its fall is not gathering), at rest, or loose too long
+    // down on the running belt: carried along it (the world does not offer a crew member's body to a machine, so
+    // the belt's carrying of it is done here, as the surface's drag on what lies on it)
+    const surface = beltSurface();
+    const riding = Math.abs(surface) > 0.05 && onBelt(pose);
+    if (riding) ctx.shove(body, [(surface - v[0]) * B.beltGrip, 0, 0]);
+    // plainly down (slow where it lies, and held up: its fall is not gathering), at rest, or loose too long
     const held = a.float < 0.02 && Math.abs(v[1] - a.v[1]) < 0.15;
-    a.slow = length(v) < B.slowLinear && length(vel.angvel) < B.slowAngular && held ? a.slow + 1 : 0;
+    const over: Vec3 = riding ? [v[0] - surface, v[1], v[2]] : v;
+    a.slow = length(over) < B.slowLinear && length(vel.angvel) < B.slowAngular && held ? a.slow + 1 : 0;
     if (level(v) > 0.3) host.setHeading(Math.atan2(v[0], v[2]));
     host.setAt(p);
     a.v = v;

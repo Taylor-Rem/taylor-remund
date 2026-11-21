@@ -16,6 +16,7 @@ import { BODY, FULL_BENCH, LENS, PATCH_BODY, benchBody, fling, insideSolid, len,
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
+import { answer, send } from './patchlamp-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -748,6 +749,41 @@ describe('recovery: the script takes over from where and how it lies', () => {
     expect(set.toStep).toBeLessThan(toss.toStep);
   }, 240_000);
 
+  test('let go onto the running belt: it is carried along it as it lies, then gets up and hops off; on the stopped belt it lies where it fell', async () => {
+    for (const running of [true, false]) {
+      const { w, t } = await world();
+      if (!running) {
+        w.dispatch({ type: 'press', id: 'belt-lever' });
+        t.run(30);
+      }
+      const surface = (w.machine('belt') as { surface: number }).surface;
+      if (running) expect(surface).toBeGreaterThan(0.5);
+      else expect(Math.abs(surface)).toBeLessThan(0.05);
+      const over: Vec3 = [-3, AT.belt.c[1] + AT.belt.half[1] + 2 * HALF[1] + 0.15, AT.belt.c[2]];
+      lift(w, t, over, 40);
+      w.dispatch({ type: 'release' });
+      const watch = watcher(w, t);
+      const got = watch.until((s) => s.state !== 'fly', 6);
+      expect(got?.state, 'it gets up').toBe('land');
+      const S = watch.samples.slice(0, -1);
+      const down = S.findIndex((s) => s.mid[1] < AT.belt.c[1] + AT.belt.half[1] + Math.max(...HALF) + 0.05);
+      const carried = S.at(-1)!.mid[0] - S[down]!.mid[0];
+      if (running) {
+        // along the belt, at about its surface's speed by the time the script takes over
+        expect(carried).toBeGreaterThan(0.15);
+        expect(S.at(-1)!.v[0]).toBeGreaterThan(surface * 0.6);
+        expect(S.at(-1)!.v[0]).toBeLessThan(surface * 1.4);
+      } else expect(Math.abs(carried)).toBeLessThan(0.25);
+      // it lay on the bed: it hops off it to the bench
+      const lay = patch(w).lay!;
+      expect(lay.from[1]).toBeCloseTo(AT.belt.c[1] + AT.belt.half[1], 1);
+      expect(lay.to[1]).toBe(0);
+      expect(lay.arc).toBeGreaterThan(0);
+      expect(home(w, t).at(-1)).toBe('seated');
+      w.dispose();
+    }
+  }, 120_000);
+
   test('lifted off its stool and let go there: it settles on its seat and is home, without a walk', async () => {
     const { w, t } = await world();
     const seat = patch(w).at;
@@ -817,6 +853,50 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     }, 120_000);
   }
 
+  // Taylor, 2026-11-20: "One exception worth preserving is the playful juggling behavior when Patch is thrown almost
+  // straight upward."
+  test('juggled: thrown up, caught near the top, thrown up again from there, three times; it never touches the bench, and no catch moves it', async () => {
+    const { w, t } = await world();
+    const at: Vec3 = [-6, 1.6, -1];
+    lift(w, t, at, 30);
+    const watch = watcher(w, t);
+    let lowest = Infinity;
+    const mark = t.events.length;
+    for (let n = 0; n < 3; n++) {
+      // the hand comes down with it to where it started, then a flick up: it rises fast and lets go
+      const top = patch(w).at;
+      for (let i = 1; i <= 14 && n > 0; i++) {
+        w.dispatch({ type: 'carry', target: [top[0], top[1] + ((at[1] - top[1]) * i) / 14, top[2]] });
+        watch.step();
+      }
+      let hand = patch(w).at;
+      for (let i = 0; i < 6; i++) {
+        hand = [hand[0], hand[1] + 9 / HZ, hand[2]];
+        w.dispatch({ type: 'carry', target: hand });
+        watch.step();
+      }
+      w.dispatch({ type: 'release' });
+      const up = watch.step();
+      expect(up.state).toBe('fly');
+      expect(up.v[1], `throw ${n}`).toBeGreaterThan(5);
+      // caught as it floats at the top
+      const apex = watch.until((s) => (patch(w).thrown?.float ?? 0) > 0.6 || s.state !== 'fly', 3);
+      expect(apex?.state, `throw ${n}: at the top`).toBe('fly');
+      expect(patch(w).thrown?.top).toBe(true);
+      const was = middle(w);
+      w.dispatch({ type: 'grab', id: 'patch', grip: patch(w).at });
+      const caught = watch.step();
+      expect(w.holding()?.id).toBe('patch');
+      expect(len([caught.mid[0] - was[0], caught.mid[1] - was[1], caught.mid[2] - was[2]]), `catch ${n}: where it was`).toBeLessThan(0.1);
+      for (const s of watch.samples) lowest = Math.min(lowest, s.mid[1]);
+    }
+    expect(lowest).toBeGreaterThan(1);
+    expect(t.events.slice(mark).filter((x) => x.e.type === 'patch.throw' && (x.e.phase === 'landed' || x.e.phase === 'hit'))).toEqual([]);
+    w.dispatch({ type: 'release' });
+    expect(home(w, t).at(-1)).toBe('seated');
+    w.dispose();
+  }, 120_000);
+
   test('out of sight (thrown off the bench) there is nothing to take hold of; back in the air from the chute there is', async () => {
     const { w, t } = await world();
     lift(w, t, [-4, 1.6, 1.6]);
@@ -867,6 +947,69 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     expect(w.holding()).toBeNull();
     w.dispose();
   }, 240_000);
+});
+
+describe('its work, and the other ways of letting go', () => {
+  test('lifted from a job and thrown: the job waits, it gets home, carries the job on and answers it', async () => {
+    const { w, t } = await world();
+    const job = send(w, t, 'make the sign red');
+    // (the stool has rolled to that line's jack; it is at the drawer or at work there)
+    for (let i = 0; i < 6 * HZ && patch(w).state !== 'work'; i++) t.run(1);
+    expect(patch(w).state).toBe('work');
+    const sat = patch(w).at;
+    expect(Math.abs(sat[0] - AT.stool.c[0])).toBeGreaterThan(1);
+    // lifted where it sits (no stool's body stands there: its body is simply in the hand, in the air)
+    w.dispatch({ type: 'grab', id: 'patch', grip: [sat[0], sat[1] + 0.5, sat[2]] });
+    t.run(1);
+    expect(w.holding()?.id).toBe('patch');
+    expect(Math.hypot(patch(w).body!.pose.p[0] - sat[0], patch(w).body!.pose.p[2] - sat[2])).toBeLessThan(0.05);
+    for (let i = 1; i <= 30; i++) {
+      w.dispatch({ type: 'carry', target: [sat[0] - i * 0.05, 2.2, sat[2] + i * 0.06] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'release', velocity: [-6, 2, 3] });
+    t.run(1);
+    expect(patch(w).state).toBe('fly');
+    expect(answer(t, job, 40).e.type).toBe('line.reply');
+    expect(home(w, t).at(-1)).toBe('seated');
+    expect(w.motion(BODY)?.mode).toBe('gone');
+    w.dispose();
+  }, 120_000);
+
+  test('put down with a tap (the place intent): its body is let go where the hand has it, and it goes home', async () => {
+    const { w, t } = await world();
+    lift(w, t, OPEN);
+    const was = middle(w);
+    w.dispatch({ type: 'place', at: [-3, 0, 1] });
+    const watch = watcher(w, t);
+    const s = watch.step();
+    expect(w.holding()).toBeNull();
+    expect(s.state).toBe('fly');
+    expect(len([s.mid[0] - was[0], s.mid[1] - was[1], s.mid[2] - was[2]])).toBeLessThan(0.05);
+    expect(home(w, t).at(-1)).toBe('seated');
+    w.dispose();
+  }, 60_000);
+
+  // (The world's grab is the only thing that brings the body into the hand. A bare `drag`, as the older tests send,
+  // has none: let go, it is thrown from the hand as a body with the velocity the drag states.)
+  test('a bare drag, not through the hand: let go, it is a body thrown from there, and it goes home', async () => {
+    const { w, t } = await world();
+    const seat = patch(w).at;
+    for (let i = 0; i <= 30; i++) {
+      w.dispatch({ type: 'drag', id: 'patch', target: [seat[0] + ((-4 - seat[0]) * i) / 30, 2.4, seat[2] + ((-1 - seat[2]) * i) / 30] });
+      t.run(1);
+    }
+    expect(patch(w).state).toBe('held');
+    expect(len([patch(w).at[0] - -4, patch(w).at[1] - 2.4, patch(w).at[2] - -1])).toBeLessThan(1e-9);
+    w.dispatch({ type: 'drag', id: 'patch', target: [-4, 2.4, -1], end: true, velocity: [5, 1, 0] });
+    t.run(1);
+    expect(patch(w).state).toBe('fly');
+    expect(w.motion(BODY)?.mode).toBe('free');
+    expect(vel(w)[0]).toBeGreaterThan(4.5);
+    expect(Math.hypot(patch(w).at[0] - -4, patch(w).at[2] - -1)).toBeLessThan(0.2);
+    expect(home(w, t).at(-1)).toBe('seated');
+    w.dispose();
+  }, 60_000);
 });
 
 describe('the Button, the reset and the lever', () => {

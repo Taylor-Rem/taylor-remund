@@ -7,7 +7,8 @@
 // level, lobbed, straight up, down, or let go still; sometimes at the back wall, at an edge, at Fetch, Revert or a
 // crate; from inside a machine's footprint when the point is one. Then, some of the time: it is taken hold of again
 // (in the air, tumbling, getting up, walking: whenever) and thrown again, up to three times; the Button is pressed
-// while it is loose (the rung rewinds it); the lever is pulled; the workshop is reset.
+// while it is loose (the rung rewinds it); the lever is pulled; the workshop is reset; it is lifted from a job (a
+// text sent just before), which it must carry on and answer once home.
 //
 // Every session must end with Patch seated on its stool within LIMIT seconds of the last time it was let go (the
 // rung's own time, if one played, on top), its body out of the world, nothing in the hand. From the moment the
@@ -23,6 +24,7 @@
 import { expect, test } from 'vitest';
 import { BODY, benchBody, fmt, insideSolid, patch } from './patch-body-helpers.ts';
 import { benchWorld, tape } from './line-helpers.ts';
+import { answer, send } from './patchlamp-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
@@ -129,8 +131,11 @@ async function session(seed: number): Promise<Outcome> {
     const reset = r.int(14) === 0;
     // (half the throws are the page's own: the hand moves and lets go, stating nothing)
     const stated = r.int(2) === 0;
+    // (one in six is lifted from a job: a text sent a moment before)
+    const job = r.int(6) === 0 ? send(w, t, 'make the sign red') : null;
+    if (job !== null) run(steps(r.range(0, 3.5)));
     out.rung = rung;
-    out.what = `from (${fmt(from, 1)}) ${drop ? 'dropped' : `${aim} at ${speed.toFixed(1)}, ${up.toFixed(1)} up`}${stated ? '' : ' (by hand)'}${again ? `, taken again ${again}` : ''}${rung ? ', Button' : ''}${lever ? ', lever' : ''}${reset ? ', reset' : ''}`;
+    out.what = `from (${fmt(from, 1)}) ${drop ? 'dropped' : `${aim} at ${speed.toFixed(1)}, ${up.toFixed(1)} up`}${stated ? '' : ' (by hand)'}${again ? `, taken again ${again}` : ''}${rung ? ', Button' : ''}${lever ? ', lever' : ''}${reset ? ', reset' : ''}${job !== null ? ', from a job' : ''}`;
 
     // ── the throw ──
     const throwIt = (to: Vec3, vel: Vec3, quick: boolean): boolean => {
@@ -210,12 +215,24 @@ async function session(seed: number): Promise<Outcome> {
     out.lay = lay;
     run(steps(1));
     if (!home(w) && ON_STOOL.has(v2.state)) fail(`it left its stool again (${patch(w).state})`);
+    // the job it was lifted from: carried on and answered (unless the lever took the text back, or a reset dropped it)
+    if (job !== null && !lever && !reset) {
+      try {
+        if (answer(t, job, 30).e.type !== 'line.reply') fail('the job it was lifted from was refused');
+      } catch {
+        fail('the job it was lifted from was never answered');
+      }
+      for (let i = 0; i < 20 * HZ && !home(w); i++) step();
+      if (!home(w)) fail(`after its job it is not on its stool (${patch(w).state})`);
+    }
     if (w.motion(BODY)?.mode !== 'gone') fail(`its body is still in the world (${w.motion(BODY)?.mode})`);
     if (w.holding()) fail(`still in the hand`);
     // nothing durable is Patch's doing but the places of parts a throw knocked
     if (JSON.stringify(w.durable().filter((d) => d.target === BODY)) !== JSON.stringify(body0)) fail(`its body's durable fields changed`);
-    for (const d of w.durable()) if (/^t\d+$/.test(String(d.writer)) && !(d.field === 'location' && w.part(d.target))) fail(`a throw wrote ${d.target}.${d.field}`);
-    if (w.undoStack().length > out.throws) fail(`${w.undoStack().length} transactions on the stack after ${out.throws} throws`);
+    // (the stack holds every field a transaction still owns: a throw's are only where parts it knocked came to rest)
+    const throws = w.undoStack().filter((x) => x.kind === 'release');
+    for (const x of throws) for (const e of x.entries) if (e.field !== 'location' || !w.part(e.target) || e.target === BODY) fail(`a throw wrote ${e.target}.${e.field}`);
+    if (throws.length > out.throws) fail(`${throws.length} throws on the stack after ${out.throws}`);
   } catch (e) {
     out.fails.push(`threw ${(e as Error).stack?.split('\n').slice(0, 4).join(' | ')}`);
   } finally {
