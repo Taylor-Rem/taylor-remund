@@ -8,22 +8,19 @@
 //   - the bake table (src/workshop/view/kit/bake-table.*): code or inputs changed is a FAIL naming
 //     `node scripts/bake.ts`.
 //
-// A posters.json this check does not know is a FAIL too: add it to SETS with the page it is rendered from.
+// A posters.json this check does not know is a FAIL too: add it to SETS in scripts/poster.ts.
 // Re-rendering needs the real GPU and is the lead's (the pictures are committed); this only says they are due.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { Report } from './lib/report.ts';
 import { runCli } from './lib/cli.ts';
-import { inputsHash as posterHash, pageSource } from './poster.ts';
+import { inputsHash as posterHash, pageSource, SETS as POSTER_SETS } from './poster.ts';
 import { codeHash, inputsHash as bakeInputs, readInfo, TABLE_BIN, TABLE_JSON } from './bake.ts';
 import type { PosterSet } from '../src/workshop/shell/poster.ts';
 
-/** Every poster set and the page it is rendered from (scripts/poster.ts --set/--page). */
-export const SETS: readonly { set: string; page: string }[] = [
-  { set: 'src/dev-pages/handoff/posters.json', page: '/dev/handoff/' },
-  { set: 'src/dev-pages/bench/posters.json', page: '/dev/bench/' },
-];
+/** Every poster set and the page it is rendered from: scripts/poster.ts's own list (SETS there). */
+export const SETS: readonly { set: string; page: string }[] = POSTER_SETS;
 
 function findSets(dir: string, root: string, out: string[]): void {
   if (!existsSync(dir)) return;
@@ -43,7 +40,7 @@ export function checkPictures(root: string): Report {
   const found: string[] = [];
   findSets(join(root, 'src'), root, found);
   for (const f of found.sort()) {
-    if (!SETS.some((s) => s.set === f)) report.fail(`${f}: a picture set this check does not know; add it to SETS in scripts/check-pictures.ts with the page it is rendered from`);
+    if (!SETS.some((s) => s.set === f)) report.fail(`${f}: a picture set this check does not know; add it to SETS in scripts/poster.ts with the page it is rendered from`);
   }
   for (const s of SETS) {
     const path = join(root, s.set);

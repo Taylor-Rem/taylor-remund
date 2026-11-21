@@ -63,7 +63,7 @@ export const ALLOW: readonly { path: string; match: RegExp; reason: string }[] =
   { path: 'src/workshop/view/kit/compose.ts', match: /^(draw calls: | cast a shadow\)|; per-node backend would be |by material: |by node: )$/, reason: "a piece's triangle and draw-call report for the parts catalogue (dev page) and the console" },
   { path: 'src/workshop/sim/instruct/tape.ts', match: /[\s\S]/, reason: "the label tape's filter: word lists in ROT13 and the sign's own words, compared against what a visitor types, never shown" },
   { path: 'src/workshop/audio/audition.ts', match: /[\s\S]/, reason: "the sound audition's scene names (a developer's listening tool, written to WAV file names)" },
-  { path: 'src/workshop/shell/loader.ts', match: /^(gave up after repeated faults|the graphics context was lost and did not come back|the stage could not be rebuilt after a lost graphics context|to usable)$/, reason: "why the stage gave up (window.__handoff.failed, for tests and the console) and a performance mark's name" },
+  { path: 'src/workshop/shell/loader.ts', match: /^(gave up after repeated faults|the graphics context was lost and did not come back|the stage could not be rebuilt after a lost graphics context|the stage could not be built again at another tier|to usable)$/, reason: "why the stage gave up (window.__handoff.failed, for tests and the console) and a performance mark's name" },
   { path: 'src/workshop/view/vignette.ts', match: /^(view: \w+|stand-in \(.*\)|none yet|set \(static body\))$/, reason: "the vignette's slot report (which piece fills each slot) for check-vignette and the console" },
 ];
 
