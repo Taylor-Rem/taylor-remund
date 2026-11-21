@@ -38,6 +38,7 @@ const live = async (page: Page): Promise<void> => {
   // the list is built once the bench is usable
   await page.waitForFunction(() => document.querySelectorAll('#controls button').length > 4, null, { timeout: 30_000 });
 };
+/** Read the workshop (`f` is sent as source: it may not close over anything). */
 const ws = <T>(page: Page, f: (w: Ws) => T): Promise<T> => page.evaluate(`(${f.toString()})(window.__handoff.workshop)`) as Promise<T>;
 
 /** What has focus, and is it plainly visible: a real element, on screen, with an outline. */
@@ -194,7 +195,6 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   await live(page);
   await tabTo(page, /^(Small|Medium|Large) crate/);
   const crate = (await stop(page)).id!;
-  const thing = (await stop(page)).text;
   await page.keyboard.press('Enter');
   // held: the list is now where it can go, and focus is on the first of them
   await expect(page.locator('.controls-hold-label')).toBeVisible();
@@ -204,12 +204,11 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   expect((await stop(page)).text).toBe('Belt');
   await expect.poll(() => said(page)).toContain('picked up. Choose where it goes.');
   await page.keyboard.press('Enter');
-  await expect.poll(() => ws(page, (w) => (w as Ws).world.part(crate)?.location), { timeout: 20_000 }).toMatchObject({ at: 'in', mouth: 'belt' });
+  await expect.poll(() => page.evaluate((id) => window.__handoff!.workshop.world.part(id)?.location, crate), { timeout: 20_000 }).toMatchObject({ at: 'in', mouth: 'belt' });
   await expect.poll(() => said(page), { timeout: 20_000 }).toContain('is on the belt.');
   // and the list is the list again, focus back on the crate
   await expect(page.locator('.controls-hold-label')).toBeHidden();
   expect((await stop(page)).id).toBe(crate);
-  void thing;
 });
 
 test('? opens the list and puts focus in it; Esc closes it and focus returns to where it was', async ({ page }) => {
