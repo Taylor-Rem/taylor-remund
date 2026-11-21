@@ -1,11 +1,12 @@
 ---
 import Legal from '../layouts/Legal.astro';
+import { site } from '../content/site.ts';
 import record from '../../legal-reference/privacy.html?raw';
 ---
 <Legal
   id="privacy"
   record={record}
-  title="Privacy Policy | Taylor Remund"
-  description="What Taylor Remund collects, why, and who sees it — for this website and for the text-message website service."
+  title={site.pages.privacy.title.text}
+  description={site.pages.privacy.description.text}
   robots="noindex, follow"
 />

@@ -43,6 +43,28 @@
     "links": { "text": "Links", "kind": "ui", "source": "the placeholder strip's nav label (src/layouts/Stage.astro at c4bbefe)" },
     "restart": { "text": "Start the workshop again", "kind": "ui", "source": "REWRITE.md § E7 (a button to restart the workshop)" }
   },
+  "pages": {
+    "home": {
+      "title": { "text": "Taylor Remund — Patchlamp, software for small businesses", "kind": "ui", "source": "legacy/index.html <title>: the live page's, until Taylor words a person-first one (REWRITE.md § F1)" },
+      "description": { "text": "Patchlamp changes the website when you text it. Built and run in Utah by Taylor Remund, with hands-on AI services around it.", "kind": "fact", "source": "legacy/index.html <meta name=description>: the live page's, until Taylor words a new one (REWRITE.md § F1)" }
+    },
+    "privacy": {
+      "title": { "text": "Privacy Policy | Taylor Remund", "kind": "ui", "source": "legacy/privacy/index.html <title>" },
+      "description": { "text": "What Taylor Remund collects, why, and who sees it — for this website and for the text-message website service.", "kind": "fact", "source": "legacy/privacy/index.html <meta name=description>" }
+    },
+    "terms": {
+      "title": { "text": "Terms of Service | Taylor Remund", "kind": "ui", "source": "legacy/terms/index.html <title>" },
+      "description": { "text": "The terms for Taylor Remund's AI services and the text-message website service.", "kind": "fact", "source": "legacy/terms/index.html <meta name=description>" }
+    },
+    "sms": {
+      "title": { "text": "Text-Message Website Updates | Taylor Remund", "kind": "ui", "source": "legacy/sms/index.html <title>" },
+      "description": { "text": "How clients on Taylor Remund's text-message plan update their website by texting, and the SMS terms that apply.", "kind": "fact", "source": "legacy/sms/index.html <meta name=description>" }
+    },
+    "careerSend": {
+      "title": { "text": "Career Send — Privacy | Taylor Remund", "kind": "ui", "source": "legacy/career-send/index.html <title>" },
+      "description": { "text": "Career Send is a personal tool that sends email from Taylor Remund's own Gmail account. What it can access, what it keeps, and who sees it.", "kind": "fact", "source": "legacy/career-send/index.html <meta name=description>" }
+    }
+  },
   "notFound": {
     "title": { "text": "Not found", "kind": "ui" }
   }

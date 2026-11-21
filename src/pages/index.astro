@@ -3,15 +3,15 @@
 // strip (src/layouts/Stage.astro), and behind them the paperwork, the page's
 // plain document. Its sections exist so the anchors of § 2 keep working; only
 // their headings are here until § F1's content arrives.
-// Title and description are the live page's until Taylor words new ones (§ F1).
+// Title and description (src/content/site.json `pages.home`) are the live page's until Taylor words new ones (§ F1).
 import Stage from '../layouts/Stage.astro';
 import { site } from '../content/site.ts';
 
 const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
 ---
 <Stage
-  title="Taylor Remund — Patchlamp, software for small businesses"
-  description="Patchlamp changes the website when you text it. Built and run in Utah by Taylor Remund, with hands-on AI services around it."
+  title={site.pages.home.title.text}
+  description={site.pages.home.description.text}
 >
   <main id="paperwork" tabindex="-1">
     {sections.map((id) => (

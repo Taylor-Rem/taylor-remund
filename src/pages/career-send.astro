@@ -2,12 +2,13 @@
 // Listed by the Career Send Google app as its privacy policy. No page links
 // here, on purpose (REWRITE.md § 2).
 import Legal from '../layouts/Legal.astro';
+import { site } from '../content/site.ts';
 import record from '../../legal-reference/career-send.html?raw';
 ---
 <Legal
   id="career-send"
   record={record}
-  title="Career Send — Privacy | Taylor Remund"
-  description="Career Send is a personal tool that sends email from Taylor Remund's own Gmail account. What it can access, what it keeps, and who sees it."
+  title={site.pages.careerSend.title.text}
+  description={site.pages.careerSend.description.text}
   robots="noindex, follow"
 />
