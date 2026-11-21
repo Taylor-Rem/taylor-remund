@@ -2,11 +2,13 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // The paper pages (REWRITE.md § F1, § E7 "Conventional pages", § E9): /resume/,
-// the compliance pages and the 404. Engine-neutral: nothing here is
+// /ai/, the case study, the compliance pages and the 404. Engine-neutral: nothing here is
 // Chromium-only, so it runs as written in Firefox and WebKit.
 
 const PAGES: { path: string; anchors: string[] }[] = [
   { path: '/resume/', anchors: ['about', 'skills', 'projects', 'patchlamp', 'experience', 'contact'] },
+  { path: '/ai/', anchors: ['hero', 'how', 'packages', 'patchlamp', 'why', 'faq', 'contact'] },
+  { path: '/case-studies/ledger-repair/', anchors: ['ledger-repair'] },
   { path: '/privacy/', anchors: [] },
   { path: '/terms/', anchors: [] },
   { path: '/sms/', anchors: [] },
@@ -127,9 +129,9 @@ for (const { path, anchors } of PAGES) {
   });
 }
 
-test('/resume/ links are at least 44 px tall to a finger, at 390 wide', async ({ page }) => {
+for (const path of ['/resume/', '/ai/', '/case-studies/ledger-repair/']) test(`${path} links are at least 44 px tall to a finger, at 390 wide`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/resume/');
+  await page.goto(path);
   const small = await page.evaluate(() =>
     Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]:not(.skip)'))
       .filter((a) => a.getClientRects().length > 0)
@@ -139,3 +141,29 @@ test('/resume/ links are at least 44 px tall to a finger, at 390 wide', async ({
   );
   expect(small).toEqual([]);
 });
+
+// Prices are commitments (CLAUDE.md § Content rules): each one is set on one line with its unit,
+// at every width; the package prices are the largest type in their entries.
+for (const width of [320, 390, 1280]) {
+  test(`/ai/ prices never break apart from their units, at ${width} wide`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/ai/');
+    await page.evaluate(() => document.fonts.ready);
+    const broken = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.price, .package-note .part'))
+        // on more than one line: its boxes do not all share one top (an inline box with a child has several boxes on one line)
+        .filter((el) => new Set(Array.from(el.getClientRects()).map((r) => Math.round(r.top))).size > 1)
+        .map((el) => el.textContent ?? ''),
+    );
+    expect(broken).toEqual([]);
+    const largest = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.package')).map((entry) => {
+        const size = (el: Element): number => parseFloat(getComputedStyle(el).fontSize);
+        const price = entry.querySelector('.package-price')!;
+        const others = Array.from(entry.querySelectorAll('*')).filter((el) => !price.contains(el) && !el.contains(price));
+        return others.every((el) => size(el) < size(price));
+      }),
+    );
+    expect(largest).toEqual([true, true]);
+  });
+}

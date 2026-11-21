@@ -1,0 +1,34 @@
+---
+// /case-studies/ledger-repair/ (REWRITE.md § F1): the case study the résumé
+// links to, carried whole from the live page into the Paper layout as a
+// long-form document. Every word is src/content/case-studies.json; this file
+// holds structure only, in the live page's order.
+import Paper from '../../layouts/Paper.astro';
+import { caseStudy } from '../../content/case-studies.ts';
+import { renderInline } from '../../components/paper/inline.ts';
+import { externalAttrs, printAttrs } from '../../components/paper/links.ts';
+
+const c = caseStudy('ledger-repair');
+const rich = (text: string): string => renderInline(text, { linkAttrs: (h) => ({ ...printAttrs(h), ...externalAttrs(h) }) });
+const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+---
+<Paper
+  title={c.page.title.text}
+  description={c.page.description.text}
+  og={{ title: c.page.og.title.text, description: c.page.og.description.text, type: c.page.og.type, url: c.page.og.url }}
+  pageNav={c.nav.map((l) => ({ text: l.text, href: l.href, cta: l.cta === true }))}
+  preload={['/fonts/IBMPlexSans-SemiBold-Latin1.woff2']}
+>
+  <article class="section article" id={c.id} aria-labelledby="article-title">
+    <p class="tape">{c.eyebrow.text}</p>
+    <h1 class="title" id="article-title">{c.heading.text}</h1>
+    <p class="article-meta">{c.meta.text.split(' · ').map((part, k) => <Fragment>{k > 0 && ' · '}<span class="part">{part}</span></Fragment>)}</p>
+    <p class="lead" set:html={rich(c.intro.text)} />
+    {c.blocks.map((b) => {
+      if (b.type === 'h2') return <h2 class="article-head" id={slug(b.text)}>{b.text}</h2>;
+      if (b.type === 'p') return <p set:html={rich(b.text)} />;
+      if (b.type === 'ul') return <ul class="bullets">{b.items.map((li) => <li set:html={rich(li.text)} />)}</ul>;
+      return <p class="pointer" set:html={rich(b.text)} />;
+    })}
+  </article>
+</Paper>

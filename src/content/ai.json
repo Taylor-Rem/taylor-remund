@@ -1,0 +1,489 @@
+{
+  "page": {
+    "title": {
+      "text": "Services — Taylor Remund",
+      "kind": "ui",
+      "source": "legacy/ai/index.html <title>"
+    },
+    "description": {
+      "text": "Hands-on AI working sessions ($150) and Claude installed on your own computer with guardrails and training ($500–$1,500). Websites and menus are Patchlamp.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html meta description; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+    },
+    "og": {
+      "title": {
+        "text": "Services — Taylor Remund",
+        "kind": "ui",
+        "source": "legacy/ai/index.html og:title"
+      },
+      "description": {
+        "text": "AI working sessions and a proper install of Claude on your computer, with guardrails and training. Websites and menus are Patchlamp.",
+        "kind": "fact",
+        "source": "legacy/ai/index.html og:description"
+      },
+      "type": "website",
+      "url": "https://taylorremund.com/ai/"
+    }
+  },
+  "nav": [
+    {
+      "text": "Packages",
+      "kind": "ui",
+      "href": "#packages",
+      "source": "legacy/ai/index.html nav"
+    },
+    {
+      "text": "Patchlamp",
+      "kind": "ui",
+      "href": "#patchlamp",
+      "source": "legacy/ai/index.html nav"
+    },
+    {
+      "text": "Why Me",
+      "kind": "ui",
+      "href": "#why",
+      "source": "legacy/ai/index.html nav"
+    },
+    {
+      "text": "FAQ",
+      "kind": "ui",
+      "href": "#faq",
+      "source": "legacy/ai/index.html nav"
+    },
+    {
+      "text": "Book a Session",
+      "kind": "ui",
+      "href": "mailto:remundtaylor3@gmail.com?subject=AI%20Working%20Session",
+      "source": "legacy/ai/index.html nav",
+      "cta": true
+    }
+  ],
+  "hero": {
+    "kicker": {
+      "text": "Taylor Remund · Services",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #hero .hero-kicker"
+    },
+    "heading": {
+      "text": "AI that works for your business.",
+      "kind": "voice",
+      "source": "legacy/ai/index.html #hero h1"
+    },
+    "tagline": {
+      "text": "I put AI to work in your business by hand: a working session on your real tasks, or Claude installed on your own computer with guardrails and training. What I set up is yours. Websites and menus are a product of their own — [Patchlamp](#patchlamp).",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #hero .hero-tagline"
+    },
+    "actions": [
+      {
+        "text": "Book a session — $150",
+        "kind": "fact",
+        "href": "mailto:remundtaylor3@gmail.com?subject=AI%20Working%20Session",
+        "source": "legacy/ai/index.html #hero .hero-cta; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+      },
+      {
+        "text": "See packages",
+        "kind": "ui",
+        "href": "#packages",
+        "source": "legacy/ai/index.html #hero .hero-cta"
+      }
+    ]
+  },
+  "how": {
+    "eyebrow": {
+      "text": "The Experience",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #how .section-eyebrow"
+    },
+    "heading": {
+      "text": "How It Works",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #how h2"
+    },
+    "intro": {
+      "text": "Here's what working with me looks like — no jargon to learn, no developer to wait on.",
+      "kind": "voice",
+      "source": "legacy/ai/index.html #how .section-subtitle"
+    },
+    "steps": [
+      {
+        "number": {
+          "text": "1",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 1"
+        },
+        "title": {
+          "text": "You ask",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 1"
+        },
+        "body": {
+          "text": "Say it like you'd say it to a person — in Claude on your computer: \"Draft the reply to this email in our voice,\" or \"Turn this spreadsheet into a monthly report.\"",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #how step 1"
+        }
+      },
+      {
+        "number": {
+          "text": "2",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 2"
+        },
+        "title": {
+          "text": "It does the work",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 2"
+        },
+        "body": {
+          "text": "Claude works in your own files and tools, under the house rules we wrote together — the draft is in your inbox, the report is in the folder. No ticket, no waiting.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #how step 2"
+        }
+      },
+      {
+        "number": {
+          "text": "3",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 3"
+        },
+        "title": {
+          "text": "You stay in charge",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #how step 3"
+        },
+        "body": {
+          "text": "You review before anything leaves the building, and I show you how to see and undo what it did. Guardrails are written down, not assumed.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #how step 3"
+        }
+      }
+    ],
+    "note": {
+      "text": "Everything I set up runs on your computer under your accounts — if you and I part ways, you keep all of it. A website you change by texting is a different thing: that's [Patchlamp](#patchlamp), a service that runs on my systems, with its own plans and terms.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #how .steps-note; Patchlamp: ~/projects/patchlamp/CLAIMS.md (re-read at the cutover, REWRITE.md § F1)"
+    }
+  },
+  "packages": {
+    "eyebrow": {
+      "text": "Pricing",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #packages .section-eyebrow"
+    },
+    "heading": {
+      "text": "Packages",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #packages h2"
+    },
+    "intro": {
+      "text": "Real prices, published on purpose. Every engagement starts with a working session, and the session fee comes off any package you book within 30 days.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #packages .section-subtitle"
+    },
+    "entries": [
+      {
+        "name": {
+          "text": "AI Working Session",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #packages card 1"
+        },
+        "for": {
+          "text": "For anyone who wants to actually use AI, not just hear about it.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 1"
+        },
+        "price": {
+          "text": "$150",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 1 .pkg-price; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+        },
+        "priceNote": {
+          "text": "60 minutes · $250 for a 2-hour deep dive",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 1 .pkg-price-sub; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+        },
+        "items": [
+          {
+            "text": "Hands-on, on your real work — your emails, documents, spreadsheets, or website",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 1 .pkg-list"
+          },
+          {
+            "text": "Leave with at least one thing AI now does for you",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 1 .pkg-list"
+          },
+          {
+            "text": "Written recap of everything we set up, so it sticks",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 1 .pkg-list"
+          },
+          {
+            "text": "Doubles as discovery for the packages below",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 1 .pkg-list"
+          }
+        ],
+        "action": {
+          "text": "Book a session",
+          "kind": "ui",
+          "href": "mailto:remundtaylor3@gmail.com?subject=AI%20Working%20Session",
+          "source": "legacy/ai/index.html #packages card 1"
+        }
+      },
+      {
+        "name": {
+          "text": "AI on Your Computer",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #packages card 2"
+        },
+        "for": {
+          "text": "For business owners who want a capable AI assistant that knows their business.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 2"
+        },
+        "price": {
+          "text": "$500–$1,500",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 2 .pkg-price; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+        },
+        "priceNote": {
+          "text": "one-time install · optional care plan $79/mo",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #packages card 2 .pkg-price-sub; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+        },
+        "items": [
+          {
+            "text": "Claude installed and configured on your machine, for your actual work",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 2 .pkg-list"
+          },
+          {
+            "text": "Connected to your files and tools, with written house rules and guardrails",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 2 .pkg-list"
+          },
+          {
+            "text": "Training session included — you drive, I coach",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 2 .pkg-list"
+          },
+          {
+            "text": "Care plan: I keep your setup current as AI changes, with a monthly check-in",
+            "kind": "fact",
+            "source": "legacy/ai/index.html #packages card 2 .pkg-list"
+          }
+        ],
+        "action": {
+          "text": "Start a conversation",
+          "kind": "ui",
+          "href": "mailto:remundtaylor3@gmail.com?subject=AI%20on%20My%20Computer",
+          "source": "legacy/ai/index.html #packages card 2"
+        }
+      }
+    ],
+    "note": {
+      "text": "Installs are quoted as a fixed price after a discovery session — no hourly billing, no surprise invoices. Nobody is ever stuck.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #packages .pkg-note"
+    }
+  },
+  "patchlamp": {
+    "kicker": {
+      "text": "Websites and menus are Patchlamp",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #patchlamp .pl-kicker"
+    },
+    "heading": {
+      "text": "Text a number. The change is live.",
+      "kind": "voice",
+      "source": "legacy/ai/index.html #patchlamp h3"
+    },
+    "body": {
+      "text": "A website you change by texting it: Patch, the operator, makes the change, checks it's live and texts you back, usually in a minute. Nothing to install, no logins. Plans from $25 a month with usage included. Every price is on patchlamp.com.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #patchlamp p; carried as published; re-read against ~/projects/patchlamp/CLAIMS.md and app/Support/Prices.php at the cutover (REWRITE.md § 3, § F1)"
+    },
+    "price": {
+      "text": "from **$25**/mo · no setup fee · usage included",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #patchlamp .pl-price; carried as published; re-read against ~/projects/patchlamp/CLAIMS.md and app/Support/Prices.php at the cutover (REWRITE.md § 3, § F1)"
+    },
+    "links": [
+      {
+        "text": "See Patchlamp",
+        "kind": "ui",
+        "href": "https://patchlamp.com",
+        "source": "legacy/ai/index.html #patchlamp .pl-panel-side",
+        "primary": true
+      },
+      {
+        "text": "Every price, published on purpose",
+        "kind": "ui",
+        "href": "https://patchlamp.com/pricing",
+        "source": "legacy/ai/index.html #patchlamp .pl-panel-side"
+      },
+      {
+        "text": "Start",
+        "kind": "ui",
+        "href": "https://patchlamp.com/start",
+        "source": "legacy/ai/index.html #patchlamp .pl-panel-side"
+      }
+    ]
+  },
+  "why": {
+    "eyebrow": {
+      "text": "Credentials",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #why .section-eyebrow"
+    },
+    "heading": {
+      "text": "Why Me",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #why h2"
+    },
+    "figures": [
+      {
+        "number": {
+          "text": "3+ yrs",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 1; ~/career/facts/profile.md"
+        },
+        "label": {
+          "text": "Professional software engineer — this is my day job, not a side hustle",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 1; ~/career/facts/profile.md"
+        }
+      },
+      {
+        "number": {
+          "text": "Live",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 2; ~/career/facts/profile.md"
+        },
+        "label": {
+          "text": "I run [Patchlamp](/#patchlamp), a live service that changes small businesses' websites when they text it",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 2; ~/career/facts/profile.md"
+        }
+      },
+      {
+        "number": {
+          "text": "100%",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 3; ~/career/facts/profile.md"
+        },
+        "label": {
+          "text": "Of my installs are versioned and reversible — the safety net is the architecture, not a promise",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #why figure 3; ~/career/facts/profile.md"
+        }
+      }
+    ],
+    "body": {
+      "text": "There are a lot of AI consultants right now. Most of them can't read the code the AI writes. I'm a full-stack engineer who builds and ships production software — which means when AI does the work, I can verify it, correct it, and put guardrails around it. That's the difference between \"AI advice\" and AI you can run your business on. [See my engineering work →](/)",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #why .steps-note; ~/career/facts/profile.md"
+    }
+  },
+  "faq": {
+    "eyebrow": {
+      "text": "Questions",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #faq .section-eyebrow"
+    },
+    "heading": {
+      "text": "Common Questions",
+      "kind": "ui",
+      "source": "legacy/ai/index.html #faq h2"
+    },
+    "items": [
+      {
+        "question": {
+          "text": "Do I need to be technical?",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #faq 1"
+        },
+        "answer": {
+          "text": "No. If you can describe what you want in a text message, you can use everything I set up. The technical part is my job — that's what the install is.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #faq 1"
+        }
+      },
+      {
+        "question": {
+          "text": "What if the AI breaks something?",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #faq 2"
+        },
+        "answer": {
+          "text": "On your computer, Claude works inside the folders and rules we set, and I show you how to review and undo what it does in the first session. For a website changed by text, that's Patchlamp's job: every change is saved in the site's history and any change can be undone by asking.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #faq 2"
+        }
+      },
+      {
+        "question": {
+          "text": "Do I actually own it?",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #faq 3"
+        },
+        "answer": {
+          "text": "Yes. Your accounts, your code, your data, and your AI subscription. Unlike all-in-one AI startups, nothing I set up holds your business hostage: the install runs on your machine under your account, and the written house rules are yours to keep.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #faq 3"
+        }
+      },
+      {
+        "question": {
+          "text": "Why a monthly fee?",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #faq 4"
+        },
+        "answer": {
+          "text": "The care plan is optional. AI tools change monthly, and a setup that isn't maintained slowly stops being useful; $79 a month keeps your install current, with a monthly check-in and a written report. Skip it and everything still works — you just maintain it yourself.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #faq 4; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+        }
+      },
+      {
+        "question": {
+          "text": "I just want my website changed by text.",
+          "kind": "ui",
+          "source": "legacy/ai/index.html #faq 5"
+        },
+        "answer": {
+          "text": "That's [Patchlamp](https://patchlamp.com), not a session: pick a plan, pay, and you're texting Patch the same day. The install and the sessions are for the rest of your business — email, documents, spreadsheets, the work that isn't the website.",
+          "kind": "fact",
+          "source": "legacy/ai/index.html #faq 5"
+        }
+      }
+    ]
+  },
+  "contact": {
+    "heading": {
+      "text": "Start with a session.",
+      "kind": "voice",
+      "source": "legacy/ai/index.html #contact h2"
+    },
+    "body": {
+      "text": "The best first step is a $150 working session: we put AI on a real task in your business, and you see exactly how this works before committing to anything bigger. Book a package within 30 days and the session is free.",
+      "kind": "fact",
+      "source": "legacy/ai/index.html #contact p; CLAUDE.md § Content rules (prices on /ai/ are real commitments: session $150 ($250 for 2h), computer install $500–$1,500 (+$79/mo care plan))"
+    },
+    "actions": [
+      {
+        "text": "Email me to book",
+        "kind": "ui",
+        "href": "mailto:remundtaylor3@gmail.com?subject=AI%20Working%20Session",
+        "source": "legacy/ai/index.html #contact"
+      },
+      {
+        "text": "LinkedIn",
+        "kind": "ui",
+        "href": "https://linkedin.com/in/taylor-remund-88169124a",
+        "source": "legacy/ai/index.html #contact"
+      }
+    ]
+  }
+}

@@ -16,9 +16,10 @@ import { htmlRefs } from './lib/refs.ts';
 import { canonicalPagePath, classify, urlPathForFile } from './lib/urls.ts';
 import { readLegacy } from './lib/legacy.ts';
 import {
-  ASSETS, CNAME_DOMAIN, FOOTER_REQUIRED, PAGES, SMS_NUMBER, pageByPath,
+  ASSETS, CNAME_DOMAIN, FOOTER_REQUIRED, LEGACY_FILES_GONE, PAGES, SMS_NUMBER, pageByPath,
 } from './site.ts';
 import type { PageSpec } from './site.ts';
+import site from '../src/content/site.json' with { type: 'json' };
 
 export interface UrlsOptions {
   dist: string;
@@ -251,22 +252,37 @@ export function checkAiParity(r: Report, dist: string, root: string): void {
   const built = readFileSync(fileFor(dist, p), 'utf8');
   const old = legacy.bytes.toString('utf8');
   r.info(`       /ai/ compared with ${legacy.from}`);
-  describeMultisetDiff(r, 'mailto: href', mailtoHrefs(built), mailtoHrefs(old));
+  // The layout's own Email link (the strip's, at the top of every page) is the one mailto: the
+  // live page did not have; it is allowed once, and only as the bare address. Every other
+  // mailto: must equal the live page's, address and subject.
+  const stripMail = site.strip.links.map((l) => l.href).filter((h) => h.startsWith('mailto:'));
+  const builtMail = mailtoHrefs(built);
+  const furniture = stripMail.filter((h) => builtMail.includes(h) && !mailtoHrefs(old).includes(h));
+  for (const h of furniture) r.ok(`/ai/: the layout's own Email link (${h}) is not compared`);
+  describeMultisetDiff(r, 'mailto: href', multisetMinus(builtMail, furniture), mailtoHrefs(old));
   const oldPrices = priceStrings(old);
   if (oldPrices.length === 0) r.fail('/ai/: no price strings found on the legacy page; the price pattern is broken');
   describeMultisetDiff(r, 'price', priceStrings(built), oldPrices);
 }
 
-export function checkPassthrough(r: Report, dist: string, root: string): void {
-  for (const p of PAGES) {
-    if (!p.legacyPassthrough || !isFile(fileFor(dist, p))) continue;
-    const legacy = readLegacy(root, p.legacyFile as string);
-    if (!legacy) {
-      r.fail(`${p.path}: legacy passthrough source ${p.legacyFile} not found`);
-      continue;
+/**
+ * Nothing is served from the old site any more (P3, A2): no built page is a
+ * byte-identical copy of its legacy file, and the old stylesheet and script
+ * are not in the output (no page may load them).
+ */
+export function checkNothingFromLegacy(r: Report, dist: string, root: string, pages: BuiltPage[]): void {
+  let copies = 0;
+  for (const p of pages) {
+    const legacy = readLegacy(root, p.rel);
+    if (legacy && readFileSync(join(dist, p.rel)).equals(legacy.bytes)) {
+      copies++;
+      r.fail(`${p.urlPath}: served byte for byte from ${legacy.from}; the old pages are no longer passed through`);
     }
-    if (readFileSync(fileFor(dist, p)).equals(legacy.bytes)) r.ok(`${p.path}: byte-identical passthrough of ${legacy.from}`);
-    else r.fail(`${p.path}: listed as legacy passthrough but differs from ${legacy.from}`);
+  }
+  if (copies === 0) r.ok(`no page of ${pages.length} is a copy of a legacy file`);
+  for (const f of LEGACY_FILES_GONE) {
+    if (isFile(join(dist, f))) r.fail(`dist/${f} exists; the old site's ${f} is no longer emitted`);
+    else r.ok(`/${f} is not emitted`);
   }
 }
 
@@ -310,7 +326,7 @@ export function checkUrls(opts: UrlsOptions): Report {
   checkFooters(r, pages);
   checkSms(r, opts.dist);
   checkAiParity(r, opts.dist, opts.root);
-  checkPassthrough(r, opts.dist, opts.root);
+  checkNothingFromLegacy(r, opts.dist, opts.root, pages);
   checkNoDevPages(r, opts.dist, opts.root);
   return r;
 }

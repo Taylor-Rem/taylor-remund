@@ -47,8 +47,8 @@ export function legacy(path: string): Buffer {
 
 const FOOTER = `<footer class="footer"><p class="footer-links"><a href="/privacy/">Privacy</a> <a href="/terms/">Terms</a> <a href="/sms/">SMS</a></p></footer>`;
 
-export function paperPage(title: string, body: string, opts: { robots?: string; footer?: string } = {}): string {
-  const robots = opts.robots ? `\n  <meta name="robots" content="${opts.robots}">` : '';
+export function paperPage(title: string, body: string, opts: { robots?: string; footer?: string; description?: string } = {}): string {
+  const robots = (opts.robots ? `\n  <meta name="robots" content="${opts.robots}">` : '') + (opts.description ? `\n  <meta name="description" content="${opts.description}">` : '');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -88,8 +88,9 @@ export interface Site {
 
 /**
  * A minimal site that passes every dist check: Paper pages for /, the four
- * compliance pages, /resume/ and 404; /ai/ as legacy passthrough; the
- * assets of § 2. The fake root holds CNAME, legal-reference/ and legacy/.
+ * compliance pages, /resume/, /ai/ and 404 (/ai/ carries the live page's
+ * content, so its prices and mailto: links equal the record's); the assets of
+ * § 2. The fake root holds CNAME, legal-reference/ and legacy/.
  */
 export function makeSite(): Site {
   const root = tmp('site-');
@@ -102,8 +103,7 @@ export function makeSite(): Site {
   write(join(dist, 'CNAME'), readFileSync(join(REPO, 'CNAME')));
   write(join(dist, 'index.html'), paperPage('Taylor Remund', HOME_BODY));
   write(join(dist, 'styles/paper.css'), 'body{margin:0;font-family:system-ui}\n');
-  // Legacy passthrough pages and what they reference.
-  for (const p of ['ai/index.html', 'style.css', 'script.js']) write(join(dist, p), legacy(p));
+  write(join(dist, 'ai/index.html'), aiPage());
   write(join(dist, 'resume/index.html'), paperPage('Résumé', RESUME_BODY));
   for (const a of ['og.png', 'taylor.jpg', 'icons.svg', 'exchange-room-1280.jpg', 'exchange-room-1280.webp', 'exchange-room-640.jpg', 'exchange-room-640.webp']) {
     write(join(dist, 'assets', a), legacy(`assets/${a}`));
@@ -115,6 +115,17 @@ export function makeSite(): Site {
   write(join(dist, 'career-send/index.html'), paperPage('Career Send', `<section class="section legal-page" id="career-send">\n    ${wrap('career-send')}\n  </section>`, { robots: 'noindex, follow' }));
   write(join(dist, '404.html'), paperPage('Not here', '<h1>Nothing at this bench.</h1><a href="/">Home</a>'));
   return { root, dist, refDir };
+}
+
+/**
+ * /ai/ on the Paper fixture: the live page's body (its nav, sections and
+ * calls to action) without its footer and script, and its meta description.
+ */
+export function aiPage(): string {
+  const live = legacy('ai/index.html').toString('utf8');
+  const body = /<body>([\s\S]*)<\/body>/.exec(live)![1]!.replace(/<footer[\s\S]*?<\/footer>/, '').replace(/<script[\s\S]*?<\/script>/g, '');
+  const description = /<meta name="description" content="([^"]*)">/.exec(live)![1]!;
+  return paperPage('Services — Taylor Remund', body, { description });
 }
 
 /** Replace exactly one occurrence of `from` in a file (throws when absent). */

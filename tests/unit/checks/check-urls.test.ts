@@ -108,6 +108,16 @@ describe('check-urls', () => {
     expect(fails(checkUrls({ dist: s.dist, root: s.root }))).toMatch(/\/sms\/ does not show the service number \(937\) 764-4699/);
   });
 
+  it("allows the layout's bare Email link on /ai/ once, and nothing else extra", () => {
+    const s = makeSite();
+    edit(join(s.dist, 'ai/index.html'), '<main>', '<main><a href="mailto:remundtaylor3@gmail.com">Email</a>');
+    const r = checkUrls({ dist: s.dist, root: s.root });
+    expect(r.failures).toEqual([]);
+    expect(r.render()).toContain("the layout's own Email link (mailto:remundtaylor3@gmail.com) is not compared");
+    edit(join(s.dist, 'ai/index.html'), '<main>', '<main><a href="mailto:remundtaylor3@gmail.com">Email</a>');
+    expect(fails(checkUrls({ dist: s.dist, root: s.root }))).toMatch(/\/ai\/: mailto: href in the build is not on the legacy page: mailto:remundtaylor3@gmail\.com$/m);
+  });
+
   it('fails on a changed mailto: subject on /ai/', () => {
     const s = makeSite();
     edit(join(s.dist, 'ai/index.html'), 'subject=AI%20on%20My%20Computer', 'subject=AI%20on%20Your%20Computer');
@@ -124,10 +134,16 @@ describe('check-urls', () => {
     expect(f).toMatch(/price in the build is not on the legacy page: \$175/);
   });
 
-  it('flags a passthrough page that is no longer byte-identical', () => {
+  it('fails a page served byte for byte from legacy/, and the old stylesheet or script in the output', () => {
     const s = makeSite();
-    edit(join(s.dist, 'ai/index.html'), '</body>', '<!-- x --></body>');
-    expect(fails(checkUrls({ dist: s.dist, root: s.root }))).toMatch(/\/ai\/: listed as legacy passthrough but differs/);
+    expect(checkUrls({ dist: s.dist, root: s.root }).render()).toMatch(/no page of \d+ is a copy of a legacy file/);
+    write(join(s.dist, 'ai/index.html'), legacy('ai/index.html'));
+    write(join(s.dist, 'style.css'), legacy('style.css'));
+    write(join(s.dist, 'script.js'), legacy('script.js'));
+    const f = fails(checkUrls({ dist: s.dist, root: s.root }));
+    expect(f).toMatch(/\/ai\/: served byte for byte from legacy\/ai\/index\.html/);
+    expect(f).toMatch(/dist\/style\.css exists/);
+    expect(f).toMatch(/dist\/script\.js exists/);
   });
 
   it('fails when a dev page is in the build', () => {

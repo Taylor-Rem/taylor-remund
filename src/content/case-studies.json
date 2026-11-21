@@ -1,0 +1,180 @@
+{
+  "ledger-repair": {
+    "path": "/case-studies/ledger-repair/",
+    "id": "ledger-repair",
+    "page": {
+      "title": {
+        "text": "The ledger repair — Taylor Remund",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html <title>"
+      },
+      "description": {
+        "text": "Case study: how Taylor Remund automated the repair of resident ledgers twice, first as a desktop tool for the support desk, then as a one-click feature of the platform.",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html meta description; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      "og": {
+        "title": {
+          "text": "The ledger repair: from the support desk to one click",
+          "kind": "ui",
+          "source": "legacy/case-studies/ledger-repair/index.html og:title"
+        },
+        "description": {
+          "text": "A case study: a support-desk automation that became a platform feature and removed a full-time manual workload.",
+          "kind": "fact",
+          "source": "legacy/case-studies/ledger-repair/index.html og:description; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+        },
+        "type": "article",
+        "url": "https://taylorremund.com/case-studies/ledger-repair/"
+      }
+    },
+    "nav": [
+      {
+        "text": "Get in Touch",
+        "kind": "ui",
+        "href": "/resume/#contact",
+        "source": "legacy/case-studies/ledger-repair/index.html nav",
+        "cta": true
+      }
+    ],
+    "eyebrow": {
+      "text": "Case study",
+      "kind": "ui",
+      "source": "legacy/case-studies/ledger-repair/index.html .section-eyebrow"
+    },
+    "heading": {
+      "text": "The ledger repair: from the support desk to one click",
+      "kind": "ui",
+      "source": "legacy/case-studies/ledger-repair/index.html h1"
+    },
+    "meta": {
+      "text": "Taylor Remund · Kingsley Management, 2023 – present",
+      "kind": "fact",
+      "source": "legacy/case-studies/ledger-repair/index.html .legal-meta; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+    },
+    "intro": {
+      "text": "A resident ledger whose payments were allocated to the wrong charges used to be repaired by hand, by the support team. I automated that repair twice: first as a desktop tool for the support desk, then as a feature of the platform itself. The second version removed a full-time manual workload from the department.",
+      "kind": "fact",
+      "source": "legacy/case-studies/ledger-repair/index.html .legal-intro; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+    },
+    "blocks": [
+      {
+        "type": "h2",
+        "text": "The problem",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html h2"
+      },
+      {
+        "type": "p",
+        "text": "I joined Kingsley Management in 2023 on the support side, as its automation engineer. The company's portal marks a ledger whose allocations do not add up with a red star, and clearing red stars was daily manual work: open the ledger, allocate or unallocate payments and charges through the portal's forms, check whether the star is gone, try the next thing.",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "h2",
+        "text": "Version one: automate my own job",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html h2"
+      },
+      {
+        "type": "p",
+        "text": "A PyQt5 desktop app in hand-written Python (about 2,300 lines in the public repository, built August 2023 to November 2024) that drives the portal with Selenium. The part that mattered most was the red-star bot (`main_tools/robots.py`):",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "ul",
+        "items": [
+          {
+            "text": "It takes a list of ledgers, opens each one, and skips any that carries no red star.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          },
+          {
+            "text": "It tries the cheapest repair first and checks the star after every step: allocate payments; if the star is still there, allocate charges; if it is still there, unallocate both and allocate them again. It stops the moment the ledger is clean.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          },
+          {
+            "text": "Bounced payments have their own routine: remove the bounce and its late fees, unallocate everything, then allocate again.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          },
+          {
+            "text": "A worker thread keeps the window responsive and lets a run be cancelled between ledgers.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          }
+        ]
+      },
+      {
+        "type": "p",
+        "text": "The same app worked the support desk's ticket queue, added credits and ran one-off batches from a CSV. A reconciliation pipeline in Pandas cut manual reallocation from days to minutes, and I later moved its hot path to direct MySQL queries.",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "h2",
+        "text": "Version two: make it a feature",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html h2"
+      },
+      {
+        "type": "p",
+        "text": "In November 2024 I moved to full-stack development on the platform (Laravel, Vue, MySQL), and the tool became the specification for the real thing:",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "ul",
+        "items": [
+          {
+            "text": "A one-click repair that clears the allocations of a target month and re-processes its transactions in order, month by month, unwinding and re-applying bounced payments as it goes.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          },
+          {
+            "text": "An allocation engine in three tiers (the additional-rent pool, then designated credits, then general payments) that supports security deposits, separate resident and mortgage ledgers, and bounced-payment reversal.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          },
+          {
+            "text": "A summary table that precomputes ledger errors. A dirty flag marks a ledger for recalculation in the background, so a screen can show errors without running validation queries on every request.",
+            "kind": "fact",
+            "source": "legacy/case-studies/ledger-repair/index.html li; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+          }
+        ]
+      },
+      {
+        "type": "h2",
+        "text": "What changed",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html h2"
+      },
+      {
+        "type": "p",
+        "text": "The repair went from a person working through ledgers to a button, and a full-time manual workload in the support department is gone.",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "h2",
+        "text": "What you can check",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html h2"
+      },
+      {
+        "type": "p",
+        "text": "Version one is public: [github.com/Taylor-Rem/support_tool](https://github.com/Taylor-Rem/support_tool). The platform is my employer's code, so I can describe it and walk through any decision in it, but not link it.",
+        "kind": "fact",
+        "source": "legacy/case-studies/ledger-repair/index.html p; ~/career/facts/work-kingsley.md; ~/career/facts/projects/support-tool.md"
+      },
+      {
+        "type": "pointer",
+        "text": "More of my work, and how to reach me: [the résumé page](/resume/).",
+        "kind": "ui",
+        "source": "legacy/case-studies/ledger-repair/index.html .legal-pointer"
+      }
+    ]
+  }
+}

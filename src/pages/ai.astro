@@ -1,0 +1,127 @@
+---
+// /ai/ (REWRITE.md § 2, § F1): the services page, carried whole from the live
+// page into the Paper layout. Every word and every price is src/content/ai.json;
+// this file holds structure only, in the live page's order. Anchors that must
+// keep working (§ 2): #how, #packages, #patchlamp, #why, #faq, #contact
+// (and #hero, the live page's first section).
+//
+// Set as a rate sheet, not a sales template: each package a ruled entry with its
+// price set large at its head; the FAQ as run-in heads; the calls to action plain
+// links, the one thing to do next. No script: every answer is simply there
+// (the live FAQ never hid them).
+import Paper from '../layouts/Paper.astro';
+import { ai } from '../content/ai.ts';
+import { renderInline } from '../components/paper/inline.ts';
+import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
+import { keepPricesWhole, noteParts } from '../components/paper/prices.ts';
+
+const { page, nav, hero, how, packages, patchlamp, why, faq, contact } = ai;
+const rich = (text: string): string => keepPricesWhole(renderInline(text, { linkAttrs: (h) => ({ ...printAttrs(h), ...externalAttrs(h) }) }));
+const linkAttrs = (href: string, text?: string): Record<string, string> => ({ ...printAttrs(href, text), ...externalAttrs(href), ...mailAttrs(href) });
+const pageNav = nav.map((l) => ({ text: l.text, href: l.href, cta: l.cta === true }));
+---
+<Paper
+  title={page.title.text}
+  description={page.description.text}
+  og={{ title: page.og.title.text, description: page.og.description.text, type: page.og.type, url: page.og.url }}
+  pageNav={pageNav}
+  preload={['/fonts/IBMPlexSans-SemiBold-Latin1.woff2']}
+>
+  <section class="section services-hero" id="hero" aria-labelledby="hero-title">
+    <p class="tape">{hero.kicker.text}</p>
+    <h1 class="title" id="hero-title">{hero.heading.text}</h1>
+    <p class="lead" set:html={rich(hero.tagline.text)} />
+    <ul class="actions">
+      {hero.actions.map((l, i) => (
+        <li><a class={i === 0 ? 'action' : 'action-quiet'} href={l.href} {...linkAttrs(l.href)} set:html={keepPricesWhole(renderInline(l.text))} /></li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="section" id="how" aria-labelledby="how-title">
+    <p class="tape">{how.eyebrow.text}</p>
+    <h2 class="title" id="how-title">{how.heading.text}</h2>
+    <p class="intro" set:html={rich(how.intro.text)} />
+    <ol class="rows steps">
+      {how.steps.map((s) => (
+        <li class="row">
+          <span class="row-mark" aria-hidden="true">{s.number.text}</span>
+          <div class="row-body">
+            <h3 class="row-title">{s.title.text}</h3>
+            <p set:html={rich(s.body.text)} />
+          </div>
+        </li>
+      ))}
+    </ol>
+    <p class="note" set:html={rich(how.note.text)} />
+  </section>
+
+  <section class="section" id="packages" aria-labelledby="packages-title">
+    <p class="tape">{packages.eyebrow.text}</p>
+    <h2 class="title" id="packages-title">{packages.heading.text}</h2>
+    <p class="intro" set:html={rich(packages.intro.text)} />
+    <div class="entries rates">
+      {packages.entries.map((p, i) => (
+        <article class="entry package" aria-labelledby={`package-${i + 1}`}>
+          <h3 class="package-name" id={`package-${i + 1}`}>{p.name.text}</h3>
+          <p class="package-for" set:html={rich(p.for.text)} />
+          <p class="package-price"><span class="price">{p.price.text}</span></p>
+          <p class="package-note">
+            {noteParts(p.priceNote.text).map((part, k) => (
+              <Fragment>{k > 0 && <span class="sep"> · </span>}<span class="part" set:html={keepPricesWhole(renderInline(part))} /></Fragment>
+            ))}
+          </p>
+          <ul class="bullets package-items">{p.items.map((b) => <li set:html={rich(b.text)} />)}</ul>
+          <p class="package-action"><a class="action action-outline" href={p.action.href} {...linkAttrs(p.action.href)}>{p.action.text}</a></p>
+        </article>
+      ))}
+    </div>
+    <p class="note" set:html={rich(packages.note.text)} />
+  </section>
+
+  <section class="section patchlamp" id="patchlamp" aria-labelledby="patchlamp-title">
+    <div class="panel">
+      <p class="panel-kicker"><span class="lamp" aria-hidden="true"></span>{patchlamp.kicker.text}</p>
+      <h3 class="panel-title" id="patchlamp-title">{patchlamp.heading.text}</h3>
+      <p set:html={rich(patchlamp.body.text)} />
+      <p class="panel-price" set:html={rich(patchlamp.price.text)} />
+      <ul class="link-list panel-links">
+        {patchlamp.links.map((l) => <li><a href={l.href} class={l.primary ? 'primary' : undefined} {...linkAttrs(l.href, l.text)}>{l.text}</a></li>)}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="why" aria-labelledby="why-title">
+    <p class="tape">{why.eyebrow.text}</p>
+    <h2 class="title" id="why-title">{why.heading.text}</h2>
+    <ul class="rows credentials">
+      {why.figures.map((f) => (
+        <li class="row">
+          <span class="row-mark">{f.number.text}</span>
+          <div class="row-body"><p set:html={rich(f.label.text)} /></div>
+        </li>
+      ))}
+    </ul>
+    <p class="note" set:html={rich(why.body.text)} />
+  </section>
+
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <p class="tape">{faq.eyebrow.text}</p>
+    <h2 class="title" id="faq-title">{faq.heading.text}</h2>
+    <div class="faq">
+      {faq.items.map((q) => (
+        <div class="faq-item"><h3 class="faq-q">{q.question.text}</h3> <p class="faq-a" set:html={rich(q.answer.text)} /></div>
+      ))}
+    </div>
+  </section>
+
+  <section class="section closing" id="contact" aria-labelledby="contact-title">
+    <h2 class="title" id="contact-title">{contact.heading.text}</h2>
+    <p class="lead" set:html={rich(contact.body.text)} />
+    <ul class="actions">
+      {contact.actions.map((l, i) => (
+        <li><a class={i === 0 ? 'action' : 'action-quiet'} href={l.href} {...linkAttrs(l.href)}>{l.text}</a></li>
+      ))}
+    </ul>
+  </section>
+</Paper>
