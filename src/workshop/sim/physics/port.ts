@@ -21,7 +21,8 @@ export interface BoxShape {
 /** Several boxes fixed together; each placed relative to the body origin. */
 export interface CompoundShape {
   readonly type: 'compound';
-  readonly parts: readonly { readonly half: Vec3; readonly at: Pose; readonly radius?: number }[];
+  /** `share`: this box's share of the body's mass (default: equal shares). 0: it only collides (the body's middle and its turning are the other boxes'). */
+  readonly parts: readonly { readonly half: Vec3; readonly at: Pose; readonly radius?: number; readonly share?: number }[];
 }
 export type Shape = BoxShape | CompoundShape;
 

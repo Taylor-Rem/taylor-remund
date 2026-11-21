@@ -92,17 +92,15 @@ const TURN = 25;
  */
 const BODY_TURN = 0.05;
 /**
- * ...and the most its drawn middle (the middle of its trunk, 0.26 up the body bone) may be from the physics body's
- * middle: across the bench (world units; nothing moves it sideways, so this is slack), and above it: the whole figure
- * is lifted by what its lowest drawn part needs to stay above the bench top (ground.ts). The body's box is the core of
- * its trunk only (0.24 to 0.34 from its middle); the felt trunk is 0.36 from its axis, and the head and ears stand
- * 0.9 to 1.15 from its middle. So lying on its side it is drawn about 0.1 above where the box lies, and as it rolls
- * over its head on the bench it rides up above it by what the head and the ears need (measured over 25 throws: 0.31
- * to 0.91), which reads as rolling over its head but is the figure off its body by that much. In the air, clear of
- * the bench, this is 0. Never below it.
+ * ...and the most its drawn middle (the middle of its trunk, 0.227 up the body bone) may be from the physics body's
+ * middle: across the bench (world units; nothing moves it sideways, so this is slack), and above it. The body is its
+ * trunk and its head as two boxes (crew/patch-body.ts PATCH_BODY_SHAPE), so those are where the engine has them; the
+ * ears, limbs and tail are felt only, and fold in or lie along the bench before anything is lifted. What lift is left
+ * is where folding is not enough (its knees under it face down, its ears under its head): measured over 20 throws,
+ * 0.07 to 0.40. (With a body that was the trunk's core alone it rode up to 0.91 rolling over its head.) Never below.
  */
 const BODY_LEVEL = 0.05;
-const BODY_LIFT = 1.0;
+const BODY_LIFT = 0.55;
 /**
  * The grab is the body Patch's one named takeover in these throws: its body comes into the world where the script
  * had Patch sat, about where it is drawn, and what the figure is off by is let go of over OPERATOR_FEEL.bodyGrab
@@ -321,7 +319,7 @@ function bodyAt(f: FrameRow): { p: V; R: M3 } {
   return { p: [b.pp[0]! + (b.p[0]! - b.pp[0]!) * k, b.pp[1]! + (b.p[1]! - b.pp[1]!) * k, b.pp[2]! + (b.p[2]! - b.pp[2]!) * k], R: turnOfQ(q.map((x) => x / l)) };
 }
 /** The middle of the drawn trunk: 0.26 up the body bone (its matrix whole: its scale, and its squash about this very point). The body's box is drawn about it. */
-const trunk = (f: FrameRow): V => { const o = boneAt(f), u = col(f, 1); return [o[0] + 0.26 * u[0], o[1] + 0.26 * u[1], o[2] + 0.26 * u[2]]; };
+const trunk = (f: FrameRow): V => { const o = boneAt(f), u = col(f, 1); return [o[0] + (0.34 / 1.5) * u[0], o[1] + (0.34 / 1.5) * u[1], o[2] + (0.34 / 1.5) * u[2]]; };
 const wrap = (x: number): number => Math.atan2(Math.sin(x), Math.cos(x));
 /** The simulation's `at` drawn between steps, as the view should draw it. */
 const simAt = (f: FrameRow): V => (f.prev ? [f.prev[0]! + (f.at[0]! - f.prev[0]!) * f.a, f.prev[1]! + (f.at[1]! - f.prev[1]!) * f.a, f.prev[2]! + (f.at[2]! - f.prev[2]!) * f.a] : (f.at as V));

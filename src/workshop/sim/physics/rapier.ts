@@ -82,7 +82,7 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
     return world.getRigidBody(h);
   }
 
-  function colliderDescs(shape: Shape): { desc: RapierNS.ColliderDesc }[] {
+  function colliderDescs(shape: Shape): { desc: RapierNS.ColliderDesc; share?: number }[] {
     const box = (half: Vec3, radius: number | undefined, at?: Pose) => {
       const r = Math.min(radius ?? Math.min(half[0], half[1], half[2]) * RAPIER_TUNING.defaultRadiusFraction, Math.min(half[0], half[1], half[2]) * 0.5);
       const desc = r > 0 ? ColliderDesc.roundCuboid(half[0] - r, half[1] - r, half[2] - r, r) : ColliderDesc.cuboid(half[0], half[1], half[2]);
@@ -90,7 +90,7 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       return { desc };
     };
     if (shape.type === 'box') return [box(shape.half, shape.radius)];
-    return shape.parts.map((p) => box(p.half, p.radius, p.at));
+    return shape.parts.map((p) => ({ ...box(p.half, p.radius, p.at), ...(p.share !== undefined ? { share: p.share } : {}) }));
   }
 
   const kindType = (k: BodyKind) => (k === 'dynamic' ? RigidBodyType.Dynamic : RigidBodyType.KinematicPositionBased);
@@ -115,9 +115,9 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
           .setCcdEnabled(d.ccd ?? false),
       );
       const descs = colliderDescs(d.shape);
-      for (const { desc } of descs) {
+      for (const { desc, share } of descs) {
         desc
-          .setMass(d.mass / descs.length)
+          .setMass(share !== undefined ? d.mass * share : d.mass / descs.length)
           .setFriction(d.friction)
           .setRestitution(d.restitution)
           .setActiveEvents(ActiveEvents.CONTACT_FORCE_EVENTS)

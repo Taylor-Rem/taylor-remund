@@ -27,6 +27,16 @@ export interface CrewHandle {
   taken(part: Id): void;
   /** S5 round 2: while the visitor holds the crew member itself, the yaw it turns to (eased by the hand's levelling), or null for the yaw it was picked up with. */
   heldYaw?(): number | null;
+  /**
+   * The crew member's own body as its unit describes it, where one box will not do (Patch: its trunk and its head):
+   * boxes fixed together, each `at` a point of the body's own frame (the first is the trunk, at its origin), and
+   * how it feels. Given once, as the unit is made, while the body is still out of the world. The part's own `half`
+   * stays what the scene says (the world's reach for it in the hand); only what the engine collides is this.
+   */
+  body?: {
+    readonly parts: readonly { readonly half: Vec3; readonly at: Vec3; readonly round?: number; readonly share?: number }[];
+    readonly feel?: { readonly friction?: number; readonly restitution?: number; readonly linearDamping?: number; readonly angularDamping?: number };
+  };
 }
 
 export interface SimContext {

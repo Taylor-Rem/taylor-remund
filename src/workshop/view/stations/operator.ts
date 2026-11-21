@@ -25,7 +25,7 @@
  */
 import { Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 import { nodeBounds } from './proxy.ts';
-import { clearOfEdge, figureOf, grounded, type Figure } from '../kit/pieces/patch-felt/ground.ts';
+import { clearOfEdge, figureOf, grounded, lowestY, type Figure } from '../kit/pieces/patch-felt/ground.ts';
 import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
@@ -35,7 +35,7 @@ import { placedMatrix } from './set.ts';
 import { HZ, PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
 import { SCRUFF as SCRUFF_AT, TAIL, bodyMatrix, setNode } from '../kit/pieces/patch-felt/rig.ts';
-import { CORE, dirIntoBody, flung, gettingUp, intoBody, offsetOf, offsetSize, placeOf, placed, withOffset, type Offset, type Place } from '../kit/pieces/patch-felt/embodied.ts';
+import { CORE, dirIntoBody, flung, folded, gettingUp, intoBody, offsetOf, offsetSize, placeOf, placed, withOffset, type Offset, type Place } from '../kit/pieces/patch-felt/embodied.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
@@ -662,6 +662,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         let phys: Place | null = null;
         let visL: V3 = boardToRoot(VISITOR_BOARD, stoolB);
         let getUp: { place: Place; squash: number } | null = null;
+        /** The body Patch drawn from its body (or its takeover) this frame: its limbs fold out of the bench's way rather than lift it off its body. */
+        let bodyDrawn = false;
         const inBody = bodied && (mode === 'held' || mode === 'fly' || mode === 'wall' || mode === 'ledge' || (mode === 'land' && !!v.lay));
         if (bodied) {
           const cS = Math.cos(-SIDE_ON), sS = Math.sin(-SIDE_ON);
@@ -1074,26 +1076,32 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               squash = { along: [(bVel.x * cS + bVel.z * sS) / sp, bVel.y / sp, (-bVel.x * sS + bVel.z * cS) / sp], by: 1 + stK, about: place.mid };
             }
             pose = { ...pose, body: placed(place, squash) };
-            // the tail streams behind it (not folded at the top of a throw up, where it swishes; less in the hand)
+            bodyDrawn = true;
+            // the tail: as the performance has it, drawn round toward streaming behind it by how fast it goes (not
+            // at the top of a throw up, where it swishes; less in the hand); and never through the bench: over it,
+            // bent up by what its length would take it under
             const tl = Math.hypot(trail[0], trail[1], trail[2]);
-            const tw = smoothstep(0.08, 0.45, tl) * (1 - foldK) * (bd?.held ? 0.6 : 1) * (phys ? 1 : 0);
+            const tw = tl > 1e-6 ? smoothstep(0.08, 0.45, tl) * (1 - foldK) * (bd?.held ? 0.6 : 1) * (phys ? 1 : 0) : 0;
+            const ta = -1.75 + Math.max(-1.4, Math.min(0.8, pose.tailLift ?? 0));
+            const dir: V3 = [0, Math.cos(ta), Math.sin(ta)];
             if (tw > 0.01) {
-              const dir: V3 = [trail[0] / tl, trail[1] / tl, trail[2] / tl];
-              // (never through the bench: over it, the stream is bent up by what the tail's length would take it under)
-              tv.set(0, TAIL.y, TAIL.z).applyMatrix4(bodyMatrix(placed(place)));
-              if (overBench(tv.x, tv.z)) {
-                const lim = Math.max(-1, Math.min(1, (tv.y - (w.scene.bench.top - root.position.y) / S - 0.07) / 0.5));
-                const down = dirIntoBody(place, [0, -1, 0]);
-                for (let i = 0; i < 2; i++) {
-                  const dn = dir[0] * down[0] + dir[1] * down[1] + dir[2] * down[2];
-                  if (dn <= lim) break;
-                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! - down[a]! * (dn - lim);
-                  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! / l;
-                }
-              }
-              pose.stream = { dir, w: tw };
+              for (let a = 0; a < 3; a++) dir[a] = dir[a]! + (trail[a]! / tl - dir[a]!) * tw;
+              const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+              for (let a = 0; a < 3; a++) dir[a] = dir[a]! / l;
             }
+            tv.set(0, TAIL.y, TAIL.z).applyMatrix4(bodyMatrix(placed(place)));
+            if (overBench(tv.x, tv.z)) {
+              const lim = Math.max(-1, Math.min(1, (tv.y - (w.scene.bench.top - root.position.y) / S - 0.07) / 0.5));
+              const down = dirIntoBody(place, [0, -1, 0]);
+              for (let i = 0; i < 2; i++) {
+                const dn = dir[0] * down[0] + dir[1] * down[1] + dir[2] * down[2];
+                if (dn <= lim) break;
+                for (let a = 0; a < 3; a++) dir[a] = dir[a]! - down[a]! * (dn - lim);
+                const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+                for (let a = 0; a < 3; a++) dir[a] = dir[a]! / l;
+              }
+            }
+            pose.stream = { dir, w: 1 };
           } else if (Math.abs(sq) > 0.004) {
             // (the last of a squash over the script's own pose: the hop's landing, about its seat)
             const b = pose.body ?? {};
@@ -1131,7 +1139,20 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           const floor = (w.scene.bench.top - root.position.y) / S;
           // hanging from the edge, its back against the bench's front: moved out from it, not up off the edge
           if (mode === 'ledge' && st === 'ledge' && ledgeO) pose = clearOfEdge(pose, figure, floor, overBench, [-Math.sin(ledgeO.heading), -Math.cos(ledgeO.heading)]);
-          else pose = grounded(pose, figure, floor, overBench);
+          else {
+            // (the body Patch: its trunk and head are its body's own boxes, so they are where the engine has them;
+            // what would go under the bench is felt only, and folds in by as much as it takes. Only then the lift)
+            if (bodyDrawn && lowestY(pose, figure, overBench) < floor) {
+              let lo = 0, hi = 1;
+              for (let i = 0; i < 5; i++) {
+                const mid = (lo + hi) / 2;
+                if (lowestY(folded(pose, mid), figure, overBench) < floor) lo = mid;
+                else hi = mid;
+              }
+              pose = folded(pose, hi);
+            }
+            pose = grounded(pose, figure, floor, overBench);
+          }
         }
         apply(pose);
         if (bodied) {

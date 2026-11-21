@@ -15,7 +15,7 @@
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { bodyMatrix, type ArmJoints, type BodyPlace, type LegJoints, type PatchPose } from './rig.ts';
-import { SEATED, flop, mixPose, resolvePose, shakeOff, toPose, type FullPose, type V3 } from './perform.ts';
+import { SEATED, mixPose, resolvePose, shakeOff, toPose, type FullPose, type V3 } from './perform.ts';
 import { clamp, clamp01, lerp, smoothstep } from '../../../anim/ease.ts';
 
 export type Q4 = [number, number, number, number];
@@ -30,7 +30,7 @@ export interface Place {
  * trunk runs from the seat, 0, to the scruff, 0.52). The box is the trunk's core; the head, the limbs and the tail
  * are drawn outside it.
  */
-export const CORE = 0.26;
+export const CORE = 0.34 / 1.5;
 
 const qa = new Quaternion(), qb = new Quaternion();
 const va = new Vector3();
@@ -166,16 +166,63 @@ export interface GetUpOptions {
   yaw: number;
   visitor: V3;
   /**
-   * Come down hard from a fall (dropped from high, or thrown up) and stopped upright: the flop. It tips over flat on
-   * its front where it stands, lies a beat like someone waiting for applause, and pushes itself up (the scripted
-   * Patch's own gag, `flop`, here begun from the pose its body had). `fall`: how far it fell (units).
+   * Come down hard from a fall (dropped from high, or thrown up): the flop, whatever way it came down. From how it
+   * lies it goes flat (onto its front or its back, whichever is nearer), lies there a beat like someone waiting for
+   * applause, and pushes itself up, unimpressed. `fall`: how far it fell (units).
    */
   flop?: { fall: number };
 }
 
-/** The flop: it needs at least this long (s) of the sit-up, and tips over in this long. */
+/** The flop: it needs at least this long (s) of the sit-up, and goes flat in this long; flat, its middle is this far above the bench (root units). */
 const FLOP_LEAST = 0.55;
 const FLOP_TIP = 0.22;
+const FLAT_UP = 0.2;
+/** Flat on its front and flat on its back: spread out where it fell, waiting for applause. */
+let FLATS: { front: FullPose; back: FullPose } | null = null;
+function flats(): { front: FullPose; back: FullPose } {
+  FLATS ??= {
+    front: resolvePose({
+      ...SEATED, body: {},
+      legs: [{ lift: -1.4, splay: 0.55, knee: -0.1 }, { lift: -1.35, splay: 0.6, knee: -0.2 }],
+      lean: [0, 0], twist: 0,
+      arms: { left: J(2.4, 1.0, 0, 0.1, 0, 0), right: J(2.4, 1.0, 0, 0.1, 0, 0) },
+      headYaw: 0.5, headPitch: 0.25, headTilt: 0.15, gaze: [0.3, 0.4],
+      lids: [0.55, 0.58], lidsLow: [0.2, 0.2], brows: [-0.5, -0.4], browTilt: [-0.2, 0], mouth: [-0.1, -0.2],
+      ears: [0.4, 0.3], tail: [0.3, 0.2], tailLift: 0.8, boom: 0.4,
+    }),
+    back: resolvePose({
+      ...SEATED, body: {},
+      legs: [{ lift: -1.3, splay: 0.6, knee: 0.1 }, { lift: -1.2, splay: 0.7, knee: 0.25 }],
+      lean: [-0.1, 0], twist: 0,
+      arms: { left: J(0.3, 1.15, 0, 0.15, 0, 0), right: J(0.15, 1.2, 0, 0.2, 0, 0) },
+      headYaw: 0, headPitch: -0.1, headTilt: 0.1, gaze: [0, 0.5],
+      lids: [0.52, 0.55], lidsLow: [0.2, 0.2], brows: [-0.45, -0.4], browTilt: [-0.2, 0], mouth: [-0.1, -0.2],
+      ears: [0.5, 0.5], tail: [0, 0], tailLift: 0.4, boom: 0.3,
+    }),
+  };
+  return FLATS;
+}
+
+/** Flat on the bench at `from` from how it lies: over onto its front, or (lying on its back already) flat on its back. */
+function flatFor(lie: Place, from: V3): { place: Place; limbs: FullPose } {
+  const q = new Quaternion(lie.q[0], lie.q[1], lie.q[2], lie.q[3]);
+  const f = new Vector3(0, 0, 1).applyQuaternion(q);
+  // (onto its front unless it is plainly on its back already: stopped upright it goes over on its face, the joke
+  // the scripted fall always was, and the one that reads from above)
+  const front = f.y <= 0.5;
+  const turned = new Quaternion().setFromUnitVectors(f, new Vector3(0, front ? -1 : 1, 0)).multiply(q);
+  return { place: { mid: [from[0], from[1] + FLAT_UP, from[2]], q: [turned.x, turned.y, turned.z, turned.w] }, limbs: front ? flats().front : flats().back };
+}
+
+/** The limbs and ears folded in by `w` (0: as posed; 1: arms across its chest, knees drawn up, ears flat): out of the way of the bench. */
+export function folded(p: PatchPose, w: number): PatchPose {
+  if (w <= 1e-4) return p;
+  const f = resolvePose(p);
+  const arm = (a: ArmJoints): ArmJoints => ({ swing: lerp(a.swing, 0.35, w), abduct: lerp(a.abduct, 0.2, w), twist: lerp(a.twist, -1.2, w), elbow: lerp(a.elbow, 1.8, w), wrist: lerp(a.wrist, 0.1, w), roll: lerp(a.roll, 0.4, w) });
+  const leg = (l: LegJoints): LegJoints => ({ lift: lerp(l.lift, 0.75, w), splay: lerp(l.splay, 0.1, w), knee: lerp(l.knee, 1.3, w) });
+  return { ...p, legs: [leg(f.legs[0]), leg(f.legs[1])], arms: { left: arm(f.arms.left), right: arm(f.arms.right) }, ears: [lerp(f.ears[0], 1, w), lerp(f.ears[1], 1, w)], boom: lerp(f.boom, 0, w) };
+}
+
 /** Anticipation: the last of the sit-up, a crouch (s); how far it leans into it (rad) and squashes down. */
 const CROUCH = 0.1;
 const CROUCH_LEAN = 0.18;
@@ -193,16 +240,20 @@ export function gettingUp(t: number, o: GetUpOptions): { pose: PatchPose; place:
   if (t < o.rise || !hop) {
     const u = o.rise > 1e-3 ? clamp01(t / o.rise) : 1;
     const s = sat(o.from);
-    // (how upright it lay: its own up against the world's)
-    va.set(0, 1, 0).applyQuaternion(qa.set(o.lie.q[0], o.lie.q[1], o.lie.q[2], o.lie.q[3]));
-    const flopping = !!o.flop && o.rise >= FLOP_LEAST && va.y > 0.8;
+    const flopping = !!o.flop && o.rise >= FLOP_LEAST;
     let place: Place, limbs: FullPose;
     if (flopping) {
-      // the flop: over onto its front (falling over, so gathering speed), then the scripted flop's own beat and push-up
-      const f = flop(Math.min(t, o.rise), o.from, o.yaw, o.flop!.fall, o.rise);
+      // the flop: flat where it fell (gathering speed as it goes over), the beat lying there with one slow blink,
+      // then the push-up into the sit
+      const fl = flatFor(o.lie, o.from);
       const tip = clamp01(t / FLOP_TIP);
-      place = mixPlace(o.lie, placeOf(f.body), tip * tip);
-      limbs = mixPose(resolvePose(o.limbs), resolvePose(f), smoothstep(0, 1, tip));
+      const up = smoothstep(0.56, 0.93, u);
+      const bounce = Math.sin(Math.PI * clamp01((t - FLOP_TIP * 0.8) / 0.2)) * 0.035;
+      const flat: Place = { mid: [fl.place.mid[0], fl.place.mid[1] + bounce, fl.place.mid[2]], q: fl.place.q };
+      place = up > 0 ? mixPlace(flat, placeOf(s.body), up) : mixPlace(o.lie, flat, tip * tip);
+      limbs = up > 0 ? mixPose(fl.limbs, resolvePose(s), up) : mixPose(resolvePose(o.limbs), fl.limbs, smoothstep(0, 1, tip));
+      const blink = Math.exp(-(((u - 0.4) / 0.045) ** 2));
+      limbs = { ...limbs, lids: [lerp(limbs.lids[0], 1, blink), lerp(limbs.lids[1], 1, blink)] };
     } else {
       // up in one push: quick off the bench, easing into the sit (a little past upright and back). Never faster at
       // its start than twice its mean: from flat on its head, half a turn in the 0.4 s it is given, that is 16 rad/s

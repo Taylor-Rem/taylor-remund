@@ -176,7 +176,7 @@ describe('the get-up from how it lay', () => {
     expect(end.squash).toBeCloseTo(1, 6);
   });
 
-  it('down hard from a fall and stopped upright, it flops: over onto its front, a beat, and up sat; no frame jumps', () => {
+  it('down hard from a fall it flops however it lies: flat (stopped upright: over onto its front), a beat, and up sat; no frame jumps', () => {
     const upright: Place = placeOf(shakeOff(0, from, 0.6, { visitor }).body);
     const o = { ...opts(from, 1.1), lie: upright, rise: 1.1, to: from, flop: { fall: 5 } };
     const up = (p: Place): number => new Vector3(0, 1, 0).applyQuaternion(new Quaternion(p.q[0], p.q[1], p.q[2], p.q[3])).y;
@@ -196,8 +196,13 @@ describe('the get-up from how it lay', () => {
       }
       last = g;
     }
-    // lying on its side it does not: it sits up from how it lies
-    expect(up(gettingUp(0.3, { ...o, lie }).place)).toBeGreaterThan(0.3);
+    // lying on its side, or on its back: flat too (the nearer of its front and its back), and up sat the same
+    for (const q of [q4(1.5, 0.4, 0.2), q4(-1.3, 0.2, 0.1), q4(0.2, 1, 1.5)]) {
+      const on = { ...o, lie: { mid: [1, 0.2, 0.5] as V3, q } };
+      const flat = new Vector3(0, 0, 1).applyQuaternion(new Quaternion(...gettingUp(0.4, on).place.q)).y;
+      expect(Math.abs(flat)).toBeGreaterThan(0.97);
+      expect(up(gettingUp(1.1, on).place)).toBeGreaterThan(0.95);
+    }
   });
 
   it('the visitor is where they are in its own frame, however it is turned', () => {
