@@ -127,6 +127,31 @@ export function planWay(from: Pt, to: Pt, r: number, bodies: readonly Obstacle[]
   return best;
 }
 
+/**
+ * Is there a way from `from` to `to` at all (`planWay` would not return null)? The same ways in the same order,
+ * stopping at the first that is open: asked of every place Patch might get up at, where which way is shortest does
+ * not matter and planning all of them (up to seven routes each) cost a third of a second in one step.
+ */
+export function wayExists(from: Pt, to: Pt, r: number, bodies: readonly Obstacle[], bench: Bench2, belt: BeltCrossing | null, drift: number): boolean {
+  if (route(from, to, r, bodies, bench)) return true;
+  if (!belt) return false;
+  const b = belt.bed;
+  const sideOf = (p: Pt): 1 | -1 => (p[1] > b.z ? 1 : -1);
+  const side = sideOf(from);
+  if (sideOf(to) === side) return false;
+  const lo = belt.safe[0] - Math.min(0, drift), hi = belt.safe[1] - Math.max(0, drift);
+  if (lo > hi) return false;
+  const tries = [Math.min(hi, Math.max(lo, from[0])), Math.min(hi, Math.max(lo, (from[0] + to[0]) / 2)), Math.min(hi, Math.max(lo, to[0] - drift))];
+  const solid = bodies.filter((o) => o !== b && !o.id.startsWith(SOFT));
+  const hard = bodies.filter((o) => !o.id.startsWith(SOFT));
+  for (const x of tries) {
+    const { on, off } = crossPoints(belt, x, side, drift, r);
+    if (!solid.every((o) => distanceTo(o, on[0], on[1]) >= r) || !solid.every((o) => distanceTo(o, off[0], off[1]) >= r)) continue;
+    if (route(from, on, r, bodies, bench) && route(off, to, r, hard, bench)) return true;
+  }
+  return false;
+}
+
 /** Is the next step clear of `bodies` (dynamic ones: Fetch, a crate) by `r`, or at least no nearer than now? */
 export function stepClear(a: Pt, b: Pt, r: number, bodies: readonly Obstacle[]): boolean {
   return legClear(a, b, r, bodies);

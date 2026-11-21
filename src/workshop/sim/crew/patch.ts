@@ -57,7 +57,7 @@ import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo, obstacles } from './fetch-knock.ts';
 import { bodiesOf, legClear } from './fetch-route.ts';
 import type { Pt } from './fetch-route.ts';
-import { PATCH_ROUTE, clearPoint, crossPoints, offTop, planWay, solidsOf, sphereMeets, stepClear } from './patch-route.ts';
+import { PATCH_ROUTE, clearPoint, crossPoints, offTop, planWay, solidsOf, sphereMeets, stepClear, wayExists } from './patch-route.ts';
 import type { BeltCrossing, Solid, Way } from './patch-route.ts';
 import { embodyPatch } from './patch-body.ts';
 import { floatPull as pullAt, floatWeight, inFloat as floating } from './patch-float.ts';
@@ -1867,7 +1867,19 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
   // not changed by this; with `flight: 'body'` the module wraps this unit's intent, pre, post, heard, reset and view,
   // and reaches the script's own state only through the closures below. ──
   if (spec.flight === 'body') {
-    const walkable = (q: Pt): boolean => planWay(q, pt(footNow()), R, offFoot([...STATICS, ...movers()]), routeBench, BELT, 0) !== null;
+    // (asked several times of one place in one step, as it chooses where to get up: answered once. Nothing it
+    // depends on moves within a step.)
+    const walked = { step: -1, at: new Map<string, boolean>() };
+    const walkable = (q: Pt): boolean => {
+      if (walked.step !== ctx.clock.step) {
+        walked.step = ctx.clock.step;
+        walked.at.clear();
+      }
+      const key = `${q[0].toFixed(3)},${q[1].toFixed(3)}`;
+      let ok = walked.at.get(key);
+      if (ok === undefined) walked.at.set(key, (ok = wayExists(q, pt(footNow()), R, offFoot([...STATICS, ...movers()]), routeBench, BELT, 0)));
+      return ok;
+    };
     embodyPatch(ctx, spec, unit, {
       T,
       state: () => state,
