@@ -1,12 +1,12 @@
 {
   "format": 2,
   "codeHash": "884c1ae33e5fc8b8c3b7fa81",
-  "inputsHash": "45fd3530a54fe6b8c8edb7b1",
+  "inputsHash": "803531fdff805eafe9659d01",
   "entries": 49,
   "vertices": 179783,
   "changed": 128486,
   "measurements": 10,
-  "bytes": 113921,
+  "bytes": 113919,
   "pages": [
     "/dev/vignette/?hud=0&manual=1 1440x900@1",
     "/dev/vignette/?hud=0&manual=1&tier=low 1440x900@1",
