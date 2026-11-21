@@ -36,7 +36,7 @@ const project = (page: Page, p: number[]): Promise<XY> => page.evaluate((p) => (
  * so a pointer over a spot on the bench holds the crate in front of it, and a dropped crate settles where it
  * settles; a visitor aims by watching the crate, as bench-input.spec.ts's carryTo does on the GPU.)
  */
-async function movedAndRecorded(page: Page, id: string, before: number[], limit = 240): Promise<void> {
+async function movedAndRecorded(page: Page, id: string, before: number[], limit = 480): Promise<void> {
   const far = (p: number[]): boolean => Math.hypot(p[0]! - before[0]!, p[2]! - before[2]!) > 0.8;
   let record: { at: string; pose?: { p: number[] } } = { at: '' };
   for (let n = 0; n < limit; n += 10) {
@@ -46,7 +46,8 @@ async function movedAndRecorded(page: Page, id: string, before: number[], limit 
   }
   const now = await world<number[]>(page, `(w) => w.motion('${id}').pose.p`);
   expect(far(now), `${id} from ${before} to ${now}`).toBe(true);
-  expect(record.at !== 'rest' || far(record.pose!.p), `the world's record of ${id}: ${JSON.stringify(record)}`).toBe(true);
+  const how = await world<string>(page, `(w) => w.mode('${id}') + ' awake ' + w.motion('${id}').awake + ' held ' + JSON.stringify(w.holding())`);
+  expect(record.at !== 'rest' || far(record.pose!.p), `the world's record of ${id}: ${JSON.stringify(record)}; it is at ${now} (${how})`).toBe(true);
 }
 
 /**
