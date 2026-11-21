@@ -83,7 +83,7 @@ export const TELL_PARTS: Readonly<Record<Id, TellPart>> = {
     lamp: 'lamp.lit',
     glow: 0.24,
     glowPx: 22,
-    rattle: { node: 'latch', axis: [1, 0, 0], deg: 14, lift: 0.01 },
+    rattle: { node: 'lever', axis: [0, 1, 0], deg: 2.5, lift: 0 },
     running: (_w, m) => (v(m, 'undo-lever')?.phase ?? 'rest') !== 'rest',
   },
   striker: {
