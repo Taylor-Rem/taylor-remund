@@ -679,10 +679,14 @@ export const bench: SceneDesc = {
  * - Its box is its bulk sat down (0.52 wide, 0.68 tall, 0.48 deep), its edges rounded as far as the engine allows
  *   (half its least half extent), so it tumbles and rolls over a little before it lies.
  * - Light: 0.08, between a small crate (0.06) and a middle one (0.14). It gets the whole of a throw (the world scales
- *   a throw down only from 0.15), is a little weightier in the hand than a small crate (the carry's reference is
- *   0.06), and knocks a small crate on at about three quarters of its own speed, as the scripted Patch did (0.8).
+ *   a throw down only from 0.15) and is a little weightier in the hand than a small crate (the carry's reference is
+ *   0.06). What it hits moves by the contact: measured, a small crate standing on the bench goes on at a third to a
+ *   half of the speed it was hit at (it is struck above its middle and tips as much as it slides). The scripted
+ *   Patch gave a crate 0.8 of its own speed by rule.
  * - Soft: grippy felt (0.9), a small bounce (0.25), and it loses its spin quickly (3.5 a second: a plush toy flops,
- *   it does not skitter). Measured on the open bench against a small crate thrown the same way: see the hand-in.
+ *   it does not skitter). Measured against a small crate thrown the same way down the open bench (the means of four
+ *   lanes; tests/scenario/patch-body.test.ts prints them): at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2
+ *   units, Patch 3.7, 6.2 and 7.6.
  * - Material `paper` is for the things that read a part's material: what Fetch takes its weight to be when hit
  *   (its box as paper weighs 0.05; Fetch's own figure for Patch was 0.06) and the sound of a contact.
  */
