@@ -17,7 +17,7 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { FetchRounds, MouthSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import type { FetchRounds, MouthSpec, PartSpec, SceneDesc, StaticSpec } from '../scene.ts';
 import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
@@ -34,6 +34,7 @@ import { platen } from '../machines/platen.ts';
 import { storefront } from '../machines/storefront.ts';
 import { lamp } from '../machines/lamp.ts';
 import { patch } from '../crew/patch.ts';
+import type { PatchSpec } from '../crew/patch.ts';
 import { FETCH_TUNING } from '../crew/fetch.ts';
 import { lanePath } from '../path.ts';
 
@@ -475,6 +476,23 @@ export const PATCHLAMP = (() => {
 })();
 
 const PATCHLAMP_MOUTHS: readonly MouthSpec[] = [PATCHLAMP.platenMouth];
+/** Patch's spec (one object, so the scene with its body, `benchBody` below, is this one and a flag). */
+const PATCH_SPEC: PatchSpec = {
+  id: 'patch',
+  station: 'patchlamp',
+  name: 'name.patch',
+  line: 'line',
+  ...PATCHLAMP.patch,
+  jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
+  stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.aim },
+  bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
+  edge: { minX: AT.bench.minX, maxX: AT.bench.maxX, maxZ: AT.bench.maxZ }, // R1: the open edges it can hang from
+  // R2: the belt it may cross on its way back: clear of the motor's housing (left) and of the striker's arm (right)
+  chute: { from: AT.chute.p, pad: AT.pad }, // R4: thrown off the bench, back up the chute by the pad
+  belt: { id: 'belt', bed: 'belt-bed', safe: [AT.beltMotor.c[0] + AT.beltMotor.half[0] + 0.9, LINE.strikerX - 0.75] as const },
+  runner: s6PatchRunner(), // S6
+};
+const PATCH_UNIT = patch(PATCH_SPEC);
 const PATCHLAMP_UNITS = [
   line({
     id: 'line',
@@ -488,21 +506,7 @@ const PATCHLAMP_UNITS = [
       { jack: 'jack-lamp', line: 'lamp', station: 'lamp' },
     ],
   }),
-  patch({
-    id: 'patch',
-    station: 'patchlamp',
-    name: 'name.patch',
-    line: 'line',
-    ...PATCHLAMP.patch,
-    jacks: Object.fromEntries(PATCHLAMP.jacks.map((j) => [j.id, j.at])),
-    stations: { storefront: AT.storefront.c, platen: PATCHLAMP.seat, belt: [LINE.belt.from + 1, LINE.belt.top, LINE.belt.z], lamp: PATCHLAMP.lamp.home.aim },
-    bench: { minX: AT.bench.minX + 0.4, maxX: AT.bench.maxX - 0.4, minZ: AT.bench.minZ + 0.4, maxZ: AT.bench.maxZ - 0.4 },
-    edge: { minX: AT.bench.minX, maxX: AT.bench.maxX, maxZ: AT.bench.maxZ }, // R1: the open edges it can hang from
-    // R2: the belt it may cross on its way back: clear of the motor's housing (left) and of the striker's arm (right)
-    chute: { from: AT.chute.p, pad: AT.pad }, // R4: thrown off the bench, back up the chute by the pad
-    belt: { id: 'belt', bed: 'belt-bed', safe: [AT.beltMotor.c[0] + AT.beltMotor.half[0] + 0.9, LINE.strikerX - 0.75] as const },
-    runner: s6PatchRunner(), // S6
-  }),
+  PATCH_UNIT,
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
   lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach }),
@@ -664,4 +668,51 @@ export const bench: SceneDesc = {
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
   ],
+};
+
+// ───────────── 2026-11-20 (prototype): Patch with a real body while it is held and thrown ─────────────
+
+/**
+ * Patch's own body (`PartSpec.crewBody`; `sim/crew/patch-body.ts`): out of the world except from the hand taking hold
+ * of Patch until its script takes over to recover. Kind `robot`: the parts view does not draw it, and Fetch and
+ * Revert treat it as they treat each other's bodies.
+ * - Its box is its bulk sat down (0.52 wide, 0.68 tall, 0.48 deep), its edges rounded as far as the engine allows
+ *   (half its least half extent), so it tumbles and rolls over a little before it lies.
+ * - Light: 0.08, between a small crate (0.06) and a middle one (0.14). It gets the whole of a throw (the world scales
+ *   a throw down only from 0.15) and is a little weightier in the hand than a small crate (the carry's reference is
+ *   0.06). What it hits moves by the contact: measured, a small crate standing on the bench goes on at a third to a
+ *   half of the speed it was hit at (it is struck above its middle and tips as much as it slides). The scripted
+ *   Patch gave a crate 0.8 of its own speed by rule.
+ * - Soft: grippy felt (0.9), a small bounce (0.25), and it loses its spin quickly (3.5 a second: a plush toy flops,
+ *   it does not skitter). Measured against a small crate thrown the same way down the open bench (the means of four
+ *   lanes; tests/scenario/patch-body.test.ts prints them): at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2
+ *   units, Patch 3.7, 6.2 and 7.6.
+ * - Material `paper` is for the things that read a part's material: what Fetch takes its weight to be when hit
+ *   (its box as paper weighs 0.05; Fetch's own figure for Patch was 0.06) and the sound of a contact.
+ */
+export const PATCH_BODY: PartSpec = {
+  id: 'patch-body',
+  kind: 'robot',
+  size: 'S',
+  material: 'paper',
+  colour: BARE,
+  label: '',
+  station: 'patchlamp',
+  name: 'name.patch',
+  pose: pose([0, -4, 0]),
+  crewBody: true,
+  half: [0.26, 0.34, 0.24],
+  round: 0.12,
+  mass: 0.08,
+  feel: { friction: 0.9, restitution: 0.25, linearDamping: 0.1, angularDamping: 3.5 },
+};
+
+/**
+ * The bench with that Patch: identical to `bench` but for the body part and `flight: 'body'`, so the two can be
+ * compared side by side (`/dev/bench/?patch=body`; tests/scenario/patch-body*.test.ts).
+ */
+export const benchBody: SceneDesc = {
+  ...bench,
+  parts: [...bench.parts, PATCH_BODY],
+  units: (bench.units ?? []).map((u) => (u === PATCH_UNIT ? patch({ ...PATCH_SPEC, flight: 'body', bodyPart: PATCH_BODY.id }) : u)),
 };

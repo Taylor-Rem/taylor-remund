@@ -41,6 +41,8 @@ export interface PartSpec {
   readonly crewBody?: boolean;
   /** How it meets things, where the material's own figures are not it (a soft toy: its own bounce and drag). */
   readonly feel?: { readonly friction?: number; readonly restitution?: number; readonly linearDamping?: number; readonly angularDamping?: number };
+  /** How round its box's edges are (a radius inside `half`, units; the engine allows up to half its least half extent). Default: almost sharp, as a crate's. */
+  readonly round?: number;
 }
 
 export interface StaticSpec {

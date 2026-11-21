@@ -471,7 +471,7 @@ export function createWorld(opts: WorldOptions): World {
     const out = spec.shipped === true || spec.crewBody === true;
     const pose0 = out ? HIDDEN : spec.pose;
     const feel = { ...m, ...spec.feel };
-    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half }, pose: pose0, mass, friction: feel.friction, restitution: feel.restitution, linearDamping: feel.linearDamping, angularDamping: feel.angularDamping, ccd: true });
+    physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half, ...(spec.round !== undefined ? { radius: spec.round } : {}) }, pose: pose0, mass, friction: feel.friction, restitution: feel.restitution, linearDamping: feel.linearDamping, angularDamping: feel.angularDamping, ccd: true });
     if (out) physics.setEnabled(spec.id, false);
     feelOf.set(spec.id, feel);
     loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, crew: spec.crewBody === true, mode: out ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map(), boost: null });
@@ -1176,7 +1176,8 @@ export function createWorld(opts: WorldOptions): World {
       if (u.restores.some((r) => r.target === id && r.field === 'location')) continue;
       const l = loose.get(id);
       const slot = store.slot(id, 'location');
-      if (!l || !slot) continue;
+      // (a crew member's own body, still flying under the undone throw, is not recalled: its unit looks after it)
+      if (!l || !slot || l.crew) continue;
       restores.push({ target: id, field: 'location', from: slot.value, to: slot.value, writer: slot.writer, pose: hopFrom(l) });
       putBack(l, slot.value as Location, 'undo');
     }

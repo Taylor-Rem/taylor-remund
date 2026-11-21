@@ -15,6 +15,8 @@
 //   ?room=0            without the room (P1's bench top and 21-wide wall, the stage's fall-off)
 //   ?shot=left|right   panned as far as a visitor can to each end at the home zoom
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
+//   ?patch=body        the prototype: Patch is a real physics body while it is held and thrown (sim scene `benchBody`,
+//                      sim/crew/patch-body.ts); without it, the scripted Patch. For comparing the two side by side.
 //
 // Picture first (B1, REWRITE.md § B3, § E6): by default the page starts from
 // the bench's still picture (src/dev-pages/bench/, rendered from this page by
@@ -91,7 +93,7 @@ const preload = [
       import { LOOK } from '../workshop/view/stage/index.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
       import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
-      import { bench as BENCH_SCENE } from '../workshop/sim/scenes/bench.ts';
+      import { bench as BENCH_SCRIPT, benchBody as BENCH_BODY } from '../workshop/sim/scenes/bench.ts';
       import { loadBench, homeBox, homeEdge, FRAMING, LAYOUT, spotBox, type Spot, type StationKey } from '../workshop/view/bench.ts';
       import { staticBox } from '../workshop/view/vignette.ts';
       import { lanePath } from '../workshop/sim/path.ts';
@@ -99,6 +101,8 @@ const preload = [
       import type { View } from '../workshop/view/stage/camera.ts';
 
       const q = new URLSearchParams(location.search);
+      // ?patch=body: the bench whose Patch has a real body while it is held and thrown (the prototype)
+      const BENCH_SCENE = q.get('patch') === 'body' ? BENCH_BODY : BENCH_SCRIPT;
       const tier = q.get('tier') === 'low' ? 'low' : 'high';
       const manual = q.get('manual') === '1';
       const seed = Number(q.get('seed') ?? 1);
