@@ -9,6 +9,6 @@ const year = new Date().getFullYear();
 <footer class="footer">
   <p class="footer-owner">{site.footer.owner.text} &middot; {year}</p>
   <p class="footer-links">{site.footer.links.map((link, i) => (
-    <span class="footer-link">{i > 0 && <span class="sep" aria-hidden="true">&middot;</span>}<a href={link.href}>{link.text}</a></span>
+    <span class="footer-link"><a href={link.href}>{link.text}</a>{i < site.footer.links.length - 1 && <span class="sep" aria-hidden="true">&middot;</span>}</span>
   ))}</p>
 </footer>

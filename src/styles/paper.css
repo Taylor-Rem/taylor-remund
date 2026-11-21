@@ -147,11 +147,14 @@ body.paper {
   outline-offset: 2px;
   text-decoration: none;
 }
-/* Links inside running text keep the line's rhythm but are 44 px tall to a finger. */
+/* Links inside running text keep the line's rhythm but are 44 px tall to a
+   finger: padding that reaches past the line without moving it (a Plex
+   line box is 1.3em; the rest of 44 px is padding). */
 .paper p a,
 .paper li a {
-  padding-block: 0.6em;
-  margin-block: -0.6em;
+  --reach: max(0.7em, calc((44px - 1.3em) / 2));
+  padding-block: var(--reach);
+  margin-block: calc(-1 * var(--reach));
 }
 
 .skip {
@@ -200,7 +203,7 @@ main:focus {
   text-transform: uppercase;
   color: var(--ink);
   text-decoration: none;
-  padding: 0.25rem 0 0.2rem;
+  padding: 0.5rem 0 0.4rem;
 }
 .paper a.name:hover {
   color: var(--ink);
@@ -223,10 +226,9 @@ main:focus {
 }
 .site-nav a[aria-current='page'] {
   color: var(--ink);
-  text-decoration: none;
-  border-bottom: 2px solid var(--mark);
-  min-height: 0;
-  padding-block: 0.7rem 0.15rem;
+  text-decoration-color: var(--mark);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
 }
 .page-nav {
   border-bottom: 1px solid var(--rule);
@@ -521,11 +523,8 @@ h1.title {
   white-space: nowrap;
 }
 .footer-links .sep {
-  padding: 0 0.55rem;
+  padding: 0 0.45rem;
   color: var(--ink-soft);
-}
-.footer-links > .footer-link:first-child .sep {
-  display: none;
 }
 
 /* ---------- the compliance pages: the record's own classes ---------- */
@@ -784,7 +783,7 @@ h1.title {
     padding-top: 0.75rem;
     border-top: 1px solid var(--rule);
   }
-  .legal > h2 + * + * {
+  .legal > h2 + * + :not(h2) {
     margin-top: 1rem;
   }
   .not-found .link-list,
@@ -812,13 +811,13 @@ h1.title {
     font-size: 9.25pt;
     line-height: 1.42;
   }
-  .skip,
-  .page-nav,
-  .footer,
-  .site-nav a.local,
-  .entry-links .private,
-  .photo,
-  .contact .link-list {
+  .paper .skip,
+  .paper .page-nav,
+  .paper .footer,
+  .paper .site-nav li:has(a.local),
+  .paper .entry-links .private,
+  .paper .photo,
+  .paper .contact .link-list {
     display: none;
   }
   .masthead,
@@ -827,12 +826,8 @@ h1.title {
     padding: 0;
   }
   .masthead-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    column-gap: 6mm;
-    border-bottom-width: 3px;
+    display: block;
+    padding-bottom: 1.5mm;
   }
   .paper a.name {
     font-size: 24pt;
@@ -972,16 +967,37 @@ h1.title {
   }
   .project > .entry-label {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 1 / 3;
   }
   .project > .entry-title,
   .role > .entry-title {
     grid-row: 1;
     margin-top: 0;
   }
+  .project > .entry-subtitle {
+    grid-row: 2;
+  }
+  .project > .entry-body {
+    grid-row: 3;
+  }
+  .project > .entry-links {
+    grid-row: 4;
+  }
   .project > .tags {
     grid-column: 1;
-    grid-row: 2 / 6;
+    grid-row: 3 / 6;
+    margin: 1mm 0 0;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .project > .tags li {
+    border-left: 0;
+    margin-left: 0;
+    padding: 0;
+  }
+  /* Projects start a page rather than leave their heading alone at the foot of one. */
+  #projects {
+    break-before: page;
   }
   .role > .role-meta {
     grid-column: 1;

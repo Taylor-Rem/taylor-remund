@@ -85,7 +85,7 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
           {e.links.length > 0 && (
             <ul class="entry-links">
               {e.links.map((l) => isLink(l)
-                ? <li><a href={l.href} {...printAttrs(l.href)} {...externalAttrs(l.href)}>{l.text}</a></li>
+                ? <li><a href={l.href} {...printAttrs(l.href, l.text)} {...externalAttrs(l.href)}>{l.text}</a></li>
                 : <li class="private">{l.text}</li>)}
             </ul>
           )}

@@ -20,10 +20,10 @@ export function printAddress(href: string): string | null {
   return m ? (m[1] ?? null) : null;
 }
 
-/** `data-print` for a link, when it has a print address. */
-export function printAttrs(href: string): Record<string, string> {
+/** `data-print` for a link, when it has a print address that its text does not already say. */
+export function printAttrs(href: string, text?: string): Record<string, string> {
   const a = printAddress(href);
-  return a === null ? {} : { 'data-print': a };
+  return a === null || a === text ? {} : { 'data-print': a };
 }
 
 /** A link that leaves this site opens as the live page opened it: a new tab, `noopener`. */
