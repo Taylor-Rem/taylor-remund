@@ -477,10 +477,13 @@ describe('seam 3: reduced motion at run time; the saved Button; the undo id', ()
     // without attract mode's lap: Fetch's patience runs out on an ordinary lap (A1 round 7: in the lap its first trip,
     // to the tray, is over before the patience is, and the fumble comes later, carrying the lap's crate to the belt)
     const { attract: _attract, ...lapless } = bench.runner;
+    // (P3, § B10: while reduced motion is on and the visitor has not acted, the fumble does not happen at all; so the
+    // switch goes on and straight off again: Fetch holds still for that one step, and its patience is untouched)
     const fumbleStep = (switchAt: number | null): number => {
       const { world } = stubWorld(1, { scene: { ...bench, runner: lapless } });
       for (let i = 0; i < 12 * 60; i++) {
         if (i === switchAt) world.dispatch({ type: 'motion', reduced: true });
+        if (switchAt !== null && i === switchAt + 1) world.dispatch({ type: 'motion', reduced: false });
         const ev = run(world, 1);
         if (ev.some((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'fumble')) {
           expect(world.playMode).toBe(false);
@@ -489,9 +492,11 @@ describe('seam 3: reduced motion at run time; the saved Button; the undo id', ()
       }
       return -1;
     };
-    // Fetch's patience was not reset by a settings switch: the fumble comes at the same step
-    expect(fumbleStep(null)).toBeGreaterThan(0);
-    expect(fumbleStep(150)).toBe(fumbleStep(null));
+    // Fetch's patience was not reset by a settings switch: the fumble comes when it did, give or take the step it held
+    const base = fumbleStep(null);
+    expect(base).toBeGreaterThan(0);
+    expect(fumbleStep(150)).toBeGreaterThanOrEqual(base);
+    expect(fumbleStep(150)).toBeLessThanOrEqual(base + 2);
   });
 
   test('a world made from a saved Button (typed ButtonSaved) keeps its reduced motion; the undo id is the lever', () => {

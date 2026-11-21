@@ -21,6 +21,8 @@ import { storefront } from '../../src/workshop/sim/machines/storefront.ts';
 import { lamp } from '../../src/workshop/sim/machines/lamp.ts';
 import { patch } from '../../src/workshop/sim/crew/patch.ts';
 import type { UnitFactory } from '../../src/workshop/sim/scene.ts';
+import { parseSaved } from '../../src/workshop/sim/saved.ts';
+import type { WorldSaved } from '../../src/workshop/sim/saved.ts';
 
 const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch'] as const;
 const JACKS = ['jack-storefront', 'jack-lamp'] as const;
@@ -75,14 +77,23 @@ interface Options {
   readonly others: boolean;
   /** Stop acting after this many visitor actions. */
   readonly maxActions?: number;
+  /** (P3) The world begins from a visit's snapshot (§ E10) rather than fresh. */
+  readonly saved?: WorldSaved;
 }
+
+/** (P3) A returning visit: the ladder climbed, the cover on, two cards drawn, both of the vignette's stations used. */
+const RETURNING = parseSaved({
+  v: 1,
+  button: { rung: 2, reached: 4, presses: 6, cover: 'shut', deck: { left: ['deck-6', 'deck-3', 'deck-1', 'deck-5'], last: 'deck-2' } },
+  used: ['belt', 'lamp'],
+}) as WorldSaved;
 
 /** One seeded sequence. Returns the bench and its checker; throws, naming the seed and step, on the first violation. */
 function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: number; start: ReturnType<Bench['world']['durable']> } {
   const r = rng(`history-${seed}`);
   let chk: Checker | null = null;
   // the real UNDO lever (S4) beside the stand-ins: half the pulls go through it; and the Patchlamp station (S3) when asked
-  const b: Bench = bench(seed, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }), ...(o.station ? STATION : [])], ...(o.station ? { scene: { ...vignette, parts: [...vignette.parts, PATCH_BODY] } } : {}) }, (ev: readonly SimEvent[]) => {
+  const b: Bench = bench(seed, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }), ...(o.station ? STATION : [])], ...(o.station ? { scene: { ...vignette, parts: [...vignette.parts, PATCH_BODY] } } : {}), ...(o.saved ? { saved: o.saved } : {}) }, (ev: readonly SimEvent[]) => {
     // HISTORY_TRACE=1 prints every event and every open window, step by step (with HISTORY_SEED, to read one failure)
     if (trace) {
       const windows = b.world.undoStack().filter((t) => t.moving.length > 0);
@@ -226,6 +237,44 @@ describe('§ E5 the replay check and the invariants, on seeded sequences', () =>
       drained++;
     }
     expect(drained).toBe(only !== null ? 1 : 200);
+  });
+});
+
+describe('§ E5 holds for a world made from a visit\'s snapshot (P3, § E10)', () => {
+  test('its history starts empty, and the replay check and the invariants hold at every step of seeded sequences', () => {
+    expect(RETURNING).not.toBeNull();
+    let undone = 0;
+    for (const seed of seeds(60, 15000)) {
+      // (the Button past its ladder: every press is a card from the deck, until a reset in the sequence starts it over)
+      const { chk } = sequence(seed, { steps: 2000, others: true, saved: RETURNING });
+      undone += chk.stats.undone;
+    }
+    if (only !== null) return;
+    expect(undone).toBeGreaterThan(500);
+  });
+
+  test('the full drain from a snapshot: the lever until empty gives back the start, value and writer', () => {
+    for (const seed of seeds(60, 16000)) {
+      const { b, start } = sequence(seed, { steps: 900, others: false, maxActions: HISTORY_TUNING.depth - 5, saved: RETURNING });
+      expect(b.world.durable().length).toBe(start.length);
+      while (b.world.bracketed) b.run(1);
+      for (let i = 0; i < 2 * HISTORY_TUNING.depth && b.world.undoStack().length > 0; i++) lever(b);
+      lever(b);
+      try {
+        expect(b.world.undoStack()).toEqual([]);
+        expect(b.world.durable()).toEqual(start);
+      } catch (e) {
+        throw new Error(`snapshot drain seed ${seed}: ${(e as Error).message}\n  re-run alone: HISTORY_SEED=${seed} npx vitest run tests/scenario/history-replay.test.ts`, { cause: e });
+      }
+    }
+  });
+
+  test('a world from a snapshot starts with nothing on the stack and the durable world of a fresh one', () => {
+    const fresh = bench(1, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' })] });
+    const back = bench(1, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' })], saved: RETURNING });
+    expect(back.world.undoStack()).toEqual([]);
+    expect(back.world.durable()).toEqual(fresh.world.durable());
+    expect(back.world.saved()).toEqual(RETURNING);
   });
 });
 

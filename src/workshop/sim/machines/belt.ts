@@ -17,6 +17,17 @@
  * - `instruct({ verb: 'belt.set', args: { speed: ±1, running, direction } })`
  *   for texts through the BELT jack.
  *
+ * Reduced motion (P3, § B10: "the belt and crew start still"): while the
+ * bench is still (`SimContext.still`: reduced motion on, the visitor not yet
+ * acted) a running belt stops: `running` is written false by `system`, a
+ * durable change like any other (its lever shows the middle notch, its lamp
+ * goes dark, what rides on it waits where it is). It is not the visitor's,
+ * so UNDO never takes it back, and their own use of the lever and the dial
+ * is theirs as always: from their first action the belt runs when they
+ * switch it on. Full motion switched back on (before their first action or
+ * after it) puts it back as it was (`running` true, again by `system`) if
+ * nobody has written it since; if they have, it is theirs and stays so.
+ *
  * Carrying: a part that comes to rest on the surface is offered to the belt
  * (law 2) and taken in: its location becomes `in` the belt (charged to
  * whoever placed it, § E5 rule 4) and it rides by script, kinematic, at the
@@ -161,6 +172,8 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
   let lurchUntil = -1;
   /** S7: the part held at the deflector because the foot is full (it told once when it began to wait). */
   let waiting: Id | null = null;
+  /** P3: this belt was running and the system stopped it because the bench went still (reduced motion). */
+  let stoppedForStill = false;
 
   const handle = (hid: Id, name: string, affordance: 'turn' | 'slide') =>
     ctx.register({
@@ -491,6 +504,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
     reset() {
       for (const r of [...rides]) end(r);
       takenAt.clear();
+      stoppedForStill = false;
       lamp.reset();
       beat.reset();
       lurchUntil = -1;
@@ -498,6 +512,16 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
     },
 
     pre() {
+      // P3 (§ B10): a still bench's belt is stopped (by the system); full motion again puts it back if it is still the system's
+      if (!ctx.bracketed) {
+        if (ctx.still && running()) {
+          ctx.commit([{ target: id, field: BELT_FIELDS.running, after: false }], 'system');
+          stoppedForStill = true;
+        } else if (stoppedForStill && !ctx.reducedMotion) {
+          stoppedForStill = false;
+          if (!running() && ctx.writer(id, BELT_FIELDS.running) === 'system') ctx.commit([{ target: id, field: BELT_FIELDS.running, after: true }], 'system');
+        }
+      }
       surface += (wanted() - surface) * (1 - Math.exp(-T.ease * dt));
       if (Math.abs(surface - wanted()) < 1e-4) surface = wanted();
       const shown = ctx.clock.step < lurchUntil ? T.lurch.speed * (beat.view()?.level ?? 1) : surface;

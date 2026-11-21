@@ -300,6 +300,13 @@ export type SimEvent =
   | { readonly type: 'rung.started'; readonly rung: number; readonly duration: number }
   | { readonly type: 'rung.rewinding'; readonly rung: number; readonly duration: number }
   | { readonly type: 'rung.ended'; readonly rung: number }
+  /**
+   * P3 (§ B10): the bench went still (`on`: reduced motion is on and the visitor has not acted, so nothing on it
+   * moves by itself) or came back to life (their first action, or full motion switched back on).
+   */
+  | { readonly type: 'still'; readonly on: boolean }
+  /** P3 (§ E10): what `World.saved()` returns has just changed (save it now). Never every step: only on a change. */
+  | { readonly type: 'saved.changed' }
   | { readonly type: 'misfire'; readonly id: Id; readonly level: 1 | 2 }
   | { readonly type: 'tell'; readonly id: Id }
   | { readonly type: 'card'; readonly by: Id; readonly content: string } // a printed card or slip
@@ -1151,4 +1158,24 @@ export interface WorldView {
   readonly reducedMotion: boolean;
   /** S6: the interactable the `U` key pulls (the UNDO lever, `SceneDesc.button.ladder.lever`), or null. */
   readonly undoId: Id | null;
+  /** P3 (§ B10): reduced motion is on and the visitor has not yet acted: nothing on the bench moves by itself. */
+  readonly still: boolean;
+  /** P3 (§ B3): the idle hint's scheduler (`sim/tells.ts`). */
+  tells(): TellsView;
+}
+
+/** P3 (§ B3): the tells as the scheduler stands (`sim/tells.ts` says what each word of the rule means). */
+export interface TellsView {
+  /** The first consequence of a visitor's action has happened: tells may come. */
+  readonly armed: boolean;
+  /** Six stations used (a discovery each): no more tells this visit. */
+  readonly stopped: boolean;
+  /** The step the next tell falls due if the visitor stays inactive and not busy, or null (none to come). */
+  readonly next: number | null;
+  /** Where the visitor last acted: "nearest" is measured from here. */
+  readonly from: Vec3;
+  /** The last tell: the station, the step, and the how-many-th time that station was told (2 and up: the lid's rattle, later). */
+  readonly last: { readonly id: Id; readonly step: number; readonly times: number } | null;
+  /** How often each station has been told this visit. */
+  readonly told: Readonly<Record<Id, number>>;
 }

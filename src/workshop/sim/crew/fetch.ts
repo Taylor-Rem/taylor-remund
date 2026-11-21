@@ -1543,6 +1543,34 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     }
   }
 
+  /** Hold exactly where it is, in the middle of whatever it was doing (a rung; a still bench): the `frozen` state. */
+  function freeze(): void {
+    frozenFrom = { state, entered, at: ctx.clock.step };
+    hit = null;
+    bounce = null;
+    const keep = reachLegs;
+    enter('frozen');
+    reachLegs = keep;
+  }
+  /** ...and carry on from there, as if no time had passed while it held. */
+  function thaw(): void {
+    const was = frozenFrom;
+    if (!was) return;
+    frozenFrom = null;
+    const shift = ctx.clock.step - was.at;
+    const keep = reachLegs;
+    enter(was.state);
+    reachLegs = keep;
+    // resume as if no time had passed in the frozen state
+    entered = was.entered + shift;
+    if (gather) gather = { ...gather, at: gather.at + shift };
+    if (placing) placing = { ...placing, out: placing.out + shift };
+    if (reachLegs) reachLegs = { ...reachLegs, at: reachLegs.at + shift };
+    if (armBack) armBack = { ...armBack, at: armBack.at + shift };
+  }
+  /** P3 (§ B10): holding still because the bench is (reduced motion, the visitor not yet acted), not for a rung. */
+  let stilled = false;
+
   const unit: FetchUnit = {
     id: spec.id,
 
@@ -1553,25 +1581,20 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       edgeStill = 0;
       if (on) {
         if (state === 'held') return; // cannot happen: the Button refuses presses while anything is held
-        frozenFrom = { state, entered, at: ctx.clock.step };
-        hit = null;
-        bounce = null;
-        const keep = reachLegs;
-        enter('frozen');
-        reachLegs = keep;
-      } else if (frozenFrom) {
-        const was = frozenFrom;
-        frozenFrom = null;
-        const shift = ctx.clock.step - was.at;
-        const keep = reachLegs;
-        enter(was.state);
-        reachLegs = keep;
-        // resume as if no time had passed in the frozen state
-        entered = was.entered + shift;
-        if (gather) gather = { ...gather, at: gather.at + shift };
-        if (placing) placing = { ...placing, out: placing.out + shift };
-        if (reachLegs) reachLegs = { ...reachLegs, at: reachLegs.at + shift };
-        if (armBack) armBack = { ...armBack, at: armBack.at + shift };
+        if (stilled) {
+          // (cannot happen either: the world wakes a still bench before it hands it the press)
+          stilled = false;
+          thaw();
+        }
+        freeze();
+      } else if (frozenFrom) thaw();
+    },
+
+    // P3 (§ B10): the bench came back to life (the visitor's first action, or full motion again): on from where it held
+    still(on) {
+      if (!on && stilled) {
+        stilled = false;
+        thaw();
       }
     },
 
@@ -1649,6 +1672,13 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     },
 
     pre() {
+      // P3 (§ B10): the bench is still: attract mode, its fumble and its idle laps wait; Fetch holds where it is, a
+      // crate in its hands or mid-stride, but never in the air (thrown, held or on its jets it finishes first)
+      if (ctx.still && !stilled && state !== 'frozen' && state !== 'held' && state !== 'jetpack') {
+        stilled = true;
+        freeze();
+        return;
+      }
       if (state === 'frozen') return;
       startsInside();
       const now = ctx.clock.step;
