@@ -1,0 +1,7 @@
+---
+// The strip's opener for the controls list (P3 B2; REWRITE.md § B6: `?` or the strip opens it), mounted in
+// Stage.astro's `strip-end` slot. Hidden until the list is built (ui/controls/list.ts), and on a phone-width
+// screen, where the list stays in the page for assistive technology (Controls.astro's styles).
+import { LIST } from './words.ts';
+---
+<button class="controls-opener" type="button" aria-controls="controls" aria-expanded="false" hidden>{LIST.opener}</button>

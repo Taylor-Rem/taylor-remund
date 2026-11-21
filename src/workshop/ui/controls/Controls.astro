@@ -1,0 +1,101 @@
+---
+// The controls list and its live region (P3 B2; REWRITE.md § B6, § B7, § E9), mounted in Stage.astro's
+// `over-stage` slot: after the strip and before the legal line in the page's Tab order.
+//
+// The markup here is only the section, its heading and the live region (both empty until the stage runs: the
+// section stays `hidden` in the plain document, the Still tier and after a failure). The buttons are built from
+// the registry once the bench is usable (ui/controls/mount.ts, list.ts); the script below asks for them only
+// after the page's first script has chosen a stage tier, so the Still tier never fetches the stage's code.
+//
+// Its colours are the strip's (Stage.astro's custom properties: the cream on the wall's dark teal).
+import { LIST } from './words.ts';
+---
+<section id="controls" class="controls" aria-labelledby="controls-title" hidden>
+  <h2 id="controls-title" class="controls-title">{LIST.title}</h2>
+</section>
+<div id="controls-said" class="controls-said" role="log" aria-live="polite"></div>
+<script>
+  // the first script of `/` (shell/home-early.ts) says the tier on <html data-tier>; only a stage tier builds the list
+  const html = document.documentElement;
+  let asked = false;
+  const ask = (): boolean => {
+    const tier = html.dataset['tier'];
+    if (!tier) return false;
+    if (!asked && tier !== 'still') {
+      asked = true;
+      void import('./mount.ts').then((m) => m.mountControls());
+    }
+    return true;
+  };
+  if (!ask()) {
+    const watch = new MutationObserver(() => {
+      if (ask()) watch.disconnect();
+    });
+    watch.observe(html, { attributes: true, attributeFilter: ['data-tier'] });
+  }
+</script>
+<style is:global>
+  /* ── the live region: heard, never seen ── */
+  .controls-said {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+
+  /* ── the list: in the page for assistive technology, seen only while focus is in it or it was opened ── */
+  .controls {
+    --c-line: color-mix(in srgb, var(--cream) 20%, transparent);
+    --c-hover: color-mix(in srgb, var(--cream) 9%, transparent);
+    --c-quiet: color-mix(in srgb, var(--cream-soft) 78%, var(--wall));
+    position: fixed; z-index: 35;
+    top: 40px; right: var(--gutter); width: 17.5rem;
+    max-height: calc(100vh - 40px - 36px); max-height: calc(100dvh - 40px - 36px);
+    display: flex; flex-direction: column;
+    background: color-mix(in srgb, var(--wall) 93%, transparent);
+    border: 1px solid var(--c-line); border-radius: 4px;
+    box-shadow: 0 6px 24px color-mix(in srgb, var(--wall) 60%, transparent);
+    color: var(--cream);
+    font: 14px/20px system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  .controls[hidden], html:not(.stage-on) .controls, html.reading .controls { display: none; }
+  .controls:not(.open):not(:focus-within) {
+    /* visually hidden, still in the page and in the Tab order */
+    position: fixed; width: 1px; height: 1px; max-height: none; padding: 0; margin: -1px; border: 0;
+    overflow: hidden; clip-path: inset(50%); box-shadow: none;
+  }
+  .controls-title {
+    flex: none; margin: 0; padding: 10px 14px 8px;
+    font: 600 15px/22px 'Strip Tape', system-ui, sans-serif; letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .controls-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 8px; }
+  .controls-body [hidden] { display: none !important; }
+  .controls ul { list-style: none; margin: 0; padding: 0; }
+  .controls-h { margin: 0; font: inherit; }
+  .controls-station + .controls-station { border-top: 1px solid var(--c-line); margin-top: 4px; padding-top: 4px; }
+  .controls button {
+    display: block; width: 100%; min-height: 30px; margin: 0; padding: 5px 14px;
+    text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 0; cursor: pointer;
+  }
+  .controls button:hover { background: var(--c-hover); }
+  .controls button:focus-visible { outline: 2px solid var(--cream); outline-offset: -3px; border-radius: 3px; background: var(--c-hover); }
+  .controls-heading { font: 600 14px/20px 'Strip Tape', system-ui, sans-serif !important; letter-spacing: 0.04em; color: var(--cream); }
+  .controls-button { padding-left: 26px !important; color: var(--cream-soft); }
+  .controls-button[aria-disabled='true'] { color: var(--c-quiet); cursor: default; }
+  .controls-hold { padding: 4px 0; }
+  .controls-hold-label { margin: 4px 14px 6px; color: var(--cream); }
+  .controls-dests .controls-button { padding-left: 26px !important; }
+  .controls-put { margin-top: 6px !important; border-top: 1px solid var(--c-line) !important; color: var(--cream-soft); }
+  @media (pointer: coarse) {
+    .controls button { min-height: 44px; }
+  }
+  /* a phone held upright: a sheet along the bottom, under the bench's centre cluster */
+  @media (max-width: 640px) {
+    .controls { left: var(--gutter); right: var(--gutter); top: auto; bottom: 34px; width: auto; max-height: 40vh; max-height: 40dvh; }
+  }
+
+  /* ── the strip's opener (Stage.astro's `strip-end` slot): with the stage, on a screen wider than a phone ── */
+  html .controls-opener { display: none !important; }
+  html.stage-on:not(.reading) .controls-opener:not([hidden]) { display: inline-block !important; }
+  @media (pointer: coarse) { html.stage-on:not(.reading) .controls-opener:not([hidden]) { display: inline-flex !important; } }
+  @media (max-width: 640px) { html.stage-on .controls-opener:not([hidden]) { display: none !important; } }
+</style>
