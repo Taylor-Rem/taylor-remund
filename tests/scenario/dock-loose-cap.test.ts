@@ -8,21 +8,25 @@ import { steps } from '../../src/workshop/sim/clock.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import type { SimContext, Unit } from '../../src/workshop/sim/context.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
-import type { Id } from '../../src/workshop/sim/types.ts';
+import type { Id, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
 const loose = (w: World): Id[] => CRATES.filter((id) => w.part(id)!.location.at !== 'shipped');
 
+/** Where the test's own hand fills the bench: open floor, clear of the pad, the stack and every machine. */
+const FILL: Vec3[] = [[-2.4, 0.5, -0.3], [-1.3, 0.5, -0.3], [-3.5, 0.5, -0.3]];
 /**
  * A stand-in for Revert at its hatch: on the steps asked, it drops the crate named down its hatch, as Revert does;
- * and (`ups`) sends a shipped spare up the chute, to fill the bench first.
+ * and (`ups`) puts a shipped spare on the bench, to fill it first. (Once sent up the chute: since 2026-11-20 a fresh
+ * crate that comes back up the chute waits there until the pad is free for it, and in attract mode nobody clears the
+ * pad, so the fill never arrived.)
  */
 function hatch(drops: Map<number, Id>, ups: Map<number, Id>): (ctx: SimContext) => Unit {
   return (ctx) => ({
     id: 'test-hatch',
     pre() {
       const up = ups.get(ctx.clock.step);
-      if (up) ctx.toChute(up, 'system');
+      if (up) ctx.launch(up, { p: FILL[[...ups.values()].indexOf(up)] as Vec3, q: [0, 0, 0, 1] }, [0, 0, 0], [0, 0, 0], 'system');
       const id = drops.get(ctx.clock.step);
       if (!id) return;
       const from = ctx.pose(id)!;

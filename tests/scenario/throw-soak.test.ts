@@ -13,8 +13,12 @@
 //
 // In verify: THROW_SOAK sessions (default 16). The big one: THROW_SOAK=3000 npx vitest run tests/scenario/throw-soak.test.ts
 // One seed: THROW_SEED=<n> npx vitest run tests/scenario/throw-soak.test.ts
+// Another stretch of seeds: THROW_SOAK_FROM=<first> (default 1)
 import { expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH } from './line-helpers.ts';
+import { benchWorld, FULL_BENCH, LINE, AT } from './line-helpers.ts';
+import { rampLength } from '../../src/workshop/sim/ramp.ts';
+import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
+import { BELT_TUNING } from '../../src/workshop/sim/machines/belt.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
@@ -23,11 +27,25 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { Pose, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const SESSIONS = Number(process.env.THROW_SOAK ?? 16);
+const FROM = Number(process.env.THROW_SOAK_FROM ?? 1);
 const ONLY = process.env.THROW_SEED !== undefined ? Number(process.env.THROW_SEED) : null;
 const LOOSE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'revert'] as const;
 /** Seconds after the throw by which the bench is itself again. */
 const SETTLE = 14;
 const THROWN = { n: 0 };
+/**
+ * Fetch come down on the belt rides it to the dock, the dock refuses it and the chute throws it home (R2): the whole
+ * of that way at the line's own pace, its longest: the belt's length at its slowest detent, the ramp and the bay at the
+ * rollers' speed, the door's opening, the refusal's beat, the flight from the chute's mouth up to the pad's apex and
+ * down to the bench. A Fetch still on that way when the settle ends is given the rest of it, and is then held to the
+ * same checks as any other throw.
+ */
+const LINE_WAY = (() => {
+  const g = Math.abs(FULL_BENCH.gravity);
+  const top = FULL_BENCH.bench.top;
+  const flight = Math.sqrt((2 * (AT.padApex - AT.chute.p[1])) / g) + Math.sqrt((2 * (AT.padApex - top)) / g);
+  return (LINE.belt.to - LINE.belt.from) / (BELT_TUNING.speeds[0] as number) + (rampLength(LINE.ramp) + DOCK_TUNING.depth) / DOCK_TUNING.roll + DOCK_TUNING.doorOpen + DOCK_TUNING.refuseAfter + flight;
+})();
 
 const finite = (p: Pose): boolean => [...p.p, ...p.q].every(Number.isFinite);
 const upOf = (q: readonly number[]): number => 1 - 2 * ((q[0] as number) ** 2 + (q[2] as number) ** 2);
@@ -231,15 +249,24 @@ async function session(seed: number): Promise<string[]> {
     // Fetch set (not flung) into a machine that holds it still (the platen's tray) waits there FETCH_TUNING.leaveMachineSet
     // seconds to be painted before it hops off: give it that
     for (let i = 0; i < (FETCH_TUNING.leaveMachineSet + 6) * HZ && w.motion('fetch')!.mode === 'machine' && w.part('fetch')!.location.at === 'in' && (w.part('fetch')!.location as { mouth: string }).mouth === 'platen'; i++) run(1);
+    const fetchOnTheLine = (): boolean => {
+      const m = w.motion('fetch')!.mode;
+      const l = w.part('fetch')!.location;
+      return l.at === 'shipped' || (m === 'machine' && l.at === 'in' && (l.mouth === 'belt' || l.mouth === 'dock'));
+    };
+    if (fetchOnTheLine()) {
+      for (let i = 0; i < steps(LINE_WAY) && fetchOnTheLine(); i++) run(1);
+      // (thrown home, it comes down on the bench under physics and settles before it gets up: the same allowance as a flight's)
+      for (let i = 0; i < steps(4) && w.crew('fetch')!.state === 'held' && w.motion('fetch')!.mode === 'free'; i++) run(1);
+    }
     if (w.crew('fetch')!.state === 'jetpack' || w.crew('fetch')!.state === 'shrug') run(steps(4));
     if (holdWorst > 10) fails.push(`${label}: Fetch stood holding a crate for ${holdWorst.toFixed(1)} s`);
     // Fetch: upright and back at work
     const f = w.motion('fetch')!;
     const fs = w.crew('fetch')!.state;
     if (f.mode === 'crew' && upOf(f.pose.q) < 0.95) fails.push(`${label}: Fetch off its wheels (${fs})`);
-    const loc = w.part('fetch')!.location;
-    const riding = f.mode === 'machine' && loc.at === 'in' && (loc.mouth === 'belt' || loc.mouth === 'dock');
-    if (fs === 'held' && f.mode !== 'gone' && f.mode !== 'chute' && !riding) fails.push(`${label}: Fetch not back at work (held, ${f.mode})`);
+    if (fetchOnTheLine()) fails.push(`${label}: Fetch still on the line's way after ${(SETTLE + LINE_WAY).toFixed(1)} s (${f.mode}, ${JSON.stringify(w.part('fetch')!.location)})`);
+    else if (fs === 'held' && f.mode !== 'chute') fails.push(`${label}: Fetch not back at work (held, ${f.mode})`);
     if (fs === 'jetpack') fails.push(`${label}: Fetch still on its jets`);
     // Revert: not left lying (its own recovery is S7's; reported here)
     const rv = w.motion('revert');
@@ -253,7 +280,7 @@ async function session(seed: number): Promise<string[]> {
 }
 
 test(`every throw recovers: ${ONLY ?? SESSIONS} seeded throw${(ONLY ?? SESSIONS) === 1 ? '' : 's'} on the whole bench`, async () => {
-  const seeds = ONLY !== null ? [ONLY] : Array.from({ length: SESSIONS }, (_, i) => i + 1);
+  const seeds = ONLY !== null ? [ONLY] : Array.from({ length: SESSIONS }, (_, i) => FROM + i);
   const fails: string[] = [];
   for (const s of seeds) fails.push(...(await session(s)));
   console.log(`thrown: ${THROWN.n} of ${seeds.length}`);

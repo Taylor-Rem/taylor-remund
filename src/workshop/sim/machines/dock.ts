@@ -85,6 +85,11 @@ export const DOCK_TUNING = {
   unshipOpen: 0.9,
   /** A restocked crate is set down this far above whatever is on the stack (a hair: dropped from higher, it toppled the stack). */
   restockDrop: 0.02,
+  /**
+   * The pad is free for a crate when nothing lies within this of the box it will land in (its own size, square at its
+   * mark): its landing's bounce and settle carry it about `LAND_SHORT` on, and it must not touch a neighbour doing so.
+   */
+  padClear: 0.08,
 } as const;
 
 export interface DockSpec {
@@ -188,6 +193,43 @@ const tumbleRate = (k: number): number => {
   return (6 * u * (1 - u)) / TUMBLE_BY;
 };
 
+/** A box's footprint on the bench: its middle, and its own horizontal axes with their half extents (a tilted box's, projected). */
+interface Footprint {
+  readonly x: number;
+  readonly z: number;
+  /** The box's three local axes in world (x, z) and its half extent along each, with its vertical span. */
+  readonly axes: readonly (readonly [number, number, number])[];
+  readonly lo: number;
+  readonly hi: number;
+}
+function footprint(pose: Pose, half: Vec3): Footprint {
+  const axes = ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]).map((e, k) => {
+    const a = rotate(pose.q, e);
+    return [a[0], a[2], half[k] as number, a[1]] as const;
+  });
+  const up = axes.reduce((s, a) => s + Math.abs(a[3]) * a[2], 0);
+  return { x: pose.p[0], z: pose.p[2], axes: axes.map(([ax, az, h]) => [ax, az, h] as const), lo: pose.p[1] - up, hi: pose.p[1] + up };
+}
+/** Half its extent along the horizontal unit axis (ux, uz). */
+const reachAlong = (f: Footprint, ux: number, uz: number): number => f.axes.reduce((s, [ax, az, h]) => s + Math.abs(ax * ux + az * uz) * h, 0);
+/**
+ * Do two footprints come within `margin` of each other on the bench (and overlap in height)? Separating axes: the
+ * world's x and z and each box's own horizontal axes; a pair no axis separates is taken to touch (for a tilted box a
+ * few more axes could part them: it errs toward "taken").
+ */
+function footprintsMeet(a: Footprint, b: Footprint, margin: number): boolean {
+  if (a.lo > b.hi + margin || b.lo > a.hi + margin) return false;
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const cands: [number, number][] = [[1, 0], [0, 1]];
+  for (const f of [a, b]) for (const [ax, az] of f.axes) {
+    const l = Math.hypot(ax, az);
+    if (l > 0.2) cands.push([ax / l, az / l]);
+  }
+  for (const [ux, uz] of cands) if (Math.abs(dx * ux + dz * uz) > reachAlong(a, ux, uz) + reachAlong(b, ux, uz) + margin) return false;
+  return true;
+}
+
 interface Return {
   readonly id: Id;
   readonly at: number;
@@ -209,6 +251,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   let restocks: { at: number; size: Part['size']; part?: Id }[] = [];
   /** S5 R1: replacements in the air from the chute to the pad (the dock's custody, kinematic, until they touch down). */
   let flights: Flight[] = [];
+  /** Crates come back up the chute while the pad was not free for them: waiting inside it (out of the world), thrown onto the pad when it is, oldest first. */
+  let owed: { readonly id: Id; readonly cause: Cause }[] = [];
   /** Crates in the order they shipped (oldest first): restocking takes from the front. */
   let shippedOrder: Id[] = [];
   let door = 0;
@@ -306,7 +350,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       if (!q) return false;
       if (Math.hypot(q[0] - sx, q[2] - sz) <= 0.55) return true;
       return !!spec.pad && Math.hypot(q[0] - spec.pad.at[0], q[2] - spec.pad.at[1]) <= spec.pad.radius;
-    }) || flights.length > 0;
+    }) || flights.length > 0 || owed.length > 0;
   }
   /**
    * R3, the last resort ("never stuck" even when Revert cannot help: its hatch covered, its way shut, the handled
@@ -357,7 +401,6 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
    * inside the one being lifted.
    */
   function restock(size: Part['size'], want?: Id): boolean {
-    if (spec.pad && padTaken()) return false; // S5 R1: owed until the pad is free
     if (!spec.pad) {
       const [sx, sz] = spec.stack;
       const inHand = ctx.parts().some((id) => {
@@ -385,6 +428,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     if (want !== undefined && !crates.includes(want)) return true; // no longer down there (reset): nothing owed
     const spare = (want !== undefined ? want : undefined) ?? free.find((id) => sameSize(id) && !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id) && sameSize(id)) ?? free.find((id) => !shippedOrder.includes(id)) ?? shippedOrder.find((id) => free.includes(id)) ?? shippedOrder.find((id) => crates.includes(id));
     if (spare === undefined) return true;
+    if (spec.pad && !padFreeFor(spare)) return false; // S5 R1: owed until the pad is free for it
     shippedOrder = shippedOrder.filter((x) => x !== spare);
     const p = ctx.part(spare) as Part;
     const f = fresh.get(spare);
@@ -416,44 +460,75 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   // ── S5 R1: the chute throws the replacement onto the pad ──
 
   const g = Math.abs(ctx.scene.gravity);
-  /** Is anything on the pad, or on its way there? */
-  function padTaken(): boolean {
+  /**
+   * Where a crate of these half extents lands on the pad (its middle; square, yaw 0): by its near face (`pad.near`),
+   * its extent along the line from `near` through the pad's middle further in, and `LAND_SHORT` more (its landing's
+   * bounce carries it about that far on toward the stand). Without `near`, the pad's middle.
+   */
+  function padMark(half: Vec3): Vec3 {
+    const pad = spec.pad as NonNullable<DockSpec['pad']>;
+    let [cx, cz] = pad.at;
+    if (pad.near) {
+      const dx0 = pad.at[0] - pad.near[0];
+      const dz0 = pad.at[1] - pad.near[1];
+      const l0 = Math.hypot(dx0, dz0) || 1;
+      const ux = dx0 / l0;
+      const uz = dz0 / l0;
+      const ext = half[0] * Math.abs(ux) + half[2] * Math.abs(uz);
+      [cx, cz] = [pad.near[0] + ux * (ext + LAND_SHORT), pad.near[1] + uz * (ext + LAND_SHORT)];
+    }
+    return [cx, ctx.scene.bench.top + half[1] + 0.005, cz];
+  }
+  /**
+   * Is the pad free for `id` (2026-11-20, "the pad after a bounce")? Nothing in the air toward it, and nothing (a part
+   * of any kind, lying, held low over it, or in a machine's hands) within `padClear` of the box `id` will land in at
+   * its mark. Read from what is there, not a circle: a crate lying just beside the pad no longer keeps every
+   * replacement off it, and one whose corner reaches over the mark does. Fetch on its rounds (it stands at the pad's
+   * stand; the mark is aimed to clear it) does not count.
+   */
+  function padFreeFor(id: Id): boolean {
     const pad = spec.pad;
-    if (!pad || flights.length > 0) return flights.length > 0;
-    return ctx.parts().some((id) => {
-      const m = ctx.mode(id);
-      const p = ctx.pose(id)?.p;
-      return !!p && m !== 'gone' && m !== 'chute' && Math.hypot(p[0] - pad.at[0], p[2] - pad.at[1]) <= pad.radius + 0.3 && p[1] < 1.6;
+    if (!pad) return false;
+    const half = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
+    const mark = padMark(half);
+    const lands = footprint({ p: mark, q: [0, 0, 0, 1] }, half);
+    const runner = ctx.scene.runner.id;
+    for (const f of flights) {
+      if (f.id === id) continue;
+      if (footprintsMeet(lands, footprint({ p: f.to, q: qyaw(f.yaw0) }, ctx.halfExtents(f.id) ?? [0.3, 0.3, 0.3]), T.padClear)) return false;
+    }
+    return ctx.parts().every((o) => {
+      if (o === id) return true;
+      const m = ctx.mode(o);
+      if (m === 'gone' || m === 'chute' || (o === runner && m === 'crew') || (m === 'machine' && flights.some((f) => f.id === o))) return true;
+      const pose = ctx.pose(o);
+      const h = ctx.halfExtents(o);
+      if (!pose || !h) return true;
+      const f = footprint(pose, h);
+      // (held or flying high over it: not in the way of a landing; low over it, or lying there: in the way)
+      if (f.lo > lands.hi + 0.5) return true;
+      if (m === 'crew' && ctx.part(o)?.kind !== 'crate') {
+        // a crew body on its feet or treads (Revert at its sweep beside the pad, Patch afoot): in the second the throw
+        // is in the air it may turn on the spot into the landing, so it takes the whole circle it turns in (measured:
+        // Revert turning away from its sweep there knocked the landing crate off the pad, three times in 200). Fetch
+        // waiting at its stand for the crate is not in it; Revert waiting for Fetch to go, Fetch gives way to
+        const dx = pose.p[0] - mark[0];
+        const dz = pose.p[2] - mark[2];
+        const d = Math.hypot(dx, dz);
+        return d < 1e-6 ? false : d - Math.hypot(h[0], h[2]) - reachAlong(lands, dx / d, dz / d) > T.padClear;
+      }
+      return !footprintsMeet(lands, f, T.padClear);
     });
   }
   /** Out of the chute's mouth, up over the deflector's row and down onto the pad: a ballistic arc with its top at `apex`. */
   function throwToPad(id: Id, half: Vec3, cause: Cause = 'system'): void {
-    const pad = spec.pad as NonNullable<DockSpec['pad']>;
-    const from = pad.from;
     // how it will lie: square to the pad (a turned crate reaches further toward the stand, or its middle further from
     // Fetch's reach: on this pad there is no room for either); it tumbles in the air by whole turns
     // (exactly square since its landing is the engine's: turned even a degree, it comes down on one edge first and its
     // bounce carries it up to 0.08 off its mark, out of Fetch's reach; the draw is kept so the dock's other choices
     // come from the stream they always did)
     void rng.range(-0.02, 0.02);
-    const yaw0 = 0;
-    const spin = 0;
-    let [cx, cz] = pad.at;
-    if (pad.near) {
-      // its nearest point on `near`: the centre its extent along that line further in (a turned crate's corner reaches
-      // further than its face), along the line from `near` through the pad's middle
-      const dx0 = pad.at[0] - pad.near[0];
-      const dz0 = pad.at[1] - pad.near[1];
-      const l0 = Math.hypot(dx0, dz0) || 1;
-      const a = yaw0 + spin;
-      // the box's extent along (dx0, dz0): its half extents projected onto that line, turned by `a`
-      const ux = dx0 / l0;
-      const uz = dz0 / l0;
-      const ext = half[0] * Math.abs(ux * Math.cos(a) - uz * Math.sin(a)) + half[2] * Math.abs(ux * Math.sin(a) + uz * Math.cos(a));
-      // (and `LAND_SHORT` further in: its landing's bounce carries it about that far on toward the stand)
-      [cx, cz] = [pad.near[0] + ux * (ext + LAND_SHORT), pad.near[1] + uz * (ext + LAND_SHORT)];
-    }
-    throwTo(id, [cx, ctx.scene.bench.top + half[1] + 0.005, cz], yaw0, spin, cause);
+    throwTo(id, padMark(half), 0, 0, cause);
   }
   /** Out of the chute's mouth on an arc with its top at the pad's `apex`, tumbling by whole turns, to land square at `to`. */
   function throwTo(id: Id, to: Vec3, yaw0: number, spin: number, cause: Cause): void {
@@ -550,8 +625,18 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       return true;
     }
     const half = ctx.halfExtents(id) ?? [0.3, 0.3, 0.3];
-    if (!padTaken()) {
+    if (padFreeFor(id)) {
       throwToPad(id, half, cause ?? 'system');
+      return true;
+    }
+    // (2026-11-20) a crate Fetch may carry (nobody has touched it), the pad not free for it: it waits in the chute until
+    // it is, as a replacement does. Thrown beside the pad it lay where Fetch cannot take it, and only the healing put it
+    // back into circulation. (The visitor's crate is not Fetch's wherever it lands: beside the pad it leaves the pad free.)
+    if (part.kind === 'crate' && !ctx.touched(id)) {
+      if (!owed.some((o) => o.id === id)) {
+        ctx.stow(id, { p: spec.pad.from, q: [0, 0, 0, 1] });
+        owed.push({ id, cause: cause ?? 'system' });
+      }
       return true;
     }
     const at = besidePad(id, half);
@@ -691,6 +776,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       returns = [];
       restocks = [];
       flights = [];
+      owed = [];
       shippedOrder = [];
       openUntil = -1;
       lamp.reset();
@@ -750,6 +836,13 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         ctx.drive(x.id, poseOf(x));
       }
       fly();
+      // a crate waiting in the chute for the pad (one a step: once it flies, the pad is not free for the next)
+      owed = owed.filter((o) => ctx.mode(o.id) === 'gone'); // (brought back by an undo meanwhile: not owed)
+      const next = owed[0];
+      if (next && padFreeFor(next.id)) {
+        owed = owed.slice(1);
+        throwToPad(next.id, ctx.halfExtents(next.id) ?? [0.3, 0.3, 0.3], next.cause);
+      }
       const now = ctx.clock.step;
       for (const r of returns.filter((x) => x.at <= now)) {
         returns = returns.filter((x) => x !== r);

@@ -946,7 +946,7 @@ export function createWorld(opts: WorldOptions): World {
         const cause = l.returnCause ? l.returnCause.cause : history.chargeReturn(l.id, clock.step);
         if (!bracket && units.some((u) => u.catchReturn?.(l.id, cause))) {
           l.returnCause = null;
-          l.exit = null;
+          if ((l.mode as string) !== 'gone') l.exit = null; // (kept waiting out of the world by the unit that caught it: it went out at its exit)
           emit({ type: 'part.returned', id: l.id });
           continue;
         }

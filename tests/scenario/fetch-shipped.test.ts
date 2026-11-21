@@ -11,6 +11,7 @@ import { describe, expect, test } from 'vitest';
 import { AT, benchWorld, FULL_BENCH, onBelt, putOn, tape, type Tape } from './line-helpers.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import { DOCK_TUNING, MARK_RETURN } from '../../src/workshop/sim/machines/dock.ts';
+import { BUTTON_TUNING } from '../../src/workshop/sim/machines/button.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 
 const HOME = AT.home;
@@ -65,6 +66,43 @@ describe('Fetch shipped through the dock comes back, visibly and soon', () => {
     expect(w.writer('fetch', 'location'), 'once it is back by itself, where it is is the crew’s').toBe('crew');
     expect(['held', 'shrug', 'return']).not.toContain(w.crew('fetch')!.state);
     expect((w.step - start) / HZ, 'all of it inside fifteen seconds of being set on the belt (six of them riding)').toBeLessThan(15);
+    w.dispose();
+  }, 60_000);
+
+  // (the throw soak's seed 2587, 2026-11-20: Fetch thrown so it came down on the belt, the Button pressed while it flew)
+  test('thrown onto the belt with the Button pressed while it flies: the rung plays and rewinds, then it rides, ships and comes home as if set there', async () => {
+    const w = await benchWorld('r2-ship-fetch-rung', { scene: FULL_BENCH });
+    const t = tape(w);
+    t.run(60);
+    const over = onBelt(0.3);
+    w.dispatch({ type: 'grab', id: 'fetch', grip: w.motion('fetch')!.pose.p });
+    t.run(1);
+    for (let i = 0; i < 50; i++) {
+      w.dispatch({ type: 'carry', target: [over[0], over[1] + 1.2, over[2] - 1.5] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'release', velocity: [0, 0, 3] });
+    const start = w.step;
+    t.run(2);
+    w.dispatch({ type: 'press', id: 'button' });
+    const rung = t.until((e) => e.type === 'rung.started', 10);
+    expect(rung, 'the rung plays (nothing is in the hand)').not.toBeNull();
+    const played = (rung!.e as { rung: 1 | 2 | 3 | 4 }).rung;
+    expect(t.until((e) => e.type === 'rung.ended', 12 * HZ), 'and ends').not.toBeNull();
+    expect(w.crew('fetch')!.state, 'still the throw’s while the rung played').toBe('held');
+    const taken = t.until((e) => e.type === 'taken-in' && e.part === 'fetch' && e.mouth === 'belt', 3 * HZ);
+    expect(taken, 'it comes down on the belt again after the rewind, and the belt takes it').not.toBeNull();
+    expect(t.until((e) => e.type === 'shipped' && e.part === 'fetch', 12 * HZ), 'it rides the belt and ships').not.toBeNull();
+    expect(t.until((e) => e.type === 'restock.launched' && e.part === 'fetch', 3 * HZ), 'the chute throws it back').not.toBeNull();
+    const shrug = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && e.state === 'shrug', 5 * HZ);
+    expect(shrug, 'it lands and shakes itself off').not.toBeNull();
+    const back = t.until((e) => e.type === 'crew.state' && e.id === 'fetch' && !['held', 'shrug', 'return', 'jetpack'].includes(e.state), 4 * HZ);
+    expect(back, 'and goes back to work').not.toBeNull();
+    expect(w.mode('fetch')).toBe('crew');
+    expect(w.part('fetch')!.location.at).toBe('rest');
+    // the rung's play and rewind, then no longer than a Fetch set on the belt takes (the test above: fifteen seconds)
+    const { play, rewind } = BUTTON_TUNING.rungs[played];
+    expect((back!.step - start) / HZ, 'the rung, then fifteen seconds').toBeLessThan(play + rewind + 15);
     w.dispose();
   }, 60_000);
 
