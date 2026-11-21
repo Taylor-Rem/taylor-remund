@@ -7,6 +7,9 @@
 //   const files = import.meta.glob<string>('./mypage/*.{avif,jpg}', { query: '?url', import: 'default', eager: true });
 //   <StagePicture set={postersJson} files={files} dir="./mypage/" />
 //
+// Anything given as children lies over the picture inside the stage root (the
+// home page's restart button).
+//
 // Until the set has been rendered (node scripts/poster.ts) there is no picture
 // and the page starts as before, dark until the stage is up.
 import { pictureSources, type PosterSet } from './poster.ts';
@@ -36,6 +39,7 @@ const fallback = fallbackEntry ? urlOf(fallbackEntry.file) : '';
     </picture>
   )}
   <canvas class="stage" id={canvasId}></canvas>
+  <slot />
 </div>
 <script define:vars={{ urls, manifest: set, ready }} is:inline>
   window.__posters = { urls: urls, manifest: manifest, ready: ready };

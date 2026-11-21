@@ -132,6 +132,16 @@ export interface HandoffState {
   release(): void;
   report(): Record<string, unknown>;
   workshop: Workshop | null;
+  /**
+   * P3 B1: build the stage again on the same world with other boot options (a step down to the low tier
+   * during a visit: shell/governor.ts). The new stage is built on a fresh canvas under the old one, which
+   * keeps its last frame on screen meanwhile; then the old canvas is taken away. Resolves true once the new
+   * stage is drawing, false if it could not be done now (not live, or another rebuild under way). If the
+   * new stage cannot be built, the stage gives up as it does after repeated faults (the picture).
+   */
+  restage(over: Partial<Omit<BootOptions, 'manual' | 'onProgress' | 'world'>>): Promise<boolean>;
+  /** The canvas the stage draws on now (a restage replaces it). */
+  canvas: HTMLCanvasElement;
 }
 
 const now = (): number => performance.now();
@@ -210,6 +220,8 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     framed: null,
     settleFrames: 0,
     release: () => releaseHold?.(),
+    restage: async () => false,
+    canvas: o.canvas,
     report: () => ({
       phase: state.phase,
       usableAt: state.usableAt,
@@ -322,7 +334,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       try {
         const world = old.disown();
         old.dispose();
-        ws = await bootWorkshop(o.canvas, {
+        ws = await bootWorkshop(state.canvas, {
           ...bootOpts,
           world,
           manual: true,
@@ -350,6 +362,62 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
         rebuilding = false;
       }
     }
+    // P3 B1: built again on the same world with other options, on a fresh canvas (the old one shows its last
+    // frame meanwhile: the visitor sees the bench pause for the time it takes, then carry on)
+    state.restage = async (over) => {
+      const old = ws;
+      if (!old || rebuilding || state.phase !== 'live' || lostTimer !== null) return false;
+      rebuilding = true;
+      const oldCanvas = state.canvas;
+      const fresh = oldCanvas.cloneNode(false) as HTMLCanvasElement;
+      fresh.removeAttribute('id');
+      try {
+        old.loop.stop();
+        const view = old.stage.camera.view();
+        const world = old.disown();
+        old.dispose();
+        Object.assign(bootOpts, over);
+        oldCanvas.style.pointerEvents = 'none';
+        oldCanvas.before(fresh);
+        ws = await bootWorkshop(fresh, {
+          ...bootOpts,
+          world,
+          manual: true,
+          onGiveUp: () => giveUp('gave up after repeated faults'),
+          onContextLost: () => contextLost(),
+          onProgress: () => {},
+          frameCamera(stage: Stage, scene: SceneDesc) {
+            (framing ?? defaultFraming)(stage, scene);
+          },
+        });
+        // the camera where the visitor left it
+        ws.stage.camera.cutTo(view, { hold: true });
+        state.workshop = ws;
+        oldCanvas.removeEventListener('webglcontextrestored', onRestored);
+        fresh.addEventListener('webglcontextrestored', onRestored);
+        fresh.id = oldCanvas.id;
+        oldCanvas.remove();
+        state.canvas = fresh;
+        // the old context is let go at once (a phone has room for few)
+        try {
+          (oldCanvas.getContext('webgl2') as WebGL2RenderingContext | null)?.getExtension('WEBGL_lose_context')?.loseContext();
+        } catch {
+          /* best effort */
+        }
+        o.onRebuilt?.(ws);
+        ws.loop.setManual(false);
+        ws.loop.start();
+        return true;
+      } catch (e) {
+        console.error('workshop: the stage could not be built again at another tier; the picture stays', e);
+        fresh.remove();
+        giveUp('the stage could not be built again at another tier');
+        return false;
+      } finally {
+        rebuilding = false;
+      }
+    };
+
     function giveUp(why: string): void {
       state.phase = 'failed';
       state.failed = why;

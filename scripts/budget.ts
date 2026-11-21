@@ -160,9 +160,11 @@ export function scanPage(dist: string, abs: string): PageScan {
 /**
  * The stage pages whose static closure the "stage page" row measures when the
  * build contains them (a normal build has none of them, so its verify is
- * unchanged). `BUDGET_STAGE_PAGES=/dev/bench/,/` replaces the list; P3 adds `/`.
+ * unchanged). `BUDGET_STAGE_PAGES=/dev/bench/,/` replaces the list. `/` (P3)
+ * is in every build: its row is the stage tiers' transfer (high and low fetch the same files; the Still
+ * tier fetches none of the scripts, the wasm, the bake table or the label fonts).
  */
-export const STAGE_PAGES: readonly string[] = ['/dev/bench/', '/dev/handoff/'];
+export const STAGE_PAGES: readonly string[] = ['/', '/dev/bench/', '/dev/handoff/'];
 
 /** Quoted strings in a script that name a file the stage fetches at run time (wasm, the bake table, fonts, worker scripts). */
 const ASSET_STRING = /["'`]([^"'`\s]{1,200}\.(?:wasm|bin|woff2|m?js))["'`]/g;
@@ -253,11 +255,17 @@ function row(r: Report, label: string, measured: number, budget: number, note = 
 
 export function firstPaintOfHome(dist: string, cache: Map<string, number>): { total: number; items: [string, number][]; notes: string[] } {
   const home = join(dist, 'index.html');
-  const html = readFileSync(home, 'utf8');
+  const raw = readFileSync(home, 'utf8');
+  // what waits in a <template> is not fetched with the page (the stage's preloads on `/`: put in the head only
+  // once a stage tier is chosen, P3 B1; the stage page row below counts them)
+  const html = raw.replace(/<template\b[\s\S]*?<\/template>/gi, '');
   const items: [string, number][] = [['index.html', transferSize(home, cache)]];
   const notes: string[] = [];
+  if (html !== raw) notes.push('links inside <template> (fetched only when a stage tier is chosen) not counted');
   const counted = new Set<string>([home]);
-  const groups = new Map<number, string[]>();
+  const groups = new Map<number, { file: string; source: boolean; alt: boolean }[]>();
+  /** Per <picture>: the `media` of each <source> met, and the tag that first had it. */
+  const mediaSeen = new Map<number, Map<string, unknown>>();
   const add = (abs: string): void => {
     if (counted.has(abs)) return;
     counted.add(abs);
@@ -277,7 +285,19 @@ export function firstPaintOfHome(dist: string, cache: Map<string, number>): { to
     if (!t) continue;
     if (ref.group !== undefined) {
       const g = groups.get(ref.group) ?? [];
-      g.push(t);
+      const source = ref.where.startsWith('source');
+      // a later <source> with the same media is another format of the same picture (the JPEG after the AVIF):
+      // a browser takes the first whose type it supports, so it is a fallback, like the <img>'s own src
+      let alt = false;
+      if (source) {
+        const seen = mediaSeen.get(ref.group) ?? new Map<string, unknown>();
+        mediaSeen.set(ref.group, seen);
+        const media = (ref.tag ? attr(ref.tag, 'media') : undefined) ?? '';
+        const first = seen.get(media);
+        if (first === undefined) seen.set(media, ref.tag);
+        else alt = first !== ref.tag;
+      }
+      g.push({ file: t, source, alt });
       groups.set(ref.group, g);
       continue;
     }
@@ -294,10 +314,16 @@ export function firstPaintOfHome(dist: string, cache: Map<string, number>): { to
     if (ref.fontFallback) continue;
     add(t);
   }
-  // An <img>/<picture> fetches one candidate: count the largest.
+  // An <img>/<picture> fetches one candidate: count the largest. In a <picture> whose <source>s cover every
+  // case (the stage's picture: one AVIF per aspect band, P3 B1), the <img>'s own src is the fallback for a
+  // browser that takes none of them (no AVIF: none current); the largest <source> candidate is what a
+  // browser fetches, and the fallback is named in a note.
   for (const g of groups.values()) {
-    const best = g.reduce((a, b) => (transferSize(b, cache) > transferSize(a, cache) ? b : a));
+    const sources = g.filter((c) => c.source && !c.alt);
+    const pool = sources.length ? sources : g;
+    const best = pool.map((c) => c.file).reduce((a, b) => (transferSize(b, cache) > transferSize(a, cache) ? b : a));
     add(best);
+    for (const c of new Set(g.filter((x) => (!x.source || x.alt) && sources.length && !counted.has(x.file)).map((x) => x.file))) notes.push(`${rel(dist, c)} (${formatBytes(transferSize(c, cache))}): a fallback format of a <picture> whose first <source>s every current browser takes; not counted`);
   }
   const total = items.reduce((a, [, n]) => a + n, 0);
   return { total, items, notes };
@@ -344,6 +370,8 @@ export function checkBudget(opts: BudgetOptions): Report {
     for (const page of list) {
       if (!resolveToFile(dist, page)) continue;
       const sc = stageClosure(dist, page, cache);
+      // a page without a script is no stage page (yet): no row
+      if (!sc.items.some(([f]) => JS_EXT.test(f))) continue;
       for (const [f, n] of sc.items.slice(0, 8)) r.info(`         ${formatBytes(n).padStart(9)}  ${f}`);
       r.info(`         ${formatBytes(sc.items.slice(8).reduce((s, [, n]) => s + n, 0)).padStart(9)}  ${sc.items.length - 8} more files`);
       for (const u of sc.unresolved) r.note(`${page}: ${u} (not found in the build: not counted)`);
