@@ -188,7 +188,9 @@ export function blendTo(from: PatchPose, to: PatchPose, t: number, dur = 0.6, o:
   // (the body's turn the short way: each Euler angle brought within half a turn of the target's first. A
   // performance that has wound round (the tumble's head over heels, a walk's turns) would otherwise unwind
   // every turn it made in the blend's fraction of a second; the same angle less whole turns is the same pose)
-  a.body.rot = [0, 1, 2].map((i) => b.body.rot[i]! + wrapAngle(a.body.rot[i]! - b.body.rot[i]!)) as V3;
+  // (`keepTurns`: the caller did this once, at the blend's start: re-done every frame against a target that is itself
+  // turning, the from-angle would jump a whole turn the moment the difference passed half a turn)
+  if (!o.keepTurns) a.body.rot = [0, 1, 2].map((i) => b.body.rot[i]! + wrapAngle(a.body.rot[i]! - b.body.rot[i]!)) as V3;
   const bodyLag = o.bodyLag ?? BLEND_BODY_LAG;
   const ease = o.moving ? outQuad : inOutCubic;
   const w = (lag: number): number => ease(clamp01((t - lag) / dur));
@@ -220,6 +222,8 @@ export interface BlendOptions {
    * in to the target (outQuad) rather than holding still for the first frames of an in-and-out ease.
    */
   moving?: boolean;
+  /** The from-pose's turns are already brought within half a turn of the target's (at the blend's start): do not re-wrap. */
+  keepTurns?: boolean;
   /** With `keepMiddle`: the from-pose's middle less the target's at the start (root space), let go of over the blend. */
   carry?: V3;
 }

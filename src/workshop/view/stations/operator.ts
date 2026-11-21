@@ -635,7 +635,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             const dYaw = Math.atan2(Math.sin(want - walkYaw), Math.cos(want - walkYaw));
             // (R5: and never faster than `walkTurnMax`: a way that doubles back is a turn, not a flip)
             const turn = reduced ? dYaw : Math.sign(dYaw) * Math.min(Math.abs(dYaw) * (1 - Math.exp(-F.walkTurn * dt)), F.walkTurnMax * dt);
-            walkYaw = wrapAngle(walkYaw + turn);
+            walkYaw += turn;
             if (st === 'walk' && v.stateTime < SET_OFF) walked += Math.abs(turn) * 0.12;
             const vis = boardToRoot(VISITOR_BOARD, stoolB);
             const toward = v.walk?.next ? seatSpace(v.walk.next) : null;
@@ -684,7 +684,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             // toward it, so a rebound brings it round rather than flipping it in a frame)
             if (tv && sp > 0.3) {
               const want = Math.atan2(tv[0], tv[2]) - SIDE_ON;
-              flyYaw = wrapAngle(flyYaw + (reduced ? wrapAngle(want - flyYaw) : wrapAngle(want - flyYaw) * (1 - Math.exp(-F.flyTurn * dt))));
+              // (unwrapped: continuous, so a blend toward it never sees it jump a turn)
+              flyYaw += reduced ? wrapAngle(want - flyYaw) : wrapAngle(want - flyYaw) * (1 - Math.exp(-F.flyTurn * dt));
             }
             if (!reduced) flySpin += Math.min(11, Math.max(4, sp * 1.3)) * dt;
             pose = tumble(reduced ? 0 : t - flyAt, mid, flySpin, flyYaw);
@@ -811,6 +812,13 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             const at0 = b.at ?? (b.pivot === 'scruff' ? SCRUFF_AT : ([0, 0, 0] as const));
             blendFrom = { ...blendFrom, body: { ...b, at: [at0[0] + (dxw * c + dzw * sn) / S, at0[1] + dyw / S, at0[2] + (-dxw * sn + dzw * c) / S] } };
           }
+          // (R5: the pose it leaves brought within half a turn of where this one starts, once: the blend turns the short
+          // way, and goes on turning with the target however far the target turns)
+          {
+            const fa = resolvePose(blendFrom), ta = resolvePose(pose).body.rot;
+            fa.body.rot = [ta[0] + wrapAngle(fa.body.rot[0] - ta[0]), ta[1] + wrapAngle(fa.body.rot[1] - ta[1]), ta[2] + wrapAngle(fa.body.rot[2] - ta[2])];
+            blendFrom = toPose(fa);
+          }
           // (R5, let go: how far the drawn middle was from the simulation's, carried and let go of over the blend)
           if (blendOpts.keepMiddle) {
             // (against where the simulation had its middle in the last frame (under the hand), so this frame already
@@ -822,7 +830,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         }
         // (R5: on until every channel has arrived, the lagging body and tail included: a blend cut at `blendDur`
         // left those short of the pose and they jumped there in the next frame)
-        if (blendFrom && !reduced && t - blendAt < blendSpan(blendDur, blendOpts)) pose = blendTo(blendFrom, pose, t - blendAt, blendDur, blendOpts);
+        if (blendFrom && !reduced && t - blendAt < blendSpan(blendDur, blendOpts)) pose = blendTo(blendFrom, pose, t - blendAt, blendDur, { ...blendOpts, keepTurns: true });
         else blendFrom = null;
         last = pose;
         lastAtI = atI;
