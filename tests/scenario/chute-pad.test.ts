@@ -70,7 +70,9 @@ describe('fresh crates come up the chute onto the pad', () => {
     // the flap kicked with it
     expect(t.of('flap').some((x) => x.e.part === part)).toBe(true);
     // at rest a moment later (and before anything else on this bench comes by: a crate tumbling across the row can knock it later)
-    t.run(steps(0.4));
+    // (2026-11-20: it lands moving now, bounces and settles by physics: at rest about 0.6-0.7 s after touchdown; was
+    // placed still and at rest within 0.4 s)
+    for (let i = 0; i < steps(1.5) && w.part(part)!.location.at !== 'rest'; i++) t.run(1);
     const pose = w.motion(part)!.pose;
     expect(w.part(part)!.location.at).toBe('rest');
     expect(w.writer(part, 'location')).toBe('system');
@@ -98,7 +100,9 @@ describe('fresh crates come up the chute onto the pad', () => {
     const l = shipAndLaunch(w, t, 'crate-1');
     const part = l.part;
     t.until((e) => e.type === 'restocked' && e.part === part, steps(3));
-    t.run(steps(0.6));
+    // (settled first: since 2026-11-20 it bounces and settles by physics, about 0.7 s)
+    for (let i = 0; i < steps(2) && w.part(part)!.location.at !== 'rest'; i++) t.run(1);
+    t.run(steps(0.1));
     const rest = w.motion(part)!.pose.p;
     let taken = false;
     for (let i = 0; i < steps(25) && !taken; i++) {
