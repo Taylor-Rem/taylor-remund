@@ -21,7 +21,7 @@ const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').
   <article class="section article" id={c.id} aria-labelledby="article-title">
     <p class="tape">{c.eyebrow.text}</p>
     <h1 class="title" id="article-title">{c.heading.text}</h1>
-    <p class="article-meta">{c.meta.text}</p>
+    <p class="article-meta">{c.meta.text.split(' · ').map((part, k) => <Fragment>{k > 0 && ' · '}<span class="part">{part}</span></Fragment>)}</p>
     <p class="lead" set:html={rich(c.intro.text)} />
     {c.blocks.map((b) => {
       if (b.type === 'h2') return <h2 class="article-head" id={slug(b.text)}>{b.text}</h2>;

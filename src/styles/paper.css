@@ -1052,12 +1052,11 @@ h1.title {
 .section > .actions {
   margin-top: 1.5rem;
 }
+/* inline-block, not flex: a flex container would drop the space before a price ("— $150"). */
 .paper a.action {
-  display: inline-flex;
-  align-items: center;
-  min-height: 48px;
+  display: inline-block;
   margin: 0;
-  padding: 0.65rem 1.15rem 0.7rem;
+  padding: 0.75rem 1.15rem 0.75rem;
   border: 2px solid var(--ink);
   background: var(--ink);
   color: var(--paper);
@@ -1078,11 +1077,9 @@ h1.title {
   color: var(--paper);
 }
 .paper a.action-quiet {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
+  display: inline-block;
   margin: 0;
-  padding: 0;
+  padding: 0.75rem 0;
   font-family: var(--mono);
   font-size: 0.875rem;
   letter-spacing: 0.02em;
@@ -1324,6 +1321,13 @@ h1.title {
   .package > .package-action {
     grid-row: 4;
   }
+  .section.services-hero > .tape {
+    grid-column: 2;
+  }
+  .section.services-hero > .tape + .title {
+    grid-row: auto;
+    margin-top: 0.85rem;
+  }
   .section.patchlamp {
     padding-top: 2.5rem;
   }
@@ -1421,10 +1425,25 @@ h1.title {
   .panel-title {
     font-size: 11pt;
   }
-  .panel-links a,
-  .panel-links li {
+  .panel-links {
+    font-size: 8pt;
+  }
+  .paper .panel-links a,
+  .paper .panel-links li {
     min-height: 0;
     padding: 0;
+  }
+  /* The package's own call to action prints its address too (a customer may print the rates). */
+  .paper .package-action a[data-print]::after {
+    content: ' ' attr(data-print);
+    font-weight: 400;
+  }
+  .paper a.action[data-print]::after {
+    font-weight: 400;
+  }
+  /* The rate sheet starts a page rather than leave its heading at the foot of one. */
+  #packages {
+    break-before: page;
   }
   .lamp {
     box-shadow: none;
@@ -1444,6 +1463,13 @@ h1.title {
     border-top: 0;
     padding-top: 0;
   }
+  .section.services-hero > .tape {
+    grid-column: 2;
+  }
+  .section.services-hero > .tape + .title {
+    grid-row: auto;
+    margin-top: 2mm;
+  }
 }
 
 /* ======================================================================
@@ -1461,6 +1487,10 @@ h1.title {
 }
 .article > .article-meta {
   margin-top: 1.25rem;
+}
+/* Each part of the byline stays whole ("2023 – present"); lines break at the separator. */
+.article-meta .part {
+  white-space: nowrap;
 }
 .article > .lead {
   margin-top: 1.5rem;
@@ -1523,5 +1553,9 @@ h1.title {
   }
   .article > .pointer {
     margin-top: 6mm;
+  }
+  .article-meta,
+  .panel-kicker {
+    font-size: 7.5pt;
   }
 }
