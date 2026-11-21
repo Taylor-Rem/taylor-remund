@@ -53,8 +53,11 @@ describe('throwing up: the cap', () => {
     const w = await benchWorld('r4-up-crate', { scene: FULL_BENCH });
     const t = tape(w);
     t.run(30);
-    liftTo(w, t, 'crate-3', [-1.5, 1.2, 1.2]);
+    // (held clear of the console: at z 1.2 the crate overlaps the console's top, and the stronger carry (2026-11-20)
+    // wedges it there on an edge at 1.42 instead of holding it level at 1.2)
+    liftTo(w, t, 'crate-3', [-1.5, 1.2, 1.6]);
     const y0 = w.motion('crate-3')!.pose.p[1];
+    expect(y0, 'held level where the hand is').toBeCloseTo(1.2, 1);
     w.dispatch({ type: 'release', velocity: [0, 30, 0] });
     const rel = t.run(1).find((e) => e.type === 'part.released') as { speed: number } | undefined;
     expect(rel!.speed).toBeCloseTo(LOOSE_TUNING.upMax, 1);
@@ -68,7 +71,9 @@ describe('throwing up: the cap', () => {
     }
     expect(top - y0).toBeGreaterThan(3.8);
     expect(top - y0).toBeLessThan(4.7);
-    expect(top + w.halfExtents('crate-3')![1], 'under the back wall\'s top').toBeLessThan(6);
+    // never past the throw's apex (`upApex`, its centre), and so well under the back wall's body (9 high since fec394a)
+    expect(top, 'under the apex').toBeLessThan(LOOSE_TUNING.upApex);
+    expect(top + w.halfExtents('crate-3')![1], 'under the back wall\'s top').toBeLessThan(AT.backWall.c[1] + AT.backWall.half[1]);
     expect(back).toBeGreaterThan(1.2);
     expect(back).toBeLessThan(1.8);
     w.dispose();

@@ -102,10 +102,20 @@ describe('R3: Revert acts the heal', () => {
       w.dispatch({ type: 'carry', target: [p[0] + ((to[0] - p[0]) * i) / 20, 1.5, p[2] + ((to[2] - p[2]) * i) / 20] });
       t.run(1);
     }
+    // (and set down there: the hand stops over the spot before it lets go. The old carry lagged the hand so far that
+    // this crate came to rest at (-6.31, -0.22), beside Revert's hatch with no stand to sweep it from, and was never
+    // swept at all; now it lies where the visitor put it)
+    for (let i = 0; i < 30; i++) {
+      w.dispatch({ type: 'carry', target: [to[0], 1.5, to[2]] });
+      t.run(1);
+    }
     w.dispatch({ type: 'release', velocity: [0, 0, 0] });
-    // theirs: it is not swept up again while it lies freshly stirred (Revert may go on to the other strays)
+    // theirs: it is not swept up again while it lies freshly stirred (Revert may go on to the other strays). Freshly
+    // stirred is `heal.stir` (8 s, the bench scene's Revert spec, src/workshop/sim/scenes/bench.ts): after that a crate
+    // nobody stirs is a stray like any other, so the window is that, not the 25 s the old test waited
+    const STIR = 8;
     let again = false;
-    for (let i = 0; i < steps(25); i++) for (const e of t.run(1)) if (e.type === 'revert.sweep' && e.part === id) again = true;
+    for (let i = 0; i < steps(STIR); i++) for (const e of t.run(1)) if (e.type === 'revert.sweep' && e.part === id) again = true;
     expect(again).toBe(false);
     expect(w.part(id)!.location.at).toBe('rest');
     expect(w.mode(id)).toBe('free');
