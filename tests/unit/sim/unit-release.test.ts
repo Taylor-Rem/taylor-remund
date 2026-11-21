@@ -1,12 +1,14 @@
 // R4: a unit let go of gets the hand's velocity from the world (the drag intent's `velocity`), as a part does;
-// a reset and a tap-placing ('place') send none. Seen through Patch, which flies when it gets one.
+// a reset and a tap-placing ('place') send none. Seen through the scripted Patch (`benchScript`: a unit with no body
+// of its own, which flies when it gets one). The bench's Patch has a body since 2026-11-20: let go, its body is thrown
+// as a part is (tests/scenario/patch-body.test.ts).
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
-import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
+import { benchScript } from '../../../src/workshop/sim/scenes/bench.ts';
 import type { PatchView } from '../../../src/workshop/sim/types.ts';
 
 const lift = () => {
-  const { world } = stubWorld(1, { scene: bench });
+  const { world } = stubWorld(1, { scene: benchScript });
   run(world, 2);
   const patch = (): PatchView => world.machine('patch') as PatchView;
   const seat = patch().at;

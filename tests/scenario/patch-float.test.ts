@@ -12,8 +12,11 @@
 //    straight up, none from thirty: crew/patch-float.ts, the one rule both Patches have), and a throw across has none;
 //  - `PatchView.prevAt`, for drawing between steps: the step before's `at` in flight (and under the hand on the
 //    release step), and `at` itself across a jump.
+//
+// This is the scripted Patch's flight (`benchScript`: its `at` is its arc). The Patch with a body (the bench's since
+// 2026-11-20) has the same float on its body: tests/scenario/patch-body.test.ts holds it.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape } from './line-helpers.ts';
+import { benchWorld, SCRIPT_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { patchView } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -54,7 +57,7 @@ interface Air {
 }
 
 async function fly(hand: Vec3, v: Vec3): Promise<Air> {
-  const w = await benchWorld(1);
+  const w = await benchWorld(1, { scene: SCRIPT_BENCH });
   const t = tape(w);
   t.run(20);
   carryTo(w, t, hand);

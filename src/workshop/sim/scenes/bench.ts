@@ -481,7 +481,7 @@ export const PATCHLAMP = (() => {
 })();
 
 const PATCHLAMP_MOUTHS: readonly MouthSpec[] = [PATCHLAMP.platenMouth];
-/** Patch's spec (one object, so the scene with its body, `benchBody` below, is this one and a flag). */
+/** Patch's spec (one object, so the scene with its body, `benchBody` below, is this one and a flag). Here the scripted Patch's: `benchBody` adds the body. */
 const PATCH_SPEC: PatchSpec = {
   id: 'patch',
   station: 'patchlamp',
@@ -592,7 +592,12 @@ function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; wo
   return { tray: PATCHLAMP.platenMouth.id, phone: AT.phone.c, jack: 'jack-platen', say: 'attract.text.make-it-blue', words: 'blue' };
 }
 
-export const bench: SceneDesc = {
+/**
+ * The bench with the scripted Patch (`PatchSpec.flight` 'script': its flight in the air is hand-written, patch.ts). Until
+ * 2026-11-20 this was `bench`; it stays a named scene (`/dev/bench/?patch=script`) while the owner has not played the
+ * body Patch, and the tests of the script's own rules name it.
+ */
+export const benchScript: SceneDesc = {
   id: 'bench',
   gravity: -16,
   bench: { ...AT.bench, top: 0, ceiling: 8 },
@@ -718,11 +723,17 @@ export const PATCH_BODY: PartSpec = {
 };
 
 /**
- * The bench with that Patch: identical to `bench` but for the body part and `flight: 'body'`, so the two can be
- * compared side by side (`/dev/bench/?patch=body`; tests/scenario/patch-body*.test.ts).
+ * The bench with that Patch: identical to `benchScript` but for the body part and `flight: 'body'`, so the two can be
+ * compared side by side (`/dev/bench/?patch=body` and `?patch=script`; tests/scenario/patch-body*.test.ts).
  */
 export const benchBody: SceneDesc = {
-  ...bench,
-  parts: [...bench.parts, PATCH_BODY],
-  units: (bench.units ?? []).map((u) => (u === PATCH_UNIT ? patch({ ...PATCH_SPEC, flight: 'body', bodyPart: PATCH_BODY.id }) : u)),
+  ...benchScript,
+  parts: [...benchScript.parts, PATCH_BODY],
+  units: (benchScript.units ?? []).map((u) => (u === PATCH_UNIT ? patch({ ...PATCH_SPEC, flight: 'body', bodyPart: PATCH_BODY.id }) : u)),
 };
+
+/**
+ * THE bench: the scene every page and test gets by default. Its Patch is the body Patch (lead's decision, 2026-11-20,
+ * after comparing the two). Going back to the scripted Patch is this one line: `= benchScript`.
+ */
+export const bench: SceneDesc = benchBody;

@@ -193,7 +193,11 @@ describe('R4: throwing, heard', () => {
     expect(wall).toBeDefined();
     const pat = h.find((x) => x.cue.id === 'patch.pat')!;
     const slide = h.find((x) => x.cue.id === 'patch.slide')!;
-    expect(pat.step).toBe(wall!.step);
+    // the pat as it meets the wall: with the bench's Patch (a body since 2026-11-20) the engine's contact sounds it, a
+    // step before the wall takes it over (the scripted Patch's pat was the takeover's own step); one pat either way
+    expect(pat.step).toBeLessThanOrEqual(wall!.step);
+    expect(wall!.step - pat.step).toBeLessThanOrEqual(1);
+    expect(h.filter((x) => x.cue.id === 'patch.pat' && x.step <= wall!.step + 1).length, 'one pat at the wall').toBe(1);
     // the squeak only once it moves: at least the quarter second it sticks after the pat
     expect((slide.step - pat.step) / HZ).toBeGreaterThanOrEqual(0.2);
     expect(ids(h).filter((x) => x === 'patch.slide').length).toBe(1);

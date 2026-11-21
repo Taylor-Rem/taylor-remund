@@ -22,7 +22,7 @@ export { FETCH_TUNING, fetchReach, fetchStand, canRunLap } from './crew/fetch.ts
 export { lanePath, laneOutline } from './path.ts';
 export type { LanePath, Pt } from './path.ts';
 export { vignette, AT as VIGNETTE_LAYOUT } from './scenes/vignette.ts';
-export { bench, AT as BENCH_LAYOUT, LINE, CREW_SCALE } from './scenes/bench.ts';
+export { bench, benchScript, benchBody, AT as BENCH_LAYOUT, LINE, CREW_SCALE } from './scenes/bench.ts';
 export { BELT_TUNING } from './machines/belt.ts';
 export { STRIKER_TUNING, NOTE, OCTAVE } from './machines/striker.ts';
 export { DOCK_TUNING, MARK_SHIPPED, MARK_RETURN } from './machines/dock.ts';
