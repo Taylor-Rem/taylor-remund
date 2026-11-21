@@ -90,7 +90,9 @@ export function grounded(pose: PatchPose, fig: Figure, floor: number, inside?: (
   const lift = floor - low;
   const b = pose.body ?? {};
   const at = b.at ?? (b.pivot === 'scruff' ? SCRUFF : ([0, 0, 0] as const));
-  return { ...pose, body: { ...b, at: [at[0], at[1] + lift, at[2]] } };
+  // (a squash is about a point of the figure: it is lifted with it)
+  const q = b.squash;
+  return { ...pose, body: { ...b, at: [at[0], at[1] + lift, at[2]], ...(q ? { squash: { ...q, about: [q.about[0], q.about[1] + lift, q.about[2]] } } : {}) } };
 }
 
 /**

@@ -584,7 +584,11 @@ describe('Patch thrown (R4)', () => {
       let hand: Vec3 = [-6, 1.2, -2];
       carryTo(w, t, hand);
       for (let k = 0; k < 3; k++) {
-        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 9, 0] });
+        // (six tosses of 5.5 units/s, each caught at its top, about a unit higher each time: all of them under the
+        // ceiling for a held thing with room to spare, so every one is a real throw up and floats at its top. At 9
+        // the last ones started so near the ceiling that they were hops of 3 units/s or less, which do not float:
+        // crew/patch-float.ts)
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 5.5, 0] });
         t.run(1);
         expect(patchView(w).state, `throw ${k + 1}`).toBe('fly');
         // up to the top
@@ -607,7 +611,7 @@ describe('Patch thrown (R4)', () => {
         hand = grip;
         // the next throw flies from where it hangs now
         const before = patchView(w).at;
-        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 9, 0] });
+        w.dispatch({ type: 'drag', id: 'patch', target: hand, end: true, velocity: [0, 5.5, 0] });
         t.run(1);
         const v2 = patchView(w);
         expect(v2.state).toBe('fly');

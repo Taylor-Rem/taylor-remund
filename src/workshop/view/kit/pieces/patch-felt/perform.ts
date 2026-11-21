@@ -36,7 +36,7 @@
  *   duck / catchCrate (onto PatchView.shelf) / bonked     DUCK_ / CATCH_ / BONK_LENGTH (≤ 1.5 s)
  *   reach / reachJack / reachDrawer         a paw to a point, the body leaning only as needed, and what is short
  */
-import { Matrix4, Vector3 } from 'three';
+import { Euler, Matrix4, Vector3 } from 'three';
 import { clamp, clamp01, inOutCubic, inOutQuad, lerp, outBack, outCubic, outQuad, inCubic, smoothstep } from '../../../anim/ease.ts';
 import type { Ease } from '../../../anim/ease.ts';
 import {
@@ -88,6 +88,15 @@ const LEG_KEYS: (keyof LegJoints)[] = ['lift', 'splay', 'knee'];
 
 /** A body placement about the scruff, re-expressed about the seat (same matrix). */
 function seatPlace(b: BodyPlace | undefined): { at: V3; rot: V3 } {
+  if (b?.quat) {
+    // a body placed by a quaternion (Patch's physics body): the same turn as three angles, for a blend out of it
+    // (its squash is not carried: a blend starts from the figure unsquashed)
+    const { squash: _squash, ...plain } = b;
+    const m = bodyMatrix(plain);
+    const e = new Euler().setFromRotationMatrix(m, 'YXZ');
+    const o = new Vector3().applyMatrix4(m);
+    return { at: [o.x, o.y, o.z], rot: [e.x, e.y, -e.z] };
+  }
   const rot: V3 = b?.rot ? [...b.rot] : [0, 0, 0];
   if (!b || b.pivot !== 'scruff') return { at: b?.at ? [...b.at] : [0, 0, 0], rot };
   const m = bodyMatrix(b);

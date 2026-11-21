@@ -23,7 +23,7 @@
  * Reduced motion: each stage holds its end pose, cuts between them, and no
  * breath, blinks or glances run.
  */
-import { Group, Matrix4, Vector3, type Object3D } from 'three';
+import { Group, Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 import { nodeBounds } from './proxy.ts';
 import { clearOfEdge, figureOf, grounded, type Figure } from '../kit/pieces/patch-felt/ground.ts';
 import type { PatchState, PatchView, Vec3 } from '../../sim/types.ts';
@@ -34,13 +34,14 @@ import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
 import { HZ, PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
-import { SCRUFF as SCRUFF_AT } from '../kit/pieces/patch-felt/rig.ts';
+import { SCRUFF as SCRUFF_AT, TAIL, bodyMatrix, setNode } from '../kit/pieces/patch-felt/rig.ts';
+import { CORE, dirIntoBody, flung, gettingUp, intoBody, offsetOf, offsetSize, placeOf, placed, withOffset, type Offset, type Place } from '../kit/pieces/patch-felt/embodied.ts';
 import {
   BONK_LENGTH, CATCH_LENGTH, CLIMB_LENGTH, DUCK_LENGTH, JOB_STAGES, LOOK_LENGTH, NOTICE_LENGTH, REST_X, SEATED, SHUT_LENGTH, VISITOR_BOARD,
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
   rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, falling, upward, flop, LAND_LENGTH, SHAKE_LENGTH,
-  atTheTop, blendSpan, bodyMiddle, wrapAngle, type BlendOptions,
+  atTheTop, blendSpan, bodyMiddle, wrapAngle, mixPose, type BlendOptions,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
 import { clamp01, damp, inOutCubic, inOutQuad, outCubic, smoothstep } from '../anim/index.ts';
@@ -80,6 +81,44 @@ export const OPERATOR_FEEL = {
   walkTurn: 9,
   /** R5: the fastest it turns while walking (rad/s): a way that doubles back takes about a quarter of a second. */
   walkTurnMax: 12,
+
+  // ── the body Patch (PatchSpec.flight 'body'): drawn from its physics body from the grab to the get-up ──
+  /**
+   * A takeover starts from the pose the figure was drawn in, and what it is off by is let go of over this long:
+   * taken hold of where the script had it (the body comes into the world about there);
+   */
+  bodyGrab: 0.15,
+  /** met a wall flat: from the pose its body had at the hit to flat against it (a few frames; the scripted splat cut there in one); */
+  bodyFlatten: 0.13,
+  /** caught the edge: from where its body was to the hang (the simulation's own ease there); */
+  bodyCatch: 0.2,
+  /** come to rest, the script taking over how it lay; and sat at the wall's foot after the slide. */
+  bodySettle: 0.08,
+  bodySit: 0.18,
+  /** Its velocity is smoothed at this rate (1/s), and its limbs take up a change in the way it goes at this one (follow-through). */
+  velRate: 18,
+  trailRate: 12,
+  /** At this speed (units/s) its limbs trail all they can; turning this fast (rad/s) they fly out all they can. */
+  trailFull: 9,
+  spinFull: 12,
+  /** In the air it stretches along its way by up to this much, between these speeds; eased in and out at `stretchRate`. */
+  stretch: 0.1,
+  stretchFrom: 5,
+  stretchFull: 14,
+  stretchRate: 16,
+  /**
+   * The squash on a contact: this much per unit/s of speed the contact took over `squashFloor`, never more than
+   * `squashMax`; a spring (rad/s, damping) so it is over in a fifth of a second and never held.
+   */
+  squashFloor: 1.2,
+  squashGain: 0.03,
+  squashMax: 0.28,
+  squashRate: 38,
+  squashDamp: 0.45,
+  /** The squash as its hop lands. */
+  hopSquash: 0.2,
+  /** Come down from a fall this hard (the simulation's 0..1) or harder and stopped upright, it flops flat on its front before it gets up. */
+  flopHard: 0.4,
 };
 /** R2: the walk's first seconds: a look at the visitor and a turn, no step (the simulation's). */
 const SET_OFF: number = PATCH_TUNING.setOff;
@@ -148,7 +187,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
       const ms = poseMatrices(p);
       for (const n in ms) {
         const x = nodes.get(n);
-        if (x) ms[n]!.decompose(x.position, x.quaternion, x.scale);
+        if (x) setNode(x, ms[n]!, n === 'body' && !!p.body?.squash);
       }
     };
     // the grab target rides Patch's drawn body (the rig's `body` node, everything else hangs from it), not the
@@ -318,6 +357,32 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let handFirst = true;
     const rootInv = new Matrix4();
 
+    // ── the body Patch (PatchSpec.flight 'body'): its figure's body is its physics body from the grab to the get-up ──
+    const qSide = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -SIDE_ON);
+    const qT = new Quaternion(), qU = new Quaternion();
+    /** The body as last drawn (seat space, after the lift clear of the bench), and whether it was in sight. */
+    let drawnPlace: Place | null = null;
+    let drawnShown = false;
+    /** What the placement was taken from in the last frame ('p': the engine; else the performance's name), and what is being let go of. */
+    let lastSrc: string | null = null;
+    let off: { o: Offset; at: number; dur: number } | null = null;
+    /** Its velocity, smoothed (world, units/s); its last few steps' own (newest last); how fast it turns (rad/s, smoothed). */
+    const bVel = new Vector3();
+    const bSteps: { pose: object; v: Vector3 }[] = [];
+    let bSpin = 0;
+    /** The way its limbs trail (its own frame; length 0..1). */
+    const trail: V3 = [0, 0, 0];
+    /** The squash spring (+ squashed), its rate, its axis (root space); the stretch along its way. */
+    let sq = 0, sqV = 0;
+    const sqN = new Vector3(0, 1, 0);
+    let stK = 0;
+    /** Since it was let go: has it met anything (its arms do not fold after), and how far the fall's pose has given way to the tumble's. */
+    let hitSince = false;
+    let hitK = 0;
+    /** How it lay when the simulation took over (as drawn), and whether its get-up has hopped. */
+    let lie: { place: Place; limbs: PatchPose } | null = null;
+    let hopped = false;
+
     const enter = (m: Mode, t: number, near: boolean): void => {
       if (mode !== m || m === 'job') {
         blendFrom = last;
@@ -370,9 +435,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const atI: Vec3 = between ? [v.prevAt[0] + (v.at[0] - v.prevAt[0]) * al, v.prevAt[1] + (v.at[1] - v.prevAt[1]) * al, v.prevAt[2] + (v.at[2] - v.prevAt[2]) * al] : v.at;
         const cord = w.cord('cord');
         const plugOut = !!cord?.lifted;
+        // the body Patch (`PatchView.body` is there, null while the script has it): drawn from its body while it is in the world
+        const bodied = v.body !== undefined;
+        const bd = v.body ?? null;
 
         // ── a Button rung: the crew is the audience; the job resumes where the simulation left it ──
-        if (w.bracketed && !rungSaved && mode !== 'held' && mode !== 'ledge') {
+        if (w.bracketed && !rungSaved && mode !== 'held' && mode !== 'ledge' && !bd) {
           rungSaved = { mode, entry, at: t };
           rungDrawer = drawer;
           enter('rung', t, true);
@@ -412,6 +480,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         if (st !== lastState) {
           const prev = lastState;
           lastState = st;
+          // (the body Patch's hop has landed: the squash of it, over the first frames of what comes next)
+          if (prev === 'land' && bodied && hopped && !reduced) {
+            sqN.set(0, 1, 0);
+            sqV = Math.max(sqV, F.hopSquash * F.squashRate);
+            hopped = false;
+          }
           const jack = inHand ?? jackName(v.drawer) ?? jobJack;
           switch (st) {
             case 'notice':
@@ -472,6 +546,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
                 fallAt = -1;
                 foldK = 0;
                 floatAt = -1;
+                hitSince = false;
+                hitK = 0;
                 // facing the way it goes; dropped or thrown up, the way it faced in the hand
                 flyYaw = v0 && level > 0.3 && !v.thrown?.drop ? Math.atan2(v0[0], v0[2]) - SIDE_ON : wrapAngle(resolvePose(last).body.rot[1]);
               }
@@ -480,10 +556,19 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               // limbs ease out of the dangle. Up the chute from out of sight it simply appears there)
               blendDur = F.blendRelease;
               blendOpts = { bodyLag: 0, keepMiddle: true, moving: true };
+              if (bodied) blendOpts = { bodyLag: 0, moving: true }; // (its body is the engine's: only the limbs ease)
               if (prev === 'away') blendFrom = null;
               break;
             }
             case 'land':
+              if (bodied && v.lay) {
+                // the body Patch: the get-up from how it lay, from the pose it was drawn in (its own performance)
+                lie = { place: drawnPlace ?? placeOf(last.body), limbs: last };
+                hopped = false;
+                enter('land', t, true);
+                blendFrom = null;
+                break;
+              }
               // off a wall: the facing it had stuck to the wall (face to the room) is kept to the sit
               landFromWall = prev === 'wall';
               if (!landFromWall) {
@@ -510,7 +595,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             case 'wall':
               // flat against it at once, face to the room (no blend: a blend from the tumble shows its back)
               enter('wall', t, true);
-              blendFrom = null;
+              // (the body Patch flattens against it from the pose its body had, over a few frames: below)
+              if (!bodied) blendFrom = null;
+              else {
+                blendDur = F.bodyFlatten;
+                blendOpts = { bodyLag: 0, moving: true };
+              }
               if (v.wall) landYaw = Math.atan2(v.wall.out[0], v.wall.out[2]) - SIDE_ON;
               landSpin = 0;
               break;
@@ -521,7 +611,12 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               if (mode !== 'ledge' && v.ledge) {
                 ledgeO = { at: seatSpace(v.ledge.at), up: seatSpace(v.ledge.up), heading: v.heading - SIDE_ON, front: v.ledge.edge === 'front', visitor: boardToRoot(VISITOR_BOARD, stoolB) };
                 enter('ledge', t, false);
-                blendFrom = null; // from the hand to the edge in one frame: it caught it
+                // from the hand to the edge in one frame: it caught it (the body Patch: from where its body was, below)
+                if (!bodied) blendFrom = null;
+                else {
+                  blendDur = F.bodyCatch;
+                  blendOpts = { bodyLag: 0, moving: true };
+                }
               }
               break;
             case 'climb':
@@ -562,6 +657,76 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const simB = v.stool.x - BOARD_X;
         if (mode !== 'roll') stoolB = simB;
         const age = t - modeAt;
+        // ── the body Patch: where the engine has its body (seat space, between its last two steps), how it moves,
+        // the visitor's point in its own frame, and the way its limbs trail ──
+        let phys: Place | null = null;
+        let visL: V3 = boardToRoot(VISITOR_BOARD, stoolB);
+        let getUp: { place: Place; squash: number } | null = null;
+        const inBody = bodied && (mode === 'held' || mode === 'fly' || mode === 'wall' || mode === 'ledge' || (mode === 'land' && !!v.lay));
+        if (bodied) {
+          const cS = Math.cos(-SIDE_ON), sS = Math.sin(-SIDE_ON);
+          if (bd) {
+            const k = reduced || bd.prev === bd.pose ? 1 : al;
+            const p0 = bd.prev.p, p1 = bd.pose.p;
+            qT.set(bd.prev.q[0], bd.prev.q[1], bd.prev.q[2], bd.prev.q[3]);
+            qU.set(bd.pose.q[0], bd.pose.q[1], bd.pose.q[2], bd.pose.q[3]);
+            const turn = 2 * Math.acos(Math.min(1, Math.abs(qU.dot(qT))));
+            qT.slerp(qU, k).premultiply(qSide);
+            phys = { mid: seatSpace([p0[0] + (p1[0] - p0[0]) * k, p0[1] + (p1[1] - p0[1]) * k, p0[2] + (p1[2] - p0[2]) * k]), q: [qT.x, qT.y, qT.z, qT.w] };
+            // (its velocity from its own steps: a new step, a new sample)
+            if (bSteps.length === 0 || bSteps[bSteps.length - 1]!.pose !== bd.pose) {
+              const fresh = bSteps.length === 0;
+              bSteps.push({ pose: bd.pose, v: new Vector3((p1[0] - p0[0]) * HZ, (p1[1] - p0[1]) * HZ, (p1[2] - p0[2]) * HZ) });
+              if (bSteps.length > 4) bSteps.shift();
+              if (fresh) {
+                bVel.copy(bSteps[0]!.v);
+                bSpin = turn * HZ;
+              }
+            }
+            const raw = bSteps[bSteps.length - 1]!.v;
+            bVel.x = damp(bVel.x, raw.x, F.velRate, dt);
+            bVel.y = damp(bVel.y, raw.y, F.velRate, dt);
+            bVel.z = damp(bVel.z, raw.z, F.velRate, dt);
+            bSpin = damp(bSpin, turn * HZ, F.velRate, dt);
+          } else {
+            bSteps.length = 0;
+            bVel.multiplyScalar(Math.exp(-F.velRate * dt));
+            bSpin = damp(bSpin, 0, F.velRate, dt);
+          }
+          const frameOf = phys ?? drawnPlace;
+          if (frameOf) {
+            visL = intoBody(frameOf, visL);
+            // against its velocity, in its own frame; as long as its speed makes it
+            const sp = bVel.length();
+            const kk = sp > 1e-3 ? -smoothstep(0.4, F.trailFull, sp) / sp : 0;
+            const d = dirIntoBody(frameOf, [(bVel.x * cS + bVel.z * sS) * kk, bVel.y * kk, (-bVel.x * sS + bVel.z * cS) * kk]);
+            for (let i = 0; i < 3; i++) trail[i] = reduced ? d[i]! : damp(trail[i]!, d[i]!, F.trailRate, dt);
+          }
+          // a contact: the squash of it, along what the contact took of its velocity (its last few steps: the engine
+          // may stop a fast body short a step before it turns it)
+          if (bd && !reduced) {
+            for (const e of frame.events) {
+              if (e.type !== 'part.hit' || (e.id !== bd.id && e.other !== bd.id) || bSteps.length < 2) continue;
+              if (mode === 'fly') hitSince = true;
+              tv.subVectors(bSteps[0]!.v, bSteps[bSteps.length - 1]!.v);
+              const took = tv.length();
+              if (took <= F.squashFloor) continue;
+              const amount = Math.min(F.squashMax, (took - F.squashFloor) * F.squashGain);
+              if (amount * F.squashRate > sqV) {
+                sqV = amount * F.squashRate;
+                sqN.set(tv.x * cS + tv.z * sS, tv.y, -tv.x * sS + tv.z * cS).normalize();
+              }
+            }
+          }
+          hitK = reduced ? (hitSince ? 1 : 0) : damp(hitK, hitSince ? 1 : 0, 10, dt);
+          // (the spring, in steps small enough to hold it steady at any frame rate)
+          for (let i = 0, n = Math.max(1, Math.ceil(dt / 0.004)); i < n && !reduced; i++) {
+            const h = dt / n, W = F.squashRate;
+            sqV += (-W * W * sq - 2 * F.squashDamp * W * sqV) * h;
+            sq += sqV * h;
+          }
+          if (reduced) sq = sqV = 0;
+        }
         switch (mode) {
           case 'notice': {
             const ringing = (lv?.kind === 'line' ? jackName(lv.ringing) : null) ?? nearestJack(stoolB);
@@ -606,6 +771,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'held': {
+            if (bodied) {
+              // the body Patch: its body is the engine's (hanging by its scruff, swinging as the body swings); the
+              // dangle's limbs are posed in its own frame, trailing its own motion
+              const frameOf = phys ?? drawnPlace;
+              const cS = Math.cos(-SIDE_ON), sS = Math.sin(-SIDE_ON);
+              const vl: V3 = frameOf ? dirIntoBody(frameOf, [(bVel.x * cS + bVel.z * sS) / S, bVel.y / S, (-bVel.x * sS + bVel.z * cS) / S]) : [0, 0, 0];
+              pose = held(reduced ? 3 : age, reduced ? [0, 0, 0] : vl, { visitor: visL, yaw: 0 });
+              break;
+            }
             // the root goes to the visitor's hand; the scruff hangs from it
             const hand = new Vector3(atI[0], atI[1], atI[2]);
             if (handFirst) {
@@ -663,6 +837,26 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'fly': {
+            if (bodied) {
+              // the body Patch: its body is the engine's (below). In its own frame: thrown across, the limbs flung out
+              // and trailing the way it goes; let go still or thrown up, rising arms up and falling knowing it, until
+              // it meets something (then the tumble's, down to lying where it stops); the float's fold over either
+              const own: V3 = [0, 0.3, 0]; // (the performances' own middle: the body at rest at the origin)
+              const tA = reduced ? 0 : t - flyAt;
+              const vy = v.thrown?.v ? v.thrown.v[1] : 0;
+              let p = flung({ t: tA, trail, spin: clamp01(bSpin / F.spinFull) });
+              const goal = hitSince || !v.thrown ? 0 : v.thrown.float * (vy >= 0 ? 1 - smoothstep(0.6, 3, vy) : 1 - smoothstep(0.3, 1.8, -vy));
+              foldK = reduced ? goal : damp(foldK, goal, F.foldRate, dt);
+              if (foldK > 0.02 && floatAt < 0) floatAt = t;
+              if (vy > 0 || foldK > 0.5) fallAt = -1;
+              else if (fallAt < 0) fallAt = t;
+              if (v.thrown?.drop && hitK < 0.999) {
+                const up = resolvePose(upward(tA, own, 0, false, visL)), down = resolvePose(falling(reduced ? 1 : fallAt < 0 ? 0 : t - fallAt, own, 0, visL));
+                p = toPose(mixPose(mixPose(up, down, smoothstep(-1.2, 1.2, -vy)), resolvePose(p), hitK));
+              }
+              pose = foldK > 1e-3 ? atTheTop(p, foldK, reduced || floatAt < 0 ? 0 : t - floatAt, own, 0, visL) : p;
+              break;
+            }
             const tv = v.thrown?.v;
             const sp = tv ? Math.hypot(tv[0], tv[2]) : 0;
             const mid = seatSpace(atI);
@@ -693,6 +887,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             break;
           }
           case 'land': {
+            if (bodied && v.lay && lie) {
+              // the body Patch: from how it lay into sitting up over the simulation's `rise`, then its hop
+              landYaw = v.heading - SIDE_ON;
+              const g = gettingUp(reduced ? v.stateLength : sT, { lie: lie.place, limbs: lie.limbs, rise: v.lay.rise, from: seatSpace(v.lay.from), to: seatSpace(v.lay.to), feet: seatSpace(atI), length: v.stateLength, yaw: landYaw, visitor: boardToRoot(VISITOR_BOARD, stoolB), ...(v.thrown?.drop && v.lay.hard >= F.flopHard && !reduced ? { flop: { fall: v.thrown.fall } } : {}) });
+              pose = g.pose;
+              getUp = g;
+              if (sT > v.lay.rise && v.stateLength - v.lay.rise > 1e-3) hopped = true;
+              break;
+            }
             const fall = v.thrown?.fall ?? 0;
             // R4 up: down from high after a drop or a throw up: the flop; else the landing's bounce and roll
             if (v.thrown?.drop && fall >= PATCH_TUNING.flopFrom) pose = flop(reduced ? v.stateLength : sT, seatSpace(atI), landYaw, fall, v.stateLength);
@@ -805,7 +1008,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         // starts from where the figure was drawn, not from the same place relative to the root's new spot: no snap)
         if (blendFrom && blendNew) {
           blendNew = false;
-          const next = mode === 'held' ? tv.set(atI[0], atI[1], atI[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
+          const next = mode === 'held' && !bodied ? tv.set(atI[0], atI[1], atI[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
           const dxw = root.position.x - next.x, dyw = root.position.y - next.y, dzw = root.position.z - next.z;
           if (Math.abs(dxw) + Math.abs(dyw) + Math.abs(dzw) > 1e-6) {
             const c = Math.cos(-SIDE_ON), sn = Math.sin(-SIDE_ON);
@@ -822,7 +1025,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             // (and a big turn gets the time to read as a turn: never faster than `turnRate` on average, nor, out of a
             // moving pose (eased out, quickest at its start), than `turnRateMoving` at its start)
             const turn = Math.max(Math.abs(fa.body.rot[0] - ta[0]), Math.abs(fa.body.rot[1] - ta[1]), Math.abs(fa.body.rot[2] - ta[2]));
-            blendDur = Math.max(blendDur, blendOpts.moving ? (2 * turn) / F.turnRateMoving : turn / F.turnRate);
+            // (not the body Patch's while its body is the engine's: only its limbs blend, and its body's turn is its own)
+            if (!inBody) blendDur = Math.max(blendDur, blendOpts.moving ? (2 * turn) / F.turnRateMoving : turn / F.turnRate);
           }
           // (R5, let go: how far the drawn middle was from the simulation's, carried and let go of over the blend)
           if (blendOpts.keepMiddle) {
@@ -837,6 +1041,66 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         // left those short of the pose and they jumped there in the next frame)
         if (blendFrom && !reduced && t - blendAt < blendSpan(blendDur, blendOpts)) pose = blendTo(blendFrom, pose, t - blendAt, blendDur, { ...blendOpts, keepTurns: true });
         else blendFrom = null;
+        // ── the body Patch: its body where the engine has it; a takeover starts from the pose it was drawn in ──
+        if (bodied) {
+          const target: Place | null = phys ?? (getUp ? getUp.place : mode === 'wall' || mode === 'ledge' ? placeOf(pose.body) : null);
+          const src = phys ? 'p' : target ? mode : null;
+          if (src !== lastSrc) {
+            off = null;
+            if (target && drawnPlace && drawnShown && !reduced) {
+              const o = offsetOf(drawnPlace, target);
+              const size = offsetSize(o);
+              if (size.far > 1e-4 || size.turn > 1e-3) off = { o, at: t - frameDt, dur: src === 'p' ? F.bodyGrab : mode === 'wall' ? F.bodyFlatten : mode === 'ledge' ? F.bodyCatch : lastSrc === 'wall' ? F.bodySit : F.bodySettle };
+            }
+            lastSrc = src;
+          }
+          // the stretch along its way in the air (eased; none while a contact's squash is on)
+          const sp = bVel.length();
+          const stGoal = phys && bd && !bd.held && Math.abs(sq) < 0.01 ? F.stretch * smoothstep(F.stretchFrom, F.stretchFull, sp) : 0;
+          stK = reduced ? 0 : damp(stK, stGoal, F.stretchRate, dt);
+          if (target) {
+            let place = target;
+            if (off) {
+              const u = (t - off.at) / off.dur;
+              // (out of a moving pose: it lets go at once and eases in)
+              if (u >= 1) off = null;
+              else place = withOffset(target, off.o, (1 - clamp01(u)) ** 2);
+            }
+            let squash: NonNullable<PatchPose['body']>['squash'];
+            if (Math.abs(sq) > 0.004) squash = { along: [sqN.x, sqN.y, sqN.z], by: 1 - sq, about: place.mid };
+            else if (getUp && Math.abs(getUp.squash - 1) > 0.004) squash = { along: [0, 1, 0], by: getUp.squash, about: [place.mid[0], place.mid[1] - CORE, place.mid[2]] };
+            else if (stK > 0.004 && sp > 1e-3) {
+              const cS = Math.cos(-SIDE_ON), sS = Math.sin(-SIDE_ON);
+              squash = { along: [(bVel.x * cS + bVel.z * sS) / sp, bVel.y / sp, (-bVel.x * sS + bVel.z * cS) / sp], by: 1 + stK, about: place.mid };
+            }
+            pose = { ...pose, body: placed(place, squash) };
+            // the tail streams behind it (not folded at the top of a throw up, where it swishes; less in the hand)
+            const tl = Math.hypot(trail[0], trail[1], trail[2]);
+            const tw = smoothstep(0.08, 0.45, tl) * (1 - foldK) * (bd?.held ? 0.6 : 1) * (phys ? 1 : 0);
+            if (tw > 0.01) {
+              const dir: V3 = [trail[0] / tl, trail[1] / tl, trail[2] / tl];
+              // (never through the bench: over it, the stream is bent up by what the tail's length would take it under)
+              tv.set(0, TAIL.y, TAIL.z).applyMatrix4(bodyMatrix(placed(place)));
+              if (overBench(tv.x, tv.z)) {
+                const lim = Math.max(-1, Math.min(1, (tv.y - (w.scene.bench.top - root.position.y) / S - 0.07) / 0.5));
+                const down = dirIntoBody(place, [0, -1, 0]);
+                for (let i = 0; i < 2; i++) {
+                  const dn = dir[0] * down[0] + dir[1] * down[1] + dir[2] * down[2];
+                  if (dn <= lim) break;
+                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! - down[a]! * (dn - lim);
+                  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+                  for (let a = 0; a < 3; a++) dir[a] = dir[a]! / l;
+                }
+              }
+              pose.stream = { dir, w: tw };
+            }
+          } else if (Math.abs(sq) > 0.004) {
+            // (the last of a squash over the script's own pose: the hop's landing, about its seat)
+            const b = pose.body ?? {};
+            const at0 = b.at ?? (b.pivot === 'scruff' ? SCRUFF_AT : ([0, 0, 0] as const));
+            pose = { ...pose, body: { ...b, squash: { along: [sqN.x, sqN.y, sqN.z], by: 1 - sq, about: [at0[0], at0[1], at0[2]] } } };
+          }
+        }
         last = pose;
         lastAtI = atI;
         lastMode = mode;
@@ -853,8 +1117,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         stool.position.set(stoolRest.x + dx, stoolRest.y, stoolRest.z);
         // R4: thrown off the bench, it is out of sight until it comes back up the chute
         root.visible = mode !== 'away';
-        grabbable = st !== 'ledge' && st !== 'haul' && st !== 'away';
-        if (mode === 'held') root.position.set(atI[0], atI[1], atI[2]);
+        // (the body Patch can be taken hold of on the ledge too: its simulation gives it a body there)
+        grabbable = bodied ? st !== 'away' : st !== 'ledge' && st !== 'haul' && st !== 'away';
+        if (mode === 'held' && !bodied) root.position.set(atI[0], atI[1], atI[2]);
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
@@ -869,6 +1134,10 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           else pose = grounded(pose, figure, floor, overBench);
         }
         apply(pose);
+        if (bodied) {
+          drawnPlace = placeOf(pose.body);
+          drawnShown = root.visible;
+        }
         {
           const m = bodyMiddle(pose);
           drawnMid.set(m[0], m[1], m[2]).applyMatrix4(root.matrixWorld);

@@ -8,7 +8,8 @@
 //    and the test says so if one happens);
 //  - its sideways drift goes on unchanged through the top of a throw up;
 //  - a throw straight up floats at its top: it is longer in the air than the same throw without the float, by about
-//    the old dead stop's 0.15 s; the float fades as the throw leans over, smoothly, and a throw across has none;
+//    the old dead stop's 0.15 s; the float fades as the throw leans over, smoothly (all of it within ten degrees of
+//    straight up, none from thirty: crew/patch-float.ts, the one rule both Patches have), and a throw across has none;
 //  - `PatchView.prevAt`, for drawing between steps: the step before's `at` in flight (and under the hand on the
 //    release step), and `at` itself across a jump.
 import { describe, expect, test } from 'vitest';
@@ -108,11 +109,11 @@ describe('R5: Patch in the air moves on every step, its speed changes only by gr
     ['straight up at 9', [0, 9, 0], true],
     ['straight up at 12', [0, 12, 0], true],
     ['up at 9 with 1.5 across', [1.5, 9, 0], true],
-    ['up at 9 with 3.5 across', [3.5, 9, 0], false],
+    ['up at 9 with 3.5 across', [3.5, 9, 0], 'some'],
     ['across at 8 with 5 up', [8, 5, 0], false],
     ['across at 6 with 9 up', [6, 9, 0], false],
   ] as const) {
-    test(`thrown ${label}: never a still step, the velocity continuous, the drift unchanged${floats ? ', and it floats at the top' : ''}`, async () => {
+    test(`thrown ${label}: never a still step, the velocity continuous, the drift unchanged${floats === true ? ', and it floats at the top' : floats ? ', and it floats a little' : ''}`, async () => {
       const air = await fly(hand, v as unknown as Vec3);
       expect(air.hits, 'it met nothing (a hit would be a legitimate jump in velocity)').toBe(0);
       expect(air.steps).toBeGreaterThan(20);
@@ -132,7 +133,13 @@ describe('R5: Patch in the air moves on every step, its speed changes only by gr
       expect(air.prevGap).toBeLessThan(1e-9);
       expect(air.releasePrev, 'prevAt on the release step: the middle under the hand a step before').toBeLessThan(0.05);
       const extra = (air.steps - air.ballistic) / HZ;
-      if (floats) {
+      if (floats === 'some') {
+        // about twenty degrees off straight up: some of the float, not all of it
+        expect(air.float).toBeGreaterThan(0.2);
+        expect(air.float).toBeLessThan(0.8);
+        expect(extra).toBeGreaterThan(0);
+        expect(extra).toBeLessThan(0.15);
+      } else if (floats) {
         // the beat at the top: about the old stop's 0.15 s more in the air (0.08 .. 0.25 allows the fade with a lean
         // and the step the landing falls on)
         expect(air.float).toBeGreaterThan(0.5);
@@ -147,14 +154,14 @@ describe('R5: Patch in the air moves on every step, its speed changes only by gr
     }, 60_000);
   }
 
-  test('the float fades smoothly as the throw leans over: never more air time for a throw that leans more, and none by 19 degrees', async () => {
+  test('the float fades smoothly as the throw leans over: never more air time for a throw that leans more, and none by 30 degrees', async () => {
     const extras: number[] = [];
-    for (const across of [0, 0.75, 1.5, 2.25, 3.0, 3.75]) {
+    for (const across of [0, 0.9, 1.8, 2.7, 3.6, 4.5, 5.4]) {
       const air = await fly(hand, [across, 9, 0]);
       expect(air.hits).toBe(0);
       extras.push((air.steps - air.ballistic) / HZ);
     }
-    if (process.env.FLOAT_LOG) console.log(`extra air (s) for 0..3.75 across: ${extras.map((x) => x.toFixed(3)).join(", ")}`);
+    if (process.env.FLOAT_LOG) console.log(`extra air (s) for 0..5.4 across: ${extras.map((x) => x.toFixed(3)).join(", ")}`);
     for (let i = 1; i < extras.length; i++) expect(extras[i]!, extras.join(', ')).toBeLessThanOrEqual(extras[i - 1]! + 1 / HZ + 1e-9);
     // (a step from one lean to the next is at most a fraction of the whole: no threshold where it switches)
     for (let i = 1; i < extras.length; i++) expect(extras[i - 1]! - extras[i]!, extras.join(', ')).toBeLessThan(0.1);

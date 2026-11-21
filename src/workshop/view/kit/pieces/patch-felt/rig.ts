@@ -141,6 +141,17 @@ export interface BodyPlace {
   /** [pitch (+ tips the head forward, toward +Z), yaw (+ turns toward +X), roll (+ drops the head toward +X)], radians, applied yaw, pitch, roll. */
   rot?: [number, number, number];
   pivot?: 'seat' | 'scruff';
+  /**
+   * The turn as a quaternion [x, y, z, w] (root space) instead of `rot`: for a body that tumbles freely (Patch's
+   * physics body), which three angles cannot follow without unwinding.
+   */
+  quat?: readonly [number, number, number, number];
+  /**
+   * Squash and stretch: the whole figure scaled by `by` along `along` (a unit direction, root space) and by
+   * 1 / sqrt(by) across it (its volume kept), about the point `about` (root space). A toy's, brief, on top of
+   * the placement.
+   */
+  squash?: { along: readonly [number, number, number]; by: number; about: readonly [number, number, number] };
 }
 
 export interface PatchPose {
@@ -185,6 +196,11 @@ export interface PatchPose {
   tailLift?: number;
   /** Each arm's size [left, right] (1 as built): a toy's arm stretches a little to reach its own face (the facepalm). */
   armScale?: [number, number];
+  /**
+   * The tail streaming: by `w` (0..1) its root points along `dir` (the body's own frame; kept out of the body: no
+   * nearer its front than `STREAM_CONE`) and it straightens; `tail` still waves it. Absent: the tail as `tailLift` has it.
+   */
+  stream?: { dir: readonly [number, number, number]; w: number };
 }
 
 const J = (swing: number, abduct: number, twist: number, elbow: number, wrist: number, roll: number): ArmJoints => ({ swing, abduct, twist, elbow, wrist, roll });
@@ -208,7 +224,7 @@ export const PRESETS: Record<ArmPreset, Arms> = {
 /** The neutral pose: the rest the cavity is baked in (eyes open so the lids bake in open air). */
 export const LEG_REST: LegJoints = { lift: 0, splay: 0, knee: 0 };
 
-export const NEUTRAL: Required<Omit<PatchPose, 'arms' | 'body'>> & { arms: ArmPreset; body: BodyPlace } = {
+export const NEUTRAL: Required<Omit<PatchPose, 'arms' | 'body' | 'stream'>> & { arms: ArmPreset; body: BodyPlace } = {
   body: {},
   legs: [LEG_REST, LEG_REST],
   headset: [0, 0],
@@ -506,12 +522,42 @@ export function poseMatrices(pose: PatchPose = {}): Record<string, Matrix4> {
   const segs = TAIL.segs;
   // the segments are built along their local +Y; the base points back and a little down
   // (+Y of a segment turned by a about X points along (0, cos a, sin a): -1.9 is back and down, -3 straight down)
-  m.tail = chain(T(0, TAIL.y, TAIL.z), RZ(-sway * 0.5), RX(-1.75 + clamp(p.tailLift, -1.4, 0.8)));
-  m.tail2 = chain(T(0, segs[0], 0), RZ(-sway * 0.4), RX(-0.95 + curl * 0.2));
-  m.tail3 = chain(T(0, segs[1], 0), RZ(-sway * 0.3), RX(0.85 + curl * 0.4));
-  m.tail4 = chain(T(0, segs[2], 0), RZ(-sway * 0.3), RX(0.95 + curl * 0.5));
+  const tailBase = chain(RZ(-sway * 0.5), RX(-1.75 + clamp(p.tailLift, -1.4, 0.8)));
+  const st = pose.stream && pose.stream.w > 1e-3 ? pose.stream : null;
+  if (!st) {
+    m.tail = chain(T(0, TAIL.y, TAIL.z), tailBase);
+    m.tail2 = chain(T(0, segs[0], 0), RZ(-sway * 0.4), RX(-0.95 + curl * 0.2));
+    m.tail3 = chain(T(0, segs[1], 0), RZ(-sway * 0.3), RX(0.85 + curl * 0.4));
+    m.tail4 = chain(T(0, segs[2], 0), RZ(-sway * 0.3), RX(0.95 + curl * 0.5));
+    return m;
+  }
+  // streaming: the root turned (the short way from "straight back", which is never the forbidden way) to point
+  // along the stream, by `w`; the segments' own S-curve let out as it goes
+  const w = clamp(st.w, 0, 1);
+  const d = new Vector3(st.dir[0], st.dir[1], st.dir[2]);
+  if (d.lengthSq() < 1e-9) d.set(0, 0, -1);
+  d.normalize();
+  const back = new Vector3(0, 0, -1);
+  const off = Math.acos(clamp(d.dot(back), -1, 1));
+  if (off > STREAM_CONE) {
+    const side = d.clone().addScaledVector(back, -d.dot(back));
+    if (side.lengthSq() < 1e-9) side.set(0, 1, 0);
+    side.normalize();
+    d.copy(back).multiplyScalar(Math.cos(STREAM_CONE)).addScaledVector(side, Math.sin(STREAM_CONE));
+  }
+  const qa = new Quaternion().setFromRotationMatrix(tailBase);
+  const qb = new Quaternion().setFromUnitVectors(back, d).multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2));
+  qa.slerp(qb, w);
+  const k = 1 - 0.75 * w;
+  m.tail = chain(T(0, TAIL.y, TAIL.z), new Matrix4().makeRotationFromQuaternion(qa));
+  m.tail2 = chain(T(0, segs[0], 0), RZ(-sway * 0.4), RX((-0.95 + curl * 0.2) * k));
+  m.tail3 = chain(T(0, segs[1], 0), RZ(-sway * 0.3), RX((0.85 + curl * 0.4) * k));
+  m.tail4 = chain(T(0, segs[2], 0), RZ(-sway * 0.3), RX((0.95 + curl * 0.5) * k));
   return m;
 }
+
+/** The streaming tail points no nearer the body's front than this (radians from straight back): it does not pass through the body. */
+export const STREAM_CONE = 1.9;
 
 /** The folder (right paw space): its size, and where the paw holds it. */
 export const FOLDER = { w: 0.2, h: 0.25, t: 0.012 } as const;
@@ -522,12 +568,29 @@ export function bodyMatrix(b: BodyPlace = {}): Matrix4 {
   const piv = b.pivot === 'scruff' ? SCRUFF : ([0, 0, 0] as const);
   const at = b.at ?? [piv[0], piv[1], piv[2]];
   const r = b.rot ?? [0, 0, 0];
-  return chain(T(at[0], at[1], at[2]), RY(r[1]), RX(r[0]), RZ(-r[2]), T(-piv[0], -piv[1], -piv[2]));
+  if (!b.quat && !b.squash) return chain(T(at[0], at[1], at[2]), RY(r[1]), RX(r[0]), RZ(-r[2]), T(-piv[0], -piv[1], -piv[2]));
+  const turn = b.quat ? new Matrix4().makeRotationFromQuaternion(new Quaternion(b.quat[0], b.quat[1], b.quat[2], b.quat[3]).normalize()) : chain(RY(r[1]), RX(r[0]), RZ(-r[2]));
+  const m = chain(T(at[0], at[1], at[2]), turn, T(-piv[0], -piv[1], -piv[2]));
+  const q = b.squash;
+  if (!q || Math.abs(q.by - 1) < 1e-6) return m;
+  // by along the direction, 1 / sqrt(by) across it (a symmetric stretch: I·c + (by - c)·d dᵀ), about the point
+  const d = new Vector3(q.along[0], q.along[1], q.along[2]);
+  if (d.lengthSq() < 1e-9) return m;
+  d.normalize();
+  const by = clamp(q.by, 0.5, 1.6);
+  const c = 1 / Math.sqrt(by), e = by - c;
+  const stretch = new Matrix4().set(
+    c + e * d.x * d.x, e * d.x * d.y, e * d.x * d.z, 0,
+    e * d.y * d.x, c + e * d.y * d.y, e * d.y * d.z, 0,
+    e * d.z * d.x, e * d.z * d.y, c + e * d.z * d.z, 0,
+    0, 0, 0, 1,
+  );
+  return chain(T(q.about[0], q.about[1], q.about[2]), stretch, T(-q.about[0], -q.about[1], -q.about[2]), m);
 }
 
 /** Anything with named children that have a position/quaternion/scale (a realized Object3D). */
 interface Posable {
-  getObjectByName(name: string): { position: Vector3; quaternion: Quaternion; scale: Vector3 } | undefined;
+  getObjectByName(name: string): MatrixNode | undefined;
 }
 
 /**
@@ -539,6 +602,24 @@ export function posePatch(root: Posable, pose: PatchPose = {}): void {
   const ms = poseMatrices(pose);
   for (const [name, mat] of Object.entries(ms)) {
     const o = root.getObjectByName(name);
-    if (o) mat.decompose(o.position, o.quaternion, o.scale);
+    if (o) setNode(o, mat, name === 'body' && !!pose.body?.squash);
   }
+}
+
+/** A node that can also be given its matrix whole (an Object3D). */
+type MatrixNode = { position: Vector3; quaternion: Quaternion; scale: Vector3; matrix?: Matrix4; matrixAutoUpdate?: boolean; matrixWorldNeedsUpdate?: boolean };
+
+/**
+ * Give a node its local transform. `whole`: the matrix is not a turn and a scale along the node's own axes (the
+ * body squashed along the way it is going), so it is written as it is; otherwise as position, turn and scale.
+ */
+export function setNode(o: MatrixNode, mat: Matrix4, whole = false): void {
+  if (whole && o.matrix) {
+    o.matrixAutoUpdate = false;
+    o.matrix.copy(mat);
+    o.matrixWorldNeedsUpdate = true;
+    return;
+  }
+  if (o.matrixAutoUpdate === false) o.matrixAutoUpdate = true;
+  mat.decompose(o.position, o.quaternion, o.scale);
 }
