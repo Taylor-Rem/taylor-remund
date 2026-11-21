@@ -469,10 +469,14 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
     const from: Vec3 = [-2.9 + 1.7 + (speed * (run - 1)) / HZ, 0.75 + HALF[1], 2.78];
     lift(w, t, [from[0], from[1] + 1.4, from[2]]);
     let crate: string | null = null;
-    for (let i = 0; i < steps(90) && !crate; i++) {
+    for (let i = 0; i < steps(120) && !crate; i++) {
       t.run(1);
       const f = w.crew('fetch')!;
-      if (f.carrying && f.state === 'idle' && Math.hypot(f.x - -2.9, f.z - 2.78) < 0.05 && i > steps(8)) crate = f.carrying;
+      if (!f.carrying || f.state !== 'idle' || Math.hypot(f.x - -2.9, f.z - 2.78) > 0.05 || i < steps(8)) continue;
+      // (in its hands and lifted: off the place its location says, not the moment its hands close on it there)
+      const m = w.motion(f.carrying)!;
+      const loc = w.part(f.carrying)!.location;
+      if (m.mode === 'crew' && (loc.at !== 'rest' || Math.hypot(m.pose.p[0] - loc.pose.p[0], m.pose.p[1] - loc.pose.p[1], m.pose.p[2] - loc.pose.p[2]) > 0.4)) crate = f.carrying;
     }
     expect(crate, 'it stands with a crate').toBeTruthy();
     const locBefore = w.part(crate!)!.location;
@@ -485,15 +489,24 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
     fling(w, t, from, [-speed, 0, 0], run);
     const knocked = t.until((e) => e.type === 'crew.knocked' && e.id === 'fetch', steps(3));
     expect((knocked?.e as { dropped?: string | null } | undefined)?.dropped, 'it drops its crate').toBe(crate);
-    t.run(steps(6));
+    t.run(3);
+    // the crate is loose, and moving under Patch's own throw: wherever it comes to rest is that transaction's
     expect(w.mode(crate!)).toBe('free');
-    const txn = w.writer(crate!, 'location');
-    expect(txn, 'its rest is a throw\'s').toMatch(/^t\d+$/);
     expect(w.undoStack().length).toBe(stackBefore + 1);
-    expect(w.undoStack().at(-1)?.subject, 'Patch\'s own throw').toBe(BODY);
+    const top = w.undoStack().at(-1)!;
+    expect(top.kind).toBe('release');
+    expect(top.subject, 'Patch\'s own throw').toBe(BODY);
+    expect(top.moving).toContain(crate);
+    const flung = w.motion(crate!)!.pose.p;
+    expect(locBefore.at === 'rest' && Math.hypot(flung[0] - locBefore.pose.p[0], flung[1] - locBefore.pose.p[1], flung[2] - locBefore.pose.p[2])).toBeGreaterThan(0.4);
+    // the lever: the crate is back where the history had it before the throw; Patch tumbles on
     w.dispatch({ type: 'undo' });
-    t.run(steps(3));
+    const undone = t.run(1).find((e) => e.type === 'undone') as unknown as { restores: { target: string }[] } | undefined;
+    // (put back on the pad, where Fetch, still sliding from the knock, may shove it again: its location is the record)
+    expect(undone?.restores.map((r) => r.target)).toEqual([crate]);
     expect(w.part(crate!)!.location).toEqual(locBefore);
+    expect(w.undoStack().length).toBe(stackBefore);
+    expect(w.motion(BODY)!.mode).toBe('free');
     expect(home(w, t).at(-1)).toBe('seated');
     w.dispose();
   }, 120_000);
