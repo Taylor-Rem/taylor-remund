@@ -13,8 +13,11 @@
  * the slot, and a return spring from the deck's right to a lug on the lever
  * that stretches as it is pulled.
  *
+ * The station lamp (T1) stands on the deck's front left: `lamp` >
+ * `lamp.lit` / `lamp.unlit`.
+ *
  * Built in world space at rest (home); each node's parts are carried into its
- * own space. Four meshes: `steel` (enamel, the painted bar, the spring, the
+ * own space. Four meshes (five with the lit lens, `bulb`): `steel` (enamel, the painted bar, the spring, the
  * bolts), `brass`, `rubber`, `tape`. Moving nodes: see pose.ts.
  *
  * Sockets: `base` (the origin: where it stands on the bench), `grip` (the
@@ -34,6 +37,7 @@ import { deform, transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
 import { rng } from '../../rng.ts';
 import { bevelBox, hexHead, sheet, stud } from '../../cheap.ts';
+import { pilotLamp } from '../../details.ts';
 import { HIDDEN, LEVER, NAMED_POSES, leverAngle, lugAt, posePiece, ringX, springRestLength } from './pose.ts';
 import type { UndoPose } from './pose.ts';
 import { estimateLabels, undoLabels } from './labels.ts';
@@ -55,6 +59,9 @@ export const CONSOLE = {
   frontTopZ: 0.15,
   backZ: -0.3,
 } as const;
+
+/** T1: the station lamp on the deck (x, z) and its lens radius. */
+export const UNDO_LAMP = { x: -0.5, z: 0.0, r: 0.05 } as const;
 
 /** The quadrant plate: its front face z, thickness, radius; the slot's centre radius. */
 export const QUADRANT = { zFront: -0.21, t: 0.045, r: 0.65, slotR: 0.43, slotW: 0.045 } as const;
@@ -331,7 +338,22 @@ export function undoLever(o: UndoLeverOptions = {}): Piece {
     });
   }
 
+  // ======================================================================
+  // THE STATION LAMP (T1): a pilot lamp on the deck's front left, clear of
+  // the lever's swing: nodes `lamp` > `lamp.lit` / `lamp.unlit` (pose.ts
+  // swaps them: lit while there is something to undo, a slow blink as a tell)
+  // ======================================================================
+  const lampM = chain(T(UNDO_LAMP.x, CONSOLE.top, UNDO_LAMP.z), new Matrix4().makeRotationY(rng(seed + 60).range(0, Math.PI)));
+  {
+    const pl = pilotLamp({ r: UNDO_LAMP.r, seed: seed + 60 });
+    b.add(...pl.fixed.map((q) => ({ ...q, geometry: transform(q.geometry, lampM) })));
+    const lamp = b.node('lamp', lampM);
+    lamp.node('lamp.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(pl.lit);
+    lamp.node('lamp.unlit').add(pl.unlit);
+  }
+
   b.socket('base', new Matrix4());
+  b.socket('lamp', lampM);
   b.socket('pivot', T(px, py, pz));
   b.socket('grip', chain(Lw, T(0, (yG0 + yG1) / 2, 0)));
   b.socket('tape', front(0, tapeY, 0.01));

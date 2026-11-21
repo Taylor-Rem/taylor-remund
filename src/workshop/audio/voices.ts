@@ -14,6 +14,23 @@ import { partHz, MATERIALS, SIZES } from './notes.ts';
 /** How a sound is used: once, or looped under a level and a rate the score sets every frame. */
 export type SoundKind = 'once' | 'loop';
 
+/**
+ * T1: the rattle's knocks, seconds after the tell, and each one's strength. The view's shiver is drawn from the
+ * same table (view/stations/tells.ts `RATTLE`; tests/unit/view/tells.test.ts holds the two equal). Audio may not
+ * import the view, so the numbers are here twice.
+ */
+export const TELL_RATTLE = {
+  start: 0.35,
+  knocks: [
+    [0, 1],
+    [0.075, 0.75],
+    [0.14, 0.9],
+    [0.22, 0.6],
+    [0.29, 0.45],
+    [0.38, 0.25],
+  ] as readonly (readonly [number, number])[],
+} as const;
+
 export interface SoundDef {
   readonly id: string;
   /** For the audition page and the table: what it belongs to. */
@@ -878,6 +895,21 @@ const OTHERS: SoundDef[] = [
     level: -18,
     length: [0.01, 0.06],
     draw: (sr, rnd) => knock(alloc(sr, 0.06), sr, rnd, [[3000, 0.5, 0.004], [1700, 0.3, 0.006]], { noiseAmp: 0.15 }),
+  }),
+  once({
+    // T1: the second tell's rattle (view/stations/tells.ts RATTLE: the same knocks, at the same times): the tick,
+    // then a lid knocking in its seat a third of a second later, dying away, as if something inside wanted out
+    id: 'tell.rattle',
+    group: 'misc',
+    answers: "tell, the second time round for a station (its tick, then its lid rattles)",
+    level: -11,
+    length: [0.6, 0.95],
+    draw: (sr, rnd) => {
+      const out = alloc(sr, 0.95);
+      knock(out, sr, rnd, [[3000, 0.5, 0.004], [1700, 0.3, 0.006]], { noiseAmp: 0.15, gain: 0.35 });
+      for (const [t, a] of TELL_RATTLE.knocks) knock(out, sr, rnd, [[820, 0.5, 0.03], [1930, 0.35, 0.014], [3400, 0.2, 0.006]], { at: TELL_RATTLE.start + t, gain: a, jitter: 0.06, noiseF: 2600, noiseAmp: 0.35 });
+      return out;
+    },
   }),
   once({
     id: 'relay.tick',

@@ -9,7 +9,7 @@ import { lugAt, springRestLength } from '../../../src/workshop/view/kit/pieces/u
 import handles from '../../../src/content/handles.json';
 import { checkGeometry } from './helpers.ts';
 
-const CAP = 3400; // raised from 2,500 for round 2 (the lead): a stout lever, a fat grip, a round spring
+const CAP = 3700; // raised from 2,500 for round 2 (the lead): a stout lever, a fat grip, a round spring; T1: + its station lamp (about 250)
 
 const stub: Materials = {
   of: (): Material => new MeshBasicMaterial(),
@@ -45,12 +45,12 @@ describe('the UNDO lever', () => {
     expect(Array.from(undoLever({ seed: 4 }).root.parts[0]!.geometry.getAttribute('position').array)).not.toEqual(Array.from(x));
   });
 
-  it('fits its triangle cap in four meshes', () => {
+  it('fits its triangle cap in five meshes (four, and the station lamp\'s lit lens)', () => {
     const b = K.budget(p, CAP);
     expect(p.triangles).toBeLessThanOrEqual(CAP);
     expect(p.triangles).toBe(K.countTriangles(p));
-    expect(b.meshes).toBeLessThanOrEqual(4);
-    expect(new Set(Object.keys(b.byMaterial))).toEqual(new Set(['steel', 'brass', 'rubber', 'tape']));
+    expect(b.meshes).toBeLessThanOrEqual(5);
+    expect(new Set(Object.keys(b.byMaterial))).toEqual(new Set(['steel', 'brass', 'rubber', 'tape', 'bulb']));
     expect(undoLever({ detail: 'low' }).triangles).toBeLessThan(p.triangles);
   });
 
@@ -118,7 +118,8 @@ describe('the UNDO lever', () => {
     const local = lever.worldToLocal(grip.clone());
     poseUndoLever(o, { ...NAMED_POSES['pulled'] });
     o.updateMatrixWorld(true);
-    const moved = new Set(['lever', 'latch', 'catch', 'spring', 'spring.end', ...Array.from({ length: LEVER.rings }, (_, k) => `spring.ring${k}`)]);
+    // (T1: 'pulled' lights the station lamp: its twins swap)
+    const moved = new Set(['lever', 'latch', 'catch', 'spring', 'spring.end', 'lamp.lit', 'lamp.unlit', ...Array.from({ length: LEVER.rings }, (_, k) => `spring.ring${k}`)]);
     const after = snapshot(o);
     o.traverse((c) => {
       const changed = before.get(c.uuid)!.some((v, i) => Math.abs(v - after.get(c.uuid)![i]!) > 1e-9);

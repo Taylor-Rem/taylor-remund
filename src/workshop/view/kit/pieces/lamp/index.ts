@@ -64,6 +64,7 @@ import { setFinish } from '../../space.ts';
 import { bevelBox, ridgedBand, stud, hexHead, sheet } from '../../cheap.ts';
 import { ATTR } from '../../types.ts';
 import { tint } from '../../surface.ts';
+import { pilotLamp } from '../../details.ts';
 import { DIM, LAMP_PLACE } from './rig.ts';
 import type { V3 } from './rig.ts';
 import { HOME, armFrames, jointsOf, aimLamp, AIM_TARGETS } from './aim.ts';
@@ -80,6 +81,9 @@ export { nodeTransforms, lampSockets, SPRINGS, LIT_LEVELS, HIDDEN, springLength,
 export type { SpringSpec } from './pose.ts';
 
 /** The lit liner's vertex-colour scale (× paper) deep in the bell and at the lip, at full: its glow is this × the bulb class's lamp level. */
+/** T1: the lamp's own pilot lamp's lens radius (world units), on the clamp's face. */
+export const LAMP_PILOT_R = 0.034;
+
 export const LINER_GLOW = { deep: 0.13, lip: 0.03 } as const;
 /** Vent slots in the crown, and their glow at full (× amber-glow × the indicator level). */
 const VENTS = 8;
@@ -166,6 +170,16 @@ export function lamp(o: LampOptions = {}): Piece {
     b.add(setFinish(part('brass', g, 'brass', { seed: seed + 10, shade: 0.92, warm: 0.03 }), 0.15));
     b.small(() => place([part('brass', stud(0.018, 0.012, 5), 'brass', { seed: seed + 11 })], aim([-0.045, (bot0 + clampTop) / 2 + 0.05, 0.39], [0, 0, 1])));
     b.small(() => place([part('brass', stud(0.018, 0.012, 5), 'brass', { seed: seed + 12 })], aim([0.045, (bot0 + clampTop) / 2 + 0.05, 0.392], [0, 0, 1])));
+    // T1: the lamp's own pilot lamp (the station's, § B1), on the clamp's face under the two studs: nodes
+    // `pilot` > `pilot.lit` / `pilot.unlit`, swapped by the view. Never the bulb: that is the room's light.
+    const pilotM = chain(aim([0, (bot0 + clampTop) / 2 - 0.055, 0.392], [0, 0, 1]), new Matrix4().makeRotationY(rng(seed + 13).range(0, Math.PI)));
+    const pl = pilotLamp({ r: LAMP_PILOT_R, seed: seed + 13, unlit: 'metal' });
+    b.add(...pl.fixed.map((q) => ({ ...q, geometry: transform(q.geometry, pilotM) })));
+    const pilot = b.node('pilot', pilotM);
+    // the lit lens is the lamp's own bulb class (its 'lamp' variant): no draw of its own, and it takes the lamp's colour
+    pilot.node('pilot.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(withVariant(pl.lit, 'lamp'));
+    pilot.node('pilot.unlit').add(pl.unlit);
+    b.socket('pilot', pilotM);
     // the thumbscrew: a threaded shank, a knurled wheel and a turned end (the pad under the rail is hidden)
     const sx = 0, sz = rail.z;
     const shank = lathe(

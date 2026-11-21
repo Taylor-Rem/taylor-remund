@@ -43,3 +43,31 @@ export function blobShadowMesh(count: number, decal: Material): InstancedMesh {
   mesh.frustumCulled = false;
   return mesh;
 }
+
+/**
+ * T1: the station lamps' glows (view/effects/lamp-halos.ts): one mesh with room for `n` quads (uv 0..1 each),
+ * corners and levels written each frame in world space, facing the camera. One draw call, none while no lamp is lit.
+ */
+export function haloMesh(n: number, material: Material): Mesh {
+  const k = Math.max(1, n);
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(new Float32Array(k * 4 * 3), 3).setUsage(DynamicDrawUsage));
+  g.setAttribute('color', new BufferAttribute(new Float32Array(k * 4 * 3), 3).setUsage(DynamicDrawUsage));
+  const uv = new Float32Array(k * 8);
+  const idx: number[] = [];
+  for (let q = 0; q < k; q++) {
+    uv.set([0, 0, 1, 0, 1, 1, 0, 1], q * 8);
+    idx.push(q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3);
+  }
+  g.setAttribute('uv', new BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.setDrawRange(0, 0);
+  const mesh = new Mesh(g, material);
+  mesh.name = 'lamp-halos';
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 2;
+  mesh.visible = false;
+  return mesh;
+}

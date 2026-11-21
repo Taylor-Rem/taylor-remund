@@ -81,15 +81,8 @@ export function lineBus(scene: object): LineBus {
   return b;
 }
 
-/** Tune here: the station lamp's tell (§ B1: "blinks slowly as a tell"): period and the lit part of it (seconds). */
-export const LAMP_BLINK = { period: 1.4, lit: 0.75 } as const;
-
-/** A station lamp's lit half (`lamp.lit` shown) for its state at simulation time `t`: dark, steady, or a slow blink. */
-export function lampOn(state: LampState, t: number): boolean {
-  if (state === 'dark') return false;
-  if (state === 'steady') return true;
-  return ((t % LAMP_BLINK.period) + LAMP_BLINK.period) % LAMP_BLINK.period < LAMP_BLINK.lit;
-}
+/** The station lamps' rule lives in `station-lamp.ts` (T1): one blink for every station. Re-exported for the views that import it from here. */
+export { lampOn, lampLevel } from './station-lamp.ts';
 
 /**
  * True for a restore this view draws (W3 brief: the undo's hops are drawn "everywhere it is not already

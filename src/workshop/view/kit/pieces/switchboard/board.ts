@@ -56,6 +56,7 @@ import { dent, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { bevelBox, sheet, stud } from '../../cheap.ts';
 import { triangleCount } from '../../mesh.ts';
+import { pilotLamp } from '../../details.ts';
 import { estimateLabels, JACKS, SLICE_JACKS, TAPE_CAP, TAPE_CAP_WHOLE } from './labels.ts';
 import type { JackName, LabelRef, SwitchboardLabelRefs } from './labels.ts';
 import { HIDDEN, NAMED_POSES, poseSwitchboard } from './pose.ts';
@@ -247,7 +248,10 @@ function drawer(b: PieceBuilder, add: ReturnType<typeof adder>, j: JackName, x: 
   add(d, 'drawers', place(parts, toNode));
 }
 
-/** The keyshelf's cord grommets (the cord rises from the middle one) and its ferrule; returns the cord.root socket. */
+/** T1: the cord's supervisory lamp, from the cord's root on the keyshelf (x, z), and its lens radius. */
+export const CORD_LAMP = { dx: 0.19, dz: 0.11, r: 0.036 } as const;
+
+/** The keyshelf's cord grommets (the cord rises from the middle one) and its ferrule, and the cord's own lamp; returns the cord.root socket. */
 function grommets(b: PieceBuilder, add: ReturnType<typeof adder>, root: readonly [number, number, number], yK: number, seed: number): Matrix4 {
   for (const dx of [-0.36, 0, 0.36]) {
     const g = lathe(
@@ -259,6 +263,15 @@ function grommets(b: PieceBuilder, add: ReturnType<typeof adder>, root: readonly
   }
   const fer = lathe(profile(0.044, 0).to(0.044, 0.035, { fillet: 0.006, segs: 1 }).to(0.036, 0.06, { fillet: 0.008, segs: 1 }).to(0, 0.062), { segs: 10, caps: 'end', band: 0 });
   add(b, 'grommets', setFinish(part('brass', transform(fer, T(root[0], yK + 0.004, root[2])), 'brass', { seed: seed + 1 }), 0.5));
+  // T1: the cord's own lamp (§ B1), the operator's supervisory lamp in the keyshelf in front of its cord, as a
+  // real cordboard has one per cord: nodes `lamp.cord` > `lamp.cord.lit` / `lamp.cord.unlit` (the view swaps them)
+  const lampM = chain(T(root[0] + CORD_LAMP.dx, yK, root[2] + CORD_LAMP.dz), new Matrix4().makeRotationY(rng(seed + 7).range(0, Math.PI)));
+  const pl = pilotLamp({ r: CORD_LAMP.r, seed: seed + 7 });
+  add(b, 'grommets', pl.fixed.map((q) => ({ ...q, geometry: transform(q.geometry, lampM) })));
+  const lamp = b.node('lamp.cord', lampM);
+  lamp.node('lamp.cord.lit', new Matrix4().makeScale(HIDDEN, HIDDEN, HIDDEN)).add(pl.lit);
+  lamp.node('lamp.cord.unlit').add(pl.unlit);
+  b.socket('lamp.cord', lampM);
   return T(root[0], yK + 0.066, root[2]);
 }
 
