@@ -464,7 +464,7 @@ export function createBelt(ctx: SimContext, spec: BeltSpec): BeltUnit {
       const r = ctx.commit([{ target: part.id, field: 'location', after: { at: 'in', station: spec.station, mouth } }], cause);
       if (r.refused.length > 0) return { ok: false, wanted: CHANGED_SINCE };
       if (!ctx.take(part.id, id)) return OK;
-      lamp.used();
+      lamp.used(part.id);
       takenAt.delete(part.id);
       seat(part.id, { x: pose.p[0], y: pose.p[1], z: pose.p[2], q: pose.q }, work(part.id, cause));
       return OK;

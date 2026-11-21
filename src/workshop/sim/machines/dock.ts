@@ -293,7 +293,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
     const a = rampAt(R, s0);
     const h = Math.max(pose.p[1] - a.p[1], ctx.halfExtents(part)?.[1] ?? 0.2);
     queue.push({ id: part, job, s: s0, inside: 0, s0, h, off: [pose.p[0] - a.p[0], pose.p[2] - a.p[2]], q0: pose.q, yaw0: headingOf(s0) });
-    lamp.used();
+    lamp.used(part);
   }
 
   function ship(s: Shipment): void {

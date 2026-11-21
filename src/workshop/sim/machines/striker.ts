@@ -117,7 +117,7 @@ export function createStriker(ctx: SimContext, spec: StrikerSpec): StrikerUnit {
         if (was === undefined || was === x) continue;
         // passed under the arm in this step, either way
         if ((was < X && x >= X) || (was > X && x <= X)) {
-          lamp.used();
+          lamp.used(id);
           strike(id, p.size, p.material);
           continue;
         }
