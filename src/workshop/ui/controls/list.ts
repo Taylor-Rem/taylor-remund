@@ -298,8 +298,12 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     const t = idOf(e.target);
     if (!t) return;
     if (t.kind === 'id') ws.input.focusOn(t.id);
-    else if (t.kind === 'dest') ws.input.chooseDestination(t.id);
-    else if (t.kind === 'put') ws.input.chooseDestination(null);
+    else if (t.kind === 'dest') {
+      // where it would go is in view (the dock, from the Button's station)
+      const st = ws.framing.of(t.id);
+      if (st !== null && st !== ws.framing.station) ws.framing.frame(st, 'focus');
+      ws.input.chooseDestination(t.id);
+    } else if (t.kind === 'put') ws.input.chooseDestination(null);
     else if (t.kind === 'station') {
       ws.input.focusOn(null);
       if (ws.framing.station !== t.id) ws.framing.frame(t.id, 'focus');

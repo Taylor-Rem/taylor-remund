@@ -74,16 +74,35 @@ export const STATION_BOXES = {
   /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
   top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
 } as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
+/**
+ * A phone held upright: the camera never zooms out past its home (the centre cluster, about 5.6 units across),
+ * so a station wider than that cannot be framed whole. Each is framed by the part of it that holds its controls;
+ * a control outside that is brought into view when focus reaches it (`Framings.thing`).
+ */
+export const STATION_BOXES_PORTRAIT = {
+  /** The Button on its console and the UNDO lever (Revert's hatch is off to the left). */
+  button: { min: [-3.4, 0, -0.4], max: [0.8, 1.7, 1.45] },
+  /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
+  patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
+  /** The middle of the belt: the stack, the striker, Fetch's lane. */
+  line: { min: [-2.0, 0, 0.6], max: [3.8, 2.0, 5.0] },
+  /** The sign's middle and the lamp. */
+  top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
+} as const satisfies Record<keyof typeof STATION_BOXES, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 export type BenchStation = keyof typeof STATION_BOXES;
 export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
 /** Which box a loose part is looked for in first (the boxes overlap; the wall's holds no loose part). */
 const PART_ORDER: readonly BenchStation[] = ['line', 'button', 'patchlamp'];
 
 /** The box of a station's framing, grown so what it frames lies in what the page leaves uncovered (`inset`). */
-export function stationBox(st: BenchStation, inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 }, view: { width: number; height: number; pitch: number } | null = null): Box3 {
-  const s = STATION_BOXES[st];
+export function stationBox(st: BenchStation, inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 }, view: { width: number; height: number; pitch: number } | null = null, portrait = false): Box3 {
+  const s = (portrait ? STATION_BOXES_PORTRAIT : STATION_BOXES)[st];
   const box = new Box3(new Vector3(...s.min), new Vector3(...s.max));
-  if (!view) return box;
+  return view ? clear(box, inset, view) : box;
+}
+
+/** Grow `box` so that, framed, what it held lies in the part of the view the page leaves uncovered (`inset`). */
+function clear(box: Box3, inset: Inset, view: { width: number; height: number; pitch: number }): Box3 {
   const W = Math.max(1, view.width);
   const H = Math.max(1, view.height);
   const frac = (px: number, of: number): number => Math.min(0.6, Math.max(0, px / of));
@@ -229,13 +248,13 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
           stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
           return;
         }
-        ease(stage, stationBox(st as BenchStation, inset, view(stage)));
+        ease(stage, stationBox(st as BenchStation, inset, view(stage), portrait()));
       },
-      thing(id, stage) {
-        const w = loaded().world();
-        const p = w?.motion(id)?.pose.p ?? null;
-        if (!p) return;
-        ease(stage, new Box3(new Vector3(p[0] - 1.6, 0, p[2] - 0.9), new Vector3(p[0] + 1.6, 1.6, p[2] + 0.9)));
+      thing(_id, box, stage, inset) {
+        if (!box) return;
+        // the thing with some of the bench round it
+        const c = box.getCenter(new Vector3());
+        ease(stage, clear(new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset, view(stage)));
       },
     };
   }

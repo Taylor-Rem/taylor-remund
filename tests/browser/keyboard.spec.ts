@@ -260,8 +260,8 @@ test('an address that names a station frames it, Back returns to the whole bench
 });
 
 test.describe('reduced motion', () => {
-  test.use({ reducedMotion: 'reduce' });
   test('focus moving to another station cuts the camera there', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize(VIEW);
     await page.goto('/');
     await live(page);

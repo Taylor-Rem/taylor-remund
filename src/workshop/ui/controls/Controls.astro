@@ -15,23 +15,21 @@ import { LIST } from './words.ts';
 </section>
 <div id="controls-said" class="controls-said" role="log" aria-live="polite"></div>
 <script>
-  // the first script of `/` (shell/home-early.ts) says the tier on <html data-tier>; only a stage tier builds the list
-  const html = document.documentElement;
+  // Only once the stage is live (the loader marks #stage-root `live`: the bench is usable) is the list's code even
+  // asked for: nothing of it stands between the visitor and the bench, and the Still tier never fetches it.
+  const root = document.getElementById('stage-root');
   let asked = false;
   const ask = (): boolean => {
-    const tier = html.dataset['tier'];
-    if (!tier) return false;
-    if (!asked && tier !== 'still') {
-      asked = true;
-      void import('./mount.ts').then((m) => m.mountControls());
-    }
+    if (asked || !root?.classList.contains('live') || !document.documentElement.classList.contains('stage-on')) return asked;
+    asked = true;
+    void import('./mount.ts').then((m) => m.mountControls());
     return true;
   };
-  if (!ask()) {
+  if (root && !ask()) {
     const watch = new MutationObserver(() => {
       if (ask()) watch.disconnect();
     });
-    watch.observe(html, { attributes: true, attributeFilter: ['data-tier'] });
+    watch.observe(root, { attributes: true, attributeFilter: ['class'] });
   }
 </script>
 <style is:global>

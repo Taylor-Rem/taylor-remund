@@ -76,8 +76,8 @@ export interface Framings {
   of(id: Id): string | null;
   /** Ease (under reduced motion: cut) to station `st`, or to the whole bench (null). */
   show(st: string | null, stage: Stage, inset: Inset): void;
-  /** Bring one thing into view without leaving its station (focus moved to it while it is off screen). */
-  thing(id: Id, stage: Stage, inset: Inset): void;
+  /** Bring one thing (its pick box, `box`) into view without leaving its station (focus moved to it while it is off screen). */
+  thing(id: Id, box: Box3 | null, stage: Stage, inset: Inset): void;
 }
 
 /**
@@ -558,7 +558,9 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   const fromInput = (intent: Intent, t: number): void => {
     if (intent.type === 'press' && panelIds.has(intent.id)) {
       if (phone && !phone.isOpen) {
-        phone.open(canvas);
+        // (P3 B2) focus returns to what opened it: the canvas, or the controls list's Phone button
+        const by = typeof document !== 'undefined' ? document.activeElement : null;
+        phone.open(by instanceof HTMLElement && by !== document.body ? by : canvas);
         // the line hears it: picking the phone up is the visitor's doing (it ends attract mode, § B3)
         if (world.interactable(lineId)) dispatch({ type: 'press', id: lineId }, t);
       }
@@ -616,7 +618,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
         // camera keeps still (no lurch on every Tab), unless the thing is out of view (a crate gone down the belt)
         const st = framings.of(id);
         if (st !== null && st !== framed.station) framing.frame(st, 'focus');
-        else if (!stage.camera.easing && !onScreen(id)) framings.thing(id, stage, inset);
+        else if (!stage.camera.easing && !onScreen(id)) framings.thing(id, picking.worldBox(id, new Box3()), stage, inset);
         return;
       }
       // focusing a control brings it into view (§ E9); one already in view is left where it is
