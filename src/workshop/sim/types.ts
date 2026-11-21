@@ -99,7 +99,8 @@ export interface PartMotion {
  * being a loose part (`kind: 'unit'`: Patch lifted off its stool, the lamp by its shade; `id` is the
  * unit's id). All three come from the one gesture: `grab`, `carry`, `release`.
  */
-export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id };
+/** (`body`: a held unit with a body of its own, which the world carries exactly as it carries a held part: `Unit.embody`.) */
+export type Holding = { readonly kind: 'part'; readonly id: Id } | { readonly kind: 'plug'; readonly id: Id } | { readonly kind: 'unit'; readonly id: Id; readonly body?: Id };
 
 // ───────────────────────── effects and causes (§ E5) ─────────────────────────
 
@@ -210,6 +211,20 @@ export interface Machine extends Interactable {
 // ───────────────────────── intents: what `input` may ask for ─────────────────────────
 
 /**
+ * How the visitor looks at the bench, as far as a throw needs it (input knows the camera; the simulation does not).
+ * Up the screen is two things at once from a raised eye: away along the bench, and up. A carried thing moves away;
+ * a flick is meant as a throw up. `tilt` lets the world keep the speed the eye saw when it turns one into the other.
+ */
+export interface Lens {
+  /** Level and unit, (x, z): the way "up the screen" runs along the bench, away from the visitor. */
+  readonly away: readonly [number, number];
+  /** tan of the line of sight's tilt below level: one unit/s away along the bench looks like `tilt` units/s straight up. */
+  readonly tilt: number;
+  /** The carried thing's motion that is the carry's own and not the hand's (its surface easing over what is under it), units/s. */
+  readonly drift?: Vec3;
+}
+
+/**
  * Everything the visitor can do, as data. `input` produces these and knows
  * nothing about what any machine does with them.
  */
@@ -228,8 +243,13 @@ export type Intent =
   | { readonly type: 'grab'; readonly id: Id; readonly grip: Vec3 }
   /** While carrying: where the held part should be heading (world space), every frame the pointer moves. */
   | { readonly type: 'carry'; readonly target: Vec3 }
-  /** Let go. `velocity` is the pointer's world-space velocity at release: the throw. */
-  | { readonly type: 'release'; readonly velocity: Vec3 }
+  /**
+   * Let go. The throw is what the held thing was itself doing as it left the hand (the world knows that; the hand
+   * does not send it). `lens` says how the visitor sees the bench, so that a flick up the screen can be read as a
+   * throw up. `velocity`, when given, is used instead of the thing's own motion: a hand that states its speed
+   * (the keys and a cancelled pointer say zero; tests state a throw exactly).
+   */
+  | { readonly type: 'release'; readonly velocity?: Vec3; readonly lens?: Lens }
   /** Tap-then-tap carrying: put the held part at this mouth or this spot. */
   | { readonly type: 'place'; readonly at: Id | Vec3 }
   /** Take hold of the cord's plug (it leaves its jack and follows `carry`). */

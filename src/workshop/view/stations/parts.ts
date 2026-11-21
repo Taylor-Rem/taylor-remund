@@ -128,6 +128,14 @@ export const PARTS_FEEL = {
   blobSpread: 0.45,
   /** Footprint of the blob relative to the part's footprint. */
   blobSize: 1.12,
+  /**
+   * Sent home by the chute where it stands, in plain view (at rest up out of reach, or past the edge but above the
+   * bench top): a quick squash-and-shrink where it is, on the simulation's clock, instead of a cut. Seconds; the
+   * squash's share of it and its depth (fraction of height, widening half as much). Nothing with reduced motion.
+   */
+  exitTime: 0.18,
+  exitSquashShare: 0.35,
+  exitSquash: 0.22,
 } as const;
 
 export type PartsFeel = { -readonly [K in keyof typeof PARTS_FEEL]: number };
@@ -192,6 +200,12 @@ interface Entry {
   s: number;
   v: number;
   blob: Blob;
+  /** The chute's exit: drawn last frame, and how (its matrix, its lowest point, its contact shadow); when the exit began (simulation seconds), or null. */
+  shown: boolean;
+  lastM: Matrix4;
+  lastFoot: Vector3;
+  lastBlob: Blob | null;
+  exitAt: number | null;
 }
 
 /** The stand-in piece: a rounded box of the part's size, in wood. */
@@ -284,6 +298,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
         from: part.colour, to: part.colour, t: 1, ax: WIPE_AXIS[0], ay: WIPE_AXIS[1], az: WIPE_AXIS[2], text: '', length: 0,
         region, painted: '', used: 1,
         lift: 0, s: 0, v: 0, blob: { x: 0, z: 0, rx: 0, rz: 0, strength: 0, y: 0 },
+        shown: false, lastM: new Matrix4(), lastFoot: new Vector3(), lastBlob: null, exitAt: null,
       };
       if (region) crateTape(obj, 0);
       entries.set(part.id, e);
@@ -356,6 +371,39 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
           const e = entries.get(part.id) ?? make(part);
           const m = w.motion(part.id);
           if (!m || m.mode === 'chute' || m.mode === 'gone') {
+            // sent home by the chute where it stood, in plain view (its bottom above the bench top: not fallen off
+            // it): it squashes and shrinks away where it is, on the simulation's clock (with reduced motion: gone)
+            const chute = m?.mode === 'chute';
+            if (chute && e.shown && !(ctx.reducedMotion || w.reducedMotion) && e.lastFoot.y > w.scene.bench.top - 0.05) e.exitAt = frame.time;
+            e.shown = false;
+            const u = e.exitAt === null ? 1 : (frame.time - e.exitAt) / F.exitTime;
+            if (chute && u >= 0 && u < 1) {
+              const a = Math.min(1, u / F.exitSquashShare);
+              const sq = a * a * (3 - 2 * a);
+              const b = Math.max(0, (u - F.exitSquashShare) / (1 - F.exitSquashShare));
+              const left = 1 - b * b * (3 - 2 * b);
+              const f = e.lastFoot;
+              // T(foot) · S · T(−foot) · the pose it was last drawn in
+              mT.makeTranslation(-f.x, -f.y, -f.z);
+              mSquash.makeScale((1 + 0.5 * F.exitSquash * sq) * left, (1 - F.exitSquash * sq) * left, (1 + 0.5 * F.exitSquash * sq) * left).multiply(mT);
+              mT.makeTranslation(f.x, f.y, f.z).multiply(mSquash);
+              e.root.matrix.multiplyMatrices(mT, e.lastM);
+              e.root.matrixWorldNeedsUpdate = true;
+              e.root.visible = true;
+              if (shadows && e.lastBlob) {
+                const lb = e.lastBlob;
+                const g = (1 + 0.5 * F.exitSquash * sq) * left;
+                e.blob.x = lb.x;
+                e.blob.z = lb.z;
+                e.blob.y = lb.y;
+                e.blob.rx = lb.rx * g;
+                e.blob.rz = lb.rz * g;
+                e.blob.strength = lb.strength * left;
+                blobs.push(e.blob);
+              }
+              continue;
+            }
+            if (!chute || u >= 1) e.exitAt = null;
             e.root.visible = false;
             e.s = e.v = e.lift = 0;
             // out of sight it still wears its fields, so it comes back as it went
@@ -433,7 +481,13 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
             b.rz = fz * F.blobSize * grow;
             b.strength = F.blobStrength * Math.exp(-height * F.blobFade) / grow;
             blobs.push(b);
+            e.lastBlob = Object.assign(e.lastBlob ?? { x: 0, z: 0, rx: 0, rz: 0, strength: 0, y: 0 }, b);
           }
+          // as it was drawn, should the chute take it from here (its exit)
+          e.shown = true;
+          e.exitAt = null;
+          e.lastM.copy(e.root.matrix);
+          e.lastFoot.set(pa.x, pa.y - hy, pa.z);
         }
         shadows?.set(blobs);
       },
