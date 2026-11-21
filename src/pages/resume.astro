@@ -42,8 +42,8 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
     <p class="tape">{about.eyebrow.text}</p>
     <h1 class="title" id="about-title">{about.heading.text}</h1>
     <p class="lead" set:html={rich(about.subtitle.text)} />
+    <img class="photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} />
     <div class="about-text">
-      <img class="photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} />
       {about.paragraphs.map((p) => <p set:html={rich(p.text)} />)}
     </div>
     <ul class="figures">
