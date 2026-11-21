@@ -115,7 +115,8 @@ export const PATCH_BODY_TUNING = {
    * The walk home is the scripted Patch's, and it can wait: for a gap on the belt, for a crate where it would step
    * down, for the crew. Stood within `stuckRoom` of one spot for `stuck` seconds on its way, it stops waiting and
    * hops on toward its stool: `rescueHop` or more at a time, over whatever is in the way; at last onto the stool's
-   * foot itself. (The scripted Patch waits there until the bench is cleared, and in two places for good.)
+   * foot itself. (The scripted Patch waits for as long as they stand there. Longer than the script's own last
+   * step at the stool's foot, `PATCH_TUNING.lastStep`, so that is tried first.)
    */
   stuck: 6.5,
   stuckRoom: 0.4,
