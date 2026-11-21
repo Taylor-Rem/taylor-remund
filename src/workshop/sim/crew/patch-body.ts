@@ -69,13 +69,14 @@ export const PATCH_BODY_TUNING = {
   wallAhead: 0.034,
   wallFlat: 0.32,
   /**
-   * Let go with the hand going at a flick's speed (`wallHand` or more) into such a wall no further off than `wallReach` (a flick up the
-   * screen beside the back wall, which the world's hand reads as a throw up): it is thrown at the wall, level, at
-   * the hand's speed (no slower than `wallThrow`), with no more than `wallUp` of upward speed.
+   * Let go with the hand going LEVEL into such a wall at a deliberate flick's speed (`wallHand` or more: the speed at
+   * which the world's hand takes a flick up the screen wholly for a throw up, `LOOSE_TUNING.flickFull`) and the wall
+   * no further off than `wallReach`: its own way stands. It goes at the wall, level, at the hand's speed, with no
+   * more than `wallUp` of upward speed, instead of up in front of a wall it was already travelling into. Slower than
+   * that (a toss, a carry let go of near the wall) it goes as the hand throws anything.
    */
   wallReach: 1.6,
-  wallHand: 6,
-  wallThrow: 7,
+  wallHand: 10,
   wallUp: 2.5,
   // ── the big fall ──
   /** Down from a fall this hard (0..1) or harder, however it lies: it is down for the flop (the view's: flat, a beat, the push-up), this long (s) to this long at the hardest. */
@@ -180,33 +181,26 @@ export const PATCH_BODY_TUNING = {
 
 /**
  * Patch's body as the engine collides it (given to the world as this unit is made: `CrewHandle.body`), in the body's
- * own frame: the origin the middle of its trunk, +Y up the body, +Z its front; world units.
+ * own frame: the origin its middle, +Y up the body, +Z its front; world units. A list of rounded boxes, each with its
+ * share of the weight; it has one.
  *
- * Two rounded boxes, as near the felt as boxes come: the trunk (the felt trunk is 0.36 either side of its axis, 0.32
- * to its front and 0.35 to its back, and stands 0.78 from its seat; the box is as tall as the scene's part, 0.68, so
- * the hand's grip at its top is the scruff and its bottom is the seat) and the head (a ball 0.34 across its middle,
- * 0.69 above the trunk's). So it rolls over its own head instead of the figure riding up over a body that has none,
- * and the felt does not sink into what it touches. The ears, the limbs and the tail are felt only: the view folds
- * them out of the way of the bench.
+ * ONE COMPACT BOX, ON PURPOSE (the scene part's: `PATCH_BODY` in the bench scene). It is the core of the trunk and
+ * nearly as deep as it is tall, so thrown along the bench it tumbles: down four lanes of the open bench at 6, 10 and
+ * 14 units/s it turns 1.4, 1.2 and 2.6 times over and goes 4.2, 5.5 and 8.9 units (a small crate 3.2, 6.5, 10.2).
+ * This is the body Taylor played on 2026-11-20 ("it feels great"). A trunk and a head as two boxes was tried the
+ * same day so that the figure would sit closer on its body (it rides up to 0.9 above this one rolling over its head,
+ * which the view allows for): being long, it fell on its front and slid, 0.4 to 0.7 of a turn at every speed, with
+ * these numbers or any others tried (grip 0.45 to 0.7, spin lost at 0.8 to 2 a second). The tumble is the point; a
+ * closer shape that does not keep it is not an improvement.
  *
- * Its feel (it overrides the scene part's): grip 0.45, next to no bounce of its own (0.05), its spin lost at 2 a
- * second, no drag from the air. Measured down four lanes of the open bench against a small crate thrown the same way:
- * at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2 units; Patch 3.2, 5.8 and 8.3, in about a second, its first
- * touchdown keeping two thirds of its speed (10.6 to 7.4, 12.7 to 9.1), no bounce higher than half a unit (at 0.6 and
- * 1.2 the hardest throw vaulted a unit and a quarter off its first touchdown and wandered up to 1.8 off its line;
- * now 0.2 to 0.7), half a turn to a turn on the way.
+ * Its feel: grip 0.6, next to no bounce of its own (0.05), its spin lost at 1.2 a second, no drag from the air.
  */
 export const PATCH_BODY_SHAPE: {
   parts: { half: Vec3; at: Vec3; round: number; share: number }[];
   feel: { friction: number; restitution: number; linearDamping: number; angularDamping: number };
 } = {
-  parts: [
-    // (all of its weight is its trunk's: its middle, and what it turns about, are the trunk's middle, as the hand,
-    // the throw and the view have it; the head only collides)
-    { half: [0.33, 0.34, 0.3], at: [0, 0, 0], round: 0.15, share: 1 },
-    { half: [0.3, 0.31, 0.29], at: [0, 0.66, 0.03], round: 0.145, share: 0 },
-  ],
-  feel: { friction: 0.45, restitution: 0.05, linearDamping: 0, angularDamping: 2 },
+  parts: [{ half: [0.26, 0.34, 0.24], at: [0, 0, 0], round: 0.12, share: 1 }],
+  feel: { friction: 0.6, restitution: 0.05, linearDamping: 0, angularDamping: 1.2 },
 };
 
 export type Ledge = { readonly edge: 'front' | 'left' | 'right'; readonly at: Vec3; readonly up: Vec3; readonly out: Vec3 };
@@ -471,9 +465,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   }
 
   /** How hard it came down, 0..1. */
-  // (the most one contact took of its velocity, or three quarters of the speed it first came down at, whichever is
-  // more: it skids on from a throw across now, so no one contact takes much, and it was still thrown across the bench)
-  const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, Math.max(a.impact, a.landing * 0.75));
+  const hardness = (a: Air): number => smooth(B.softFrom, B.hardAt, a.impact);
 
   /** Flat against a wall (`n`: level, out of it), then down it: the script's `wall` takes over from the pose its body had. */
   function splatOn(pose: Pose, what: Id, n: readonly [number, number], speed: number, took: number, flat: Vec3 = pose.p): void {
@@ -541,25 +533,20 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   }
 
   /**
-   * The hand's fastest level velocity over its last quarter second. Near the back of the bench the world's hand
-   * cannot go further back and a flick up the screen takes it up instead: there, going up at a flick's speed, it is
-   * a flick away from the visitor at that speed (up the screen is away, as the visitor sees it).
+   * The hand's fastest level velocity over its last quarter second. Only its level motion: a hand going UP is a toss
+   * up wherever it is (beside the back wall too: read as a throw at the wall, a toss there could never be a toss, and
+   * Patch caught in the air near the wall could not be thrown up again).
    */
-  function handThrow(p: Vec3): Vec3 {
+  function handThrow(): Vec3 {
     let best: Vec3 = [0, 0, 0];
-    let up = 0;
     for (let i = 1; i < hands.length; i++) {
       const a = hands[i - 1]!, b = hands[i]!;
       if (b.step <= a.step) continue;
       const k = HZ / (b.step - a.step);
       const v: Vec3 = [(b.p[0] - a.p[0]) * k, 0, (b.p[2] - a.p[2]) * k];
       if (level(v) > level(best)) best = v;
-      up = Math.max(up, (b.p[1] - a.p[1]) * k);
     }
-    if (level(best) >= B.wallHand || up < B.wallHand) return best;
-    const dx = p[0] - spec.visitor[0], dz = p[2] - spec.visitor[2];
-    const l = Math.hypot(dx, dz) || 1;
-    return [(dx / l) * up, 0, (dz / l) * up];
+    return best;
   }
 
   /**
@@ -980,12 +967,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       }
       if (ctx.mode(body) === 'free') {
         // thrown at a wall beside it (the hand going into the wall at a throw's speed): at the wall it goes, level
-        const hv = handThrow((ctx.pose(body) as Pose).p);
+        const hv = handThrow();
         const at = level(hv) >= B.wallHand ? wallAhead(ctx.pose(body) as Pose, hv, B.wallReach) : null;
         fly(false);
         if (at) {
           const v = ctx.velocity(body)?.linvel ?? [0, 0, 0];
-          const want = Math.min(T.throwMax, Math.max(B.wallThrow, level(hv)));
+          const want = Math.min(T.throwMax, level(hv));
           const into = -(v[0] * at.n[0] + v[2] * at.n[1]);
           ctx.shove(body, [-at.n[0] * Math.max(0, want - into), Math.min(0, B.wallUp - v[1]), -at.n[1] * Math.max(0, want - into)]);
           if (air && !air.thrown) {

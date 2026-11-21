@@ -93,14 +93,14 @@ const TURN = 25;
 const BODY_TURN = 0.05;
 /**
  * ...and the most its drawn middle (the middle of its trunk, 0.227 up the body bone) may be from the physics body's
- * middle: across the bench (world units; nothing moves it sideways, so this is slack), and above it. The body is its
- * trunk and its head as two boxes (crew/patch-body.ts PATCH_BODY_SHAPE), so those are where the engine has them; the
- * ears, limbs and tail are felt only, and fold in or lie along the bench before anything is lifted. What lift is left
- * is where folding is not enough (its knees under it face down, its ears under its head): measured over 20 throws,
- * 0.07 to 0.40. (With a body that was the trunk's core alone it rode up to 0.91 rolling over its head.) Never below.
+ * middle: across the bench (world units; nothing moves it sideways, so this is slack), and above it. The body is one
+ * compact box, the core of its trunk (crew/patch-body.ts PATCH_BODY_SHAPE says why: it is what tumbles); the head,
+ * ears, limbs and tail are felt only. Limbs, ears and tail fold in or lie along the bench first; what is left is
+ * lifted, which is most as it rolls over its head (the head stands 0.9 from its middle): it reads as rolling over
+ * its head but is the figure off its body by that much. In the air, clear of the bench, this is 0. Never below.
  */
 const BODY_LEVEL = 0.05;
-const BODY_LIFT = 0.55;
+const BODY_LIFT = 1.0;
 /**
  * The grab is the body Patch's one named takeover in these throws: its body comes into the world where the script
  * had Patch sat, about where it is drawn, and what the figure is off by is let go of over OPERATOR_FEEL.bodyGrab

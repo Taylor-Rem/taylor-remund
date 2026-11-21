@@ -613,8 +613,8 @@ describe('the gags are reactions to what the engine did', () => {
     w.dispose();
   }, 120_000);
 
-  test('flicked at the back wall from beside it (the world reads a flick up the screen as a throw up): at the wall it goes, and splats; brought to it slowly, or held against it, none', async () => {
-    for (const [name, past, sticks, hold, n] of [['flicked into it', 1.2, true, 0, 24], ['flicked at it from a unit off', -1.0, true, 0, 6], ['brought to it slowly', -0.32, false, 0, 90], ['held against it', 1.2, false, 30, 24]] as const) {
+  test('flicked level at the back wall from beside it, at a deliberate flick\'s speed: at the wall it goes, and splats; carried into it, brought to it slowly, or held against it, none', async () => {
+    for (const [name, past, sticks, hold, n] of [['flicked into it', 1.2, true, 0, 12], ['flicked at it from a unit off', -1.0, true, 0, 4], ['carried into it briskly and let go', 1.2, false, 0, 24], ['brought to it slowly', -0.32, false, 0, 90], ['held against it', 1.2, false, 30, 12]] as const) {
       const { w, t } = await world();
       const from: Vec3 = [-5.5, 1.6, -3.2];
       lift(w, t, from);
@@ -647,6 +647,34 @@ describe('the gags are reactions to what the engine did', () => {
       expect(home(w, t).at(-1)).toBe('seated');
       w.dispose();
     }
+  }, 120_000);
+
+  // Taylor, 2026-11-20: "One exception worth preserving is the playful juggling behavior when Patch is thrown almost
+  // straight upward." A hand going up is a toss up wherever it is: beside the back wall too, and so is Patch caught
+  // in the air there and thrown up again. (For a few hours a hand going up beside a wall was read as a throw at it.)
+  test('tossed up beside the back wall it goes up: no splat, and it rises as it does in the open', async () => {
+    const rose: number[] = [];
+    for (const z of [bench.bench.minZ + 0.6, -1.5]) {
+      const { w, t } = await world();
+      const from: Vec3 = [-5.5, 1.8, z];
+      lift(w, t, from);
+      const mark = t.events.length;
+      fling(w, t, from, [0, 9, 0], 8);
+      const watch = watcher(w, t);
+      const y0 = middle(w)[1];
+      let top = y0;
+      for (let i = 0; i < 40; i++) {
+        const s = watch.step();
+        expect(s.state, `from z ${z}: in the air`).toBe('fly');
+        top = Math.max(top, s.mid[1]);
+      }
+      expect(t.events.slice(mark).some((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.wall === true), `from z ${z}: no splat`).toBe(false);
+      rose.push(top - y0);
+      expect(home(w, t).at(-1)).toBe('seated');
+      w.dispose();
+    }
+    expect(rose[0]!, 'beside the wall it rises').toBeGreaterThan(1.2);
+    expect(Math.abs(rose[0]! - rose[1]!), `beside the wall ${rose[0]!.toFixed(2)}, in the open ${rose[1]!.toFixed(2)}`).toBeLessThan(0.4);
   }, 120_000);
 
   test('a wall met slowly, or glancing, is only the engine\'s bounce: no stick', async () => {
