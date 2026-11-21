@@ -174,11 +174,6 @@ export const PATCH_BODY_TUNING = {
    * there is one within this far (the nearest; the scripted landing looked a unit round too).
    */
   seenWithin: 1.0,
-  /**
-   * Nearer its stool's foot than this it does not hop to be seen: it climbs from there at once (the foot is behind the
-   * stack of crates as the visitor sees it; a hop out from behind it and a walk back would be a step about nothing).
-   */
-  seenFoot: 0.5,
   /** The shake of the head: none below `shakeFrom`; from `shakeLeast` up to the scripted length. */
   shakeFrom: 0.18,
   shakeLeast: 0.3,
@@ -621,8 +616,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     const arcTo = (q: Vec3): number => arcFor(from, q);
     let to = home ? seat : stand ? ground : haven(ground);
     // out of the visitor's sight (behind a machine): to the nearest place in their view, when one is near
-    const foot = host.footNow();
-    if (!home && Math.hypot(to[0] - foot[0], to[2] - foot[2]) >= B.seenFoot && !host.inView(to)) {
+    if (!home && !host.inView(to)) {
       seen: for (let ring = 1; ring * 0.1 <= B.seenWithin + 1e-9; ring++) {
         for (let i = 0; i < 16; i++) {
           const a = (i / 16) * Math.PI * 2;

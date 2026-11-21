@@ -385,13 +385,14 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const q: Vec3 = [a[0] + (b[0] - a[0]) * k * 0.5, a[1] + (b[1] - a[1]) * k * 0.5, a[2] + (b[2] - a[2]) * k * 0.5];
       if (SOLIDS.some((o) => sphereMeets(o, q[0], q[1], q[2], 0.05))) return false;
     }
-    // and nothing loose lying or stacked at rest in the way (a crate on the bench, the stack): not of the line from its
-    // middle to `visitor`, nor of the figure as the stage's eye sees it, its middle and the middle of what the pointer
-    // takes, each across its width (the pointer pressed at Patch takes the first thing on its ray: a crate in front
-    // of half of it is in front of the press)
+    // and nothing loose lying or stacked at rest in front of the figure as the stage's eye sees it (`sight`, the
+    // camera's own slope: far steeper than the line to `visitor`, so a crate hides only what is just behind it): its
+    // middle and the middle of what the pointer takes, each across its width (the pointer pressed at Patch takes the
+    // first thing on its ray: a crate in front of half of it is in front of the press). A scene with no `sight` has
+    // only the line to `visitor` to go by.
     const loose = lying();
     if (!loose.length) return true;
-    const lines: [Vec3, Vec3][] = [[a, b]];
+    const lines: [Vec3, Vec3][] = [];
     const s = spec.sight;
     if (s)
       for (const up of SIGHT_UP)
@@ -399,6 +400,7 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
           const o: Vec3 = [p[0] + side, p[1] + up, p[2]];
           lines.push([o, [o[0] + s[0] * SIGHT_FAR, o[1] + s[1] * SIGHT_FAR, o[2] + s[2] * SIGHT_FAR]]);
         }
+    else lines.push([a, b]);
     return !loose.some((o) => lines.some(([u, v]) => segmentMeetsBox(u, v, o, 0.05)));
   }
   /**
