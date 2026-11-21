@@ -99,6 +99,13 @@ export interface PhysicsPort {
   /** Gravity multiplier for one body (0 while held). */
   setGravityScale(id: Id, scale: number): void;
   setDamping(id: Id, linear: number, angular: number): void;
+  /**
+   * A slipping body has no grip on anything it touches (its friction is nothing, against anything). For a thing in
+   * the hand: pressed against a face on its way to where the hand is, it slides along the face. With its own grip,
+   * the press itself held it there (the face's push back, times the grip, was more than the sideways pull whenever
+   * the hand was further through the face than along it).
+   */
+  setSlip(id: Id, slip: boolean): void;
 
   state(id: Id): BodyState;
   pose(id: Id): Pose;

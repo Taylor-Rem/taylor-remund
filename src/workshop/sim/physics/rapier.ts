@@ -52,7 +52,7 @@ export async function createRapierPhysics(options: Partial<PhysicsOptions> = {})
 }
 
 function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
-  const { World, EventQueue, RigidBodyDesc, ColliderDesc, ActiveEvents, RigidBodyType } = RAPIER;
+  const { World, EventQueue, RigidBodyDesc, ColliderDesc, ActiveEvents, RigidBodyType, CoefficientCombineRule } = RAPIER;
 
   let gravity = opts.gravity;
   let world = new World({ x: 0, y: gravity, z: 0 });
@@ -67,6 +67,8 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
   /** id → rigid body handle (bodies and statics). Handles survive snapshot/restore. */
   const bodyHandle = new Map<Id, number>();
   const bodyOrder: Id[] = [];
+  /** Each body's own friction (what `setSlip(id, false)` gives it back). */
+  const gripOf = new Map<Id, number>();
   const statics = new Set<Id>();
   const sensors = new Map<Id, number>(); // id → collider handle
   /** collider handle → owner id */
@@ -124,6 +126,7 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
           .setContactForceEventThreshold(RAPIER_TUNING.contactForceThreshold);
         owner.set(world.createCollider(desc, rb).handle, d.id);
       }
+      gripOf.set(d.id, d.friction);
       bodyHandle.set(d.id, rb.handle);
       bodyOrder.push(d.id);
     },
@@ -132,6 +135,7 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       const rb = body(id);
       for (let i = 0; i < rb.numColliders(); i++) owner.delete(rb.collider(i).handle);
       world.removeRigidBody(rb);
+      gripOf.delete(id);
       bodyHandle.delete(id);
       bodyOrder.splice(bodyOrder.indexOf(id), 1);
     },
@@ -173,6 +177,16 @@ function rapierPort(RAPIER: R, opts: PhysicsOptions): PhysicsPort {
       const rb = body(id);
       rb.setLinearDamping(linear);
       rb.setAngularDamping(angular);
+    },
+    setSlip(id, slip) {
+      const rb = body(id);
+      const grip = gripOf.get(id) ?? 0;
+      for (let i = 0; i < rb.numColliders(); i++) {
+        const c = rb.collider(i);
+        // (nothing against anything: the least of the two, not their mean)
+        c.setFriction(slip ? 0 : grip);
+        c.setFrictionCombineRule(slip ? CoefficientCombineRule.Min : CoefficientCombineRule.Average);
+      }
     },
 
     state(id): BodyState {

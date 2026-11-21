@@ -556,6 +556,12 @@ export function createWorld(opts: WorldOptions): World {
 
   // ── loose-part control ──
   function setMode(l: Loose, mode: BodyMode): void {
+    // In the hand a thing has no grip on what it touches (`PhysicsPort.setSlip`), so that pressed against a face on
+    // its way to the hand it slides along the face. (Found on the page, 2026-11-21: a crate carried over the console
+    // into the side of the UNDO lever's housing stayed there while the pointer went on round the corner, one run in
+    // four of a juggling test's carry to its place.) The Button's rewind restores the engine's own copy of this with
+    // the mode it had.
+    if ((l.mode === 'held') !== (mode === 'held') && physics.hasBody(l.id)) physics.setSlip(l.id, mode === 'held');
     l.mode = mode;
   }
 
