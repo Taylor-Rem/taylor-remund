@@ -31,6 +31,8 @@ export interface CaseStudy {
     description: FactEntry;
     og: { title: UiEntry; description: FactEntry; type: string; url: string };
   };
+  /** The live page's own call to action in its nav ("Get in Touch"), kept in the layout's row of page links. */
+  nav: (UiEntry & { href: string; cta?: boolean })[];
   eyebrow: UiEntry;
   heading: UiEntry;
   meta: FactEntry;

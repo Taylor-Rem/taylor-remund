@@ -16,6 +16,7 @@ const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').
   title={c.page.title.text}
   description={c.page.description.text}
   og={{ title: c.page.og.title.text, description: c.page.og.description.text, type: c.page.og.type, url: c.page.og.url }}
+  pageNav={c.nav.map((l) => ({ text: l.text, href: l.href, cta: l.cta === true }))}
   preload={['/fonts/IBMPlexSans-SemiBold-Latin1.woff2']}
 >
   <article class="section article" id={c.id} aria-labelledby="article-title">

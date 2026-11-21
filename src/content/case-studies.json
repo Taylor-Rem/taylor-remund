@@ -28,6 +28,15 @@
         "url": "https://taylorremund.com/case-studies/ledger-repair/"
       }
     },
+    "nav": [
+      {
+        "text": "Get in Touch",
+        "kind": "ui",
+        "href": "/resume/#contact",
+        "source": "legacy/case-studies/ledger-repair/index.html nav",
+        "cta": true
+      }
+    ],
     "eyebrow": {
       "text": "Case study",
       "kind": "ui",
