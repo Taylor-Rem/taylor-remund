@@ -22,7 +22,7 @@ export function stateOf(w: World, events: readonly unknown[]): string {
     const m = w.motion(p.id)!;
     return [p.id, m.mode, m.pose.p, m.pose.q, m.awake];
   });
-  const machines = w.interactables().map((i) => w.machine(i.id) ?? null);
+  const machines = [...w.interactables()].map((i) => w.machine(i.id) ?? null);
   return JSON.stringify({
     step: w.step,
     playMode: w.playMode,
