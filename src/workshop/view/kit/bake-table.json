@@ -1,12 +1,12 @@
 {
   "format": 2,
   "codeHash": "884c1ae33e5fc8b8c3b7fa81",
-  "inputsHash": "40b61fd5428e13a6b087ffec",
+  "inputsHash": "92d18cbc2f5abd88a7cfac19",
   "entries": 49,
   "vertices": 179783,
   "changed": 128486,
   "measurements": 10,
-  "bytes": 113922,
+  "bytes": 113925,
   "pages": [
     "/dev/vignette/?hud=0&manual=1 1440x900@1",
     "/dev/vignette/?hud=0&manual=1&tier=low 1440x900@1",
@@ -14,6 +14,8 @@
     "/dev/handoff/ 1440x900@1",
     "/dev/bench/?hud=0&manual=1 1440x900@1",
     "/dev/bench/?hud=0&manual=1&tier=low 1440x900@1",
-    "/dev/bench/?hud=0&manual=1 390x844@2"
+    "/dev/bench/?hud=0&manual=1 390x844@2",
+    "/?tier=high 1440x900@1",
+    "/?tier=low 1440x900@1"
   ]
 }
