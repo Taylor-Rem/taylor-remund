@@ -5,6 +5,8 @@
 // their headings are here until § F1's content arrives.
 // Title and description are the live page's until Taylor words new ones (§ F1).
 import Stage from '../layouts/Stage.astro';
+import SettingsControl from '../workshop/ui/settings/SettingsControl.astro';
+import SettingsPanel from '../workshop/ui/settings/SettingsPanel.astro';
 import { site } from '../content/site.ts';
 
 const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
@@ -13,6 +15,8 @@ const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
   title="Taylor Remund — Patchlamp, software for small businesses"
   description="Patchlamp changes the website when you text it. Built and run in Utah by Taylor Remund, with hands-on AI services around it."
 >
+  <SettingsControl slot="strip-end" />
+  <SettingsPanel slot="over-stage" />
   <main id="paperwork" tabindex="-1">
     {sections.map((id) => (
       <section id={id} aria-labelledby={`${id}-title`}>

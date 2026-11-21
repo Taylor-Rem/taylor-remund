@@ -105,6 +105,11 @@ export interface StageLoadOptions {
   hold?: boolean;
   /** Called once the stage is live. */
   onLive?(ws: Workshop): void;
+  /**
+   * P3 B3: called once the bench has stepped to the picture's state, before its first live step (the page tells
+   * the world about reduced motion here: the visitor never sees the crew move and then freeze).
+   */
+  beforeLive?(ws: Workshop): void;
   /** R2: the stage was built again on the same world after a lost graphics context (a page's hooks may want the new workshop). */
   onRebuilt?(ws: Workshop): void;
   /**
@@ -118,7 +123,8 @@ export interface StageLoadOptions {
 /** What the loader exposes on `window.__handoff` (tests, loadtime, poster). */
 export interface HandoffState {
   alive: boolean;
-  phase: 'loading' | 'settling' | 'held-picture' | 'swapping' | 'held-stage' | 'live' | 'failed';
+  /** (`down`: P3 B3, the visitor chose the still picture and the stage was taken down: `takeDown`) */
+  phase: 'loading' | 'settling' | 'held-picture' | 'swapping' | 'held-stage' | 'live' | 'failed' | 'down';
   progress: number;
   /** performance.now() when the stage became usable. */
   usableAt: number | null;
@@ -142,6 +148,11 @@ export interface HandoffState {
   restage(over: Partial<Omit<BootOptions, 'manual' | 'onProgress' | 'world'>>): Promise<boolean>;
   /** The canvas the stage draws on now (a restage replaces it). */
   canvas: HTMLCanvasElement;
+  /**
+   * P3 B3: the visitor chose the still picture: the stage is stopped and taken down (its world with it), the
+   * picture shows. Not a failure. False if there was nothing live to take down.
+   */
+  takeDown(): boolean;
 }
 
 const now = (): number => performance.now();
@@ -221,6 +232,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     settleFrames: 0,
     release: () => releaseHold?.(),
     restage: async () => false,
+    takeDown: () => false,
     canvas: o.canvas,
     report: () => ({
       phase: state.phase,
@@ -418,6 +430,23 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
       }
     };
 
+    state.takeDown = () => {
+      if (!ws || rebuilding || state.phase !== 'live') return false;
+      if (lostTimer !== null) clearTimeout(lostTimer);
+      lostTimer = null;
+      state.phase = 'down';
+      root.classList.remove('live');
+      try {
+        ws.loop.stop();
+        ws.dispose();
+      } catch {
+        /* best effort */
+      }
+      ws = null;
+      state.workshop = null;
+      return true;
+    };
+
     function giveUp(why: string): void {
       state.phase = 'failed';
       state.failed = why;
@@ -459,6 +488,7 @@ export async function loadStage(o: StageLoadOptions): Promise<Workshop | null> {
     if (!reduced && root.closest('.warming')) await fullyWarm(root, warmTransitionMs(root) + 400);
     await holdHere('held-picture');
 
+    o.beforeLive?.(ws);
     // the swap
     state.phase = 'swapping';
     mark('swap');

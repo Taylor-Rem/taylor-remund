@@ -86,6 +86,37 @@ test.describe('without JavaScript', () => {
     await expect(page.locator('button.sound')).toBeHidden();
     await expect(page.locator('button.restart')).toBeHidden();
   });
+
+  test('P3 B3: the settings control and its panel need a script: neither is shown without one', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expect(page.locator('button.settings-open')).toBeHidden();
+    await expect(page.locator('#settings')).toBeHidden();
+  });
+});
+
+test.describe('P3 B3: the strip on a phone held upright', () => {
+  test.use({ hasTouch: true, isMobile: true });
+
+  test('Résumé, Read, sound and settings in the strip, every target 44 px, nothing over the sign', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?tier=still');
+    // the stage's layout of the strip, without drawing the bench (the strip is the same HTML either way)
+    await page.evaluate(() => document.documentElement.classList.replace('still', 'stage-on'));
+    const box = async (sel: string) => (await page.locator(sel).first().boundingBox())!;
+    const sound = await box('button.sound');
+    const settings = await box('button.settings-open');
+    const read = await box('a.read');
+    const resume = await box('.strip nav a[href="/resume/"]');
+    for (const b of [sound, settings, read]) expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+    // one row: Read, the sound and the settings on the links' line, inside the screen
+    expect(Math.abs(sound.y + sound.height / 2 - (read.y + read.height / 2))).toBeLessThan(4);
+    expect(Math.abs(settings.y + settings.height / 2 - (read.y + read.height / 2))).toBeLessThan(4);
+    expect(settings.x + settings.width).toBeLessThanOrEqual(390);
+    expect(resume.y + resume.height).toBeLessThan(140);
+    await expect(page.getByRole('button', { name: 'Sound', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+  });
 });
 
 test.describe('the stage', () => {

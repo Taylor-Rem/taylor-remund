@@ -37,5 +37,48 @@
   },
   "notFound": {
     "title": { "text": "Not found", "kind": "ui" }
+  },
+  "settings": {
+    "open": { "text": "Settings", "kind": "ui", "source": "REWRITE.md § B7 (the strip: then Read, sound, and settings)" },
+    "title": { "text": "Settings", "kind": "ui" },
+    "close": { "text": "Close", "kind": "ui" },
+    "sound": {
+      "legend": { "text": "Sound", "kind": "ui", "source": "REWRITE.md § E10 (settings: sound, motion, quality)" },
+      "on": { "text": "On", "kind": "ui" },
+      "off": { "text": "Off", "kind": "ui" }
+    },
+    "motion": {
+      "legend": { "text": "Motion", "kind": "ui", "source": "REWRITE.md § E10" },
+      "system": { "text": "Same as this device", "kind": "ui" },
+      "reduced": { "text": "Reduced", "kind": "ui" },
+      "full": { "text": "Full", "kind": "ui" }
+    },
+    "quality": {
+      "legend": { "text": "Quality", "kind": "ui", "source": "REWRITE.md § E10" },
+      "auto": { "text": "Automatic", "kind": "ui" },
+      "high": { "text": "High", "kind": "ui" },
+      "low": { "text": "Low", "kind": "ui" },
+      "still": { "text": "Still picture", "kind": "ui" }
+    },
+    "reset": {
+      "label": { "text": "Reset the workshop", "kind": "ui", "source": "REWRITE.md § B4 (\"Reset the workshop\" in the settings starts over)" },
+      "confirm": { "text": "Press again to reset", "kind": "ui" },
+      "done": { "text": "The workshop is reset.", "kind": "ui" }
+    }
+  },
+  "playtest": {
+    "save": { "text": "Save the playtest log", "kind": "ui", "source": "REWRITE.md § I, § E10 (offers it as a file at the end)" },
+    "count": { "text": "events", "kind": "ui" }
+  },
+  "debug": {
+    "frame": { "text": "frame", "kind": "ui" },
+    "worst": { "text": "worst", "kind": "ui" },
+    "calls": { "text": "draw calls", "kind": "ui" },
+    "bodies": { "text": "bodies", "kind": "ui" },
+    "awake": { "text": "awake", "kind": "ui" },
+    "tier": { "text": "tier", "kind": "ui" },
+    "governor": { "text": "governor", "kind": "ui" },
+    "undo": { "text": "undo", "kind": "ui" },
+    "none": { "text": "no stage", "kind": "ui" }
   }
 }

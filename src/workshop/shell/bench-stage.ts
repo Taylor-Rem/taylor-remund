@@ -184,6 +184,8 @@ export interface StartBenchOptions {
   onRebuilt?(ws: Workshop): void;
   /** The stage gave up (repeated faults, a context lost for good, or it could not start). */
   onGiveUp?(): void;
+  /** P3 B3: the bench has stepped to its picture's state; its first live step is next (shell/loader.ts). */
+  beforeLive?(ws: Workshop): void;
 }
 
 /**
@@ -215,6 +217,7 @@ export async function startBench(o: StartBenchOptions): Promise<Workshop | null>
       return { ...glue.bootOptions(), ...(o.onGiveUp ? { onGiveUp: o.onGiveUp } : {}) };
     },
     ...(o.onRebuilt ? { onRebuilt: o.onRebuilt } : {}),
+    ...(o.beforeLive ? { beforeLive: o.beforeLive } : {}),
   });
 }
 

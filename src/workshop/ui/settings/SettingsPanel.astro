@@ -1,0 +1,81 @@
+---
+// The settings panel (P3 B3; REWRITE.md § B4, § B9, § B10, § E9, § E10): mounted in the layout's `over-stage`
+// slot, hidden until the strip's settings control opens it (ui/settings/panel.ts). A labelled, non-modal
+// dialog of real form controls: sound, motion and quality as radio groups, and "Reset the workshop", which
+// asks for a second press on the same button (its label says so) before it throws anything away.
+//
+// Groups marked `data-needs="stage"` are shown only while the stage is up: on the Still tier and after a
+// failure the panel holds the quality alone (it is how a visitor who chose the still picture gets the bench
+// back). The face is the strip's: cream on the wall's dark teal (src/layouts/Stage.astro's custom properties).
+import { site } from '../../../content/site.ts';
+const w = site.settings;
+const groups = [
+  { name: 'sound', needs: 'stage', legend: w.sound.legend.text, options: [['on', w.sound.on.text], ['off', w.sound.off.text]] },
+  { name: 'motion', needs: 'stage', legend: w.motion.legend.text, options: [['system', w.motion.system.text], ['reduced', w.motion.reduced.text], ['full', w.motion.full.text]] },
+  { name: 'quality', needs: null, legend: w.quality.legend.text, options: [['auto', w.quality.auto.text], ['high', w.quality.high.text], ['low', w.quality.low.text], ['still', w.quality.still.text]] },
+] as const;
+---
+<div class="settings" id="settings" role="dialog" aria-modal="false" aria-labelledby="settings-title" hidden>
+  <div class="settings-head">
+    <h2 id="settings-title">{w.title.text}</h2>
+    <button class="settings-close" type="button">{w.close.text}</button>
+  </div>
+  {groups.map((g) => (
+    <fieldset class={`settings-group settings-${g.name}`} data-needs={g.needs ?? undefined}>
+      <legend>{g.legend}</legend>
+      <div class="settings-options">
+        {g.options.map(([value, text]) => (
+          <label><input type="radio" name={`settings-${g.name}`} value={value} /><span>{text}</span></label>
+        ))}
+      </div>
+    </fieldset>
+  ))}
+  <div class="settings-group settings-reset-row" data-needs="stage">
+    <button class="settings-reset" type="button" data-label={w.reset.label.text} data-confirm={w.reset.confirm.text}>{w.reset.label.text}</button>
+    <p class="settings-status" role="status" data-done={w.reset.done.text}></p>
+  </div>
+</div>
+<style>
+  .settings {
+    position: fixed; z-index: 35; right: var(--gutter); top: 40px;
+    width: min(352px, calc(100vw - 2 * var(--gutter))); box-sizing: border-box;
+    max-height: calc(100vh - 56px); max-height: calc(100svh - 56px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 12px 16px 14px;
+    background: var(--wall); color: var(--cream);
+    border: 1.5px solid var(--cream-soft); border-radius: 4px;
+    box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+    font: 600 15px/22px 'Strip Tape', system-ui, sans-serif; letter-spacing: 0.03em;
+  }
+  .settings[hidden] { display: none; }
+  .settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .settings h2 { margin: 0; font: inherit; font-size: 17px; letter-spacing: 0.05em; }
+  .settings button {
+    font: inherit; letter-spacing: inherit; color: var(--cream); background: none; cursor: pointer;
+    border: 1.5px solid var(--cream-soft); border-radius: 3px; padding: 4px 12px; min-height: 32px;
+  }
+  .settings button:hover { background: var(--cream); color: var(--wall); }
+  .settings-close { border-color: transparent !important; padding-right: 0 !important; color: var(--cream-soft) !important; }
+  .settings-close:hover { background: none !important; color: var(--cream) !important; text-decoration: underline; }
+  .settings-group { border: 0; margin: 10px 0 0; padding: 0; min-width: 0; }
+  .settings-group[hidden] { display: none; }
+  .settings legend { padding: 0; margin-bottom: 4px; color: var(--cream-soft); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .settings-options { display: flex; flex-wrap: wrap; gap: 6px; }
+  .settings label { position: relative; display: inline-flex; cursor: pointer; }
+  /* the radio itself stays a real, focusable control under its face */
+  .settings input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .settings label span {
+    display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; box-sizing: border-box;
+    border: 1.5px solid var(--cream-soft); border-radius: 3px; color: var(--cream-soft);
+  }
+  .settings label:hover span { color: var(--cream); border-color: var(--cream); }
+  .settings input:checked + span { background: var(--cream); border-color: var(--cream); color: var(--wall); }
+  .settings input:focus-visible + span { outline: 2px solid var(--cream); outline-offset: 3px; }
+  .settings input:disabled + span { opacity: 0.55; cursor: progress; }
+  .settings-reset-row { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .settings-reset[data-armed] { background: var(--cream); color: var(--wall); }
+  .settings-status { margin: 0; font-size: 14px; color: var(--cream-soft); }
+  .settings-status:empty { display: none; }
+  @media (pointer: coarse) {
+    .settings label span, .settings button { min-height: 44px; }
+  }
+</style>

@@ -26,7 +26,7 @@ import { Box3, Ray, Raycaster, Vector3, type Intersection, type Mesh, type Objec
 import { createStagePhone, type StagePhone } from '../ui/phone/stage.ts';
 import { gloveCursors, POSE_OF, type GlovePose } from '../ui/cursor.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
-import type { Id, Intent, PhysicsPort, SceneDesc, StepFault, Vec3, World, WorldView } from '../sim/index.ts';
+import type { Id, Intent, PhysicsPort, SceneDesc, StepFault, Vec3, World, WorldSaved, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
 import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOptions } from '../view/stage/index.ts';
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
@@ -107,6 +107,11 @@ export interface BootOptions {
    * graphics context: the visitor's bench survives). The workshop does not dispose it.
    */
   world?: World;
+  /**
+   * P3 B3: what the last visit remembered (`World.saved()` then, read back through `parseSaved`): the world is
+   * made from it. Ignored when `world` is given.
+   */
+  saved?: WorldSaved;
   /**
    * R2: the graphics context was lost (the GPU reset or was taken away). The workshop has stopped (no step,
    * no drawing; the world's state kept). The caller shows the picture and rebuilds on `webglcontextrestored`.
@@ -263,6 +268,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
       seed: opts.seed,
       physics: physics as PhysicsPort,
       ...(opts.scene ? { scene: opts.scene } : {}),
+      ...(opts.saved ? { saved: opts.saved } : {}),
     });
   world.setOnFault(strict ? null : (f: StepFault) => guard.stepFault(f));
   worldRef.w = world;
