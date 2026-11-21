@@ -23,7 +23,9 @@ import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { PATCH_BODY_TUNING } from '../../src/workshop/sim/crew/patch-body.ts';
 import { PATCH_FLOAT, floatPull, floatWeight } from '../../src/workshop/sim/crew/patch-float.ts';
 import { AT, PATCHLAMP, bench } from '../../src/workshop/sim/scenes/bench.ts';
-import { sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
+import { segmentMeetsBox, sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
+import { CameraRig, viewDirection } from '../../src/workshop/view/stage/camera.ts';
+import { sub } from '../../src/workshop/sim/math.ts';
 import type { PatchState, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const T = PATCH_TUNING;
@@ -878,6 +880,78 @@ describe('recovery: the script takes over from where and how it lies', () => {
         expect(far).toBeLessThanOrEqual(PATCH_BODY_TUNING.seenWithin + 0.35);
       } else expect(far, `${x}, ${z}: no place in view within reach: it gets up near where it lies`).toBeLessThan(0.8);
       expect(home(w, t).at(-1)).toBe('seated');
+      w.dispose();
+    }
+  }, 180_000);
+
+  // The commonest first thing a visitor does is flick Patch front-left off its stool; it often comes to rest behind
+  // the stack of crates as the visitor sees it, and there its shake and its look (its best beats) were unseen, and the
+  // pointer there took the crate in front. Loose things at rest hide it as a machine does.
+  test('come to rest behind loose crates (the stack, a single crate), it gets up where a straight line from its middle to the visitor is clear of every crate; in the open it gets up where it lies', async () => {
+    const VISITOR: Vec3 = [0.6, 2.4, 14];
+    /** A crate's box between a raccoon sat at `p` (feet) and the visitor's eye: its id, or null. The plain box, no margin. */
+    const crateBetween = (w: World, p: Vec3): string | null => {
+      const a: Vec3 = [p[0], p[1] + 0.45, p[2]];
+      for (const part of bench.parts.filter((q) => q.kind === 'crate')) {
+        const m = w.motion(part.id);
+        const h = w.halfExtents(part.id);
+        if (!m || !h || m.mode !== 'free') continue;
+        if (segmentMeetsBox(a, VISITOR, { c: m.pose.p, q: m.pose.q, half: h })) return part.id;
+      }
+      return null;
+    };
+    // and as the stage's camera sees it (the rig's own pitch, not the scene's copy of it): its middle and the middle of
+    // its pick box, straight toward the eye
+    const look = viewDirection(new CameraRig().pitch);
+    const SIGHT: Vec3 = [-look.x, -look.y, -look.z];
+    expect(len(sub(SIGHT, PATCHLAMP.patch.sight!)), "the scene's sight is the camera's").toBeLessThan(1e-6);
+    const crateOnSight = (w: World, p: Vec3): string | null => {
+      for (const up of [0.45, 0.6]) {
+        const a: Vec3 = [p[0], p[1] + up, p[2]];
+        const e: Vec3 = [a[0] + SIGHT[0] * 12, a[1] + SIGHT[1] * 12, a[2] + SIGHT[2] * 12];
+        for (const part of bench.parts.filter((q) => q.kind === 'crate')) {
+          const m = w.motion(part.id);
+          const h = w.halfExtents(part.id);
+          if (m && h && m.mode === 'free' && segmentMeetsBox(a, e, { c: m.pose.p, q: m.pose.q, half: h })) return part.id;
+        }
+      }
+      return null;
+    };
+    const fixedSeen = (p: Vec3): boolean => {
+      for (let i = 1; i <= 12; i++) {
+        const k = (i / 12) * 0.5;
+        if (SOLIDS.some((o) => sphereMeets(o, p[0] + (VISITOR[0] - p[0]) * k, p[1] + 0.45 + (VISITOR[1] - p[1] - 0.45) * k, p[2] + (VISITOR[2] - p[2]) * k, 0.05))) return false;
+      }
+      return true;
+    };
+    // a single big crate in the open, where the small first crate starts (in front of the open middle of the bench)
+    const single = { ...bench, parts: bench.parts.map((p) => (p.id === 'crate-3' ? { ...p, size: 'L' as const, pose: { p: [-1, 0.4, 1.85] as Vec3, q: [0, 0, 0, 1] as const } } : p)) };
+    const cases = [
+      { name: 'behind the stack', scene: bench, at: [2.3, 0, 0.3] as Vec3, hidden: 'crate' },
+      { name: 'behind the stack, nearer', scene: bench, at: [2.15, 0, 0.9] as Vec3, hidden: 'crate' },
+      { name: 'behind a single crate', scene: single, at: [-1, 0, 0.9] as Vec3, hidden: 'crate-3' },
+      { name: 'in the open (the control)', scene: bench, at: [1, 0, -1] as Vec3, hidden: null },
+    ];
+    for (const c of cases) {
+      const { w, t } = await world(c.scene);
+      lift(w, t, OPEN, 5);
+      expect(fixedSeen(c.at), `${c.name}: no machine is in the way`).toBe(true);
+      const by = crateBetween(w, c.at);
+      if (c.hidden === null) expect(by, `${c.name}: nothing in the way`).toBeNull();
+      else if (c.hidden === 'crate') expect(by, `${c.name}: a crate of the stack is in the way`).toMatch(/^crate-[12]$/);
+      else expect(by, `${c.name}: the crate is in the way`).toBe(c.hidden);
+      w.dispatch({ type: 'place', at: c.at });
+      for (let i = 0; i < steps(5) && !patch(w).lay; i++) t.run(1);
+      const lay = patch(w).lay!;
+      expect(lay, `${c.name}: it gets up`).toBeTruthy();
+      const far = Math.hypot(lay.to[0] - lay.from[0], lay.to[2] - lay.from[2]);
+      console.log(`${c.name}: lay ${fmt(lay.from)} -> gets up at ${fmt(lay.to)} (${far.toFixed(2)} off)`);
+      expect(crateBetween(w, lay.to), `${c.name}: where it gets up (${fmt(lay.to)}) is in the visitor's view`).toBeNull();
+      expect(crateOnSight(w, lay.to), `${c.name}: and in the camera's`).toBeNull();
+      expect(fixedSeen(lay.to), `${c.name}: and no machine hides it there`).toBe(true);
+      if (c.hidden === null) expect(far, `${c.name}: it gets up where it lies`).toBeLessThan(B.hopOver + 0.05);
+      else expect(far, `${c.name}: a short hop`).toBeLessThanOrEqual(B.seenWithin + 0.35);
+      expect(home(w, t).at(-1), `${c.name}: and it ends on its stool`).toBe('seated');
       w.dispose();
     }
   }, 180_000);

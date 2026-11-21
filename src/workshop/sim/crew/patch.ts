@@ -54,13 +54,13 @@ import type { Call } from '../machines/line.ts';
 import { deskOf } from '../machines/line.ts';
 import { boardOf } from '../machines/shared/patchlamp.ts';
 import { HZ, steps } from '../clock.ts';
-import { add, dist, dot, length, scale, sub } from '../math.ts';
+import { add, dist, dot, length, rotate, scale, sub } from '../math.ts';
 import type { Obstacle } from './fetch-knock.ts';
 import { distanceTo, obstacles } from './fetch-knock.ts';
 import { bodiesOf, legClear } from './fetch-route.ts';
 import type { Pt } from './fetch-route.ts';
-import { PATCH_ROUTE, clearPoint, crossPoints, planWay, solidsOf, sphereMeets, stepClear, wayExists } from './patch-route.ts';
-import type { BeltCrossing, Solid, Way } from './patch-route.ts';
+import { PATCH_ROUTE, clearPoint, crossPoints, planWay, segmentMeetsBox, solidsOf, sphereMeets, stepClear, wayExists } from './patch-route.ts';
+import type { BeltCrossing, Box, Solid, Way } from './patch-route.ts';
 import { embodyPatch } from './patch-body.ts';
 
 /** Seconds, units, units per second. Tune here. */
@@ -181,6 +181,12 @@ export interface PatchSpec {
   /** Things it looks at: the UNDO lever, the visitor, the phone. */
   readonly lever: Vec3;
   readonly visitor: Vec3;
+  /**
+   * The way the visitor's eye lies from anything on the bench as the stage frames it (unit: up toward +Z by the
+   * camera's pitch). Far steeper than the line to `visitor`, which is where Patch looks to look at the visitor: a
+   * stack of crates hides from this eye what is just behind it, and nothing further back.
+   */
+  readonly sight?: Vec3;
   readonly phone: Vec3;
   /** Each jack's mouth (world): the line's lamp and the drawer under it. */
   readonly jacks: Readonly<Record<Id, Vec3>>;
@@ -218,6 +224,16 @@ export interface PatchUnit extends MachineUnit {
   view(): PatchView;
 }
 
+/** A loose part faster than this (units/s) is in flight, not lying anywhere (the world's own line: `world.ts`). */
+const LOOSE_FLYING = 0.6;
+/**
+ * Patch on the bench as the stage's eye looks for it among loose things: from these heights over its feet (its middle;
+ * the middle of its pick box, which is where a pointer pressed at it is), at these offsets across it (it is about 0.5
+ * wide), along `sight` this far (past anything loose on the bench).
+ */
+const SIGHT_UP = [0.45, 0.6] as const;
+const SIGHT_SIDE = [-0.18, 0, 0.18] as const;
+const SIGHT_FAR = 12;
 const JOB: readonly PatchState[] = ['notice', 'roll', 'plug', 'drawer', 'work', 'check', 'reply'];
 const isJob = (s: PatchState): boolean => JOB.includes(s);
 
@@ -369,7 +385,54 @@ export function createPatch(ctx: SimContext, spec: PatchSpec): PatchUnit {
       const q: Vec3 = [a[0] + (b[0] - a[0]) * k * 0.5, a[1] + (b[1] - a[1]) * k * 0.5, a[2] + (b[2] - a[2]) * k * 0.5];
       if (SOLIDS.some((o) => sphereMeets(o, q[0], q[1], q[2], 0.05))) return false;
     }
-    return true;
+    // and nothing loose lying or stacked at rest in the way (a crate on the bench, the stack): not of the line from its
+    // middle to `visitor`, nor of the figure as the stage's eye sees it, its middle and the middle of what the pointer
+    // takes, each across its width (the pointer pressed at Patch takes the first thing on its ray: a crate in front
+    // of half of it is in front of the press)
+    const loose = lying();
+    if (!loose.length) return true;
+    const lines: [Vec3, Vec3][] = [[a, b]];
+    const s = spec.sight;
+    if (s)
+      for (const up of SIGHT_UP)
+        for (const side of SIGHT_SIDE) {
+          const o: Vec3 = [p[0] + side, p[1] + up, p[2]];
+          lines.push([o, [o[0] + s[0] * SIGHT_FAR, o[1] + s[1] * SIGHT_FAR, o[2] + s[2] * SIGHT_FAR]]);
+        }
+    return !loose.some((o) => lines.some(([u, v]) => segmentMeetsBox(u, v, o, 0.05)));
+  }
+  /**
+   * Loose things lying or stacked at rest, as boxes (found once a step; `getUp` asks `inView` of a hundred places in
+   * one). Not one in flight (it will be elsewhere by the time Patch is up), not one in a hand or a machine's or the
+   * crew's keeping (mode not `free`), not its own body. Not Fetch or Revert either, standing still or not: each is on
+   * its way somewhere within seconds, and Patch's place is chosen once, as it gets up; a hop away from a robot that
+   * then drives off leaves Patch somewhere odd for no reason the visitor saw.
+   */
+  let lyingAt = -1;
+  let lyingNow: Box[] = [];
+  function lying(): readonly Box[] {
+    if (lyingAt === ctx.clock.step) return lyingNow;
+    lyingAt = ctx.clock.step;
+    const crew = new Set<Id>([spec.bodyPart]);
+    for (const c of ['fetch', 'revert-crew']) {
+      const v = ctx.crewView(c) as { body?: Id | null } | undefined;
+      if (v?.body) crew.add(v.body);
+    }
+    const out: Box[] = [];
+    for (const id of ctx.parts()) {
+      if (crew.has(id) || ctx.mode(id) !== 'free') continue;
+      const p = ctx.pose(id);
+      const h = ctx.halfExtents(id);
+      const v = ctx.velocity(id);
+      if (!p || !h) continue;
+      // (moving and off the bench top: in flight, or falling off the stack. One sliding on the bench top, pushed by
+      // Patch's own landing, stops within a hand's breadth of where it is: it counts)
+      const low = p.p[1] - [0, 1, 2].reduce((s, i) => s + Math.abs(rotate(p.q, i === 0 ? [1, 0, 0] : i === 1 ? [0, 1, 0] : [0, 0, 1])[1]) * (h[i] as number), 0);
+      if (v && length(v.linvel) > LOOSE_FLYING && low > ctx.scene.bench.top + 0.1) continue;
+      out.push({ c: p.p, q: p.q, half: h });
+    }
+    lyingNow = out;
+    return out;
   }
   /**
    * A fall from high after a drop or a throw up is a flop (flat, a beat, then up): its time down, longer the higher.
