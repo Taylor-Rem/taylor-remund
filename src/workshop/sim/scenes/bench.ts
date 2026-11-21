@@ -367,6 +367,12 @@ const S4_LADDER = {
   coverName: 'name.button.cover',
 };
 
+/**
+ * R3: the bench always heals. A crate Fetch may not carry, not stirred for `stir` seconds, goes back into circulation
+ * (a pile only after `pile`); Fetch dry for `after` seconds, Revert takes in the scene first.
+ */
+export const REVERT_HEAL = { after: 20, stir: 8, pile: 30 } as const;
+
 const S4_UNITS = [
   undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }),
   revert({
@@ -383,9 +389,8 @@ const S4_UNITS = [
     start: 'below',
     parkAfter: 120,
     awayGap: 4,
-    // R3: the bench always heals: Fetch dry for 20 s, crates not stirred for 30 s go back into circulation
     pad: { at: AT.pad, radius: 0.45 },
-    heal: { after: 20, stir: 8, pile: 30 },
+    heal: REVERT_HEAL,
   }),
 ];
 
