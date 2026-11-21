@@ -36,9 +36,9 @@ const live = (page: Page): Promise<unknown> =>
   page.waitForFunction(() => (window as unknown as { __handoff?: { phase: string } }).__handoff?.phase === 'live', null, { timeout: 120_000, polling: 100 });
 const mode = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.className);
 const scrolls = (page: Page): Promise<boolean> =>
-  page.evaluate(async () => {
-    window.scrollTo(0, 400);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  // synchronous (an instant scroll is): with JavaScript off the page's animation frames never come
+  page.evaluate(() => {
+    window.scrollTo({ top: 400, behavior: 'instant' });
     const moved = window.scrollY > 0;
     window.scrollTo(0, 0);
     return moved;
