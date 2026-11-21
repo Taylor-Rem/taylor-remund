@@ -392,6 +392,11 @@ export type SimEvent =
   | { readonly type: 'crew.knocked'; readonly id: Id; readonly by: Id; readonly strength: 1 | 2 | 3; readonly dir: number; readonly distance: number; readonly spin: number; readonly dropped: Id | null }
   /** A slow part (`by`) bumped the crew member `id`: only a look (its `lookAt` is the part for a moment). */
   | { readonly type: 'crew.nudged'; readonly id: Id; readonly by: Id }
+  /**
+   * Fetch (`id`) reached for `part` and could not take it from its tape (out of its reach): it gave up on it. Until a
+   * hand or a machine moves it, it is not Fetch's work (Revert's heal and the dock's last resort hear this).
+   */
+  | { readonly type: 'crew.gaveUp'; readonly id: Id; readonly part: Id }
   /** S5: Fetch's jets light (`at`: where it is), below the bench's edge after going over it. */
   | { readonly type: 'jet.ignited'; readonly id: Id; readonly at: Vec3 }
   /** S5: Fetch cuts its jets over its landing point (`at`), a hair above its tape: the drop and the bounce follow. */

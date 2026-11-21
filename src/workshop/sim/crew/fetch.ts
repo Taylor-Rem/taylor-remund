@@ -1922,6 +1922,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             if (p && Math.hypot(p.p[0] - x, p.p[2] - z) > R && !ctx.touched(g)) {
               // it moved out of reach while it rolled up: say so
               ctx.emit({ type: 'card', by: spec.id, content: 'slip.out-of-lane' });
+              ctx.emit({ type: 'crew.gaveUp', id: spec.id, part: g });
               giveUpUntil = now + steps(T.giveUpFor);
             }
             enter('shrug');
@@ -1961,6 +1962,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
             goal = null;
             giveUpUntil = now + steps(T.giveUpFor);
             ctx.emit({ type: 'card', by: spec.id, content: 'slip.out-of-lane' });
+            if (g) ctx.emit({ type: 'crew.gaveUp', id: spec.id, part: g });
             enter('shrug');
           }
           break;
