@@ -58,12 +58,12 @@ import type { AttractBeat, AttractView, Cause, CrewMember, FetchKnock, FetchStat
 import { deskOf } from '../machines/line.ts';
 import type { SimContext, Unit } from '../context.ts';
 import { HZ, steps } from '../clock.ts';
-import { qnormalize, qyaw, yawOf } from '../math.ts';
+import { qaxis, qconj, qmul, qnormalize, qyaw, rotationVector, yawOf } from '../math.ts';
 import { MATERIAL, massOf } from '../parts.ts';
 import { KNOCK_TUNING, classify, clearRun, distanceTo, obstacles, toyBounce } from './fetch-knock.ts';
 import { lanePath } from '../path.ts';
 import { bodiesOf, route } from './fetch-route.ts';
-import { jetAt, planHop, planJet } from './fetch-jet.ts';
+import { JET_TUNING, jetAt, planHop, planJet } from './fetch-jet.ts';
 import type { JetPhase, JetPlan, TallBody } from './fetch-jet.ts';
 import type { Pt } from './fetch-route.ts';
 import type { SceneDesc, StandPoint } from '../scene.ts';
@@ -238,6 +238,27 @@ function nlerp(a: Quat, b: Quat, f: number): Quat {
   const s = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1;
   return qnormalize([a[0] + (b[0] * s - a[0]) * f, a[1] + (b[1] * s - a[1]) * f, a[2] + (b[2] * s - a[2]) * f, a[3] + (b[3] * s - a[3]) * f]);
 }
+/** From `a` toward `b` the shorter way, by `f` of the angle between (a true slerp: a half turn eases as evenly as a small one). */
+function slerpQ(a: Quat, b: Quat, f: number): Quat {
+  const rv = rotationVector(qmul(b, qconj(a)));
+  const n = Math.hypot(rv[0], rv[1], rv[2]);
+  if (n < 1e-9) return b;
+  return qnormalize(qmul(qaxis([rv[0] / n, rv[1] / n, rv[2] / n], n * f), a));
+}
+/** Turned on from `q` by the rotation vector `r` (world frame). */
+function spun(q: Quat, r: Vec3): Quat {
+  const n = Math.hypot(r[0], r[1], r[2]);
+  return n < 1e-9 ? q : qnormalize(qmul(qaxis([r[0] / n, r[1] / n, r[2] / n], n), q));
+}
+/**
+ * Over the edge (Taylor, 2026-11-20: "momentum and animation transitions to flow naturally"): physics carries it past
+ * the edge and the jetpack's script takes it out of sight below (`JET_TUNING.takeBelow`), or sooner if it would reach
+ * the world's fall line in the step (`fallMargin` under it), or if it hangs about out there slower than `stillSpeed`
+ * for `stillFor` (resting on something past the edge; the world's own rule chutes such a part after 1.5 s).
+ * Taken, its tumble carries on and runs down (`spinDamp`, 1/s) and it is eased upright by the time its jets have
+ * braked the fall, and never sooner than `upright` (s).
+ */
+const EDGE = { stillSpeed: 0.5, stillFor: 0.3, fallMargin: 0.1, spinDamp: 2.5, upright: 0.7 } as const;
 const lerp3 = (a: Vec3, b: Vec3, f: number): Vec3 => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
 const isTxn = (c: Cause): boolean => c !== 'crew' && c !== 'system';
 
@@ -506,11 +527,17 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   let wayRetry = -Infinity;
   let shutIn = false;
   // ── the jetpack: over the bench's edge, it flies back onto its tape (fetch-jet.ts) ──
-  /** The flight in hand: its plan, the tumble it went over with (eased upright in the fall), its landing on the path, the phase last published. */
-  let jet: { plan: JetPlan; q0: Quat; landS: number; phase: JetPhase; cut: boolean } | null = null;
+  /**
+   * The flight in hand: its plan, the pose it was taken in and the spin it had then (world rotation vector, rad/s:
+   * the tumble carries on and is eased upright out of sight), its landing on the path, the phase last published.
+   */
+  let jet: { plan: JetPlan; q0: Quat; w0: Vec3; landS: number; phase: JetPhase; cut: boolean } | null = null;
   let jetY = 0;
-  /** While held: where its body was last step (how it was moving when it went over). */
+  /** While held: where its body was last step, and how it was turned (how it was moving and spinning when it went over). */
   let heldLast: Vec3 | null = null;
+  let heldLastQ: Quat | null = null;
+  /** Steps it has hung about slowly past the edge without falling (on something out there): the script takes it. */
+  let edgeStill = 0;
   let armBack: { from: Vec3; at: number; dur: number } | null = null;
 
   const enter = (next: FetchState): void => {
@@ -650,6 +677,8 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
       // caught in mid-flight: the flight is dropped; it is held like any other time (and goes over again if let go there)
       jet = null;
       heldLast = null;
+      heldLastQ = null;
+      edgeStill = 0;
       letGo([0, 0, 0], [0, 0, 0], 'crew');
       fumbled = null;
       goal = null;
@@ -1309,7 +1338,21 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
   function overEdge(p: Vec3): boolean {
     const b = ctx.scene.bench;
     const outside = p[0] < b.minX || p[0] > b.maxX || p[2] < b.minZ || p[2] > b.maxZ;
-    return outside; // (at any height: from here its fall is scripted, as physics would have it, and then a beat out of sight)
+    return outside; // (at any height: physics carries it on from here until it is out of sight below the edge)
+  }
+  /**
+   * Past the edge, falling under physics (`p` now, `v` its velocity over the last step): is it time for the script to
+   * take it? Once its centre is `takeBelow` under the top (out of sight under the edge); before the world's fall line
+   * would send it by the chute this step (a fast fall: `scene.fallY`, with a margin for the step's own gravity); or once
+   * it has hung about slowly out there for `stillFor` (resting on something past the edge: the world would chute it
+   * after `outsideTime`).
+   */
+  function takeOverEdge(p: Vec3, v: Vec3): boolean {
+    const top = ctx.scene.bench.top;
+    const g = Math.abs(ctx.scene.gravity);
+    const next = p[1] + v[1] / HZ - g / (HZ * HZ);
+    edgeStill = Math.hypot(v[0], v[1], v[2]) < EDGE.stillSpeed ? edgeStill + 1 : 0;
+    return p[1] < top - JET_TUNING.takeBelow || next < ctx.scene.fallY + EDGE.fallMargin || edgeStill >= steps(EDGE.stillFor);
   }
   /** The nearest free point of its tape to (px, pz): nothing loose standing in its footprint there (else the next along). */
   function freeLanding(px: number, pz: number): number {
@@ -1376,7 +1419,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     const landS = freeLanding(p.p[0], p.p[2]);
     const [lx, lz] = at(landS);
     const plan = planHop({ p0: p.p, v0: [0, 0, 0], land: [lx, lz], half: T.bodyHalfHeight, radius: Math.hypot(selfHalf[0], selfHalf[2]), bench: ctx.scene.bench, bodies: TALL, g: Math.abs(ctx.scene.gravity) });
-    jet = { plan, q0: p.q, landS, phase: 'fall', cut: false };
+    jet = { plan, q0: p.q, w0: [0, 0, 0], landS, phase: 'fall', cut: false };
     x = p.p[0];
     z = p.p[2];
     jetY = plan.stand;
@@ -1386,26 +1429,49 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     flung = 0;
     enter('jetpack');
   }
-  function startJet(p: Pose, last: Vec3 | null): void {
-    const v0: Vec3 = last ? [(p.p[0] - last[0]) * HZ, (p.p[1] - last[1]) * HZ, (p.p[2] - last[2]) * HZ] : [0, 0, 0];
+  /**
+   * Past the edge and out of sight (`takeOverEdge`): the script takes it, moving `v0` and spinning `w0` as physics had
+   * it, and this step already moves it on along the plan (no step standing still at the handover).
+   */
+  function startJet(p: Pose, v0: Vec3, w0: Vec3): void {
     ctx.attach(spec.id, spec.id); // out of physics: a scripted path from here (never carried by physics while it flies)
     letGo([0, 0, 0], [0, 0, 0], null); // (a crate in its hands falls by itself, and comes back by the edge's ordinary law)
     const landS = freeLanding(p.p[0], p.p[2]);
     const [lx, lz] = at(landS);
     const plan = planJet({ p0: p.p, v0, land: [lx, lz], half: T.bodyHalfHeight, radius: Math.hypot(selfHalf[0], selfHalf[2]), bench: ctx.scene.bench, bodies: TALL, g: Math.abs(ctx.scene.gravity) });
-    jet = { plan, q0: p.q, landS, phase: 'fall', cut: false };
+    jet = { plan, q0: p.q, w0, landS, phase: 'fall', cut: false };
     x = p.p[0];
     z = p.p[2];
     jetY = p.p[1];
-    heading = yawOf(p.q);
+    // it rights itself to the way it faces when it is upright again
+    heading = yawOf(spun(p.q, spinBy(w0, uprightBy(plan))));
     v = 0;
     enter('jetpack');
+    entered -= 1; // this step is the plan's first
+    flyJet(ctx.clock.step);
+    ctx.drive(spec.id, bodyPose());
   }
-  /** Upright from the tumble it went over with, eased over the fall; then its heading. */
+  /** An edge flight is upright again by then: when the jets have braked the fall (out of sight), never sooner than `EDGE.upright`. */
+  const uprightBy = (plan: JetPlan): number => Math.max(EDGE.upright, plan.fall.tA + plan.fall.tB);
+  /** The turn a spin of `w0` (running down at `spinDamp`) has made after `t` seconds. */
+  const spinBy = (w0: Vec3, t: number): Vec3 => {
+    const k = (1 - Math.exp(-EDGE.spinDamp * t)) / EDGE.spinDamp;
+    return [w0[0] * k, w0[1] * k, w0[2] * k];
+  };
+  /**
+   * Over the edge: the tumble it was taken with carries on (spinning as it was, running down) and is eased upright
+   * (no turn at the handover: the ease starts flat), upright by `uprightBy`; then its heading. A hop: upright from
+   * how it lay in 0.4 s.
+   */
   function jetQ(): Quat {
     if (!jet) return qyaw(heading);
-    const f = smooth(clamp01(inState() / HZ / 0.4));
-    return f >= 1 ? qyaw(heading) : nlerp(jet.q0, qyaw(heading), f);
+    const t = inState() / HZ;
+    if (jet.plan.kind === 'hop') {
+      const f = smooth(clamp01(t / 0.4));
+      return f >= 1 ? qyaw(heading) : nlerp(jet.q0, qyaw(heading), f);
+    }
+    const f = smooth(clamp01(t / uprightBy(jet.plan)));
+    return f >= 1 ? qyaw(heading) : slerpQ(spun(jet.q0, spinBy(jet.w0, t)), qyaw(heading), f);
   }
   function flyJet(now: number): void {
     const j = jet;
@@ -1482,6 +1548,10 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
     id: spec.id,
 
     bracket(on) {
+      // (thrown and loose: the rung moves it and the rewind puts it back, still; its motion is measured afresh after)
+      heldLast = null;
+      heldLastQ = null;
+      edgeStill = 0;
       if (on) {
         if (state === 'held') return; // cannot happen: the Button refuses presses while anything is held
         frozenFrom = { state, entered, at: ctx.clock.step };
@@ -1597,14 +1667,28 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
         saluteDue = false;
         hands = null;
         armBack = null;
-        // over the bench's edge (thrown, dropped or let go past it): it falls a beat, then flies back on its jetpack
+        // over the bench's edge (thrown, dropped or let go past it): physics carries it on, over and down; out of
+        // sight below the edge its jetpack takes it, as it was moving, and flies it back
         const pNow = ctx.pose(spec.id);
         // (not while a Button rung plays: physics runs free then, the rung is rewound, and nothing commits)
         if (mode === 'free' && pNow && !ctx.bracketed && overEdge(pNow.p)) {
-          startJet(pNow, heldLast);
-          heldLast = null;
+          const vNow: Vec3 = heldLast ? [(pNow.p[0] - heldLast[0]) * HZ, (pNow.p[1] - heldLast[1]) * HZ, (pNow.p[2] - heldLast[2]) * HZ] : [0, 0, 0];
+          const turn = heldLastQ ? rotationVector(qmul(pNow.q, qconj(heldLastQ))) : null;
+          const wNow: Vec3 = turn ? [turn[0] * HZ, turn[1] * HZ, turn[2] * HZ] : [0, 0, 0];
+          // (its motion unknown for a step after it was let go or a rung ended: taken then only before the fall line)
+          if (takeOverEdge(pNow.p, vNow) && (heldLast !== null || pNow.p[1] < ctx.scene.fallY + 0.5)) {
+            heldLast = null;
+            heldLastQ = null;
+            edgeStill = 0;
+            startJet(pNow, vNow, wNow);
+            return;
+          }
+          heldLast = pNow.p;
+          heldLastQ = pNow.q;
+          slowFor = 0;
           return;
         }
+        edgeStill = 0;
         const speedNow = mode === 'free' && pNow && heldLast ? Math.hypot(pNow.p[0] - heldLast[0], pNow.p[1] - heldLast[1], pNow.p[2] - heldLast[2]) * HZ : Infinity;
         if (mode === 'free' && pNow && heldLast) flung = Math.max(flung, Math.hypot(pNow.p[0] - heldLast[0], pNow.p[2] - heldLast[2]) * HZ);
         if (mode === 'free' || mode === 'held') arrivedFlung = mode === 'free' && flung > T.shakeAfter;
@@ -1631,6 +1715,7 @@ export function createFetch(ctx: SimContext, tuning: Partial<typeof FETCH_TUNING
           return;
         }
         heldLast = mode === 'free' && pNow ? pNow.p : null;
+        heldLastQ = mode === 'free' && pNow ? pNow.q : null;
         if (ctx.part(spec.id)?.location.at === 'shipped') shipped = true;
         // put down: once it has come to rest, it rights itself and hurries back to its lane
         if (mode === 'free' && (ctx.settled(spec.id) || slowFor >= steps(T.stuckAfter))) {
