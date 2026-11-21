@@ -493,8 +493,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               }
               enter('land', t, true);
               // (R5: down from the air, eased over a few frames onto the landing's bounce, the limbs flailing on from
-              // where they were; off a wall the slide's last frame is the landing's first)
-              if (prev === 'fly') {
+              // where they were; off a wall, from the bottom of the slide, the same facing, eased the same way)
+              if (prev === 'fly' || prev === 'wall') {
                 blendDur = F.blendLand;
                 blendOpts = { bodyLag: 0, moving: true };
               } else blendFrom = null;
