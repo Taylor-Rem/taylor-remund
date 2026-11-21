@@ -19,7 +19,7 @@ import { aim, part, place, ring, T } from './compose.ts';
 import { rng } from './rng.ts';
 import { transform } from './deform.ts';
 import { loft } from './loft.ts';
-import { grain } from './space.ts';
+import { grain, setFinish } from './space.ts';
 import { hexHead, ridgedBand, stud } from './cheap.ts';
 import { finish } from './mesh.ts';
 import type { Loop, PSample } from './profile.ts';
@@ -507,4 +507,53 @@ export function beltLoop(o: DetailOptions & { span?: number; r?: number; width?:
   // section: first axis (N = +Z, the `up` hint) across the width, second through the thickness
   const g = sweep({ points: pts, closed: true }, { section: sections.roundRect(width / 2 - c, t / 2 - c, 2), radius: c, up: [0, 0, 1], uv: true });
   return [part(o.material ?? 'belt', g, o.token ?? 'ink', { seed: o.seed ?? 0 })];
+}
+
+/**
+ * T1: a station's pilot lamp (REWRITE.md § B1 "A station's own lamp"), the kind the approved pictures show on
+ * the striker and the dock: a jewelled amber lens in a turned brass bezel, on a round brass flange held by two
+ * small screws (three scales: the bezel and lens, the flange, the screws), standing on y = 0 along +Y. Returned
+ * in three: `fixed` (flange, screws, bezel: merge them with the body), and the lens twice, `lit` (the `bulb`
+ * class at the indicator level) and `unlit` (dark amber glass), for a node pair `*.lit` / `*.unlit` that a view
+ * swaps (station-lamp.ts). `r` is the lens's radius; the rest scales with it. `flange: false` seats the bezel
+ * straight on a brass plate that is already there. The screws' turn is seeded. About 250 triangles.
+ * Draw calls: `material` is the class of the brass (default `brass`; a body with no brass passes its own metal
+ * class, with the brass token, so the lamp merges with it) and `unlit` the dark lens's class (default `steel`;
+ * `glass` or `metal` where the body has those): only the lit lens can add a draw, and only where no `bulb` is.
+ */
+export function pilotLamp(o: DetailOptions & { r?: number; flange?: boolean; unlit?: MaterialClass } = {}): { fixed: KitPart[]; lit: KitPart; unlit: KitPart; top: number } {
+  const r = o.r ?? 0.04;
+  const R = rng(o.seed ?? 0);
+  const seed = o.seed ?? 0;
+  const n = 12;
+  const fixed: KitPart[] = [];
+  const flanged = o.flange ?? true;
+  // the flange: a thin turned disc with a chamfered edge, a little larger than the bezel; two screws across it
+  const fr = r * 1.8, ft = flanged ? r * 0.16 : 0;
+  if (flanged) {
+    const flangeG = lathe(profile(fr, 0).to(fr, ft * 0.45, { sharp: true }).to(fr * 0.86, ft, { sharp: true }).to(0, ft), { segs: n, support: false, caps: false });
+    fixed.push(part(o.material ?? 'brass', flangeG, 'brass', { seed: seed + 1, jitter: 0.05, warm: 0.04 }));
+    const a = R.range(0, Math.PI);
+    for (const s of [-1, 1]) fixed.push(part(o.material ?? 'brass', transform(stud(r * 0.19, r * 0.11), T(Math.cos(a) * fr * 0.72 * s, ft, Math.sin(a) * fr * 0.72 * s)), 'brass', { seed: seed + 2 + s, jitter: 0.08 }));
+  }
+  // the bezel: a turned ring standing proud, its lip rolled in over the lens
+  const bh = r * 0.95;
+  const bezelG = lathe(
+    profile(r * 1.34, ft)
+      .to(r * 1.36, ft + bh * 0.55, { sharp: true })
+      .to(r * 1.22, ft + bh, { sharp: true })
+      .to(r * 1.06, ft + bh * 1.02, { sharp: true })
+      .to(r * 0.97, ft + bh * 0.88),
+    { segs: n, support: false, caps: false },
+  );
+  fixed.push(part(o.material ?? 'brass', bezelG, 'brass', { seed: seed + 6, jitter: 0.06, warm: 0.05 }));
+  // the lens: a faceted jewel dome in the bezel (eight facets catch the lamp)
+  const top = ft + bh * 0.6 + r * 0.9;
+  const lensG = (): BufferGeometry =>
+    lathe(profile(r * 0.99, ft + bh * 0.5).to(r * 0.99, ft + bh * 0.7, { sharp: true }).to(r * 0.55, top - r * 0.16, { sharp: true }).to(0, top), { segs: 8, support: false, caps: false });
+  const lit = setFinish(part('bulb', lensG(), 'amber-glow', { seed: seed + 8 }), 0.55);
+  const unlit = setFinish(part(o.unlit ?? 'steel', lensG(), 'amber', { seed: seed + 9, shade: 0.3 }), 1);
+  // too small to throw a shadow the map would show: none of it casts (no draws in the shadow pass)
+  const quiet = (q: KitPart): KitPart => ({ ...q, shadow: 'none' });
+  return { fixed: fixed.map(quiet), lit: quiet(lit), unlit: quiet(unlit), top };
 }

@@ -12,12 +12,17 @@
  *    the line's bus.
  *
  * With reduced motion it stands still.
+ *
+ * T1: its station lamp (on the top of the run) is dark, steady while a part is on its way up or just out,
+ * and blinks slowly as a tell (`StationLamps`, station-lamp.ts).
  */
 import { Group, Matrix4, Vector3 } from 'three';
 import type { Id } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
 import type { Piece } from '../kit/types.ts';
 import { lineBus } from './line.ts';
+import { lampOn } from './station-lamp.ts';
+import { StationLamps } from './tells.ts';
 
 /** Tune here. Angles in degrees, rates in rad/s. */
 export const CHUTE_FEEL = {
@@ -72,12 +77,17 @@ export function createChuteView(o: ChuteViewOptions): StationViewFactory {
     }
     // the pivot group sits at the strap; the piece hangs from it at its own place
     const hinge = new Group();
+    hinge.name = 'chute.hinge';
     hinge.position.copy(pivot);
     root.add(hinge);
     const obj = ctx.realize(o.piece);
     obj.position.set(o.at[0] - pivot.x, -pivot.y, o.at[1] - pivot.z);
     hinge.add(obj);
 
+    // T1: the station lamp (kit: `lamp.lit` / `lamp.unlit`), dark, steady while a part is on its way up, blinking as a tell
+    const lit = obj.getObjectByName('lamp.lit'), unlit = obj.getObjectByName('lamp.unlit');
+    const lamps = new StationLamps();
+    let shown = -1;
     const jolt = { x: 0, v: 0 };
     const drop = { x: 0, v: 0 };
     let still = true;
@@ -86,6 +96,13 @@ export function createChuteView(o: ChuteViewOptions): StationViewFactory {
       update(frame: Frame) {
         const w = frame.world;
         const dt = Math.min(frame.dt, 0.1);
+        lamps.heard(frame.events, frame.time);
+        const on = lampOn(lamps.state(w, id, frame.time), frame.time) ? 1 : 0;
+        if (on !== shown && lit && unlit) {
+          lit.scale.setScalar(on ? 1 : 1e-4);
+          unlit.scale.setScalar(on ? 1e-4 : 1);
+          shown = on;
+        }
         if (w.reducedMotion) {
           if (!still) {
             hinge.rotation.x = 0;

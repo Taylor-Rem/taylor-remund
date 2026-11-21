@@ -21,6 +21,7 @@ import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import { placedMatrix } from './set.ts';
 import type { Fit } from '../vignette.ts';
 import { phoneScreen, posePhone } from '../kit/pieces/phone/index.ts';
+import { lampOn } from './station-lamp.ts';
 import { paintPhone } from '../labels/draw.ts';
 import { planPhone } from '../labels/layout.ts';
 import { phonePixels, phoneRegion, putChangedRows, world } from '../labels/index.ts';
@@ -135,6 +136,9 @@ export function createPhoneView(o: PhoneViewOptions): StationViewFactory {
 
     let ringAt = -Infinity;
     let hover = 0;
+    // T1: the line's own lamp on the easel's shelf: dark, steady while a text is on the line, blinking as a tell
+    const lampLit = obj.getObjectByName('lamp.lit'), lampUnlit = obj.getObjectByName('lamp.unlit');
+    let lampShown = -1;
     let lastTilt = NaN;
 
     return {
@@ -146,6 +150,12 @@ export function createPhoneView(o: PhoneViewOptions): StationViewFactory {
         for (const e of frame.events) if (e.type === 'line.reply' || e.type === 'line.refused') ringAt = t;
         const lv = w.machine('line');
         const line = lv?.kind === 'line' ? (lv as LineView) : null;
+        const on = line && lampOn(line.lamp, t) ? 1 : 0;
+        if (on !== lampShown && lampLit && lampUnlit) {
+          lampLit.scale.setScalar(on ? 1 : 1e-4);
+          lampUnlit.scale.setScalar(on ? 1e-4 : 1);
+          lampShown = on;
+        }
 
         // the screen: the last text and its answer
         if (line && line.log.length > 0) {

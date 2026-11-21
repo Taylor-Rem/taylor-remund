@@ -75,8 +75,9 @@ describe('the switchboard, both builds', () => {
       }
       for (const j of JACKS.filter((x) => !live.includes(x))) expect(n.has(`drawer.${j}`)).toBe(false);
       for (const s of ['cord.root', 'stool']) expect(p.sockets?.[s], s).toBeDefined();
-      // only the lit lenses glow at rest: they are built collapsed
-      expect([...n.keys()].filter((k) => k.endsWith('.lit')).length).toBe(live.length);
+      // only the lit lenses glow at rest: they are built collapsed (one per live jack, and T1's cord lamp in the keyshelf)
+      expect([...n.keys()].filter((k) => k.endsWith('.lit')).length).toBe(live.length + 1);
+      expect(n.get('lamp.cord.lit')?.parts.some((q) => q.material === 'bulb')).toBe(true);
     });
 
     it(`${name}: poses on the default (skinned) backend: drawers out along +Z, collars lift, lamps swap`, () => {
