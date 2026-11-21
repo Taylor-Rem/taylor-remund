@@ -8,9 +8,11 @@
  *     plain document; the stage stops drawing and stepping while hidden).
  *     The address says so (#paperwork, or the section's own anchor), so the
  *     browser's back button backs out, and an address that names a section
- *     (`/#patchlamp`, `/#services`, `/#about`, `/#contact`) opens the
- *     paperwork there, on arrival and on a later hash change. "Back to the
- *     workshop" stands where Read was.
+ *     with no station of its own (`/#services`, `/#about`, `/#contact`)
+ *     opens the paperwork there, on arrival and on a later hash change.
+ *     "Back to the workshop" stands where Read was. An address that names a
+ *     station (`/#patchlamp`: `STATION_ADDRESSES`) leaves the stage on
+ *     screen, unscrolled; the controls (ui/controls) frame the station.
  *   - Sound: a toggle (`aria-pressed`, pressed = sound on) on
  *     audio/mute.ts, remembered as mute.ts remembers it; the M key and the
  *     button agree.
@@ -22,18 +24,40 @@
  */
 import { isMuted, onMuted, setMuted } from '../../audio/mute.ts';
 
-/** The paperwork and its sections: an address naming one of these opens the paperwork. */
-export const PAPERWORK_IDS = ['paperwork', 'patchlamp', 'services', 'about', 'contact'] as const;
+/**
+ * The paperwork and the sections with no station of their own: with the stage running, an address naming one
+ * of these opens the paperwork there (§ B6). `#patchlamp` is a section AND a station's address: with the stage
+ * it frames the station (ui/controls, P3 B2); without (the Still tier, no script, a failure) it is the
+ * section's plain anchor, as every id in the paperwork is.
+ */
+export const PAPERWORK_IDS = ['paperwork', 'services', 'about', 'contact'] as const;
 
-/** The id an address's hash names in the paperwork, or null (the stage). */
-export function readingFor(hash: string): string | null {
-  let id: string;
+/**
+ * The stations an address can frame (REWRITE.md § C, the stations table), those the bench has today. The
+ * bench's framings (shell/bench-stage.ts `BENCH_STATIONS`) must name the same (tests/unit/ui/controls-model.test.ts).
+ */
+export const STATION_ADDRESSES = ['top', 'patchlamp', 'button', 'line'] as const;
+
+/** The id an address's hash names, decoded (null: none, or malformed). */
+function hashId(hash: string): string | null {
   try {
-    id = decodeURIComponent(hash.replace(/^#/, ''));
+    const id = decodeURIComponent(hash.replace(/^#/, ''));
+    return id === '' ? null : id;
   } catch {
-    return null; // a malformed address is no section
+    return null; // a malformed address names nothing
   }
-  return (PAPERWORK_IDS as readonly string[]).includes(id) ? id : null;
+}
+
+/** The id an address's hash names in the paperwork (opened over the stage), or null (the stage). */
+export function readingFor(hash: string): string | null {
+  const id = hashId(hash);
+  return id !== null && (PAPERWORK_IDS as readonly string[]).includes(id) ? id : null;
+}
+
+/** The station an address's hash names (`#patchlamp`), or null. */
+export function stationFor(hash: string): string | null {
+  const id = hashId(hash);
+  return id !== null && (STATION_ADDRESSES as readonly string[]).includes(id) ? id : null;
 }
 
 /** What the history entry of a paperwork address pushed from the stage carries: the way back can be Back. */
@@ -113,12 +137,24 @@ export function createStrip(mode: 'stage' | 'still', doc: Document = document): 
     }
   });
   const setMode = (m: 'stage' | 'still'): void => {
+    const was = stage;
     stage = m === 'stage';
     // (Stage.astro's CSS shows the sound control and the way back only with the stage)
     html.classList.toggle('stage-on', stage);
     html.classList.toggle('still', !stage);
     apply(false);
+    // the stage gave the screen up: an address that names a place in the paperwork (`#patchlamp` too, a station's
+    // address while the stage ran) is that place's plain anchor again
+    if (was && !stage) {
+      const id = hashId(win.location.hash);
+      if (id !== null) doc.getElementById(id)?.scrollIntoView();
+    }
   };
+  // the stage owns the screen: the browser's own jump to an anchor (a station's address names a section too)
+  // does not scroll the page under it
+  win.addEventListener('load', () => {
+    if (stage && !reading) win.scrollTo(0, 0);
+  });
   setMode(mode);
 
   return {

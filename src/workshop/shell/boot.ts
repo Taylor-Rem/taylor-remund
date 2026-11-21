@@ -56,6 +56,57 @@ export interface BootViewContext extends ViewContext {
 
 export type BootStation = (ctx: BootViewContext) => StationView;
 
+/** What of the canvas the page covers (CSS px from each side: the strip, an open controls list); a framing keeps clear of it. */
+export interface Inset {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+/**
+ * P3 B2 (REWRITE.md § B6 "zooms between the whole bench and one station", § E9 "focusing one frames it"): how a
+ * page frames the stations of its scene (shell/bench-stage.ts for the bench). The boot keeps which station is
+ * framed and when; the page says what a framing looks like.
+ */
+export interface Framings {
+  /** The stations that have a framing. */
+  readonly stations: readonly string[];
+  /** The station `id` is framed with (an interactable's own; a loose part: where it is now), or null. */
+  of(id: Id): string | null;
+  /** Ease (under reduced motion: cut) to station `st`, or to the whole bench (null). */
+  show(st: string | null, stage: Stage, inset: Inset): void;
+  /** The side of the screen a framing of `st` leaves freer (the page puts what it lays over the stage there). */
+  freeSide(st: string | null): 'left' | 'right';
+  /** Bring one thing (its pick box, `box`) into view without leaving its station (focus moved to it while it is off screen). */
+  thing(id: Id, box: Box3 | null, stage: Stage, inset: Inset): void;
+}
+
+/**
+ * Why a station was framed: `focus` (keyboard focus moved into it: the address is left alone), `select` (a
+ * double-click or double-tap, Enter on its name in the controls list: the address follows), `address` (the
+ * address named it), `back` (Esc, pinch-out to the whole bench, the browser's Back: the whole bench).
+ */
+export type FrameWhy = 'focus' | 'select' | 'address' | 'back';
+
+/** The station framed now, and the way to frame one (Workshop.framing). */
+export interface Framing {
+  /** The station framed now, or null (the whole bench, or wherever the visitor has panned). */
+  readonly station: string | null;
+  /** Every station that can be framed (empty: the page has no framings). */
+  readonly stations: readonly string[];
+  /** The station `id` is framed with now (`Framings.of`), or null. */
+  of(id: Id): string | null;
+  /** The side of the screen a framing of `st` leaves freer (`Framings.freeSide`; right when there are none). */
+  freeSide(st: string | null): 'left' | 'right';
+  /** Frame station `st` (null: the whole bench). */
+  frame(st: string | null, why: FrameWhy): void;
+  /** Called on every framing, with its reason. */
+  on(f: (st: string | null, why: FrameWhy) => void): () => void;
+  /** What of the canvas the page covers now (framings keep clear of it). */
+  setInset(i: Partial<Inset>): void;
+}
+
 export interface BootOptions {
   /** Default: the vignette. */
   scene?: SceneDesc;
@@ -75,8 +126,13 @@ export interface BootOptions {
   onFrame?(frame: Frame, workshop: Workshop): void;
   /** Every intent as it is dispatched (overlays, recordings). */
   onIntent?(intent: Intent, t: number): void;
-  /** Hook: a double-click/double-tap asked to frame the station under the pointer. */
+  /** Hook: a double-click/double-tap asked to frame the station under the pointer (a page without `framings`). */
   onFrameRequest?(id: Id | null, stage: Stage): void;
+  /**
+   * P3 B2: the page's framings. With them a double-click, keyboard focus and Esc frame stations through
+   * `Workshop.framing` (and `onFrameRequest` is not called); without, as before.
+   */
+  framings?: Framings;
   /** The interactable U presses (the lever, when it arrives). */
   undoId?: Id | null;
   gestures?: Partial<GestureTuning>;
@@ -172,6 +228,12 @@ export interface Workshop {
   readonly phone: StagePhone | null;
   /** Keyboard focus on the stage (an interactable, or the phone's target), or null. The view should mark it. */
   readonly focused: Id | null;
+  /** P3 B2: the input on the canvas; the page's controls list drives the same recogniser through it. */
+  readonly input: DomInput;
+  /** P3 B2: which station is framed, and the way to frame one. */
+  readonly framing: Framing;
+  /** P3 B2: every drawn frame, after the views (the controls list, its live region); returns the way to stop. */
+  onFrame(f: (frame: Frame) => void): () => void;
   /** Deterministic: run n steps and render one frame (manual mode for captures). */
   advance(n: number): void;
   /** R2: faults caught by the guard (lenient mode): how many, how many resets, the last report. Zero in a clean session. */
@@ -458,6 +520,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     },
     panels: () => panelIds,
     hidden: () => (hasPhone ? lineSet : noIds),
+    panelStation: (id) => (panelIds.has(id) ? (world.interactable(lineId)?.station ?? null) : null),
     ...(opts.carry ? { carry: opts.carry } : {}),
   });
   const gestures = new Gestures(surface, opts.gestures);
@@ -487,10 +550,12 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       stage.camera.zoomBy(f);
     },
     back() {
-      stage.camera.easeTo(stage.camera.home());
+      if (framings) framing.frame(null, 'back');
+      else stage.camera.easeTo(stage.camera.home());
     },
     frame(id: Id) {
-      opts.onFrameRequest?.(id, stage);
+      if (framings) framing.frame(framings.of(id), 'select');
+      else opts.onFrameRequest?.(id, stage);
     },
   };
   const controls = createControls({ world: () => world, dispatch, camera, undoId: opts.undoId ?? world.undoId ?? null });
@@ -503,7 +568,9 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   const fromInput = (intent: Intent, t: number): void => {
     if (intent.type === 'press' && panelIds.has(intent.id)) {
       if (phone && !phone.isOpen) {
-        phone.open(canvas);
+        // (P3 B2) focus returns to what opened it: the canvas, or the controls list's Phone button
+        const by = typeof document !== 'undefined' ? document.activeElement : null;
+        phone.open(by instanceof HTMLElement && by !== document.body ? by : canvas);
         // the line hears it: picking the phone up is the visitor's doing (it ends attract mode, § B3)
         if (world.interactable(lineId)) dispatch({ type: 'press', id: lineId }, t);
       }
@@ -511,18 +578,62 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     }
     dispatch(intent, t);
   };
+  let inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
   const onScreen = (id: Id): boolean => {
     const s = screenOf(id);
     if (!s) return true;
     const w = canvas.clientWidth || 1;
     const h = canvas.clientHeight || 1;
-    return s.x > w * 0.06 && s.x < w * 0.94 && s.y > h * 0.06 && s.y < h * 0.94;
+    // (inside what the page leaves uncovered: the strip, an open controls list)
+    const x0 = inset.left + (w - inset.left - inset.right) * 0.06;
+    const x1 = w - inset.right - (w - inset.left - inset.right) * 0.06;
+    const y0 = inset.top + (h - inset.top - inset.bottom) * 0.06;
+    const y1 = h - inset.bottom - (h - inset.top - inset.bottom) * 0.06;
+    return s.x > x0 && s.x < x1 && s.y > y0 && s.y < y1;
+  };
+  // P3 B2: the station framed now; the page's framings say what each looks like (shell/bench-stage.ts)
+  const framings = opts.framings ?? null;
+  const framed: { station: string | null } = { station: null };
+  const framingListeners = new Set<(st: string | null, why: FrameWhy) => void>();
+  const framing: Framing = {
+    get station() {
+      return framed.station;
+    },
+    stations: framings?.stations ?? [],
+    of: (id) => framings?.of(id) ?? null,
+    freeSide: (st) => framings?.freeSide(st) ?? 'right',
+    frame(st, why) {
+      if (!framings) {
+        if (st === null) stage.camera.easeTo(stage.camera.home());
+        return;
+      }
+      const known = st !== null && framings.stations.includes(st) ? st : null;
+      framed.station = known;
+      framings.show(known, stage, inset);
+      for (const f of framingListeners) guard.run('ui:framing', () => f(known, why));
+    },
+    on(f) {
+      framingListeners.add(f);
+      return () => framingListeners.delete(f);
+    },
+    setInset(i) {
+      inset = { ...inset, ...i };
+    },
   };
   const dom: DomInput = attachInput(canvas, gestures, {
     intent: fromInput,
     focus(id) {
+      if (id === null) return;
+      if (framings) {
+        // § E9 "focusing one frames it": focus moving into a station frames the station; moving on inside it, the
+        // camera keeps still (no lurch on every Tab), unless the thing is out of view (a crate gone down the belt)
+        const st = framings.of(id);
+        if (st !== null && st !== framed.station) framing.frame(st, 'focus');
+        else if (!stage.camera.easing && !onScreen(id)) framings.thing(id, picking.worldBox(id, new Box3()), stage, inset);
+        return;
+      }
       // focusing a control brings it into view (§ E9); one already in view is left where it is
-      if (id !== null && !onScreen(id)) opts.onFrameRequest?.(id, stage);
+      if (!onScreen(id)) opts.onFrameRequest?.(id, stage);
     },
     pan(from, to) {
       const a = stage.camera.benchPoint(ndcOf(from), scene.bench.top);
@@ -535,12 +646,19 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     nudge: (dx, dz) => camera.pan(dx, dz),
     zoom(f, at) {
       stage.camera.zoomBy(f, at ? ndcOf(at) : undefined);
+      // § B6: pinched (or wheeled, or `-`) out to the whole bench: the station is no longer framed
+      if (f > 1 && framed.station !== null && stage.camera.zoom <= 1e-3) {
+        framed.station = null;
+        for (const l of framingListeners) guard.run('ui:framing', () => l(null, 'back'));
+      }
     },
     frame(_x, _y, id) {
-      opts.onFrameRequest?.(id, stage);
+      if (framings) framing.frame(id === null ? null : framings.of(id), 'select');
+      else opts.onFrameRequest?.(id, stage);
     },
     back() {
       if (phone?.isOpen) phone.close();
+      else if (framings) framing.frame(null, 'back');
       else camera.back();
     },
     undo: () => controls.undo(),
@@ -555,6 +673,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   });
 
   // 6. the loop
+  const frameListeners = new Set<(frame: Frame) => void>();
   let pointerWorld: Vec3 | null = null;
   const driver = new Driver({
     world,
@@ -582,6 +701,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       // the phone hears its line; the open panel stands clear of the station as the camera moves
       phone?.sync();
       opts.onFrame?.(frame, workshop);
+      // (P3 B2) the page's own listeners: the controls list, its live region
+      for (const f of frameListeners) guard.run('ui:frame', () => f(frame));
     },
   });
   driverRef.d = driver;
@@ -644,12 +765,20 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     get focused() {
       return gestures.focused;
     },
+    input: dom,
+    framing,
+    onFrame(f) {
+      frameListeners.add(f);
+      return () => frameListeners.delete(f);
+    },
     advance: (n) => loop.advance(n),
     faults: () => guard.faults(),
     dispatch,
     dispose() {
       removeEventListener('resize', onResize);
       canvas.removeEventListener('webglcontextlost', onContextLost);
+      frameListeners.clear();
+      framingListeners.clear();
       world.setOnFault(null);
       loop.dispose();
       dom.dispose();

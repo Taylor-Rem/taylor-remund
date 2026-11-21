@@ -8,12 +8,15 @@
  * carries), the wheel and the context menu are taken, and the page itself
  * never scrolls or zooms under a gesture.
  *
- * Keys: the canvas is one stop in the page's Tab order. While it has focus,
- * Tab and Shift+Tab move through the controls list on the stage, and leave
- * it past either end. The stage's other keys (Enter, Space, arrows, + and −,
- * U, Esc) answer when the canvas or the page itself has focus, never while
- * the visitor is in a form, a button of the page, or a dialog (the phone
- * panel keeps its keys).
+ * Keys: the canvas is one stop in the page's Tab order (unless the page took
+ * it out: `/` has a controls list of real buttons, ui/controls, and gives the
+ * canvas tabindex -1). While it is a stop and has focus, Tab and Shift+Tab
+ * move through the controls on the stage, and leave it past either end. The
+ * stage's other keys (Enter, Space, arrows, + and −, U, Esc) answer when the
+ * canvas or the page itself has focus, never while the visitor is in a form,
+ * a button of the page, or a dialog (the phone panel keeps its keys). The
+ * controls list hands its keys in through `focusOn`, `key` and
+ * `chooseDestination`.
  */
 import type { Id, Intent } from '../sim/types.ts';
 import type { Command, Cursor, Gestures, PointerKind, Sample } from './gesture.ts';
@@ -42,6 +45,14 @@ export interface DomInput {
   tick(t: number): void;
   /** Set the canvas's cursor again (the glove's pictures have arrived, or the visitor's preferences changed). */
   refreshCursor(): void;
+  /**
+   * The page's controls list (ui/controls) drives the same recogniser as the canvas's keys: focus moves to an
+   * interactable (null: off the stage), a key as the canvas would take it (true: used), a destination for what
+   * the keys hold. The commands go out at once.
+   */
+  focusOn(id: Id | null, t?: number): void;
+  key(k: string, t?: number, o?: { shift?: boolean }): boolean;
+  chooseDestination(id: Id | null, t?: number): boolean;
   dispose(): void;
 }
 
@@ -70,6 +81,9 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
   canvas.style.outline = 'none';
   let shiftTab = false;
+  /** Is the canvas a stop in the page's Tab order (it cycles its own controls)? A page with a controls list makes it -1. */
+  const tabStop = (): boolean => canvas.tabIndex >= 0;
+  const stamp = (t?: number): number => t ?? (typeof performance !== 'undefined' ? performance.now() : 0);
   /** The canvas is taking focus from a press, not from Tab: no control is focused for it. */
   let pointerFocus = false;
 
@@ -176,8 +190,10 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
     if (e.key === 'Tab') shiftTab = e.shiftKey;
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!stageKeyTarget(e.target, canvas)) return;
-    // Tab moves through the stage's controls only while the stage has focus; elsewhere it is the page's
-    if (e.key === 'Tab' && e.target !== canvas) return;
+    // Tab moves through the stage's controls only while the stage has focus and is itself a Tab stop; elsewhere,
+    // and on a page whose controls are a list of real buttons (`/`: the canvas is taken out of the Tab order), it
+    // is the page's
+    if (e.key === 'Tab' && (e.target !== canvas || !tabStop())) return;
     if (gestures.key(e.key, e.timeStamp, { shift: e.shiftKey })) {
       e.preventDefault();
     }
@@ -185,7 +201,7 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
   };
   const onFocus = (e: FocusEvent): void => {
     // arriving by Tab (not a press): the first control (the last, coming back with Shift+Tab) takes focus
-    if (pointerFocus || (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible'))) return;
+    if (pointerFocus || !tabStop() || (typeof canvas.matches === 'function' && !canvas.matches(':focus-visible'))) return;
     if (gestures.focused === null) gestures.key('Tab', e.timeStamp, { shift: shiftTab });
     flush();
   };
@@ -249,6 +265,20 @@ export function attachInput(canvas: HTMLElement, gestures: Gestures, sink: Input
       flush();
     },
     refreshCursor: applyCursor,
+    focusOn(id, t) {
+      gestures.focusOn(id, stamp(t));
+      flush();
+    },
+    key(k, t, o = {}) {
+      const used = gestures.key(k, stamp(t), o);
+      flush();
+      return used;
+    },
+    chooseDestination(id, t) {
+      const ok = gestures.chooseDestination(id, stamp(t));
+      flush();
+      return ok;
+    },
     dispose() {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);

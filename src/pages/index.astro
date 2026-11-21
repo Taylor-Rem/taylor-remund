@@ -8,6 +8,8 @@ import Stage from '../layouts/Stage.astro';
 import SettingsControl from '../workshop/ui/settings/SettingsControl.astro';
 import SettingsPanel from '../workshop/ui/settings/SettingsPanel.astro';
 import { site } from '../content/site.ts';
+import Controls from '../workshop/ui/controls/Controls.astro';
+import ControlsOpener from '../workshop/ui/controls/ControlsOpener.astro';
 
 const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
 ---
@@ -15,7 +17,9 @@ const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
   title={site.pages.home.title.text}
   description={site.pages.home.description.text}
 >
+  <ControlsOpener slot="strip-end" />
   <SettingsControl slot="strip-end" />
+  <Controls slot="over-stage" />
   <SettingsPanel slot="over-stage" />
   <main id="paperwork" tabindex="-1">
     {sections.map((id) => (

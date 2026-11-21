@@ -30,6 +30,8 @@ export interface SurfaceDeps {
   panels?(): ReadonlySet<Id>;
   /** Interactables a hand reaches through something else (the line, through the phone): left out of the controls list. */
   hidden?(): ReadonlySet<Id>;
+  /** The station a panel that is no interactable of its own stands with in the controls list (the phone: the line's). */
+  panelStation?(id: Id): string | null;
   /** A world point on screen (CSS px of the canvas), or null behind the camera. */
   project?(p: Vec3): [number, number] | null;
   /** The way the camera looks (unit), for reading a hand straight up the screen as straight up. */
@@ -392,7 +394,8 @@ export function createSurface(deps: SurfaceDeps): Surface {
         l.push(it.id);
       }
       for (const id of panels()) {
-        const st = w.interactable(id)?.station ?? 'panels';
+        // (a panel that is no interactable of its own, the phone, stands with the station of what it opens)
+        const st = w.interactable(id)?.station ?? deps.panelStation?.(id) ?? 'panels';
         let l = byStation.get(st);
         if (!l) byStation.set(st, (l = []));
         if (!l.includes(id)) l.push(id);

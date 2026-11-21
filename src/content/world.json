@@ -20,7 +20,75 @@
     "jack": {
       "storefront": { "text": "Storefront jack", "kind": "ui", "source": "REWRITE.md § B2, X1 (jack STOREFRONT)" },
       "lamp": { "text": "Lamp jack", "kind": "ui", "source": "REWRITE.md § B2, X1 (jack LAMP)" }
+    },
+    "dock": {
+      "bell": { "text": "Dock bell", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1, machines table (the dock ships it with a bell; the bell also rings when the visitor presses it). New name, P3 B2: for Taylor" }
+    },
+    "phone": { "text": "Phone", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the layout (the phone, by the UNDO lever); § D 3 (tap the phone to text). New name, P3 B2: for Taylor" }
+  },
+  "stations": {
+    "top": { "text": "The sign and the lamp", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#top: the sign and the lamp). P3 B2: a heading in the controls list, for Taylor" },
+    "patchlamp": { "text": "Patchlamp", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#patchlamp). P3 B2: a heading in the controls list, for Taylor" },
+    "button": { "text": "The Button", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#button: the Button). P3 B2: a heading in the controls list, for Taylor" },
+    "line": { "text": "The belt", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#line: the belt). P3 B2: a heading in the controls list, for Taylor" }
+  },
+  "controls": {
+    "title": { "text": "Controls", "kind": "ui", "provisional": true, "source": "REWRITE.md § B6 (the controls list), § E9. P3 B2: the list's heading, for Taylor" },
+    "opener": { "text": "Controls", "kind": "ui", "provisional": true, "source": "REWRITE.md § B6 (`?` opens the controls list). P3 B2: the strip's button that opens the list, for Taylor" },
+    "holding": { "text": "Holding: {thing}. Where should it go?", "kind": "ui", "provisional": true, "source": "REWRITE.md § B6 keyboard column (Enter to pick up, choose a destination, Enter). P3 B2: over the destinations while the keys hold something, for Taylor" },
+    "putDown": { "text": "Put it down here", "kind": "ui", "provisional": true, "source": "REWRITE.md § B6 (Esc puts a held part down). P3 B2: the button under the destinations, for Taylor" },
+    "crate": {
+      "S": { "text": "Small crate", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (size S, M, L); names.crate. P3 B2: a crate's name in the list, for Taylor" },
+      "M": { "text": "Medium crate", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (size S, M, L); names.crate. P3 B2: a crate's name in the list, for Taylor" },
+      "L": { "text": "Large crate", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (size S, M, L); names.crate. P3 B2: a crate's name in the list, for Taylor" }
+    },
+    "state": {
+      "colour": { "text": "{name}, {colour}", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (colour); § E9. P3 B2: a part's paint in its list name, for Taylor" },
+      "label": { "text": "{name}, labelled {label}", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (label); § E9. P3 B2, for Taylor" },
+      "held": { "text": "{name}, held", "kind": "ui", "provisional": true, "source": "REWRITE.md § E9 (its state, where it matters to someone who cannot see it). P3 B2, for Taylor" },
+      "pressedOnce": { "text": "{name}, pressed once", "kind": "ui", "provisional": true, "source": "REWRITE.md § B4 (a plate beside it counts the presses). P3 B2, for Taylor" },
+      "pressed": { "text": "{name}, pressed {count} times", "kind": "ui", "provisional": true, "source": "REWRITE.md § B4 (a plate beside it counts the presses). P3 B2, for Taylor" },
+      "level": { "text": "{name}, {level} of {levels}", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 5 (a speed dial). P3 B2: the dial's setting, for Taylor" },
+      "forward": { "text": "{name}, forwards", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 5 (a direction lever). P3 B2, for Taylor" },
+      "backward": { "text": "{name}, backwards", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 5 (a direction lever). P3 B2, for Taylor" },
+      "stopped": { "text": "{name}, stopped", "kind": "ui", "provisional": true, "source": "REWRITE.md § D 5 (a direction lever: backward, stop, forward). P3 B2, for Taylor" },
+      "inJack": { "text": "{name}, in the {jack}", "kind": "ui", "provisional": true, "source": "REWRITE.md § B2 X1 (the phone talks to whatever the cord is plugged into). P3 B2, for Taylor" },
+      "open": { "text": "{name}, open", "kind": "ui", "provisional": true, "source": "REWRITE.md § B4, rung 3 (a flip-up cover). P3 B2, for Taylor" },
+      "shut": { "text": "{name}, shut", "kind": "ui", "provisional": true, "source": "REWRITE.md § B4, rung 3 (a flip-up cover). P3 B2, for Taylor" }
     }
+  },
+  "said": {
+    "picked": { "text": "{thing} picked up.", "kind": "ui", "provisional": true, "source": "event part.grabbed (the visitor's hand). P3 B2, REWRITE.md § E9: for Taylor" },
+    "pickedKeys": { "text": "{thing} picked up. Choose where it goes.", "kind": "ui", "provisional": true, "source": "event part.grabbed or cord.unplugged, held by the keys (REWRITE.md § B6: choose a destination, Enter). P3 B2: for Taylor" },
+    "putDown": { "text": "{thing} put down.", "kind": "ui", "provisional": true, "source": "event part.released, slowly. P3 B2: for Taylor" },
+    "thrown": { "text": "{thing} thrown.", "kind": "ui", "provisional": true, "source": "event part.released, with speed (REWRITE.md § B1 law 1). P3 B2: for Taylor" },
+    "returned": { "text": "{thing} came back up the return chute.", "kind": "ui", "provisional": true, "source": "event part.returned (REWRITE.md § B1, the bench edge). P3 B2: for Taylor" },
+    "onBelt": { "text": "{thing} is on the belt.", "kind": "ui", "provisional": true, "source": "event taken-in, mouth belt. P3 B2: for Taylor" },
+    "atDock": { "text": "{thing} is at the dock.", "kind": "ui", "provisional": true, "source": "event taken-in, mouth dock. P3 B2: for Taylor" },
+    "onPlaten": { "text": "{thing} is on the platen.", "kind": "ui", "provisional": true, "source": "event taken-in, mouth platen. P3 B2: for Taylor" },
+    "struck": { "text": "{thing} struck.", "kind": "ui", "provisional": true, "source": "event struck (the striker strikes it; it sounds). P3 B2: for Taylor" },
+    "shipped": { "text": "{thing} shipped.", "kind": "ui", "provisional": true, "source": "event shipped; REWRITE.md § E9 (\"Shipped.\"). P3 B2: for Taylor" },
+    "rung1": { "text": "Big Red Button pressed. The bench flinches, and Revert winds it back.", "kind": "ui", "provisional": true, "source": "event button.pressed, rung 1; REWRITE.md § B4 rung 1 (the flinch). P3 B2: for Taylor" },
+    "rung2": { "text": "Big Red Button pressed. The bench flinches, and one station misfires once.", "kind": "ui", "provisional": true, "source": "event button.pressed, rung 2; REWRITE.md § B4 rung 2 (the hiccup). P3 B2: for Taylor" },
+    "rung3": { "text": "Big Red Button pressed. Another station misfires, then Revert screws a cover over the Button.", "kind": "ui", "provisional": true, "source": "event button.pressed, rung 3; REWRITE.md § B4 rung 3 (the cover). P3 B2: for Taylor" },
+    "rung4": { "text": "Big Red Button pressed. Every station you have used misfires at once, then the bench runs backwards to how it was.", "kind": "ui", "provisional": true, "source": "event button.pressed, rung 4; REWRITE.md § B4 rung 4 (the works). P3 B2: for Taylor" },
+    "rungStill": { "text": "Big Red Button pressed. The lamp dips.", "kind": "ui", "provisional": true, "source": "event button.pressed under reduced motion; REWRITE.md § B4 (with reduced motion, a rung is the card and the lamp dip only). P3 B2: for Taylor" },
+    "busy": { "text": "Not yet: the bench is still going back to how it was.", "kind": "ui", "provisional": true, "source": "REWRITE.md § B4 (while a rung plays, parts and handles do not respond): a list button used then. P3 B2: for Taylor" },
+    "card": { "text": "{name}'s card: {text}", "kind": "ui", "provisional": true, "source": "event card, a card (Revert's, REWRITE.md § B4); the card's own words follow. P3 B2: for Taylor" },
+    "slip": { "text": "{name}'s slip: {text}", "kind": "ui", "provisional": true, "source": "event card, a slip (REWRITE.md § B1: a paper slip naming what it wanted); the slip's own words follow. P3 B2: for Taylor" },
+    "speed": { "text": "Belt speed {level} of {levels}.", "kind": "ui", "provisional": true, "source": "effect on the belt's speed (REWRITE.md § D 5, the dial). P3 B2: for Taylor" },
+    "forward": { "text": "Belt running forwards.", "kind": "ui", "provisional": true, "source": "effect on the belt's direction or running (REWRITE.md § D 5, the lever). P3 B2: for Taylor" },
+    "backward": { "text": "Belt running backwards.", "kind": "ui", "provisional": true, "source": "effect on the belt's direction or running (REWRITE.md § D 5, the lever). P3 B2: for Taylor" },
+    "stopped": { "text": "Belt stopped.", "kind": "ui", "provisional": true, "source": "effect on the belt's running (REWRITE.md § D 5, the lever). P3 B2: for Taylor" },
+    "plugged": { "text": "Patch cord in the {jack}. The phone talks to the {station} now.", "kind": "ui", "provisional": true, "source": "events cord.plugged and jack.answered (REWRITE.md § B2 X1: move the cord and the phone talks to something else). P3 B2: for Taylor" },
+    "pluggedNone": { "text": "Patch cord in the {jack}.", "kind": "ui", "provisional": true, "source": "event cord.plugged. P3 B2: for Taylor" },
+    "lamp": { "text": "Lamp moved.", "kind": "ui", "provisional": true, "source": "effect on the lamp's aim, by the visitor's hand. P3 B2: for Taylor" },
+    "bell": { "text": "Dock bell rung.", "kind": "ui", "provisional": true, "source": "event handle.worked, the dock bell (REWRITE.md § B1: the bell rings when the visitor presses it). P3 B2: for Taylor" },
+    "coverOpen": { "text": "Button cover open.", "kind": "ui", "provisional": true, "source": "event cover, open, by the visitor. P3 B2: for Taylor" },
+    "coverShut": { "text": "Button cover shut.", "kind": "ui", "provisional": true, "source": "event cover, shut, by the visitor. P3 B2: for Taylor" },
+    "undone": { "text": "Undone: {thing} is back as it was.", "kind": "ui", "provisional": true, "source": "event undone, by the UNDO lever (REWRITE.md § B1 law 3, § E5). P3 B2: for Taylor" },
+    "undoneMany": { "text": "Undone: {count} things are back as they were.", "kind": "ui", "provisional": true, "source": "event undone, by the UNDO lever, of several things. P3 B2: for Taylor" },
+    "reset": { "text": "The workshop is reset.", "kind": "ui", "provisional": true, "source": "event reset (REWRITE.md § B4: \"Reset the workshop\" in the settings). P3 B2: for Taylor" }
   },
   "tools": {
     "laravel": { "text": "LARAVEL", "kind": "fact", "source": "/resume/ #skills (Laravel); REWRITE.md § D9" },

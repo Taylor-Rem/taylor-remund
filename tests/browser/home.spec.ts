@@ -192,10 +192,10 @@ test.describe('the stage', () => {
     await live(page);
     // the stage came up behind the paperwork and does not run there
     await expect.poll(() => page.evaluate(() => (window as unknown as { __handoff: { workshop: { loop: { running: boolean } } } }).__handoff.workshop.loop.running)).toBe(false);
-    // later, from the stage
+    // later, from the stage (`#patchlamp` names a station too: with the stage it frames it, keyboard.spec.ts)
     await page.goto('/?tier=low');
     await live(page);
-    for (const id of SECTIONS) {
+    for (const id of SECTIONS.filter((s) => s !== 'patchlamp')) {
       await page.goto(`/?tier=low#${id}`);
       await expect(page.locator('html')).toHaveClass(/reading/);
       await expect(page.locator(`#${id} h2`)).toBeInViewport();
@@ -272,10 +272,31 @@ test.describe('the Still tier', () => {
       expect(await scrolls(page)).toBe(true);
       for (const id of SECTIONS) await expect(page.locator(`#${id} h2`)).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Sound', exact: true })).toBeHidden();
+      // (P3 B2) no stage, no controls list: nothing of it is shown or reachable
+      await expect(page.locator('#controls')).toBeHidden();
+      await expect(page.locator('button.controls-opener')).toBeHidden();
       const heavy = w.requests.filter((u) => HEAVY.some((re) => re.test(u)));
       expect(heavy).toEqual([]);
       expect(w.foreign).toEqual([]);
       expect(w.errors).toEqual([]);
     });
   }
+
+  test('without the stage every section’s address is its plain anchor, a station’s (#patchlamp) too', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    for (const id of SECTIONS) {
+      await page.goto(`/?tier=still#${id}`, { waitUntil: 'load' });
+      await expect(page.locator(`#${id} h2`)).toBeInViewport();
+      expect(await mode(page)).not.toContain('reading');
+    }
+  });
+});
+
+test.describe('without JavaScript, a station’s address', () => {
+  test.use({ javaScriptEnabled: false });
+  test('#patchlamp is the section’s plain anchor', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/#patchlamp');
+    await expect(page.locator('#patchlamp h2')).toBeInViewport();
+  });
 });
