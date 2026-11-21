@@ -35,6 +35,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { isMain, REPO_ROOT } from './lib/cli.ts';
+import { PAPER_ONLY_CONTENT } from './lib/paper-content.ts';
 import { ffmpegPath, GPU_ARGS, isSoftware } from './capture.ts';
 import { buildWithDevPages, serveDist, tempBuildDir } from './loadtime.ts';
 import type { PosterFile, PosterSet, PosterView } from '../src/workshop/shell/poster.ts';
@@ -53,7 +54,7 @@ export const SETS: readonly { set: string; page: string; shownOn: readonly strin
   { set: 'src/dev-pages/handoff/posters.json', page: '/dev/handoff/', shownOn: ['/dev/handoff/'] },
   { set: 'src/assets/bench/posters.json', page: '/dev/bench/', shownOn: ['/', '/dev/bench/'] },
 ];
-/** What draws the picture: every file under these is hashed. */
+/** What draws the picture: every file under these is hashed, but for the content only the paper pages read (PAPER_ONLY_CONTENT). */
 export const INPUT_TREES = ['src/workshop/sim', 'src/workshop/view', 'src/workshop/shell', 'src/content', 'public/fonts'];
 
 function walk(dir: string, out: string[]): void {
@@ -70,8 +71,10 @@ export function inputsHash(root: string, set: PosterSet, page: string): string {
   const h = createHash('sha256');
   const files: string[] = [];
   for (const t of INPUT_TREES) walk(join(root, t), files);
-  files.push(join(root, page));
-  for (const f of files.sort()) {
+  const paperOnly = new Set(PAPER_ONLY_CONTENT.map((f) => join(root, f)));
+  const drawn = files.filter((f) => !paperOnly.has(f));
+  drawn.push(join(root, page));
+  for (const f of drawn.sort()) {
     h.update(relative(root, f));
     h.update('\0');
     h.update(readFileSync(f));

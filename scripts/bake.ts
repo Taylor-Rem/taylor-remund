@@ -32,6 +32,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isMain, REPO_ROOT } from './lib/cli.ts';
+import { PAPER_ONLY_CONTENT } from './lib/paper-content.ts';
 
 export const TABLE_BIN = 'src/workshop/view/kit/bake-table.bin';
 export const TABLE_JSON = 'src/workshop/view/kit/bake-table.json';
@@ -85,7 +86,8 @@ export function inputsHash(root = REPO_ROOT): string {
     if (existsSync(p) && statSync(p).isFile()) files.push(p);
     else walk(p, files);
   }
-  const skip = new Set([TABLE_BIN, TABLE_JSON].map((f) => join(root, f)));
+  // (the table itself; and the content only the paper pages read, which shapes no piece)
+  const skip = new Set([TABLE_BIN, TABLE_JSON, ...PAPER_ONLY_CONTENT].map((f) => join(root, f)));
   return hashFiles(root, files.filter((f) => !skip.has(f)));
 }
 
