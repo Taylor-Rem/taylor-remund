@@ -2,7 +2,9 @@
 // A compliance page (REWRITE.md § 2, § E8): the approved text of record from
 // legal-reference/<page>.html, injected raw and unaltered, inside the same
 // <section> wrapper the legacy page had. Never edit the text here; it changes
-// only in legal-reference/, by an approved commit of its own.
+// only in legal-reference/, by an approved commit of its own. Its typography
+// is src/styles/paper.css ("The compliance pages"); tap targets are fixed
+// there, never in the text (§ F1).
 import Paper from './Paper.astro';
 
 interface Props {

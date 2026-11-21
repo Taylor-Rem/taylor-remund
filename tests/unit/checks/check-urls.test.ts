@@ -126,8 +126,8 @@ describe('check-urls', () => {
 
   it('flags a passthrough page that is no longer byte-identical', () => {
     const s = makeSite();
-    edit(join(s.dist, 'resume/index.html'), '</body>', '<!-- x --></body>');
-    expect(fails(checkUrls({ dist: s.dist, root: s.root }))).toMatch(/\/resume\/: listed as legacy passthrough but differs/);
+    edit(join(s.dist, 'ai/index.html'), '</body>', '<!-- x --></body>');
+    expect(fails(checkUrls({ dist: s.dist, root: s.root }))).toMatch(/\/ai\/: listed as legacy passthrough but differs/);
   });
 
   it('fails when a dev page is in the build', () => {
