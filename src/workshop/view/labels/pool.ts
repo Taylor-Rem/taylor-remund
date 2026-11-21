@@ -27,6 +27,9 @@ export function prefetchLabelWorker(): Promise<string> {
   source ??= (async () => {
     try {
       if (typeof fetch !== 'function' || typeof URL.createObjectURL !== 'function') return workerUrl;
+      // (E1) under the dev server the worker is a module with imports ('/node_modules/vite/…'), which a blob
+      // cannot resolve: WebKit threw "Module name … does not resolve to a valid URL". Only a build bundles it.
+      if (import.meta.env?.DEV) return workerUrl;
       const r = await fetch(workerUrl);
       if (!r.ok) return workerUrl;
       return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
