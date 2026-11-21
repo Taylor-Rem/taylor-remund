@@ -108,7 +108,11 @@ test.describe('P3 B3: the strip on a phone held upright', () => {
     const settings = await box('button.settings-open');
     const read = await box('a.read');
     const resume = await box('.strip nav a[href="/resume/"]');
-    for (const b of [sound, settings, read]) expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+    for (const b of [sound, settings]) expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+    // the two squares side by side, not one over the other
+    expect(settings.x).toBeGreaterThanOrEqual(sound.x + sound.width - 0.5);
+    // (Read, like every link in the row, is 44 px tall and as wide as its word)
+    expect(read.height).toBeGreaterThanOrEqual(44);
     // one row: Read, the sound and the settings on the links' line, inside the screen
     expect(Math.abs(sound.y + sound.height / 2 - (read.y + read.height / 2))).toBeLessThan(4);
     expect(Math.abs(settings.y + settings.height / 2 - (read.y + read.height / 2))).toBeLessThan(4);
