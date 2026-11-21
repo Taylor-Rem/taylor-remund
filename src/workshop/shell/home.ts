@@ -83,6 +83,9 @@ export interface HomeControl {
   onIntent(f: (intent: Intent, t: number) => void): () => void;
 }
 
+/** The camera's zoom (0 the whole bench, 1 one station) past which the view counts as away from home. */
+const AWAY_ZOOM = 0.05;
+
 const workshopListeners = new Set<(ws: Workshop | null) => void>();
 /**
  * The running workshop, now and whenever it changes (built, rebuilt at another tier or after a lost
@@ -180,6 +183,14 @@ export function startHome(o: HomeOptions): HomeControl {
   // ── what the page hears from the running stage: every frame (the snapshot is saved here), every intent ──
   const frameListeners = new Set<(frame: Frame) => void>();
   const intentListeners = new Set<(intent: Intent, t: number) => void>();
+  // Away from the home view (zoomed in on a station), anything may pass behind the strip and the legal line: the
+  // page says so on <html> and Stage.astro puts a shade behind their words (at home they lie on the dark wall).
+  let away = false;
+  const setAway = (a: boolean): void => {
+    if (a === away) return;
+    away = a;
+    html.classList.toggle('away', a);
+  };
   const pageView = () => ({
     root: new Group(),
     update(frame: Frame) {
@@ -187,9 +198,12 @@ export function startHome(o: HomeOptions): HomeControl {
         // the world says when what a visit remembers has changed: written at once (the last tab to write wins)
         if (e.type === 'saved.changed') writeKey(SAVED_KEY, savedText((frame.world as World).saved()));
       }
+      setAway((current?.stage.camera.zoom ?? 0) > AWAY_ZOOM);
       for (const f of frameListeners) f(frame);
     },
-    dispose() {},
+    dispose() {
+      setAway(false);
+    },
   });
   const heard = (intent: Intent, t: number): void => {
     for (const f of intentListeners) f(intent, t);
