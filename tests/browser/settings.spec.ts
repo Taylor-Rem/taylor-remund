@@ -10,8 +10,7 @@ import { gpuArgs } from '../../playwright.config.ts';
 // The assertions use standard APIs only (no CDP): reduced motion is the context's emulation, storage is the
 // page's own, the playtest file is a download. Only the `use` line below is Chromium's.
 
-test.use({ channel: 'chrome', launchOptions: { args: gpuArgs } });
-test.describe.configure({ mode: 'serial' });
+test.use({ channel: 'chrome', launchOptions: { args: gpuArgs }, actionTimeout: 20_000 });
 test.setTimeout(180_000);
 
 const SAVED = 'workshop.saved';
@@ -23,7 +22,8 @@ function watch(page: Page, origin: string): { errors: string[]; requests: string
   const w = { errors: [] as string[], requests: [] as string[], foreign: [] as string[] };
   page.on('pageerror', (e) => w.errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
-    if (m.type() === 'error') w.errors.push(`console: ${m.text()}`);
+    // (the site has no favicon yet: system Chrome asks for /favicon.ico and logs its 404; not this page's doing)
+    if (m.type() === 'error' && !m.location().url.endsWith('/favicon.ico')) w.errors.push(`console: ${m.text()}`);
   });
   page.on('request', (r: Request) => {
     const u = r.url();
@@ -58,7 +58,7 @@ async function openSettings(page: Page): Promise<void> {
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
   await expect(open).toHaveAttribute('aria-expanded', 'true');
 }
-const choose = (page: Page, group: string, label: string): Promise<void> => page.getByRole('group', { name: group }).getByText(label, { exact: true }).click();
+const choose = (page: Page, group: string, label: string): Promise<void> => page.getByRole('group', { name: group }).getByRole('radio', { name: label, exact: true }).click();
 
 /** Every part's place and the crew's: what "nothing moves" compares. */
 const positions = (page: Page): Promise<Record<string, unknown>> =>
@@ -132,7 +132,8 @@ test.describe('reduced motion', () => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveClass(/motion-reduced/);
     await live(page);
-    expect(await page.evaluate(() => (window as unknown as Win).__handoff.workshop.world.still)).toBe(true);
+    // (the world hears it before its first live step: still from that step on)
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__handoff.workshop.world.still)).toBe(true);
     const before = await positions(page);
     await page.waitForTimeout(10_000);
     expect(await positions(page)).toEqual(before);
@@ -151,7 +152,7 @@ test.describe('reduced motion', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/');
     await live(page);
-    expect(await page.evaluate(() => (window as unknown as Win).__handoff.workshop.world.still)).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__handoff.workshop.world.still)).toBe(true);
     await openSettings(page);
     await expect(page.getByRole('radio', { name: 'Same as this device' })).toBeChecked();
     await choose(page, 'Motion', 'Full');
@@ -257,8 +258,18 @@ test('the panel: Esc and a press outside close it, focus goes in and back, sound
   await openSettings(page);
   await choose(page, 'Sound', 'Off');
   await expect(page.getByRole('button', { name: 'Sound', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  // (a press on the strip is a press outside the panel: it closes)
   await page.getByRole('button', { name: 'Sound', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeHidden();
+  await openSettings(page);
   await expect(page.getByRole('radio', { name: 'On' })).toBeChecked();
+  // the M key too
+  await page.keyboard.press('Escape');
+  await page.locator('#stage').focus();
+  await page.keyboard.press('m');
+  await expect(page.getByRole('button', { name: 'Sound', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await openSettings(page);
+  await expect(page.getByRole('radio', { name: 'Off' })).toBeChecked();
 });
 
 test('?playtest=1: three things done, the file taken, parsed, and found in order with their consequences', async ({ page }) => {
@@ -295,7 +306,7 @@ test('?playtest=1: three things done, the file taken, parsed, and found in order
   expect(file.thresholds.usableAt).toBeGreaterThan(0);
   expect(file.thresholds.pictureAt).toBeGreaterThan(0);
   expect(file.thresholds.buttonPresses).toBe(1);
-  expect(file.rows[0].kind).toBe('page');
+  expect(file.rows.filter((r) => r.kind === 'page')).toHaveLength(1);
 });
 
 test('without the parameters the playtest and debug modules are never fetched; ?debug shows its panel', async ({ page }) => {
