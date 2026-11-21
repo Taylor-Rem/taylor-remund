@@ -42,17 +42,23 @@ describe('seam 2: one grab', () => {
     const seat = patch().at;
     world.dispatch({ type: 'grab', id: 'patch', grip: [seat[0], seat[1] + 1, seat[2]] });
     run(world, 1);
-    expect(world.holding()).toEqual({ kind: 'unit', id: 'patch' });
+    // (the bench's Patch has a body of its own since 2026-11-20: the hand holds the unit, and the world carries its body)
+    expect(world.holding()).toEqual({ kind: 'unit', id: 'patch', body: 'patch-body' });
     expect(world.playMode).toBe(true);
     expect(patch().state).toBe('held');
-    world.dispatch({ type: 'carry', target: [-6, 1.2, -2] }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
-    run(world, 1);
-    expect(patch().at).toEqual([-6, 1.2, -2]);
+    // (a hand's height over open bench: higher, or over a body, it falls: R4). Its body is carried as a part is, with
+    // the hand's lag: held still there a moment, it hangs there
+    for (let i = 0; i < 60; i++) {
+      world.dispatch({ type: 'carry', target: [-6, 1.2, -2] });
+      run(world, 1);
+    }
+    const hung = patch().at;
+    expect(Math.hypot(hung[0] + 6, hung[2] + 2)).toBeLessThan(0.1);
     world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     run(world, 1);
     expect(world.holding()).toBeNull();
-    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
-    for (let i = 0; i < 60 && patch().state === 'fly'; i++) run(world, 1);
+    // (R4: let go above the bench it falls the little way to it first, lands and gets up, then it is on its feet)
+    for (let i = 0; i < 120 && (patch().state === 'fly' || patch().state === 'land'); i++) run(world, 1);
     expect(['walk', 'climb']).toContain(patch().state);
   });
 
@@ -90,7 +96,7 @@ describe('seam 2: one grab', () => {
     world.dispatch({ type: 'grab', id: 'crate-1', grip: m.pose.p });
     world.dispatch({ type: 'press', id: 'button' });
     run(world, 1);
-    expect(world.holding()).toEqual({ kind: 'unit', id: 'patch' });
+    expect(world.holding()).toEqual({ kind: 'unit', id: 'patch', body: 'patch-body' });
     expect(world.button().phase).toBe('idle');
   });
 

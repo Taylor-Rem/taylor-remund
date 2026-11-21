@@ -2,7 +2,7 @@
 // stool, and a part thrown at it (duck, catch, bonk). Patch is never moved by physics and never hurt;
 // a reaction lasts at most 1.5 s. On the whole bench under real Rapier.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape } from './line-helpers.ts';
+import { benchWorld, benchWorld as scriptWorld, SCRIPT_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { PATCHLAMP, answer, patchView, send, shopView, untilPatch } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -133,8 +133,9 @@ describe('Patch is lifted off its stool', () => {
     expect(shopView(w).sign).toBe('paint-green');
     w.dispatch({ type: 'drag', id: 'patch', target: [-6, 1.2, -2], end: true }); // (a hand's height over open bench: higher, or over a body, it falls: R4)
     t.run(1);
-    // (R4: let go above the bench it falls the little way to it first, then it is on its feet)
-    for (let i = 0; i < 60 && patchView(w).state === 'fly'; i++) t.run(1);
+    // (R4: let go above the bench it falls the little way to it first, then it is on its feet; the bench's Patch, a
+    // body since 2026-11-20, lands and gets up from how it lies before its first step)
+    for (let i = 0; i < 120 && (patchView(w).state === 'fly' || patchView(w).state === 'land'); i++) t.run(1);
     expect(patchView(w).state).toBe('walk');
     const down = patchView(w).at;
     // put down there (R4: the hand still moving at 1.5 u/s as it lets go, it drifts that way the little way it falls)
@@ -159,8 +160,24 @@ describe('Patch is lifted off its stool', () => {
     const before = w.durable();
     w.dispatch({ type: 'drag', id: 'patch', target: [SEAT[0], 2.5, SEAT[2] + 1] });
     t.run(1);
-    w.dispatch({ type: 'drag', id: 'patch', target: PATCHLAMP.patch.foot, end: true });
+    // (brought down to the foot of its stool and held there a moment, then let go: a set-down. Until 2026-11-20 the
+    // hand jumped there in one step; the bench's Patch, a body, reads a hand that jumps 0.23 toward the board in a
+    // step as a throw at it at 14 units/s, and splats: see the hand-in)
+    const foot = PATCHLAMP.patch.foot;
+    for (let i = 1; i <= 30; i++) {
+      const k = i / 30;
+      w.dispatch({ type: 'drag', id: 'patch', target: [SEAT[0] + (foot[0] - SEAT[0]) * k, 2.5 + (foot[1] + 0.9 - 2.5) * k, SEAT[2] + 1 + (foot[2] - SEAT[2] - 1) * k] });
+      t.run(1);
+    }
+    for (let i = 0; i < 20; i++) {
+      w.dispatch({ type: 'drag', id: 'patch', target: [foot[0], foot[1] + 0.9, foot[2]] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'drag', id: 'patch', target: [foot[0], foot[1] + 0.9, foot[2]], end: true });
     t.run(1);
+    // (the bench's Patch, a body since 2026-11-20, comes down the little way onto its feet first: then it climbs,
+    // with no step between)
+    for (let i = 0; i < 60 && (patchView(w).state === 'fly' || patchView(w).state === 'land'); i++) t.run(1);
     expect(patchView(w).state).toBe('climb');
     t.run(Math.round((PATCH_TUNING.climb + 0.1) * HZ));
     expect(patchView(w)).toMatchObject({ state: 'seated', at: SEAT });
@@ -169,8 +186,12 @@ describe('Patch is lifted off its stool', () => {
   });
 });
 
+// The scripted Patch's own ledge rules (`benchScript`: let go past the edge at any height, it is put on the ledge).
+// The bench's Patch (a body since 2026-11-20) catches an edge only low and slow and otherwise falls and comes back up
+// the chute: tests/scenario/patch-body.test.ts holds that, and the job waiting meanwhile.
 describe('Patch let go of past the edge of the bench (R1)', () => {
   const T = PATCH_TUNING;
+  const benchWorld = (): ReturnType<typeof scriptWorld> => scriptWorld(1, { scene: SCRIPT_BENCH });
   const EDGE = { minX: -9, maxX: 9, maxZ: 5 };
   /** Carry it from above its stool to `to` over `n` steps, and let go there. */
   /** Carry it there over `n` steps and let go: after a pause (a set-down, R4), or at once with the hand still moving (a throw). */

@@ -12,7 +12,7 @@
 //   - and the scripted Patch (`bench`) is what it was.
 // The seeded soak (every throw ends on the stool) is tests/scenario/patch-body-soak.test.ts.
 import { describe, expect, test } from 'vitest';
-import { BODY, FULL_BENCH, LENS, PATCH_BODY, SOLIDS, benchBody, fling, fmt, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
+import { BODY, SCRIPT, LENS, PATCH_BODY, SOLIDS, benchBody, fling, fmt, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
@@ -23,7 +23,7 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { PATCH_BODY_TUNING } from '../../src/workshop/sim/crew/patch-body.ts';
 import { PATCH_FLOAT, floatPull, floatWeight } from '../../src/workshop/sim/crew/patch-float.ts';
-import { AT, bench } from '../../src/workshop/sim/scenes/bench.ts';
+import { AT, bench, benchScript } from '../../src/workshop/sim/scenes/bench.ts';
 import { sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
 import type { PatchState, Vec3 } from '../../src/workshop/sim/types.ts';
 
@@ -53,14 +53,16 @@ function home(w: World, t: Tape, seconds = 45): PatchState[] {
 const takeover = (S: readonly Sample[]): number => S.findIndex((s) => s.state !== 'fly' && s.state !== 'held');
 
 describe('the scripted Patch is what it was', () => {
-  test('`bench` has no body and its Patch none; `benchBody` is `bench` with the body part and the flag', async () => {
-    expect(bench.parts.some((p) => p.crewBody)).toBe(false);
-    expect(benchBody.parts.slice(0, -1)).toEqual(bench.parts);
+  test('`benchScript` has no body and its Patch none; `benchBody` is `benchScript` with the body part and the flag; `bench` is `benchBody`', async () => {
+    // (2026-11-20: the bench's Patch is the body Patch; going back is `bench = benchScript`)
+    expect(bench).toBe(benchBody);
+    expect(benchScript.parts.some((p) => p.crewBody)).toBe(false);
+    expect(benchBody.parts.slice(0, -1)).toEqual(benchScript.parts);
     expect(benchBody.parts.at(-1)).toBe(PATCH_BODY);
-    expect(benchBody.statics).toBe(bench.statics);
-    expect(benchBody.units?.length).toBe(bench.units?.length);
-    expect(benchBody.units?.filter((u, i) => u !== bench.units?.[i]).length).toBe(1);
-    const a = await world(FULL_BENCH);
+    expect(benchBody.statics).toBe(benchScript.statics);
+    expect(benchBody.units?.length).toBe(benchScript.units?.length);
+    expect(benchBody.units?.filter((u, i) => u !== benchScript.units?.[i]).length).toBe(1);
+    const a = await world(SCRIPT);
     expect(a.w.motion(BODY)).toBeUndefined();
     expect('body' in patch(a.w)).toBe(false);
     expect('lay' in patch(a.w)).toBe(false);
@@ -1190,7 +1192,7 @@ describe('where the scripted Patch does not get home, and this one does', () => 
     expect(states.slice(0, 4)).toEqual(['held', 'fly', 'away', 'fly']);
     expect(states.at(-1)).toBe('seated');
     // (and the scripted Patch, let go the same: still standing in the slot a minute later)
-    const s = await world(FULL_BENCH);
+    const s = await world(SCRIPT);
     lift(s.w, s.t, [hand[0], 0.8, hand[2]], 20);
     s.w.dispatch({ type: 'release' });
     const old = home(s.w, s.t, 60);
@@ -1204,7 +1206,7 @@ describe('where the scripted Patch does not get home, and this one does', () => 
   // with Fetch stood where it would step down (the soak's seed 543: 45 s and counting), or at its own stool with Fetch
   // on the spot. Here the visitor holds Fetch on that spot, so it is certain. The walk is the scripted Patch's still;
   // this Patch is watched on it, and stood in one place for `stuck` seconds it hops on toward its stool.
-  for (const scene of [benchBody, FULL_BENCH]) {
+  for (const scene of [benchBody, SCRIPT]) {
     const body = scene === benchBody;
     test(`the visitor holds Fetch on the spot at the foot of Patch's stool: ${body ? 'it waits a while, then hops onto the spot and climbs up' : 'the scripted Patch waits for as long as Fetch is held there'}`, async () => {
       const { w, t } = await world(scene);

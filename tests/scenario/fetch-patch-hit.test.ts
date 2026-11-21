@@ -2,8 +2,13 @@
 // and says so (`patch.throw`, phase `hit`, `what: 'fetch'`). Fetch is knocked as by a thrown crate (§ B5: "it is
 // shoved and spun, not merely bumped into; it wobbles, finds its balance and goes back to its lane"): slid away from
 // the side Patch came from, by its speed, bounded by `clearRun`; then it looks at Patch, and goes back to work.
+//
+// That is the scripted Patch's rule (`benchScript`: its flight says `hit` and Fetch plays its Patch-knock), so these
+// name that scene. The bench's Patch (a body since 2026-11-20) knocks Fetch by the engine's contact, as a crate does,
+// and says no such `hit`: tests/scenario/patch-body.test.ts holds that ("thrown at Fetch at ... units/s", "Fetch
+// knocked while it carries a crate").
 import { describe, expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH, tape, type Tape } from './line-helpers.ts';
+import { benchWorld, FULL_SCRIPT_BENCH, tape, type Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -15,7 +20,7 @@ const patchAt = (w: World): Vec3 => (w.crewView('patch') as unknown as { view: P
 
 /** Play mode; Fetch waiting at its stand by the pad, empty-handed (the attract crate delivered). */
 async function fetchWaiting(seed: string): Promise<{ w: World; t: Tape }> {
-  const w = await benchWorld(seed, { scene: FULL_BENCH });
+  const w = await benchWorld(seed, { scene: FULL_SCRIPT_BENCH });
   const t = tape(w);
   t.run(steps(1));
   startPlay(w);
@@ -87,7 +92,7 @@ describe('Fetch hit by a thrown Patch', () => {
 
 describe('Fetch knocked by a thrown Patch while it carries a crate: the lever takes it back', () => {
   test('the crate it drops is the throw\'s: one pull puts it back where the history had it before the throw; five more pulls throw nothing', async () => {
-    const w = await benchWorld('r4-patch-hit-crate', { scene: FULL_BENCH });
+    const w = await benchWorld('r4-patch-hit-crate', { scene: FULL_SCRIPT_BENCH });
     const t = tape(w);
     t.run(steps(1));
     startPlay(w);

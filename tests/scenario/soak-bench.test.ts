@@ -101,7 +101,9 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   expect((w.machine('belt') as BeltView).riding).toEqual([]);
   expect((w.machine('dock') as DockView).shipping).toEqual([]);
   expect(w.undoStack()).toEqual([]);
-  for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && p.id.startsWith('crate-spare')), `${p.id}: ${p.location.at}`).toBe(true);
+  // (a crew member's own body, Patch's since 2026-11-20, is out of the world, as a spare is, until a hand takes hold of it)
+  const crewBodies = new Set(w.scene.parts.filter((p) => p.crewBody).map((p) => p.id));
+  for (const p of w.parts()) expect(p.location.at === 'rest' || (p.location.at === 'shipped' && (p.id.startsWith('crate-spare') || crewBodies.has(p.id))), `${p.id}: ${p.location.at}`).toBe(true);
   // within two seconds the door has shut again (what the reset brought back in through it) and nothing waits in the chute
   for (let i = 0; i < steps(2); i++) step();
   expect((w.machine('dock') as DockView).door).toBe(0);

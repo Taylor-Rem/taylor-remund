@@ -8,7 +8,7 @@
 //
 //   npx vitest run tests/scenario/patch-compare.test.ts --silent=false
 import { expect, test } from 'vitest';
-import { FULL_BENCH, LENS, benchBody, lift, patch, watcher, world } from './patch-body-helpers.ts';
+import { SCRIPT, LENS, benchBody, lift, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
@@ -156,7 +156,7 @@ test('the scripted Patch and the Patch with a body, thrown the same ways: both e
   const lines: string[] = [];
   for (const way of WAYS) {
     const rows: Row[] = [];
-    for (const scene of [FULL_BENCH, benchBody]) {
+    for (const scene of [SCRIPT, benchBody]) {
       const { w, t } = await world(scene, `compare-${way.name}`);
       rows.push(run(w, t, way));
       w.dispose();

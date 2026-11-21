@@ -20,8 +20,8 @@ import { startDevServer, type DevServer } from '../../scripts/capture.ts';
 //   - in the air the simulation never has a step without motion, and a throw with drift keeps drifting through its top.
 // The measured values are printed (`[feel]` lines) so a change of feel shows up as numbers before it shows as a failure.
 //
-// Both Patches are held to it: the scripted one, and the one with a real body while it is held and thrown
-// (`?patch=body`, the 2026-11-20 prototype). Every bound above is held for both, with two the body Patch has in a
+// Both Patches are held to it: the scripted one (`?patch=script`), and the one with a real body while it is held and
+// thrown (`?patch=body`, the 2026-11-20 prototype, the bench's own Patch since that day: the default page has it). Every bound above is held for both, with two the body Patch has in a
 // different form because its tumble is the engine's and not a performance (said where each is set): the fastest it may
 // turn, and the landing's roll. And the body Patch has two more, which are what "the figure IS its body" means:
 //   - while its body is in the world the drawn body is turned as the physics body is, to within BODY_TURN;
@@ -475,7 +475,7 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
 for (const variant of ['script', 'body'] as const) test(`R5 (${variant === 'body' ? 'the Patch with a real body, ?patch=body' : 'the scripted Patch'}): Patch thrown four ways by mouse: it leaves the hand at once, the drawn body stays with the simulated one, nothing pops, the landing rolls on, the turn at the stool is the short way, and a throw up floats without stopping`, async ({ page }) => {
   const bodied = variant === 'body';
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${origin}/dev/bench/?hud=0${bodied ? '&patch=body' : ''}`);
+  await page.goto(`${origin}/dev/bench/?hud=0&patch=${bodied ? 'body' : 'script'}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
   const h: Hand = { page, cdp: await page.context().newCDPSession(page) };
   // the first press ends the opening demonstration: a crate lifted and put back down

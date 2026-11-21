@@ -3,8 +3,12 @@
 // open edge within reach it catches the ledge; well clear it is gone and comes back up the chute by the pad. A
 // hundred seeded throws (any place, direction and speed to the cap; some while it holds a job, some with the
 // Button pressed meanwhile) all end with Patch on its stool, the job carried on, nothing durable changed by it.
+//
+// These are the scripted Patch's own rules (`PatchSpec.flight` 'script', scene `benchScript`), so every test here
+// names that scene. Since 2026-11-20 the bench's Patch is the one with a real body (`bench` is `benchBody`); its
+// throws are held in tests/scenario/patch-body*.test.ts and throw-soak.test.ts.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH, tape } from './line-helpers.ts';
+import { benchWorld as anyBenchWorld, FULL_SCRIPT_BENCH, SCRIPT_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { PATCHLAMP, answer, patchView, send } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -13,10 +17,15 @@ import { HZ } from '../../src/workshop/sim/clock.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { solidsOf, sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
-import { bench } from '../../src/workshop/sim/scenes/bench.ts';
+import { benchScript } from '../../src/workshop/sim/scenes/bench.ts';
+import type { WorldOptions } from '../../src/workshop/sim/world.ts';
+import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
+
+/** The quiet bench with the scripted Patch (or, given one, another scene: the whole scripted bench). */
+const benchWorld = (seed: number | string, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> => anyBenchWorld(seed, { scene: SCRIPT_BENCH, ...opts });
 
 const T = PATCH_TUNING;
-const SOLIDS = solidsOf(bench);
+const SOLIDS = solidsOf(benchScript);
 
 /** Lift Patch, carry it to `from` (held: the hand there), and let go with the hand moving at `v`. */
 function throwFrom(w: World, t: Tape, from: Vec3, v: Vec3): void {
@@ -393,7 +402,7 @@ describe('Patch thrown (R4)', () => {
   // (and I1's third: the hand at 1.31, z -4.40, its middle 0.71 up: into the panel's foot as well as the desk)
   for (const [x, full, hy, hz] of [[2.52, false, 1.15, -4.42], [2.3, false, 1.15, -4.42], [2.38, true, 1.15, -4.42], [2.3, true, 1.15, -4.42], [2.6, true, 1.15, -4.42], [2.3, true, 1.31, -4.4]] as const) {
     test(`I1's record: let go at x ${x}, ${hy} up, z ${hz} over the board's end${full ? ' (the whole bench: the board panel on its desk)' : ''}, the hand front-left at 12: it flies`, async () => {
-      const w = full ? await benchWorld(1, { scene: FULL_BENCH }) : await benchWorld(1);
+      const w = full ? await benchWorld(1, { scene: FULL_SCRIPT_BENCH }) : await benchWorld(1);
       const t = tape(w);
       t.run(20);
       const s = patchView(w).at;

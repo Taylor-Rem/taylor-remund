@@ -1,7 +1,7 @@
 // Helpers for Patch's body (the 2026-11-20 prototype: `PatchSpec.flight: 'body'`, scene `benchBody`): a hand that
 // takes hold, carries and lets go as the page does (grab, a carry each step, a release that states no velocity), and
 // what the tests measure: where Patch's middle is, step by step, whichever Patch it is.
-import { benchWorld, FULL_BENCH, tape } from './line-helpers.ts';
+import { benchWorld, FULL_SCRIPT_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { benchBody, PATCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
@@ -12,7 +12,11 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Lens, PatchView, Vec3 } from '../../src/workshop/sim/types.ts';
 
-export { benchBody, PATCH_BODY, FULL_BENCH };
+/**
+ * `SCRIPT`: the whole bench with the scripted Patch (`benchScript`), for comparing. (The bench itself, `bench`, is
+ * `benchBody` since 2026-11-20.)
+ */
+export { benchBody, PATCH_BODY, FULL_SCRIPT_BENCH as SCRIPT };
 export const BODY = PATCH_BODY.id;
 export const SOLIDS = solidsOf(benchBody);
 /** The page's lens at the home view (as the hand tests take it). */
