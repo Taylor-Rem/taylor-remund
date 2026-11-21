@@ -971,6 +971,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       if (r.blocked < steps(T.waitFor)) return false;
     } else r.blocked += 1;
     if (r.blocked >= steps(T.blockedFor)) {
+      // (a loose crate it could not sweep stood in the way of a heal: remembered, for `outOfReach`)
+      if (r.purpose === 'sweep' && by !== null && ctx.part(by)?.kind === 'crate' && ctx.mode(by) === 'free') blockedBy = by;
       waitingFor = null;
       route = null;
       if (r.purpose === 'home') homeShutAt = ctx.clock.step;
@@ -1129,22 +1131,38 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   /**
    * R3 (2026-11-20, Taylor: "the simulation will never get stuck because Fetch can't reach any boxes"): the bench dry
    * for Fetch and every stray where Revert has no stand to sweep it from (half on the belt's bed beside the pad, up
-   * on a machine's top): once that has held `heal.after` seconds more, the nearest goes home by the chute where it
-   * lies (put away, rule 14, and taken by the chute: the squash-and-shrink of a crate come to rest out of every
-   * hand's reach) and comes back onto the pad a fresh crate. One at a time, `heal.after` apart. Checked once a second.
+   * on a machine's top): once that has held `heal.stir` seconds more, one goes home by the chute where it lies (put
+   * away, rule 14, and taken by the chute: the squash-and-shrink of a crate come to rest out of every hand's reach)
+   * and comes back onto the pad a fresh crate: first one that stood in the way of a heal (`blockedBy`), then one
+   * lying on the pad (it keeps every replacement off it), then the nearest. One at a time, `heal.stir` apart.
+   * Checked once a second.
    */
   let unreachableSince = -1;
+  /**
+   * The stray that last stood in the way of a heal's trip and could not be swept itself (2026-11-20, the traffic
+   * soak's seed 9: a handled crate beside its hatch with no stand of its own, which it waited for and gave up on, again
+   * and again); it counts as a stray it cannot get at, and goes first.
+   */
+  let blockedBy: Id | null = null;
   function outOfReach(now: number): void {
     if (now % HZ !== 0) return;
-    const strays = spec.heal && starving() && !carrying && !sweeping ? clutterList() : [];
-    if (!spec.heal || strays.length === 0 || nextSweep() !== null) {
+    // (the while runs on through trips that come to nothing; it acts only between them)
+    const strays = spec.heal && starving() && !carrying ? clutterList() : [];
+    const inTheWay = blockedBy !== null && strays.includes(blockedBy) ? blockedBy : null;
+    if (!spec.heal || strays.length === 0 || (inTheWay === null && nextSweep() !== null)) {
       unreachableSince = -1;
       return;
     }
     if (unreachableSince < 0) unreachableSince = now;
-    if (now - unreachableSince < steps(spec.heal.after)) return;
+    if (now - unreachableSince < steps(spec.heal.stir) || sweeping) return;
     unreachableSince = -1;
-    const id = strays[0] as Id;
+    blockedBy = null;
+    const pad = spec.pad;
+    const onPad = pad ? strays.find((s) => {
+      const q = ctx.pose(s)?.p;
+      return !!q && Math.hypot(q[0] - pad.at[0], q[2] - pad.at[1]) <= pad.radius;
+    }) : undefined;
+    const id = inTheWay ?? onPad ?? (strays[0] as Id);
     ctx.putAway(id, { at: 'shipped' });
     ctx.toChute(id, 'system');
     lastPutAway = now;
@@ -1232,6 +1250,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || stirred(s.part) !== s.stir) return;
     // R3: into the pan (rule 14: every history entry about it forgotten, a fresh crate again), and it carries it
     // home to drop it down the hatch; the chute gives it back onto the pad (the dock hears the put-away)
+    blockedBy = null;
     const pan = panPose(s.part);
     ctx.emit({ type: 'revert.sweep', id: body, part: s.part, from: pose, to: { at: 'rest', pose: pan } });
     ctx.putAway(s.part, { at: 'rest', pose: pan });

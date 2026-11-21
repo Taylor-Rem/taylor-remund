@@ -1,4 +1,4 @@
-// R3 (Taylor: "the simulation will never get stuck because Fetch can't reach any boxes"): two layouts the healing
+// R3 (Taylor: "the simulation will never get stuck because Fetch can't reach any boxes"): three layouts the healing
 // traffic soak found on 2026-11-20 where the belt was never fed again. The visitor strews every crate as in
 // heal-traffic (its seeds 5 and 1, the same strewing) and sets Patch down; then nobody touches anything.
 //  - traffic-5: a fresh crate (crate-2, back from Revert's hatch) lies at the stack's edge, (2.3, 1.4), out of Fetch's
@@ -7,7 +7,9 @@
 //    not Fetch's work: Revert sweeps it.
 //  - traffic-1: every handled crate lies where Revert has no stand (crate-1 half on the belt's bed beside the pad, so
 //    the dock's last resort waits for the pad for good; crates on the console's and the UNDO housing's tops). Now,
-//    the bench dry and no stray Revert can get at, after `heal.after` the nearest goes home by the chute.
+//    the bench dry and no stray Revert can get at, after `heal.stir` one goes home by the chute.
+//  - traffic-9: a handled crate beside Revert's hatch with no stand of its own stood in the way of every heal's trip:
+//    Revert waited for it and gave up, again and again. It counts as out of reach, and goes first.
 import { describe, expect, test } from 'vitest';
 import { benchWorld, putOn, tape, FULL_BENCH } from './line-helpers.ts';
 import { REVERT_HEAL } from '../../src/workshop/sim/scenes/bench.ts';
@@ -74,8 +76,8 @@ describe('the bench heals what Fetch cannot reach', () => {
     expect(gave, 'Fetch reached for a crate it could not take').toBeTruthy();
     expect((gave!.e as { part: Id }).part).toBe('crate-2');
     expect(healed, 'a heal after it').toBeTruthy();
-    // (within the heal's own times: Fetch dry `heal.after` (20 s), then `heal.after` with no stray Revert can stand by)
-    expect(healed!.s - gave!.s).toBeLessThan(2 * REVERT_HEAL.after + 5);
+    // (within the heal's own times: Fetch dry `heal.after`, then `heal.stir` with no stray Revert can get at)
+    expect(healed!.s - gave!.s).toBeLessThan(REVERT_HEAL.after + REVERT_HEAL.stir + 5);
     expect(out.fed, 'the belt is fed again').not.toBeNull();
     w.dispose();
   }, 300_000);
@@ -89,6 +91,17 @@ describe('the bench heals what Fetch cannot reach', () => {
     const out = leftAlone(w, t, 150);
     process.stderr.write(`\ntraffic-1: ${events(out.ev)}\n`);
     expect(chuted(out.ev), 'what nobody could get at went home by the chute').toContain('crate-1');
+    expect(out.fed, 'the belt is fed again').not.toBeNull();
+    w.dispose();
+  }, 300_000);
+
+  test('traffic-9: a handled crate (crate-3) beside Revert\'s hatch, with no stand of its own, in the way of every heal\'s trip: Revert waits for it and gives up, again and again; it goes home by the chute first; the belt is fed', async () => {
+    const { w, t } = await strewn(9);
+    t.run(steps(1));
+    expect(near(w, 'crate-3', -3.9, -0.9, 0.3), 'crate-3 beside the hatch').toBe(true);
+    const out = leftAlone(w, t, 150);
+    process.stderr.write(`\ntraffic-9: ${events(out.ev)}\n`);
+    expect(chuted(out.ev)[0], 'the crate in the way went home by the chute first').toBe('crate-3');
     expect(out.fed, 'the belt is fed again').not.toBeNull();
     w.dispose();
   }, 300_000);
