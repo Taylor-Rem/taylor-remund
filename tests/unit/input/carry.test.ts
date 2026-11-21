@@ -90,6 +90,30 @@ describe('carry target', () => {
     expect(Math.abs(p[2])).toBeLessThan(0.6);
   });
 
+  // (the browser's juggling tests, 2026-11-20: a thing caught low went on a level and walked back with the next flick
+  // (Fetch caught at 1.47: z -2.48 to -3.03 in the hand); one caught behind the back line snapped forward to it (Patch
+  // from z -3.99 to -1.78); and Fetch caught near the wall was sent to the ceiling and off the front: the wall's top,
+  // 9 up, had been taken for a level to carry it over)
+  it('caught in flight low, or near the back wall: held exactly where it was caught, and up and down from there', () => {
+    const wall: Obstacle[] = [{ minX: -10.5, maxX: 10.5, minZ: -5.3, maxZ: -5, top: 9, bottom: 0 }];
+    for (const grip of [[1, 1.2, 0.5], [1, 0.9, 2], [-5, 3, -4.3], [-5, 2.5, -4.49]] as Vec3[]) {
+      const plane = new CarryPlane(bench);
+      // (a tumbling robot's footprint: wide enough to reach the wall from where it was caught)
+      plane.begin({ kind: 'part', halfX: 0.9, halfZ: 0.9, gripAboveBottom: 0.3 }, grip, 0, wall, true);
+      const through = (y: number): RayLike => rayAt(grip[0], grip[2], y);
+      let t = 0;
+      for (let i = 0; i < 30; i++) {
+        const p = plane.target(through(grip[1]), (t += 16), wall);
+        expect(p[0]).toBeCloseTo(grip[0], 6);
+        expect(p[1]).toBeCloseTo(grip[1], 6);
+        expect(p[2]).toBeCloseTo(grip[2], 6);
+      }
+      const up = plane.target(through(grip[1] + 1), (t += 16), wall);
+      expect(up[1]).toBeCloseTo(grip[1] + 1, 6);
+      expect(up[2]).toBeCloseTo(grip[2], 6);
+    }
+  });
+
   it('nothing under the bench is a level to carry over: a part stowed below it, the bench\'s own body', () => {
     // (found on the page 2026-11-20: spare crates stowed four units under the bench were taken for levels, and a
     // carried crate sank to the bench top when its own level stopped making sense near the back)
