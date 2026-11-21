@@ -283,6 +283,8 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
   let lastPutAway = -Infinity;
   /** Crates Revert has swept into its pan (heard on the bus), until they go down its hatch or out of its hands. */
   const inPan = new Set<Id>();
+  /** Crates Fetch gave up on (`crew.gaveUp`): not its work until a hand or a machine moves them (as Revert hears it). */
+  const gaveUp = new Set<Id>();
   /**
    * Crates in the world (not shipped behind the door or down Revert's hatch), and those already owed back to it
    * (a restock queued and not yet thrown: several drops inside `restockAfter` must not overshoot `looseMax`).
@@ -299,7 +301,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       const m = ctx.mode(id);
       if (m === 'crew' && inPan.has(id)) return false; // in Revert's pan on its way down the hatch: not Fetch's work
       if (m === 'crew' || m === 'chute' || (m === 'machine' && p.location.at === 'in' && (p.location.mouth === 'belt' || p.location.mouth === 'dock'))) return true;
-      if (ctx.touched(id) || m !== 'free' || p.location.at !== 'rest') return false;
+      if (ctx.touched(id) || gaveUp.has(id) || m !== 'free' || p.location.at !== 'rest') return false;
       const q = ctx.pose(id)?.p;
       if (!q) return false;
       if (Math.hypot(q[0] - sx, q[2] - sz) <= 0.55) return true;
@@ -703,6 +705,11 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
           else inPan.delete(e.part);
         }
         if (e.type === 'part.grabbed' || e.type === 'reset') inPan.clear();
+        // (a crate Fetch reached for and could not take is not its work until a hand or a machine moves it)
+        if (e.type === 'crew.gaveUp') gaveUp.add(e.part);
+        else if (e.type === 'reset') gaveUp.clear();
+        else if ((e.type === 'part.grabbed' || e.type === 'part.released' || e.type === 'part.returned' || e.type === 'put-away') && gaveUp.has(e.id)) gaveUp.delete(e.id);
+        else if ((e.type === 'taken-in' || e.type === 'shipped' || e.type === 'returned' || e.type === 'restocked') && gaveUp.has(e.part)) gaveUp.delete(e.part);
         // R3: a crate Revert dropped down its hatch comes back up the chute onto the pad (bounded: `looseMax`)
         if (e.type === 'revert.sweep' && e.to.at === 'shipped' && ctx.part(e.part)?.kind === 'crate' && looseCrates() < T.looseMax) {
           restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: (ctx.part(e.part) as Part).size, part: e.part });

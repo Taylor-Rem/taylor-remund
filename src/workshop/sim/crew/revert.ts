@@ -37,7 +37,9 @@
  *   stands), it never turns a corner into a fixed thing or a part, and with
  *   no room to turn mid-trip it backs straight off a little first. A trip
  *   home given up means its way home is shut: it parks instead, and tries
- *   again after `stuckRetry`. With no way onto its track at all it stays put. The one thing it does to a part is put it away, and only
+ *   again after `stuckRetry`. With no way onto its track at all (neither home
+ *   nor to park) it stands `stranded` seconds, then goes down where it stands
+ *   and comes back up through its hatch. The one thing it does to a part is put it away, and only
  *   one nobody has stirred, the visitor included, for `heal.stir` seconds.
  * - Nothing it does commits, except the put-away (as `system`, by the
  *   world). Where it is and what it intends are transient.
@@ -141,6 +143,12 @@ export const REVERT_TUNING = {
   righting: 0.6,
   /** Set down off its hatch by the visitor: let alone this long, it heads home. */
   alone: 3,
+  /**
+   * On the bench's floor with no way onto its track, neither home nor to park (boxed in by the layout where it was set
+   * down or drove off a perch): it stands this long, then goes down where it stands and comes back up through its
+   * hatch, as from a high perch (never left standing: "the characters reliably return home", Taylor, 2026-11-20).
+   */
+  stranded: 6,
   /** No room to turn: it backs straight off at this speed, at most this far a trip, to make room. */
   backSpeed: 0.5,
   backOff: 0.8,
@@ -373,6 +381,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let emptyPanAt = -Infinity;
   /** When its last trip home gave up (something in the way); -Infinity when its way home is open. */
   let homeShutAt = -Infinity;
+  /** Since when, idle on the floor away from its hatch, it has found no trip it could start; -1: it has one. */
+  let strandedSince = -1;
   /** Its body is out of the world because it is down in its hatch (not because the dock shipped it). */
   let stowed = false;
   let resetting = false;
@@ -380,12 +390,19 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
   let nextAway = -Infinity;
   let glareUntil = -1;
   const lastStir = new Map<Id, number>();
+  /**
+   * Crates Fetch reached for from its tape and could not take (`crew.gaveUp`): lying on the stack or the pad they look
+   * like its work, but they are not, until a hand or a machine moves them (2026-11-20: a fresh crate at the stack's
+   * edge, out of Fetch's reach, kept Revert below for good while Fetch shrugged at it every 40 s).
+   */
+  const gaveUp = new Set<Id>();
 
   const enter = (next: RevertState): void => {
     if (next === state) return;
     const from = state;
     state = next;
     entered = ctx.clock.step;
+    if (next !== 'idle') strandedSince = -1;
     if (next === 'rising' || next === 'below') surveyFrom = -1;
     ctx.emit({ type: 'crew.state', id: body, state: next, from });
   };
@@ -761,6 +778,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
    */
   function perchExit(): { readonly at: readonly [number, number]; readonly heading: number } | null {
     const g = ground;
+    const [x0, z0, h0] = [x, z, heading];
     ground = 0; // (clear as it will stand there, on the floor)
     try {
       for (const d of [1.3, 1.7, 2.2]) {
@@ -769,11 +787,24 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           const h = wrap(heading + turn);
           const qx = x + Math.sin(h) * d;
           const qz = z + Math.cos(h) * d;
-          if (room(qx, qz, h)) return { at: [qx, qz], heading: h };
+          if (!room(qx, qz, h)) continue;
+          // (and a spot it can get home from: off a crate between the UNDO housing and Fetch's tape it once drove to
+          // (-2.51, 1.96), boxed in, with no way onto its track)
+          x = qx;
+          z = qz;
+          heading = h;
+          const joins = joinAt(true) !== null;
+          x = x0;
+          z = z0;
+          heading = h0;
+          if (joins) return { at: [qx, qz], heading: h };
         }
       }
       return null;
     } finally {
+      x = x0;
+      z = z0;
+      heading = h0;
       ground = g;
     }
   }
@@ -940,6 +971,8 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       if (r.blocked < steps(T.waitFor)) return false;
     } else r.blocked += 1;
     if (r.blocked >= steps(T.blockedFor)) {
+      // (a loose crate it could not sweep stood in the way of a heal: remembered, for `outOfReach`)
+      if (r.purpose === 'sweep' && by !== null && ctx.part(by)?.kind === 'crate' && ctx.mode(by) === 'free') blockedBy = by;
       waitingFor = null;
       route = null;
       if (r.purpose === 'home') homeShutAt = ctx.clock.step;
@@ -1083,23 +1116,62 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     };
     return healable().sort((a, b) => d(a) - d(b) || (a < b ? -1 : 1));
   }
-  /** R3: a crate Fetch may carry now: one nobody has touched, lying still on the pad or the stack. */
+  /** R3: a crate Fetch may carry now: one nobody has touched, lying still on the pad or the stack, that Fetch has not given up on. */
   function fetchHasWork(): boolean {
     const [sx, sz] = spec.stack.at;
     return ctx.parts().some((id) => {
       const p = ctx.part(id);
-      if (!p || p.kind !== 'crate' || ctx.touched(id) || ctx.mode(id) !== 'free' || p.location.at !== 'rest') return false;
+      if (!p || p.kind !== 'crate' || ctx.touched(id) || gaveUp.has(id) || ctx.mode(id) !== 'free' || p.location.at !== 'rest') return false;
       const q = ctx.pose(id)?.p;
       if (!q) return false;
       if (Math.hypot(q[0] - sx, q[2] - sz) <= spec.stack.radius) return true;
       return !!spec.pad && Math.hypot(q[0] - spec.pad.at[0], q[2] - spec.pad.at[1]) <= spec.pad.radius;
     });
   }
+  /**
+   * R3 (2026-11-20, Taylor: "the simulation will never get stuck because Fetch can't reach any boxes"): the bench dry
+   * for Fetch and every stray where Revert has no stand to sweep it from (half on the belt's bed beside the pad, up
+   * on a machine's top): once that has held `heal.stir` seconds more, one goes home by the chute where it lies (put
+   * away, rule 14, and taken by the chute: the squash-and-shrink of a crate come to rest out of every hand's reach)
+   * and comes back onto the pad a fresh crate: first one that stood in the way of a heal (`blockedBy`), then one
+   * lying on the pad (it keeps every replacement off it), then the nearest. One at a time, `heal.stir` apart.
+   * Checked once a second.
+   */
+  let unreachableSince = -1;
+  /**
+   * The stray that last stood in the way of a heal's trip and could not be swept itself (2026-11-20, the traffic
+   * soak's seed 9: a handled crate beside its hatch with no stand of its own, which it waited for and gave up on, again
+   * and again); it counts as a stray it cannot get at, and goes first.
+   */
+  let blockedBy: Id | null = null;
+  function outOfReach(now: number): void {
+    if (now % HZ !== 0) return;
+    // (the while runs on through trips that come to nothing; it acts only between them)
+    const strays = spec.heal && starving() && !carrying ? clutterList() : [];
+    const inTheWay = blockedBy !== null && strays.includes(blockedBy) ? blockedBy : null;
+    if (!spec.heal || strays.length === 0 || (inTheWay === null && nextSweep() !== null)) {
+      unreachableSince = -1;
+      return;
+    }
+    if (unreachableSince < 0) unreachableSince = now;
+    if (now - unreachableSince < steps(spec.heal.stir) || sweeping) return;
+    unreachableSince = -1;
+    blockedBy = null;
+    const pad = spec.pad;
+    const onPad = pad ? strays.find((s) => {
+      const q = ctx.pose(s)?.p;
+      return !!q && Math.hypot(q[0] - pad.at[0], q[2] - pad.at[1]) <= pad.radius;
+    }) : undefined;
+    const id = inTheWay ?? onPad ?? (strays[0] as Id);
+    ctx.putAway(id, { at: 'shipped' });
+    ctx.toChute(id, 'system');
+    lastPutAway = now;
+  }
   /** R3: Fetch has had nothing it may carry for `heal.after` seconds (play mode). */
   const starving = (): boolean => !!spec.heal && starvedSince >= 0 && ctx.clock.step - starvedSince >= steps(spec.heal.after);
   /** R3: a crate Fetch may carry where it lies: nobody has touched it, and it is on the stack or the pad. */
   function fetchMay(id: Id): boolean {
-    if (ctx.touched(id)) return false;
+    if (ctx.touched(id) || gaveUp.has(id)) return false;
     const q = ctx.pose(id)?.p;
     if (!q) return false;
     const [sx, sz] = spec.stack.at;
@@ -1178,6 +1250,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     if (!p || !pose || p.location.at !== 'rest' || ctx.mode(s.part) !== 'free' || stirred(s.part) !== s.stir) return;
     // R3: into the pan (rule 14: every history entry about it forgotten, a fresh crate again), and it carries it
     // home to drop it down the hatch; the chute gives it back onto the pad (the dock hears the put-away)
+    blockedBy = null;
     const pan = panPose(s.part);
     ctx.emit({ type: 'revert.sweep', id: body, part: s.part, from: pose, to: { at: 'rest', pose: pan } });
     ctx.putAway(s.part, { at: 'rest', pose: pan });
@@ -1265,13 +1338,21 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
     // light instead, and tries the way home again after a while.
     const shut = now - homeShutAt < steps(T.stuckRetry);
     if (state === 'idle' && !atHome() && ground < 0.05 && now - entered >= steps(away ? T.righting : T.alone)) {
-      if (!shut) trip(spec.home, 'home');
+      let going = true;
+      if (!shut) going = trip(spec.home, 'home');
       else if (carrying) {
         // R3: its way home is shut with a crate in the pan: it sets the crate down where it stands, for later
         if (ctx.mode(carrying) === 'crew') ctx.detach(carrying, [0, 0, 0], [0, 0, 0], 'crew');
         carrying = null;
-      } else if (!near(spec.park)) trip(spec.park, 'park');
+      } else if (!near(spec.park)) going = trip(spec.park, 'park');
       else enter('park');
+      // no trip it can start, home or to park: after `stranded` it goes down where it stands, and up at its hatch
+      if (going) strandedSince = -1;
+      else if (strandedSince < 0) strandedSince = now;
+      else if (now - strandedSince >= steps(T.stranded)) {
+        strandedSince = -1;
+        downAndHome();
+      }
       return;
     }
     if (state === 'park' && !shut && homeShutAt > -Infinity && now - entered >= steps(T.stuckRetry)) {
@@ -1387,6 +1468,10 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           case 'put-away':
             if (sw && e.id === sw.part) sw.brushed = false; // someone else's hand: that counts
             lastStir.set(e.id, ctx.clock.step);
+            gaveUp.delete(e.id);
+            break;
+          case 'crew.gaveUp':
+            gaveUp.add(e.part);
             break;
           case 'part.hit':
             if (sw && (e.id === sw.part || e.other === sw.part)) sw.brushed = true;
@@ -1398,9 +1483,11 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
           case 'returned':
           case 'restocked':
             lastStir.set(e.part, ctx.clock.step);
+            gaveUp.delete(e.part);
             break;
           case 'reset':
             for (const id of ctx.parts()) lastStir.set(id, ctx.clock.step);
+            gaveUp.clear();
             break;
           default:
             break;
@@ -1493,6 +1580,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
         if (spec.heal && ctx.scene.runner.rounds && ctx.playMode && !busy && !fetchHasWork()) {
           if (starvedSince < 0) starvedSince = now;
         } else starvedSince = -1;
+        outOfReach(now);
         // R3: the crate it was going for taken by the visitor before the sweep: it stops, looks at the hand, and goes
         // home (it never chases a crate in a hand; set down again, the crate's own while starts again)
         if (sweeping && !carrying && (state === 'sweep' || (state === 'trundle' && route?.purpose === 'sweep')) && ctx.mode(sweeping.part) === 'held') {

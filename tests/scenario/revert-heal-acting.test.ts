@@ -8,6 +8,7 @@ import { steps, HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
 import { REVERT_TUNING } from '../../src/workshop/sim/crew/revert.ts';
+import { REVERT_HEAL } from '../../src/workshop/sim/scenes/bench.ts';
 
 const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
 const rv = (w: World): RevertView => w.machine('revert-crew') as RevertView;
@@ -111,9 +112,9 @@ describe('R3: Revert acts the heal', () => {
     }
     w.dispatch({ type: 'release', velocity: [0, 0, 0] });
     // theirs: it is not swept up again while it lies freshly stirred (Revert may go on to the other strays). Freshly
-    // stirred is `heal.stir` (8 s, the bench scene's Revert spec, src/workshop/sim/scenes/bench.ts): after that a crate
-    // nobody stirs is a stray like any other, so the window is that, not the 25 s the old test waited
-    const STIR = 8;
+    // stirred is the bench's `REVERT_HEAL.stir`: after that a crate nobody stirs is a stray like any other, so the
+    // window is that, not the 25 s the old test waited
+    const STIR = REVERT_HEAL.stir;
     let again = false;
     for (let i = 0; i < steps(STIR); i++) for (const e of t.run(1)) if (e.type === 'revert.sweep' && e.part === id) again = true;
     expect(again).toBe(false);
