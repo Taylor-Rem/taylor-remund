@@ -160,9 +160,9 @@ describe('Patch is lifted off its stool', () => {
     const before = w.durable();
     w.dispatch({ type: 'drag', id: 'patch', target: [SEAT[0], 2.5, SEAT[2] + 1] });
     t.run(1);
-    // (brought down to the foot of its stool and held there a moment, then let go: a set-down. Until 2026-11-20 the
-    // hand jumped there in one step; the bench's Patch, a body, reads a hand that jumps 0.23 toward the board in a
-    // step as a throw at it at 14 units/s, and splats: see the hand-in)
+    // (brought down to the foot of its stool and held there a moment, then let go: a set-down as a hand makes one.
+    // Until 2026-11-20 this test's hand jumped there in one step, which the body Patch then read as a throw at the
+    // stool; that reading is fixed and held in patch-body.test.ts, and the put-down here stays a real one)
     const foot = PATCHLAMP.patch.foot;
     for (let i = 1; i <= 30; i++) {
       const k = i / 30;

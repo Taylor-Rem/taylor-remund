@@ -23,7 +23,7 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { PATCH_BODY_TUNING } from '../../src/workshop/sim/crew/patch-body.ts';
 import { PATCH_FLOAT, floatPull, floatWeight } from '../../src/workshop/sim/crew/patch-float.ts';
-import { AT, bench, benchScript } from '../../src/workshop/sim/scenes/bench.ts';
+import { AT, PATCHLAMP, bench, benchScript } from '../../src/workshop/sim/scenes/bench.ts';
 import { sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
 import type { PatchState, Vec3 } from '../../src/workshop/sim/types.ts';
 
@@ -677,6 +677,33 @@ describe('the gags are reactions to what the engine did', () => {
     }
     expect(rose[0]!, 'beside the wall it rises').toBeGreaterThan(1.2);
     expect(Math.abs(rose[0]! - rose[1]!), `beside the wall ${rose[0]!.toFixed(2)}, in the open ${rose[1]!.toFixed(2)}`).toBeLessThan(0.4);
+  }, 120_000);
+
+  // Found by the adoption's builder, 2026-11-20: the hand's LEVEL motion alone was read for a throw at a wall, so a
+  // hand coming down 2.5 in a step with 0.23 of sideways in it was a throw at the stool at 14 units/s.
+  test('brought down fast to the foot of its stool it is put down: not thrown at the stool, no splat; and the stool is no wall for it to be flat against', async () => {
+    const { w, t } = await world();
+    const foot = PATCHLAMP.patch.foot;
+    w.dispatch({ type: 'drag', id: 'patch', target: [foot[0], 2.5, foot[2] + 0.23] });
+    t.run(1);
+    const mark = t.events.length;
+    w.dispatch({ type: 'drag', id: 'patch', target: foot, end: true });
+    const watch = watcher(w, t);
+    for (let i = 0; i < 90; i++) expect(watch.step().state, `step ${i}`).not.toBe('wall');
+    expect(t.events.slice(mark).some((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.wall === true)).toBe(false);
+    expect(home(w, t).at(-1)).toBe('seated');
+    w.dispose();
+    // thrown level and hard at the stool's side from the open bench: it meets it and is bounced off (0.69 tall)
+    const again = await world();
+    const from: Vec3 = [foot[0] + 2.2, 1.0, -3.46];
+    lift(again.w, again.t, from);
+    const m2 = again.t.events.length;
+    fling(again.w, again.t, from, [-12, 0, 0], 10);
+    const w2 = watcher(again.w, again.t);
+    for (let i = 0; i < 60; i++) expect(w2.step().state, `thrown at the stool, step ${i}`).not.toBe('wall');
+    expect(again.t.events.slice(m2).some((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.wall === true)).toBe(false);
+    expect(home(again.w, again.t).at(-1)).toBe('seated');
+    again.w.dispose();
   }, 120_000);
 
   test('a wall met slowly, or glancing, is only the engine\'s bounce: no stick', async () => {

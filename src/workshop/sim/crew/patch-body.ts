@@ -63,6 +63,8 @@ export const PATCH_BODY_TUNING = {
   wallSquare: 0.7,
   /** The face must be at least this wide either side (not a post). */
   wallFace: 0.25,
+  /** ...and the body must stand at least this far above the bench top: as tall as Patch (1.3 from seat to ears), so that flat against it is flat against something. The stool (0.69), the console (1.04) and the pallets' stacks (1.2) are bounced off. */
+  wallTall: 1.4,
   /** ...and the visitor must see that face: its way out within about seventy degrees of the way to them. */
   wallSeen: 0.35,
   /** The gag is taken this long (s) before its body would touch the wall, its middle `wallFlat` off the face. */
@@ -505,7 +507,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
     if (lv < B.wallInto || p[1] > T.wallMeet) return null;
     let best: { o: Solid; n: readonly [number, number]; into: number; flat: Vec3; gap: number } | null = null;
     for (const o of host.solids) {
-      if (o.y1 < p[1] + T.wallAbove || p[1] < o.y0) continue;
+      if (o.y1 < p[1] + T.wallAbove || p[1] < o.y0 || o.y1 < top + B.wallTall) continue;
       const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
       const dx = p[0] - o.x, dz = p[2] - o.z;
       const ux = c * dx - s * dz, uz = s * dx + c * dz;
@@ -533,9 +535,12 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   }
 
   /**
-   * The hand's fastest level velocity over its last quarter second. Only its level motion: a hand going UP is a toss
-   * up wherever it is (beside the back wall too: read as a throw at the wall, a toss there could never be a toss, and
-   * Patch caught in the air near the wall could not be thrown up again).
+   * The hand's fastest LEVEL velocity over its last quarter second, counting only the steps in which it was going
+   * more level than up or down. A hand going UP is a toss up wherever it is (beside the back wall too: read as a
+   * throw at the wall, a toss there could never be a toss, and Patch caught in the air near the wall could not be
+   * thrown up again). And a hand coming DOWN fast with a little sideways in it is a put-down, not a throw: brought
+   * down 2.5 to the foot of its stool in a step, 0.23 of it toward the board, it was once thrown at the stool at 14
+   * and splatted on it.
    */
   function handThrow(): Vec3 {
     let best: Vec3 = [0, 0, 0];
@@ -544,6 +549,7 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       if (b.step <= a.step) continue;
       const k = HZ / (b.step - a.step);
       const v: Vec3 = [(b.p[0] - a.p[0]) * k, 0, (b.p[2] - a.p[2]) * k];
+      if (Math.abs(b.p[1] - a.p[1]) * k > level(v)) continue;
       if (level(v) > level(best)) best = v;
     }
     return best;
