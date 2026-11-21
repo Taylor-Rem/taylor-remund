@@ -86,6 +86,8 @@ export const PATCH_BODY_TUNING = {
   /** Back up the chute: how long the throw onto the bench is in the air, and how far short of the pad it is aimed (it tumbles on). */
   chuteFly: 0.85,
   chuteShort: 0.75,
+  /** ...and how far off true, either way along and across (seeded: it does not land and lie the same way twice). */
+  chuteSpread: 0.2,
   /** After this many returns in one outing the chute sets it down by the pad itself (it cannot bounce off for ever). */
   chuteTries: 2,
 
@@ -295,6 +297,8 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
   let wallOut: Vec3 = [0, 0, 1];
   /** Returns up the chute this outing. */
   let returns = 0;
+  /** The seed's dice for this module (its own fork: nobody else's rolls move). */
+  const chance = ctx.rng('patch-body');
   /** The body's pose now and a step ago, while it is in the world (for the view). */
   let now: Pose | null = null;
   let prev: Pose | null = null;
@@ -569,10 +573,11 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       return;
     }
     const tf = B.chuteFly;
-    const aim: Vec3 = [lerp(c.from[0], land[0], B.chuteShort), top + half[1], lerp(c.from[2], land[2], B.chuteShort)];
+    // (a little off true each time, by the seed: it does not come down and lie the same way twice)
+    const aim: Vec3 = [lerp(c.from[0], land[0], B.chuteShort) + chance.range(-B.chuteSpread, B.chuteSpread), top + half[1], lerp(c.from[2], land[2], B.chuteShort) + chance.range(-B.chuteSpread, B.chuteSpread)];
     const v: Vec3 = [(aim[0] - c.from[0]) / tf, (aim[1] - c.from[1]) / tf - 0.5 * g * tf, (aim[2] - c.from[2]) / tf];
     const pose: Pose = { p: c.from, q: qyaw(Math.atan2(v[0], v[2])) };
-    ctx.launch(body, pose, v, scale(cross([0, 1, 0], v), 0.5), null);
+    ctx.launch(body, pose, v, scale(cross([0, 1, 0], v), chance.range(0.3, 0.7)), null);
     now = pose;
     prev = pose;
     fly(true);
