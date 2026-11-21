@@ -853,8 +853,8 @@ export interface PatchView extends MachineViewBase {
    * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
    * (Up, R4: `fall` how far it has fallen from the top of its flight (`fly`) or fell (`land`, `shake`); `drop` let go
    * still from high or thrown up (it comes down falling, not tumbling along); `top` in the float at the top of a
-   * throw up (R5: gravity eased off there, still moving: `PATCH_TUNING.floatGrav`); `float` how much this throw
-   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over; 0 for anything but a throw up). Present
+   * throw up (R5: gravity eased off there, still moving: crew/patch-float.ts); `float` how much this throw
+   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over). Present
    * in `shake` too, for the size of its "really?".)
    */
   readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; readonly float: number } | null;

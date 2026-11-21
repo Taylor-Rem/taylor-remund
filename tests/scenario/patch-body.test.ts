@@ -21,8 +21,10 @@ import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LOOSE_TUNING } from '../../src/workshop/sim/world.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
-import { PATCH_BODY_TUNING, floatGravity, floatWeight } from '../../src/workshop/sim/crew/patch-body.ts';
+import { PATCH_BODY_TUNING } from '../../src/workshop/sim/crew/patch-body.ts';
+import { PATCH_FLOAT, floatPull, floatWeight } from '../../src/workshop/sim/crew/patch-float.ts';
 import { AT, bench } from '../../src/workshop/sim/scenes/bench.ts';
+import { sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
 import type { PatchState, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const T = PATCH_TUNING;
@@ -250,12 +252,13 @@ describe('in the air: the engine\'s, and never still', () => {
     // a flick up the screen at 12 units/s is a throw straight up at 0.7 of that
     expect(v0[1]).toBeGreaterThan(7.5);
     expect(level(v0)).toBeLessThan(0.5);
-    // never still: no two steps running in which it moves less than a two-thousandth of a unit (at the very top
-    // of any throw one step may: its upward speed passes through zero)
-    const tiny = S.map((s) => s.speed / HZ < 5e-4);
+    // never still: no two steps running in which it moves less than a ten-thousandth of a unit (at the very top
+    // of any throw one step may: its upward speed passes through zero; the floated gravity changes it by 0.04
+    // units/s a step even there)
+    const tiny = S.map((s) => s.speed / HZ < 1e-4);
     expect(tiny.some((x, i) => x && tiny[i + 1])).toBe(false);
     // and its upward speed changes every step, by never less than the floated gravity allows (it is not held)
-    for (let i = 1; i < S.length; i++) expect(S[i - 1]!.v[1] - S[i]!.v[1], `step ${i}`).toBeGreaterThan((G * (1 - B.floatDepth) * 0.9) / HZ);
+    for (let i = 1; i < S.length; i++) expect(S[i - 1]!.v[1] - S[i]!.v[1], `step ${i}`).toBeGreaterThan((G * (1 - PATCH_FLOAT.depth) * 0.9) / HZ);
     // it lingers: longer above where it left the hand than gravity alone would keep it, by about the old 0.15 s
     const up = S.filter((s) => s.mid[1] > S[0]!.mid[1] - v0[1] / HZ).length / HZ;
     const plain = (2 * v0[1]) / G;
@@ -269,21 +272,22 @@ describe('in the air: the engine\'s, and never still', () => {
     const apex = S.reduce((m, s, i) => (s.mid[1] > S[m]!.mid[1] ? i : m), 0);
     expect(tops[apex]).toBe(true);
     expect(tops[0]).toBe(false);
-    for (let i = 1; i < floats.length; i++) expect(Math.abs(floats[i]! - floats[i - 1]!)).toBeLessThan(0.12); // (it comes on and goes smoothly)
+    // (it comes on and goes over several steps each way, never in one: the view eases the fold of its arms on top of this)
+    for (let i = 1; i < floats.length; i++) expect(Math.abs(floats[i]! - floats[i - 1]!)).toBeLessThan(0.45);
     w.dispose();
   }, 60_000);
 
   test('with sideways drift the drift goes on through the top, untouched; the float is less the more it leans', async () => {
-    const { S, floats, weights, w, v0 } = await flight([5, 0, -12]);
-    expect(v0[0]).toBeGreaterThan(4.2);
+    const { S, floats, weights, w, v0 } = await flight([3.5, 0, -12]);
+    expect(v0[0]).toBeGreaterThan(2.9);
     expect(v0[1]).toBeGreaterThan(7.5);
     const apex = S.reduce((m, s, i) => (s.mid[1] > S[m]!.mid[1] ? i : m), 0);
-    // its level speed at the top is what it left with, less only the air's drag (a tenth a second)
-    expect(level(S[apex]!.v)).toBeGreaterThan(level(v0) * 0.92);
+    // its level speed at the top is what it left with (its body has no drag from the air)
+    expect(level(S[apex]!.v)).toBeGreaterThan(level(v0) * 0.98);
     expect(level(S[apex]!.v)).toBeLessThanOrEqual(level(v0) * 1.001);
     // every step it moves along its drift: no freeze
-    for (const s of S) expect(level(s.v)).toBeGreaterThan(level(v0) * 0.88);
-    // it leans (its level speed more than half its upward speed): some float, not all of it
+    for (const s of S) expect(level(s.v)).toBeGreaterThan(level(v0) * 0.98);
+    // it leans (about twenty degrees off straight up): some float, not all of it
     expect(Math.max(...floats)).toBeGreaterThan(0.1);
     expect(Math.max(...floats)).toBeLessThan(0.8);
     expect(weights.size).toBe(1);
@@ -323,10 +327,18 @@ describe('in the air: the engine\'s, and never still', () => {
       }
     }
     // gravity is never switched off: at the very top of the most vertical throw it still feels a good part of it
-    expect(floatGravity(1, 0)).toBeCloseTo(1 - B.floatDepth, 9);
-    expect(floatGravity(1, 0)).toBeGreaterThan(0.3);
-    expect(floatGravity(1, 6)).toBeGreaterThan(0.999);
-    expect(floatGravity(0, 0)).toBe(1);
+    expect(floatPull(1, 0)).toBeCloseTo(1 - PATCH_FLOAT.depth, 9);
+    expect(floatPull(1, 0)).toBeGreaterThan(0.1);
+    expect(floatPull(1, 6)).toBeGreaterThan(0.999);
+    expect(floatPull(0, 0)).toBe(1);
+    // the angles it is stated in: all of it within ten degrees of straight up, none from thirty
+    const at = (deg: number): number => floatWeight([8 * Math.tan((deg * Math.PI) / 180), 8, 0]);
+    expect(at(9)).toBe(1);
+    expect(at(12)).toBeLessThan(1);
+    expect(at(20)).toBeGreaterThan(0.3);
+    expect(at(20)).toBeLessThan(0.7);
+    expect(at(29)).toBeGreaterThan(0);
+    expect(at(31)).toBe(0);
   });
 });
 
@@ -519,6 +531,46 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
     expect(home(w, t).at(-1)).toBe('seated');
     w.dispose();
   }, 120_000);
+
+  test('back up the chute, what it knocks is still a throw\'s: it is on the stack, and one pull of the lever puts it back', async () => {
+    const { w, t } = await world(benchBody, 'body-chute-knock');
+    // a crate stood where the chute throws Patch (three quarters of the way from its mouth to the pad)
+    const crate = 'crate-3';
+    const aim: Vec3 = [AT.chute.p[0] + (AT.pad[0] - AT.chute.p[0]) * 0.75, bench.bench.top, AT.chute.p[2] + (AT.pad[1] - AT.chute.p[2]) * 0.75];
+    const c0 = w.motion(crate)!.pose.p;
+    w.dispatch({ type: 'grab', id: crate, grip: c0 });
+    for (let i = 1; i <= 60; i++) {
+      const k = i / 60;
+      w.dispatch({ type: 'carry', target: [c0[0] + (aim[0] - c0[0]) * k, 1.2 + Math.sin(Math.PI * k), c0[2] + (aim[2] - c0[2]) * k] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'place', at: aim });
+    t.run(steps(7.5)); // (at rest, and its own window shut)
+    const loc0 = w.part(crate)!.location;
+    const at0 = w.motion(crate)!.pose.p;
+    expect(Math.hypot(at0[0] - aim[0], at0[2] - aim[2])).toBeLessThan(0.1);
+    // off the front, hard, from where it meets nothing on the way
+    const from: Vec3 = [-1.5, 1.6, 1.6];
+    lift(w, t, from);
+    fling(w, t, from, [0, 0, 12], 10);
+    expect(t.until((e) => e.type === 'patch.throw' && e.phase === 'chute', steps(8)), 'it comes back up the chute').not.toBeNull();
+    const hit = t.until((e) => e.type === 'patch.throw' && e.phase === 'hit' && e.what === crate, steps(3));
+    expect(hit, 'it comes down on the crate').not.toBeNull();
+    const txn = (hit!.e as { txn?: string }).txn;
+    expect(txn, 'the hit names a transaction').toBeTruthy();
+    expect(w.undoStack().at(-1)?.id).toBe(txn);
+    expect(w.undoStack().at(-1)?.moving).toContain(crate);
+    // wherever the crate comes to rest is that transaction's, and the lever takes it back
+    t.run(steps(4));
+    for (let i = 0; i < 4 && w.undoStack().some((x) => x.id === txn); i++) {
+      w.dispatch({ type: 'undo' });
+      t.run(1);
+    }
+    expect(w.part(crate)!.location).toEqual(loc0);
+    expect(Math.hypot(w.motion(crate)!.pose.p[0] - at0[0], w.motion(crate)!.pose.p[2] - at0[2])).toBeLessThan(0.05);
+    expect(home(w, t).at(-1)).toBe('seated');
+    w.dispose();
+  }, 120_000);
 });
 
 describe('the gags are reactions to what the engine did', () => {
@@ -568,6 +620,7 @@ describe('the gags are reactions to what the engine did', () => {
       lift(w, t, from as Vec3);
       fling(w, t, from as Vec3, v as Vec3, 16);
       const watch = watcher(w, t);
+      const mark = t.events.length;
       let nearest = Infinity;
       let turned = false;
       watch.until((s) => {
@@ -577,7 +630,11 @@ describe('the gags are reactions to what the engine did', () => {
       }, 8);
       expect(nearest, `${name}: it reached the wall`).toBeLessThan(Math.max(...HALF) + 0.1);
       expect(turned, `${name}: the engine turned it back`).toBe(true);
-      expect(watch.samples.some((s) => s.state === 'wall'), name).toBe(false);
+      // (the back wall did not hold it. Glancing off it at 11 it goes on along the bench at 8 and may then meet the
+      // end of the board's panel square on, which is a wall met flat and fast, and sticks: that is the other test's)
+      const met = t.events.slice(mark).filter((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.what === 'back-wall');
+      expect(met.some((x) => x.e.type === 'patch.throw' && x.e.wall), name).toBe(false);
+      if (name === 'slowly') expect(watch.samples.some((s) => s.state === 'wall'), name).toBe(false);
       expect(home(w, t).at(-1)).toBe('seated');
       w.dispose();
     }
@@ -649,6 +706,37 @@ describe('the gags are reactions to what the engine did', () => {
 });
 
 describe('recovery: the script takes over from where and how it lies', () => {
+  test('come to rest where the visitor cannot see it, it hops to a place in their view when one is near', async () => {
+    // (the simulation's own rule for "can the visitor see it": nothing tall between its middle and where they look from)
+    const VISITOR: Vec3 = [0.6, 2.4, 14];
+    const seen = (p: Vec3): boolean => {
+      for (let i = 1; i <= 12; i++) {
+        const k = (i / 12) * 0.5;
+        if (SOLIDS.some((o) => sphereMeets(o, p[0] + (VISITOR[0] - p[0]) * k, p[1] + 0.45 + (VISITOR[1] - p[1] - 0.45) * k, p[2] + (VISITOR[2] - p[2]) * k, 0.05))) return false;
+      }
+      return true;
+    };
+    // behind the board's panel, and behind the storefront: set down there, out of sight
+    for (const [x, z, near] of [[-4, -3.5, true], [3, -4.3, true], [-1.5, -3.1, false]] as const) {
+      const { w, t } = await world();
+      lift(w, t, OPEN, 5);
+      const at: Vec3 = [x, bench.bench.top, z];
+      expect(seen(at), `${x}, ${z}: out of sight`).toBe(false);
+      w.dispatch({ type: 'place', at });
+      for (let i = 0; i < steps(5) && !patch(w).lay; i++) t.run(1);
+      const lay = patch(w).lay!;
+      expect(lay, `${x}, ${z}: it gets up`).toBeTruthy();
+      const far = Math.hypot(lay.to[0] - lay.from[0], lay.to[2] - lay.from[2]);
+      if (near) {
+        expect(seen(lay.to), `${x}, ${z}: it hops into view (${fmt(lay.to)})`).toBe(true);
+        expect(far).toBeGreaterThan(0.05);
+        expect(far).toBeLessThanOrEqual(PATCH_BODY_TUNING.seenWithin + 0.35);
+      } else expect(far, `${x}, ${z}: no place in view within reach: it gets up near where it lies`).toBeLessThan(0.8);
+      expect(home(w, t).at(-1)).toBe('seated');
+      w.dispose();
+    }
+  }, 180_000);
+
   test('it gets up where it lies: the view is given the body\'s last pose, `at` does not jump, and its speed across the takeover is continuous (it was down)', async () => {
     const { w, t } = await world();
     lift(w, t, OPEN);
@@ -1128,16 +1216,27 @@ describe('its work, and the other ways of letting go', () => {
     w.dispose();
   }, 120_000);
 
-  test('put down with a tap (the place intent): its body is let go where the hand has it, and it goes home', async () => {
+  test('put down with a tap (the place intent): its body is set down at the place, still, and it gets up there and goes home', async () => {
     const { w, t } = await world();
     lift(w, t, OPEN);
-    const was = middle(w);
-    w.dispatch({ type: 'place', at: [-3, 0, 1] });
+    const to: Vec3 = [-3, bench.bench.top, 1];
+    const mark = t.events.length;
+    w.dispatch({ type: 'place', at: to });
     const watch = watcher(w, t);
     const s = watch.step();
     expect(w.holding()).toBeNull();
+    // stood at the place: its bottom on it, upright, still (a step on: the hair it was put down from)
+    const m = w.motion(BODY)!;
+    expect(m.mode).toBe('free');
+    expect(Math.hypot(m.pose.p[0] - to[0], m.pose.p[2] - to[2])).toBeLessThan(0.05);
+    expect(Math.abs(m.pose.p[1] - HALF[1] - to[1])).toBeLessThan(0.05);
+    expect(1 - 2 * (m.pose.q[0] ** 2 + m.pose.q[2] ** 2)).toBeGreaterThan(0.999);
     expect(s.state).toBe('fly');
-    expect(len([s.mid[0] - was[0], s.mid[1] - was[1], s.mid[2] - was[2]])).toBeLessThan(0.05);
+    // a set-down, not a throw: no sound of one; it gets up within a couple of tenths of where it was put
+    const up = watch.until((x) => x.state !== 'fly', 3);
+    expect(up?.state).toBe('land');
+    expect(Math.hypot(up!.at[0] - to[0], up!.at[2] - to[2])).toBeLessThan(0.3);
+    expect(t.events.slice(mark).some((x) => x.e.type === 'patch.throw' && x.e.phase === 'thrown')).toBe(false);
     expect(home(w, t).at(-1)).toBe('seated');
     w.dispose();
   }, 60_000);

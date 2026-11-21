@@ -1529,7 +1529,23 @@ export function createWorld(opts: WorldOptions): World {
         if (!held) return false;
         if (held.kind === 'plug') return cord.intent?.({ type: 'plug', cord: held.id, jack: typeof intent.at === 'string' ? intent.at : null }) ?? false;
         if (held.kind === 'unit') {
-          letGoOfUnit(typeof intent.at === 'string' ? (mouthById.get(intent.at)?.drop ?? unitHand) : intent.at);
+          const to = typeof intent.at === 'string' ? (mouthById.get(intent.at)?.drop ?? unitHand) : intent.at;
+          if (held.body) {
+            // a unit with a body of its own is set down at the place as a part is: its body stood there, still, and
+            // let go (the unit finds it free, as after any release)
+            const id = held.id;
+            const b = lp(held.body);
+            const spot = clampTarget(b, [to[0], to[1] + b.half[1] + 0.01, to[2]]);
+            const stood: Pose = { p: spot, q: qyaw(yawOf(physics.state(b.id).pose.q)) };
+            physics.setPose(b.id, stood);
+            b.pose = stood; // (the unit reads where its body is as it is let go: there, not where the hand had it)
+            held = { kind: 'part', id: b.id };
+            letGoOfPart(b, [0, 0, 0], 'place');
+            physics.setVelocity(b.id, [0, 0, 0], [0, 0, 0]);
+            holderOf(id)?.intent?.({ type: 'drag', id, target: to, end: true });
+            return true;
+          }
+          letGoOfUnit(to);
           return true;
         }
         const at = typeof intent.at === 'string' ? mouthById.get(intent.at)?.drop : intent.at;
