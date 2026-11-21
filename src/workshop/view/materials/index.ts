@@ -86,8 +86,9 @@ export interface WorkshopMaterials extends Materials {
    */
   decal(): MeshBasicMaterial;
   /**
-   * The keyboard focus mark (view/stations/focus.ts): unlit `paper`, drawn after and over everything
-   * (no depth test), not fogged, not tone-mapped away, vertex colour carrying each mark's weight. Shared.
+   * The keyboard focus mark (view/stations/focus.ts): unlit, drawn after and over everything (no depth
+   * test), not fogged, not tone-mapped away; white, its vertex colours carrying its two tones (`ink` under
+   * `paper`) and each mark's weight. Shared.
    */
   focusMark(): MeshBasicMaterial;
 }
@@ -248,7 +249,8 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
 function buildFocusMark(): MeshBasicMaterial {
   const m = new MeshBasicMaterial();
   m.name = 'workshop/focus-mark';
-  m.color.copy(tok('paper'));
+  // (K2) white: the vertex colours carry the mark's two tones, `ink` under `paper` (view/stations/focus.ts)
+  m.color.setScalar(1);
   m.vertexColors = true;
   m.transparent = true;
   m.depthTest = false;
