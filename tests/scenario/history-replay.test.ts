@@ -14,7 +14,8 @@ import type { Location, Pose, SimEvent } from '../../src/workshop/sim/types.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
 import { HISTORY_TUNING } from '../../src/workshop/sim/history.ts';
 import { undoLever } from '../../src/workshop/sim/machines/undo-lever.ts';
-import { AT as V } from '../../src/workshop/sim/scenes/vignette.ts';
+import { AT as V, vignette } from '../../src/workshop/sim/scenes/vignette.ts';
+import { PATCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
 import { line } from '../../src/workshop/sim/machines/line.ts';
 import { storefront } from '../../src/workshop/sim/machines/storefront.ts';
 import { lamp } from '../../src/workshop/sim/machines/lamp.ts';
@@ -46,7 +47,8 @@ const moving = (b: Bench): string[] => PARTS.filter((id) => onBench(b, id) && b.
 const grabbable = (b: Bench, crew: boolean): string[] => PARTS.filter((id) => (crew || id !== 'fetch') && onBench(b, id) && (b.world.mode(id) === 'free' || b.world.mode(id) === 'crew'));
 
 // (S3) The real Patchlamp station on the stand-ins' bench: the phone line, Patch, the storefront and the lamp
-// (the vignette's two jacks; its fixture `lamp` keeps its id, so the lamp machine is `lamp-s3`).
+// (the vignette's two jacks; its fixture `lamp` keeps its id, so the lamp machine is `lamp-s3`). Patch brings its body
+// (the bench's part, out of the world: nobody here takes hold of Patch), as it does on the bench.
 const STATION: readonly UnitFactory[] = [
   line({ id: 'line', station: 'patchlamp', name: 'name.line', cord: 'cord', lines: [{ jack: 'jack-storefront', line: 'storefront', station: 'storefront' }, { jack: 'jack-lamp', line: 'lamp', station: 'lamp-s3' }] }),
   patch({
@@ -55,6 +57,7 @@ const STATION: readonly UnitFactory[] = [
     body: { up: 0.75, radius: 0.6, head: 1.05, hands: 0.35 }, shelf: [V.stool.c[0] - 0.7, 0, V.stool.c[2]], lever: [-3, 1.5, -2], visitor: [0.6, 2.4, 14], phone: V.phone.c,
     jacks: { 'jack-storefront': V.jacks.storefront, 'jack-lamp': V.jacks.lamp }, stations: { storefront: [7, 1, -3.6], 'lamp-s3': [-2, 5.2, -0.6] },
     bench: { minX: V.bench.minX + 0.4, maxX: V.bench.maxX - 0.4, minZ: V.bench.minZ + 0.4, maxZ: V.bench.maxZ - 0.4 },
+    bodyPart: PATCH_BODY.id,
   }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
   lamp({ id: 'lamp-s3', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: { aim: [2, 0, -0.1] }, reach: { polygon: [[-8.9, -4.4], [-8.9, 5], [7.9, 5], [8.8, 3.6], [8.8, 1.2], [5.5, -4.4]] } }),
@@ -79,7 +82,7 @@ function sequence(seed: number, o: Options): { b: Bench; chk: Checker; actions: 
   const r = rng(`history-${seed}`);
   let chk: Checker | null = null;
   // the real UNDO lever (S4) beside the stand-ins: half the pulls go through it; and the Patchlamp station (S3) when asked
-  const b: Bench = bench(seed, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }), ...(o.station ? STATION : [])] }, (ev: readonly SimEvent[]) => {
+  const b: Bench = bench(seed, { units: [undoLever({ id: 'undo-lever', station: 'button', name: 'name.undo-lever' }), ...(o.station ? STATION : [])], ...(o.station ? { scene: { ...vignette, parts: [...vignette.parts, PATCH_BODY] } } : {}) }, (ev: readonly SimEvent[]) => {
     // HISTORY_TRACE=1 prints every event and every open window, step by step (with HISTORY_SEED, to read one failure)
     if (trace) {
       const windows = b.world.undoStack().filter((t) => t.moving.length > 0);

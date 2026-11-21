@@ -16,14 +16,13 @@ import { startDevServer, type DevServer } from '../../scripts/capture.ts';
 //   - after a release the drawn body moves in the first frame, and from then on stays near the simulation's middle;
 //   - no frame in which the drawn body jumps or turns faster than a bound (outside `away` and the edge, jumps by design);
 //   - the turn at the foot of the stool is the short way (at most half a turn, and a little);
-//   - through a landing the roll never turns back by more than a few degrees;
 //   - in the air the simulation never has a step without motion, and a throw with drift keeps drifting through its top.
 // The measured values are printed (`[feel]` lines) so a change of feel shows up as numbers before it shows as a failure.
 //
-// Both Patches are held to it: the scripted one (`?patch=script`), and the one with a real body while it is held and
-// thrown (`?patch=body`, the 2026-11-20 prototype, the bench's own Patch since that day: the default page has it). Every bound above is held for both, with two the body Patch has in a
-// different form because its tumble is the engine's and not a performance (said where each is set): the fastest it may
-// turn, and the landing's roll. And the body Patch has two more, which are what "the figure IS its body" means:
+// Patch has a real body while it is held and thrown (since 2026-11-20; until 2026-11-21 the scripted Patch was held
+// to this too, at `?patch=script`). Its tumble is the engine's and not a performance, so the fastest the drawing may
+// turn is what it adds to the body's turn (said where it is set), and it has two bounds more, which are what "the
+// figure IS its body" means:
 //   - while its body is in the world the drawn body is turned as the physics body is, to within BODY_TURN;
 //   - and its drawn middle is at the physics body's, to within BODY_LEVEL across the bench and BODY_LIFT above it
 //     (the lift that keeps every drawn part above the bench top), outside the one named takeover, the grab.
@@ -109,14 +108,12 @@ const BODY_LIFT = 1.0;
 const BODY_GRAB = 0.25;
 /**
  * The body Patch met a wall flat: the figure goes from the pose its body had to flat against the wall over a few
- * frames (OPERATOR_FEEL.bodyFlatten). The most it may turn in any one of them (rad): a third of a turn. The scripted
- * Patch's splat is a cut of 160 to 175 degrees in one frame (counted apart for it too, as `splatTurn`).
+ * frames (OPERATOR_FEEL.bodyFlatten). The most it may turn in any one of them (rad): a third of a turn. (The scripted
+ * Patch's splat was a cut of 160 to 175 degrees in one frame.)
  */
 const SPLAT_FRAME = 2.1;
 /** At the foot of the stool: the most the facing may range over (degrees) from 0.4 s before the climb to its turn round to sit (0.43 s in). Half a turn, the short way, and 20 for the walk's own sway. The pirouette was 290 to 446. */
 const STOOL_TURN = 200;
-/** Through the landing's roll after a throw across: the most the head-over-heels may turn BACK (degrees). The landing rolled back 280 to 620 before. A few degrees for the settle. */
-const ROLL_BACK = 10;
 /**
  * A throw with drift: its speed across the bench at any step in the air as a share of its speed at release (the
  * simulation's, from step to step). Gravity does not touch it; the old hang stopped it dead (0) for 9 steps.
@@ -264,18 +261,10 @@ interface StepRow { s: number; st: string; at: number[]; vel: number[] | null; t
 type V = [number, number, number];
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = (a: V): number => Math.hypot(a[0], a[1], a[2]);
-const norm = (a: V): V => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const col = (f: FrameRow, i: number): V => [f.m[i * 4]!, f.m[i * 4 + 1]!, f.m[i * 4 + 2]!];
 const boneAt = (f: FrameRow): V => [f.m[12]!, f.m[13]!, f.m[14]!];
 /** The body's middle (0.3 up the body bone, the point it tumbles about; the matrix carries the crew's scale). */
 const middle = (f: FrameRow): V => { const o = boneAt(f), u = col(f, 1); return [o[0] + 0.3 * u[0], o[1] + 0.3 * u[1], o[2] + 0.3 * u[2]]; };
-/** The angle (rad) between two frames' body orientations. */
-function turned(a: FrameRow, b: FrameRow): number {
-  const A = [norm(col(a, 0)), norm(col(a, 1)), norm(col(a, 2))], C = [norm(col(b, 0)), norm(col(b, 1)), norm(col(b, 2))];
-  let tr = 0;
-  for (let i = 0; i < 3; i++) tr += C[i]![0] * A[i]![0] + C[i]![1] * A[i]![1] + C[i]![2] * A[i]![2];
-  return Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2)));
-}
 const yawOf = (f: FrameRow): number => { const z = col(f, 2); return Math.atan2(z[0], z[2]); };
 type M3 = [V, V, V];
 /**
@@ -340,14 +329,13 @@ interface Measured {
   turn: number;
   turnAt: string;
   stoolTurn: number;
-  rollBack: number | null;
   stillSteps: number;
   driftShare: number | null;
   hits: number;
   floatSteps: number;
   /** How much this throw floats, the simulation's own measure of how straight up it went (PatchView.thrown.float). */
   float: number;
-  /** The turn in the frame it met a wall flat (rad), when it did (the body Patch: the most in any one frame of its flattening). */
+  /** Met a wall flat, when it did: the most it turned in any one frame of its flattening (rad). */
   splatTurn: number | null;
   /** The body Patch, its body in the world (outside the grab): the most the drawn turn was off the body's (rad), the drawn middle off the body's across the bench, above it, and below it (units). */
   bodyTurn: number;
@@ -356,25 +344,23 @@ interface Measured {
   bodyUnder: number;
 }
 
-function measure(name: string, frames: FrameRow[], steps: StepRow[], release: number, hits: number[], benchTop: number, bodied = false, touches: number[] = []): Measured {
-  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, rollBack: null, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0, float: 0, splatTurn: null, bodyTurn: 0, bodyLevel: 0, bodyLift: 0, bodyUnder: 0 };
+function measure(name: string, frames: FrameRow[], steps: StepRow[], release: number, hits: number[], benchTop: number, touches: number[]): Measured {
+  const m: Measured = { name, releaseMoved: 0, track: 0, jump: 0, jumpAt: '', turn: 0, turnAt: '', stoolTurn: 0, stillSteps: 0, driftShare: null, hits: hits.length, floatSteps: 0, float: 0, splatTurn: null, bodyTurn: 0, bodyLevel: 0, bodyLift: 0, bodyUnder: 0 };
   const fr = frames.filter((f) => f.s >= release - 30);
-  if (bodied) {
-    // the body Patch: the figure IS its body. Over every frame its body was in the world (the carry before the throw
-    // too), from BODY_GRAB after it came into the world
-    let since = -Infinity;
-    for (let i = 0; i < frames.length; i++) {
-      const f = frames[i]!;
-      if (!f.b) continue;
-      if (i === 0 || !frames[i - 1]!.b) since = i === 0 ? -Infinity : f.t;
-      if (f.t - since < BODY_GRAB) continue;
-      const B = bodyAt(f);
-      m.bodyTurn = Math.max(m.bodyTurn, between(turnOf(f), B.R));
-      const d = sub(trunk(f), B.p);
-      m.bodyLevel = Math.max(m.bodyLevel, Math.hypot(d[0], d[2]));
-      m.bodyLift = Math.max(m.bodyLift, d[1]);
-      m.bodyUnder = Math.max(m.bodyUnder, -d[1]);
-    }
+  // the figure IS its body. Over every frame its body was in the world (the carry before the throw too), from
+  // BODY_GRAB after it came into the world
+  let since = -Infinity;
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i]!;
+    if (!f.b) continue;
+    if (i === 0 || !frames[i - 1]!.b) since = i === 0 ? -Infinity : f.t;
+    if (f.t - since < BODY_GRAB) continue;
+    const B = bodyAt(f);
+    m.bodyTurn = Math.max(m.bodyTurn, between(turnOf(f), B.R));
+    const d = sub(trunk(f), B.p);
+    m.bodyLevel = Math.max(m.bodyLevel, Math.hypot(d[0], d[2]));
+    m.bodyLift = Math.max(m.bodyLift, d[1]);
+    m.bodyUnder = Math.max(m.bodyUnder, -d[1]);
   }
   // the release: the first frame drawn after the release step
   const i0 = fr.findIndex((f) => f.s >= release && f.st !== 'held');
@@ -383,14 +369,8 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
   for (let i = 1; i < fr.length; i++) {
     const a = fr[i - 1]!, b = fr[i]!;
     if (DESIGNED_JUMP.has(a.st) || DESIGNED_JUMP.has(b.st)) continue;
-    // (met a wall flat: the splat, a collision drawn as a cut to the spread figure face to the room, by design (the
-    // operator's 'wall'); counted apart, not against TURN)
-    if (!bodied && a.st === 'fly' && b.st === 'wall') {
-      m.splatTurn = turned(a, b);
-      continue;
-    }
-    // (the body Patch: flattened against it over a few frames from the pose its body had, each counted, none a cut)
-    if (bodied && b.st === 'wall' && b.t - (fr.find((f) => f.st === 'wall')?.t ?? b.t) < 0.2) {
+    // (met a wall flat: flattened against it over a few frames from the pose its body had, each counted apart, none a cut)
+    if (b.st === 'wall' && b.t - (fr.find((f) => f.st === 'wall')?.t ?? b.t) < 0.2) {
       m.splatTurn = Math.max(m.splatTurn ?? 0, between(turnOf(a), turnOf(b)));
       continue;
     }
@@ -402,10 +382,10 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
     // put clear of a body, say), the drawn body's own speed is what counts: it should not jump with it)
     const simJumped = b.prev === null && a.st !== b.st;
     const j = (simJumped ? len(sub(middle(b), middle(a))) : len(sub(sub(middle(b), simRef(b)), sub(middle(a), simRef(a))))) / dt;
-    // (the body Patch while its body is in the world: its turn is the engine's, a tumble that a touchdown can spin up
-    // past any rate a performance would be given, and legitimately; what the DRAWING adds to it is what counts, the
-    // change in how far the drawn turn is off the body's, which is BODY_TURN's business too)
-    const r = (bodied && a.b && b.b ? Math.abs(between(turnOf(b), bodyAt(b).R) - between(turnOf(a), bodyAt(a).R)) : bodied ? between(turnOf(a), turnOf(b)) : turned(a, b)) / dt;
+    // (while its body is in the world its turn is the engine's, a tumble that a touchdown can spin up past any rate a
+    // performance would be given, and legitimately; what the DRAWING adds to it is what counts, the change in how far
+    // the drawn turn is off the body's, which is BODY_TURN's business too)
+    const r = (a.b && b.b ? Math.abs(between(turnOf(b), bodyAt(b).R) - between(turnOf(a), bodyAt(a).R)) : between(turnOf(a), turnOf(b))) / dt;
     if (j > m.jump) { m.jump = j; m.jumpAt = `${a.st}>${b.st} step ${b.s}`; }
     if (r > m.turn) { m.turn = r; m.turnAt = `${a.st}>${b.st} step ${b.s}`; }
     if (b.st === 'fly' && i >= i0 && b.t - fr[i0]!.t >= SETTLE) {
@@ -413,25 +393,6 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
       // (near the bench the whole figure is lifted clear of its top: there only across the bench counts)
       m.track = Math.max(m.track, simAt(b)[1] - benchTop > CLEAR ? len(d) : Math.hypot(d[0], d[2]));
     }
-  }
-  // the landing's roll: the turn about the body's own side-to-side axis, signed by the way it first turned
-  // (the body Patch has no landing roll to turn back: its tumble is the engine's, and its `land` is the get-up)
-  const li = bodied ? -1 : fr.findIndex((f) => f.st === 'land');
-  if (li > 0 && !fr[li]!.drop) {
-    let first = 0, acc = 0, peak = 0, back = 0;
-    for (let i = li; i < fr.length && fr[i]!.st === 'land'; i++) {
-      const a = fr[i - 1]!, b = fr[i]!;
-      const ax = norm(col(a, 0)), u0 = norm(col(a, 1)), u1 = norm(col(b, 1));
-      const cr: V = [u0[1] * u1[2] - u0[2] * u1[1], u0[2] * u1[0] - u0[0] * u1[2], u0[0] * u1[1] - u0[1] * u1[0]];
-      const ang = Math.atan2(cr[0] * ax[0] + cr[1] * ax[1] + cr[2] * ax[2], u0[0] * u1[0] + u0[1] * u1[1] + u0[2] * u1[2]);
-      if (!first && Math.abs(ang) > 0.01) first = Math.sign(ang);
-      if (first) {
-        acc += ang * first;
-        peak = Math.max(peak, acc);
-        back = Math.max(back, peak - acc);
-      }
-    }
-    m.rollBack = (back * 180) / Math.PI;
   }
   // the foot of the stool: the facing's range from 0.4 s before the climb to 0.43 s into it (where it turns round to sit)
   const ci = fr.findIndex((f) => f.st === 'climb');
@@ -449,12 +410,12 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
   }
   // the air, the simulation's own steps: a step without motion; the drift kept through the top (a third of a second
   // either side of it, before anything it may meet later on: a knock is a legitimate change of speed)
-  // (the body Patch is in `fly` while it tumbles on the bench and lies there too: its air is up to its first contact)
-  const touch = bodied ? Math.min(Infinity, ...touches.filter((s) => s > release + 2)) : Infinity;
+  // (it is in `fly` while it tumbles on the bench and lies there too: its air is up to its first contact)
+  const touch = Math.min(Infinity, ...touches.filter((s) => s > release + 2));
   const air = steps.filter((s) => s.s >= release && s.st === 'fly' && s.s < touch - 2);
-  // (the body Patch leaves the hand as any part does: the world lets go of what the hand had over the throw's cap in
-  // its first tenths of a second (LOOSE_TUNING.launchEase), so "what it left with" is its speed once that is done)
-  const eased = bodied ? 15 : 0;
+  // (it leaves the hand as any part does: the world lets go of what the hand had over the throw's cap in its first
+  // tenths of a second (LOOSE_TUNING.launchEase), so "what it left with" is its speed once that is done)
+  const eased = 15;
   const v0 = air[eased + 1] ? sub(air[eased + 1]!.at as V, air[eased]!.at as V) : null;
   const level0 = v0 ? Math.hypot(v0[0], v0[2]) * 60 : 0;
   const apex = air.find((s) => s.vel && s.vel[1]! <= 0)?.s ?? -1;
@@ -472,10 +433,9 @@ function measure(name: string, frames: FrameRow[], steps: StepRow[], release: nu
   return m;
 }
 
-for (const variant of ['script', 'body'] as const) test(`R5 (${variant === 'body' ? 'the Patch with a real body, ?patch=body' : 'the scripted Patch'}): Patch thrown four ways by mouse: it leaves the hand at once, the drawn body stays with the simulated one, nothing pops, the landing rolls on, the turn at the stool is the short way, and a throw up floats without stopping`, async ({ page }) => {
-  const bodied = variant === 'body';
+test('R5: Patch thrown four ways by mouse: it leaves the hand at once, the drawn body is its physics body, nothing pops, the turn at the stool is the short way, and a throw up floats without stopping', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${origin}/dev/bench/?hud=0&patch=${bodied ? 'body' : 'script'}`);
+  await page.goto(`${origin}/dev/bench/?hud=0`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
   const h: Hand = { page, cdp: await page.context().newCDPSession(page) };
   // the first press ends the opening demonstration: a crate lifted and put back down
@@ -513,21 +473,20 @@ for (const variant of ['script', 'body'] as const) test(`R5 (${variant === 'body
   const results: Measured[] = [];
   for (const th of throws) {
     await untilSeated(h);
-    if (bodied) await page.evaluate(() => { const r = (window as any).__feel; r.frames.length = 0; r.steps.length = 0; r.releases.length = 0; r.hits.length = 0; r.touches.length = 0; });
+    // (cleared before the take: the carry is kept, its body in the hand is measured too)
+    await page.evaluate(() => { const r = (window as any).__feel; r.frames.length = 0; r.steps.length = 0; r.releases.length = 0; r.hits.length = 0; r.touches.length = 0; });
     const s = await take(h, 'patch');
     const hand = await carry(h, s, th.to);
     await frames(page, 30);
     const to = await th.flick(hand);
-    // (the body Patch: the carry is kept, its body in the hand is measured too; cleared before the take instead)
-    if (!bodied) await page.evaluate(() => { const r = (window as any).__feel; r.frames.length = 0; r.steps.length = 0; r.releases.length = 0; r.hits.length = 0; r.touches.length = 0; });
     await stroke(h, hand, to, th.name === 'across' ? 200 : th.name === 'from the right' ? 220 : 110, 'accel', true);
     await untilSeated(h);
     const rec = await page.evaluate(() => (window as any).__feel as { frames: FrameRow[]; steps: StepRow[]; releases: number[]; hits: number[]; touches: number[]; top: number });
     expect(rec.releases.length, `${th.name}: let go once`).toBe(1);
-    if (process.env.FEEL_DUMP) writeFileSync(`${process.env.FEEL_DUMP}-${variant}-${th.name.replace(/ /g, '-')}-${Date.now()}.json`, JSON.stringify(rec));
-    const m = measure(th.name, rec.frames, rec.steps, rec.releases[0]!, rec.hits, rec.top, bodied, rec.touches);
+    if (process.env.FEEL_DUMP) writeFileSync(`${process.env.FEEL_DUMP}-${th.name.replace(/ /g, '-')}-${Date.now()}.json`, JSON.stringify(rec));
+    const m = measure(th.name, rec.frames, rec.steps, rec.releases[0]!, rec.hits, rec.top, rec.touches);
     results.push(m);
-    console.log(`[feel] ${variant} ${JSON.stringify({ ...m, bodyTurn: +m.bodyTurn.toFixed(4), bodyLevel: +m.bodyLevel.toFixed(4), bodyLift: +m.bodyLift.toFixed(3), bodyUnder: +m.bodyUnder.toFixed(4), splatTurn: m.splatTurn === null ? null : +m.splatTurn.toFixed(2), float: +m.float.toFixed(2), track: +m.track.toFixed(3), jump: +m.jump.toFixed(1), turn: +m.turn.toFixed(1), stoolTurn: Math.round(m.stoolTurn), rollBack: m.rollBack === null ? null : +m.rollBack.toFixed(1), releaseMoved: +m.releaseMoved.toFixed(3), driftShare: m.driftShare === null ? null : +m.driftShare.toFixed(3) })}`);
+    console.log(`[feel] ${JSON.stringify({ ...m, bodyTurn: +m.bodyTurn.toFixed(4), bodyLevel: +m.bodyLevel.toFixed(4), bodyLift: +m.bodyLift.toFixed(3), bodyUnder: +m.bodyUnder.toFixed(4), splatTurn: m.splatTurn === null ? null : +m.splatTurn.toFixed(2), float: +m.float.toFixed(2), track: +m.track.toFixed(3), jump: +m.jump.toFixed(1), turn: +m.turn.toFixed(1), stoolTurn: Math.round(m.stoolTurn), releaseMoved: +m.releaseMoved.toFixed(3), driftShare: m.driftShare === null ? null : +m.driftShare.toFixed(3) })}`);
   }
   for (const m of results) {
     // (the hand in a release frame moves on by itself, so "moved" is any motion at all: the freeze was exactly 0)
@@ -536,15 +495,12 @@ for (const variant of ['script', 'body'] as const) test(`R5 (${variant === 'body
     expect(m.jump, `${m.name}: no frame snaps the drawn body away from the simulation's faster than ${JUMP} u/s (${m.jumpAt})`).toBeLessThanOrEqual(JUMP);
     expect(m.turn, `${m.name}: no frame turns it faster than ${TURN} rad/s (${m.turnAt})`).toBeLessThanOrEqual(TURN);
     expect(m.stoolTurn, `${m.name}: the turn at the foot of the stool, degrees`).toBeLessThanOrEqual(STOOL_TURN);
-    if (m.rollBack !== null) expect(m.rollBack, `${m.name}: the landing's roll turns back, degrees`).toBeLessThanOrEqual(ROLL_BACK);
     expect(m.stillSteps, `${m.name}: simulation steps in the air without motion`).toBe(0);
-    if (bodied) {
-      expect(m.bodyTurn, `${m.name}: the drawn body turned as its physics body is, to within ${BODY_TURN} rad`).toBeLessThanOrEqual(BODY_TURN);
-      expect(m.bodyLevel, `${m.name}: the drawn middle over the physics body's, to within ${BODY_LEVEL} across the bench`).toBeLessThanOrEqual(BODY_LEVEL);
-      expect(m.bodyLift, `${m.name}: the drawn middle no more than ${BODY_LIFT} above the physics body's (the lift clear of the bench)`).toBeLessThanOrEqual(BODY_LIFT);
-      expect(m.bodyUnder, `${m.name}: the drawn middle never below the physics body's`).toBeLessThanOrEqual(0.02);
-      if (m.splatTurn !== null) expect(m.splatTurn, `${m.name}: flattening against a wall, no frame turns it more than ${SPLAT_FRAME} rad`).toBeLessThanOrEqual(SPLAT_FRAME);
-    }
+    expect(m.bodyTurn, `${m.name}: the drawn body turned as its physics body is, to within ${BODY_TURN} rad`).toBeLessThanOrEqual(BODY_TURN);
+    expect(m.bodyLevel, `${m.name}: the drawn middle over the physics body's, to within ${BODY_LEVEL} across the bench`).toBeLessThanOrEqual(BODY_LEVEL);
+    expect(m.bodyLift, `${m.name}: the drawn middle no more than ${BODY_LIFT} above the physics body's (the lift clear of the bench)`).toBeLessThanOrEqual(BODY_LIFT);
+    expect(m.bodyUnder, `${m.name}: the drawn middle never below the physics body's`).toBeLessThanOrEqual(0.02);
+    if (m.splatTurn !== null) expect(m.splatTurn, `${m.name}: flattening against a wall, no frame turns it more than ${SPLAT_FRAME} rad`).toBeLessThanOrEqual(SPLAT_FRAME);
   }
   // the float: how straight up a flick of the hand goes is the hand's (the input's) business, so it is asked of the
   // simulation which of the two throws up came out near enough vertical to float (thrown.float over a half), and

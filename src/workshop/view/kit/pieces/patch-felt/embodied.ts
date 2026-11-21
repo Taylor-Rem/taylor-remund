@@ -1,5 +1,5 @@
 /**
- * Patch drawn from a real body (the 2026-11-20 prototype, `PatchSpec.flight: 'body'`; view/stations/operator.ts).
+ * Patch drawn from its real body (2026-11-20; sim/crew/patch-body.ts; view/stations/operator.ts).
  *
  * While its physics body is in the world the figure's body IS that body: its middle where the body's is, turned as
  * the body is turned (a quaternion: a body that tumbles freely has no three angles that do not unwind). What is

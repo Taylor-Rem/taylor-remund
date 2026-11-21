@@ -1,8 +1,7 @@
 /**
  * The float at the top of a throw up (R4, R5; Taylor, 2026-11-20: "a brief hang at the apex, but it shouldn't
- * interrupt significant horizontal movement or feel like an accidental freeze"). One function and one set of numbers
- * for both Patches: the scripted one (`patch.ts`, which steps its own arc) and the one with a real body
- * (`patch-body.ts`, which eases the engine's gravity on the body).
+ * interrupt significant horizontal movement or feel like an accidental freeze"). Patch's body (`patch-body.ts`) eases
+ * the engine's gravity on itself by it. (Until 2026-11-21 the scripted Patch's own arc used it too.)
  *
  * A throw's WEIGHT (0..1) is how much it floats at all, decided as it leaves the hand: all of it within about ten
  * degrees of straight up, fading smoothly to none by about thirty; and none for a hop of less than `upFrom` units/s

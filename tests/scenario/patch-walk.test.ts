@@ -2,7 +2,7 @@
 // over the belt (only by its crossing) when that is the way; and in a time that fits the distance. On the
 // whole bench under real Rapier.
 import { describe, expect, test } from 'vitest';
-import { BENCH, benchWorld, FULL_BENCH, SCRIPT_BENCH, tape } from './line-helpers.ts';
+import { BENCH, benchWorld, FULL_BENCH, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { PATCHLAMP, patchView } from './patchlamp-helpers.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
@@ -178,36 +178,26 @@ describe('Patch walks back to its stool round things (R2)', () => {
     expect(patchView(n).walk).toMatchObject({ scamper: false, pace: T.walk });
   }, 60_000);
 
-  // The scripted Patch looks at the visitor for the first half of its set-off. The bench's Patch (a body since
-  // 2026-11-20) looks only after a landing hard enough to earn it (sim/crew/patch-body.ts `afterShake`): set down
-  // gently it gets up and has only the set-off's turn to its way, then goes.
-  for (const [which, scene] of [['the scripted Patch', SCRIPT_BENCH], ['the bench\'s Patch', BENCH]] as const) {
-    const looks = scene === SCRIPT_BENCH;
-    test(`before the first step (${which}): ${looks ? 'a look at the visitor, then ' : ''}a turn to face its way, and no step`, async () => {
-      const w = await benchWorld(7, { scene });
-      const t = tape(w);
-      t.run(20);
-      setDown(w, t, [-4, 0, 1.5]);
-      expect(patchView(w).state).toBe('walk');
-      const at0 = patchView(w).at;
-      const left = T.setOff - patchView(w).stateTime;
-      if (looks) {
-        t.run(Math.round(T.setOff * 0.3 * HZ));
-        expect(patchView(w).lookAt).toEqual(PATCHLAMP.patch.visitor);
-        t.run(Math.round(T.setOff * 0.6 * HZ));
-      } else {
-        expect(left, 'the set-off\'s turn is still to come').toBeGreaterThan(0.2);
-        t.run(Math.round((left - 0.05) * HZ));
-      }
-      const v = patchView(w);
-      expect(v.at).toEqual(at0);
-      const next = v.walk?.next;
-      expect(next).toBeTruthy();
-      expect(Math.abs(Math.atan2(Math.sin(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2])), Math.cos(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2]))))).toBeLessThan(1e-6);
-      t.run(Math.round(0.3 * HZ));
-      expect(Math.hypot(patchView(w).at[0] - at0[0], patchView(w).at[2] - at0[2])).toBeGreaterThan(0.1);
-    }, 60_000);
-  }
+  // Set down gently it gets up and has only the set-off's turn to its way, then goes: the look at the visitor comes
+  // only after a landing hard enough to earn it (sim/crew/patch-body.ts `afterShake`).
+  test('before the first step: a turn to face its way, and no step', async () => {
+    const w = await benchWorld(7, { scene: BENCH });
+    const t = tape(w);
+    t.run(20);
+    setDown(w, t, [-4, 0, 1.5]);
+    expect(patchView(w).state).toBe('walk');
+    const at0 = patchView(w).at;
+    const left = T.setOff - patchView(w).stateTime;
+    expect(left, 'the set-off\'s turn is still to come').toBeGreaterThan(0.2);
+    t.run(Math.round((left - 0.05) * HZ));
+    const v = patchView(w);
+    expect(v.at).toEqual(at0);
+    const next = v.walk?.next;
+    expect(next).toBeTruthy();
+    expect(Math.abs(Math.atan2(Math.sin(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2])), Math.cos(v.heading - Math.atan2(next![0] - at0[0], next![2] - at0[2]))))).toBeLessThan(1e-6);
+    t.run(Math.round(0.3 * HZ));
+    expect(Math.hypot(patchView(w).at[0] - at0[0], patchView(w).at[2] - at0[2])).toBeGreaterThan(0.1);
+  }, 60_000);
 });
 
 /** Carry a loose part to `to` and set it down there (no throw), then let it come to rest. */

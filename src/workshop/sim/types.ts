@@ -787,14 +787,14 @@ export interface LineView extends MachineViewBase {
  */
 export type PatchState = 'seated' | 'notice' | 'drawer' | 'work' | 'check' | 'reply' | 'stare' | 'look' | 'duck' | 'catch' | 'bonk' | 'held' | 'walk' | 'climb' | 'roll' | 'plug' | 'ledge' | 'haul' | 'dust' | 'cross' | 'fly' | 'land' | 'shake' | 'away' | 'wall';
 
-/** Patch, the operator (§ B5): transient, never recorded. Never moved by physics. */
+/** Patch, the operator (§ B5): transient, never recorded. Held and thrown it is a body (`body`); else its script's. */
 export interface PatchView extends MachineViewBase {
   readonly kind: 'patch';
   readonly state: PatchState;
   /** Seconds since `state` began, and how long it lasts (Infinity for one that waits on something). */
   readonly stateTime: number;
   readonly stateLength: number;
-  /** Where Patch is: its seat on the stool, the visitor's hand (held), or its feet on the bench (walking). */
+  /** Where Patch is: its seat on the stool, the visitor's hand (held), its middle (in the air, at the wall), or its feet on the bench (walking). */
   readonly at: Vec3;
   /** Facing, radians about +Y (0 faces +Z, the camera). */
   readonly heading: number;
@@ -849,15 +849,15 @@ export interface PatchView extends MachineViewBase {
    */
   readonly walk: { readonly pace: number; readonly scamper: boolean; readonly next: Vec3 | null; readonly waiting: boolean } | null;
   /**
-   * R4: thrown. `fly`: in the air on a scripted arc (`at` is its middle, world; `v` its velocity now; `chute`: on
-   * its way back up the chute after a throw off the bench). `land`: come down (`at` its feet on the bench), a bounce
-   * and a roll over `stateLength`, ending sat up (`speed`: how fast it came in). Then `shake` (sat, a shake of the
-   * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
+   * R4: thrown. `fly`: its body in the air, tumbling, lying (`at` is its middle, world; `v` its velocity now;
+   * `chute`: on its way back up the chute after a throw off the bench). `land`: the script has it again, getting up
+   * where it lay (`lay`; `speed`: how fast it came in). Then `shake` (sat, a shake of the head), the look, and the
+   * walk home. `away`: thrown off the bench, out of sight. Null otherwise.
    * (Up, R4: `fall` how far it has fallen from the top of its flight (`fly`) or fell (`land`, `shake`); `drop` let go
    * still from high or thrown up (it comes down falling, not tumbling along); `top` in the float at the top of a
    * throw up (R5: gravity eased off there, still moving: crew/patch-float.ts); `float` how much this throw
-   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over). Present
-   * in `shake` too, for the size of its "really?".)
+   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over); `v`, `top` and `float` are the body's,
+   * in the air only. Present in `shake` too, for the size of its "really?".)
    */
   readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; readonly float: number } | null;
   /**
@@ -874,8 +874,7 @@ export interface PatchView extends MachineViewBase {
    */
   readonly wall: { readonly out: Vec3; readonly stick: number } | null;
   /**
-   * 2026-11-20 (prototype, `PatchSpec.flight: 'body'`; absent for the scripted Patch). Patch's own body while it is in
-   * the world: in the hand (`held`: the world carries it as it carries a part) and loose (state `fly`: thrown,
+   * 2026-11-20 (sim/crew/patch-body.ts). Patch's own body while it is in the world: in the hand (`held`: the world carries it as it carries a part) and loose (state `fly`: thrown,
    * tumbling, lying; the engine's). `id` the part (kind robot; `WorldView.motion(id)` has the same poses); `pose`
    * now and `prev` a step ago (draw between them); `half` its box, the hand's grip at the middle of its top. `at`
    * (and `prevAt`) follow it: its middle while loose, `PATCH_TUNING.hangBelow` above its middle while held. `float`:
@@ -883,9 +882,9 @@ export interface PatchView extends MachineViewBase {
    * the top; `thrown.float` is how much this throw floats at all, `thrown.top` when its pull is down by more than a
    * third). Null while the script has Patch (the body is out of the world).
    */
-  readonly body?: { readonly id: Id; readonly pose: Pose; readonly prev: Pose; readonly half: Vec3; readonly held: boolean; readonly float: number } | null;
+  readonly body: { readonly id: Id; readonly pose: Pose; readonly prev: Pose; readonly half: Vec3; readonly held: boolean; readonly float: number } | null;
   /**
-   * (`flight: 'body'`) The script has just taken over from the body: `pose` is how and where the body last was (how
+   * The script has just taken over from the body: `pose` is how and where the body last was (how
    * it lay as the get-up began; how it met the wall; how it went over the edge), `hard` how hard it had come down
    * (0 a set-down .. 1 a hard landing: the beats that follow are scaled by it). Through `land` (the get-up) and the
    * `shake` after it: it stays as it landed, getting up, for `rise` seconds, then, if where it lay is no place to
@@ -895,7 +894,7 @@ export interface PatchView extends MachineViewBase {
    * before it: stood waiting on its walk home too long, it hops on toward its stool (`rise` 0, `pose` upright where
    * it stood). Null otherwise.
    */
-  readonly lay?: { readonly pose: Pose; readonly hard: number; readonly from: Vec3; readonly to: Vec3; readonly arc: number; readonly rise: number } | null;
+  readonly lay: { readonly pose: Pose; readonly hard: number; readonly from: Vec3; readonly to: Vec3; readonly arc: number; readonly rise: number } | null;
 }
 
 export type RungPhase = 'idle' | 'playing' | 'rewinding';

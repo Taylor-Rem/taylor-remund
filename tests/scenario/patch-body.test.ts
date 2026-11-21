@@ -1,5 +1,5 @@
-// Patch with a real body while it is held and thrown (the 2026-11-20 prototype; `PatchSpec.flight: 'body'`, scene
-// `benchBody`; sim/crew/patch-body.ts). Taylor, 2026-11-20: "Patch should feel fun and physically convincing, retain
+// Patch with a real body while it is held and thrown (sim/crew/patch-body.ts; the bench's part `PATCH_BODY`), the
+// only Patch since Taylor played it on 2026-11-20. Taylor, 2026-11-20: "Patch should feel fun and physically convincing, retain
 // momentum when thrown, interact naturally with the environment, and always be able to recover and return to his
 // stool." These hold the MOTION, step by step, with a hand that takes hold, carries and lets go as the page does:
 //   - in the hand its body is the world's (weight, lag, contacts); let go, it goes on as it was going;
@@ -8,11 +8,10 @@
 //   - each time the script takes over (the wall, the ledge, the get-up) its speed is continuous, or it is a catch
 //     that is named here;
 //   - it travels about as far as a small crate thrown the same way, and what it hits moves by contact;
-//   - it can be taken hold of again at any moment; a Button rung, a reset and the lever each leave it sound;
-//   - and the scripted Patch (`bench`) is what it was.
+//   - it can be taken hold of again at any moment; a Button rung, a reset and the lever each leave it sound.
 // The seeded soak (every throw ends on the stool) is tests/scenario/patch-body-soak.test.ts.
 import { describe, expect, test } from 'vitest';
-import { BODY, SCRIPT, LENS, PATCH_BODY, SOLIDS, benchBody, fling, fmt, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
+import { BODY, LENS, PATCH_BODY, SOLIDS, fling, fmt, insideSolid, len, level, lift, middle, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
@@ -23,13 +22,13 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import { PATCH_TUNING } from '../../src/workshop/sim/crew/patch.ts';
 import { PATCH_BODY_TUNING } from '../../src/workshop/sim/crew/patch-body.ts';
 import { PATCH_FLOAT, floatPull, floatWeight } from '../../src/workshop/sim/crew/patch-float.ts';
-import { AT, PATCHLAMP, bench, benchScript } from '../../src/workshop/sim/scenes/bench.ts';
+import { AT, PATCHLAMP, bench } from '../../src/workshop/sim/scenes/bench.ts';
 import { sphereMeets } from '../../src/workshop/sim/crew/patch-route.ts';
 import type { PatchState, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const T = PATCH_TUNING;
 const B = PATCH_BODY_TUNING;
-const G = -benchBody.gravity;
+const G = -bench.gravity;
 const HALF = PATCH_BODY.half as Vec3;
 /** The open lane at the back-left of the bench (clear of every fixed body from x -8.5 to 6.5 at z -2). */
 const OPEN: Vec3 = [-6.5, 1.6, -2];
@@ -52,21 +51,9 @@ function home(w: World, t: Tape, seconds = 45): PatchState[] {
 /** The index of the first sample the script has (not in the hand, not loose). */
 const takeover = (S: readonly Sample[]): number => S.findIndex((s) => s.state !== 'fly' && s.state !== 'held');
 
-describe('the scripted Patch is what it was', () => {
-  test('`benchScript` has no body and its Patch none; `benchBody` is `benchScript` with the body part and the flag; `bench` is `benchBody`', async () => {
-    // (2026-11-20: the bench's Patch is the body Patch; going back is `bench = benchScript`)
-    expect(bench).toBe(benchBody);
-    expect(benchScript.parts.some((p) => p.crewBody)).toBe(false);
-    expect(benchBody.parts.slice(0, -1)).toEqual(benchScript.parts);
-    expect(benchBody.parts.at(-1)).toBe(PATCH_BODY);
-    expect(benchBody.statics).toBe(benchScript.statics);
-    expect(benchBody.units?.length).toBe(benchScript.units?.length);
-    expect(benchBody.units?.filter((u, i) => u !== benchScript.units?.[i]).length).toBe(1);
-    const a = await world(SCRIPT);
-    expect(a.w.motion(BODY)).toBeUndefined();
-    expect('body' in patch(a.w)).toBe(false);
-    expect('lay' in patch(a.w)).toBe(false);
-    a.w.dispose();
+describe('its body is a part of the bench', () => {
+  test("the bench has Patch's body (its one crew body), out of the world until the hand takes hold", async () => {
+    expect(bench.parts.filter((p) => p.crewBody)).toEqual([PATCH_BODY]);
     const b = await world();
     // out of the world until the hand takes hold; nobody's cargo, not a thing the hand can take by itself
     expect(b.w.motion(BODY)?.mode).toBe('gone');
@@ -95,7 +82,7 @@ describe('in the hand: its body is the world\'s', () => {
     expect(Math.hypot(v.body!.pose.p[0] - seat[0], v.body!.pose.p[2] - seat[2])).toBeLessThan(0.05);
     expect(v.body!.pose.p[1] - seat[1]).toBeGreaterThan(HALF[1] - 0.05);
     expect(v.body!.pose.p[1] - seat[1]).toBeLessThan(HALF[1] + 0.15);
-    // `at` is the hand as the scripted Patch means it: `hangBelow` over its middle
+    // `at` is the hand as the script means it: `hangBelow` over its middle
     expect(v.at[1] - v.body!.pose.p[1]).toBeCloseTo(T.hangBelow, 6);
     w.dispose();
   });
@@ -437,7 +424,7 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
 
   /** Play mode; Fetch waiting at its stand by the pad, empty-handed. */
   async function fetchWaiting(seed: string): Promise<{ w: World; t: Tape }> {
-    const { w, t } = await world(benchBody, seed);
+    const { w, t } = await world(bench, seed);
     startPlay(w);
     for (let i = 0; i < steps(90); i++) {
       t.run(1);
@@ -447,11 +434,11 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
     throw new Error('Fetch did not come to stand at the pad empty-handed');
   }
 
-  // Fetch already answers a free part that hits it, by the part's momentum (its box as paper weighs 0.05; Fetch's
-  // own figure for the scripted Patch was 0.06). The body must not also say `patch.throw` hit for Fetch: that would
-  // make Fetch play its scripted Patch-knock as well.
+  // Fetch answers a free part that hits it, by the part's momentum (Patch's box as paper weighs 0.05), and so it
+  // answers Patch's body: one knock, by the contact. (Until 2026-11-21 Fetch also had a knock of its own for the
+  // scripted Patch, which said `patch.throw` hit for it; the body never says that, and the knock is gone.)
   for (const [speed, least] of [[5, 1], [9, 2], [13, 2]] as const) {
-    test(`thrown at Fetch at ${speed} units/s: Fetch is knocked by the contact, by its momentum, away from Patch; no scripted Patch-knock; both recover`, async () => {
+    test(`thrown at Fetch at ${speed} units/s: Fetch is knocked by the contact, by its momentum, away from Patch, and spun; both recover`, async () => {
       const { w, t } = await fetchWaiting(`body-fetch-${speed}`);
       const f0 = w.motion('fetch')!.pose.p;
       const run = 8;
@@ -466,7 +453,8 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
       expect(k.by).toBe(BODY);
       expect(k.strength).toBeGreaterThanOrEqual(least);
       expect(Math.sign(Math.sin(k.dir)), 'away from where Patch came from').toBe(-1);
-      // the engine's contact is what it answered; Patch said nothing that Fetch's scripted Patch-knock listens for
+      expect(Math.abs(k.spin), 'spun').toBeGreaterThan(0);
+      // the engine's contact is what it answered, once
       const since = t.events.slice(mark);
       expect(since.some((x) => x.e.type === 'part.hit' && [x.e.id, x.e.other].includes(BODY) && [x.e.id, x.e.other].includes('fetch'))).toBe(true);
       expect(since.filter((x) => x.e.type === 'patch.throw' && x.e.phase === 'hit' && x.e.what === 'fetch')).toEqual([]);
@@ -482,8 +470,35 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
     }, 120_000);
   }
 
+  // (from tests/scenario/fetch-patch-hit.test.ts, the scripted Patch's: R4, § B5) Knocked by Patch, Fetch gives Patch
+  // a look before it goes back to its lane.
+  test('thrown at Fetch: once its slide is done Fetch looks at Patch, then goes back to work within ten seconds', async () => {
+    const { w, t } = await fetchWaiting('body-fetch-look');
+    const f0 = w.motion('fetch')!.pose.p;
+    const speed = 9, run = 8;
+    const from: Vec3 = [f0[0] + 1.7 + (speed * (run - 1)) / HZ, f0[1] + HALF[1], f0[2]];
+    lift(w, t, from);
+    fling(w, t, from, [-speed, 0, 0], run);
+    expect(t.until((e) => e.type === 'crew.knocked' && e.id === 'fetch', steps(3)), 'Fetch is knocked').not.toBeNull();
+    let looked = false;
+    let back = -1;
+    for (let i = 0; i < steps(10) && back < 0; i++) {
+      t.run(1);
+      const f = w.crew('fetch')!;
+      if (f.state === 'knocked' && f.lookAt) {
+        const p = middle(w);
+        // (at Patch: within its own size of its middle, wherever it is by then)
+        if (Math.hypot(f.lookAt[0] - p[0], f.lookAt[2] - p[2]) < 0.6) looked = true;
+      }
+      if (f.state !== 'knocked' && f.state !== 'return' && i > 10) back = i / HZ;
+    }
+    expect(looked, 'it looks at Patch').toBe(true);
+    expect(back, 'back at work within 10 s').toBeGreaterThan(0);
+    w.dispose();
+  }, 120_000);
+
   test('Fetch knocked while it carries a crate: the crate it drops is the throw\'s, and the lever puts it back', async () => {
-    const { w, t } = await world(benchBody, 'body-fetch-crate');
+    const { w, t } = await world(bench, 'body-fetch-crate');
     startPlay(w);
     // Patch is in the hand already, over Fetch's tape to the right of its stand by the pad, when Fetch comes to
     // stand there with a crate (it does not stand long)
@@ -535,7 +550,7 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
   }, 120_000);
 
   test('back up the chute, what it knocks is still a throw\'s: it is on the stack, and one pull of the lever puts it back', async () => {
-    const { w, t } = await world(benchBody, 'body-chute-knock');
+    const { w, t } = await world(bench, 'body-chute-knock');
     // a crate stood where the chute throws Patch (three quarters of the way from its mouth to the pad)
     const crate = 'crate-3';
     const aim: Vec3 = [AT.chute.p[0] + (AT.pad[0] - AT.chute.p[0]) * 0.75, bench.bench.top, AT.chute.p[2] + (AT.pad[1] - AT.chute.p[2]) * 0.75];
@@ -706,6 +721,28 @@ describe('the gags are reactions to what the engine did', () => {
     again.w.dispose();
   }, 120_000);
 
+  // (from tests/scenario/patch-throw.test.ts, the scripted Patch's, R5: the lead's film of 2026-11-20 had the gag
+  // happen off the top of the picture) Thrown at the back wall from high, it meets the wall inside the picture: flat
+  // against it with its middle no higher than `wallMeet`, or not flat against it at all.
+  test('thrown hard at the back wall from low and from high: flat against it only inside the picture', async () => {
+    let splats = 0;
+    for (const y of [1.6, 4.0, 6.0]) {
+      const { w, t } = await world();
+      const from: Vec3 = [-5.5, y, -1.2];
+      lift(w, t, from);
+      fling(w, t, from, [0, 0, -12], 16);
+      const watch = watcher(w, t);
+      const got = watch.until((s) => s.state === 'wall' || s.state === 'land', 4);
+      if (got?.state === 'wall') {
+        splats++;
+        expect(patch(w).at[1], `from ${y} up: flat against it at ${patch(w).at[1].toFixed(2)}`).toBeLessThanOrEqual(T.wallMeet + 1e-9);
+      }
+      expect(home(w, t).at(-1), `from ${y} up`).toBe('seated');
+      w.dispose();
+    }
+    expect(splats, 'thrown from a hand\'s height it splats').toBeGreaterThan(0);
+  }, 180_000);
+
   test('a wall met slowly, or glancing, is only the engine\'s bounce: no stick', async () => {
     for (const [name, from, v] of [
       ['slowly', [-5.5, 1.4, -3.4], [0, 0, -3.5]],
@@ -735,8 +772,9 @@ describe('the gags are reactions to what the engine did', () => {
     }
   }, 120_000);
 
-  test('over an open edge low and slow it catches the edge: eased there from where its body was, with the motion it had (no snap); then the haul, the dust-off, the look, home', async () => {
+  test('over an open edge low and slow it catches the edge: eased there from where its body was, with the motion it had (no snap); then the haul, the dust-off, the look, home; nothing charged', async () => {
     const { w, t } = await world();
+    const before = w.durable();
     const from: Vec3 = [-7.8, 1.0, -1];
     lift(w, t, from);
     fling(w, t, from, [-3, 0, 0], 16);
@@ -747,6 +785,9 @@ describe('the gags are reactions to what the engine did', () => {
     const i = S.length - 1;
     const ledge = patch(w).ledge!;
     expect(ledge.edge).toBe('left');
+    expect(ledge.out).toEqual([-1, 0, 0]);
+    // (from tests/scenario/patchlamp-patch.test.ts, the scripted Patch's: it hangs from that end facing in, +X)
+    expect(Math.sin(patch(w).heading)).toBeCloseTo(1, 6);
     expect(patch(w).body).toBeNull();
     // continuous: the step the script takes over it moves as it was moving (the scripted Patch jumped 0.3 of a unit to the edge here)
     expect(S[i]!.speed).toBeGreaterThan(S[i - 1]!.speed * 0.7);
@@ -762,6 +803,10 @@ describe('the gags are reactions to what the engine did', () => {
     const states = home(w, t);
     expect(states.slice(0, 5)).toEqual(['ledge', 'haul', 'dust', 'look', 'walk']);
     expect(states.at(-1)).toBe('seated');
+    // (nothing charged: no throw on the stack, nothing written by one; the crew go on with their work meanwhile)
+    expect(w.undoStack()).toEqual([]);
+    expect(w.durable().filter((d) => /^t\d+$/.test(String(d.writer)))).toEqual([]);
+    expect(w.durable().filter((d) => d.target === BODY)).toEqual(before.filter((d) => d.target === BODY));
     w.dispose();
   }, 120_000);
 
@@ -796,6 +841,11 @@ describe('the gags are reactions to what the engine did', () => {
     expect(lies, 'it lies by the pad').not.toBeNull();
     expect(Math.hypot(lies!.at[0] - AT.pad[0], lies!.at[2] - AT.pad[1])).toBeLessThan(1.6);
     expect(home(w, t).at(-1)).toBe('seated');
+    // (from tests/scenario/patch-throw.test.ts, the scripted Patch's: the sounds of it, thrown, gone, back up the chute
+    // and down, each with its speed)
+    const sounds = t.events.slice(mark).filter((x) => x.e.type === 'patch.throw').map((x) => x.e as { phase: string; speed: number });
+    expect(sounds.map((x) => x.phase)).toContain('landed');
+    expect(sounds.every((x) => Number.isFinite(x.speed) && x.speed >= 0)).toBe(true);
     w.dispose();
   }, 120_000);
 });
@@ -1205,10 +1255,9 @@ describe('from every awkward place it gets home', () => {
   }, 600_000);
 });
 
-describe('where the scripted Patch does not get home, and this one does', () => {
-  // Found by the test above and by the soak (2026-11-20); both are true of the scripted Patch on `bench` today.
-  // (1) Let go past the right end by the storefront, its ledge catch hauls it up into the slot between the storefront
-  // and the pallets, which it cannot walk out of: it stands there for good.
+describe('two places the scripted Patch never got home from (found by the test above and the soak, 2026-11-20)', () => {
+  // (1) Let go past the right end by the storefront, the scripted Patch's ledge catch hauled it up into the slot
+  // between the storefront and the pallets, which it could not walk out of: it stood there for good.
   test('past the right end by the storefront: no catch where the haul would stand it shut in; it falls, comes back by the chute, and is on its stool', async () => {
     const { w, t } = await world();
     const hand: Vec3 = [AT.bench.maxX + 0.3, 0.8 + HALF[1], -2.7];
@@ -1218,71 +1267,54 @@ describe('where the scripted Patch does not get home, and this one does', () => 
     expect(states).not.toContain('ledge');
     expect(states.slice(0, 4)).toEqual(['held', 'fly', 'away', 'fly']);
     expect(states.at(-1)).toBe('seated');
-    // (and the scripted Patch, let go the same: still standing in the slot a minute later)
-    const s = await world(SCRIPT);
-    lift(s.w, s.t, [hand[0], 0.8, hand[2]], 20);
-    s.w.dispatch({ type: 'release' });
-    const old = home(s.w, s.t, 60);
-    expect(old).toContain('ledge');
-    expect(old.at(-1)).toBe('walk');
-    s.w.dispose();
     w.dispose();
   }, 120_000);
 
-  // (2) Its walk home waits for whatever of the crew stands in its way, for as long as it stands there: at the belt
-  // with Fetch stood where it would step down (the soak's seed 543: 45 s and counting), or at its own stool with Fetch
-  // on the spot. Here the visitor holds Fetch on that spot, so it is certain. The walk is the scripted Patch's still;
-  // this Patch is watched on it, and stood in one place for `stuck` seconds it hops on toward its stool.
-  for (const scene of [benchBody, SCRIPT]) {
-    const body = scene === benchBody;
-    test(`the visitor holds Fetch on the spot at the foot of Patch's stool: ${body ? 'it waits a while, then hops onto the spot and climbs up' : 'the scripted Patch waits for as long as Fetch is held there'}`, async () => {
-      const { w, t } = await world(scene);
-      // Patch thrown down the bench, so the hand is free while it tumbles and comes back
-      lift(w, t, [-1, 1.6, -1.5]);
-      w.dispatch({ type: 'release', velocity: [-7, 2, 0] });
-      t.run(2);
-      // Fetch taken and held over the foot of the stool
-      const foot = patch(w).foot;
-      const f0 = w.motion('fetch')!.pose.p;
-      w.dispatch({ type: 'grab', id: 'fetch', grip: f0 });
-      t.run(1);
-      expect(w.holding()?.id).toBe('fetch');
-      const over: Vec3 = [foot[0], 1.3, foot[2]];
-      const watch = watcher(w, t);
-      let hopped: Sample | null = null;
-      let seated = false;
-      for (let i = 0; i < 40 * HZ && !seated; i++) {
-        const k = Math.min(1, i / 50);
-        w.dispatch({ type: 'carry', target: [f0[0] + (over[0] - f0[0]) * k, over[1] + 1.2 * Math.sin(Math.PI * k), f0[2] + (over[2] - f0[2]) * k] });
-        const s = watch.step();
-        const lay = patch(w).lay;
-        if (!hopped && s.state === 'land' && lay && lay.rise === 0 && lay.arc > 0) hopped = s;
-        seated = s.state === 'seated';
-      }
-      expect(w.holding()?.id, 'Fetch is still in the hand').toBe('fetch');
-      const S = watch.samples;
-      // it came back and stood waiting, a unit or so short of its stool
-      const waited = S.filter((s) => s.state === 'walk' && s.speed < 0.05 && Math.hypot(s.at[0] - foot[0], s.at[2] - foot[2]) < 2).length / HZ;
-      if (!body) {
-        expect(seated).toBe(false);
-        expect(S.at(-1)!.state).toBe('walk');
-        expect(waited).toBeGreaterThan(20);
-      } else {
-        expect(waited).toBeGreaterThan(B.stuck - 1);
-        expect(waited).toBeLessThan(B.stuck + 2);
-        expect(hopped, 'the hop').not.toBeNull();
-        // the hop: onto the foot of its stool, a move with a duration, then the climb
-        expect(patch(w).foot).toEqual(foot);
-        const from = S.indexOf(hopped!);
-        const hop = S.slice(from).filter((s, i, a) => s.state === 'land' && (i === 0 || a[i - 1]!.state === 'land'));
-        expect(hop.length).toBeGreaterThan(steps(B.hop) - 2);
-        for (const s of hop) expect(s.speed / HZ, 'no jump').toBeLessThan(0.3);
-        expect(seated, `on its stool (${S.at(-1)!.state})`).toBe(true);
-      }
-      w.dispatch({ type: 'release', velocity: [0, 0, 0] });
-      w.dispose();
-    }, 120_000);
-  }
+  // (2) The walk home waits for whatever of the crew stands in its way: at the belt with Fetch stood where it would
+  // step down (the soak's seed 543), or at its own stool with Fetch on the spot. The scripted Patch waited for as long
+  // as they stood there. Here the visitor holds Fetch on that spot, so it is certain: Patch is watched on its walk, and
+  // stood in one place for `stuck` seconds it hops on toward its stool.
+  test("the visitor holds Fetch on the spot at the foot of Patch's stool: it waits a while, then hops onto the spot and climbs up", async () => {
+    const { w, t } = await world();
+    // Patch thrown down the bench, so the hand is free while it tumbles and comes back
+    lift(w, t, [-1, 1.6, -1.5]);
+    w.dispatch({ type: 'release', velocity: [-7, 2, 0] });
+    t.run(2);
+    // Fetch taken and held over the foot of the stool
+    const foot = patch(w).foot;
+    const f0 = w.motion('fetch')!.pose.p;
+    w.dispatch({ type: 'grab', id: 'fetch', grip: f0 });
+    t.run(1);
+    expect(w.holding()?.id).toBe('fetch');
+    const over: Vec3 = [foot[0], 1.3, foot[2]];
+    const watch = watcher(w, t);
+    let hopped: Sample | null = null;
+    let seated = false;
+    for (let i = 0; i < 40 * HZ && !seated; i++) {
+      const k = Math.min(1, i / 50);
+      w.dispatch({ type: 'carry', target: [f0[0] + (over[0] - f0[0]) * k, over[1] + 1.2 * Math.sin(Math.PI * k), f0[2] + (over[2] - f0[2]) * k] });
+      const s = watch.step();
+      const lay = patch(w).lay;
+      if (!hopped && s.state === 'land' && lay && lay.rise === 0 && lay.arc > 0) hopped = s;
+      seated = s.state === 'seated';
+    }
+    expect(w.holding()?.id, 'Fetch is still in the hand').toBe('fetch');
+    const S = watch.samples;
+    // it came back and stood waiting, a unit or so short of its stool
+    const waited = S.filter((s) => s.state === 'walk' && s.speed < 0.05 && Math.hypot(s.at[0] - foot[0], s.at[2] - foot[2]) < 2).length / HZ;
+    expect(waited).toBeGreaterThan(B.stuck - 1);
+    expect(waited).toBeLessThan(B.stuck + 2);
+    expect(hopped, 'the hop').not.toBeNull();
+    // the hop: onto the foot of its stool, a move with a duration, then the climb
+    expect(patch(w).foot).toEqual(foot);
+    const from = S.indexOf(hopped!);
+    const hop = S.slice(from).filter((s, i, a) => s.state === 'land' && (i === 0 || a[i - 1]!.state === 'land'));
+    expect(hop.length).toBeGreaterThan(steps(B.hop) - 2);
+    for (const s of hop) expect(s.speed / HZ, 'no jump').toBeLessThan(0.3);
+    expect(seated, `on its stool (${S.at(-1)!.state})`).toBe(true);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    w.dispose();
+  }, 120_000);
 });
 
 describe('its work, and the other ways of letting go', () => {

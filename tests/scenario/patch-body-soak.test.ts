@@ -1,6 +1,6 @@
 // Recovery must remain dependable (Taylor, 2026-11-20: "I don't want a physics simulation that occasionally leaves
 // Patch trapped behind a machine or unable to return to his stool"). The proof for the Patch with a real body
-// (`benchBody`; sim/crew/patch-body.ts): seeded throws over the whole bench under real Rapier, the real crew at work.
+// (the bench's Patch; sim/crew/patch-body.ts): seeded throws over the whole bench under real Rapier, the real crew at work.
 //
 // Each session waits a while (so the crew are somewhere else each time), lifts Patch, carries it to a point anywhere
 // over the bench (bench height mostly, one in four high), and throws it: any direction, any speed to past the cap,
@@ -24,7 +24,7 @@
 //   PATCH_SOAK=2400 npx vitest run tests/scenario/patch-body-soak.test.ts --silent=false
 // One seed: PATCH_SEED=<n> (with PATCH_TRACE=1 for its states).
 import { expect, test } from 'vitest';
-import { BODY, benchBody, fmt, insideSolid, patch } from './patch-body-helpers.ts';
+import { BODY, bench, fmt, insideSolid, patch } from './patch-body-helpers.ts';
 import { benchWorld, tape } from './line-helpers.ts';
 import { answer, send } from './patchlamp-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
@@ -56,7 +56,7 @@ interface Outcome {
 
 async function session(seed: number): Promise<Outcome> {
   const r = rng(`patch-body-soak-${seed}`);
-  const w = await benchWorld(`patch-body-soak-${seed}`, { scene: benchBody });
+  const w = await benchWorld(`patch-body-soak-${seed}`, { scene: bench });
   const t = tape(w);
   const out: Outcome = { seed, what: '', fails: [], seconds: null, lay: '-', throws: 0, rung: false };
   const fail = (m: string): void => {

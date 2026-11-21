@@ -481,7 +481,46 @@ export const PATCHLAMP = (() => {
 })();
 
 const PATCHLAMP_MOUTHS: readonly MouthSpec[] = [PATCHLAMP.platenMouth];
-/** Patch's spec (one object, so the scene with its body, `benchBody` below, is this one and a flag). Here the scripted Patch's: `benchBody` adds the body. */
+/**
+ * Patch's own body (`PartSpec.crewBody`; `sim/crew/patch-body.ts`; 2026-11-20): out of the world except from the hand
+ * taking hold of Patch until its script takes over to recover. Kind `robot`: the parts view does not draw it, and
+ * Fetch and Revert treat it as they treat each other's bodies. The last of the bench's parts.
+ * - Its box is its bulk sat down (0.52 wide, 0.68 tall, 0.48 deep), its edges rounded as far as the engine allows
+ *   (half its least half extent), so it tumbles and rolls over a little before it lies.
+ * - Light: 0.08, between a small crate (0.06) and a middle one (0.14). It gets the whole of a throw (the world scales
+ *   a throw down only from 0.15) and is a little weightier in the hand than a small crate (the carry's reference is
+ *   0.06). What it hits moves by the contact: measured, a small crate standing on the bench goes on at a third to a
+ *   half of the speed it was hit at (it is struck above its middle and tips as much as it slides).
+ * - Felt, not rubber and not a brick: enough grip that it tumbles rather than slides (0.6; at 0.35 it lands and skids
+ *   on its side like a box), next to no bounce of its own (0.05: what bounce it has is its tumbling over its own
+ *   edges), a spin that it keeps for a second or so (1.2 a second; at 3.5 its first touchdown stopped it turning and
+ *   it then toppled about where it lay for a second more), and no drag from the air (a throw up keeps its drift).
+ *   Thrown across the open bench at 10 it comes down after a quarter turn, goes on at 6, and tumbles on the way it
+ *   was going, each bounce lower, for a little over a second; at 14, the hardest throw, its first touchdown is a
+ *   vault a unit high. Measured against a small crate thrown the same way (the means of four lanes;
+ *   tests/scenario/patch-body.test.ts prints them): at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2 units,
+ *   Patch 4.2, 5.5 and 8.9.
+ * - Material `paper` is for the things that read a part's material: what Fetch takes its weight to be when hit
+ *   (its box as paper weighs 0.05) and the sound of a contact.
+ */
+export const PATCH_BODY: PartSpec = {
+  id: 'patch-body',
+  kind: 'robot',
+  size: 'S',
+  material: 'paper',
+  colour: BARE,
+  label: '',
+  station: 'patchlamp',
+  name: 'name.patch',
+  pose: pose([0, -4, 0]),
+  crewBody: true,
+  half: [0.26, 0.34, 0.24],
+  round: 0.12,
+  mass: 0.08,
+  feel: { friction: 0.6, restitution: 0.05, linearDamping: 0, angularDamping: 1.2 },
+};
+
+/** Patch's spec: held and thrown it is its body, `PATCH_BODY`. */
 const PATCH_SPEC: PatchSpec = {
   id: 'patch',
   station: 'patchlamp',
@@ -496,8 +535,8 @@ const PATCH_SPEC: PatchSpec = {
   chute: { from: AT.chute.p, pad: AT.pad }, // R4: thrown off the bench, back up the chute by the pad
   belt: { id: 'belt', bed: 'belt-bed', safe: [AT.beltMotor.c[0] + AT.beltMotor.half[0] + 0.9, LINE.strikerX - 0.75] as const },
   runner: s6PatchRunner(), // S6
+  bodyPart: PATCH_BODY.id,
 };
-const PATCH_UNIT = patch(PATCH_SPEC);
 const PATCHLAMP_UNITS = [
   line({
     id: 'line',
@@ -511,7 +550,7 @@ const PATCHLAMP_UNITS = [
       { jack: 'jack-lamp', line: 'lamp', station: 'lamp' },
     ],
   }),
-  PATCH_UNIT,
+  patch(PATCH_SPEC),
   platen({ id: 'platen', station: 'patchlamp', name: 'name.platen', mouth: 'platen', seat: PATCHLAMP.seat }),
   storefront({ id: 'storefront', station: 'patchlamp', name: 'name.storefront' }),
   lamp({ id: 'lamp', station: 'top', name: 'name.lamp', levels: 5, startLevel: 3, home: PATCHLAMP.lamp.home, reach: PATCHLAMP.lamp.reach }),
@@ -593,11 +632,10 @@ function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; wo
 }
 
 /**
- * The bench with the scripted Patch (`PatchSpec.flight` 'script': its flight in the air is hand-written, patch.ts). Until
- * 2026-11-20 this was `bench`; it stays a named scene (`/dev/bench/?patch=script`) while the owner has not played the
- * body Patch, and the tests of the script's own rules name it.
+ * THE bench: the scene every page and test gets by default. (Until 2026-11-21 its Patch could also be the scripted one,
+ * whose flight was hand-written, as the scene `benchScript`; Taylor played the body Patch on 2026-11-20 and kept it.)
  */
-export const benchScript: SceneDesc = {
+export const bench: SceneDesc = {
   id: 'bench',
   gravity: -16,
   bench: { ...AT.bench, top: 0, ceiling: 8 },
@@ -633,6 +671,7 @@ export const benchScript: SceneDesc = {
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(laneT(AT.fetchStartX))[0], FETCH_HALF[1], lanePoint(laneT(AT.fetchStartX))[1]]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
     ...S4_PARTS,
+    PATCH_BODY,
   ],
   fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
@@ -679,61 +718,3 @@ export const benchScript: SceneDesc = {
     ...PATCHLAMP_UNITS,
   ],
 };
-
-// ───────────── 2026-11-20 (prototype): Patch with a real body while it is held and thrown ─────────────
-
-/**
- * Patch's own body (`PartSpec.crewBody`; `sim/crew/patch-body.ts`): out of the world except from the hand taking hold
- * of Patch until its script takes over to recover. Kind `robot`: the parts view does not draw it, and Fetch and
- * Revert treat it as they treat each other's bodies.
- * - Its box is its bulk sat down (0.52 wide, 0.68 tall, 0.48 deep), its edges rounded as far as the engine allows
- *   (half its least half extent), so it tumbles and rolls over a little before it lies.
- * - Light: 0.08, between a small crate (0.06) and a middle one (0.14). It gets the whole of a throw (the world scales
- *   a throw down only from 0.15) and is a little weightier in the hand than a small crate (the carry's reference is
- *   0.06). What it hits moves by the contact: measured, a small crate standing on the bench goes on at a third to a
- *   half of the speed it was hit at (it is struck above its middle and tips as much as it slides). The scripted
- *   Patch gave a crate 0.8 of its own speed by rule.
- * - Felt, not rubber and not a brick: enough grip that it tumbles rather than slides (0.6; at 0.35 it lands and skids
- *   on its side like a box), next to no bounce of its own (0.05: what bounce it has is its tumbling over its own
- *   edges), a spin that it keeps for a second or so (1.2 a second; at 3.5 its first touchdown stopped it turning and
- *   it then toppled about where it lay for a second more), and no drag from the air (a throw up keeps its drift).
- *   Thrown across the open bench at 10 it comes down after a quarter turn, goes on at 6, and tumbles on the way it
- *   was going, each bounce lower, for a little over a second; at 14, the hardest throw, its first touchdown is a
- *   vault a unit high. Measured against a small crate thrown the same way (the means of four lanes;
- *   tests/scenario/patch-body.test.ts prints them): at 6, 10 and 14 units/s a crate goes 3.2, 6.5 and 10.2 units,
- *   Patch 4.2, 5.5 and 8.9.
- * - Material `paper` is for the things that read a part's material: what Fetch takes its weight to be when hit
- *   (its box as paper weighs 0.05; Fetch's own figure for Patch was 0.06) and the sound of a contact.
- */
-export const PATCH_BODY: PartSpec = {
-  id: 'patch-body',
-  kind: 'robot',
-  size: 'S',
-  material: 'paper',
-  colour: BARE,
-  label: '',
-  station: 'patchlamp',
-  name: 'name.patch',
-  pose: pose([0, -4, 0]),
-  crewBody: true,
-  half: [0.26, 0.34, 0.24],
-  round: 0.12,
-  mass: 0.08,
-  feel: { friction: 0.6, restitution: 0.05, linearDamping: 0, angularDamping: 1.2 },
-};
-
-/**
- * The bench with that Patch: identical to `benchScript` but for the body part and `flight: 'body'`, so the two can be
- * compared side by side (`/dev/bench/?patch=body` and `?patch=script`; tests/scenario/patch-body*.test.ts).
- */
-export const benchBody: SceneDesc = {
-  ...benchScript,
-  parts: [...benchScript.parts, PATCH_BODY],
-  units: (benchScript.units ?? []).map((u) => (u === PATCH_UNIT ? patch({ ...PATCH_SPEC, flight: 'body', bodyPart: PATCH_BODY.id }) : u)),
-};
-
-/**
- * THE bench: the scene every page and test gets by default. Its Patch is the body Patch (lead's decision, 2026-11-20,
- * after comparing the two). Going back to the scripted Patch is this one line: `= benchScript`.
- */
-export const bench: SceneDesc = benchBody;

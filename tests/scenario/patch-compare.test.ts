@@ -1,14 +1,13 @@
-// The comparison that decides (Taylor, 2026-11-20: "Evaluate this against the current implementation before
-// committing to a replacement"): the scripted Patch (`bench`) and the Patch with a real body (`benchBody`) thrown the
-// same ways by the same hand, on the whole bench under real Rapier, and what each did, step by step:
+// Patch thrown eleven named ways by the same hand, on the whole bench under real Rapier, and what it did, step by
+// step (until 2026-11-21 the same table for the scripted Patch stood beside it; Taylor chose the body on 2026-11-20):
 //   - its speed across the step it is let go, across its first contact, and across the script taking over;
 //   - how far it travelled; the longest run of steps in the air without motion; the largest move in one step;
 //   - the time from touching down to its first step home, and to its stool.
-// It prints the table (the hand-in quotes it) and holds only what must be true of both: each ends on its stool.
+// It prints the table (for feel work) and holds what must be true of every one: it ends on its stool.
 //
 //   npx vitest run tests/scenario/patch-compare.test.ts --silent=false
 import { expect, test } from 'vitest';
-import { SCRIPT, LENS, benchBody, lift, patch, watcher, world } from './patch-body-helpers.ts';
+import { LENS, lift, patch, watcher, world } from './patch-body-helpers.ts';
 import type { Sample } from './patch-body-helpers.ts';
 import type { Tape } from './line-helpers.ts';
 import { startPlay } from './fetch-helpers.ts';
@@ -152,25 +151,18 @@ function run(w: World, t: Tape, way: Way): Row {
 const n1 = (x: number | null | undefined): string => (x === null || x === undefined ? '-' : x.toFixed(1));
 const pair = (p: readonly [number, number] | readonly [number, number, string] | null): string => (p ? `${p[0].toFixed(1)}>${p[1].toFixed(1)}${p[2] ? ` (${p[2]})` : ''}` : '-');
 
-test('the scripted Patch and the Patch with a body, thrown the same ways: both end on the stool (the table is printed)', async () => {
+test('thrown eleven named ways: each ends on its stool (the table is printed)', async () => {
   const lines: string[] = [];
   for (const way of WAYS) {
-    const rows: Row[] = [];
-    for (const scene of [SCRIPT, benchBody]) {
-      const { w, t } = await world(scene, `compare-${way.name}`);
-      rows.push(run(w, t, way));
-      w.dispose();
-    }
-    const [old, neu] = rows as [Row, Row];
+    const { w, t } = await world(undefined, `compare-${way.name}`);
+    const r = run(w, t, way);
+    w.dispose();
     lines.push(`\n${way.name}`);
-    for (const [who, r] of [['script', old], ['body  ', neu]] as const) {
-      lines.push(
-        `  ${who}  release ${pair(r.release)}  contact ${pair(r.contact)}  takeover ${pair(r.takeover)}  travelled ${r.distance.toFixed(1)}  still in air ${r.still} steps  largest step ${r.jump.toFixed(2)} (${r.jumpAt})  down>first step ${n1(r.toStep)} s  down>stool ${n1(r.toSeat)} s`,
-      );
-      lines.push(`          ${r.states}`);
-    }
-    expect(old.end, `${way.name}: the scripted Patch`).toBe('seated');
-    expect(neu.end, `${way.name}: the Patch with a body`).toBe('seated');
+    lines.push(
+      `  release ${pair(r.release)}  contact ${pair(r.contact)}  takeover ${pair(r.takeover)}  travelled ${r.distance.toFixed(1)}  still in air ${r.still} steps  largest step ${r.jump.toFixed(2)} (${r.jumpAt})  down>first step ${n1(r.toStep)} s  down>stool ${n1(r.toSeat)} s`,
+    );
+    lines.push(`          ${r.states}`);
+    expect(r.end, way.name).toBe('seated');
   }
   console.log(`speeds are units/s (before>after the step); distances are units; a step is 1/60 s\n${lines.join('\n')}`);
 }, 600_000);
