@@ -532,7 +532,10 @@ export function embodyPatch(ctx: SimContext, spec: PatchSpec, unit: PatchUnit, h
       if (gap > within) continue;
       const on: Vec3 = [p[0] - n[0] * far, p[1], p[2] - n[1] * far];
       if (!faceSeen(on, n)) continue;
-      if (!best || gap < best.gap) best = { o, n, into, gap, flat: [on[0] + n[0] * B.wallFlat, p[1], on[2] + n[1] * B.wallFlat] };
+      // (and flat against it must be a place it can be: nothing else standing there, between it and that face)
+      const flat: Vec3 = [on[0] + n[0] * B.wallFlat, p[1], on[2] + n[1] * B.wallFlat];
+      if (host.solids.some((x) => x !== o && sphereMeets(x, flat[0], flat[1], flat[2], 0.28))) continue;
+      if (!best || gap < best.gap) best = { o, n, into, gap, flat };
     }
     return best;
   }
