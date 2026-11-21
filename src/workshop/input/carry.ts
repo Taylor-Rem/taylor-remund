@@ -74,6 +74,8 @@ export const CARRY_TUNING = {
   backLine: -3.85,
   fillet: 0.6,
   top: 7.5,
+  /** The corner at the foot of the upright face a thing caught in flight is held on (a small round, so even a low catch is on the face). */
+  catchFillet: 0.08,
 } as const;
 
 export type CarryTuning = { -readonly [K in keyof typeof CARRY_TUNING]: number };
@@ -244,9 +246,11 @@ export class CarryPlane {
 
   /**
    * Start carrying: `grip` is where it was taken (world). `flying`: it was in the air and moving (the world says).
-   * Taken from where it rests, it lifts to the carrying height over what it sits on. Taken in the air it is held
-   * where it was taken: well up, on an upright face through that point (it comes down with the pointer and goes up
-   * with it, at that depth); only a little up, on a level that starts at the grip and eases down to the carry's.
+   * Taken from where it rests, it lifts to the carrying height over what it sits on. Caught in flight it is held
+   * where it was caught: on an upright face through that point, wherever over the bench that is (it comes down with
+   * the pointer and goes up with it, at that depth, so a juggle stays put; found by the browser's juggling tests
+   * 2026-11-20: a low catch used to go on a level and walk back with the next flick, and one behind the back line
+   * snapped forward to it). Taken out of a hand or off a perch without flying, it starts at the grip and eases down.
    */
   begin(shape: CarryShape, grip: Vec3, t: number, obstacles: Iterable<Obstacle>, flying = false): void {
     this.shape = shape;
@@ -258,13 +262,17 @@ export class CarryPlane {
       const T = this.tuning;
       // the plane starts where the lift takes the grip: its bottom `clearance` above what is under it now
       const bottom = grip[1] - shape.gripAboveBottom;
-      const under = floorUnder(grip[0], grip[2], shape.halfX + T.footprintPad, shape.halfZ + T.footprintPad, obstacles, this.bench.top, bottom + BELOW_SLACK);
+      // what it is over now: the highest thing beneath its bottom (not a thing beside it that stands taller: caught
+      // near the back wall, the wall's top, 9 up, was once taken for what it stood on, and the hold went to the ceiling)
+      let under = this.bench.top;
+      for (const o of obstacles) if (o.top > under && o.top <= bottom + BELOW_SLACK && overlaps(o, grip[0], grip[2], shape.halfX + T.footprintPad, shape.halfZ + T.footprintPad)) under = o.top;
       const carried = Math.min(Math.max(bottom, under), under + 0.05) + T.clearance + shape.gripAboveBottom;
       this.level = under;
       this.caught = flying || bottom > under + T.clearance;
-      if (this.caught && grip[1] >= carried + T.fillet && grip[2] > this.homeFace()) {
+      if (flying && grip[1] >= carried + T.catchFillet) {
         this.h = carried;
-        this.face = grip[2];
+        // (exactly where it was caught, even nearer the wall than its footprint as it tumbles would be carried)
+        this.face = Math.max(grip[2], this.bench.minZ + 0.05);
       } else this.h = this.caught ? Math.max(grip[1], carried) : carried;
     } else this.caught = false;
   }
@@ -303,16 +311,18 @@ export class CarryPlane {
       const was = this.inBounds(this.hit(ray, h0).p, s.halfZ);
       this.drift = [(p[0] - was[0]) / dt, (p[1] - was[1]) / dt, (p[2] - was[2]) / dt];
     } else if (dt > 1e-4) this.drift = [0, 0, 0];
-    // taken in the air and now brought down onto the level: the upright face is in front of the wall again (the
-    // level part only grows behind the hold, so the hold does not move by it)
-    if (this.face !== null && hit.theta === 0) this.face = null;
+    // caught in flight and now brought down onto the level, in front of where the surface turns up at the back:
+    // the upright face is in front of the wall again (the level part only grows behind the hold, so the hold does
+    // not move by it)
+    if (this.face !== null && hit.theta === 0 && hit.p[2] >= this.homeFace() + T.fillet) this.face = null;
     this.last = p;
     return p;
   }
 
   private inBounds(p: readonly [number, number, number], halfZ: number): Vec3 {
     const b = this.bench, m = this.tuning.margin;
-    return [clamp(p[0], b.minX - m, b.maxX + m), p[1], clamp(p[2], b.minZ + halfZ, b.maxZ + m)];
+    const back = this.face !== null ? Math.min(b.minZ + halfZ, this.face) : b.minZ + halfZ;
+    return [clamp(p[0], b.minX - m, b.maxX + m), p[1], clamp(p[2], back, b.maxZ + m)];
   }
 
   /**
@@ -328,12 +338,15 @@ export class CarryPlane {
    */
   private levelFor(ray: RayLike, obstacles: readonly Obstacle[], lift: number, hx: number, hz: number, halfZ: number): number {
     const b = this.bench;
+    const tallest = Math.min(this.tuning.top, b.ceiling);
     const probe = (level: number): { q: Vec3; clear: boolean; over: boolean } => {
       const q = this.inBounds(this.hit(ray, level + lift).p, halfZ);
       let clear = true;
       let support = b.top;
       for (const o of obstacles) {
-        if (o.top <= b.top || !overlaps(o, q[0], q[2], hx, hz)) continue; // (the bench itself, and what is under it)
+        // (not the bench itself and what is under it; not a wall, which nothing is carried over: the surface's own
+        // upright face keeps a carried thing in front of it)
+        if (o.top <= b.top || o.top > tallest || !overlaps(o, q[0], q[2], hx, hz)) continue;
         if (o.top <= level + BELOW_SLACK) support = Math.max(support, o.top);
         // (taller, and not something hanging well above the carried thing: it would run into it)
         else if (o.bottom < level + lift + ABOVE_SLACK) clear = false;
@@ -352,7 +365,7 @@ export class CarryPlane {
       for (const o of obstacles) if (Math.abs(o.top - this.level) <= BELOW_SLACK && segmentOver(o, a[0], a[2], cur.q[0], cur.q[2], hx, hz)) return this.level;
     }
     const levels = [b.top];
-    for (const o of obstacles) if (o.top > b.top && !levels.some((l) => Math.abs(l - o.top) < 1e-6)) levels.push(o.top);
+    for (const o of obstacles) if (o.top > b.top && o.top <= tallest && !levels.some((l) => Math.abs(l - o.top) < 1e-6)) levels.push(o.top);
     levels.sort((x, y) => x - y);
     const here = this.last;
     let best: number | null = null;
@@ -378,8 +391,9 @@ export class CarryPlane {
   hit(ray: RayLike, h: number): SurfaceHit {
     const T = this.tuning;
     const zv = this.faceDepth;
-    const top = Math.max(h + T.fillet, Math.min(T.top, this.bench.ceiling));
-    return surfaceHit(ray, h, zv + T.fillet, T.fillet, top);
+    const r = this.face !== null ? T.catchFillet : T.fillet;
+    const top = Math.max(h + r, Math.min(T.top, this.bench.ceiling));
+    return surfaceHit(ray, h, zv + r, r, top);
   }
 
   /**

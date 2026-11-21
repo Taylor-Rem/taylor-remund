@@ -159,6 +159,9 @@ export const LOOSE_TUNING = {
   carryAccelMin: 150,
   /** ...and slowing down toward the hand, any part's velocity may change this much, units/s² (the hand stops what it holds). */
   carryBrake: 2400,
+  /** Touching something, the held part's speed and its change of velocity are held to these (units/s, units/s²): a push, not a ram. */
+  carryPush: 11,
+  carryPushAccel: 420,
   /** How high a part rises when picked up before the pointer moves, units. */
   lift: 0.35,
   /** Levelling: how fast the held part turns toward level (1/s) and its angular speed limit. */
@@ -742,7 +745,8 @@ export function createWorld(opts: WorldOptions): World {
     // a throw also lifts a little, where it has no real upward part of its own (it arcs)
     const hs = Math.hypot(v[0], v[2]);
     const loft = Math.min(T.loftMax, hs * T.loft);
-    if (kind === 'release' && hs > T.throwRest && v[1] < loft) v = [v[0], v[1] < 0 ? v[1] + loft : loft, v[2]];
+    // (its own motion only: a velocity the intent states is the throw as stated)
+    if (own && kind === 'release' && hs > T.throwRest && v[1] < loft) v = [v[0], v[1] < 0 ? v[1] + loft : loft, v[2]];
     const spin = scale(cross([0, 1, 0], v), T.tumble);
     release(l, v, clampLength(add(scale(st.angvel, 0.5), spin), T.spinMax));
     // thrown by its own motion faster than the bench can hold: it keeps the hand's level speed for its first frames
@@ -804,8 +808,13 @@ export function createWorld(opts: WorldOptions): World {
     const centreTarget = sub(clampTarget(l, l.target), rotate(level, l.grip));
     const gap = sub(centreTarget, st.pose.p);
     const light = Math.min(1, T.carryMassRef / Math.max(l.mass, 1e-3));
-    const accel = Math.max(T.carryAccelMin, T.carryAccel * light ** T.carryMassExp);
-    const desired = clampLength(scale(gap, T.carryRate * light ** T.carryRateExp), T.carrySpeed);
+    // against something (it met it last step) the hand pushes, it does not ram: no faster than `carryPush` and
+    // with no more than `carryPushAccel`, as the whole carry used to be; in the clear it keeps up with the hand
+    // (found by the stack test 2026-11-20: shoved into the stack at the new carry's strength a held crate fired the
+    // others off at 16 units/s and was itself pressed 0.016 into the bench)
+    const touching = l.contacts.size > 0;
+    const accel = Math.min(touching ? T.carryPushAccel : Infinity, Math.max(T.carryAccelMin, T.carryAccel * light ** T.carryMassExp));
+    const desired = clampLength(scale(gap, T.carryRate * light ** T.carryRateExp), touching ? T.carryPush : T.carrySpeed);
     // weight is in getting going: its velocity gains only so much a step. Slowing toward the hand it is not held
     // back (the hand has hold of it): a heavy thing trails a fast hand, and stops with it instead of swinging past
     const want = sub(desired, st.linvel);

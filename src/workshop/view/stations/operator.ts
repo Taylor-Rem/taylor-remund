@@ -32,7 +32,7 @@ import type { Piece } from '../kit/types.ts';
 import { buildEntry, type Entry } from '../catalogue/registry.ts';
 import type { Fit } from '../vignette.ts';
 import { placedMatrix } from './set.ts';
-import { PATCH_TUNING } from '../../sim/index.ts';
+import { HZ, PATCH_TUNING } from '../../sim/index.ts';
 import { poseMatrices, SIDE_ON, type PatchPose } from '../kit/pieces/patch-felt/index.ts';
 import { SCRUFF as SCRUFF_AT } from '../kit/pieces/patch-felt/rig.ts';
 import {
@@ -40,9 +40,10 @@ import {
   atWork, blendTo, boardToRoot, bonked, catchCrate, climb, duck, held, job, jobTargets, lookAt, movePlug, notice, resolvePose,
   rollTo, theLook, toPose, toddle, withBlinks, withBreath, type JobStage, type JobTargets, type V3,
   rungReaction, facepalm, glanceShake, type FacepalmVariant, overTheEdge, type LedgeOptions, crossBelt, tumble, landed, shakeOff, splat, falling, upward, flop, LAND_LENGTH, SHAKE_LENGTH,
+  atTheTop, blendSpan, bodyMiddle, wrapAngle, type BlendOptions,
 } from '../kit/pieces/patch-felt/perform.ts';
 import { BOARD_WHOLE, JACKS, poseSwitchboard, type JackName } from '../kit/pieces/switchboard/index.ts';
-import { clamp01, damp, inOutCubic, inOutQuad, outCubic } from '../anim/index.ts';
+import { clamp01, damp, inOutCubic, inOutQuad, outCubic, smoothstep } from '../anim/index.ts';
 import { jackName, patchlampBus } from './patchlamp-bus.ts';
 import { partsHooks, unhook, type PartsOverlay } from './parts.ts';
 
@@ -53,6 +54,20 @@ export const OPERATOR_FEEL = {
   blendFar: 0.35,
   /** A thrown part: no time to ease into it. */
   blendReact: 0.07,
+  /**
+   * R5: let go (or thrown): the turn and the limbs ease out of the dangle over this long; the body's middle is where
+   * the simulation has it from the first frame (never held back at the hand).
+   */
+  blendRelease: 0.18,
+  /** R5: come down from the air: from the tumble into the landing's bounce (the middle eased down onto the bench). */
+  blendLand: 0.12,
+  /** R5: the slowest a turn between performances may be done at (rad/s): a big turn gets a longer blend, so it reads as a turn. */
+  turnRate: 7,
+  turnRateMoving: 14,
+  /** R4 up: how fast the arms fold at the top of a throw up and unfold after (1/s). */
+  foldRate: 14,
+  /** R5: in the air, how fast its facing follows the way it is going (1/s): a rebound turns it round, not flips it. */
+  flyTurn: 10,
   /** The idle head: how fast it follows, how near the pointer must be, how much of the way it turns. */
   idleRate: 2.4,
   near: 4.5,
@@ -63,9 +78,16 @@ export const OPERATOR_FEEL = {
   carryRate: 7,
   /** R2: how fast the body turns to its way while walking (1/s). */
   walkTurn: 9,
+  /** R5: the fastest it turns while walking (rad/s): a way that doubles back takes about a quarter of a second. */
+  walkTurnMax: 12,
 };
 /** R2: the walk's first seconds: a look at the visitor and a turn, no step (the simulation's). */
 const SET_OFF: number = PATCH_TUNING.setOff;
+/**
+ * R5: the states in which the simulation moves `at` continuously from step to step: Patch is drawn between the last
+ * two steps there (`Frame.alpha`), as the parts are. Never across a jump (`PatchView.prevAt` is `at` then).
+ */
+const MOVING: ReadonlySet<PatchState> = new Set<PatchState>(['held', 'fly', 'land', 'walk', 'cross', 'climb', 'haul', 'wall']);
 
 export interface OperatorViewOptions {
   patch: Entry | undefined;
@@ -201,7 +223,15 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     let last: PatchPose = SEATED;
     let blendFrom: PatchPose | null = null;
     let blendAt = 0;
+    /**
+     * R5: a blend begins at the frame BEFORE the one it is first drawn in (`blendFrom` is that frame's pose), so its
+     * first frame is already a step on from it: never a frame held still on the pose it leaves. `blendNew` marks the
+     * frame it was begun in (the root's move between seat and hand is accounted for then).
+     */
+    let blendNew = false;
+    let frameDt = 0;
     let blendDur = 0;
+    let blendOpts: BlendOptions = {};
     let entry: PatchPose = SEATED; // the pose a performance starts from
     let jobJack: JackName | null = null;
     let stoolB: number = REST_X; // the stool's board x as drawn
@@ -217,6 +247,17 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     /** R4 up: when the fall began (frame time; the top of a throw up, or the release of a drop). */
     let fallAt = -1;
     let flyYaw = 0;
+    /** R5 up: the fold at the top of a throw up (0..1, eased) and when it began (frame time; -1 before). */
+    let foldK = 0;
+    let floatAt = -1;
+    /** R5: the tumble's own time when it came down (the landing's flail goes on from there). */
+    let landAirT = 0.3;
+    /** R5: where the simulation had Patch in the last frame drawn (between steps), and in which performance. */
+    let lastAtI: Vec3 | null = null;
+    let lastMode: Mode = 'idle';
+    /** R5: the body's middle as last drawn (world; after the lift clear of the bench), where a release starts from. */
+    const drawnMid = new Vector3();
+    let drawnMidSet = false;
     let landSpin = 0;
     let landYaw = 0;
     let landFromWall = false;
@@ -280,8 +321,10 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
     const enter = (m: Mode, t: number, near: boolean): void => {
       if (mode !== m || m === 'job') {
         blendFrom = last;
-        blendAt = t;
+        blendAt = t - frameDt;
+        blendNew = true;
         blendDur = near ? F.blendNear : F.blendFar;
+        blendOpts = {};
       }
       mode = m;
       modeAt = t;
@@ -314,10 +357,17 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         const reduced = w.reducedMotion || ctx.reducedMotion;
         const t = frame.time;
         const dt = Math.min(frame.dt, 0.1);
+        frameDt = dt;
         const st = v.state;
         // natural speed: a performance's time is the stage's own; reduced motion holds each stage's end pose
         const finite = Number.isFinite(v.stateLength) && v.stateLength > 0;
-        const sT = reduced && finite ? v.stateLength : finite ? Math.min(v.stateTime, v.stateLength) : v.stateTime;
+        // (R5: drawn between the last two steps, as everything else on the bench is: the stage's time a step behind
+        // by 1 - alpha, as the frame's own time is; and where it is, where `at` moves continuously)
+        const lagT = (1 - frame.alpha) / HZ;
+        const sT = reduced && finite ? v.stateLength : finite ? Math.min(Math.max(0, v.stateTime - lagT), v.stateLength) : Math.max(0, v.stateTime - lagT);
+        const between = !reduced && frame.alpha < 1 && v.prevAt !== v.at && MOVING.has(v.state);
+        const al = frame.alpha;
+        const atI: Vec3 = between ? [v.prevAt[0] + (v.at[0] - v.prevAt[0]) * al, v.prevAt[1] + (v.at[1] - v.prevAt[1]) * al, v.prevAt[2] + (v.at[2] - v.prevAt[2]) * al] : v.at;
         const cord = w.cord('cord');
         const plugOut = !!cord?.lifted;
 
@@ -330,7 +380,8 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           const sv = rungSaved;
           rungSaved = null;
           blendFrom = last;
-          blendAt = t;
+          blendAt = t - frameDt;
+          blendNew = true;
           blendDur = F.blendFar;
           mode = sv.mode;
           entry = sv.entry;
@@ -402,7 +453,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               if (prev !== 'cross') {
                 walked = 0;
                 walkPrev = null;
-                walkYaw = resolvePose(last).body.rot[1];
+                walkYaw = wrapAngle(resolvePose(last).body.rot[1]);
                 glanced = 0;
               }
               enter('walk', t, prev === 'cross');
@@ -411,28 +462,46 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             case 'cross':
               enter('cross', t, true);
               break;
-            case 'fly':
+            case 'fly': {
               // R4: thrown (or back up the chute): from the hand into the air at once
+              const v0 = v.thrown?.v;
+              const level = v0 ? Math.hypot(v0[0], v0[2]) : 0;
               if (prev !== 'fly') {
                 flySpin = 0;
                 flyAt = t;
+                fallAt = -1;
+                foldK = 0;
+                floatAt = -1;
+                // facing the way it goes; dropped or thrown up, the way it faced in the hand
+                flyYaw = v0 && level > 0.3 && !v.thrown?.drop ? Math.atan2(v0[0], v0[2]) - SIDE_ON : wrapAngle(resolvePose(last).body.rot[1]);
               }
               enter('fly', t, false);
-              blendDur = F.blendReact;
+              // (R5: its middle leaves the hand in the first frame, where the simulation has it; the turn and the
+              // limbs ease out of the dangle. Up the chute from out of sight it simply appears there)
+              blendDur = F.blendRelease;
+              blendOpts = { bodyLag: 0, keepMiddle: true, moving: true };
+              if (prev === 'away') blendFrom = null;
               break;
+            }
             case 'land':
               // off a wall: the facing it had stuck to the wall (face to the room) is kept to the sit
               landFromWall = prev === 'wall';
               if (!landFromWall) {
                 landSpin = flySpin;
                 landYaw = flyYaw;
+                landAirT = t - flyAt;
               }
               enter('land', t, true);
-              blendFrom = null;
+              // (R5: down from the air, eased over a few frames onto the landing's bounce, the limbs flailing on from
+              // where they were; off a wall, from the bottom of the slide, the same facing, eased the same way)
+              if (prev === 'fly' || prev === 'wall') {
+                blendDur = F.blendLand;
+                blendOpts = { bodyLag: 0, moving: true };
+              } else blendFrom = null;
               break;
             case 'shake':
+              // (R5: the sit the landing ends in is the shake's start: the near blend takes up the face's change)
               enter('shake', t, true);
-              blendFrom = null;
               break;
             case 'away':
               enter('away', t, true);
@@ -459,6 +528,11 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
               // from its feet at the stool's foot (where the walk ended, or where it was put down)
               climbFoot = seatSpace(v.foot);
               enter('climb', t, prev === 'walk');
+              // (R5: the turn to face the stool the short way (the blend), and never faster than `turnRate`)
+              if (blendFrom) {
+                const dYaw = Math.abs(wrapAngle(resolvePose(climb(0, { foot: climbFoot, visitor: boardToRoot(VISITOR_BOARD, stoolB) })).body.rot[1] - resolvePose(last).body.rot[1]));
+                blendDur = Math.max(blendDur, dYaw / F.turnRate);
+              }
               break;
             case 'duck':
             case 'catch':
@@ -533,7 +607,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           }
           case 'held': {
             // the root goes to the visitor's hand; the scruff hangs from it
-            const hand = new Vector3(v.at[0], v.at[1], v.at[2]);
+            const hand = new Vector3(atI[0], atI[1], atI[2]);
             if (handFirst) {
               handPrev.copy(hand);
               handVel.set(0, 0, 0);
@@ -554,13 +628,14 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           case 'walk':
           case 'cross': {
             // the feet where the simulation has them; the gait's phase from the distance walked (no sliding)
-            const feet = seatSpace([v.at[0], v.at[1], v.at[2]]);
+            const feet = seatSpace(atI);
             if (walkPrev) walked += Math.hypot(feet[0] - walkPrev[0], feet[2] - walkPrev[2]);
             walkPrev = feet;
             // the body turns to its way (before the first step, and at each corner), stepping round as it turns
             const want = v.heading - SIDE_ON;
             const dYaw = Math.atan2(Math.sin(want - walkYaw), Math.cos(want - walkYaw));
-            const turn = reduced ? dYaw : dYaw * (1 - Math.exp(-F.walkTurn * dt));
+            // (R5: and never faster than `walkTurnMax`: a way that doubles back is a turn, not a flip)
+            const turn = reduced ? dYaw : Math.sign(dYaw) * Math.min(Math.abs(dYaw) * (1 - Math.exp(-F.walkTurn * dt)), F.walkTurnMax * dt);
             walkYaw += turn;
             if (st === 'walk' && v.stateTime < SET_OFF) walked += Math.abs(turn) * 0.12;
             const vis = boardToRoot(VISITOR_BOARD, stoolB);
@@ -572,7 +647,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             stopped = reduced ? (v.walk?.waiting ? 1 : 0) : damp(stopped, v.walk?.waiting ? 1 : 0, 8, dt);
             const o = { visitor: vis, toward, scamper: !!v.walk?.scamper, glance, stopped };
             if (st === 'cross' && finite) {
-              const ground = seatSpace([v.at[0], v.foot[1], v.at[2]])[1];
+              const ground = seatSpace([atI[0], v.foot[1], atI[2]])[1];
               pose = crossBelt(reduced ? v.stateLength : sT, feet, walkYaw, ground, feet[1], o);
             } else pose = toddle(reduced ? 0 : walked, feet, walkYaw, o);
             break;
@@ -590,26 +665,38 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           case 'fly': {
             const tv = v.thrown?.v;
             const sp = tv ? Math.hypot(tv[0], tv[2]) : 0;
+            const mid = seatSpace(atI);
             if (v.thrown?.drop) {
-              // R4 up: dropped, or thrown up: rising (arms up), the beat at the top, then falling and knowing it
+              // R4 up: dropped, or thrown up: rising (arms up), the float at the top (arms folded: R5, eased in from a
+              // little before the top and out a little after, as much as this throw floats), then falling and knowing it
               const vis = boardToRoot(VISITOR_BOARD, stoolB);
-              const rising = !!tv && tv[1] > 0 && !v.thrown.top;
-              if (rising || v.thrown.top) fallAt = -1;
+              const vy = tv ? tv[1] : 0;
+              const goal = (v.thrown.float ?? 0) * (vy >= 0 ? 1 - smoothstep(0.6, 3, vy) : 1 - smoothstep(0.3, 1.8, -vy));
+              foldK = reduced ? goal : damp(foldK, goal, F.foldRate, dt);
+              if (foldK > 0.02 && floatAt < 0) floatAt = t;
+              const rising = vy > 0;
+              if (rising || foldK > 0.5) fallAt = -1;
               else if (fallAt < 0) fallAt = t;
-              pose = v.thrown.top ? upward(0, seatSpace(v.at), flyYaw, true, vis) : rising ? upward(reduced ? 0 : t - flyAt, seatSpace(v.at), flyYaw, false, vis) : falling(reduced ? 1 : t - fallAt, seatSpace(v.at), flyYaw, vis);
+              const base = rising ? upward(reduced ? 0 : t - flyAt, mid, flyYaw, false, vis) : falling(reduced ? 1 : fallAt < 0 ? 0 : t - fallAt, mid, flyYaw, vis);
+              pose = foldK > 1e-3 ? atTheTop(base, foldK, reduced || floatAt < 0 ? 0 : t - floatAt, mid, flyYaw, vis) : base;
               break;
             }
-            // turning head over heels as it goes, faster the harder it was thrown
-            if (tv && sp > 0.3) flyYaw = Math.atan2(tv[0], tv[2]) - SIDE_ON;
+            // turning head over heels as it goes, faster the harder it was thrown; facing the way it goes (R5: turned
+            // toward it, so a rebound brings it round rather than flipping it in a frame)
+            if (tv && sp > 0.3) {
+              const want = Math.atan2(tv[0], tv[2]) - SIDE_ON;
+              // (unwrapped: continuous, so a blend toward it never sees it jump a turn)
+              flyYaw += reduced ? wrapAngle(want - flyYaw) : wrapAngle(want - flyYaw) * (1 - Math.exp(-F.flyTurn * dt));
+            }
             if (!reduced) flySpin += Math.min(11, Math.max(4, sp * 1.3)) * dt;
-            pose = tumble(reduced ? 0 : t - flyAt, seatSpace(v.at), flySpin, flyYaw);
+            pose = tumble(reduced ? 0 : t - flyAt, mid, flySpin, flyYaw);
             break;
           }
           case 'land': {
             const fall = v.thrown?.fall ?? 0;
             // R4 up: down from high after a drop or a throw up: the flop; else the landing's bounce and roll
-            if (v.thrown?.drop && fall >= PATCH_TUNING.flopFrom) pose = flop(reduced ? v.stateLength : sT, seatSpace(v.at), landYaw, fall, v.stateLength);
-            else pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(v.at), landYaw, reduced || landFromWall || v.thrown?.drop ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall);
+            if (v.thrown?.drop && fall >= PATCH_TUNING.flopFrom) pose = flop(reduced ? v.stateLength : sT, seatSpace(atI), landYaw, fall, v.stateLength);
+            else pose = landed(reduced ? LAND_LENGTH : sT, seatSpace(atI), landYaw, reduced || landFromWall || v.thrown?.drop ? 0 : landSpin, v.thrown?.speed ?? 0, landFromWall, landAirT);
             break;
           }
           case 'shake':
@@ -619,7 +706,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             pose = last;
             break;
           case 'wall':
-            pose = splat(reduced ? 1 : v.stateTime, seatSpace(v.at), landYaw, v.wall?.stick ?? 0.25);
+            pose = splat(reduced ? 1 : Math.max(0, v.stateTime - lagT), seatSpace(atI), landYaw, v.wall?.stick ?? 0.25);
             break;
           case 'ledge':
             pose = ledgeO && (st === 'ledge' || st === 'haul' || st === 'dust') ? overTheEdge(st, sT, ledgeO) : last;
@@ -716,8 +803,9 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         }
         // (the root moves between the seat and the hand when Patch is taken or let go: a blend begun this frame
         // starts from where the figure was drawn, not from the same place relative to the root's new spot: no snap)
-        if (blendFrom && blendAt === t) {
-          const next = mode === 'held' ? tv.set(v.at[0], v.at[1], v.at[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
+        if (blendFrom && blendNew) {
+          blendNew = false;
+          const next = mode === 'held' ? tv.set(atI[0], atI[1], atI[2]) : tv.set(seat.x + (stoolB - REST_X), seat.y, seat.z);
           const dxw = root.position.x - next.x, dyw = root.position.y - next.y, dzw = root.position.z - next.z;
           if (Math.abs(dxw) + Math.abs(dyw) + Math.abs(dzw) > 1e-6) {
             const c = Math.cos(-SIDE_ON), sn = Math.sin(-SIDE_ON);
@@ -725,10 +813,33 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
             const at0 = b.at ?? (b.pivot === 'scruff' ? SCRUFF_AT : ([0, 0, 0] as const));
             blendFrom = { ...blendFrom, body: { ...b, at: [at0[0] + (dxw * c + dzw * sn) / S, at0[1] + dyw / S, at0[2] + (-dxw * sn + dzw * c) / S] } };
           }
+          // (R5: the pose it leaves brought within half a turn of where this one starts, once: the blend turns the short
+          // way, and goes on turning with the target however far the target turns)
+          {
+            const fa = resolvePose(blendFrom), ta = resolvePose(pose).body.rot;
+            fa.body.rot = [ta[0] + wrapAngle(fa.body.rot[0] - ta[0]), ta[1] + wrapAngle(fa.body.rot[1] - ta[1]), ta[2] + wrapAngle(fa.body.rot[2] - ta[2])];
+            blendFrom = toPose(fa);
+            // (and a big turn gets the time to read as a turn: never faster than `turnRate` on average, nor, out of a
+            // moving pose (eased out, quickest at its start), than `turnRateMoving` at its start)
+            const turn = Math.max(Math.abs(fa.body.rot[0] - ta[0]), Math.abs(fa.body.rot[1] - ta[1]), Math.abs(fa.body.rot[2] - ta[2]));
+            blendDur = Math.max(blendDur, blendOpts.moving ? (2 * turn) / F.turnRateMoving : turn / F.turnRate);
+          }
+          // (R5, let go: how far the drawn middle was from the simulation's, carried and let go of over the blend)
+          if (blendOpts.keepMiddle) {
+            // (against where the simulation had its middle in the last frame (under the hand), so this frame already
+            // moves on by as much as the simulation did)
+            const m0 = drawnMidSet ? seatSpace([drawnMid.x, drawnMid.y, drawnMid.z]) : bodyMiddle(blendFrom);
+            const m1 = lastMode === 'held' && lastAtI ? seatSpace([lastAtI[0], lastAtI[1] - PATCH_TUNING.hangBelow, lastAtI[2]]) : bodyMiddle(pose);
+            blendOpts = { ...blendOpts, carry: [m0[0] - m1[0], m0[1] - m1[1], m0[2] - m1[2]] };
+          }
         }
-        if (blendFrom && !reduced && t - blendAt < blendDur) pose = blendTo(blendFrom, pose, t - blendAt, blendDur);
+        // (R5: on until every channel has arrived, the lagging body and tail included: a blend cut at `blendDur`
+        // left those short of the pose and they jumped there in the next frame)
+        if (blendFrom && !reduced && t - blendAt < blendSpan(blendDur, blendOpts)) pose = blendTo(blendFrom, pose, t - blendAt, blendDur, { ...blendOpts, keepTurns: true });
         else blendFrom = null;
         last = pose;
+        lastAtI = atI;
+        lastMode = mode;
         // hovered: the ears turn to the pointer (not while a rung plays)
         const hovGoal = frame.hovered === 'patch' && !w.bracketed && mode !== 'held' ? 1 : 0;
         hover = reduced ? hovGoal : damp(hover, hovGoal, 14, dt);
@@ -743,7 +854,7 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
         // R4: thrown off the bench, it is out of sight until it comes back up the chute
         root.visible = mode !== 'away';
         grabbable = st !== 'ledge' && st !== 'haul' && st !== 'away';
-        if (mode === 'held') root.position.set(v.at[0], v.at[1], v.at[2]);
+        if (mode === 'held') root.position.set(atI[0], atI[1], atI[2]);
         else root.position.set(seat.x + dx, seat.y, seat.z);
         root.updateMatrixWorld(true);
         rootInv.copy(root.matrixWorld).invert();
@@ -758,6 +869,11 @@ export function createOperatorView(o: OperatorViewOptions): StationViewFactory {
           else pose = grounded(pose, figure, floor, overBench);
         }
         apply(pose);
+        {
+          const m = bodyMiddle(pose);
+          drawnMid.set(m[0], m[1], m[2]).applyMatrix4(root.matrixWorld);
+          drawnMidSet = true;
+        }
         // a caught part is drawn in the paw: through the parts view's overlay when it draws after this view (its
         // shadow goes with it), or straight onto its matrix when it has drawn already this frame
         inPaw.frame = null;

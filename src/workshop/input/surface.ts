@@ -137,6 +137,8 @@ const smooth = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 
 
 export function createSurface(deps: SurfaceDeps): Surface {
   let plane: CarryPlane | null = null;
+  /** The pointer's ray at the last re-aim of the carried thing (the lens reads the eye's line to the hand from it). */
+  let lastRay: RayLike | null = null;
   let carried: {
     id: Id;
     what: HeldKind | 'aim';
@@ -279,6 +281,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
 
     carryTarget(x, y, t) {
       const ray = deps.ray(x, y);
+      lastRay = ray;
       const w = deps.world();
       if (carried?.what === 'aim' && w) {
         // The pool of light moves with the hand on screen: the hand's travel since the grab is applied to where the
@@ -314,12 +317,16 @@ export function createSurface(deps: SurfaceDeps): Surface {
     endCarry() {
       plane?.end();
       carried = null;
+      lastRay = null;
     },
 
     lens(): Lens | null {
-      // how the visitor looks at the bench, for the world to read a throw by: the way the camera looks, level, is
-      // "away"; its tilt below level turns speed along the bench into the speed the eye saw up the screen
-      const f = deps.forward?.();
+      // how the visitor looks at the bench, for the world to read a throw by: the way the eye looks AT THE HAND,
+      // level, is "away" (the pointer's own ray: at the sides of the picture, up the screen runs away and outward,
+      // and all of that is the flick; with the camera's axis instead a thing flicked straight up the screen at the
+      // left end flew three units sideways); its tilt below level turns speed along the bench into the speed the
+      // eye saw up the screen
+      const f = (carried && lastRay ? lastRay.dir : null) ?? deps.forward?.();
       if (!f) return null;
       const h = Math.hypot(f[0], f[2]);
       if (h < 1e-6) return null;

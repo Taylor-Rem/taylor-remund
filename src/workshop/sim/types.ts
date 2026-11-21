@@ -852,10 +852,19 @@ export interface PatchView extends MachineViewBase {
    * and a roll over `stateLength`, ending sat up (`speed`: how fast it came in). Then `shake` (sat, a shake of the
    * head), the look, and the walk home. `away`: thrown off the bench, out of sight. Null otherwise.
    * (Up, R4: `fall` how far it has fallen from the top of its flight (`fly`) or fell (`land`, `shake`); `drop` let go
-   * still from high or thrown up (it comes down falling, not tumbling along); `top` hanging at the top of a throw
-   * up, a moment before it falls. Present in `shake` too, for the size of its "really?".)
+   * still from high or thrown up (it comes down falling, not tumbling along); `top` in the float at the top of a
+   * throw up (R5: gravity eased off there, still moving: `PATCH_TUNING.floatGrav`); `float` how much this throw
+   * floats at its top, 0..1 (1 straight up, fading to 0 as it leans over; 0 for anything but a throw up). Present
+   * in `shake` too, for the size of its "really?".)
    */
-  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean } | null;
+  readonly thrown: { readonly v: Vec3 | null; readonly speed: number; readonly chute: boolean; readonly fall: number; readonly drop: boolean; readonly top: boolean; readonly float: number } | null;
+  /**
+   * R5: where `at` was at the end of the step before, in the same sense as `at` now, for drawing between the two
+   * steps (`Frame.alpha`). The very same array as `at` (`prevAt === at`) when there is nothing to draw between: a
+   * jump (taken into the hand, let go onto the seat, the snap to an edge, out of sight, a reset) or a new state whose
+   * `at` means something else (its feet after its middle).
+   */
+  readonly prevAt: Vec3;
   /**
    * R4: met a wall flat (state `wall`): `out` the wall's outward direction where it met it (unit, horizontal;
    * Patch faces it, spread), `stick` seconds stuck there, then it slides down it (`at`, its middle, moving down)

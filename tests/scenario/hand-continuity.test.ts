@@ -38,7 +38,9 @@ async function inHand(id: Id, at: Vec3 = START): Promise<{ w: World; t: Tape }> 
   for (let i = 1; i <= 90; i++) {
     const k = Math.min(1, i / 60);
     const e = k * k * (3 - 2 * k);
-    w.dispatch({ type: 'carry', target: [from[0] + (at[0] - from[0]) * e, Math.max(at[1], from[1] + 1.2 * Math.sin(Math.PI * k)), from[2] + (at[2] - from[2]) * e] });
+    // (well up on the way: over the UNDO lever's housing, 1.97 high, which stands between; the page's carry rides
+    // over what it would run into, and this hand does it by going high)
+    w.dispatch({ type: 'carry', target: [from[0] + (at[0] - from[0]) * e, Math.max(at[1], from[1] + 2.8 * Math.sin(Math.PI * k)), from[2] + (at[2] - from[2]) * e] });
     t.run(1);
   }
   for (let i = 0; i < 30; i++) {

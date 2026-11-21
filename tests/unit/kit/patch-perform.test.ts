@@ -279,3 +279,75 @@ describe('thrown (R4)', () => {
     expect(b.arms.left.swing).toBeGreaterThan(a.arms.left.swing);
   });
 });
+
+// R5 (Taylor, 2026-11-20: "Eliminate unnatural discontinuities"): the pose-level half of the feel. The drawn half is
+// tests/browser/patch-feel.spec.ts, the simulation's tests/scenario/patch-float.test.ts.
+describe('R5: blends and the landing roll go the way the body was turning', () => {
+  /** The body's head-over-heels turn from one pose to the next, about its own side-to-side axis (rad, signed). */
+  const pitchStep = (a: PatchPose, b: PatchPose): number => {
+    const ma = PF.nodeMatrix(a, ['body']), mb = PF.nodeMatrix(b, ['body']);
+    const oa = new Vector3().applyMatrix4(ma), ob = new Vector3().applyMatrix4(mb);
+    const ax = new Vector3(1, 0, 0).applyMatrix4(ma).sub(oa).normalize();
+    const ua = new Vector3(0, 1, 0).applyMatrix4(ma).sub(oa).normalize();
+    const ub = new Vector3(0, 1, 0).applyMatrix4(mb).sub(ob).normalize();
+    return Math.atan2(new Vector3().crossVectors(ua, ub).dot(ax), ua.dot(ub));
+  };
+  it('the landing after a tumble only ever rolls on, from the rate it came down at to upright (never back)', () => {
+    for (const spin0 of [0.3, 2, 3.1, 6.0, 9.5, 20])
+      for (const speed of [2, 5, 9, 14]) {
+        let back = 0, sum = 0, peak = 0;
+        let prev = PF.landed(0, [1, -0.43, 1], 0.3, spin0, speed);
+        for (let t = 1 / 120; t <= PF.LAND_LENGTH + 1e-9; t += 1 / 120) {
+          const p = PF.landed(t, [1, -0.43, 1], 0.3, spin0, speed);
+          sum += pitchStep(prev, p);
+          peak = Math.max(peak, sum);
+          back = Math.max(back, peak - sum);
+          prev = p;
+        }
+        expect(back, `spin0 ${spin0}, ${speed} u/s: turned back (rad)`).toBeLessThan(0.05);
+        expect(Math.abs(PF.resolvePose(prev).body.rot[0]), 'and it ends upright').toBeLessThan(0.2);
+      }
+  });
+  it('the landing roll starts at the tumble rate (no whip): its first 50 ms turn at most 1.5x the 11 rad/s cap', () => {
+    for (const speed of [3, 8, 14]) {
+      const a = PF.landed(0, [1, -0.43, 1], 0.3, 2, speed), b = PF.landed(0.05, [1, -0.43, 1], 0.3, 2, speed);
+      expect(Math.abs(pitchStep(a, b)) / 0.05).toBeLessThan(16.5);
+    }
+  });
+  it('a blend between performances turns the short way: out of a tumble wound round three times, at most half a turn', () => {
+    const from = PF.tumble(0.4, [1, 0.6, 1], 6 * Math.PI + 0.4, 0.3);
+    let sum = 0, most = 0;
+    let prev = PF.blendTo(from, PF.SEATED, 0, 0.35);
+    for (let t = 0.01; t <= PF.blendSpan(0.35) + 0.02; t += 0.01) {
+      const p = PF.blendTo(from, PF.SEATED, t, 0.35);
+      sum += pitchStep(prev, p);
+      most = Math.max(most, Math.abs(sum));
+      prev = p;
+    }
+    expect(most).toBeLessThan(Math.PI + 0.05);
+  });
+  it('a blend has arrived by blendSpan, every channel (the tail lags): nothing left to jump in the next frame', () => {
+    const from = PF.job(4, PF.jobTargets('storefront')).pose;
+    const end = PF.blendTo(from, PF.SEATED, PF.blendSpan(0.18), 0.18);
+    expect(close(end, PF.SEATED, 1e-6)).toBe(true);
+  });
+  it("let go with keepMiddle: the body's middle is the target's from the first frame (plus a carried offset, let go of)", () => {
+    const from = PF.held(1, [3, 0, 0]);
+    const to = PF.tumble(0.1, [0.5, 0.4, 0.2], 0.3, 1);
+    const w = PF.bodyMiddle(to);
+    for (const t of [0, 0.03, 0.1]) {
+      const m = PF.bodyMiddle(PF.blendTo(from, to, t, 0.18, { bodyLag: 0, keepMiddle: true, moving: true }));
+      expect(Math.hypot(m[0] - w[0], m[1] - w[1], m[2] - w[2])).toBeLessThan(1e-6);
+    }
+    const half = PF.bodyMiddle(PF.blendTo(from, to, 0.09, 0.18, { bodyLag: 0, keepMiddle: true, moving: true, carry: [0.3, 0.2, 0] }));
+    expect(half[0] - w[0]).toBeGreaterThan(0);
+    expect(half[0] - w[0]).toBeLessThan(0.3);
+  });
+  it('the float at the top is alive: the folded pose is not the same a moment later, and it eases in from rising', () => {
+    const vis: PF.V3 = [0, 3, 8];
+    const a = PF.upward(0, [0, 2, 0], 0, 1, vis, 0.1), b = PF.upward(0, [0, 2, 0], 0, 1, vis, 0.25);
+    expect(close(a, b, 1e-3)).toBe(false);
+    const r = PF.upward(0.2, [0, 2, 0], 0, 0, vis), f = PF.upward(0.2, [0, 2, 0], 0, 1, vis, 0), m = PF.upward(0.2, [0, 2, 0], 0, 0.5, vis, 0);
+    expect(close(m, r, 1e-3) || close(m, f, 1e-3)).toBe(false);
+  });
+});
