@@ -17,8 +17,8 @@
 //   ?hud=0  ?debug=1  ?manual=1  ?seed=N  ?tier=high|low  ?physics=stub
 //
 // Picture first (B1, REWRITE.md § B3, § E6): by default the page starts from
-// the bench's still picture (src/dev-pages/bench/, rendered from this page by
-// `node scripts/poster.ts --set src/dev-pages/bench/posters.json --page /dev/bench/`),
+// the bench's still picture (src/assets/bench/, shared with `/`: shell/bench-pictures.ts,
+// rendered by `node scripts/poster.ts --set src/assets/bench/posters.json --page /`),
 // dim, warming up as the stage loads, then the live stage takes over from the
 // picture's own camera and state. The engine, the fonts, the label worker and
 // the bake table start loading at the first moment. On this path the HUD and
@@ -35,24 +35,11 @@
 //   node scripts/check-bench.ts
 import StageHead from '../workshop/shell/StageHead.astro';
 import StagePicture from '../workshop/shell/StagePicture.astro';
-import type { PosterSet } from '../workshop/shell/poster.ts';
-import postersJson from './bench/posters.json';
-import bakeUrl from '../workshop/view/kit/bake-table.bin?url';
-import workerUrl from '../workshop/view/labels/worker.ts?worker&url';
-import { FACES } from '../workshop/view/labels/fonts.ts';
+import { BENCH_POSTERS as posters, BENCH_POSTER_FILES as files, BENCH_POSTER_DIR as dir } from '../workshop/shell/bench-pictures.ts';
+import { STAGE_PRELOADS } from '../workshop/shell/stage-preloads.ts';
 
-const posters = postersJson as unknown as PosterSet;
-const files = import.meta.glob<string>('./bench/*.{avif,jpg}', { query: '?url', import: 'default', eager: true });
-// what the stage fetches once its code runs, asked for at once: the bake table, the label painters' script, the fonts
-// (low: they must not slow the picture or the code). Not the engine's wasm: preloaded from the head it took
-// a share of the line from the picture and the code (Fast 4G, measured: picture 0.93 s, usable 4.3 s); started by
-// the early script once its 3 KB chunk is in (about 0.55 s) it still lands long before the world wants it
-// (picture 0.73 s, usable 3.95 s)
-const preload = [
-  { href: bakeUrl, priority: 'low' as const },
-  { href: workerUrl, priority: 'low' as const },
-  ...Object.values(FACES).map((f) => ({ href: `/fonts/${f.file}`, priority: 'low' as const })),
-];
+// what the stage fetches once its code runs, asked for at once (shell/stage-preloads.ts says why these)
+const preload = [...STAGE_PRELOADS];
 ---
 <!doctype html>
 <html lang="en">
@@ -61,7 +48,7 @@ const preload = [
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="robots" content="noindex" />
     <title>Bench</title>
-    <StageHead preload={preload} posters={{ set: posters, files, dir: './bench/' }} />
+    <StageHead preload={preload} posters={{ set: posters, files, dir }} />
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; overscroll-behavior: none; }
       .stage-root { background: #12292c; }
@@ -73,7 +60,7 @@ const preload = [
     </style>
   </head>
   <body>
-    <StagePicture set={posters} files={files} dir="./bench/" />
+    <StagePicture set={posters} files={files} dir={dir} />
     <canvas id="over"></canvas>
     <div id="hud"></div>
     <script>
@@ -83,17 +70,12 @@ const preload = [
     </script>
     <script>
       import { Box3, Group, Matrix4, Vector3, type Mesh, type Object3D, type BufferAttribute } from 'three';
-      import { bootWorkshop, type BootOptions } from '../workshop/shell/boot.ts';
-      import { loadStage } from '../workshop/shell/loader.ts';
-      import type { PosterSet } from '../workshop/shell/poster.ts';
+      import { benchGlue, startBench, handoff } from '../workshop/shell/bench-stage.ts';
       import { earlyPhysics } from '../workshop/shell/early.ts';
       import { installDebugHooks } from '../workshop/view/stage/debug.ts';
-      import { LOOK } from '../workshop/view/stage/index.ts';
       import { createStubPhysics } from '../workshop/sim/index.ts';
       import type { SimEvent, Vec3 } from '../workshop/sim/index.ts';
-      import { bench as BENCH } from '../workshop/sim/scenes/bench.ts';
-      import { loadBench, homeBox, homeEdge, FRAMING, LAYOUT, spotBox, type Spot, type StationKey } from '../workshop/view/bench.ts';
-      import { staticBox } from '../workshop/view/vignette.ts';
+      import { FRAMING, LAYOUT, spotBox, type Spot, type StationKey } from '../workshop/view/bench.ts';
       import { lanePath } from '../workshop/sim/path.ts';
       import { FETCH_TUNING, fetchStand } from '../workshop/sim/crew/fetch.ts';
       import type { View } from '../workshop/view/stage/camera.ts';
@@ -124,62 +106,35 @@ const preload = [
 
       const crew = q.get('crew') ? Number(q.get('crew')) : undefined;
       const withRoom = q.get('room') !== '0';
-      // the room shows (ROOM brief: at the stage's 0.9 everything below the bench top is erased and the bench floats)
-      if (withRoom) Object.assign(LOOK.fog, { drop: 5.5 });
       const seat = q.get('seat') ? Number(q.get('seat')) : undefined;
       const root = document.getElementById('stage-root')!;
       if (direct) root.classList.add('direct');
-      const posterInfo = (window as unknown as { __posters: { urls: Record<string, string>; manifest: PosterSet; ready: boolean } }).__posters;
       if (hold) {
         // held before the swap (the poster script, the proof): ready once the held frame is drawn
         const poll = (): void => {
-          const h = (window as unknown as { __handoff?: { phase: string } }).__handoff;
+          const h = handoff();
           if (h?.phase === 'held-picture' || h?.phase === 'failed') window.__ready = true;
           else requestAnimationFrame(poll);
         };
         poll();
       }
-      // the scene's loading is the loader's first phase (its progress warms the picture)
-      let bench!: Awaited<ReturnType<typeof loadBench>>;
-      const prepare = async (): Promise<void> => {
-        bench = await loadBench({ scene: BENCH, seed, room: withRoom, ...(crew ? { crewScale: crew } : {}), ...(seat !== undefined ? { seat } : {}) });
-      };
-      if (direct) await prepare();
-      const portrait = (): boolean => !plan && (q.get('view') === 'phone' || (q.get('view') !== 'wide' && innerWidth < innerHeight));
-
-      const shots: Record<string, () => Box3> = {
-        button: () => {
-          const c = staticBox(bench.scene, 'console')!.getCenter(new Vector3());
-          return new Box3(new Vector3(c.x - 1.5, 0, c.z - 1.0), new Vector3(c.x + 1.6, 1.4, c.z + 1.4));
-        },
-        fetch: () => {
-          const m = bench.world()?.motion('fetch');
-          const p = m ? m.pose.p : ([bench.scene.runner.lane.points[0]![0], 0.5, bench.scene.runner.lane.points[0]![1]] as Vec3);
-          return new Box3(new Vector3(p[0] - 1.2, 0, p[2] - 0.6), new Vector3(p[0] + 1.2, 1.5, p[2] + 0.7));
-        },
-        patch: () => {
-          const s = bench.fit.stool.seat;
-          return new Box3(new Vector3(s[0] - 2.0, 0, s[2] - 1.0), new Vector3(s[0] + 0.9, 2.5, s[2] + 0.6));
-        },
-        cord: () => {
-          const j = bench.fit.board.jacks;
-          return new Box3(new Vector3(j.storefront[0] - 1.6, 0, j.storefront[2] - 0.4), new Vector3(j.lamp[0] + 1.4, 2.2, j.storefront[2] + 1.8));
-        },
-      };
-
       const log: { step: number; e: SimEvent }[] = [];
       let booted = false;
-      const planBox = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.01, 5.4));
-      const bootOptions = (): Omit<BootOptions, 'manual' | 'onProgress'> => ({
+      // the shared glue (shell/bench-stage.ts: the bench, its framing and shots, the boot options); this page adds
+      // the event log and the review overlay as a last station view, its measuring hooks and the HUD
+      const glue = benchGlue({
+        canvas,
         tier,
         reducedMotion,
         seed,
         physics: q.get('physics') === 'stub' ? async () => createStubPhysics() : earlyPhysics,
-        scene: bench.scene,
-        // the event log and the overlay ride as a last station view, not on onFrame: the boot's warm frames call
-        // onFrame before it has made the workshop it passes (boot.ts, since cbf355b), which throws
-        stations: [
-          ...bench.stations,
+        room: withRoom,
+        ...(crew ? { crewScale: crew } : {}),
+        ...(seat !== undefined ? { seat } : {}),
+        plan,
+        view: q.get('view') === 'phone' ? 'phone' : q.get('view') === 'wide' ? 'wide' : null,
+        stage: { preserveDrawingBuffer: q.get('preserve') === '1', gpuTimer: q.get('timer') === '1', syncGpu: q.get('gpusync') === '1' },
+        extraStations: [
           () => ({
             root: new Group(),
             update(frame) {
@@ -190,57 +145,30 @@ const preload = [
             dispose() {},
           }),
         ],
-        // measurement switches (scripts/perf.ts, H1): ?timer=1 GPU ms per pass, ?gpusync=1 wait for the GPU each frame
-        stage: { preserveDrawingBuffer: q.get('preserve') === '1', gpuTimer: q.get('timer') === '1', syncGpu: q.get('gpusync') === '1', camera: plan ? { fov: 1.2, pitch: 89.6, margin: 0.03 } : { ...FRAMING.lens } },
-        frameCamera(stage, scene) {
-          if (plan) {
-            stage.camera.setSubject(planBox, { bounds: planBox });
-            Object.assign(LOOK.focus, { max: 0 });
-            stage.camera.cutTo(stage.camera.home());
-            return;
-          }
-          const aspect = portrait() ? 0.5 : canvas.clientWidth / Math.max(1, canvas.clientHeight);
-          const edge = homeEdge(aspect, scene.bench);
-          stage.camera.stationSize = 1.9;
-          stage.camera.setSubject(homeBox(aspect), { edge, bounds: new Box3(new Vector3(...FRAMING.bounds.min), new Vector3(...FRAMING.bounds.max)) });
-          stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
-          Object.assign(LOOK.focus, FRAMING.blur);
-          stage.camera.cutTo(stage.camera.home());
-        },
-        onFrameRequest(id, stage) {
-          const box = id === 'button' ? shots.button!() : id === 'fetch' ? shots.fetch!() : id === 'cord' || id?.startsWith('jack') ? shots.cord!() : null;
-          if (box) stage.camera.easeTo(stage.camera.frame(box));
-          else stage.camera.easeTo(stage.camera.home());
+      });
+      const shots: Record<string, () => Box3> = glue.shots;
+      const portrait = glue.portrait;
+      const started = await startBench({
+        glue,
+        root,
+        canvas,
+        reducedMotion,
+        direct,
+        manual,
+        hold,
+        band: band === null ? null : Number(band),
+        // R2: a stage rebuilt after a lost graphics context: the hooks follow the new workshop
+        onRebuilt(nw) {
+          const b = (window as unknown as { __bench?: { ws: unknown } }).__bench;
+          if (b) b.ws = nw;
         },
       });
-      const set = posterInfo.manifest;
-      const started = direct
-        ? await bootWorkshop(canvas, { ...bootOptions(), manual })
-        : await loadStage({
-            root,
-            canvas,
-            img: root.querySelector('img.poster'),
-            posters: band === null && posterInfo.ready ? set : null,
-            url: (file) => posterInfo.urls[file] ?? '',
-            reducedMotion,
-            hold,
-            ...(band !== null ? { renderBand: { narrowest: Number(band) === 0 ? set.narrowest : set.posters[Number(band)]!.minAspect, step: set.step, settle: set.settle } } : {}),
-            async prepare(progress) {
-              await prepare();
-              progress(1);
-              return bootOptions();
-            },
-            // R2: a stage rebuilt after a lost graphics context: the hooks follow the new workshop
-            onRebuilt(nw) {
-              const b = (window as unknown as { __bench?: { ws: unknown } }).__bench;
-              if (b) b.ws = nw;
-            },
-          });
       if (!started) {
         // the stage could not start: the picture stays (shell/loader.ts)
         window.__ready = true;
         throw new Error('bench: the stage failed to start');
       }
+      const bench = glue.bench;
       const ws = started;
       booted = true;
       const views: Record<string, View> = { home: ws.stage.camera.home() };
