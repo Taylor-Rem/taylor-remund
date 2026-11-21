@@ -28,6 +28,9 @@ export const CHECKS = [
   'check-layers',
   'check-look',
   'check-claims',
+  'check-text',
+  'check-prose',
+  'check-pictures',
 ] as const;
 
 export const STEPS: readonly Step[] = [

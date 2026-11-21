@@ -15,7 +15,10 @@
     "services": { "text": "Services", "kind": "ui", "href": "/ai/" }
   },
   "footer": {
+    "owner": { "text": "Taylor Remund", "kind": "fact", "source": "legacy/resume/index.html footer (\"Taylor Remund · 2026\"; the year is the build's)" },
     "links": [
+      { "text": "Patchlamp", "kind": "ui", "href": "/#patchlamp", "source": "legacy/resume/index.html footer" },
+      { "text": "Services", "kind": "ui", "href": "/ai/", "source": "legacy/resume/index.html footer; REWRITE.md § F1 (/ai/ is linked from the footer)" },
       { "text": "Privacy", "kind": "ui", "href": "/privacy/" },
       { "text": "Terms", "kind": "ui", "href": "/terms/" },
       { "text": "SMS", "kind": "ui", "href": "/sms/" }
@@ -26,6 +29,11 @@
     "services": { "text": "AI, installed in your business", "kind": "ui", "source": "legacy/index.html #services .section-title" },
     "about": { "text": "Who's behind this", "kind": "ui", "source": "legacy/index.html #about .section-title" },
     "contact": { "text": "Talk to me", "kind": "ui", "source": "legacy/index.html #contact .section-title" }
+  },
+  "paper": {
+    "skip": { "text": "Skip to content", "kind": "ui", "provisional": true, "source": "new for the Paper layout (P3, A1): the skip link; for Taylor to approve" },
+    "navSite": { "text": "Site", "kind": "ui", "provisional": true, "source": "new for the Paper layout (P3, A1): accessible name of the site links (screen readers only); for Taylor to approve" },
+    "navPage": { "text": "On this page", "kind": "ui", "provisional": true, "source": "new for the Paper layout (P3, A1): accessible name of a page's own section links (screen readers only); for Taylor to approve" }
   },
   "home": {
     "skip": { "text": "Skip to the text", "kind": "ui" },

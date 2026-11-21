@@ -1,0 +1,1262 @@
+{
+  "page": {
+    "title": {
+      "text": "Taylor Remund — Résumé",
+      "kind": "ui",
+      "source": "legacy/resume/index.html <title>"
+    },
+    "description": {
+      "text": "Taylor Remund, full-stack software developer in Utah: Laravel, Vue, Rust, Flutter. Skills, projects and experience — the engineer's view of the person behind Patchlamp.",
+      "kind": "fact",
+      "source": "legacy/resume/index.html meta description; ~/career/facts/profile.md"
+    },
+    "og": {
+      "title": {
+        "text": "Taylor Remund — Résumé",
+        "kind": "ui",
+        "source": "legacy/resume/index.html og:title"
+      },
+      "description": {
+        "text": "Full-stack software developer. Skills, projects and experience.",
+        "kind": "fact",
+        "source": "legacy/resume/index.html og:description"
+      },
+      "type": "profile",
+      "url": "https://taylorremund.com/resume/"
+    }
+  },
+  "nav": {
+    "projects": {
+      "text": "Projects",
+      "kind": "ui",
+      "href": "#projects",
+      "source": "legacy/resume/index.html nav"
+    },
+    "experience": {
+      "text": "Experience",
+      "kind": "ui",
+      "href": "#experience",
+      "source": "legacy/resume/index.html nav"
+    },
+    "contact": {
+      "text": "Get in Touch",
+      "kind": "ui",
+      "href": "#contact",
+      "source": "legacy/resume/index.html nav"
+    }
+  },
+  "about": {
+    "eyebrow": {
+      "text": "Résumé",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #about"
+    },
+    "heading": {
+      "text": "The engineer's view",
+      "kind": "voice",
+      "source": "legacy/resume/index.html #about"
+    },
+    "subtitle": {
+      "text": "I build and run [Patchlamp](/#patchlamp); this page is the résumé behind it — skills, projects and experience, for anyone hiring.",
+      "kind": "fact",
+      "source": "legacy/resume/index.html #about; ~/career/facts/profile.md (Work history: \"I build and run Patchlamp\")"
+    },
+    "paragraphs": [
+      {
+        "text": "I'm a full-stack software developer based in American Fork, UT. I work across the stack at Kingsley Management Corporation — PHP/Laravel, Vue.js, MySQL, Flutter — and own complex features end-to-end, from the data model to the rollout plan. I started there as an automation engineer writing Python/Selenium tools for the support team, then transitioned into full-stack development in November 2024. That background means I know the domain intimately before I touch a schema.",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about; ~/career/facts/profile.md (Identity: Location; Work history); ~/career/facts/work-kingsley.md"
+      },
+      {
+        "text": "On the side I've been shipping products: [Patchlamp](#patchlamp) (a website you change by texting it), [Plateful](#projects) (a multi-tenant restaurant ordering platform, built and deployed in 2026, since retired), [Sharewire](#projects) (a self-hosted music sharing platform built end-to-end in 2.5 days), and [Artificer](#projects) (a multi-GPU AI agent orchestrator in async Rust).",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about; ~/career/facts/projects/patchlamp.md; ~/career/facts/projects/plateful.md; ~/career/facts/projects/sharewire.md; ~/career/facts/projects/artificer.md"
+      }
+    ],
+    "photo": {
+      "src": "/assets/taylor.jpg",
+      "width": 220,
+      "height": 220,
+      "alt": {
+        "text": "Taylor Remund",
+        "kind": "ui",
+        "source": "legacy/resume/index.html #about img alt"
+      }
+    }
+  },
+  "figures": [
+    {
+      "number": {
+        "text": "3+",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures; ~/career/facts/profile.md (Work history: \"3+ years\"); ~/career/facts/work-kingsley.md"
+      },
+      "label": {
+        "text": "Years professional experience",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures; ~/career/facts/profile.md (Work history: \"3+ years\"); ~/career/facts/work-kingsley.md"
+      }
+    },
+    {
+      "number": {
+        "text": "6",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures"
+      },
+      "label": {
+        "text": "Production systems shipped end-to-end",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures"
+      }
+    },
+    {
+      "number": {
+        "text": "1",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures (carried as published; ~/career/facts/work-kingsley.md words it \"eliminated a full-time manual workload\": for Taylor to rule on, REWRITE.md § 1)"
+      },
+      "label": {
+        "text": "Full-time role eliminated by automation I built",
+        "kind": "fact",
+        "source": "legacy/resume/index.html #about figures (carried as published; ~/career/facts/work-kingsley.md words it \"eliminated a full-time manual workload\": for Taylor to rule on, REWRITE.md § 1)"
+      }
+    }
+  ],
+  "skills": {
+    "eyebrow": {
+      "text": "Toolbox",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #skills"
+    },
+    "heading": {
+      "text": "Skills & Tech Stack",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #skills"
+    },
+    "groups": [
+      {
+        "title": {
+          "text": "AI & Agents",
+          "kind": "ui",
+          "source": "legacy/resume/index.html #skills"
+        },
+        "items": [
+          {
+            "text": "Claude Code",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "claude"
+          },
+          {
+            "text": "Anthropic API",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "anthropic"
+          },
+          {
+            "text": "Claude & OpenAI APIs",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "anthropic"
+          },
+          {
+            "text": "Multi-Agent Orchestration",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          },
+          {
+            "text": "MCP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          },
+          {
+            "text": "Context Engineering",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          }
+        ]
+      },
+      {
+        "title": {
+          "text": "Frontend",
+          "kind": "ui",
+          "source": "legacy/resume/index.html #skills"
+        },
+        "items": [
+          {
+            "text": "Vue.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "vuedotjs"
+          },
+          {
+            "text": "JavaScript",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "javascript"
+          },
+          {
+            "text": "Flutter",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "flutter"
+          },
+          {
+            "text": "Dart",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "dart"
+          },
+          {
+            "text": "HTML",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "html5"
+          },
+          {
+            "text": "CSS",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "css"
+          },
+          {
+            "text": "Vuetify",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "vuetify"
+          }
+        ]
+      },
+      {
+        "title": {
+          "text": "Backend",
+          "kind": "ui",
+          "source": "legacy/resume/index.html #skills"
+        },
+        "items": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "php"
+          },
+          {
+            "text": "Laravel",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "laravel"
+          },
+          {
+            "text": "Rust",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "rust"
+          },
+          {
+            "text": "Tokio",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          },
+          {
+            "text": "Axum",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          },
+          {
+            "text": "Python",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "python"
+          },
+          {
+            "text": "Flask",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "flask"
+          },
+          {
+            "text": "Node.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "nodedotjs"
+          }
+        ]
+      },
+      {
+        "title": {
+          "text": "Databases, Infra & Tools",
+          "kind": "ui",
+          "source": "legacy/resume/index.html #skills"
+        },
+        "items": [
+          {
+            "text": "MySQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "mysql"
+          },
+          {
+            "text": "PostgreSQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "postgresql"
+          },
+          {
+            "text": "SQLite",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "sqlite"
+          },
+          {
+            "text": "S3-style object storage (AWS, R2)",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "cloudflare"
+          },
+          {
+            "text": "Laravel Queues",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)"
+          },
+          {
+            "text": "Git",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "git"
+          },
+          {
+            "text": "Selenium",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "selenium"
+          },
+          {
+            "text": "Pandas",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #skills; ~/career/facts/profile.md (Stack)",
+            "icon": "pandas"
+          }
+        ]
+      }
+    ]
+  },
+  "projects": {
+    "eyebrow": {
+      "text": "Portfolio",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #projects"
+    },
+    "heading": {
+      "text": "Projects",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #projects"
+    },
+    "intro": {
+      "text": "Most of my work lives in private company repos, so project cards below describe what I built rather than link to source. Public repos are linked where available.",
+      "kind": "fact",
+      "source": "legacy/resume/index.html #projects"
+    },
+    "entries": [
+      {
+        "id": "patchlamp",
+        "label": {
+          "text": "Product · Live since September 2026",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+        },
+        "title": {
+          "text": "Patchlamp",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+        },
+        "subtitle": {
+          "text": "A Website You Change by Texting It",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+        },
+        "paragraphs": [
+          {
+            "text": "The owner of a small business texts a number. Patch, the operator, opens the site's files, makes the change, checks that it is live and texts back, usually in a minute; “undo that” reverts it. Three codebases: a Laravel site (sign-up, accounts, chat), a Python relay that runs Claude Code inside one client's folder under that folder's permissions, and a toolbelt of small command-line tools the agent calls. Every transport pulls, so the machine that runs the agent has no webhook and no open port. Spending limits on image and video generation are enforced by the tools, and credentials never reach the model. **More than 1,800 commits and 300 test files across the three codebases as of November 2026.** Built and run by one person, me, working with Claude: I own the architecture, the review and the verification. The code is the business, so the overview linked below is the part you can read.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Laravel 13",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Python",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "systemd",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Claude Code",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Twilio",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Stripe",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          },
+          {
+            "text": "Cloudflare Pages",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\"; ~/career/facts/projects/patchlamp.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "patchlamp.com",
+            "kind": "ui",
+            "href": "https://patchlamp.com",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\" (the link's title)"
+          },
+          {
+            "text": "How it is built, on GitHub",
+            "kind": "ui",
+            "href": "https://github.com/Taylor-Rem/patchlamp",
+            "source": "legacy/resume/index.html #projects \"Patchlamp\" (the link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Personal Project · Retired 2026",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+        },
+        "title": {
+          "text": "Plateful",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+        },
+        "subtitle": {
+          "text": "Multi-Tenant Restaurant Ordering SaaS",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+        },
+        "paragraphs": [
+          {
+            "text": "A single-codebase, multi-tenant SaaS that gave each restaurant a branded online ordering storefront on its own subdomain or custom domain — three distinct UI surfaces (customer storefront, per-restaurant tenant admin, platform super-admin) all served by one Laravel 13 + Inertia v3 + Vue 3 app. Designed the tenancy layer from the ground up: a custom-domain-first `ResolveTenant` middleware with subdomain fallback, a `CurrentTenant` container, and a `BelongsToTenant` trait that applies a global scope and auto-stamps `restaurant_id` so feature code never has to remember to filter by tenant. Implemented Stripe Connect destination charges with a per-restaurant `application_fee_percent`, a DB-backed cart and `OrderPlacement` service handling hours/closed-state validation, tax, tips, and loyalty awarding, and a pluggable `DeliveryDispatcher` abstraction. Backed by 65+ Pest test files covering tenant resolution, cross-tenant isolation, checkout, auth, and admin flows.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Laravel 13",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Vue 3",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Inertia v3",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "TypeScript",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Tailwind",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "PostgreSQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Pest 4",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          },
+          {
+            "text": "Stripe Connect",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Plateful\"; ~/career/facts/projects/plateful.md"
+          }
+        ],
+        "links": []
+      },
+      {
+        "label": {
+          "text": "Personal Project",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+        },
+        "title": {
+          "text": "Artificer",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+        },
+        "subtitle": {
+          "text": "Self-Hosted Multi-GPU AI Agent Orchestrator",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+        },
+        "paragraphs": [
+          {
+            "text": "A 3-crate async Rust workspace (~5,200 LOC across engine, envoy client, and shared library) that runs long-running AI agents across a pool of GPUs. Features a `GpuPool` with explicit acquire/release semantics, a declarative `define_agents!` macro that auto-wires toolbelts at compile time, and persistent task state in SQLite (WAL mode) so agents can run arbitrarily long without context-window degradation.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md. Corrected 2026-11-21: the live page says \"procedural macro\"; the code is a declarative macro_rules! macro (artificer.md \"Claims that the code ... does NOT support\"), REWRITE.md § 1, § Decisions"
+          }
+        ],
+        "tags": [
+          {
+            "text": "Rust",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+          },
+          {
+            "text": "Tokio",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+          },
+          {
+            "text": "Axum",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+          },
+          {
+            "text": "SQLite",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+          },
+          {
+            "text": "Macros",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\" (\"Procedural Macros\" there); ~/career/facts/projects/artificer.md. Corrected 2026-11-21: macro_rules!, not a procedural macro, REWRITE.md § 1"
+          },
+          {
+            "text": "Async",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Artificer\"; ~/career/facts/projects/artificer.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "View on GitHub",
+            "kind": "ui",
+            "href": "https://github.com/Taylor-Rem/artificer",
+            "source": "legacy/resume/index.html #projects \"Artificer\" (the link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Personal Project",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+        },
+        "title": {
+          "text": "Sharewire",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+        },
+        "subtitle": {
+          "text": "Self-Hosted Music Sharing Platform",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Built end-to-end in **2.5 days** as a portfolio piece, scoped to five user stories (auth, upload, browse and search, personal library with audio playback, uploader-delete with cascade) and is covered by **110 Pest tests / 445 assertions**, all passing, covering every endpoint, action, and policy plus a full end-to-end demo flow. Architected with skinny controllers (every method ≤ 15 lines), Form Requests with policy-backed `authorize`, typed final readonly DTOs, Action classes, Eloquent Resources, and Policies — zero `DB::raw` or `DB::table` in `app/`. Wired Wayfinder for compile-time-typed Laravel routes consumed from Vue 3 + Inertia, and built a global audio player as a module-level singleton composable that survives Inertia page navigations without Pinia (HTTP Range support so seeking never re-downloads the file). Self-hosted on a Debian laptop via Caddy + PHP-FPM 8.4 + a systemd queue worker, exposed publicly over HTTPS by Tailscale Funnel.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Laravel 13",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Vue 3",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Inertia",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "TypeScript",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Tailwind",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Pest",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "SQLite",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Caddy",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          },
+          {
+            "text": "Tailscale",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Sharewire\"; ~/career/facts/projects/sharewire.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "View on GitHub",
+            "kind": "ui",
+            "href": "https://github.com/Taylor-Rem/sharewire",
+            "source": "legacy/resume/index.html #projects \"Sharewire\" (the link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "Ledger Management System",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "Rebounce-Reallocate & Auto-Allocation Engine",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Architected a one-click **rebounce-reallocate** that programmatically repairs ledger allocation errors by wiping allocations from a target month and iteratively re-processing transactions — including NSF unwind/rewind logic. Designed a `resident_space_summary` table with dirty-flag async recalc that surfaces errors without runtime validation overhead. Built a 3-tier auto-allocation engine (additional-rent pool → designated credits → general payments) supporting security deposits, dual resident/mortgage ledgers, and bounced-payment reversals. *Eliminated a full-time manual workload the support team used to absorb.*",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Laravel",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Vue.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "MySQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "Private Repo",
+            "kind": "ui",
+            "private": true,
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\" (the disabled link's title)"
+          },
+          {
+            "text": "Case study: the ledger repair",
+            "kind": "ui",
+            "href": "/case-studies/ledger-repair/",
+            "source": "legacy/resume/index.html #projects \"Ledger Management System\" (the link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "Support Desk Rewrite",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "Ticketing, Filtering & Audit Trail",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Rewrote the company-wide support desk end-to-end — frontend, backend, and data model — replacing legacy code where every user saw every ticket. Delivered 20+ REST endpoints, 9+ composable filter types, and role-based default filtering (\"assigned to me\") via Laravel conditional `when()` chains with localStorage-backed persistence. Added async email notifications via queued jobs, S3 attachments, public/private comments with per-user unread tracking, and an immutable audit history.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Laravel",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Vue.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "MySQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "AWS S3",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "Private Repo",
+            "kind": "ui",
+            "private": true,
+            "source": "legacy/resume/index.html #projects \"Support Desk Rewrite\" (the disabled link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "Clean & Green Inspections",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "Flutter App & Notice Delivery System",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Rebuilt the resident inspection and notice-delivery system from scratch — Flutter mobile app, Laravel backend, and data model. Replaced per-failure notices with a two-level template-grouping pipeline (Courtesy / Legal / Work Order). Engineered the `reason_cure_rule` attribute with per-jurisdiction custom-rule lookup and bilingual (English/Spanish) PDF-safe HTML formatting. Added offline-first inspection workflows (SharedPreferences persistence, batch photo upload).",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "Flutter",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Dart",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Laravel",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "MySQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "Private Repo",
+            "kind": "ui",
+            "private": true,
+            "source": "legacy/resume/index.html #projects \"Clean & Green Inspections\" (the disabled link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "t-components",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "Internal Vue Design System",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Built a 16-component design system (live-table, live-cell, live-grid, live-functionality, plus dialog / filter / autocomplete primitives) now used across 11+ pages in the resident management platform. Runtime theming via CSS custom properties — one hex-color prop drives header/footer/button styling across the library. Declarative header-config API with conditional rendering, input types, and display transforms eliminates boilerplate in consuming pages. Debounced inline editing (default 500ms) to reduce API traffic.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "Vue.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Vuetify",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "CSS Custom Properties",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"t-components\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "Private Repo",
+            "kind": "ui",
+            "private": true,
+            "source": "legacy/resume/index.html #projects \"t-components\" (the disabled link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "Report Generation Framework",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "Unified PDF / Excel / Email Pipeline",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "Designed a unified framework around an abstract `NewReport` base class — new report classes implement only `handle(): Collection` and the framework handles PDF/Excel rendering, S3 storage, async email delivery, and single-pass file reuse across download + email paths. Built reusable services: `CollToPdf` (Dompdf wrapper with dynamic page sizing), `CollToExcel`, and `SendAsyncEmail` (queued job with base64 attachment serialization and auto-cleanup). Authored flagship reports (Red Star Report, Rent Roll Report) on top of it.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "PHP",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Laravel",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Dompdf",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Vue.js",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\"; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "Private Repo",
+            "kind": "ui",
+            "private": true,
+            "source": "legacy/resume/index.html #projects \"Report Generation Framework\" (the disabled link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "Work",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+        },
+        "title": {
+          "text": "Support Automation Suite",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+        },
+        "subtitle": {
+          "text": "The Python Tool That Became a Production Feature",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+        },
+        "paragraphs": [
+          {
+            "text": "A ~2,900 LOC PyQt5 desktop tool I built before transitioning into full-stack development, automating 8+ support workflows — allocation/unallocation, charge and credit deletion, ticket resolution, NSF handling. Includes the original \"RedStar bot\": a Selenium-driven pseudo rebounce-reallocate that drove through hundreds of ledgers per run and later became the functional spec for my production Laravel rewrite.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "Python",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "PyQt5",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "Selenium",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+          },
+          {
+            "text": "MySQL",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\"; ~/career/facts/projects/support-tool.md; ~/career/facts/work-kingsley.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "View on GitHub",
+            "kind": "ui",
+            "href": "https://github.com/Taylor-Rem/support_tool",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\" (the link's title)"
+          },
+          {
+            "text": "Case study: the ledger repair",
+            "kind": "ui",
+            "href": "/case-studies/ledger-repair/",
+            "source": "legacy/resume/index.html #projects \"Support Automation Suite\" (the link's title)"
+          }
+        ]
+      },
+      {
+        "label": {
+          "text": "School",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+        },
+        "title": {
+          "text": "DalleBoard",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+        },
+        "subtitle": {
+          "text": "DevMountain Capstone",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+        },
+        "paragraphs": [
+          {
+            "text": "An AI-powered storyboarding tool that generates images using the DALL·E API, built with a Python/Flask backend and a Jinja-rendered frontend. My capstone project from DevMountain's Python Software Engineering Program.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          }
+        ],
+        "tags": [
+          {
+            "text": "Python",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          },
+          {
+            "text": "Flask",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          },
+          {
+            "text": "Jinja",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          },
+          {
+            "text": "SQLAlchemy",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          },
+          {
+            "text": "DALL·E API",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\"; ~/career/facts/projects/specs-capstone.md"
+          }
+        ],
+        "links": [
+          {
+            "text": "GitHub",
+            "kind": "ui",
+            "href": "https://github.com/Taylor-Rem/specs-capstone",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\" (the link's title)"
+          },
+          {
+            "text": "Demo",
+            "kind": "ui",
+            "href": "https://www.youtube.com/watch?v=b8bHnp2oqaI",
+            "source": "legacy/resume/index.html #projects \"DalleBoard\" (the link's title)"
+          }
+        ]
+      }
+    ]
+  },
+  "experience": {
+    "eyebrow": {
+      "text": "Background",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #experience"
+    },
+    "heading": {
+      "text": "Work Experience",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #experience"
+    },
+    "roles": [
+      {
+        "title": {
+          "text": "Software Developer",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "employer": {
+          "text": "Kingsley Management Corporation",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "dates": {
+          "text": "Nov 2024 – Present",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "place": {
+          "text": "Provo, UT",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "bullets": [
+          {
+            "text": "Own full-stack features end-to-end on the resident management platform (Vue.js / Laravel / MySQL) and Flutter inspection app — from data model to backend to frontend to rollout.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Shipped the Ledger Management System (rebounce-reallocate, resident_space_summary, 3-tier auto-allocation engine) that eliminated a full-time manual workload from the support department.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Rewrote the company-wide Support Desk end-to-end with role-based filtering, queued email notifications, S3 attachments, and audit history.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Rebuilt the Clean & Green Inspections app in Flutter with template-grouped notices, bilingual formatting, and offline-first workflows.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Designed a unified report-generation framework with an abstract `NewReport` base class and reusable PDF/Excel/email services.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Built the `t-components` Vue design system (16 components) now used across 11+ pages.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Continue to write Python automation (Selenium + Pandas meter-read scrapers across 3 utility vendors and 11 properties) for the utilities department.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Developer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          }
+        ]
+      },
+      {
+        "title": {
+          "text": "Automation Engineer",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "employer": {
+          "text": "Kingsley Management Corporation",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "dates": {
+          "text": "Jun 2023 – Nov 2024",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "place": {
+          "text": "Provo, UT",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+        },
+        "bullets": [
+          {
+            "text": "Built a ~2,900 LOC modular Python/PyQt5 desktop tool automating 8+ support tasks and an early Selenium-driven pseudo rebounce-reallocate that later became the spec for my Laravel production rewrite.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Developed a Pandas + Selenium transaction-reconciliation pipeline that reduced manual reallocation workload from days to minutes; later migrated the critical hot path to direct MySQL for further speedup.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          },
+          {
+            "text": "Transitioned into full-stack software development in November 2024.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Automation Engineer\"; ~/career/facts/work-kingsley.md; ~/career/facts/profile.md (Work history)"
+          }
+        ]
+      },
+      {
+        "title": {
+          "text": "Software Engineering Student",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+        },
+        "employer": {
+          "text": "DevMountain",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+        },
+        "dates": {
+          "text": "Nov 2022 – Apr 2023",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+        },
+        "place": {
+          "text": "Lehi, UT",
+          "kind": "fact",
+          "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+        },
+        "bullets": [
+          {
+            "text": "Completed an intensive Python Software Engineering Program.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+          },
+          {
+            "text": "Built DalleBoard (capstone), an AI image-generation storyboarding tool using Python, Flask, SQLAlchemy, and the DALL·E API.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+          },
+          {
+            "text": "Built a full-stack piano app using JavaScript, Node.js, Express, and PostgreSQL with Bcrypt-secured user auth and recording persistence.",
+            "kind": "fact",
+            "source": "legacy/resume/index.html #experience \"Software Engineering Student\"; ~/career/facts/profile.md (Work history); ~/career/facts/projects/specs-capstone.md; ~/career/facts/projects/fullstack-piano.md"
+          }
+        ]
+      }
+    ]
+  },
+  "contact": {
+    "eyebrow": {
+      "text": "Contact",
+      "kind": "ui",
+      "source": "legacy/resume/index.html #contact"
+    },
+    "heading": {
+      "text": "Let's talk",
+      "kind": "voice",
+      "source": "legacy/resume/index.html #contact"
+    },
+    "text": {
+      "text": "Open to remote software engineering roles — full-stack, backend, or Rust — alongside running the products. Email is fastest.",
+      "kind": "fact",
+      "source": "legacy/resume/index.html #contact; ~/career/facts/profile.md (Positioning: \"Open to remote software engineering roles\")"
+    },
+    "links": [
+      {
+        "text": "GitHub",
+        "kind": "ui",
+        "href": "https://github.com/Taylor-Rem",
+        "source": "legacy/resume/index.html #contact (the link's aria-label)"
+      },
+      {
+        "text": "LinkedIn",
+        "kind": "ui",
+        "href": "https://linkedin.com/in/taylor-remund-88169124a",
+        "source": "legacy/resume/index.html #contact (the link's aria-label)"
+      },
+      {
+        "text": "Email",
+        "kind": "ui",
+        "href": "mailto:remundtaylor3@gmail.com",
+        "source": "legacy/resume/index.html #contact (the link's aria-label)"
+      }
+    ]
+  },
+  "person": {
+    "_note": "The Person structured data (JSON-LD) on /resume/ (REWRITE.md § F1). Read by search engines, not shown. Holds only what the page states: the name, the photograph, GitHub and LinkedIn (contact), the current role and employer (experience[0]) and the place the about paragraph names (below).",
+    "locality": { "text": "American Fork", "kind": "fact", "source": "legacy/resume/index.html #about (\"based in American Fork, UT\"); ~/career/facts/profile.md (Identity: Location)" },
+    "region": { "text": "UT", "kind": "fact", "source": "legacy/resume/index.html #about (\"based in American Fork, UT\"); ~/career/facts/profile.md (Identity: Location)" }
+  }
+}

@@ -30,6 +30,7 @@ import { STAGE_PRELOADS } from '../workshop/shell/stage-preloads.ts';
 import { FAILURES_KEY, quickStill } from '../workshop/shell/tier.ts';
 import { PAPERWORK_IDS } from '../workshop/ui/strip/strip.ts';
 import { site } from '../content/site.ts';
+import { personJsonLd } from '../content/person.ts';
 
 interface Props {
   title: string;
@@ -38,6 +39,10 @@ interface Props {
 const { title, description } = Astro.props;
 const { strip, home } = site;
 const links = strip.links;
+// The slim line under the stage carries Privacy, Terms and SMS and nothing else (§ B7); the paper pages' footer
+// (Footer.astro) prints the whole list, the site's own links first.
+const LEGAL_PATHS = ['/privacy/', '/terms/', '/sms/'];
+const legalLinks = site.footer.links.filter((link) => LEGAL_PATHS.includes(link.href));
 
 // The head's decision, before the first paint (the same rule as shell/tier.ts `quickStill`, whose source is
 // run here): the Still tier when the address, data-saver, an earlier failure or a browser without WebGL 2 says
@@ -65,6 +70,7 @@ const headScript = `(function () {
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href="https://taylorremund.com/" />
+    <script type="application/ld+json" set:html={personJsonLd()} />
     <StageHead posters={{ set: BENCH_POSTERS, files: BENCH_POSTER_FILES, dir: BENCH_POSTER_DIR }} />
     <script is:inline set:html={headScript}></script>
     <link rel="preload" href="/fonts/workshop-tape.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
@@ -210,7 +216,7 @@ const headScript = `(function () {
     <slot name="over-stage" />
     <slot />
     <footer class="legal">
-      <p>{site.footer.links.map((link) => <a href={link.href}>{link.text}</a>)}</p>
+      <p>{legalLinks.map((link) => <a href={link.href}>{link.text}</a>)}</p>
     </footer>
     <script>
       import '../workshop/shell/home-early.ts';

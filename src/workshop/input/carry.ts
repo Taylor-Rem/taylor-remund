@@ -76,6 +76,11 @@ export const CARRY_TUNING = {
   top: 7.5,
   /** The corner at the foot of the upright face a thing caught in flight is held on (a small round, so even a low catch is on the face). */
   catchFillet: 0.08,
+  /**
+   * How far in front of that face's foot the hold must come, on the level, before the face is let go and stands in
+   * front of the wall again (a hold AT the foot, where a low catch begins, keeps its face: the next flick goes up).
+   */
+  catchLet: 0.15,
 } as const;
 
 export type CarryTuning = { -readonly [K in keyof typeof CARRY_TUNING]: number };
@@ -209,6 +214,11 @@ export class CarryPlane {
   /** Taken hold of in the air (its bottom above what is under it by more than the carry's clearance, or flying). */
   caught = false;
   /**
+   * Caught in flight too low to be on an upright face through the grip (at about the height it is carried at, or
+   * under it): its face is stood at the foot of the hold at the first `target` (where the hold is needs the ray).
+   */
+  private footCatch = false;
+  /**
    * The target's motion at the last call that was the surface's own and not the pointer's (its level easing over
    * what is under it), units/s. A throw is the hand's: this is taken out of it (`Lens.drift`).
    */
@@ -250,12 +260,18 @@ export class CarryPlane {
    * where it was caught: on an upright face through that point, wherever over the bench that is (it comes down with
    * the pointer and goes up with it, at that depth, so a juggle stays put; found by the browser's juggling tests
    * 2026-11-20: a low catch used to go on a level and walk back with the next flick, and one behind the back line
-   * snapped forward to it). Taken out of a hand or off a perch without flying, it starts at the grip and eases down.
+   * snapped forward to it). Caught in flight too low for that (within a hand of the height it is carried at: where a
+   * juggler's hand waits), it is held on the level as a thing picked up is, with the face at the foot of the hold: the
+   * next flick up the screen still throws it up where it is. (2026-11-21: such a catch had no face; a crate caught
+   * 0.22 above its carrying height went 1.7 back along the bench with the next flick, one caught 0.28 above went
+   * straight up. One run in four of the touch juggling test, by how the first flick happened to be sampled.)
+   * Taken out of a hand or off a perch without flying, it starts at the grip and eases down.
    */
   begin(shape: CarryShape, grip: Vec3, t: number, obstacles: Iterable<Obstacle>, flying = false): void {
     this.shape = shape;
     this.lastT = t;
     this.face = null;
+    this.footCatch = false;
     this.drift = [0, 0, 0];
     this.last = grip;
     if (shape.kind === 'part') {
@@ -273,13 +289,17 @@ export class CarryPlane {
         this.h = carried;
         // (exactly where it was caught, even nearer the wall than its footprint as it tumbles would be carried)
         this.face = Math.max(grip[2], this.bench.minZ + 0.05);
-      } else this.h = this.caught ? Math.max(grip[1], carried) : carried;
+      } else {
+        this.h = this.caught ? Math.max(grip[1], carried) : carried;
+        this.footCatch = flying;
+      }
     } else this.caught = false;
   }
 
   end(): void {
     this.shape = null;
     this.face = null;
+    this.footCatch = false;
     this.drift = [0, 0, 0];
   }
 
@@ -298,6 +318,15 @@ export class CarryPlane {
       return [clamp(p[0], b.minX, b.maxX), clamp(p[1], b.top + T.plugFloor, b.ceiling), p[2]];
     }
     const lift = T.clearance + s.gripAboveBottom;
+    if (this.footCatch) {
+      // a low catch in flight: the level is at the hold's height (`begin`), and the face stands at the hold's foot:
+      // where the line of sight through the GRIP meets that level (not through the pointer as it is by now: a
+      // flick whose first movement arrives with the press would stand the face behind where it was caught)
+      this.footCatch = false;
+      const g = this.last ?? rayAtHeight(ray, this.h, this.p);
+      const z = Math.abs(ray.dir[1]) > 1e-6 ? g[2] + (ray.dir[2] * (this.h - g[1])) / ray.dir[1] : g[2];
+      this.face = Math.max(z - T.catchFillet, b.minZ + 0.05);
+    }
     const all = Array.isArray(obstacles) ? (obstacles as Obstacle[]) : [...obstacles];
     this.level = this.levelFor(ray, all, lift, s.halfX + T.footprintPad, s.halfZ + T.footprintPad, s.halfZ);
     const goal = Math.min(b.ceiling, this.level + lift);
@@ -311,10 +340,10 @@ export class CarryPlane {
       const was = this.inBounds(this.hit(ray, h0).p, s.halfZ);
       this.drift = [(p[0] - was[0]) / dt, (p[1] - was[1]) / dt, (p[2] - was[2]) / dt];
     } else if (dt > 1e-4) this.drift = [0, 0, 0];
-    // caught in flight and now brought down onto the level, in front of where the surface turns up at the back:
-    // the upright face is in front of the wall again (the level part only grows behind the hold, so the hold does
-    // not move by it)
-    if (this.face !== null && hit.theta === 0 && hit.p[2] >= this.homeFace() + T.fillet) this.face = null;
+    // caught in flight and now brought down onto the level and forward of the face's foot, in front of where the
+    // surface turns up at the back: the upright face is in front of the wall again (the level part only grows
+    // behind the hold, so the hold does not move by it)
+    if (this.face !== null && hit.theta === 0 && hit.p[2] >= this.face + T.catchFillet + T.catchLet && hit.p[2] >= this.homeFace() + T.fillet) this.face = null;
     this.last = p;
     return p;
   }
