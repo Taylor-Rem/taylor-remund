@@ -272,6 +272,75 @@ test.describe('the Still tier', { tag: ENGINES }, () => {
   });
 });
 
+// P4 A3: the paperwork filled from the live home page. What it says is held by check-text (against main) and by
+// tests/unit/paper/home.test.ts; here, that it is all there and readable in each state that shows it.
+/** Requests for what only the paperwork uses: its two Plex faces and its two pictures. */
+const PAPER_ASSETS = [/IBMPlexSans-/, /exchange-room-/, /\/assets\/taylor\.jpg/];
+const paperworkComplete = async (page: Page): Promise<void> => {
+  const pw = page.locator('#paperwork');
+  await expect(pw.locator('#patchlamp')).toContainText('Patch takes chores off your hands');
+  await expect(pw.locator('#patchlamp a[href="https://patchlamp.com/pricing"]')).toHaveCount(1);
+  // the prices are /ai/'s, whole
+  await expect(pw.locator('#services .price')).toHaveText(['$150', '$500–$1,500']);
+  await expect(pw.locator('#services a[href="/ai/"]')).toHaveCount(1);
+  await expect(pw.locator('#about a[href="/resume/"]')).toHaveCount(1);
+  for (const href of ['https://github.com/Taylor-Rem', 'https://linkedin.com/in/taylor-remund-88169124a', 'mailto:remundtaylor3@gmail.com']) {
+    await expect(pw.locator(`#contact a[href="${href}"]`)).toHaveCount(1);
+  }
+  await expect(pw.locator('#contact a[href^="mailto:"]')).toHaveAttribute('data-mail', '');
+  // the pictures wait below the first screen, their sizes set so nothing moves when they come
+  for (const img of await pw.locator('img').all()) {
+    await expect(img).toHaveAttribute('loading', 'lazy');
+    expect(Number(await img.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(await img.getAttribute('height'))).toBeGreaterThan(0);
+  }
+  // nothing scrolls sideways
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+};
+
+test.describe('P4 A3: the paperwork', { tag: ENGINES }, () => {
+  for (const width of [390, 1280]) {
+    test(`?tier=still at ${width}: every section is there, on paper, readable`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/?tier=still', { waitUntil: 'load' });
+      await paperworkComplete(page);
+      const [bg, fg] = await page.locator('#paperwork').evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]);
+      expect(bg).not.toBe(fg);
+      // the pictures come when they are reached, and arrive whole
+      await page.locator('#about img').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.locator('#paperwork img').evaluateAll((is) => is.every((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0))).toBe(true);
+    });
+  }
+
+  test('with the stage, the paperwork is not laid out and its faces and pictures are not fetched until Read', async ({ page, baseURL }) => {
+    test.setTimeout(240_000);
+    const w = watch(page, new URL(baseURL!).origin);
+    await page.setViewportSize(STAGE_VIEW);
+    await page.goto('/?tier=low');
+    await live(page);
+    await expect(page.locator('#paperwork')).toBeHidden();
+    expect(w.requests.filter((u) => PAPER_ASSETS.some((re) => re.test(u)))).toEqual([]);
+    await page.getByRole('link', { name: 'Read', exact: true }).click();
+    await paperworkComplete(page);
+    await expect.poll(() => w.requests.filter((u) => /IBMPlexSans-/.test(u)).length).toBeGreaterThan(0);
+    expect(w.foreign).toEqual([]);
+    expect(w.errors).toEqual([]);
+  });
+});
+
+test.describe('P4 A3: the paperwork without JavaScript', { tag: ENGINES }, () => {
+  test.use({ javaScriptEnabled: false });
+  test('every section is there; each section’s address opens it', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await paperworkComplete(page);
+    for (const id of SECTIONS) {
+      await page.goto(`/#${id}`);
+      await expect(page.locator(`#${id} h2`)).toBeInViewport();
+    }
+  });
+});
+
 test.describe('without JavaScript, a station’s address', { tag: ENGINES }, () => {
   test.use({ javaScriptEnabled: false });
   test('#patchlamp is the section’s plain anchor', async ({ page }) => {

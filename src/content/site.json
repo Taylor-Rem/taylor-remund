@@ -46,7 +46,14 @@
   "pages": {
     "home": {
       "title": { "text": "Taylor Remund — Patchlamp, software for small businesses", "kind": "ui", "source": "legacy/index.html <title>: the live page's, until Taylor words a person-first one (REWRITE.md § F1)" },
-      "description": { "text": "Patchlamp changes the website when you text it. Built and run in Utah by Taylor Remund, with hands-on AI services around it.", "kind": "fact", "source": "legacy/index.html <meta name=description>: the live page's, until Taylor words a new one (REWRITE.md § F1)" }
+      "description": { "text": "Patchlamp changes the website when you text it. Built and run in Utah by Taylor Remund, with hands-on AI services around it.", "kind": "fact", "source": "legacy/index.html <meta name=description>: the live page's, until Taylor words a new one (REWRITE.md § F1)" },
+      "og": {
+        "title": { "text": "Taylor Remund — Patchlamp", "kind": "ui", "source": "legacy/index.html og:title: the live page's, until Taylor words a person-first one (REWRITE.md § F1)" },
+        "description": { "text": "Patchlamp changes the website when you text it. Built and run in Utah.", "kind": "fact", "source": "legacy/index.html og:description: the live page's; ~/projects/patchlamp/CLAIMS.md § Capabilities `site-changes` (true now)" },
+        "type": "website",
+        "url": "https://taylorremund.com/",
+        "image": "https://taylorremund.com/assets/og.png"
+      }
     },
     "privacy": {
       "title": { "text": "Privacy Policy | Taylor Remund", "kind": "ui", "source": "legacy/privacy/index.html <title>" },

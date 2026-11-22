@@ -1,0 +1,88 @@
+{
+  "patchlamp": {
+    "kicker": { "text": "Patchlamp · Text your website", "kind": "ui", "source": "legacy/index.html #patchlamp .pl-kicker" },
+    "position": {
+      "text": "Patch takes chores off your hands: change your site, get quote requests, make estimates and invoices, and confirm bookings customers make on your site—all by text. I'm Taylor Remund in American Fork, Utah; I'm on the hook for it. You text Patch, my AI operator.",
+      "kind": "fact",
+      "source": "~/projects/patchlamp/app/Support/Position.php Position::SENTENCE, word for word (BRAND.md § The position); ~/projects/patchlamp/CLAIMS.md § The position, one row per clause (true now / commitment); REWRITE.md § F1 (the #patchlamp section carries the brand's position sentence). tests/unit/paper/home.test.ts holds it to Position.php where that file is present"
+    },
+    "bullets": [
+      {
+        "text": "Every change is saved in your site's history. It works inside a walled-off folder that holds only your things.",
+        "kind": "fact",
+        "source": "legacy/index.html #patchlamp .pl-list, the second item; ~/projects/patchlamp/CLAIMS.md § Hero and how it works, rows \"Every change is saved in your site's history\" and \"Works inside a walled-off folder that holds only your things\" (both true now, read 2026-11-21)"
+      }
+    ],
+    "links": [
+      { "text": "See Patchlamp", "kind": "ui", "href": "https://patchlamp.com", "source": "legacy/index.html #patchlamp .pl-btn" },
+      { "text": "How it works", "kind": "ui", "href": "https://patchlamp.com/#how", "source": "legacy/index.html #patchlamp .pl-link (patchlamp.com's home still has id=\"how\": ~/projects/patchlamp/resources/views/patchlamp/home.blade.php, read 2026-11-21)" },
+      { "text": "Every price, published on purpose", "kind": "ui", "href": "https://patchlamp.com/pricing", "source": "legacy/ai/index.html #patchlamp .pl-panel-side (the live site's own words for this link); REWRITE.md § 3, § F1 (new text types no Patchlamp price; it links to patchlamp.com/pricing)" }
+    ],
+    "picture": {
+      "src": "/assets/exchange-room-1280.jpg",
+      "sources": [
+        { "src": "/assets/exchange-room-640.webp", "width": 640 },
+        { "src": "/assets/exchange-room-1280.webp", "width": 1280 }
+      ],
+      "width": 1280,
+      "height": 714,
+      "alt": { "text": "A telephone exchange room: Patch, a raccoon in a cardigan, at the switchboard", "kind": "ui", "source": "legacy/index.html #patchlamp .pl-visual img alt" }
+    }
+  },
+  "services": {
+    "eyebrow": { "text": "Services", "kind": "ui", "source": "legacy/index.html #services .section-eyebrow" },
+    "intro": {
+      "text": "Around the products: hands-on sessions and a proper install of Claude on your own computer, with guardrails and training. Websites and menus are Patchlamp.",
+      "kind": "fact",
+      "source": "legacy/index.html #services .section-subtitle"
+    },
+    "cards": [
+      {
+        "package": "AI Working Session",
+        "text": {
+          "text": "Hands-on help putting AI to work on your actual tasks — bring a problem, leave with it running.",
+          "kind": "fact",
+          "source": "legacy/index.html #services .svc-card 1 (name and prices read from src/content/ai.json packages, the one file /ai/ uses)"
+        }
+      },
+      {
+        "package": "AI on Your Computer",
+        "text": {
+          "text": "Claude installed and configured for your business — your files, your tools, your rules — plus training.",
+          "kind": "fact",
+          "source": "legacy/index.html #services .svc-card 2 (name and prices read from src/content/ai.json packages, the one file /ai/ uses)"
+        }
+      }
+    ],
+    "more": { "text": "See the services", "kind": "ui", "href": "/ai/", "source": "legacy/index.html #services .svc-cta" }
+  },
+  "about": {
+    "eyebrow": { "text": "About", "kind": "ui", "source": "legacy/index.html #about .section-eyebrow" },
+    "paragraphs": [
+      {
+        "text": "I'm Taylor Remund, a full-stack software developer in American Fork, Utah. Patchlamp is built and run by one person — me, working with Claude — and I say that plainly because it's how the work gets done and how it stays affordable.",
+        "kind": "fact",
+        "source": "legacy/index.html #about; ~/career/facts/profile.md (Identity: Location); ~/career/facts/projects/patchlamp.md (\"Patchlamp is built and run by one person — me, working with Claude\")"
+      },
+      {
+        "text": "By day I build software at Kingsley Management Corporation. Looking for the résumé? It's at [/resume/](/resume/).",
+        "kind": "fact",
+        "source": "legacy/index.html #about; ~/career/facts/profile.md (Work history: Software Developer, Kingsley Management Corporation, Nov 2024 – present)"
+      }
+    ],
+    "photo": {
+      "src": "/assets/taylor.jpg",
+      "width": 220,
+      "height": 220,
+      "alt": { "text": "Taylor Remund", "kind": "ui", "source": "legacy/index.html #about img alt" }
+    }
+  },
+  "contact": {
+    "eyebrow": { "text": "Contact", "kind": "ui", "source": "legacy/index.html #contact .section-eyebrow" },
+    "text": {
+      "text": "A restaurant, a website, a business that wants AI doing real work — or a role. Email is fastest.",
+      "kind": "fact",
+      "source": "legacy/index.html #contact .contact-subtext"
+    }
+  }
+}

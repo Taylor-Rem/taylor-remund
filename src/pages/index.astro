@@ -1,17 +1,33 @@
 ---
-// The home page (REWRITE.md § 2, § B3, § B7, § F1; P3 B1): the stage and the
-// strip (src/layouts/Stage.astro), and behind them the paperwork, the page's
-// plain document. Its sections exist so the anchors of § 2 keep working; only
-// their headings are here until § F1's content arrives.
+// The home page (REWRITE.md § 2, § B3, § B7, § F1; P3 B1, P4 A3): the stage and
+// the strip (src/layouts/Stage.astro), and behind them the paperwork, the page's
+// plain document: what a search engine, a screen reader, a browser without WebGL,
+// the Still tier and a visitor who presses Read all get. It is the live home
+// page's #patchlamp, #services, #about and #contact (legacy/index.html), in that
+// order, set in the paper pages' type (src/styles/paperwork.css). Every word is
+// src/content/ (home.json; the headings are site.json `paperwork`; the services'
+// names and prices are ai.json's); this file holds structure only.
 // Title and description (src/content/site.json `pages.home`) are the live page's until Taylor words new ones (§ F1).
 import Stage from '../layouts/Stage.astro';
 import SettingsControl from '../workshop/ui/settings/SettingsControl.astro';
 import SettingsPanel from '../workshop/ui/settings/SettingsPanel.astro';
 import { site } from '../content/site.ts';
+import { home, serviceCards } from '../content/home.ts';
 import Controls from '../workshop/ui/controls/Controls.astro';
 import ControlsOpener from '../workshop/ui/controls/ControlsOpener.astro';
+import { renderInline } from '../components/paper/inline.ts';
+import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
+import { keepPricesWhole, noteParts } from '../components/paper/prices.ts';
+import '../styles/paperwork.css';
 
-const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
+const { patchlamp, services, about, contact } = home;
+const heading = site.paperwork;
+const rich = (text: string): string => renderInline(text, { linkAttrs: (h) => ({ ...printAttrs(h), ...externalAttrs(h) }) });
+const linkAttrs = (href: string, text?: string): Record<string, string> => ({ ...printAttrs(href, text), ...externalAttrs(href), ...mailAttrs(href) });
+// The contact links are the strip's, without the résumé (the live section had GitHub, LinkedIn and Email).
+const contactLinks = site.strip.links.filter((l) => !l.href.startsWith('/'));
+const pic = patchlamp.picture;
+const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
 ---
 <Stage
   title={site.pages.home.title.text}
@@ -22,10 +38,55 @@ const sections = ['patchlamp', 'services', 'about', 'contact'] as const;
   <Controls slot="over-stage" />
   <SettingsPanel slot="over-stage" />
   <main id="paperwork" tabindex="-1">
-    {sections.map((id) => (
-      <section id={id} aria-labelledby={`${id}-title`}>
-        <h2 id={`${id}-title`}>{site.paperwork[id].text}</h2>
-      </section>
-    ))}
+    <section class="pw-section" id="patchlamp" aria-labelledby="patchlamp-title">
+      <p class="pw-tape"><span class="pw-lamp" aria-hidden="true"></span>{patchlamp.kicker.text}</p>
+      <h2 class="pw-title" id="patchlamp-title">{heading.patchlamp.text}</h2>
+      <p class="pw-lead" set:html={rich(patchlamp.position.text)} />
+      <ul class="pw-bullets">{patchlamp.bullets.map((b) => <li set:html={rich(b.text)} />)}</ul>
+      <ul class="pw-links">
+        {patchlamp.links.map((l, i) => <li><a class={i === 0 ? 'pw-primary' : undefined} href={l.href} {...linkAttrs(l.href, l.text)}>{l.text}</a></li>)}
+      </ul>
+      <picture class="pw-plate">
+        <source type="image/webp" srcset={srcset} sizes="(min-width: 60rem) 40rem, calc(100vw - 2.5rem)" />
+        <img src={pic.src} alt={pic.alt.text} width={pic.width} height={pic.height} loading="lazy" decoding="async" />
+      </picture>
+    </section>
+
+    <section class="pw-section" id="services" aria-labelledby="services-title">
+      <p class="pw-tape">{services.eyebrow.text}</p>
+      <h2 class="pw-title" id="services-title">{heading.services.text}</h2>
+      <p class="pw-intro" set:html={rich(services.intro.text)} />
+      <div class="pw-rates">
+        {serviceCards().map(({ card, pkg }, i) => (
+          <article class="pw-rate" aria-labelledby={`service-${i + 1}`}>
+            <h3 class="pw-rate-name" id={`service-${i + 1}`}><a href="/ai/#packages" {...printAttrs('/ai/#packages')}>{pkg.name.text}</a></h3>
+            <p class="pw-rate-text" set:html={rich(card.text.text)} />
+            <p class="pw-rate-price"><span class="price">{pkg.price.text}</span></p>
+            <p class="pw-rate-note">
+              {noteParts(pkg.priceNote.text).map((part, k) => (
+                <Fragment>{k > 0 && <span class="pw-sep"> · </span>}<span class="part" set:html={keepPricesWhole(renderInline(part))} /></Fragment>
+              ))}
+            </p>
+          </article>
+        ))}
+      </div>
+      <p class="pw-more"><a href={services.more.href} {...linkAttrs(services.more.href)}>{services.more.text}</a></p>
+    </section>
+
+    <section class="pw-section pw-about" id="about" aria-labelledby="about-title">
+      <p class="pw-tape">{about.eyebrow.text}</p>
+      <h2 class="pw-title" id="about-title">{heading.about.text}</h2>
+      <img class="pw-photo" src={about.photo.src} alt={about.photo.alt.text} width={about.photo.width} height={about.photo.height} loading="lazy" decoding="async" />
+      <div class="pw-text">{about.paragraphs.map((p) => <p set:html={rich(p.text)} />)}</div>
+    </section>
+
+    <section class="pw-section" id="contact" aria-labelledby="contact-title">
+      <p class="pw-tape">{contact.eyebrow.text}</p>
+      <h2 class="pw-title" id="contact-title">{heading.contact.text}</h2>
+      <p class="pw-intro" set:html={rich(contact.text.text)} />
+      <ul class="pw-contact">
+        {contactLinks.map((l) => <li><a href={l.href} {...linkAttrs(l.href)}>{l.text}</a></li>)}
+      </ul>
+    </section>
   </main>
 </Stage>

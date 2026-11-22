@@ -33,6 +33,7 @@ import { PAPERWORK_IDS } from '../workshop/ui/strip/strip.ts';
 import { site } from '../content/site.ts';
 import { personJsonLd } from '../content/person.ts';
 import { mailAttrs } from '../components/paper/links.ts';
+import { tokensCss } from '../styles/paper-tokens.ts';
 
 interface Props {
   title: string;
@@ -40,6 +41,8 @@ interface Props {
 }
 const { title, description } = Astro.props;
 const { strip, home } = site;
+// Open Graph, as the live home page has it (legacy/index.html), so a link to `/` previews as it does today.
+const og = site.pages.home.og;
 const links = strip.links;
 // The slim line under the stage carries Privacy, Terms and SMS and nothing else (§ B7); the paper pages' footer
 // (Footer.astro) prints the whole list, the site's own links first.
@@ -74,6 +77,12 @@ const headScript = `(function () {
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href="https://taylorremund.com/" />
+    {og && <meta property="og:title" content={og.title.text} />}
+    {og && <meta property="og:description" content={og.description.text} />}
+    {og && <meta property="og:type" content={og.type} />}
+    {og && <meta property="og:url" content={og.url} />}
+    {og && <meta property="og:image" content={og.image} />}
+    <style is:inline set:html={tokensCss()}></style>
     <script type="application/ld+json" set:html={personJsonLd()} />
     <StageHead posters={{ set: BENCH_POSTERS, files: BENCH_POSTER_FILES, dir: BENCH_POSTER_DIR }} motionKey={MOTION_KEY} />
     <script is:inline set:html={headScript}></script>
@@ -194,10 +203,7 @@ const headScript = `(function () {
       }
       .restart:hover { background: #1b3a3d; }
 
-      /* ── the paperwork: plain and semantic; its type comes later from the plain pages' stylesheet ── */
-      #paperwork { max-width: 42rem; margin: 0 auto; padding: 40px var(--gutter) 64px; }
-      #paperwork h2 { font-size: 1.5rem; line-height: 1.25; margin: 2.5rem 0 0.75rem; }
-      #paperwork section { scroll-margin-top: 16px; }
+      /* ── the paperwork: its sheet, type and print are src/styles/paperwork.css (imported by the page) ── */
 
       /* ── the legal line ── */
       .legal { padding: 16px var(--gutter) 24px; font: 13px/20px system-ui, sans-serif; color: var(--cream-soft); }
@@ -226,7 +232,8 @@ const headScript = `(function () {
       html.stage-on.away:not(.reading) .strip::before, html.stage-on.away:not(.reading) .legal::before { opacity: 1; }
       html.motion-reduced .strip::before, html.motion-reduced .legal::before { transition: none; }
       @media (max-width: 640px) { html.stage-on .strip::before { height: 132px; } }
-      html.stage-on:not(.reading) #paperwork { visibility: hidden; }
+      /* not laid out while the stage owns the screen, so its faces and pictures are not fetched until Read */
+      html.stage-on:not(.reading) #paperwork { display: none; }
       html.stage-on:not(.reading) .legal { position: fixed; right: 0; bottom: 0; z-index: 30; padding: 0 var(--gutter) 6px; pointer-events: none; }
       html.stage-on:not(.reading) .legal a { pointer-events: auto; }
       /* reading: the paperwork is the page; the stage is hidden (and stopped: shell/home.ts) */
@@ -255,7 +262,7 @@ const headScript = `(function () {
     <slot name="over-stage" />
     <slot />
     <footer class="legal">
-      <p>{legalLinks.map((link) => <a href={link.href}>{link.text}</a>)}</p>
+      <p>{legalLinks.map((link) => <Fragment><a href={link.href}>{link.text}</a>{' '}</Fragment>)}</p>
     </footer>
     <script>
       import '../workshop/shell/home-early.ts';
