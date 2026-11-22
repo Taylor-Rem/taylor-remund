@@ -1,6 +1,6 @@
 // P4 T2: the tool wall's tools drawn (view/stations/tools.ts), headless: the rig's bone for each tool is where the parts
 // view draws that tool (hanging, in the hand), hidden when it is out of the world; a coat of paint reaches its handle's
-// vertices only, and comes off again; while a tool is in the hand the things it built glow, in its colour, and stop when
+// vertices only, and comes off again; while a tool is in the hand the things it built hop, one after another, and stop when
 // it is back on the wall; the rattle is drawn on the drawn pose only (the simulation's poses are not touched).
 import { describe, expect, test } from 'vitest';
 import { Box3, BufferAttribute, MeshBasicMaterial, PerspectiveCamera, Scene, Vector3, type Material, type Mesh, type Texture } from 'three';
@@ -67,7 +67,6 @@ function views(world: World) {
     }
   };
   const bone = (id: string) => tools.root.getObjectByName(`tool.${id.slice(5)}`)!;
-  const glow = () => tools.root.getObjectByName('tools:glow') as Mesh;
   /** Where the rig draws the tool's body middle (its bounds' middle in its own frame, through its bone). */
   const middle = (id: string): Vector3 => pieceBounds(tool(id.slice(5) as ToolKind)).getCenter(new Vector3()).applyMatrix4(bone(id).matrixWorld);
   const colours = (): number[] => {
@@ -80,7 +79,7 @@ function views(world: World) {
     });
     return out;
   };
-  return { scene, draw, step, bone, glow, middle, colours };
+  return { scene, draw, step, bone, middle, colours };
 }
 
 describe('the tool wall drawn', () => {
@@ -101,32 +100,46 @@ describe('the tool wall drawn', () => {
     expect(v.middle(id).distanceTo(new Vector3(...world.motion(id)!.pose.p))).toBeLessThan(0.08); // (a hair of hover lift and squash)
   });
 
-  test('in the hand the things it built glow in its colour, and its own place; back on its peg, nothing does; the rattle is the view\'s', () => {
+  test('in the hand the things built with it hop, in a wave, drawn only (the simulation\'s poses are not touched); the others do not; hung back, they stop', () => {
     const { world } = stubWorld(1, { scene: bench });
     run(world, 3);
     const v = views(world);
     v.draw();
-    expect(v.glow().visible).toBe(false);
+    /** How far above its simulated pose a part is drawn now. */
+    const above = (id: string): number => (v.scene.getObjectByName(`part:${id}`)!.matrix.elements[13] ?? 0) - world.motion(id)!.pose.p[1];
     const id = 'tool-vue';
     world.dispatch({ type: 'grab', id, grip: world.motion(id)!.pose.p });
     world.dispatch({ type: 'carry', target: [-6, 2.5, -3] });
     const before = world.motion('crate-3')!.pose.p.slice();
-    v.step(20);
+    const peak = new Map<string, number>();
+    const firstHop = new Map<string, number>();
+    for (let i = 0; i < 3 * HZ; i++) {
+      v.step(1);
+      for (const c of ['crate-1', 'crate-2', 'crate-3', 'crate-4']) {
+        const y = above(c);
+        peak.set(c, Math.max(peak.get(c) ?? 0, y));
+        if (y > 0.04 && !firstHop.has(c)) firstHop.set(c, i);
+      }
+    }
     expect(world.motion('crate-3')!.pose.p).toEqual(before);
-    const g = v.glow();
-    expect(g.visible).toBe(true);
-    expect(g.geometry.drawRange.count / 6).toBeGreaterThanOrEqual(3);
-    const col = g.geometry.getAttribute('color') as BufferAttribute;
-    const green = linear('paint-green'), amber = linear('amber-glow');
-    expect(col.getY(0) / col.getX(0)).toBeCloseTo(green[1] / amber[1] / (green[0] / amber[0]), 3);
-    // back at its place: it hangs, and the glow is out a few seconds later
+    // VUE built the ledger (crate-1), the reports (crate-2) and t-components (crate-3): they hop a few pixels; Artificer (crate-4, Rust) does not
+    for (const c of ['crate-1', 'crate-2', 'crate-3']) expect(peak.get(c), c).toBeGreaterThan(0.05);
+    expect(peak.get('crate-4') ?? 0).toBeLessThan(0.035); // (a hover lift or a landing at most)
+    // one after another: not all at once
+    expect(new Set(['crate-1', 'crate-2', 'crate-3'].map((c) => firstHop.get(c))).size).toBeGreaterThan(1);
+    // back at its place: it hangs, and the hops stop
     const h = TOOLWALL.tools['vue']!.at;
     world.dispatch({ type: 'carry', target: [h[0], h[1], h[2] + 0.3] });
     v.step(40);
     world.dispatch({ type: 'release', velocity: [0, 0, 0] });
     v.step(4 * HZ);
     expect(world.motion(id)!.mode).toBe('machine');
-    expect(v.glow().visible).toBe(false);
+    let after = 0;
+    for (let i = 0; i < 3 * HZ; i++) {
+      v.step(1);
+      for (const c of ['crate-1', 'crate-2', 'crate-3']) after = Math.max(after, above(c));
+    }
+    expect(after).toBeLessThan(0.035);
   });
 
   test('a coat of paint reaches the handle (its own colour) and not the steel; taken off, the tool is as it was', () => {

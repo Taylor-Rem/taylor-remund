@@ -10,24 +10,22 @@
  * - **Paint.** A tool painted on the platen wears the paint on whatever it wears its own colour on (its handle, its
  *   dipped grips, its enamel), at each vertex's own tone; mid-coat the paint runs over it as the platen pours. The steel
  *   stays steel. A tool keeps its colours when the room's paint scheme changes (`materials.keepColours`).
- * - **What was built with it.** While a tool is off its peg in the hand, and for a few seconds after it is set down,
- *   everything built with it answers (src/content/tool-tags.ts `toolLights`): a glow in the tool's colour round each
- *   project crate on the bench (and the thing out of its crate), round the switchboard and the storefront for
- *   Patchlamp; it swells twice as the tool comes off the wall (§ B1: "pulses twice in that tool's colour") and each
- *   crate rattles on the spot with it; then it settles and fades out over ten seconds of carrying, so it is findable
- *   in the corner of the eye and then out of the way. View only: the rattle is drawn on the crate's drawn pose (a parts
- *   overlay); nothing the simulation owns moves. Reduced motion: the glow, steady, no rattle.
- * - **Home.** While a tool is in the hand its own painted shadow glows faintly in its colour: where it goes back.
+ * - **What was built with it** (round two: by moving, not glowing). While a tool is in the hand, everything built with it
+ *   (src/content/tool-tags.ts `toolLights`) gives a hop on the spot, a few pixels up and down with a shake and a small
+ *   second bounce, one after another in a wave that starts nearest the wall, again every `TOOLS_FEEL.period` while the
+ *   tool is held; hung back or set down, no new hop starts. Each project crate on the bench and the thing out of its
+ *   crate hop (drawn on the part's drawn pose, a parts overlay); Patchlamp's station answers in its own language: the
+ *   phone buzzes on its stand, the storefront's OPEN sign swings, the platen's tray jumps (its nodes, over the pose
+ *   their station gave them). View only: nothing the simulation owns moves. Reduced motion: nothing hops.
  * - **Targets.** Each tool's place (`peg-<kind>`: a mouth, for tap-then-tap and the keys) over its painted shadow,
  *   while a tool is in the hand; the pinned sheet; and the boxes a look asks for (the board, a tool out on the bench).
  */
-import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type Material, type Mesh, type PerspectiveCamera } from 'three';
+import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type Mesh } from 'three';
 import type { Id, ToolwallView, Vec3, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import type { Piece, PieceNode } from '../kit/types.ts';
 import { piece as kitPiece, pieceBounds } from '../kit/compose.ts';
 import { linear, type Token } from '../palette.ts';
-import { haloMesh } from '../kit/stage-helpers.ts';
 import { buildToolInto, TOOL_PAINT, TOOL_KINDS, SHEET, BOARD, type ToolKind } from '../kit/pieces/toolwall/index.ts';
 import { tool as toolPiece } from '../kit/pieces/toolwall/tools.ts';
 import { paintToken, partsHooks, partShows, unhook, type PartWork, type PartsOverlay } from './parts.ts';
@@ -35,29 +33,14 @@ import { toolLights, PATCHLAMP } from '../../../content/tool-tags.ts';
 
 /** Tune here: how the things a tool built answer it (view only; seconds, units). */
 export const TOOLS_FEEL = {
-  /** The two swells as it comes off the wall: each this long, the second starting at `second`. */
-  pulse: 0.5,
-  second: 0.62,
-  /** Between and after the swells the glow sits at `hold`, then fades over `fade` to `floor`. */
-  hold: 0.5,
-  holdFor: 1.4,
-  fade: 8.6,
-  floor: 0,
-  /** Set down: what is left of the glow goes out over this long. */
-  after: 2.5,
-  /** Reduced motion: steady at this while in the hand. */
-  steady: 0.55,
-  /** The glow's brightness at level 1 (linear), its size against the thing's, and its floor on screen (CSS px). */
-  gain: 2.6,
-  grow: 2.1,
-  minPx: 26,
-  /** The rattle: degrees of yaw and of roll, units of lift, at its strongest, and how fast it shivers (Hz). */
-  rattleDeg: 3.2,
-  rattleRoll: 1.8,
-  rattleLift: 0.012,
-  rattleHz: 17,
-  /** Its own place glows this much while it is in the hand. */
-  home: 0.32,
+  /** The wave: the first hop starts this long after the tool comes off, each thing this long after the one before it (nearest the wall first), the whole wave again every `period` while the tool is held. */
+  lead: 0.15,
+  stagger: 0.14,
+  period: 2.4,
+  /** A hop: this long, this high (units: a crate 40 px tall is about 0.45, so a few pixels), shaking this far (degrees). */
+  hop: 0.5,
+  hopLift: 0.075,
+  hopDeg: 6,
 } as const;
 
 /** A tool's part id and kind. */
@@ -271,70 +254,88 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
     };
     const lookBoxes = new Map<ToolKind, Object3D>();
 
-    // ── what a tool built answers it ──
-    const camera = (ctx.stage.camera as unknown as { camera: PerspectiveCamera }).camera;
-    const haloMat = (ctx.materials as unknown as { halo?: () => Material }).halo?.();
-    const glows = haloMat ? haloMesh(16, haloMat) : null;
-    if (glows) {
-      glows.name = 'tools:glow';
-      root.add(glows);
-    }
-    const amber = linear('amber-glow');
-    /** Per tool: when it last came into the hand and left it (simulation seconds), and its level as it left. */
-    const lift = new Map<ToolKind, { at: number; down: number | null; left: number }>();
+    // ── what a tool built answers it: by moving (round two: a glow round a 40-pixel crate under the lamp did not show) ──
+    /** The tool in the hand now (or the one just put back: its last hops finish), since when, and when it left the hand. */
+    let answering: { kind: ToolKind; at: number; stop: number | null } | null = null;
     const reduced = (): boolean => ctx.reducedMotion || (world?.reducedMotion ?? false);
-    const levelOf = (kind: ToolKind, t: number): { level: number; s: number } => {
-      const l = lift.get(kind);
-      if (!l) return { level: 0, s: Infinity };
-      const s = t - l.at;
-      const held = l.down === null;
-      let level: number;
-      if (reduced()) level = F.steady;
-      else if (s < F.second + F.pulse) {
-        const bump = (x: number): number => (x >= 0 && x <= F.pulse ? Math.sin((Math.PI * x) / F.pulse) : 0);
-        level = Math.max(F.hold * Math.min(1, s / 0.15), bump(s), bump(s - F.second));
-      } else if (s < F.holdFor) level = F.hold;
-      else level = F.floor + (F.hold - F.floor) * Math.max(0, 1 - (s - F.holdFor) / F.fade);
-      if (held) return { level, s };
-      const d = t - (l.down ?? t);
-      return { level: l.left * Math.max(0, 1 - d / F.after), s };
-    };
-
-    /** The things lit, each frame: id (a part) or a point (Patchlamp), with the tool's colour, level, and since when. */
-    interface Lit {
-      kind: ToolKind;
-      level: number;
-      s: number;
-    }
-    const litParts = new Map<Id, Lit>();
-    const litPoints: Array<{ p: Vec3; r: number; lit: Lit }> = [];
     /** Which parts each project id is: its crate, and the thing it holds. */
     const partsOf = (w: WorldView, project: string): Id[] => (w.scene.projects ?? []).filter((c) => c.project === project).flatMap((c) => [c.crate, ...(c.holds !== undefined ? [c.holds] : [])]);
-    const patchlampPoints = (w: WorldView): Array<{ p: Vec3; r: number }> => {
-      const out: Array<{ p: Vec3; r: number }> = [];
-      for (const id of ['board-panel', 'storefront']) {
-        const s = w.scene.statics.find((x) => x.id === id);
-        if (s && s.shape.type === 'box') out.push({ p: [s.pose.p[0], s.pose.p[1] * 0.8, s.pose.p[2]], r: Math.max(s.shape.half[0], s.shape.half[1]) * 0.95 });
+    /** Each answering part's hop now: its lift (units) and its shake (radians); recomputed every frame. */
+    const hops = new Map<Id, { y: number; a: number }>();
+    /**
+     * A hop at `u` of its length (0..1): up a few pixels and down in a parabola with a shake that dies away, then a
+     * small second bounce as it settles. Its lift as a share of `hopLift`, its shake as a share of `hopDeg`.
+     */
+    const hopAt = (u: number): { y: number; a: number } => {
+      if (u < 0 || u >= 1) return { y: 0, a: 0 };
+      if (u < 0.72) {
+        const v = u / 0.72;
+        return { y: 4 * v * (1 - v), a: Math.sin(2 * Math.PI * 1.5 * v) * (1 - v) };
       }
-      return out;
+      const v = (u - 0.72) / 0.28;
+      return { y: 0.18 * Math.sin(Math.PI * v), a: 0 };
+    };
+    /** Thing `i` of the wave (nearest the wall first): its hop's place, 0..1, or -1 when it is between hops. */
+    const waveAt = (i: number, t: number): number => {
+      const A = answering;
+      if (!A) return -1;
+      const s = t - A.at - F.lead - i * F.stagger;
+      if (s < 0) return -1;
+      const k = Math.floor(s / F.period);
+      const start = A.at + F.lead + k * F.period + i * F.stagger;
+      if (A.stop !== null && start > A.stop) return -1;
+      const u = (s - k * F.period) / F.hop;
+      return u < 1 ? u : -1;
+    };
+    /** Patchlamp's station answers in its own language: the phone buzzes on its stand, the storefront's sign swings, the platen's tray jumps. */
+    const PATCHLAMP_NODES: ReadonlyArray<{ root: string; node: string; axis: readonly [number, number, number]; deg: number; lift: number; buzz: number }> = [
+      { root: 'phone', node: 'phone', axis: [0, 0, 1], deg: 5, lift: 0.02, buzz: 3 },
+      { root: 'storefront', node: 'opensign', axis: [0, 0, 1], deg: 16, lift: 0, buzz: 1 },
+      { root: 'platen', node: 'tray', axis: [1, 0, 0], deg: 3, lift: 0.03, buzz: 1 },
+    ];
+    const plNodes = new Map<string, { o: Object3D; base: { p: Vector3; q: Quaternion } | null; applied: { p: Vector3; q: Quaternion } | null } | null>();
+    const findNode = (root: string, name: string): Object3D | null => {
+      for (const c of ctx.scene.children) if (c.name === root) return c.getObjectByName(name) ?? null;
+      return null;
+    };
+    const ax = new Vector3();
+    const qB = new Quaternion();
+    /** Pose a station's node with its share of a hop, over the pose its station gave it this frame. */
+    const shakeNode = (spec: (typeof PATCHLAMP_NODES)[number], u: number): void => {
+      let n = plNodes.get(spec.root);
+      if (n === undefined) {
+        const o = findNode(spec.root, spec.node);
+        n = o ? { o, base: null, applied: null } : null;
+        plNodes.set(spec.root, n);
+      }
+      if (!n) return;
+      const o = n.o;
+      // the pose its station gave it: what it shows now, unless that is still ours
+      if (!n.applied || !o.position.equals(n.applied.p) || !o.quaternion.equals(n.applied.q)) n.base = { p: o.position.clone(), q: o.quaternion.clone() };
+      const base = n.base!;
+      if (u < 0) {
+        if (n.applied && o.position.equals(n.applied.p) && o.quaternion.equals(n.applied.q)) {
+          o.position.copy(base.p);
+          o.quaternion.copy(base.q);
+        }
+        n.applied = null;
+        return;
+      }
+      const h = hopAt(u);
+      const a = Math.sin(2 * Math.PI * spec.buzz * u) * (1 - u) + h.a * 0.5;
+      o.quaternion.copy(base.q).multiply(qB.setFromAxisAngle(ax.set(...spec.axis).normalize(), (a * spec.deg * Math.PI) / 180));
+      o.position.copy(base.p).add(vB.set(0, h.y * spec.lift, 0).applyQuaternion(base.q));
+      n.applied = { p: o.position.clone(), q: o.quaternion.clone() };
     };
 
-    // the rattle: drawn on the crate's drawn pose, as its tool swells
+    // the hop: drawn on the part's drawn pose (view only: the simulation's pose is not touched)
     const overlay: PartsOverlay = {
-      pose(id: Id, frame: Frame, m: Matrix4): boolean {
-        if (reduced()) return false;
-        const l = litParts.get(id);
-        if (!l || l.s > F.second + F.pulse) return false;
-        const env = (x: number): number => (x >= 0 && x <= F.pulse ? Math.sin((Math.PI * x) / F.pulse) : 0);
-        const k = Math.max(env(l.s), env(l.s - F.second)) * Math.min(1, l.level * 1.6);
-        if (k <= 0.001) return false;
-        const ph = frame.time * F.rattleHz * Math.PI * 2;
-        const yaw = Math.sin(ph) * F.rattleDeg * k * (Math.PI / 180);
-        const roll = Math.sin(ph * 1.37 + 1.1) * F.rattleRoll * k * (Math.PI / 180);
-        const lift2 = Math.abs(Math.sin(ph * 0.5)) * F.rattleLift * k;
-        mA.makeRotationFromQuaternion(eulerOf(roll, yaw));
+      pose(id: Id, _frame: Frame, m: Matrix4): boolean {
+        const h = hops.get(id);
+        if (!h || (h.y === 0 && h.a === 0)) return false;
+        mA.makeRotationFromQuaternion(eulerOf(h.a * 0.6, h.a));
         m.multiply(mA);
-        m.elements[13]! += lift2;
+        m.elements[13]! += h.y;
         return true;
       },
     };
@@ -385,72 +386,43 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
             const m = w.motion(tl.id);
             paint(tl, work, qA.set(...(m?.pose.q ?? [0, 0, 0, 1])));
           }
-          // in the hand, and when it left it
-          const isHeld = heldId === tl.id;
-          const l = lift.get(tl.kind);
-          if (isHeld && (!l || l.down !== null)) lift.set(tl.kind, { at: t, down: null, left: 0 });
-          else if (!isHeld && l && l.down === null) {
-            const lv = levelOf(tl.kind, t).level;
-            l.down = t;
-            l.left = lv;
-          }
-          // back on its peg: nothing answers any more
-          if (!isHeld && l && v?.tools.find((x) => x.id === tl.id)?.hung) lift.delete(tl.kind);
         }
 
-        // ── what is lit, and how much ──
-        litParts.clear();
-        litPoints.length = 0;
-        for (const [kind] of lift) {
-          const lv = levelOf(kind, t);
-          if (lv.level <= 0.003) {
-            if (lift.get(kind)?.down !== null) lift.delete(kind);
-            continue;
-          }
-          const lit: Lit = { kind, level: lv.level, s: lv.s };
-          for (const pid of toolLights(kind)) {
+        // ── what was built with the tool in the hand answers it: a wave of hops, nearest the wall first ──
+        if (heldId) {
+          const kind = kindOf(heldId)!;
+          if (!answering || answering.kind !== kind || answering.stop !== null) answering = { kind, at: t, stop: null };
+        } else if (answering && answering.stop === null) answering.stop = t;
+        if (answering && answering.stop !== null && t > answering.stop + F.period + 1) answering = null;
+        hops.clear();
+        const lit: Array<{ id: Id | null; d: number }> = [];
+        if (answering && !reduced()) {
+          for (const pid of toolLights(answering.kind)) {
             if (pid === PATCHLAMP) {
-              for (const pt of patchlampPoints(w)) litPoints.push({ ...pt, lit });
+              lit.push({ id: null, d: Math.hypot(0 - o.wall[0], -4 - o.wall[2]) });
               continue;
             }
             for (const id of partsOf(w, pid)) {
-              const prev = litParts.get(id);
-              if (!prev || prev.level < lit.level) litParts.set(id, lit);
+              const m = w.motion(id);
+              // on the bench (or in a machine there): not below it, not in the chute, not in a crew member's hands, not shipped
+              if (!m || m.mode === 'gone' || m.mode === 'chute' || m.mode === 'crew') continue;
+              lit.push({ id, d: Math.hypot(m.pose.p[0] - o.wall[0], m.pose.p[2] - o.wall[2]) });
             }
           }
+          lit.sort((x, y) => x.d - y.d);
         }
-
-        // ── the glows ──
-        if (!glows) return;
-        camera.updateMatrixWorld();
-        const H = Math.max(1, (globalThis as { innerHeight?: number }).innerHeight ?? 900);
-        const halos = beginHalos(glows, camera, H);
-        const tint = (kind: ToolKind, level: number): [number, number, number] => {
-          // its hue at full brightness (the paints are dark: at their own value the glow would not show), over amber-glow's
-          const c0 = linear(TOOL_PAINT[kind]);
-          const top = Math.max(c0[0], c0[1], c0[2], 1e-4);
-          const c = [c0[0] / top, c0[1] / top, c0[2] / top] as const;
-          const g = level * F.gain;
-          return [(c[0] / amber[0]) * g, (c[1] / amber[1]) * g, (c[2] / amber[2]) * g];
-        };
-        for (const [id, lit] of litParts) {
-          const m = w.motion(id);
-          // on the bench (or in a machine there): not below it, not in the chute, not in a crew member's hands, not shipped
-          if (!m || m.mode === 'gone' || m.mode === 'chute' || m.mode === 'crew') continue;
-          const half = w.halfExtents(id) ?? [0.3, 0.3, 0.3];
-          const r = Math.max(half[0], half[1], half[2]) * F.grow;
-          // behind its middle (the thing hides the glow's core; its skirt shows round it)
-          halos.add(m.pose.p, r, F.minPx, tint(lit.kind, lit.level), -Math.max(half[0], half[2]));
-        }
-        for (const pt of litPoints) halos.add(pt.p, pt.r, F.minPx, tint(pt.lit.kind, pt.lit.level * 0.8), -0.4);
-        // home: the tool in the hand, its own place
-        if (heldId) {
-          const kind = kindOf(heldId)!;
-          const h = hangOf(kind);
-          const tl = tools.find((x) => x.kind === kind)!;
-          if (h) halos.add(h.p, Math.max(tl.half.x, tl.half.y) * 1.2, 0, tint(kind, F.home), -0.12);
-        }
-        halos.end();
+        let plU = -1;
+        lit.forEach((x, i) => {
+          const u = waveAt(i, t);
+          if (x.id === null) {
+            plU = u;
+            return;
+          }
+          if (u < 0) return;
+          const h = hopAt(u);
+          hops.set(x.id, { y: h.y * F.hopLift, a: (h.a * F.hopDeg * Math.PI) / 180 });
+        });
+        for (const spec of PATCHLAMP_NODES) shakeNode(spec, plU);
       },
       dispose() {
         unhook(hooks.overlays, overlay);
@@ -470,42 +442,3 @@ function eulerOf(roll: number, yaw: number): Quaternion {
   return eu.copy(qy.setFromAxisAngle(AY, yaw)).multiply(qx.setFromAxisAngle(AX, roll));
 }
 
-/** A frame's glows on the halo mesh: camera-facing discs, each in its own colour (the vertex colour carries it). */
-function beginHalos(mesh: Mesh, cam: PerspectiveCamera, cssH: number): { add(p: Vec3, r: number, minPx: number, rgb: readonly [number, number, number], back: number): void; end(): void } {
-  const right = new Vector3().setFromMatrixColumn(cam.matrixWorld, 0).normalize();
-  const up = new Vector3().setFromMatrixColumn(cam.matrixWorld, 1).normalize();
-  const toCam = new Vector3();
-  const c = new Vector3();
-  const v = new Vector3();
-  const pos = mesh.geometry.getAttribute('position') as BufferAttribute;
-  const col = mesh.geometry.getAttribute('color') as BufferAttribute;
-  const cap = pos.count / 4;
-  let n = 0;
-  return {
-    add(p, r, minPx, rgb, back) {
-      if (n >= cap) return;
-      c.set(p[0], p[1], p[2]);
-      toCam.setFromMatrixPosition(cam.matrixWorld).sub(c);
-      const dist = toCam.length();
-      toCam.normalize();
-      const perPx = (2 * dist * Math.tan(((cam.fov * Math.PI) / 180) / 2)) / (cam.zoom * cssH);
-      const rad = Math.max(r, minPx * perPx);
-      c.addScaledVector(toCam, back);
-      const k = n * 4;
-      ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).forEach(([sx, sy], i) => {
-        v.copy(c).addScaledVector(right, sx * rad).addScaledVector(up, sy * rad);
-        pos.setXYZ(k + i, v.x, v.y, v.z);
-        col.setXYZ(k + i, rgb[0], rgb[1], rgb[2]);
-      });
-      n++;
-    },
-    end() {
-      mesh.geometry.setDrawRange(0, n * 6);
-      mesh.visible = n > 0;
-      if (n > 0) {
-        pos.needsUpdate = true;
-        col.needsUpdate = true;
-      }
-    },
-  };
-}

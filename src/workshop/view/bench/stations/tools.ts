@@ -12,7 +12,8 @@ import { ORDER, type BenchStation } from '../station.ts';
 
 export const station: BenchStation = {
   name: 'tools',
-  order: ORDER.parts + 1,
+  // after the stations it answers through (it poses Patchlamp's nodes over theirs); the parts view reads its hops a frame on
+  order: ORDER.late - 1,
   make(k) {
     if (!k.scene.parts.some((p) => p.kind === 'tool' && p.stowedIn === TOOLWALL.unit)) return null;
     const S = LAYOUT.stations.toolwall;
