@@ -32,12 +32,12 @@ export const PAINT_FEEL = {
   /** A misfire: a short twitch of this much (radians). */
   twitch: 0.1,
   /**
-   * The fan (D2c): the chosen chip stands up off the plate, tipped toward the visitor about the knob's pivot, on a
-   * spring (a little overshoot when it is chosen); the others lie flat. `lift` units up, `tilt` radians, the spring's
-   * stiffness and damping (per second², per second).
+   * The fan (D2c): the chosen chip is propped up on its tip, its inner end raised so its face turns toward the
+   * visitor, on a spring (a little overshoot when it is chosen); the others lie flat. `lift` units up, `tilt` radians
+   * about the chip's tip, the spring's stiffness and damping (per second², per second).
    */
-  lift: 0.016,
-  tilt: 0.6,
+  lift: 0.004,
+  tilt: 0.42,
   spring: 170,
   damp: 13,
 };
@@ -79,7 +79,7 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
     let knob: Object3D | null = null;
     let chips: Object3D[] = [];
     const rest = new Map<Object3D, Quaternion>();
-    const restY = new Map<Object3D, number>();
+    const restP = new Map<Object3D, Vector3>();
     let half = 0.1;
     let shown = false;
     let lastWorld: WorldView | null = null;
@@ -117,7 +117,7 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       chips = cs as Object3D[];
       for (const n of [k, ...chips]) {
         rest.set(n, n.quaternion.clone());
-        restY.set(n, n.position.y);
+        restP.set(n, n.position.clone());
       }
       half = w.halfExtents(o.dial)?.[1] ?? half;
       // the control's target: the deck's chips and wheel (a tap anywhere on the deck flicks it), the fan's knob
@@ -151,11 +151,17 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       } else {
         knob!.quaternion.copy(rest.get(knob!)!).multiply(qa.setFromAxisAngle(Y, paintDialAngle(at) - paintDialAngle(0) + rock));
         knob!.updateMatrix();
-        // the chosen chip up off the plate, tipped toward the visitor (on its spring), the others flat
+        // the chosen chip propped up on its tip, its inner end raised so its face turns toward the visitor (on its
+        // spring), the others flat. A chip's node sits at the knob's pivot with the chip along its +z from r0 to r1:
+        // turned about its tip (z = r1), the node moves by (0, r1 sin a, r1 (1 - cos a)) in its own frame, plus the lift
+        const r1 = PAINT_DIAL.fan.r1;
         chips.forEach((c, i) => {
           const k = up[i]?.x ?? 0;
-          c.position.y = restY.get(c)! + F.lift * k;
-          c.quaternion.copy(rest.get(c)!).multiply(qa.setFromAxisAngle(X, -F.tilt * k));
+          const a = F.tilt * k;
+          const q = rest.get(c)!;
+          vo.set(0, r1 * Math.sin(a) + F.lift * k, r1 * (1 - Math.cos(a))).applyQuaternion(q);
+          c.position.copy(restP.get(c)!).add(vo);
+          c.quaternion.copy(q).multiply(qa.setFromAxisAngle(X, a));
           c.updateMatrix();
         });
       }
