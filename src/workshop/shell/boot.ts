@@ -870,11 +870,14 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       following = null;
       // already in the clear area where the camera rests: nothing moves
       if (atView(base, () => clear(id, KEEP_CLEAR.pad), close)) return keep(null);
-      const to = settle(id, base, close);
+      // A look on the same thing (a crate's card, its entry opened from it) re-settles close and stays a look (the crew
+      // stay see-through in front of what it holds). Anything else is shown at a station's scale: a look on one crate is
+      // no reason to come that close to the UNDO lever. Closing goes back to the look either way (`before`).
+      const same = look !== null && look.intersectsBox(box);
+      const to = settle(id, base, same);
       if (!to) return keep(null);
       resting = to;
-      // a look stays a look (the crew stay see-through in front of what it holds)
-      cam.easeTo(to, undefined, { close, look });
+      cam.easeTo(to, undefined, same ? { close: true, look } : {});
       return keep(to);
     },
   };
