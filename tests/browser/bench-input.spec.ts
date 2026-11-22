@@ -1064,6 +1064,62 @@ test('P4 S5 round two: a double-click on a crate lying still opens it where it l
   }
 });
 
+test('P4 S5 (the lead\'s probe): on an opened crate with nothing on its tray, every point of the word on its plate is the plate\'s, never the crate\'s; a press there leaves the crate open and lying where it was', async ({ page, browser }) => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;
+    const p = ctx ? await ctx.newPage() : page;
+    await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
+    // the t-components crate where it sits, and the Reports crate on top of the stack: both open with the lid's planks
+    // standing behind the plate
+    for (const crate of ['crate-3', 'crate-2']) {
+      await p.evaluate((c) => (window as any).__bench.ws.dispatch({ type: 'select', id: c }), crate);
+      await pollFrames(p, () => p.evaluate((c) => (window as any).__bench.ws.world.setting(c, 'open'), crate), 600, `${kind} ${crate}: opened`).toBe(true);
+      await pollFrames(p, () => p.evaluate((c) => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.surface.screen(`${c}-plate`) !== null, crate), 600, `${kind} ${crate}: the card up, the camera at rest`).toBe(true);
+      await frames(p, 30);
+      const sweep = await p.evaluate(([crate, k]) => {
+        const ws = (window as any).__bench.ws, cam = ws.stage.camera;
+        const W = ws.stage.canvas.clientWidth, H = ws.stage.canvas.clientHeight;
+        // the capitals of the plate's word on screen (the view registers their box for measuring: parts.ts)
+        const b = ws.picking.worldBox(`${crate}-card.plate-caps`);
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (let i = 0; i < 8; i++) {
+          const s = cam.worldToScreen({ x: i & 1 ? b.max.x : b.min.x, y: i & 2 ? b.max.y : b.min.y, z: i & 4 ? b.max.z : b.min.z });
+          const x = ((s.x + 1) / 2) * W, y = ((1 - s.y) / 2) * H;
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        }
+        const got: Record<string, number> = {};
+        let rows = '';
+        for (let j = 0; j <= 6; j++) {
+          for (let i = 0; i <= 20; i++) {
+            const t = ws.surface.at(x0 + ((x1 - x0) * i) / 20, y0 + ((y1 - y0) * j) / 6, k, null);
+            const id = t ? String(t.id) : 'nothing';
+            got[id] = (got[id] ?? 0) + 1;
+            rows += id === `${crate}-plate` ? 'P' : id === crate ? 'C' : '?';
+          }
+          rows += '\n';
+        }
+        return { got, rows, mid: { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }, w: x1 - x0, h: y1 - y0 };
+      }, [crate, kind] as const);
+      expect(Object.keys(sweep.got), `${kind} ${crate}: what a press on the word FULL ENTRY takes (${Math.round(sweep.w)}×${Math.round(sweep.h)} px):\n${sweep.rows}`).toEqual([`${crate}-plate`]);
+      // a real press in the middle of the word: the crate is not taken up, and stays open where it lay
+      const at0 = await p.evaluate((c) => (window as any).__bench.ws.world.motion(c).pose.p as number[], crate);
+      if (kind === 'mouse') await p.mouse.click(sweep.mid.x, sweep.mid.y);
+      else await p.touchscreen.tap(sweep.mid.x, sweep.mid.y);
+      await frames(p, 40);
+      const after = await p.evaluate((c) => {
+        const w = (window as any).__bench.ws.world;
+        return { open: w.setting(c, 'open'), holding: w.holding(), at: w.motion(c).pose.p as number[] };
+      }, crate);
+      expect(after.open, `${kind} ${crate}: still open after a press on its plate`).toBe(true);
+      expect(after.holding, `${kind} ${crate}: nothing in the hand after a press on its plate`).toBeNull();
+      expect(Math.hypot(after.at[0]! - at0[0]!, after.at[2]! - at0[2]!), `${kind} ${crate}: where it lay`).toBeLessThan(0.02);
+      await p.keyboard.press('Escape');
+      await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 600, `${kind} ${crate}: back`).toBe(true);
+    }
+    if (ctx) await ctx.close();
+  }
+});
+
 /**
  * R2 (Taylor: "sometimes when you click on the phone it doesn't open the interactive phone screen to full size,
  * instead still basically being the same size as the phone and there's no way to fix it"). A hundred times, at
