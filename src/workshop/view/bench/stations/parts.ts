@@ -68,6 +68,8 @@ interface Lid {
   t: number;
   hasp: number;
   rise: number;
+  /** Lying still on the bench, in nobody's hand: only then are its latch and plate targets (a crate in flight is caught, not opened). */
+  still: boolean;
 }
 
 const legendBoth = (): boolean => {
@@ -175,7 +177,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         });
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
-        lids.set(part.id, { crate: pc, holder, foot: half[1], size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0 });
+        lids.set(part.id, { crate: pc, holder, foot: half[1], size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
         // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just
         // where the hasp hangs (about five sixths of its height up), and a press at a crate's middle must take hold of the
@@ -186,7 +188,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         latch.name = 'latch.pick';
         holder.add(latch);
         const hw = Math.max(0.07, S.w * 0.2);
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, S.d / 2 - 0.13), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible });
+        const lidState = (): Lid | undefined => lids.get(part.id);
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, S.d / 2 - 0.13), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
         // the plate's pick target, on the card (only while it stands)
         const pw = Math.min(1, (projectCardSize(size).w * 0.34) / plateSize.w) * plateSize.w;
         const ph = (pw / plateSize.w) * plateSize.h;
@@ -196,7 +199,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const cw = projectCardSize(size).w;
         plateTarget.position.set(cw / 2 - pw / 2 - 0.018, ph / 2 + 0.014, 0.006);
         const st = lids.get(part.id)!;
-        ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-pw / 2 - 0.01, -ph / 2 - 0.01, -0.01), new Vector3(pw / 2 + 0.01, ph / 2 + 0.01, 0.02)), pad: PAD, active: () => group.visible && st.rise > 0.9 });
+        ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-pw / 2 - 0.01, -ph / 2 - 0.01, -0.01), new Vector3(pw / 2 + 0.01, ph / 2 + 0.01, 0.02)), pad: PAD, active: () => group.visible && st.still && st.rise > 0.9 });
       },
 
       update(part: Part, obj: Object3D, group: Group, frame: Frame, shown: boolean) {
@@ -206,6 +209,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         st.holder.matrix.copy(group.matrix).multiply(footM.makeTranslation(0, -st.foot, 0));
         st.holder.matrixWorldNeedsUpdate = true;
         st.holder.visible = shown && group.visible;
+        const mo = frame.world.motion(part.id);
+        st.still = shown && mo?.mode === 'free' && !mo.held && !mo.awake;
         const w = frame.world;
         const m = w.motion(part.id);
         const want = shown && w.setting(part.id, 'open') === true && !m?.held && m?.mode === 'free' ? 1 : 0;
