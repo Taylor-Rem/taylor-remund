@@ -117,7 +117,7 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
     await expect(d.locator('.pn-frame')).toHaveText(/^\d+\.\d ms$/);
     // the lever takes it back, and the line goes (the panel reads; the world does the undoing)
     await ws(page, (x) => x.dispatch({ type: 'undo' }));
-    await expect(log).toHaveText(H.maker.live.history.empty.text, { timeout: 20_000 });
+    await expect(log.locator('li.pn-gone')).toHaveText(['Belt speed: 3 → 5'], { timeout: 20_000 });
     await page.keyboard.press('Escape');
     await expect(d).toBeHidden();
   });
@@ -189,7 +189,7 @@ test('wide screen, the maker’s plate open beside the bench: the pointer turns 
     const n0 = w.simWorld.undoStack().length;
     const tick = (): void => {
       if (t.__undoneAt === undefined && w.simWorld.undoStack().length < n0) t.__undoneAt = performance.now();
-      if (t.__logGoneAt === undefined && document.querySelector('dialog#plate-panel .pn-log .pn-empty')) t.__logGoneAt = performance.now();
+      if (t.__logGoneAt === undefined && document.querySelector('dialog#plate-panel .pn-log li.pn-gone')) t.__logGoneAt = performance.now();
       if (t.__logGoneAt === undefined || t.__undoneAt === undefined) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -199,7 +199,7 @@ test('wide screen, the maker’s plate open beside the bench: the pointer turns 
   await page.mouse.down();
   for (let k = 1; k <= 6; k++) await page.mouse.move(undo.x + 4, undo.y + (undo.h * 0.6 * k) / 6);
   await page.mouse.up();
-  await expect(log).toHaveText(H.maker.live.history.empty.text, { timeout: 20_000 });
+  await expect(log.locator('li:not(.pn-gone)')).toHaveCount(0, { timeout: 20_000 });
   const lag = await page.evaluate(() => {
     const t = window as unknown as { __undoneAt?: number; __logGoneAt?: number };
     return t.__logGoneAt! - t.__undoneAt!;
@@ -216,7 +216,7 @@ test('wide screen, the maker’s plate open beside the bench: the pointer turns 
   await expect(d).toBeVisible();
   expect(await focusIn(page)).toBe(false);
   await page.keyboard.press('u');
-  await expect(log).toHaveText(H.maker.live.history.empty.text, { timeout: 20_000 });
+  await expect(log.locator('li:not(.pn-gone)')).toHaveCount(0, { timeout: 20_000 });
   // Esc with focus on the stage is the stage's (the camera's back); the panel stays
   await page.keyboard.press('Escape');
   await expect(d).toBeVisible();
@@ -277,4 +277,174 @@ test('on a phone the panel is a modal sheet from the bottom: Tab stays in it, no
   // the close control is a finger's width
   const close = await page.locator('.pn-close').boundingBox();
   expect(close!.height).toBeGreaterThanOrEqual(44);
+});
+
+// ── round three: the panel tells the page what it covers; what it is about stays in view ──
+
+const BIG = { width: 1440, height: 900 };
+type Rect = { x0: number; y0: number; x1: number; y1: number };
+
+/** `id`'s box on the page now (the shell's own measure), or null. */
+const rectOf = (page: Page, id: string): Promise<Rect | null> =>
+  ws(page, (w, id) => {
+    const r = w.framing.screenRect(id);
+    if (!r) return null;
+    const c = w.stage.canvas.getBoundingClientRect();
+    return { x0: r.x0 + c.left, y0: r.y0 + c.top, x1: r.x1 + c.left, y1: r.y1 + c.top };
+  }, id);
+/** Is `id` whole in what the strip and the open panel (and the list, when open) leave of the stage? */
+const inClear = (page: Page, id: string): Promise<boolean> =>
+  page.evaluate(async (id) => {
+    const w = (window as unknown as { __handoff: { workshop: any } }).__handoff.workshop;
+    const r = w.framing.screenRect(id);
+    if (!r) return false;
+    const c = w.stage.canvas.getBoundingClientRect();
+    const box = { x0: r.x0 + c.left, y0: r.y0 + c.top, x1: r.x1 + c.left, y1: r.y1 + c.top };
+    const covers = ['header.strip', 'dialog#plate-panel[open]', '#controls.open'].map((s) => document.querySelector(s)?.getBoundingClientRect()).filter((x): x is DOMRect => !!x && x.width > 4);
+    const inside = box.x0 >= c.left && box.x1 <= c.right && box.y0 >= c.top && box.y1 <= c.bottom;
+    const hit = covers.some((k) => box.x0 < k.right && box.x1 > k.left && box.y0 < k.bottom && box.y1 > k.top);
+    return inside && !hit;
+  }, id);
+const view = (page: Page): Promise<{ focus: number[]; zoom: number }> => ws(page, (w) => w.stage.camera.view());
+const resting = (page: Page): Promise<unknown> => page.waitForFunction(() => !(window as any).__handoff.workshop.stage.camera.easing, null, { timeout: 10_000 });
+const same = (a: { focus: number[]; zoom: number }, b: { focus: number[]; zoom: number }): boolean => Math.abs(a.zoom - b.zoom) < 1e-3 && a.focus.every((f, k) => Math.abs(f - b.focus[k]!) < 1e-3);
+
+/** Open a project crate with a real pointer (a double-click), then press its card's FULL ENTRY plate: the panel opens over the look. */
+async function crateEntry(page: Page, title: string): Promise<{ crate: string; card: string; plate: string }> {
+  const project = Object.entries(PROJECTS).find(([, p]) => p.resume === title)![0];
+  const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; card: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
+  const at = await pointFor(page, c.crate);
+  await page.mouse.dblclick(at.x, at.y);
+  await page.waitForFunction((id) => (window as any).__handoff.workshop.world.setting(id, 'open') === true, c.crate, { timeout: 15_000 });
+  await page.waitForFunction(() => !!(window as any).__handoff.workshop.stage.camera.look, null, { timeout: 15_000 });
+  await resting(page);
+  const plate = await pointFor(page, c.plate);
+  await page.mouse.click(plate.x, plate.y);
+  await expect(dialog(page)).toBeVisible();
+  return c;
+}
+
+/** A point a hand can press that is `id`'s own now (the input's own target under it), waiting while the crew stand in front. */
+async function pointFor(page: Page, id: string): Promise<{ x: number; y: number }> {
+  const handle = await page.waitForFunction(
+    (id) => {
+      const w = (window as any).__handoff.workshop;
+      // a part lying still where it is (not in the crew's hands on attract mode's rounds, not moving)
+      const m = w.world.motion(id);
+      if (m && (m.mode !== 'free' || m.awake)) return null;
+      const t = w.surface.screen(id);
+      if (!t) return null;
+      const c = w.stage.canvas.getBoundingClientRect();
+      for (const [a, b] of [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3], [0.5, 0.2], [-0.5, 0.2]]) {
+        const x = t.x + a! * t.r, y = t.y + b! * t.r;
+        if (w.surface.at(x, y, 'mouse', null).id === id) return { x: x + c.left, y: y + c.top };
+      }
+      return null;
+    },
+    id,
+    { timeout: 45_000, polling: 100 },
+  );
+  return (await handle.jsonValue()) as { x: number; y: number };
+}
+
+test.describe('round three: what a panel is about stays in view', () => {
+  test.skip(({ browserName }) => browserName !== 'chromium', 'a hand and the camera on the real GPU');
+
+  test('the hatch, the plate and a crate’s entry from a look: what each is about lies in the clear area within a second, and a look stays a look', async ({ page, browserName }) => {
+    await page.setViewportSize(BIG);
+    await ready(page, '/', browserName);
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('workshop:panel', { detail: { panel: 'patchlamp' } })));
+    await expect(dialog(page)).toBeVisible();
+    await expect.poll(() => inClear(page, 'patch'), { timeout: 1500 }).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toBeHidden();
+    await resting(page);
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('workshop:panel', { detail: { panel: 'maker' } })));
+    await expect.poll(() => inClear(page, 'undo-lever'), { timeout: 1500 }).toBe(true);
+    await page.keyboard.press('Escape');
+    await resting(page);
+    const c = await crateEntry(page, 't-components');
+    await expect.poll(() => inClear(page, c.card), { timeout: 1500 }).toBe(true);
+    await resting(page);
+    expect(await ws(page, (w) => !!w.stage.camera.look)).toBe(true);
+  });
+
+  test('closing gives the view back when the visitor has not moved the camera, and leaves it when they have', async ({ page, browserName }) => {
+    await page.setViewportSize(BIG);
+    await ready(page, '/', browserName);
+    // the camera in on a crate's card (a look); its entry beside it moves the look aside, closing it brings it back
+    const project = Object.entries(PROJECTS).find(([, p]) => p.resume === 't-components')![0];
+    const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
+    const at = await pointFor(page, c.crate);
+    await page.mouse.dblclick(at.x, at.y);
+    await page.waitForFunction(() => !!(window as any).__handoff.workshop.stage.camera.look, null, { timeout: 15_000 });
+    await resting(page);
+    const looking = await view(page);
+    const plate = await pointFor(page, c.plate);
+    await page.mouse.click(plate.x, plate.y);
+    await expect(dialog(page)).toBeVisible();
+    await page.waitForTimeout(100);
+    await resting(page);
+    expect(same(looking, await view(page))).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toBeHidden();
+    await page.waitForTimeout(100);
+    await resting(page);
+    expect(same(await view(page), looking)).toBe(true);
+    expect(await ws(page, (w) => !!w.stage.camera.look)).toBe(true);
+    // again, and the visitor zooms (the wheel over the bench) before closing: nothing moves on closing
+    const plate2 = await pointFor(page, c.plate);
+    await page.mouse.click(plate2.x, plate2.y);
+    await expect(dialog(page)).toBeVisible();
+    await page.waitForTimeout(100);
+    await resting(page);
+    await page.mouse.move(200, 450);
+    await page.mouse.wheel(0, 240);
+    await resting(page);
+    const theirs = await view(page);
+    await dialog(page).getByRole('button', { name: H.panel.close.text }).click();
+    await page.waitForTimeout(300);
+    await resting(page);
+    expect(same(await view(page), theirs)).toBe(true);
+  });
+
+  test('the list and the panel open together: what the panel is about clears both', async ({ page, browserName }) => {
+    await page.setViewportSize(BIG);
+    await ready(page, '/', browserName);
+    await page.getByRole('button', { name: 'Controls', exact: true }).click();
+    await expect(page.locator('#controls.open')).toBeVisible();
+    await page.locator('#controls button[data-panel="maker"]').click();
+    await expect(dialog(page)).toBeVisible();
+    await expect(page.locator('#controls.open')).toBeVisible();
+    await expect.poll(() => inClear(page, 'undo-lever'), { timeout: 1500 }).toBe(true);
+  });
+
+  test('Esc with a look in force: the first (focus in the panel) closes the panel and the camera stays in; the next (on the stage) leaves the look', async ({ page, browserName }) => {
+    await page.setViewportSize(BIG);
+    await ready(page, '/', browserName);
+    await crateEntry(page, 't-components');
+    await resting(page);
+    expect(await focusIn(page)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toBeHidden();
+    await page.waitForTimeout(200);
+    await resting(page);
+    expect(await ws(page, (w) => !!w.stage.camera.look)).toBe(true);
+    await page.evaluate(() => (window as any).__handoff.workshop.stage.canvas.focus());
+    await page.keyboard.press('Escape');
+    await resting(page);
+    expect(await ws(page, (w) => !!w.stage.camera.look)).toBe(false);
+  });
+
+  test('the maker’s log: “nothing yet” only before anything is done; emptied by UNDO, the lines stay, struck through', async ({ page, browserName }) => {
+    await page.setViewportSize(BIG);
+    await ready(page, '/?panel=maker', browserName);
+    const log = dialog(page).locator('.pn-log');
+    await expect(log).toHaveText(H.maker.live.history.empty.text);
+    await ws(page, (x) => x.dispatch({ type: 'turn', id: 'belt-dial', value: 1 }));
+    await expect(log.locator('li').first()).toHaveText('Belt speed: 3 → 5');
+    await ws(page, (x) => x.dispatch({ type: 'undo' }));
+    await expect(log.locator('li.pn-gone')).toHaveText(['Belt speed: 3 → 5'], { timeout: 20_000 });
+    await expect(log).not.toContainText(H.maker.live.history.empty.text);
+  });
 });
