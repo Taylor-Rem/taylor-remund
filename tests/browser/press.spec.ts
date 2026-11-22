@@ -58,6 +58,16 @@ async function open(page: Page): Promise<string[]> {
   }
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 600, 'the press on its tray');
   await frames(page, 40);
+  // set down on the open bench beside its crate (until the crates' round three lands, a press at a thing on a tray goes
+  // to the crate behind it: that is the crates' to settle, not the press's)
+  await page.evaluate(() => {
+    const ws = (window as any).__bench.ws;
+    ws.dispatch({ type: 'grab', id: 'report-press', grip: ws.world.motion('report-press').pose.p });
+  });
+  await frames(page, 3);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [-5.2, 0, 1.3] }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding() === null && (window as any).__bench.ws.world.part('report-press').location.at === 'rest'), 600, 'the press on the bench');
+  await frames(page, 40);
   return errors;
 }
 
