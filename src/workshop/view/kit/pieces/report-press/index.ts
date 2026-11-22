@@ -160,8 +160,14 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   /** Japanned enamel: glossy, a little deeper where thick; it chips to bare metal at worn edges by itself. */
   const enamel = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, shade, jitter: 0.04 }), 0.85);
   /** Gold lining: a painted line, glossy. */
-  // (round three) a painted line, satin rather than glossy and a shade down, so it glints without blooming at the look's framing
-  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03, shade: 0.72 }), 0.45);
+  // (round three) a painted line, satin (no gloss coat: the bed plate's level lines mirrored the lamp's bulb at the look's framing) and a shade down
+  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03, shade: 0.72 }), 0);
+  /**
+   * (round three, the lead's review) Cast-iron flats in satin, not gloss: a broad level face under the gloss coat mirrors
+   * the lamp's bulb whole (a ball of light that blooms, the brightest thing in the picture at the look's framing). The
+   * feet and the bed plate the frame stands on are as cast; the upright and curved faces keep their gloss and its edges.
+   */
+  const satin = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, jitter: 0.04 }), 0);
   const brass = (g: BufferGeometry, s: number, shade = 1): KitPart => part('brass', g, 'brass', { seed: seed + s, shade, warm: 0.04, jitter: 0.05 });
   const wood = (g: BufferGeometry, s: number, token: Token = 'wood', shade = 1): KitPart => part('wood', g, token, { seed: seed + s, shade, jitter: 0.05, warm: 0.04 });
 
@@ -172,11 +178,11 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   // ---- the cast feet and the bed plate the frame stands on, lined in gold ------------------------------------------
   const plateY = D.baseH + D.footH;
   for (const [i, [x, z]] of D.feet.entries()) {
-    r.add(enamel(bevelBox({ min: [x - 0.026, D.baseH - 0.001, z - 0.022], max: [x + 0.026, plateY, z + 0.022], c: 0.004, omit: ['ny'] }), 10 + i));
+    r.add(satin(bevelBox({ min: [x - 0.026, D.baseH - 0.001, z - 0.022], max: [x + 0.026, plateY, z + 0.022], c: 0.004, omit: ['ny'] }), 10 + i));
     r.small(() => hexBolt({ af: 0.014, h: 0.005, cheap: true, seed: seed + 14 + i, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(x + (x < 0 ? -0.016 : 0.016), plateY - 0.001, z)) })));
   }
   const px0 = -D.cheekX - 0.03, px1 = D.cheekX + 0.03, pz0 = D.frameZ0 - 0.012, pz1 = D.frameZ1 + 0.012;
-  r.add(enamel(bevelBox({ min: [px0, plateY - 0.002, pz0], max: [px1, plateY + 0.012, pz1], c: 0.004, omit: ['ny'] }), 20));
+  r.add(satin(bevelBox({ min: [px0, plateY - 0.002, pz0], max: [px1, plateY + 0.012, pz1], c: 0.004, omit: ['ny'] }), 20));
   // gold lining round the plate's top, a hair in from its edge
   const ly = plateY + 0.0125;
   for (const [a, bb] of [[[px0 + 0.008, pz1 - 0.008], [px1 - 0.008, pz1 - 0.006]], [[px0 + 0.008, pz0 + 0.006], [px1 - 0.008, pz0 + 0.008]], [[px0 + 0.006, pz0 + 0.008], [px0 + 0.008, pz1 - 0.008]], [[px1 - 0.008, pz0 + 0.008], [px1 - 0.006, pz1 - 0.008]]] as const) {
@@ -244,14 +250,16 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   r.add(enamel(bevelBox({ min: [hubX - 0.016, D.leverY + D.wheelR - 0.004, D.leverZ - 0.035], max: [hubX - 0.006, D.leverY + D.wheelR + 0.01, D.leverZ + 0.004], c: 0.002 }), 72));
   const lever = r.node('lever', chain(T(D.leverX, D.leverY, D.leverZ), mat({ rot: [D.leverRest, 0, 0] })));
   lever.add(enamel(transform(lathe(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.014, { sharp: true }).to(0.02, 0.02, { sharp: true }).to(0, 0.02), { segs: low ? 10 : 14, support: false, caps: false }), chain(mat({ rot: [0, 0, 90] }), T(0, -0.01, 0))), 73));
-  // (round three) a cast arm: a flat tapered bar (wide at the boss, narrow under the grip), its thickness across, with a
-  // raised rib and a gold line along its outer face
-  const armAt = chain(T(-0.011, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2));
-  lever.add(enamel(transform(extrude([[-0.026, 0], [0.026, 0], [0.012, D.leverLen], [-0.012, D.leverLen]], 0.022, { bevel: 0.004, radius: 0.006, segs: 1, support: false }), armAt), 74));
-  lever.add(enamel(transform(extrude([[-0.008, 0.02], [0.008, 0.02], [0.004, D.leverLen - 0.02], [-0.004, D.leverLen - 0.02]], 0.006, { bevel: 0.002, radius: 0.002, segs: 1, support: false, caps: 'end' }), chain(T(-0.017, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 75, 1.15));
-  lever.add(gold(transform(extrude([[-0.0016, 0.035], [0.0016, 0.035], [0.0012, D.leverLen - 0.035], [-0.0012, D.leverLen - 0.035]], 0.001, { bevel: 0, bevelBase: 0, radius: 0, segs: 1, support: false, caps: 'end' }), chain(T(-0.0232, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 76));
+  // (round three) a forged arm in bright steel (the lamp finds its bevelled edges), a flat tapered bar wide at the boss and
+  // narrow under the grip, its thickness across (extruded outward from the boss's plane), with a raised rib and a gold line
+  // along its outer face (each extruded outward from the face before it)
+  const steelArm = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('metal', g, 'steel', { seed: seed + s, shade, jitter: 0.03 }), 0.5);
+  const armAt = chain(T(0, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2));
+  lever.add(steelArm(transform(extrude([[-0.026, 0], [0.026, 0], [0.013, D.leverLen], [-0.013, D.leverLen]], 0.03, { bevel: 0.004, radius: 0.006, segs: 1, support: false }), armAt), 74));
+  lever.add(steelArm(transform(extrude([[-0.008, 0.02], [0.008, 0.02], [0.004, D.leverLen - 0.02], [-0.004, D.leverLen - 0.02]], 0.006, { bevel: 0.002, radius: 0.002, segs: 1, support: false, caps: 'end' }), chain(T(-0.03, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 75, 1.15));
+  lever.add(gold(transform(extrude([[-0.0016, 0.035], [0.0016, 0.035], [0.0012, D.leverLen - 0.035], [-0.0012, D.leverLen - 0.035]], 0.001, { bevel: 0, bevelBase: 0, radius: 0, segs: 1, support: false, caps: 'end' }), chain(T(-0.036, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 76));
   lever.add(brass(lathe(profile(0.011, D.leverLen - 0.004).to(0.016, D.leverLen - 0.002, { sharp: true }).to(0.016, D.leverLen + 0.01, { sharp: true }).to(0.012, D.leverLen + 0.012), { segs: 12, support: false, caps: false }), 76));
-  lever.add(wood(lathe(profile(0, D.leverLen + 0.01).to(0.018, D.leverLen + 0.012, { sharp: true }).to(D.gripR, D.leverLen + 0.03).to(D.gripR * 1.04, D.leverLen + 0.055).to(D.gripR * 0.86, D.leverLen + D.gripL - 0.004).to(0, D.leverLen + D.gripL), { segs: low ? 10 : 14, support: false, caps: false }), 77, 'wood', 0.95));
+  lever.add(wood(lathe(profile(0, D.leverLen + 0.01).to(0.018, D.leverLen + 0.012, { sharp: true }).to(D.gripR, D.leverLen + 0.03).to(D.gripR * 1.04, D.leverLen + 0.055).to(D.gripR * 0.86, D.leverLen + D.gripL - 0.004).to(0, D.leverLen + D.gripL), { segs: low ? 10 : 14, support: false, caps: false }), 77, 'wood-light', 1.15)); // pale turned wood: the lightest thing on the press
 
   // ---- the drawer in the base's front: a wooden face with a brass pull; its stack of copies inside ------------------------
   const drawer = r.node('drawer', T(0, 0.006, D.d / 2));

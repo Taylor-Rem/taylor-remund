@@ -18,12 +18,12 @@ const names = (n: PieceNode, out: string[] = []): string[] => {
 };
 
 describe('the report press piece', () => {
-  test('under 5,000 triangles; four material classes (enamel, brass, wood, paper); every moving node there; the body\'s footprint', () => {
+  test('under 5,000 triangles; five material classes (enamel, brass, wood, paper, and the lever\'s bare steel); every moving node there; the body\'s footprint', () => {
     for (const paper of [undefined, 'region|report-press|paper']) {
       const p = reportPress({ seed: 3, ...(paper ? { paper } : {}) });
       process.stderr.write(`\nreport press: ${p.triangles} triangles, classes ${[...classes(p.root)].join(', ')}, size ${JSON.stringify(p.size)}\n`);
       expect(p.triangles).toBeLessThanOrEqual(5000);
-      expect([...classes(p.root)].sort()).toEqual(['brass', 'paper', 'steel', 'wood']);
+      expect([...classes(p.root)].sort()).toEqual(['brass', 'metal', 'paper', 'steel', 'wood']);
       const n = names(p.root);
       for (const k of ['lever', 'wheel', 'platen', 'printed', 'gridded', 'blank', 'drawer', 'stack', 'arm', 'env', 'flap-0', 'flap-1', 'flap-2']) expect(n, k).toContain(k);
       // its base is the body's footprint; the lever and the spring arm's bed reach past it

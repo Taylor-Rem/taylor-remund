@@ -175,8 +175,8 @@ test('P4 D3 round three: a press at each point of the press on its open crate\'s
     // the lever's own points: along its arm and grip as it rests (every one is the lever's)
     const lever: string[] = [];
     for (let k = 0; k <= 6; k++) {
-      const a = (-42 * Math.PI) / 180, len = 0.08 + (0.38 * k) / 6;
-      const o = rot(-0.25, 0.25 + Math.cos(a) * len * 1.25, -0.0125 + Math.sin(a) * len * 1.25);
+      const a = (8 * Math.PI) / 180, len = 0.08 + (0.32 * k) / 6; // (dims.ts: leverRest 8, leverLen + gripL 0.42)
+      const o = rot(-0.25, 0.25 + Math.cos(a) * len * 1.25, 0.0875 + Math.sin(a) * len * 1.25);
       const s = B.project([m.p[0] + o[0], m.p[1] + o[1], m.p[2] + o[2]]);
       lever.push(String(ws.surface.at(s.x, s.y, 'mouse', null).id ?? '-'));
     }

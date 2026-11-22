@@ -43,13 +43,13 @@ export const PRESS_DIMS = {
   trayTilt: 22,
   blanks: 7,
   blankT: 0.0022,
-  /** The lever: its pivot on the left cheek, the cast arm's length, its rest (degrees back from upright) and its pull (forward, through). */
+  /** The lever: its pivot on the left cheek near the front, the arm's length, its rest (degrees from upright; positive leans toward the visitor) and its pull (toward the visitor, down to level). */
   leverX: -0.2,
   leverY: 0.2,
-  leverZ: -0.01,
-  leverLen: 0.38,
-  leverRest: -42,
-  leverPull: 112,
+  leverZ: 0.07,
+  leverLen: 0.32,
+  leverRest: 8,
+  leverPull: 84,
   gripR: 0.042,
   gripL: 0.1,
   /** The ratchet wheel on the lever's hub (it turns with the lever, and clicks round as the printed sheet rises). */
