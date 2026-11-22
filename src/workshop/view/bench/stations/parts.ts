@@ -161,13 +161,15 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
         lids.set(part.id, { crate: pc, size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0 });
-        // the latch's pick target: over the hasp and the front's top rail (a bone has no meshes: a box of its own)
+        // the latch's pick target (a bone has no meshes: a box of its own): the hasp's knuckle and the lid's front edge, a
+        // thin band. Not lower: a ray to the crate's own middle crosses its front face just under the lid (at the camera's
+        // pitch, 0.65 of half its depth above its middle), and a press there must take hold of the crate, not open it
         const latch = new Object3D();
         latch.name = 'latch.pick';
         obj.add(latch);
         const hy = S.h - S.cleatT - S.lidT;
-        const hw = Math.max(0.08, S.w * 0.2);
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, hy - S.railH * 1.2, S.d / 2 - 0.02), new Vector3(hw, S.h + 0.012, S.d / 2 + 0.05)), pad: PAD, active: () => group.visible });
+        const hw = Math.max(0.06, S.w * 0.14);
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, hy - 0.003, S.d / 2 - 0.012), new Vector3(hw, S.h + 0.012, S.d / 2 + 0.022)), pad: 0.008, active: () => group.visible });
         // the plate's pick target, on the card (only while it stands)
         const pw = Math.min(1, (projectCardSize(size).w * 0.34) / plateSize.w) * plateSize.w;
         const ph = (pw / plateSize.w) * plateSize.h;
