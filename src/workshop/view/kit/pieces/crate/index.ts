@@ -203,7 +203,7 @@ export function crateLabels(labels: Labels): void {
 }
 
 /** (round two) A mark's capital height on each size of crate: at least 12 px at the home framing at 1440×900. */
-export const BADGE_CAP: Record<CrateSize, number> = { S: 0.235, M: 0.3, L: 0.34 };
+export const BADGE_CAP: Record<CrateSize, number> = { S: 0.25, M: 0.3, L: 0.34 };
 
 /**
  * Lines of stencil fitted to bands (planks), top band first, x from x0 to x1: shared out as evenly as they go, top first,
@@ -476,7 +476,7 @@ export function crate(o: CrateOptions = {}): Piece {
         const placed = o.badge ? [] : fitWords(words, -pw / 2 + 0.006, pw / 2 - 0.006, panelY0 + legendH + 0.004, panelY1 - 0.006, Rw);
         // (round two) the one mark: as tall as the front allows (its glyph is two thirds of its label's height), in the middle
         const badge = o.badge;
-        const bcap = badge ? Math.min(BADGE_CAP[size], ph2 * 0.88, (pw * 0.94) / (badge.aspect * STENCIL_H)) : 0;
+        const bcap = badge ? Math.min(BADGE_CAP[size], ph2 * 0.95, (pw * 0.94) / (badge.aspect * STENCIL_H)) : 0;
         const bw = badge ? badge.aspect * STENCIL_H * bcap : 0;
         const bh = STENCIL_H * bcap;
         const btilt = Rw.spread(1.4);

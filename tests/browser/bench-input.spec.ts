@@ -940,6 +940,34 @@ test('P4 S5: a project crate opened by a click on its latch: a finger over it, i
   await pollFrames(page, openNow).toBe(false);
 });
 
+test('P4 S5 round two: a double-click on a crate lying still opens it where it lies and brings the camera close to its card; a double-tap does the same at the phone framing; Esc goes back', async ({ page, browser }) => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;
+    const p = ctx ? await ctx.newPage() : page;
+    await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
+    const zoom0 = await p.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number);
+    const at0 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
+    const c = await waitClear(p, 'crate-3', kind);
+    if (kind === 'mouse') await p.mouse.dblclick(c.x, c.y);
+    else {
+      await p.touchscreen.tap(c.x, c.y);
+      await p.waitForTimeout(110);
+      await p.touchscreen.tap(c.x, c.y);
+    }
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open')), 240, `${kind}: opened`).toBe(true);
+    // where it lay (the double-tap's first tap lifted it; the second let it go still)
+    const at1 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
+    expect(Math.hypot(at1[0]! - at0[0]!, at1[2]! - at0[2]!), `${kind}: where it lay`).toBeLessThan(0.15);
+    // the camera came closer, and rests with the plate a finger's width across
+    await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.stage.camera.view().zoom > 0), 600, `${kind}: drawn in`).toBe(true);
+    expect(await p.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number)).toBeGreaterThan(zoom0 + 0.3);
+    await pollFrames(p, () => p.evaluate(() => ((window as any).__bench.ws.surface.screen('crate-3-plate')?.r ?? 0) * 2 >= 44), 600, `${kind}: the plate a finger across`).toBe(true);
+    await p.keyboard.press('Escape');
+    await pollFrames(p, () => p.evaluate(() => ((window as any).__bench.ws.stage.camera.view().zoom as number) < 0.05), 600, `${kind}: back`).toBe(true);
+    if (ctx) await ctx.close();
+  }
+});
+
 /**
  * R2 (Taylor: "sometimes when you click on the phone it doesn't open the interactive phone screen to full size,
  * instead still basically being the same size as the phone and there's no way to fix it"). A hundred times, at
