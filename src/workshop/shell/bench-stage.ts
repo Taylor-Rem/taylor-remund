@@ -74,8 +74,8 @@ export const STATION_BOXES = {
   line: { min: [-7.8, 0, 0.6], max: [7.4, 2.2, 5.0] },
   /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
   top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
-  /** (P4 T2) The tool wall: the board, its eight tools and the pinned sheet. */
-  tools: { min: [-10.1, 0.3, -5.0], max: [-4.6, 6.2, -4.0] },
+  /** (P4 T2) The tool wall: the board, its eight tools and the pinned sheet, and the bench in front of it (where a tool is set down). */
+  tools: { min: [-10.1, 0, -5.0], max: [-4.6, 6.1, -2.4] },
 } as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 /**
  * A phone held upright: the camera never zooms out past its home (the centre cluster, about 5.6 units across),
@@ -92,7 +92,7 @@ export const STATION_BOXES_PORTRAIT = {
   /** The sign's middle and the lamp. */
   top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
   /** (P4 T2) The board's middle: its tools. */
-  tools: { min: [-9.4, 0.8, -5.0], max: [-5.3, 5.9, -4.0] },
+  tools: { min: [-9.4, 0.4, -5.0], max: [-5.3, 5.9, -3.0] },
 } as const satisfies Record<keyof typeof STATION_BOXES, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 export type BenchStation = keyof typeof STATION_BOXES;
 export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];

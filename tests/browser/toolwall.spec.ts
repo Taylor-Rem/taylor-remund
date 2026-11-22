@@ -105,7 +105,7 @@ test('P4 T2: VUE by mouse at 1440×900: off its peg, across the bench, set down;
   await page.mouse.down();
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding()?.id === 'tool-vue'), 60, 'VUE in the hand', () => diag(page, id));
   // across the bench to the open floor in front of the wall, and let go
-  const spot = await projectOf(page, [-6.6, 0.1, -2.2]);
+  const spot = await projectOf(page, [-6.4, 0.1, -3.4]);
   await page.mouse.move(spot.x, spot.y, { steps: 30 });
   await frames(page, 20);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/mouse-1-carried-1440.png` });
