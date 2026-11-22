@@ -1,7 +1,7 @@
 /**
  * The paint dial (D2; DEMO-CONCEPTS concept 2): a paint-chip fan with a brass knob at its pivot. Each chip is
  * one paint scheme (view/materials/scheme.ts), in that scheme's enamel with a tab of its trim at the tip; the
- * knob's needle points at the scheme the workshop is wearing. Small: it sits on the tray of an M crate (S5 item 5; 1.5x the first cut, which read as a smudge at the closest zoom) and
+ * knob's needle points at the scheme the workshop is wearing. Small: it fits the tray of an M crate (S5, crate/card.ts: about 0.28 by 0.15), as large as that allows (the first, smaller cut read as a smudge at the closest zoom); the chips fan wide so they read side by side and
  * is picked up like any loose part. Not wired to anything yet: the owner chooses the schemes first.
  *
  *  - a dark cast-iron base plate (steel, `ink`), a rivet at each corner;
@@ -32,25 +32,25 @@ const DEG = Math.PI / 180;
 /** Sizes (units). */
 export const PAINT_DIAL = {
   /** The base plate. */
-  w: 0.31,
-  d: 0.21,
-  t: 0.022,
+  w: 0.25,
+  d: 0.118,
+  t: 0.02,
   /** The fan's pivot, from the plate's centre (toward the back). */
-  pivotZ: -0.07,
+  pivotZ: -0.03,
   /** A chip: from the pivot out to `reach`; its width at the tip and at the pivot; its thickness; how much each sits above the one under it. */
-  reach: 0.168,
-  tipW: 0.068,
-  rootW: 0.044,
-  chipT: 0.005,
-  lift: 0.006,
+  reach: 0.094,
+  tipW: 0.052,
+  rootW: 0.036,
+  chipT: 0.0045,
+  lift: 0.0052,
   /** The trim tab at a chip's tip (its length along the chip). */
-  tab: 0.03,
+  tab: 0.024,
   /** The chips' directions, degrees from straight toward the visitor (+ is to the visitor's right). */
-  spread: [-42, -14, 14, 42] as readonly number[],
+  spread: [-56, -19, 19, 56] as readonly number[],
   /** The knob: grip radius and height, needle length (from the pivot). */
-  knobR: 0.036,
-  knobH: 0.04,
-  needle: 0.14,
+  knobR: 0.027,
+  knobH: 0.034,
+  needle: 0.088,
 } as const;
 
 /** The knob's turn (radians about its local +Y) to point at scheme `id` (or a chip index, fractions between). */

@@ -1,7 +1,7 @@
 // The paint dial (D2): a fan of enamel chips, one per scheme, and a brass knob. Small, two draw calls, its chips in
 // the schemes' own colours, its needle on the scheme asked for.
 import { describe, expect, it } from 'vitest';
-import { Mesh, MeshBasicMaterial, Vector3, type Material, type Object3D } from 'three';
+import { Box3, Matrix4, Mesh, MeshBasicMaterial, Vector3, type Material, type Object3D } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { PieceNode } from '../../../src/workshop/view/kit/types.ts';
@@ -51,10 +51,25 @@ describe('the paint dial', () => {
     expect(a.root.parts[0]!.geometry.getAttribute('position').array).toEqual(b.root.parts[0]!.geometry.getAttribute('position').array);
   });
 
-  it('fits on the tray of a medium crate', () => {
-    expect(p.size.x).toBeLessThan(crateSpec('M').w * 0.6);
-    expect(p.size.z).toBeLessThan(crateSpec('M').d * 0.5);
-    expect(p.size.y).toBeLessThan(0.11);
+  it('fits the tray of a medium crate (crate/card.ts: as wide as 0.62 of the mouth, at most 0.3; 0.34 of it deep)', () => {
+    const S = crateSpec('M');
+    const mouthW = S.w - 2 * S.post, mouthD = S.d - 2 * S.post;
+    // its real extent (every vertex where it is drawn, the knob turned to each scheme), inside the tray's lips
+    for (const id of SCHEME_IDS) {
+      const box = new Box3();
+      const walk = (n: PieceNode, m: Matrix4): void => {
+        const w = m.clone().multiply(n.transform ?? new Matrix4());
+        for (const q of n.parts) {
+          const pos = q.geometry.getAttribute('position');
+          for (let i = 0; i < pos.count; i++) box.expandByPoint(new Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(w));
+        }
+        for (const c of n.children ?? []) walk(c, w);
+      };
+      walk(paintDial({ scheme: id }).root, new Matrix4());
+      expect(box.max.x - box.min.x, id).toBeLessThanOrEqual(Math.min(mouthW * 0.62, 0.3) - 0.016);
+      expect(box.max.z - box.min.z, id).toBeLessThanOrEqual(mouthD * 0.34 - 0.016);
+      expect(box.max.y - box.min.y, id).toBeLessThan(0.1);
+    }
   });
 
   it('wears every scheme as a chip: its enamel, and its trim at the tip', () => {
@@ -77,7 +92,7 @@ describe('the paint dial', () => {
   });
 
   it('turns its knob to point at the scheme asked for, about its own +Y', () => {
-    expect(SCHEME_IDS.map((id) => paintDialAngle(id))).toEqual(PAINT_DIAL.spread.map((d) => (d * Math.PI) / 180));
+    SCHEME_IDS.forEach((id, i) => expect(paintDialAngle(id)).toBeCloseTo((PAINT_DIAL.spread[i]! * Math.PI) / 180, 12));
     expect(paintDialAngle(1.5)).toBeCloseTo(((PAINT_DIAL.spread[1]! + PAINT_DIAL.spread[2]!) / 2) * (Math.PI / 180), 9);
     const knob = find(paintDial({ scheme: 'C' }).root, 'knob')!;
     expect(knob).toBeDefined();
