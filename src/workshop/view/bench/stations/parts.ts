@@ -13,7 +13,7 @@
  *
  * `?crateLegend=both` (development: the pictures for the owner) keeps the size letter and the arrows under the words.
  */
-import { Box3, Object3D, Vector3, type Group } from 'three';
+import { Box3, Group, Matrix4, Object3D, Vector3 } from 'three';
 import type { Id, Part, Vec3 } from '../../../sim/types.ts';
 import type { ProjectCrate } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
@@ -45,11 +45,19 @@ export const LID_FEEL = {
 
 /** The plate's engraving: one plate label for every card (its capitals at the plate's own small size). */
 const PLATE_CAP = 0.018;
+const footM = new Matrix4();
 /** A pick target's padding (world units). */
 const PAD = 0.03;
 
 interface Lid {
   readonly crate: ProjectCrate;
+  /**
+   * Where the card, the tray and the latch's and plate's pick targets hang: posed every frame as the crate is drawn, but
+   * not under the crate's own object, whose box is the crate's pick target (measured from what is under it).
+   */
+  readonly holder: Group;
+  /** The crate's piece stands this far under its body's middle (its half height). */
+  readonly foot: number;
   readonly size: CrateSize;
   card: Object3D | null;
   cardRoot: Object3D | null;
@@ -120,6 +128,9 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
   return (ctx) => {
     const F = LID_FEEL;
     const lids = new Map<Id, Lid>();
+    const root = new Group();
+    root.name = 'project-crates';
+    ctx.scene.add(root);
     // every card's face, typed now while the labels' start-up pages are open (a region made later opens a page of its own)
     const plate = ctx.labels.plate(CARD_PLATE, { capHeight: PLATE_CAP });
     const plateSize = ctx.labels.size(plate);
@@ -151,7 +162,11 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
         cardRoot.visible = false;
-        obj.add(cardRoot);
+        const holder = new Group();
+        holder.name = `project-crate:${part.id}`;
+        holder.matrixAutoUpdate = false;
+        holder.add(cardRoot);
+        root.add(holder);
         let card: Object3D | null = null;
         let tray: Object3D | null = null;
         cardRoot.traverse((x) => {
@@ -160,16 +175,18 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         });
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
-        lids.set(part.id, { crate: pc, size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0 });
-        // the latch's pick target (a bone has no meshes: a box of its own): the hasp's knuckle and the lid's front edge, a
-        // thin band. Not lower: a ray to the crate's own middle crosses its front face just under the lid (at the camera's
-        // pitch, 0.65 of half its depth above its middle), and a press there must take hold of the crate, not open it
+        lids.set(part.id, { crate: pc, holder, foot: half[1], size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0 });
+        // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
+        // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just
+        // where the hasp hangs (about five sixths of its height up), and a press at a crate's middle must take hold of the
+        // crate. No ray to the middle crosses the lid's top. The box floats a hair over the lid, so its middle lies outside
+        // the crate's own (padded) box: the input's rule that a small target inside a big one wins wherever the big one is
+        // pressed (shell/boot.ts `pickAt`) would otherwise give every press on the crate to its latch.
         const latch = new Object3D();
         latch.name = 'latch.pick';
-        obj.add(latch);
-        const hy = S.h - S.cleatT - S.lidT;
-        const hw = Math.max(0.06, S.w * 0.14);
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, hy - 0.003, S.d / 2 - 0.012), new Vector3(hw, S.h + 0.012, S.d / 2 + 0.022)), pad: 0.008, active: () => group.visible });
+        holder.add(latch);
+        const hw = Math.max(0.07, S.w * 0.2);
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, S.d / 2 - 0.13), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible });
         // the plate's pick target, on the card (only while it stands)
         const pw = Math.min(1, (projectCardSize(size).w * 0.34) / plateSize.w) * plateSize.w;
         const ph = (pw / plateSize.w) * plateSize.h;
@@ -182,9 +199,13 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-pw / 2 - 0.01, -ph / 2 - 0.01, -0.01), new Vector3(pw / 2 + 0.01, ph / 2 + 0.01, 0.02)), pad: PAD, active: () => group.visible && st.rise > 0.9 });
       },
 
-      update(part: Part, obj: Object3D, _group: Group, frame: Frame, shown: boolean) {
+      update(part: Part, obj: Object3D, group: Group, frame: Frame, shown: boolean) {
         const st = lids.get(part.id);
         if (!st) return;
+        // the holder where the crate's piece is: its part's pose (as drawn), down to the piece's foot
+        st.holder.matrix.copy(group.matrix).multiply(footM.makeTranslation(0, -st.foot, 0));
+        st.holder.matrixWorldNeedsUpdate = true;
+        st.holder.visible = shown && group.visible;
         const w = frame.world;
         const m = w.motion(part.id);
         const want = shown && w.setting(part.id, 'open') === true && !m?.held && m?.mode === 'free' ? 1 : 0;
@@ -235,6 +256,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
       },
 
       dispose() {
+        root.removeFromParent();
         lids.clear();
       },
     };
