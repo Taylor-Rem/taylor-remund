@@ -396,6 +396,11 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
+  /**
+   * (D2c) What was being looked at has something to show at the room's scale (a turn of the paint dial: the whole room
+   * repaints): if a look still holds the camera, the shell eases back to the view it left. No ids, no station.
+   */
+  | { readonly type: 'look.back' }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }
@@ -741,6 +746,8 @@ export interface PaintDialView extends MachineViewBase {
   readonly schemes: readonly string[];
   readonly scheme: string;
   readonly index: number;
+  /** (D2c) A press waiting out the double-tap window: the place it turns to (the knob is drawn there at once), or null. */
+  readonly pending: number | null;
   readonly change: { readonly from: string; readonly to: string; readonly since: number; readonly by: 'hand' | 'restore' } | null;
   readonly wipe: number;
   readonly worked: number;

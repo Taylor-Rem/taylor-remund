@@ -8,8 +8,12 @@
  *   the chute, stowed again): the scheme is the dial's and stays.
  * - The knob (`knob`: a name, a tell, a misfire, `turn` and `press`) turns through detents. A drag turns it detent by
  *   detent (`turn`, value 0..1), one gesture one transaction; a press or a tap, or the keys from the controls list, moves
- *   it one detent on (`press`), past the last back to the first. One effect per change, under the visitor's transaction,
- *   so the UNDO lever restores the recorded value and the view wipes back from wherever the dial is now.
+ *   it one detent on (`press`), past the last back to the first: the knob at once, the paint `pressWait` later (D2c: so
+ *   the second tap of a double-tap can withdraw it). One effect per change, under the visitor's transaction, so the
+ *   UNDO lever restores the recorded value and the view wipes back from wherever the dial is now.
+ * - (D2c) `select` (a double-click or double-tap on the dial or its knob): `look` at it (on its tray, its crate's card;
+ *   out, the dial itself), and a press its first tap made is withdrawn: a double-tap only looks. A turn by hand (not
+ *   the lever, not a reset) emits `look.back`: the camera goes back out to the room it repaints.
  * - In nobody's reach (in a hand, in the crew's, shipped, down the chute, in its shut crate): a turn is a misfire.
  * - Never saved: a visit is not remembered in another scheme (Taylor: "provided the original approved appearance
  *   returns on a new visit"). `World.saved()` lists nothing of it; "Reset the workshop" puts the first scheme back.
@@ -20,9 +24,10 @@
  *
  * What it is true to and what it simplifies: the toy truth table row (REWRITE.md § F3) in the D2b hand-in.
  */
-import type { Id, Intent, Outcome, PaintDialView, Restore, SimEvent, StationId, Value } from '../types.ts';
+import type { Id, Intent, Outcome, PaintDialView, Restore, SimEvent, StationId, TransactionId, Value } from '../types.ts';
 import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
+import type { Job } from '../history.ts';
 import { HZ, steps } from '../clock.ts';
 import { Beat, OK, gesture, handleTxn } from '../machine.ts';
 
@@ -38,6 +43,12 @@ export const PAINT_TUNING = {
   schemes: ['A', 'B', 'C', 'D'] as readonly string[],
   /** How long the wipe takes to cross the room (the view draws it over this; the bell rings at its end). */
   wipeSeconds: 1.8,
+  /**
+   * (D2c) A press (a click, a tap, a key) moves the knob and clicks at once, and turns the workshop's paint this long
+   * later, so the second tap of a double-tap (`select`: look at the dial) can withdraw it: a double-tap only looks.
+   * The input's double-tap window (320 ms) and a step.
+   */
+  pressWait: 0.4,
 };
 
 export interface PaintDialSpec {
@@ -79,6 +90,11 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
   let rung = true;
   /** When a hand last worked the knob (its click and travel), even when the turn changed nothing. */
   let workedAt = -1;
+  /**
+   * (D2c) A press waiting out the double-tap window: the scheme it turns to, when it was last pressed, and its work
+   * under the press's transaction (the lever cancels it; a `select` withdraws it).
+   */
+  let pending: { to: string; at: number; job: Job; t: TransactionId } | null = null;
 
   const scheme = (): string => {
     const v = present ? ctx.setting(spec.dial, SCHEME_FIELD) : home;
@@ -105,7 +121,16 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
     });
   }
 
-  /** Turn to `to` under the hand's transaction: one effect. */
+  /** The scheme changed by a hand: one effect done (by `commit`), then what a visitor sees and hears of it. */
+  function turned(from: string, to: string): void {
+    change = { at: ctx.clock.step, from, to, by: 'hand' };
+    rung = false;
+    ctx.emit({ type: 'paint.turned', id: spec.id, dial: spec.dial, scheme: to, from, index: schemes.indexOf(to), of: schemes.length });
+    // (D2c) the payoff is the whole room: whatever a look holds, the camera goes back out to see it
+    ctx.emit({ type: 'look.back' });
+  }
+
+  /** Turn to `to` under the hand's transaction (a drag): one effect, at once. */
   function turnTo(to: string, g: ReturnType<typeof gesture>): boolean {
     const from = scheme();
     const i = schemes.indexOf(to);
@@ -114,12 +139,47 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
     if (to === from) return true;
     const t = handleTxn(ctx, g, 'turn', spec.knob.id);
     const r = ctx.commit([{ target: spec.dial, field: SCHEME_FIELD, after: to }], t);
-    if (r.effects.length === 0) return true;
-    change = { at: ctx.clock.step, from, to, by: 'hand' };
-    rung = false;
-    ctx.emit({ type: 'paint.turned', id: spec.id, dial: spec.dial, scheme: to, from, index: i, of: schemes.length });
+    if (r.effects.length > 0) turned(from, to);
     return true;
   }
+
+  /** (D2c) A press: the knob one detent on at once; the paint after the double-tap window, as work under the press. */
+  function press(): boolean {
+    const n = schemes.length;
+    const at = pending ? pending.to : scheme();
+    const to = schemes[(schemes.indexOf(at) + 1) % n]!;
+    workedAt = ctx.clock.step;
+    ctx.emit({ type: 'handle.worked', id: spec.knob.id, value: schemes.indexOf(to) / (n - 1) });
+    if (pending && pending.job.active) {
+      pending.to = to;
+      pending.at = ctx.clock.step;
+      return true;
+    }
+    const t = handleTxn(ctx, gesture(), 'press', spec.knob.id);
+    const job = ctx.history.work(t, spec.id, () => {
+      if (pending?.job === job) pending = null;
+    });
+    pending = { to, at: ctx.clock.step, job, t };
+    return true;
+  }
+
+  /** (D2c) The waiting press, now: its turn under its own transaction. */
+  function settlePress(): void {
+    const p = pending;
+    if (!p) return;
+    pending = null;
+    if (p.job.active) {
+      const from = scheme();
+      if (p.to !== from && p.job.commit([{ target: spec.dial, field: SCHEME_FIELD, after: p.to }]).effects.length > 0) turned(from, p.to);
+    }
+    p.job.done();
+  }
+
+  /** (D2c) Where to look when the dial is asked for: its crate's card while it is on the tray, else the dial itself. */
+  const lookTarget = (): Id => {
+    const l = ctx.part(spec.dial)?.location;
+    return l && l.at === 'in' && l.mouth === spec.crate ? `${spec.crate}-card` : spec.dial;
+  };
 
   const unit: PaintDialUnit = {
     id: spec.id,
@@ -135,6 +195,18 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
     },
 
     intent(intent: Intent): boolean {
+      // (D2c) a double-click or double-tap on the dial or its knob: look at it; a press its first tap made is withdrawn
+      if (intent.type === 'select' && present && (intent.id === spec.knob.id || intent.id === spec.dial)) {
+        if (pending) {
+          const p = pending;
+          pending = null;
+          p.job.done();
+        }
+        const m = ctx.mode(spec.dial);
+        if (m === 'gone' || m === 'chute') return false;
+        ctx.emit({ type: 'look', target: lookTarget() });
+        return true;
+      }
       if (intent.type !== 'turn' && intent.type !== 'press') return false;
       if (!present || intent.id !== spec.knob.id) return false;
       if (ctx.bracketed) return false;
@@ -146,10 +218,16 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
       }
       const n = schemes.length;
       if (intent.type === 'turn') {
+        // a drag: any press waiting is the same hand's, and done now first
+        settlePress();
         const v = Math.min(1, Math.max(0, intent.value));
         return turnTo(schemes[Math.round(v * (n - 1))]!, turning);
       }
-      return turnTo(schemes[(schemes.indexOf(scheme()) + 1) % n]!, gesture());
+      return press();
+    },
+
+    pre() {
+      if (pending && (!reachable() || ctx.clock.step - pending.at >= steps(PAINT_TUNING.pressWait))) settlePress();
     },
 
     post() {
@@ -174,6 +252,11 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
     reset() {
       beat.reset();
       workedAt = -1;
+      if (pending) {
+        const p = pending;
+        pending = null;
+        p.job.done();
+      }
     },
 
     heard(events: readonly SimEvent[]) {
@@ -198,6 +281,7 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
         schemes,
         scheme: s,
         index: schemes.indexOf(s),
+        pending: pending ? schemes.indexOf(pending.to) : null,
         change: c ? { from: c.from, to: c.to, since: (ctx.clock.step - c.at) / HZ, by: c.by } : null,
         wipe: PAINT_TUNING.wipeSeconds,
         worked: workedAt < 0 ? Infinity : (ctx.clock.step - workedAt) / HZ,

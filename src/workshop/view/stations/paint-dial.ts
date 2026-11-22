@@ -31,8 +31,15 @@ export const PAINT_FEEL = {
   tellTime: 1.1,
   /** A misfire: a short twitch of this much (radians). */
   twitch: 0.1,
-  /** The fan: the worn chip stands this much proud of the plate (units). */
-  lift: 0.022,
+  /**
+   * The fan (D2c): the chosen chip stands up off the plate, tipped toward the visitor about the knob's pivot, on a
+   * spring (a little overshoot when it is chosen); the others lie flat. `lift` units up, `tilt` radians, the spring's
+   * stiffness and damping (per second², per second).
+   */
+  lift: 0.016,
+  tilt: 0.6,
+  spring: 170,
+  damp: 13,
 };
 
 /** The development flag: a scheme to wear whatever the dial says (`?paint=E`), or null. */
@@ -80,6 +87,8 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
     let drawn = -1;
     let told: string | null = null;
     let tellAt = -Infinity;
+    /** The fan's chips' springs (0 flat, 1 up). */
+    let up: Array<{ x: number; v: number }> = [];
     const forced = devScheme();
 
     const reachable = (): boolean => {
@@ -142,10 +151,11 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       } else {
         knob!.quaternion.copy(rest.get(knob!)!).multiply(qa.setFromAxisAngle(Y, paintDialAngle(at) - paintDialAngle(0) + rock));
         knob!.updateMatrix();
-        // the worn chip lifts a little (the one the needle is on), the others lie on the plate
+        // the chosen chip up off the plate, tipped toward the visitor (on its spring), the others flat
         chips.forEach((c, i) => {
-          const k = Math.max(0, 1 - Math.abs(at - i));
-          c.position.y = restY.get(c)! + F.lift * k * k * (3 - 2 * k);
+          const k = up[i]?.x ?? 0;
+          c.position.y = restY.get(c)! + F.lift * k;
+          c.quaternion.copy(rest.get(c)!).multiply(qa.setFromAxisAngle(X, -F.tilt * k));
           c.updateMatrix();
         });
       }
@@ -188,8 +198,21 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
         holder.matrixWorldNeedsUpdate = true;
         holder.visible = shown;
         for (const e of frame.events) if (e.type === 'tell' && e.id === o.knob) tellAt = frame.time;
-        // the control travels to the detent the dial is at, a detent per `flick`
-        const target = lv.index;
+        // the control travels to the detent the dial is at (or a waiting press's: the knob moves at once), a detent per `flick`
+        const target = lv.pending ?? lv.index;
+        // the fan's chips: the chosen one springs up
+        if (up.length !== chips.length) up = chips.map((_, i) => ({ x: i === target ? 1 : 0, v: 0 }));
+        const sdt = Math.min(1 / 30, Math.max(0, frame.dt));
+        up.forEach((u, i) => {
+          const want = i === target ? 1 : 0;
+          if (reduced) {
+            u.x = want;
+            u.v = 0;
+            return;
+          }
+          u.v += ((want - u.x) * F.spring - u.v * F.damp) * sdt;
+          u.x += u.v * sdt;
+        });
         if (drawn < 0 || reduced) drawn = target;
         else if (drawn !== target) {
           const step = Math.min(1, Math.max(0, frame.dt) / F.flick);

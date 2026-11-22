@@ -44,19 +44,31 @@ const painted = (page: Page): Promise<{ current: string; active: number }> => pa
 const screenOf = (page: Page, id: string): Promise<{ x: number; y: number; r: number } | null> => page.evaluate((id) => (window as any).__bench.ws.surface.screen(id), id);
 
 /**
- * In close on the dial: until the crates' own camera comes in on an opened crate's thing, this is the page's hand on the
- * camera (the dial about 500 px across at 1440×900 and 360 px on a phone; shots/d2/look2 are pictured the same way).
+ * In close on the dial the way a visitor gets there: a double-tap on its knob (`select`, as the input sends it) asks to
+ * be looked at, and the shell brings its crate's card close (`lookAt`). Waits for the camera to rest on the look.
  */
-async function closeIn(page: Page, size: number): Promise<void> {
-  await page.evaluate((size) => {
-    const ws = (window as any).__bench.ws;
-    const p = ws.world.motion('paint-dial').pose.p;
-    ws.stage.camera.stationSize = size;
-    ws.stage.camera.recomputeRange();
-    ws.stage.camera.cutTo({ focus: [p[0], p[1] + 0.03, p[2]], zoom: 1 }, { hold: true });
-  }, size);
-  await frames(page, 20);
+async function closeIn(page: Page): Promise<void> {
+  await page.evaluate((id) => (window as any).__bench.ws.dispatch({ type: 'select', id }), KNOB);
+  await until(page, () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return c.look !== null && !c.easing; }), 300, 'the look at the dial');
+  await frames(page, 10);
 }
+
+/** A 44 px fingertip round the target's middle: every point of its rim picks it, unless a neighbour's middle is nearer. */
+const fingertip = (page: Page, id: string): Promise<string> =>
+  page.evaluate((id) => {
+    const ws = (window as any).__bench.ws;
+    const s = ws.surface.screen(id);
+    if (!s) return 'no pick target';
+    const misses: string[] = [];
+    for (const [dx, dy] of [[-15, -15], [0, -21], [15, -15], [-21, 0], [21, 0], [-15, 15], [0, 21], [15, 15], [0, 0]]) {
+      const got = ws.surface.at(s.x + dx!, s.y + dy!, 'touch', null).id;
+      if (got === id) continue;
+      const g = got ? ws.surface.screen(got) : null;
+      const fair = g && Math.hypot(g.x - s.x - dx!, g.y - s.y - dy!) < Math.hypot(dx!, dy!);
+      if (!fair) misses.push(`${dx},${dy}→${got}`);
+    }
+    return misses.length ? `misses ${misses.join(' ')}` : 'ok';
+  }, id);
 
 async function open(page: Page): Promise<string[]> {
   const errors: string[] = [];
@@ -77,7 +89,7 @@ test('P4 D2b: the paint dial by mouse at 1440×900: a drag turns it through its 
   const errors = await open(page);
   expect(await scheme(page)).toBe('A');
   expect((await painted(page)).active).toBe(0);
-  await closeIn(page, 0.55);
+  await closeIn(page);
   const k = (await screenOf(page, KNOB))!;
   expect(k, 'the knob is a target').not.toBeNull();
   // a drag to the right turns it up, detent by detent: one gesture
@@ -94,10 +106,15 @@ test('P4 D2b: the paint dial by mouse at 1440×900: a drag turns it through its 
   const dragged = await scheme(page);
   expect(await page.evaluate(() => (window as any).__bench.ws.world.undoStack().length)).toBe(n0 + 1);
   await until(page, async () => (await painted(page)).current === dragged, 200, 'the enamel follows');
-  // a click: one detent on
+  // (D2c) the turn sent the camera back out to the room (look.back): it went
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.stage.camera.look === null), 120, 'the camera back out after the turn');
+  // a click, from close again: one detent on
+  await page.waitForTimeout(500); // (past the double-click window, so the look is not taken for a second click)
+  await closeIn(page);
+  const k2 = (await screenOf(page, KNOB))!;
   const order = await page.evaluate(() => (window as any).__bench.ws.world.machine('paint').schemes as string[]);
   const next = order[(order.indexOf(dragged) + 1) % order.length]!;
-  await page.mouse.click(k.x, k.y);
+  await page.mouse.click(k2.x, k2.y);
   await until(page, async () => (await scheme(page)) === next, 120, 'one on by a click');
   // the lever: back to where the drag left it
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'undo' }));
@@ -110,7 +127,7 @@ test('P4 D2b: the paint dial by a finger at 390×844: a tap moves it one detent 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   const errors = await open(page);
-  await closeIn(page, 0.3);
+  await closeIn(page);
   const k = (await screenOf(page, KNOB))!;
   expect(k, 'the knob is a target').not.toBeNull();
   await page.touchscreen.tap(k.x, k.y);
@@ -120,6 +137,14 @@ test('P4 D2b: the paint dial by a finger at 390×844: a tap moves it one detent 
   await ctx.close();
 });
 
-// The knob a 44 px fingertip at the look framing: the framing the crates' camera gives a thing (its box at least about
-// 360 px across at 1440×900, 315 px on a phone) is not merged yet; the dev camera above is the page's hand, not that.
-test.fixme('P4 D2b: the knob is a 44 px fingertip at the framing the crates\' camera gives a thing (waits for the crates\' camera)', async () => {});
+test('P4 D2b: the knob is a 44 px fingertip at 390×844, at the framing a look at the dial gives', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  const errors = await open(page);
+  await closeIn(page);
+  const tip = await fingertip(page, KNOB);
+  console.log(`[D2c] 44 px at 390×844, looking at the dial: ${tip} ${JSON.stringify(await screenOf(page, KNOB))}`);
+  expect(tip).toBe('ok');
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
