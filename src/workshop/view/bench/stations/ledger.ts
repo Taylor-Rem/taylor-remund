@@ -12,6 +12,6 @@ export const station: BenchStation = {
   order: ORDER.parts + 2,
   make(k) {
     if (!k.scene.parts.some((p) => p.id === LEDGER.board)) return null;
-    return timed('ledger', createLedgerView({ board: LEDGER.board, unit: LEDGER.unit, crank: LEDGER.crank, plunger: LEDGER.plunger }));
+    return timed('ledger', createLedgerView({ board: LEDGER.board, unit: LEDGER.unit, crank: LEDGER.crank, plunger: LEDGER.plunger, look: LEDGER.look }));
   },
 };
