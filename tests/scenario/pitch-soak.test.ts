@@ -258,6 +258,7 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
         t.run(1);
         check();
         if (TRACE && (w.step % 30 === 0 || pitchOf(w).state !== traceState)) console.log(`${(w.step / HZ).toFixed(2)} ${pitchOf(w).state} ${fmt(pitchOf(w).at)} ${w.mode(BODY)} idle ${((w.step - lastInput) / HZ).toFixed(1)}`);
+        if (TRACE && pitchOf(w).state === 'sail' && traceState !== 'sail') for (const p of w.parts()) { const m = w.motion(p.id)!; if (m.mode !== 'gone' && Math.hypot(m.pose.p[0] - pitchOf(w).at[0], m.pose.p[2] - pitchOf(w).at[2]) < 2.5) console.log('  near', p.id, m.mode, fmt(m.pose.p)); }
         traceState = pitchOf(w).state;
       }
     },

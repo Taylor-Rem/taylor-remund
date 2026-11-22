@@ -694,7 +694,7 @@ export const PITCH_ON = false;
  * picture at 1440×900 and at the right edge of a phone's centre cluster. ONE place to move him: everything below is
  * read from it.
  */
-export const PITCH_AT = { mast: [5.3, -1.25] as const, heading: 0.8, mastHeight: 1.3 } as const;
+export const PITCH_AT = { mast: [5.3, -1.25] as const, heading: 0.8, mastHeight: 1.4 } as const;
 
 /** The mast's cup as the kit piece has it (pitch/index.ts `pitchMast`: the head's cup 0.1 out along its +X, 0.02 under its top), kit units. */
 const MAST_CUP = { out: 0.1, below: 0.02 } as const;

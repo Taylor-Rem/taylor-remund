@@ -94,7 +94,7 @@ export const PITCH_TUNING = {
   // ── bumps ──
   /** His reach as a ball round his middle (units), the margin, and how many steps ahead he sees a thing coming. */
   reach: 0.62,
-  margin: 0.05,
+  margin: 0.02,
   ahead: 3,
   /** Slower than this (units/s, relative to him), a thing is not coming at him. */
   coming: 0.25,
@@ -367,8 +367,19 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
    * If nothing joins them, up and over at cruise height anyway: he is never left without a way.
    */
   function plan(p: Vec3, goal: Vec3, only: ((n: Vec3) => boolean) | null = null): Vec3[] {
-    const start = inside(p);
-    const lead: Vec3[] = dist(start, p) > 0.02 ? [start] : [];
+    let start = inside(p);
+    let lead: Vec3[] = dist(start, p) > 0.02 ? [start] : [];
+    // (from outside where he may be flown: up first, if the way in at his height meets something, until it does not)
+    if (lead.length && !clear(p, start)) {
+      for (let y = Math.max(p[1], start[1]); y <= B.maxY; y += 0.3) {
+        const up: Vec3 = [p[0], y, p[2]], inn: Vec3 = [start[0], y, start[2]];
+        if (clear(p, up, 0.3) && clear(up, inn)) {
+          start = inn;
+          lead = [up, inn];
+          break;
+        }
+      }
+    }
     if (clear(start, goal, lead.length ? 0 : 0.5)) return [...lead, goal];
     const from = linksOf(start, only, lead.length ? 0 : 0.5);
     const to = new Map(linksOf(goal, only, 0).map((l) => [l.to, l.cost]));
