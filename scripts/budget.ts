@@ -275,8 +275,19 @@ export function firstPaintOfHome(dist: string, cache: Map<string, number>): { to
     if (!t) notes.push(`${where} ${url} not found (check-links reports it)`);
     return t;
   };
-  for (const ref of htmlRefs(html)) {
+  const refs = htmlRefs(html);
+  // A `loading="lazy"` picture is fetched when it nears the screen, not with the first paint (the paperwork's
+  // pictures on `/`, below the stage's picture): every candidate of it (a <picture>'s <source>s take the
+  // <img>'s loading) is named in a note, not counted.
+  const lazyGroups = new Set(refs.filter((r) => r.lazy && r.group !== undefined).map((r) => r.group));
+  const lazy = new Set<string>();
+  for (const ref of refs) {
     if (!ref.resource) continue;
+    if (ref.lazy || (ref.group !== undefined && lazyGroups.has(ref.group))) {
+      const t = resolveRef(ref.url, '/', ref.where);
+      if (t) lazy.add(t);
+      continue;
+    }
     if (ref.as === 'script' || ref.as === 'modulepreload' || ref.as === 'hint' || ref.as === 'frame' || ref.as === 'media') continue;
     const t = resolveRef(ref.url, '/', ref.where);
     if (!t) continue;
@@ -322,6 +333,7 @@ export function firstPaintOfHome(dist: string, cache: Map<string, number>): { to
     add(best);
     for (const c of new Set(g.filter((x) => (!x.source || x.alt) && sources.length && !counted.has(x.file)).map((x) => x.file))) notes.push(`${rel(dist, c)} (${formatBytes(transferSize(c, cache))}): a fallback format of a <picture> whose first <source>s every current browser takes; not counted`);
   }
+  for (const f of lazy) if (!counted.has(f)) notes.push(`${rel(dist, f)} (${formatBytes(transferSize(f, cache))}): loading="lazy", fetched when it nears the screen; not counted`);
   const total = items.reduce((a, [, n]) => a + n, 0);
   return { total, items, notes };
 }
