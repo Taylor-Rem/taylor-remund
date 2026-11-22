@@ -394,7 +394,14 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
     },
     async compileObject(object) {
       const before = renderer.info.programs?.length ?? 0;
-      const made = onSceneTarget(() => renderer.compile(object, camera.camera, scene));
+      // only what the colour pass draws: a shadow proxy (no normals) would build a flat-shaded variant nothing uses
+      const seen = hideUnseen(object, camera.camera);
+      let made: Set<import('three').Material>;
+      try {
+        made = onSceneTarget(() => renderer.compile(object, camera.camera, scene));
+      } finally {
+        seen();
+      }
       // without KHR_parallel_shader_compile a program finishes linking when it is first asked about: ask now, one a task
       for (const m of made) {
         const p = (renderer.properties.get(m) as { currentProgram?: { getUniforms(): unknown } }).currentProgram;
