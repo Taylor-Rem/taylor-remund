@@ -96,6 +96,14 @@ describe('the visitor’s doings, and what came of them', () => {
     expect([...out, ...r.said]).toContain('Undone: Belt is back as it was.');
   });
 
+  test('P4 S5: a project crate opened and shut by its latch, said by its project', () => {
+    const r = rig();
+    r.step(30);
+    expect(r.act({ type: 'press', id: 'crate-3-lid' })).toEqual(['t-components opened.']);
+    r.step(10);
+    expect(r.act({ type: 'press', id: 'crate-3-lid' })).toEqual(['t-components shut.']);
+  });
+
   test('the workshop reset', () => {
     const r = rig();
     r.act({ type: 'turn', id: 'belt-dial', value: 1 });

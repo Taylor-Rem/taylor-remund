@@ -128,73 +128,86 @@ export function paintProjectCard(region: LabelRegion, words: { title: string; li
   region.draw((ctx, W, H) => {
     const r = labelRng(`crate-card|${seed}|${words.title}`);
     const j = (m: number): number => (r() * 2 - 1) * m;
-    // the stock, and its rules
+    // the stock
     ctx.fillStyle = css('paper');
     ctx.fillRect(0, 0, W, H);
     const g = ctx.createRadialGradient(W * 0.5, H * 0.45, H * 0.2, W * 0.5, H * 0.5, W * 0.75);
     g.addColorStop(0, css('paper', 0));
-    g.addColorStop(1, css('wood-light', 0.18));
+    g.addColorStop(1, css('wood-light', 0.22));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
     const side = W * 0.07;
     const room = W - 2 * side;
-    // the title: as large as two lines of it allow
-    let px = H * 0.15;
-    ctx.font = font('type', px);
-    let title = wrapPx(ctx, words.title, room);
-    while (title.length > 2 && px > H * 0.07) {
-      px *= 0.92;
-      ctx.font = font('type', px);
-      title = wrapPx(ctx, words.title, room);
-    }
+    /** Where the plate is, at the foot on the right: a line that reaches down to it stops short of it. */
+    const plateTop = H * 0.8;
+    const narrow = room * 0.6;
     ctx.textBaseline = 'alphabetic';
-    let y = H * 0.1 + px;
-    const ink = (a: number): string => css('ink', a);
-    const typed = (text: string, x: number, yy: number, size: number, a = 0.92): void => {
-      // letter by letter: a typewriter's baseline wanders, some strikes land a little light
-      let cx = x;
-      for (const ch of text) {
-        ctx.fillStyle = ink(r() < 0.15 ? a * 0.8 : a);
-        ctx.fillText(ch, cx + j(size * 0.015), yy + j(size * 0.03));
-        cx += ctx.measureText(ch).width;
+    // laid out top down at a scale: the title (two lines at most), a rule, the one line, the tools; smaller until it fits
+    type Row = { text: string; px: number; y: number; a: number };
+    const plan = (k: number): { rows: Row[]; rule: number; bottom: number } => {
+      const rows: Row[] = [];
+      const tp = H * 0.15 * k;
+      let px = tp;
+      ctx.font = font('type', px);
+      let title = wrapPx(ctx, words.title, room);
+      while (title.length > 2 && px > tp * 0.6) {
+        px *= 0.92;
+        ctx.font = font('type', px);
+        title = wrapPx(ctx, words.title, room);
       }
+      let y = H * 0.08 + px;
+      for (const l of title) {
+        rows.push({ text: l, px, y, a: 0.95 });
+        y += px * 1.18;
+      }
+      const rule = y - px * 0.72;
+      const sp = px * 0.6;
+      y += sp * 0.3;
+      ctx.font = font('type', sp);
+      for (const l of wrapPx(ctx, words.line, y + sp * 1.3 > plateTop ? narrow : room)) {
+        rows.push({ text: l, px: sp, y, a: 0.88 });
+        y += sp * 1.28;
+      }
+      const tp2 = px * 0.5;
+      y += tp2 * 0.5;
+      ctx.font = font('type', tp2);
+      for (const l of wrapPx(ctx, words.tools.join(' · '), narrow)) {
+        rows.push({ text: l, px: tp2, y, a: 0.85 });
+        y += tp2 * 1.25;
+      }
+      return { rows, rule, bottom: y - tp2 * 0.95 };
     };
-    for (const l of title) {
-      typed(l, side + j(px * 0.05), y, px, 0.95);
-      y += px * 1.18;
+    let k = 1;
+    let p = plan(k);
+    while (p.bottom > H * 0.95 && k > 0.4) {
+      k *= 0.93;
+      p = plan(k);
     }
-    // the red rule under it
+    // the red rule under the title, faint blue lines under the rest (an index card)
     ctx.strokeStyle = css('cable-red', 0.55);
     ctx.lineWidth = Math.max(1, H * 0.006);
     ctx.beginPath();
-    ctx.moveTo(side * 0.5, y - px * 0.72);
-    ctx.lineTo(W - side * 0.5, y - px * 0.72 + j(H * 0.004));
+    ctx.moveTo(side * 0.5, p.rule);
+    ctx.lineTo(W - side * 0.5, p.rule + j(H * 0.004));
     ctx.stroke();
-    // the one line
-    const sp = px * 0.62;
-    ctx.font = font('type', sp);
-    y += sp * 0.35;
-    for (const l of wrapPx(ctx, words.line, room)) {
-      typed(l, side + j(sp * 0.05), y, sp, 0.88);
-      y += sp * 1.3;
-    }
-    // the tools, joined as the résumé lists them, at the foot (left of the plate)
-    const tp = px * 0.5;
-    ctx.font = font('type', tp);
-    const tools = wrapPx(ctx, words.tools.join(' · '), room * 0.62);
-    let ty = H - H * 0.09 - (tools.length - 1) * tp * 1.25;
-    // faint blue lines behind them, as an index card has
-    ctx.strokeStyle = css('paint-blue', 0.18);
+    ctx.strokeStyle = css('paint-blue', 0.16);
     ctx.lineWidth = Math.max(1, H * 0.003);
-    for (let k = 0; k < tools.length; k++) {
+    for (const row of p.rows) {
+      if (row.y < p.rule + 2) continue;
       ctx.beginPath();
-      ctx.moveTo(side * 0.5, ty + tp * 0.28 + k * tp * 1.25);
-      ctx.lineTo(W - side * 0.5, ty + tp * 0.28 + k * tp * 1.25);
+      ctx.moveTo(side * 0.5, row.y + row.px * 0.28);
+      ctx.lineTo(W - side * 0.5, row.y + row.px * 0.28);
       ctx.stroke();
     }
-    for (const l of tools) {
-      typed(l, side + j(tp * 0.05), ty, tp, 0.85);
-      ty += tp * 1.25;
+    // letter by letter: a typewriter's baseline wanders, some strikes land a little light
+    for (const row of p.rows) {
+      ctx.font = font('type', row.px);
+      let cx = side + j(row.px * 0.05);
+      for (const ch of row.text) {
+        ctx.fillStyle = css('ink', r() < 0.15 ? row.a * 0.8 : row.a);
+        ctx.fillText(ch, cx + j(row.px * 0.015), row.y + j(row.px * 0.03));
+        cx += ctx.measureText(ch).width;
+      }
     }
   });
 }

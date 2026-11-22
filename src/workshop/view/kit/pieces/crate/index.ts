@@ -387,10 +387,28 @@ export function crate(o: CrateOptions = {}): Piece {
     const fitWords = (lines: readonly StencilLine[], x0: number, x1: number, y0: number, y1: number, Rw: Rng): Array<{ line: StencilLine; cx: number; cy: number; w: number; h: number; tilt: number }> => {
       if (lines.length === 0) return [];
       const PITCH = 1.3; // capitals from one line's baseline to the next's
+      // (P4 S5) a line is never sprayed across a gap between planks: the lines are shared out among the planks the box
+      // covers, top first, as evenly as they go, and each plank's lines are fitted to that plank's face
+      const planks = bands.map(([a, b]) => [Math.max(a, y0), Math.min(b, y1)] as const).filter(([a, b]) => b - a > 0.02).reverse();
+      const slots = planks.length > 0 ? planks : [[y0, y1] as const];
+      const per = slots.map((_, k) => Math.floor(lines.length / slots.length) + (k < lines.length % slots.length ? 1 : 0)).filter((c) => c > 0);
       const widest = Math.max(...lines.map((l) => l.aspect * STENCIL_H));
-      const cap = Math.min(((x1 - x0) * 0.97) / widest, ((y1 - y0) * 0.98) / (PITCH * (lines.length - 1) + STENCIL_H));
-      const top = (y0 + y1) / 2 + (cap * PITCH * (lines.length - 1)) / 2;
-      return lines.map((line, k) => ({ line, cx: (x0 + x1) / 2 + Rw.spread(cap * 0.08), cy: top - k * cap * PITCH + Rw.spread(cap * 0.05), w: line.aspect * STENCIL_H * cap, h: STENCIL_H * cap, tilt: Rw.spread(0.9) }));
+      let cap = ((x1 - x0) * 0.97) / widest;
+      per.forEach((c, k) => {
+        const [a, b] = slots[k]!;
+        cap = Math.min(cap, ((b - a) * 0.96) / (PITCH * (c - 1) + STENCIL_H));
+      });
+      const out: Array<{ line: StencilLine; cx: number; cy: number; w: number; h: number; tilt: number }> = [];
+      let li = 0;
+      per.forEach((c, k) => {
+        const [a, b] = slots[k]!;
+        const top = (a + b) / 2 + (cap * PITCH * (c - 1)) / 2;
+        for (let m = 0; m < c; m++, li++) {
+          const line = lines[li]!;
+          out.push({ line, cx: (x0 + x1) / 2 + Rw.spread(cap * 0.08), cy: top - m * cap * PITCH + Rw.spread(cap * 0.04), w: line.aspect * STENCIL_H * cap, h: STENCIL_H * cap, tilt: Rw.spread(0.9) });
+        }
+      });
+      return out;
     };
     if (wl.front) {
       // stencil: arrows over the size letter, sprayed across the planks
@@ -484,7 +502,8 @@ export function crate(o: CrateOptions = {}): Piece {
     into(b, wood(bevelBox({ min: [-W / 2 + P * 0.5, y0 + 0.004, -D / 2 + P * 0.5], max: [W / 2 - P * 0.5, y0 + 0.03, D / 2 - P * 0.5], omit: ['px', 'nx', 'py', 'pz', 'nz'] }), 'wood-light', { seed: R.int(0, 1e6), shade: 0.8 }));
   }
 
-  // L: the diagonal brace across the front, its ends cut level against the rails
+  // L: the diagonal brace across the front, its ends cut level against the rails (P4 S5: across the back, when the
+  // front carries a project's name: the brace hid it)
   if (S.brace) {
     const xIn = W / 2 - P;
     const zf = zP(D / 2);
@@ -495,6 +514,7 @@ export function crate(o: CrateOptions = {}): Piece {
     const ym = (ya + yb) / 2;
     deform(g, (x, yy, z) => [x + (yy - ym) * slope, yy, z], { keepSurf: true });
     grain(g, new Matrix4().makeRotationZ(-Math.atan(slope))); // grain along the brace
+    if (o.words && o.words.length > 0 && o.stencil !== false) transform(g, Ry(180));
     into(b, wood(g, 'wood-light', { seed: R.int(0, 1e6), jitter: 0.08, warm: 0.05, shade: 0.95 }));
   }
 

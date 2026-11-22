@@ -769,11 +769,11 @@ export function withStandIn(scene: SceneDesc = bench): SceneDesc {
 
 /**
  * P4 S5, development only (`?crates=row` on the bench's dev pages): the six project crates at rest in a row across the
- * open bench behind the console, none in Fetch's hands or behind the dock door, so all six can be seen (and opened) at
+ * open bench at the front left, between Revert's hatch and Fetch's tape, none in Fetch's hands or behind the dock door, so all six can be seen (and opened) at
  * once in the bench's own light: the pictures for the owner. Never the shipped bench.
  */
 export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
-  const row: Record<string, number> = { 'crate-1': -2.15, 'crate-2': -1.25, 'crate-3': -0.5, 'crate-4': 0.15, 'crate-spare-1': 0.8, 'crate-spare-2': 1.45 };
+  const row: Record<string, number> = { 'crate-1': -6.2, 'crate-2': -5.25, 'crate-3': -4.5, 'crate-4': -3.85, 'crate-spare-1': -3.2, 'crate-spare-2': -2.55 };
   return {
     ...scene,
     id: `${scene.id}+row`,
@@ -781,7 +781,7 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
       const x = row[p.id];
       if (x === undefined) return p;
       const { shipped: _shipped, ...rest } = p;
-      return { ...rest, pose: pose([x, CRATE_EDGE[p.size] / 2, -1.55]) };
+      return { ...rest, pose: pose([x, CRATE_EDGE[p.size] / 2, 1.65]) };
     }),
     runner: { ...scene.runner, carrying: null },
   };
