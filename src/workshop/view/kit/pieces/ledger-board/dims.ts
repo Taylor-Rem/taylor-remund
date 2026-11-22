@@ -60,20 +60,19 @@ export function cupAt(i: number): [number, number, number] {
 }
 
 /**
- * A little heap in the hopper's dish: where each payment lies before it is dealt (and its tilt). The rubber one lies on
- * top in the middle; the metal ones round it in an order that is not the order they are dealt in (the hopper deals
- * all of one finish before the next, whatever order they lay in).
+ * A little heap in the hopper's dish: where each payment lies before it is dealt (and its tilt), by its place in the
+ * deal, in an order that is not the order they are dealt in (the hopper deals all of one finish before the next,
+ * whatever order they lay in). The same spot whichever payment is the rubber one, so a new deal moving the rubber
+ * ring to another payment moves nothing else in the heap.
  */
-export function hopperAt(i: number, rubber: number): { p: [number, number, number]; tilt: [number, number] } {
+export function hopperAt(i: number): { p: [number, number, number]; tilt: [number, number] } {
   const order = [5, 1, 7, 3, 0, 6, 2, 4];
-  const metal = order.filter((x) => x !== rubber);
-  const k = i === rubber ? -1 : metal.indexOf(i);
-  if (k < 0) return { p: [BOARD.hopperX + 0.004, BOARD.hopperFloor + 0.011, BOARD.hopperZ + 0.003], tilt: [0.08, -0.05] };
+  const k = order.indexOf(i);
   const layer = k < 5 ? 0 : 1;
   const a = (k * 2.39996 + 0.4) % (Math.PI * 2);
-  const rad = layer === 0 ? 0.031 : 0.03;
-  const p: [number, number, number] = [BOARD.hopperX + Math.cos(a) * rad, BOARD.hopperFloor + layer * 0.006 + 0.002 * Math.sin(k * 3.1), BOARD.hopperZ + Math.sin(a) * rad];
-  return { p, tilt: [Math.sin(k * 1.7) * 0.22, Math.cos(k * 2.3) * 0.22] };
+  const rad = layer === 0 ? 0.032 : k === 7 ? 0.004 : 0.022;
+  const p: [number, number, number] = [BOARD.hopperX + Math.cos(a) * rad, BOARD.hopperFloor + layer * 0.007 + 0.002 * Math.sin(k * 3.1), BOARD.hopperZ + Math.sin(a) * rad];
+  return { p, tilt: [Math.sin(k * 1.7) * 0.2, Math.cos(k * 2.3) * 0.2] };
 }
 
 /** The gutter: under the cup it bounced out of, at the front edge. */

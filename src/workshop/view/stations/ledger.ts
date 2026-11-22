@@ -91,7 +91,7 @@ const footM = new Matrix4();
 function placed(p: Place, i: number, rubber: number, out: Vector3, q: Quaternion): void {
   q.identity();
   if (p === 'h') {
-    const h = hopperAt(i, rubber);
+    const h = hopperAt(i);
     out.set(h.p[0], h.p[1], h.p[2]);
     q.setFromAxisAngle(X, h.tilt[0]).multiply(qb.setFromAxisAngle(Z, h.tilt[1]));
     return;
