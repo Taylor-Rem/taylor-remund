@@ -24,7 +24,7 @@ const PARTS = FULL_BENCH.parts.map((p) => p.id);
 const JACKS = FULL_BENCH.cord.jacks.map((j) => j.id);
 const LOOSE = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'revert'] as const;
 /** What the sessions did, over the whole run (so the soak shows it exercised what it claims). */
-const SEEN: Record<string, number> = { opened: 0, shutPressed: 0, clapped: 0, plates: 0, openUndone: 0, sessions: 0, shippedFetch: 0, shippedRevert: 0, shipped: 0, undone: 0, refused: 0, kept: 0, rungs: 0, returned: 0, patchHeld: 0, offEdge: 0 };
+const SEEN: Record<string, number> = { opened: 0, shutPressed: 0, clapped: 0, plates: 0, openUndone: 0, selected: 0, looks: 0, sessions: 0, shippedFetch: 0, shippedRevert: 0, shipped: 0, undone: 0, refused: 0, kept: 0, rungs: 0, returned: 0, patchHeld: 0, offEdge: 0 };
 /** P4 S5: the project crates: a latch or a plate pressed, at random (whatever state the crate is in). */
 const CRATES = FULL_BENCH.projects ?? [];
 const TEXTS = ['make the sign red', 'paint it blue', "we're closed", 'we are open', 'undo that', 'hello', 'who are you', 'turn the lamp up'];
@@ -83,6 +83,7 @@ async function session(seed: number, maxActions: number): Promise<Outcome & { ac
         if (e.type === 'crate.shut') SEEN[e.why === 'press' ? 'shutPressed' : 'clapped']!++;
         if (e.type === 'crate.plate') SEEN.plates!++;
         if (e.type === 'undone' && e.restores.some((x) => x.field === 'open')) SEEN.openUndone!++;
+        if (e.type === 'look') SEEN.looks!++;
         if (e.type === 'rung.started') SEEN.rungs!++;
         if (e.type === 'returned' || e.type === 'part.returned') SEEN.returned!++;
       }
@@ -167,12 +168,25 @@ async function session(seed: number, maxActions: number): Promise<Outcome & { ac
         // P4 S5: a project crate's latch (open or shut), now and then its plate, sometimes twice in a row
         const open = CRATES.filter((x) => w.setting(x.crate, 'open') === true);
         const c = open.length > 0 && r.chance(0.5) ? r.pick(open) : r.pick(CRATES);
-        const id = r.chance(0.3) ? c.plate : c.lid;
-        log.push(`${w.step}: press ${id}`);
-        w.dispatch({ type: 'press', id });
-        if (r.chance(0.2)) {
-          run(1 + r.int(20));
-          w.dispatch({ type: 'press', id: c.lid });
+        const m = w.motion(c.crate);
+        if (r.chance(0.25) && !w.holding() && m?.mode === 'free') {
+          // (round three) a double-tap: the first tap takes it up and the lift carries it a little; the second asks for
+          // it (select: back where it lay, and open)
+          log.push(`${w.step}: double-tap ${c.crate}`);
+          w.dispatch({ type: 'grab', id: c.crate, grip: m.pose.p });
+          run(1 + r.int(12));
+          w.dispatch({ type: 'carry', target: [m.pose.p[0], m.pose.p[1] + 0.3, m.pose.p[2] + 0.4 * r.next()] });
+          run(1 + r.int(6));
+          w.dispatch({ type: 'select', id: c.crate });
+          SEEN.selected!++;
+        } else {
+          const id = r.chance(0.3) ? c.plate : c.lid;
+          log.push(`${w.step}: press ${id}`);
+          w.dispatch({ type: 'press', id });
+          if (r.chance(0.2)) {
+            run(1 + r.int(20));
+            w.dispatch({ type: 'press', id: c.lid });
+          }
         }
       }
       actions++;
