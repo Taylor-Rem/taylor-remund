@@ -6,8 +6,8 @@
 // page's #patchlamp, #services, #about and #contact (legacy/index.html), in that
 // order, set in the paper pages' type (src/styles/paperwork.css). Every word is
 // src/content/ (home.json; the headings are site.json `paperwork`; the services'
-// names and prices are ai.json's); this file holds structure only. After #patchlamp, Patchlamp's hatch and,
-// after #about, the maker's plate (P4 H1: src/components/paper/, words in hatches.json): the same sections the
+// names and prices are ai.json's); this file holds structure only. After the live page's four sections,
+// Patchlamp's hatch and the maker's plate (P4 H1: src/components/paper/, words in hatches.json): the same sections the
 // plates open over the stage (Panels.astro, in the over-stage slot).
 // Title and description (src/content/site.json `pages.home`) are the live page's until Taylor words new ones (§ F1).
 import Stage from '../layouts/Stage.astro';
@@ -59,8 +59,6 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
       </picture>
     </section>
 
-    <PatchlampHatch />
-
     <section class="pw-section" id="services" aria-labelledby="services-title">
       <p class="pw-tape">{services.eyebrow.text}</p>
       <h2 class="pw-title" id="services-title">{heading.services.text}</h2>
@@ -89,8 +87,6 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
       <div class="pw-text">{about.paragraphs.map((p) => <p set:html={rich(p.text)} />)}</div>
     </section>
 
-    <MakerPlate />
-
     <section class="pw-section" id="contact" aria-labelledby="contact-title">
       <p class="pw-tape">{contact.eyebrow.text}</p>
       <h2 class="pw-title" id="contact-title">{heading.contact.text}</h2>
@@ -99,5 +95,9 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
         {contactLinks.map((l) => <li><a href={l.href} {...linkAttrs(l.href)}>{l.text}</a></li>)}
       </ul>
     </section>
+
+    <PatchlampHatch />
+
+    <MakerPlate />
   </main>
 </Stage>

@@ -33,6 +33,7 @@ export interface VitestJson {
   numTodoTests?: number;
   success: boolean;
   startTime?: number;
+  testResults?: { name: string; assertionResults?: { status: string; fullName: string }[] }[];
 }
 
 export interface BenchTests {
@@ -113,6 +114,9 @@ function main(argv: string[]): number {
   }
   const made = fromRun(report, at, commitOf(REPO_ROOT));
   if ('refused' in made) {
+    for (const f of report.testResults ?? []) {
+      for (const a of f.assertionResults ?? []) if (a.status === 'failed') console.error(`  failed: ${f.name.replace(`${REPO_ROOT}/`, '')} > ${a.fullName}`);
+    }
     console.error(`test-count: nothing written: ${made.refused}`);
     return 1;
   }
