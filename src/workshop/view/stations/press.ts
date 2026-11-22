@@ -76,6 +76,8 @@ export interface PressViewOptions {
   readonly body: Id;
   readonly envelope: Id;
   readonly lever: Id;
+  /** Its own look box's id (sim PRESS.look). */
+  readonly look: Id;
 }
 
 interface Nodes {
@@ -144,9 +146,8 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
       nodes = { lever: lever!, wheel: wheel!, platen: platen!, printed: printed!, gridded: gridded!, blank: blank!, drawer: drawer!, stack: stack!, arm: arm!, env: env!, flaps: [f0!, f1!, f2!], rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone(), s: n.scale.clone() }])) };
       // the press keeps its own colours when the room's paint scheme changes (it is a loose thing, not a machine)
       (ctx.materials as Partial<{ keepColours(root: Object3D): number }>).keepColours?.(piece);
-      // the lever's target: the upper arm and the grip, at rest (up and back), deepened toward the visitor so a ray to it
-      // meets it before the sheets behind: at least 28 px at the home framing, a
-      // fingertip with the camera in
+      // the lever's target: its arm and grip as they rest (leaning back), the box about them in the press's space; where a
+      // ray passes through it, the lever wins over the press's own body and its sheets (`pickOver`)
       const t = new Object3D();
       t.name = 'press:lever.pick';
       holder.add(t);
@@ -154,7 +155,13 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
       const reach = D.leverLen + D.gripL;
       const tipY = D.leverY + Math.cos(a) * reach;
       const tipZ = D.leverZ + Math.sin(a) * reach;
-      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.055, D.leverY + 0.1, tipZ - 0.05).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.035, tipY + 0.04, D.leverZ + 0.16).multiplyScalar(PRESS_SCALE)), pad: 0.01, active: () => shown && reachable() });
+      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.05, D.leverY + 0.04, Math.min(tipZ, D.leverZ) - 0.05).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.04, tipY + 0.04, Math.max(tipZ, D.leverZ) + 0.04).multiplyScalar(PRESS_SCALE)), pad: 0.01, active: () => shown && reachable() });
+      ctx.pickOver?.(o.lever, () => [o.body]);
+      // what it asks the camera to frame off its tray (`look`): the whole press, sheets and lever and bed; never pressed
+      const lk = new Object3D();
+      lk.name = 'press:look.box';
+      holder.add(lk);
+      ctx.pickable(o.look, lk, { box: new Box3(new Vector3(-0.26, 0, -0.27).multiplyScalar(PRESS_SCALE), new Vector3(0.42, 0.68, 0.2).multiplyScalar(PRESS_SCALE)), pad: 0, active: () => false });
     };
 
     /** Pose a node from its rest: a translation added, a turn after its own, a scale. */
@@ -299,7 +306,8 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         if (flip < 0) pose(N.gridded, null, null, 0);
         else {
           const k = flip >= 1 ? 1 : 1 - (1 - flip) * (1 - flip) * (1 + 2.2 * flip);
-          pose(N.gridded, null, qa.setFromAxisAngle(X, -(1 - k) * Math.PI * 0.55));
+          // (round three) hung from its top edge: from standing up over it, back first, over toward the visitor and down
+          pose(N.gridded, null, qa.setFromAxisAngle(X, -(1 - k) * Math.PI));
         }
 
         // the drawer: out, the copy in, shut with a click; its stack one sheet thicker from the copy's drop

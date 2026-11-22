@@ -247,15 +247,19 @@ export const PRESS = {
   envelope: 'report-envelope',
   crate: 'crate-2',
   lever: 'press-lever',
+  /** Its own look box (the view registers it, never pressed): what it asks the camera to frame off its tray. */
+  look: 'report-press-look',
   half: [0.2625, 0.0875, 0.2] as Vec3,
   mass: 0.22,
   envelopeHalf: [0.14, 0.008, 0.09] as Vec3,
   envelopeMass: 0.02,
   bed: [0.33125, 0.1355, -0.00625] as Vec3,
+  /** What its crate's tray must allow it (ProjectCrate.thing): the sheets' top over the tray's floor (the lever, resting back, crosses lower), and its depth. */
+  thing: { height: 0.68, depth: 0.5 },
 } as const;
 
-/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body } : {}) }));
+/** Each project crate's latch, its card's plate and its card (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body, thing: PRESS.thing } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
@@ -809,6 +813,8 @@ export const bench: SceneDesc = {
       bed: PRESS.bed,
       belt: { mouth: 'belt', from: L.from, to: L.to, top: L.top, z: L.z, feed: AT.beltFeed, clear: DEFLECTOR.clear },
       homeAfter: DOCK_TUNING.returnAfter.tool,
+      look: PRESS.look,
+      card: `${PRESS.crate}-card`,
       ignore: ['bench', 'belt-bed'],
     }),
   ],

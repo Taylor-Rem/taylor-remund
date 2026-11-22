@@ -72,14 +72,14 @@ describe('the report press, for someone who cannot see it', () => {
     // the plate still says it in one line (the envelope's ride, its shipment and its homecoming are the pull's)
     const lines = historyLines(r.w, r.w.undoStack(), words).map((l) => l.text);
     expect(lines.filter((l) => l.startsWith('Report press') || l.startsWith('Envelope'))).toEqual(['Report press: report printed, copy stored, envelope sent']);
-    // a second pull with the envelope home: the record now holds the envelope's own shipment (and whatever Fetch shipped)
+    // a second pull with the envelope home: the record holds what Fetch shipped meanwhile (never the envelope's own shipment)
     const second = r.act({ type: 'press', id: PRESS.lever });
     expect(second).toHaveLength(1);
-    expect(second[0]).toMatch(/^Printed: (one shipment|\d+ shipments)\.$/);
+    expect(second[0]).toMatch(/^Printed: (nothing has shipped yet|one shipment|\d+ shipments)\.$/);
     r.step(30);
     // and a third while the second is still showing: it waits its turn, and once the envelope has landed it prints with the envelope out
     const third = r.act({ type: 'press', id: PRESS.lever }, 8 * 60);
-    expect(third.some((x) => /^Printed: (one shipment|\d+ shipments)\.$/.test(x))).toBe(true);
+    expect(third.some((x) => /^Printed: (nothing has shipped yet|one shipment|\d+ shipments)\.$/.test(x))).toBe(true);
     expect(third).toContain('The envelope is still out.');
     expect(historyLines(r.w, r.w.undoStack(), words).map((l) => l.text)[0]).toBe('Report press: report printed, copy stored');
     // the lever takes the last pull away whole

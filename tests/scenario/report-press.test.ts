@@ -148,6 +148,30 @@ describe('the report press', () => {
     w.dispose();
   }, 60_000);
 
+  test('it asks for the camera: on its tray its crate\'s card, on the bench its own box; never on a pull; the flick sends the camera back', async () => {
+    const { w, t } = await pressOut('rp-look');
+    // a double-tap on the lever: its first tap pulls, its second tap's pull is dropped, and it asks to be looked at
+    pull(w);
+    t.run(2);
+    pull(w);
+    w.dispatch({ type: 'select', id: PRESS.lever });
+    const ev = t.run(1);
+    expect(ev.filter((e) => e.type === 'look').map((e) => (e as { target: string }).target)).toEqual([`${PRESS.crate}-card`]);
+    expect(view(w).waiting).toBe(false);
+    expect(until(w, t, () => t.events.some((x) => x.e.type === 'look.back'), 4 * HZ)).toBe(true);
+    expect(t.of('press.printed')).toHaveLength(1);
+    // no look on a pull
+    const looks = t.of('look').length;
+    t.run(8 * HZ);
+    pull(w);
+    t.run(5);
+    expect(t.of('look').length).toBe(looks);
+    // set down on the bench: it asks for its own box once it has come to rest
+    putOn(w, t, P, [-4.0, 0, 0.6], 60);
+    expect(until(w, t, () => t.events.some((x) => x.e.type === 'look' && (x.e as { target: string }).target === PRESS.look), 3 * HZ)).toBe(true);
+    w.dispose();
+  }, 60_000);
+
   test('the flick is a slow high lob: over a second in the air, its top well over the press', async () => {
     const { w, t } = await pressOut('rp-lob');
     pull(w);
@@ -328,8 +352,10 @@ describe('the report press', () => {
     pull(w);
     t.run(1);
     expect(drawer(w)).toBe(was.d + 1);
-    // the record holds every shipment so far, its own included, in the colours they shipped in
-    expect(report(w)).toEqual(t.of('shipped').map(() => 'bare'));
+    // the record holds every shipment of a crate or a tool so far, the press's own included, in the colours they shipped in
+    expect(report(w)).toEqual(t.of('shipped').filter((x) => x.e.part !== E).map(() => 'bare'));
+    // (round three) never the envelope's own shipments: the report is about the visitor
+    expect(t.of('shipped').some((x) => x.e.part === E)).toBe(true);
     w.dispose();
   }, 120_000);
 });

@@ -33,6 +33,12 @@ export interface EffectMaterials {
   decal(): import('three').Material;
   /** The keyboard focus mark: unlit paper, drawn over everything, never lit or shadowed (view/stations/focus.ts). */
   focusMark(): import('three').Material;
+  /**
+   * (P4 S5 round three) A see-through twin of one of these materials: the same program (nothing compiles), its pixels
+   * dropped in a fine screen-door pattern as `fade.value` goes 0 → 1 (one uniform; its shadow is untouched). Cached per
+   * material and `fade` object. Null for a material that is not one of these (it is left as it is).
+   */
+  seeThrough?(material: import('three').Material, fade: { value: number }): import('three').Material | null;
 }
 
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
@@ -44,7 +50,11 @@ export interface Labels {
    */
   tape(text: string, colour?: 'black' | 'red' | 'blue', opts?: LabelOptions): string;
   /** Sprayed stencil, in `paint` (default `ink`); transparent background. */
-  stencil(text: string, opts?: LabelOptions & { paint?: Token }): string;
+  /**
+   * Sprayed stencil, in `paint` (default `ink`); transparent background. `heavy` (P4 S5: a project's name on its crate):
+   * condensed and bolder, sprayed thicker, so a title fills the face at the largest capitals it can.
+   */
+  stencil(text: string, opts?: LabelOptions & { paint?: Token; heavy?: boolean }): string;
   /** A big typed cue card (the crew's voice). */
   card(text: string, opts?: LabelOptions): string;
   /** A narrow torn slip, as Fetch prints. */
@@ -133,6 +143,13 @@ export interface ViewContext {
   pickable(id: Id, object: Object3D, opts?: import('./picking.ts').PickableOptions): void;
   /** A pick target's box in world space (padded as it picks), into `out`; null if `id` has none. For marks drawn round targets. */
   targetBox?(id: Id, out: import('three').Box3): import('three').Box3 | null;
+  /** (P4 S5 round three) The object a pick target was registered with (a crew member's body), or null. */
+  targetObject?(id: Id): Object3D | null;
+  /**
+   * (P4 S5 round three) Wherever a ray passes through `id`'s pick box, `id` wins over the targets `over()` names (a
+   * thing on an open crate's tray over the crate, its lid and its latch). view/picking.ts `prefer`.
+   */
+  pickOver?(id: Id, over: () => readonly Id[]): void;
 }
 
 /** One frame's worth of what a view may read. */

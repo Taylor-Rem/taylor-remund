@@ -78,8 +78,8 @@ export const PRESS_SHOW = {
   flipAt: 1.22,
   flip: 0.36,
   foldAt: 1.72,
-  foldGap: 0.2,
-  fold: 0.14,
+  foldGap: 0.24,
+  fold: 0.18,
   folds: 3,
   /** The spring arm winds back (a held breath), then flicks. */
   windAt: 2.38,

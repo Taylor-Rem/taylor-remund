@@ -160,7 +160,8 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   /** Japanned enamel: glossy, a little deeper where thick; it chips to bare metal at worn edges by itself. */
   const enamel = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, shade, jitter: 0.04 }), 0.85);
   /** Gold lining: a painted line, glossy. */
-  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03 }), 1);
+  // (round three) a painted line, satin rather than glossy and a shade down, so it glints without blooming at the look's framing
+  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03, shade: 0.72 }), 0.45);
   const brass = (g: BufferGeometry, s: number, shade = 1): KitPart => part('brass', g, 'brass', { seed: seed + s, shade, warm: 0.04, jitter: 0.05 });
   const wood = (g: BufferGeometry, s: number, token: Token = 'wood', shade = 1): KitPart => part('wood', g, token, { seed: seed + s, shade, jitter: 0.05, warm: 0.04 });
 
@@ -217,8 +218,8 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   const trayAt = chain(T(0, D.trayY, D.trayZ), mat({ rot: [D.trayTilt, 0, 0] }));
   r.add(enamel(transform(bevelBox({ min: [-D.trayW / 2, -0.005, -D.trayD / 2], max: [D.trayW / 2, 0, D.trayD / 2], c: 0.002, omit: ['ny'] }), trayAt), 60));
   for (const x of [-D.trayW / 2, D.trayW / 2]) r.add(enamel(transform(bevelBox({ min: [x - 0.003, 0, -D.trayD / 2], max: [x + 0.003, 0.02, D.trayD / 2], c: 0.0012, omit: ['ny'] }), trayAt), 61));
-  // two struts from the tray to the crown's back
-  for (const x of [-D.trayW / 2 + 0.02, D.trayW / 2 - 0.02]) r.add(enamel(bevelBox({ min: [x - 0.005, D.crownY - 0.02, D.trayZ + 0.01], max: [x + 0.005, D.crownY + 0.008, D.crownZ - D.crownD / 2 + 0.002], c: 0.0015 }), 62));
+  // a cast bracket from the crown's back that the tray's front rests on (round three: not two stray rods)
+  r.add(enamel(bevelBox({ min: [-D.trayW / 2 + 0.01, D.trayY - 0.05, D.trayZ + D.trayD / 2 - 0.03], max: [D.trayW / 2 - 0.01, D.trayY + 0.004, D.crownZ - D.crownD / 2 + 0.003], c: 0.004 }), 62));
   r.small(() => [-0.06, 0.06].flatMap((x, i) => domeRivet({ d: 0.007, detail: 'low', seed: seed + 63 + i, cheap: true, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(trayAt, T(x, 0, D.trayD / 2 - 0.01))) }))));
   const stackT = D.blanks * D.blankT;
   r.add(moved(lyingSheet(D.trayW - 0.014, D.trayD - 0.012, stackT, UV.blank, key), chain(trayAt, T(0, stackT, 0.002))));
@@ -228,7 +229,9 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   // ---- the two sheets standing out of the crown ----------------------------------------------------------------------
   const lean = new Matrix4().makeRotationX(-D.sheetLean * DEG);
   r.node('printed', chain(T(D.sheetX[0], capTop + 0.004, D.sheetZ), lean)).add(standingSheet(D.sheetW, D.sheetH, UV.printed, key));
-  r.node('gridded', chain(T(D.sheetX[1], capTop + 0.004, D.sheetZ), lean)).add(standingSheet(D.sheetW, D.sheetH, UV.gridded, key));
+  // (round three) the gridded sheet hangs from its top edge, so it comes over toward the visitor like a calendar page
+  const topAt = new Matrix4().makeTranslation(D.sheetX[1], capTop + 0.004 + D.sheetH * Math.cos(D.sheetLean * DEG), D.sheetZ - D.sheetH * Math.sin(D.sheetLean * DEG));
+  r.node('gridded', chain(topAt, lean)).add(moved(standingSheet(D.sheetW, D.sheetH, UV.gridded, key), T(0, -D.sheetH, 0)));
 
   // ---- the lever on the left: a hub on the cheek, the ratchet wheel and its pawl, the long cast arm, the fat grip -------
   const hubX = -D.cheekX - D.cheekT / 2;
@@ -241,9 +244,12 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   r.add(enamel(bevelBox({ min: [hubX - 0.016, D.leverY + D.wheelR - 0.004, D.leverZ - 0.035], max: [hubX - 0.006, D.leverY + D.wheelR + 0.01, D.leverZ + 0.004], c: 0.002 }), 72));
   const lever = r.node('lever', chain(T(D.leverX, D.leverY, D.leverZ), mat({ rot: [D.leverRest, 0, 0] })));
   lever.add(enamel(transform(lathe(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.014, { sharp: true }).to(0.02, 0.02, { sharp: true }).to(0, 0.02), { segs: low ? 10 : 14, support: false, caps: false }), chain(mat({ rot: [0, 0, 90] }), T(0, -0.01, 0))), 73));
-  lever.add(enamel(lathe(profile(0, 0).to(0.017, 0, { sharp: true }).to(0.0135, D.leverLen * 0.35, { sharp: true }).to(0.0105, D.leverLen, { sharp: true }).to(0, D.leverLen), { segs: low ? 8 : 10, support: false, caps: false }), 74));
-  // gold bands on the arm and a brass ferrule under the grip
-  for (const y of [0.04, D.leverLen * 0.62]) lever.add(gold(lathe(profile(0.0142 - y * 0.008, y).to(0.0152 - y * 0.008, y + 0.002, { sharp: true }).to(0.0152 - y * 0.008, y + 0.006, { sharp: true }).to(0.0142 - y * 0.008, y + 0.008), { segs: 10, support: false, caps: false }), 75));
+  // (round three) a cast arm: a flat tapered bar (wide at the boss, narrow under the grip), its thickness across, with a
+  // raised rib and a gold line along its outer face
+  const armAt = chain(T(-0.011, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2));
+  lever.add(enamel(transform(extrude([[-0.026, 0], [0.026, 0], [0.012, D.leverLen], [-0.012, D.leverLen]], 0.022, { bevel: 0.004, radius: 0.006, segs: 1, support: false }), armAt), 74));
+  lever.add(enamel(transform(extrude([[-0.008, 0.02], [0.008, 0.02], [0.004, D.leverLen - 0.02], [-0.004, D.leverLen - 0.02]], 0.006, { bevel: 0.002, radius: 0.002, segs: 1, support: false, caps: 'end' }), chain(T(-0.017, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 75, 1.15));
+  lever.add(gold(transform(extrude([[-0.0016, 0.035], [0.0016, 0.035], [0.0012, D.leverLen - 0.035], [-0.0012, D.leverLen - 0.035]], 0.001, { bevel: 0, bevelBase: 0, radius: 0, segs: 1, support: false, caps: 'end' }), chain(T(-0.0232, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2))), 76));
   lever.add(brass(lathe(profile(0.011, D.leverLen - 0.004).to(0.016, D.leverLen - 0.002, { sharp: true }).to(0.016, D.leverLen + 0.01, { sharp: true }).to(0.012, D.leverLen + 0.012), { segs: 12, support: false, caps: false }), 76));
   lever.add(wood(lathe(profile(0, D.leverLen + 0.01).to(0.018, D.leverLen + 0.012, { sharp: true }).to(D.gripR, D.leverLen + 0.03).to(D.gripR * 1.04, D.leverLen + 0.055).to(D.gripR * 0.86, D.leverLen + D.gripL - 0.004).to(0, D.leverLen + D.gripL), { segs: low ? 10 : 14, support: false, caps: false }), 77, 'wood', 0.95));
 

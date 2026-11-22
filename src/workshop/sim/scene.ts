@@ -62,7 +62,14 @@ export interface ProjectCrate {
   readonly project: Id;
   readonly lid: Id;
   readonly plate: Id;
+  /** P4 S5 round two: the pick target the view gives its card (and tray): what an opening asks the page to look at. */
+  readonly card?: Id;
   readonly holds?: Id;
+  /**
+   * P4 D3 round three: what this crate's tray allows its thing (world units over the tray's floor, and front to back),
+   * where it is not the default (view/bench/stations/parts.ts `THING`): the card stands clear of a thing this tall.
+   */
+  readonly thing?: { readonly height: number; readonly depth: number };
 }
 
 export interface StaticSpec {

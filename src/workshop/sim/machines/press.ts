@@ -51,6 +51,9 @@ export const REPORT_FIELD = 'report';
 export const DRAWER_FIELD = 'drawer';
 export const SEAL_FIELD = 'seal';
 
+/** A select this soon after a pull (s) is the double-tap's: the pull its second tap queued is dropped. */
+const SELECT_AFTER = 0.5;
+
 /** Tune here. Units and seconds. */
 export const PRESS_TUNING = {
   /** The lob's top is this far over the higher of its two ends (a slow high lob across the bench is worth watching). */
@@ -83,6 +86,10 @@ export interface PressSpec {
   readonly belt: { readonly mouth: Id; readonly from: number; readonly to: number; readonly top: number; readonly z: number; readonly feed: number; readonly clear: number };
   /** Seconds from the envelope's shipment to its homecoming: the dock's own return time for a tool (the scene passes `DOCK_TUNING.returnAfter.tool`). */
   readonly homeAfter: number;
+  /** The id of its own look box (registered by its view, never pressed): what it asks the camera for off its tray. */
+  readonly look: Id;
+  /** Its crate's card (what it asks the camera for while it is on its crate's tray). */
+  readonly card?: Id;
   /** Statics the envelope may touch on its way without being stopped (the bench top and the belt's bed it lands on). */
   readonly ignore?: readonly Id[];
 }
@@ -274,6 +281,8 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     }
     flight = f;
     ctx.emit({ type: 'press.flicked', id: spec.id, envelope: spec.envelope, from: from.p, to, flight: time });
+    // the close view is done: the page eases back out to watch the lob, the ride and the bell
+    ctx.emit({ type: 'look.back' });
   }
 
   /** Reduced motion: no travel; the envelope is set down still on the belt where the lob would have landed it. */
@@ -355,21 +364,39 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   }
 
   /**
-   * Ask to be looked at (`press.look`, the seam the crates' `look` takes over): when its crate opens with it on the
-   * tray, and when a hand sets it down and it has come to rest. Never on a pull.
+   * Asking for the camera (sim/machines/crates.ts "Asking for the camera"): `{ type: 'look', target }`, the target its
+   * crate's card while it is on its crate's tray, else its own box (`spec.look`, registered by its view). When a hand sets
+   * it down and it has come to rest, and on `select` (a double-click or double-tap on it or its lever). Its crate asks as
+   * it opens. Never on a pull.
    */
+  const lookTarget = (): Id => {
+    const l = ctx.part(spec.body)?.location;
+    return spec.card !== undefined && l?.at === 'in' && ctx.mode(spec.body) === 'machine' ? spec.card : spec.look;
+  };
+  const askLook = (): void => ctx.emit({ type: 'look', target: lookTarget() });
   let lastMode: string | undefined = undefined;
   let setDown = false;
+  /** The step of the last pull a hand made (a double-tap's second tap on the lever must not pull again). */
+  let pulledAt = -Infinity;
   function lookWhen(): void {
     const m = ctx.mode(spec.body);
-    const l = ctx.part(spec.body)?.location;
-    if (lastMode === 'gone' && m === 'machine' && l?.at === 'in') ctx.emit({ type: 'press.look', id: spec.id, body: spec.body, why: 'opened' });
     if (lastMode === 'held' && m !== 'held') setDown = true;
-    if (setDown && m === 'free' && ctx.settled(spec.body)) {
+    if (setDown && (m === 'free' || m === 'machine') && (m === 'machine' || ctx.settled(spec.body))) {
       setDown = false;
-      ctx.emit({ type: 'press.look', id: spec.id, body: spec.body, why: 'set-down' });
+      askLook();
     } else if (setDown && m !== 'free') setDown = false;
     lastMode = m;
+  }
+  /** A double-click or double-tap on the press or its lever: look at it; a pull the double-tap's second tap queued is dropped. */
+  function select(): boolean {
+    if (ctx.mode(spec.body) === 'gone' || ctx.mode(spec.body) === 'chute') return false;
+    if (waiting && ctx.clock.step - pulledAt <= steps(SELECT_AFTER)) {
+      const w = waiting;
+      waiting = null;
+      w.done();
+    }
+    askLook();
+    return true;
   }
 
   function runWaiting(): void {
@@ -384,6 +411,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   function pull(): boolean {
     if (ctx.bracketed) return false;
     ctx.emit({ type: 'handle.worked', id: spec.lever.id });
+    pulledAt = ctx.clock.step;
     if (!reachable()) {
       // carried, stowed, shipped: a misfire (the lever twitches; nothing is printed)
       lever.hit(1);
@@ -453,6 +481,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     },
 
     intent(intent: Intent): boolean {
+      if (intent.type === 'select' && (intent.id === spec.lever.id || intent.id === spec.body)) return select();
       if (intent.type !== 'press' || intent.id !== spec.lever.id) return false;
       return pull();
     },
@@ -553,7 +582,8 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     heard(events: readonly SimEvent[]) {
       for (const e of events) {
         if (e.type === 'shipped') {
-          record.push({ part: e.part, colour: ctx.part(e.part)?.colour ?? 'bare' });
+          // (round three) the report is about the visitor: crates and tools, Fetch's included; never the envelope itself
+          if (e.part !== spec.envelope) record.push({ part: e.part, colour: ctx.part(e.part)?.colour ?? 'bare' });
           if (e.part === spec.envelope) expectHome(null);
         } else if (e.type === 'returned' && e.how === 'door') {
           const i = record.map((s) => s.part).lastIndexOf(e.part);

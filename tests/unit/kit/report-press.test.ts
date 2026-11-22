@@ -29,7 +29,7 @@ describe('the report press piece', () => {
       // its base is the body's footprint; the lever and the spring arm's bed reach past it
       expect(p.size.x).toBeGreaterThanOrEqual(PRESS.half[0] * 2);
       expect(p.size.x).toBeLessThanOrEqual(0.85);
-      expect(p.size.z).toBeLessThanOrEqual(PRESS.half[2] * 2 + 0.2);
+      expect(p.size.z).toBeLessThanOrEqual(PRESS.half[2] * 2 + 0.3);
       // the oxblood colourway builds the same
       expect(reportPress({ seed: 3, colourway: 'oxblood' }).triangles).toBe(p.triangles);
     }

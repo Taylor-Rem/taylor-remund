@@ -115,12 +115,20 @@ function glyphMask(plan: Plan, role: FaceRole, alpha?: (lineIndex: number, glyph
       const x = line.left + g.x * plan.capTexels;
       const y = line.baseline + g.y * plan.capTexels;
       // rotate and scale about the glyph's centre on the baseline
-      const half = (ctx.measureText(g.ch).width * g.scale) / 2;
+      const sq = plan.squeeze ?? 1;
+      const bold = (plan.weight ?? 0) * plan.capTexels;
+      const half = (ctx.measureText(g.ch).width * g.scale * sq + bold) / 2;
       ctx.translate(x + half, y - plan.capTexels / 2);
       ctx.rotate(g.rot);
-      ctx.scale(g.scale, g.scale);
-      ctx.translate(-half / g.scale, plan.capTexels / 2);
+      ctx.scale(g.scale * sq, g.scale);
+      ctx.translate(-(half - bold / 2) / (g.scale * sq), plan.capTexels / 2);
       ctx.fillText(g.ch, 0, 0);
+      if (bold > 0) {
+        // (P4 S5, the heavy stencil) bolder: the letter's own outline thickened; mitred, so its corners stay square
+        ctx.lineWidth = bold / g.scale;
+        ctx.lineJoin = 'miter';
+        ctx.strokeText(g.ch, 0, 0);
+      }
       if (spread > 0) {
         // Ink spreading into the paper: the strike is a little fatter than the type.
         ctx.lineWidth = spread / g.scale;
@@ -268,12 +276,196 @@ export const ARROW = '↑';
 /** Arrow advance in cap units. */
 export const ARROW_ADVANCE = 1.0;
 
+// ---- P4 S5: pictograms, sprayed through a stencil like the arrows ------------------------------------
+// One per project crate (view/bench/stations/parts.ts chooses which). Each is drawn as a shape in a square one
+// capital wide whose foot is the baseline, with the bridges a cut stencil needs: no piece of the sheet floats.
+// Painted areas are filled; the sheet left between them is cut back to the ground (`cut`).
+
+/** The pictograms' characters (private use: no face has them; `paintStencil` draws them as shapes). */
+export const PICTO = { coin: '\uE101', sheet: '\uE102', chips: '\uE103', bell: '\uE104', check: '\uE105', chip: '\uE106' } as const;
+export type PictoName = keyof typeof PICTO;
+const PICTO_CHARS: ReadonlySet<string> = new Set(Object.values(PICTO));
+/** Is this character a pictogram (or the arrow): drawn as a shape, its advance one capital. */
+export const isShape = (ch: string): boolean => ch === ARROW || PICTO_CHARS.has(ch);
+/** A pictogram's advance in capitals (square). */
+export const PICTO_ADVANCE = 1.15;
+
+function picto(ctx: Ctx, ch: string, x: number, baseline: number, cap: number): void {
+  const s = cap * 1.12; // the box's height (a hair over a capital, as the arrow's)
+  const w = cap * PICTO_ADVANCE;
+  const cx = x + w / 2;
+  const cy = baseline - s / 2;
+  const fill = (): void => {
+    ctx.fill();
+    ctx.beginPath();
+  };
+  const cut = (f: () => void): void => {
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    f();
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+  };
+  const b = cap * 0.085; // a bridge
+  ctx.beginPath();
+  switch (ch) {
+    case PICTO.coin: {
+      // a coin: its rim, broken by four bridges, round a solid face
+      const R = s * 0.5;
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      fill();
+      cut(() => {
+        ctx.arc(cx, cy, R * 0.78, 0, Math.PI * 2);
+      });
+      ctx.arc(cx, cy, R * 0.62, 0, Math.PI * 2);
+      fill();
+      for (const a of [0.25, 0.75, 1.25, 1.75]) cut(() => ctx.rect(cx + Math.cos(a * Math.PI) * R * 0.7 - b / 2 - b, cy + Math.sin(a * Math.PI) * R * 0.7 - b / 2 - b, b * 3, b * 3));
+      break;
+    }
+    case PICTO.sheet: {
+      // a sheet of paper: its outline (broken at two corners, the bridges), its corner folded over, three lines of type
+      const pw = s * 0.76;
+      const x0 = cx - pw / 2;
+      const y0 = cy - s / 2;
+      const fold = s * 0.26;
+      const t = b * 1.3;
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + pw - fold, y0);
+      ctx.lineTo(x0 + pw, y0 + fold);
+      ctx.lineTo(x0 + pw, y0 + s);
+      ctx.lineTo(x0, y0 + s);
+      ctx.closePath();
+      fill();
+      cut(() => {
+        ctx.moveTo(x0 + t, y0 + t);
+        ctx.lineTo(x0 + pw - fold - t * 0.4, y0 + t);
+        ctx.lineTo(x0 + pw - t, y0 + fold + t * 0.4);
+        ctx.lineTo(x0 + pw - t, y0 + s - t);
+        ctx.lineTo(x0 + t, y0 + s - t);
+        ctx.closePath();
+      });
+      // the bridges that hold the middle of the sheet: two corners of the outline cut through
+      cut(() => ctx.rect(x0 - 1, y0 + s * 0.55, t + 2, b));
+      cut(() => ctx.rect(x0 + pw * 0.5, y0 + s - t - 1, b, t + 2));
+      // the folded corner, apart
+      ctx.moveTo(x0 + pw - fold + t * 0.6, y0 + t * 1.4);
+      ctx.lineTo(x0 + pw - fold + t * 0.6, y0 + fold - t * 0.6);
+      ctx.lineTo(x0 + pw - t * 1.4, y0 + fold - t * 0.6);
+      ctx.closePath();
+      fill();
+      // three lines of type
+      for (const k of [0.38, 0.56, 0.74]) ctx.rect(x0 + t * 2.2, y0 + s * k, pw * (k === 0.74 ? 0.42 : 0.62), t);
+      fill();
+      break;
+    }
+    case PICTO.chips: {
+      // a fan of paint chips on one pin: three cards fanned out, each cut clear of the one under it
+      const ch2 = s * 0.98;
+      const cw = s * 0.36;
+      const px = cx;
+      const py = cy + s * 0.44;
+      for (const a of [-0.55, 0, 0.55]) {
+        const card = (): void => {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(a);
+          ctx.rect(-cw / 2, -ch2, cw, ch2);
+          ctx.restore();
+        };
+        // the gap round it (over the card beneath), then the card
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        card();
+        ctx.lineWidth = b * 1.6;
+        ctx.stroke();
+        ctx.restore();
+        ctx.beginPath();
+        card();
+        fill();
+        // a colour swatch on its face: a band across near its top, cut open at both sides (bridges)
+        cut(() => {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(a);
+          ctx.rect(-cw / 2 - 1, -ch2 * 0.74, cw + 2, b);
+          ctx.restore();
+        });
+      }
+      cut(() => ctx.arc(px, py - cw * 0.32, b * 1.2, 0, Math.PI * 2));
+      break;
+    }
+    case PICTO.bell: {
+      // a service bell: its knob, its dome, its base, each apart
+      const base = cy + s * 0.42;
+      ctx.rect(cx - s * 0.5, base - s * 0.1, s, s * 0.1);
+      fill();
+      ctx.arc(cx, base - s * 0.16, s * 0.4, Math.PI, 0);
+      ctx.closePath();
+      fill();
+      ctx.rect(cx - s * 0.05, base - s * 0.7, s * 0.1, s * 0.1);
+      fill();
+      ctx.arc(cx, base - s * 0.72, s * 0.09, 0, Math.PI * 2);
+      fill();
+      break;
+    }
+    case PICTO.check: {
+      // a clipboard: its board (its clip apart at the top) with a tick cut through it (the tick's ends open to its edge)
+      const bw = s * 0.74;
+      const x0 = cx - bw / 2;
+      const y0 = cy - s * 0.38;
+      ctx.rect(x0, y0, bw, s * 0.88);
+      fill();
+      ctx.rect(cx - s * 0.18, cy - s * 0.5, s * 0.36, s * 0.1);
+      fill();
+      cut(() => {
+        const t = b * 1.4;
+        ctx.moveTo(x0 + bw * 0.16, cy + s * 0.12);
+        ctx.lineTo(x0 + bw * 0.42, cy + s * 0.34);
+        ctx.lineTo(x0 + bw + 1, cy - s * 0.2);
+        ctx.lineTo(x0 + bw + 1, cy - s * 0.2 + t * 1.6);
+        ctx.lineTo(x0 + bw * 0.42, cy + s * 0.34 + t * 1.4);
+        ctx.lineTo(x0 + bw * 0.16 - t * 0.6, cy + s * 0.12 + t * 0.9);
+        ctx.closePath();
+      });
+      break;
+    }
+    case PICTO.chip: {
+      // a processor: its square body, a square die cut into it (held by a bridge each side), four pins a side, apart
+      const q = s * 0.6;
+      const x0 = cx - q / 2;
+      const y0 = cy - q / 2;
+      ctx.rect(x0, y0, q, q);
+      fill();
+      cut(() => ctx.rect(cx - q * 0.28, cy - q * 0.28, q * 0.56, q * 0.56));
+      ctx.rect(cx - q * 0.28 + b * 1.2, cy - q * 0.28 + b * 1.2, q * 0.56 - b * 2.4, q * 0.56 - b * 2.4);
+      fill();
+      const pin = s * 0.13;
+      const gap = b * 1.1;
+      for (let k = 0; k < 4; k++) {
+        const o = -q / 2 + (q / 4) * (k + 0.5) - b * 0.6;
+        ctx.rect(cx + o, y0 - gap - pin, b * 1.2, pin);
+        ctx.rect(cx + o, y0 + q + gap, b * 1.2, pin);
+        ctx.rect(x0 - gap - pin, cy + o, pin, b * 1.2);
+        ctx.rect(x0 + q + gap, cy + o, pin, b * 1.2);
+      }
+      fill();
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 export function paintStencil(plan: Plan, paint: Token, r: Rng): Painted {
   const { w, h } = plan.px;
   const cap = plan.capTexels;
+  const heavy = (plan.weight ?? 0) > 0;
   // Glyph mask, with the arrow drawn as a shape (no font has the stencil arrow we want).
-  const arrows = plan.lines.flatMap((l) => l.glyphs.filter((g) => g.ch === ARROW).map((g) => ({ g, l })));
-  const textPlan: Plan = { ...plan, lines: plan.lines.map((l) => ({ ...l, glyphs: l.glyphs.filter((g) => g.ch !== ARROW) })) };
+  const arrows = plan.lines.flatMap((l) => l.glyphs.filter((g) => isShape(g.ch)).map((g) => ({ g, l })));
+  const textPlan: Plan = { ...plan, lines: plan.lines.map((l) => ({ ...l, glyphs: l.glyphs.filter((g) => !isShape(g.ch)) })) };
   const M0 = glyphMask(textPlan, 'stencil', undefined, (ctx) => {
     for (const { g, l } of arrows) {
       ctx.save();
@@ -282,7 +474,8 @@ export function paintStencil(plan: Plan, paint: Token, r: Rng): Painted {
       ctx.translate(x + (ARROW_ADVANCE * cap) / 2, y - cap / 2);
       ctx.rotate(g.rot);
       ctx.translate(-(x + (ARROW_ADVANCE * cap) / 2), -(y - cap / 2));
-      arrowPath(ctx, x, y, cap, ARROW_ADVANCE);
+      if (g.ch === ARROW) arrowPath(ctx, x, y, cap, ARROW_ADVANCE);
+      else picto(ctx, g.ch, x, y, cap);
       ctx.restore();
     }
   });
@@ -314,6 +507,8 @@ export function paintStencil(plan: Plan, paint: Token, r: Rng): Painted {
     let core = m * clamp01(0.5 + d * 0.62) * (0.78 + 0.22 * fine) * (0.9 + 0.1 * fl);
     // Dry patches where the paint skipped.
     if (d < 0.36) core *= smoothstep(0.1, 0.36, d) * 0.55 + 0.45;
+    // (P4 S5) a project's name is sprayed on thick, in two coats: nearly solid, a little dry at its edges only
+    if (heavy) core = m * clamp01(0.86 + d * 0.2) * (0.92 + 0.08 * fine);
     // Overspray: a mist that crept under the stencil's edge, and a wider faint cloud.
     const lean = 1 + 0.35 * sweep * Math.tanh((x - w / 2) / (w / 2));
     const mist = Math.max(0, halo.d[i]! - m) * 0.75 * (0.55 + 0.45 * fine) * lean + Math.max(0, far.d[i]! - m) * 0.16 * fl;

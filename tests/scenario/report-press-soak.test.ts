@@ -72,11 +72,11 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
         if (e.type === 'press.flicked') SEEN.flicked!++;
         if (e.type === 'press.home') SEEN.home!++;
         if (e.type === 'shipped') {
-          record.push(w.part(e.part)?.colour ?? 'bare');
+          if (e.part !== E) record.push(w.part(e.part)?.colour ?? 'bare');
           if (e.part === E) SEEN.envShipped!++;
           if (e.part === P) SEEN.pressShipped!++;
         }
-        if (e.type === 'returned' && e.how === 'door') {
+        if (e.type === 'returned' && e.how === 'door' && e.part !== E) {
           // (the colour it shipped in is the one it is back in: an undo restores the colour with the location, or neither)
           const i = record.lastIndexOf(w.part(e.part)?.colour ?? 'bare');
           if (i >= 0) record.splice(i, 1);

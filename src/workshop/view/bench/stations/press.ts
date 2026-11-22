@@ -12,6 +12,6 @@ export const station: BenchStation = {
   order: ORDER.parts + 3,
   make(k) {
     if (!k.scene.parts.some((p) => p.id === PRESS.body)) return null;
-    return timed('press', createPressView({ unit: PRESS.unit, body: PRESS.body, envelope: PRESS.envelope, lever: PRESS.lever }));
+    return timed('press', createPressView({ unit: PRESS.unit, body: PRESS.body, envelope: PRESS.envelope, lever: PRESS.lever, look: PRESS.look }));
   },
 };

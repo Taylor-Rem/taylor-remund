@@ -100,6 +100,8 @@ export interface WorkshopMaterials extends Materials {
    * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
    */
   halo(): MeshBasicMaterial;
+  /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
+  seeThrough(material: Material, fade: { value: number }): Material | null;
   /**
    * D2, the paint scheme (scheme.ts): which scheme the enamel shows and the wipe to another. `paint.set(id,
    * { time, origin, reduced })`; `update(time)` runs the wipe on. Scheme A is the approved look.
@@ -184,7 +186,27 @@ function debugUniforms(): ClassUniforms {
   };
 }
 
-function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant): Pbr {
+/**
+ * (P4 S5 round three) The screen door: with `u_fade` over 0 a pixel is dropped where a 4×4 ordered pattern lies under
+ * it, so the surface behind shows through evenly; at 0 nothing is dropped. In every program (one uniform, read once),
+ * so a see-through twin uses the program its material already has: none is added, none compiles when a robot fades.
+ * Only the colour pass: the shadow pass draws its own depth material, so the shadow stays whole.
+ */
+const SCREEN_DOOR = /* glsl */ `
+if ( u_fade > 0.0 ) {
+  // the 4×4 ordered (Bayer) threshold of this pixel, 0..15
+  vec2 sdp = mod( floor( gl_FragCoord.xy ), 4.0 );
+  vec2 sda = mod( sdp, 2.0 );
+  vec2 sdb = floor( sdp / 2.0 );
+  float sdt = 4.0 * mod( 2.0 * sda.x + 3.0 * sda.y, 4.0 ) + mod( 2.0 * sdb.x + 3.0 * sdb.y, 4.0 );
+  if ( ( sdt + 0.5 ) / 16.0 < u_fade ) discard;
+}`;
+/** The fade of every material that is not a see-through twin: none. */
+const NO_FADE = { value: 0 };
+/** How each material `build` made was built (its see-through twin is built the same: the same program). */
+const RECIPES = new WeakMap<Material, { cls: MaterialClass; variant: Variant; sh: Shared }>();
+
+function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant, fade: { value: number } = NO_FADE): Pbr {
   const { tier, noise, debug } = sh;
   const mat: Pbr = def.kind === 'physical' ? new MeshPhysicalMaterial() : new MeshStandardMaterial();
   mat.name = variant.map ? `workshop/${cls}/textured` : variant.large ? `workshop/${cls}/large` : `workshop/${cls}`;
@@ -241,10 +263,11 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     debug ?? '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
+  RECIPES.set(mat, { cls, variant, sh });
   // the paint scheme: shared uniforms, and this material's own switch (a twin's is 0); never in the key
   const scheme: SchemeUniforms | null = SCHEMED.has(cls) ? { ...sh.scheme, s_on: { value: variant.keep ? 0 : 1 } } : null;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise, u_fade: fade }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -255,7 +278,8 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'clipping_planes_fragment', SCREEN_DOOR, 'after');
+    fs = inject(fs, 'common', `uniform float u_fade;\n${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -408,6 +432,9 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
+  /** (round three) The see-through twins made, per material and fade. */
+  const ghosts = new WeakMap<Material, WeakMap<{ value: number }, Pbr>>();
+  const ghostList: Pbr[] = [];
 
   const uniformsOf = (cls: MaterialClass): ClassUniforms => {
     let u = uniformsBy.get(cls);
@@ -450,6 +477,21 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     halo() {
       halo ??= buildHalo();
       return halo;
+    },
+    seeThrough(material, fade) {
+      // (a shared material, a textured one or a keepColours twin alike: each knows how it was built)
+      const r = RECIPES.get(material);
+      if (!r || r.sh !== sh) return null;
+      let byFade = ghosts.get(material);
+      if (!byFade) ghosts.set(material, (byFade = new WeakMap()));
+      let t = byFade.get(fade);
+      if (!t) {
+        t = build(r.cls, CLASSES[r.cls], sh, uniformsOf(r.cls), r.variant, fade);
+        t.name = `${material.name}/see-through`;
+        byFade.set(fade, t);
+        ghostList.push(t);
+      }
+      return t;
     },
     of,
     textured(cls, key) {
@@ -513,6 +555,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     dispose() {
       for (const m of shared.values()) m.dispose();
       for (const m of textured.values()) m.dispose();
+      for (const m of ghostList) m.dispose();
+      ghostList.length = 0;
       for (const m of twins.values()) m.dispose();
       twins.clear();
       twinOf.clear();
