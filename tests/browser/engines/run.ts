@@ -10,8 +10,9 @@
  * time, one engine per hold: P3-COMMON's rules). The locks are those of this machine, when they exist
  * (WORKSHOP_LOCKS, else /home/tweenson/taylorremund.com/shots/p2/lead); elsewhere it runs without them.
  *
- * Each run's whole output is kept in --out (default test-results/engines/); the summary printed is each run's
- * result line and its time, and a table at the end. A run that did not end by itself (a timeout) leaves its
+ * Each run's whole output is kept in --out (default shots/engines/, which git ignores: not under test-results/,
+ * which Playwright empties at the start of every run); the summary printed is each run's result line and its
+ * time, and a table at the end. A run that did not end by itself (a timeout) leaves its
  * test server behind on the port: it is looked for and stopped by its process id before the next run.
  */
 import { spawnSync } from 'node:child_process';
@@ -25,7 +26,7 @@ const opt = (name: string): string | undefined => {
 };
 const runs = Number(opt('--runs') ?? 1);
 const engines = (opt('--engines') ?? 'chromium,firefox,webkit').split(',').filter(Boolean);
-const out = opt('--out') ?? join('test-results', 'engines');
+const out = opt('--out') ?? join('shots', 'engines');
 const port = process.env['PW_PORT'] ?? '4417';
 const lockDir = process.env['WORKSHOP_LOCKS'] ?? '/home/tweenson/taylorremund.com/shots/p2/lead';
 const locked = (lock: string, cmd: string[]): string[] => (existsSync(join(lockDir, lock)) ? ['flock', join(lockDir, lock), ...cmd] : cmd);
@@ -73,6 +74,7 @@ for (let run = 1; run <= runs; run++) {
     const r = spawnSync(cmd!, rest, { encoding: 'utf8', env: { ...process.env, PW_SKIP_BUILD: '1', PW_PORT: port }, maxBuffer: 64 << 20 });
     const seconds = Math.round((Date.now() - t0) / 1000);
     const text = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+    mkdirSync(out, { recursive: true });
     writeFileSync(join(out, `${engine}-${run}.txt`), text);
     const summary = text
       .split('\n')
