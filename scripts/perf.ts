@@ -261,13 +261,14 @@ type Win = Record<string, unknown> & {
   __workshop: { census(): { totals: CensusShot['totals']; pieces: CensusPiece[] }; geometry(): Record<string, number>; resetStats(): void; stats(): { gpuMedian: Record<string, number> | null } };
 };
 
-export async function census(url: string, o: { w: number; h: number; shots: string[]; seconds: number; timing?: boolean }): Promise<CensusReport> {
+export async function census(url: string, o: { w: number; h: number; shots: string[]; seconds: number; timing?: boolean; look?: string; eval?: string }): Promise<CensusReport> {
   const report: CensusReport = { renderer: '', geometry: {}, shots: [], gpu: {}, cpu: {} };
   // 1. counts: manual mode, a deterministic frame at each framing
   {
     const s = await openPage(withQuery(url, { hud: '0', manual: '1' }), { w: o.w, h: o.h, log: () => {} });
     try {
       if (isSoftware(s.renderer)) throw new Error(`refusing to measure on a software renderer (${s.renderer})`);
+      await applyLook(s.page, o.look);
       report.renderer = s.renderer;
       for (const shot of o.shots) {
         const c = await s.page.evaluate((sh) => {
@@ -287,6 +288,8 @@ export async function census(url: string, o: { w: number; h: number; shots: stri
   if (o.timing !== false) {
     const s = await openPage(withQuery(url, { hud: '0', timer: '1' }), { w: o.w, h: o.h, log: () => {} });
     try {
+      await applyLook(s.page, o.look);
+      if (o.eval) await s.page.evaluate(o.eval);
       await s.page.evaluate(() => {
         const w = window as unknown as Win & { __cpu: { acc: Record<string, number>; frames: number } };
         const ws = w.__vignette.ws as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -401,6 +404,7 @@ async function main(): Promise<number> {
         vsync: { type: 'boolean' },
         session: { type: 'string' },
         look: { type: 'string' },
+        eval: { type: 'string' },
         help: { type: 'boolean', short: 'h' },
       },
     }).values;
@@ -420,7 +424,7 @@ async function main(): Promise<number> {
     const { url: curl, server: cserver } = await resolveTarget(v.url ?? v.path ?? '/dev/vignette/');
     try {
       const shots = (v.shots ?? 'home,button,fetch,patch,cord').split(',');
-      const r = await census(curl, { w, h, shots, seconds: Number(v.seconds ?? 6), timing: !v.counts });
+      const r = await census(curl, { w, h, shots, seconds: Number(v.seconds ?? 6), timing: !v.counts, ...(v.look ? { look: v.look } : {}), ...(v.eval ? { eval: v.eval } : {}) });
       if (v.json) console.log(JSON.stringify(r, null, 2));
       else printCensus(r);
       return 0;
