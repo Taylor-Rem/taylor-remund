@@ -201,10 +201,10 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * Tune here (P4 S5 round two): a thing that asks to be looked at (the world's `look` event: a project crate just opened)
  * is brought close enough to read: its box at least `minPx` CSS px across (or as close as the camera goes, or as large
  * as the clear area allows, `fill` of its smaller side). The least move that does it (`lookAt`). A double-click or
- * double-tap first asks the world whether a thing answers it (`select`); the station is framed only if nothing has asked
- * to be looked at `selectWait` ms later.
+ * double-tap first asks the world whether a thing answers it (`select`); the station is framed as soon as the world has
+ * stepped once since without asking for a look (one frame), or `selectWait` ms later if it has not stepped (paused).
  */
-export const LOOK_AT = { minPx: 360, fill: 0.9, zoomStep: 0.03, tries: 40, selectWait: 140 } as const;
+export const LOOK_AT = { minPx: 360, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {
@@ -306,6 +306,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     realize: (piece, o) => realize(piece, materials, o),
     pickable: (id, object, o) => picking.add(id, object, o),
     targetBox: (id, out) => focusBox(id, out),
+    targetObject: (id) => picking.objectOf(id),
     stage,
     picking,
   };
@@ -669,13 +670,18 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const c = clearOf(pad);
     return r.x0 >= c.x0 && r.x1 <= c.x1 && r.y0 >= c.y0 && r.y1 <= c.y1;
   };
-  /** The camera put at `v` (its own limits applied, as when it rests there), `f` asked, the camera put back. */
-  const atView = <T>(v: View, f: () => T): T => {
+  /**
+   * The camera put at `v` (its own limits applied, as when it rests there), `f` asked, the camera put back. `close`: as
+   * a look would rest there (it may come closer than a station).
+   */
+  const atView = <T>(v: View, f: () => T, close = false): T => {
     const cam = stage.camera;
     const was = cam.view();
-    cam.cutTo(v);
+    const wasClose = cam.reach > 1;
+    const look = cam.look;
+    cam.cutTo(v, { close });
     const out = f();
-    cam.cutTo(was);
+    cam.cutTo(was, { close: wasClose, look });
     return out;
   };
   /** The view the last framing eases to (null: none since the visitor last moved the camera). */
@@ -695,7 +701,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
    * whenever it can: the thing with the bench round it, never a close-up for its own sake. Returns the view as
    * the camera will rest there, or null where no view it can take shows the thing in the area.
    */
-  const settle = (id: Id, base: View): View | null => {
+  const settle = (id: Id, base: View, close = false): View | null => {
     const cam = stage.camera;
     const p = (cam.pitch * Math.PI) / 180;
     const c = clearOf(KEEP_CLEAR.pad);
@@ -704,7 +710,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     for (let i = 0; i < KEEP_CLEAR.tries; i++) {
       let big = false;
       for (let k = 0; ; k++) {
-        const r = atView(v, () => ({ rect: rectOf(id), rest: cam.view(), d: cam.distance }));
+        const r = atView(v, () => ({ rect: rectOf(id), rest: cam.view(), d: cam.distance }), close);
         rest = r.rest;
         const { rect } = r;
         if (!rect || (rect.x0 >= c.x0 && rect.x1 <= c.x1 && rect.y0 >= c.y0 && rect.y1 <= c.y1)) return rest;
@@ -719,7 +725,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
         const f = rest.focus;
         v = { focus: [f[0] - dx * u, f[1] + dy * u * Math.cos(p), f[2] - dy * u * Math.sin(p)], zoom: rest.zoom };
       }
-      const zoom = Math.min(1, Math.max(0, rest.zoom + (big ? -KEEP_CLEAR.zoomStep : KEEP_CLEAR.zoomStep)));
+      const zoom = Math.min(close ? Math.max(1, base.zoom) : 1, Math.max(0, rest.zoom + (big ? -KEEP_CLEAR.zoomStep : KEEP_CLEAR.zoomStep)));
       if (Math.abs(zoom - rest.zoom) < 1e-6) break;
       // the focus asked for is kept (not where the limits held it): drawn in, the camera may go further
       v = { focus: v.focus, zoom };
@@ -811,28 +817,33 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       const r = rectOf(id);
       return r ? Math.max(r.x1 - r.x0, r.y1 - r.y0) : 0;
     };
-    if (!cam.easing && across() >= want && clear(id, KEEP_CLEAR.pad)) return;
+    if (!cam.easing && across() >= want && clear(id, KEEP_CLEAR.pad)) {
+      cam.look = box;
+      return;
+    }
     const m = box.getCenter(new Vector3());
+    // (round three) a look may come closer than a station, as far as the camera's own limit for looks
+    const top = cam.lookZoom;
     let v: View = { focus: [m.x, m.y, m.z], zoom: cam.view().zoom };
     for (let i = 0; i < LOOK_AT.tries; i++) {
-      const r = atView(v, () => ({ size: across(), rest: cam.view() }));
-      if (r.size >= want || r.rest.zoom >= 1) break;
-      v = { focus: v.focus, zoom: Math.min(1, r.rest.zoom + LOOK_AT.zoomStep) };
+      const r = atView(v, () => ({ size: across(), rest: cam.view() }), true);
+      if (r.size >= want || r.rest.zoom >= top - 1e-6) break;
+      v = { focus: v.focus, zoom: Math.min(top, r.rest.zoom + LOOK_AT.zoomStep) };
     }
-    const at = settle(id, v) ?? atView(v, () => cam.view());
+    const at = settle(id, v, true) ?? atView(v, () => cam.view(), true);
     resting = at;
-    cam.easeTo(at);
+    cam.easeTo(at, undefined, { close: true, look: box });
     cam.focusOn({ x: m.x, y: m.y, z: m.z });
   };
   /** (round two) A double-click or double-tap that the world may answer (`select`); the station if nothing asked to be looked at. */
-  let pendingFrame: { id: Id; until: number } | null = null;
+  let pendingFrame: { id: Id; step: number; until: number } | null = null;
   const lookEvents = (frame: Frame): void => {
     for (const e of frame.events) {
       if (e.type !== 'look') continue;
       pendingFrame = null;
       lookAt(e.target);
     }
-    if (pendingFrame && now() > pendingFrame.until) {
+    if (pendingFrame && (world.step > pendingFrame.step || now() > pendingFrame.until)) {
       const id = pendingFrame.id;
       pendingFrame = null;
       if (framings) framing.frame(framings.of(id), 'select');
@@ -879,7 +890,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       // looked at); the station is framed if nothing does
       if (id !== null) {
         dispatch({ type: 'select', id });
-        pendingFrame = { id, until: now() + LOOK_AT.selectWait };
+        pendingFrame = { id, step: world.step, until: now() + LOOK_AT.selectWait };
         return;
       }
       if (framings) framing.frame(null, 'select');

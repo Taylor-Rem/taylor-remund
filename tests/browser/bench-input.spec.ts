@@ -940,6 +940,36 @@ test('P4 S5: a project crate opened by a click on its latch: a finger over it, i
   await pollFrames(page, openNow).toBe(false);
 });
 
+test('P4 S5 round three: a station double-clicked still frames, the camera starting within a frame or two of the world\'s answer; and a look\'s closest view is a look\'s alone', async ({ page }) => {
+  await open(page, 1440, 900);
+  const station0 = await page.evaluate(() => (window as any).__bench.ws.framing.station);
+  expect(station0).toBeNull();
+  await page.evaluate(() => {
+    const W = window as any;
+    W.__s5 = { click: 0, framed: 0, station: null };
+    window.addEventListener('dblclick', () => (W.__s5.click = performance.now()), { capture: true });
+    W.__bench.ws.framing.on((st: string | null) => {
+      if (st !== null && !W.__s5.framed) {
+        W.__s5.framed = performance.now();
+        W.__s5.station = st;
+      }
+    });
+  });
+  const c = await waitClear(page, 'belt', 'mouse');
+  await page.mouse.dblclick(c.x, c.y);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__s5.framed > 0), 240, 'framed').toBe(true);
+  const r = await page.evaluate(() => (window as any).__s5);
+  expect(r.station).not.toBeNull();
+  const wait = r.framed - r.click;
+  console.log(`station framed ${wait.toFixed(0)} ms after the double-click`);
+  expect(wait).toBeLessThan(120);
+  // framed and at rest, the visitor's own zoom stops at a station's (zoom 1), never a look's closer limit
+  await pollFrames(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 600, 'at rest').toBe(true);
+  for (let i = 0; i < 30; i++) await page.mouse.wheel(0, -400);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number), 120, 'wheel in').toBe(1);
+  expect(await page.evaluate(() => (window as any).__bench.ws.stage.camera.lookZoom as number)).toBeGreaterThan(1);
+});
+
 test('P4 S5 round two: a double-click on a crate lying still opens it where it lies and brings the camera close to its card; a double-tap does the same at the phone framing; Esc goes back', async ({ page, browser }) => {
   for (const kind of ['mouse', 'touch'] as const) {
     const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;

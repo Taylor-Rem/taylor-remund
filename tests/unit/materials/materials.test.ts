@@ -333,3 +333,30 @@ describe('materials', () => {
     }
   });
 });
+
+describe('see-through twins (P4 S5 round three)', () => {
+  const compiled = (m: import('three').Material): { vs: string; fs: string; u: Record<string, { value: unknown }> } => {
+    const sh = { vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, { value: unknown }> };
+    (m.onBeforeCompile as unknown as (s: unknown) => void)(sh);
+    return { vs: sh.vertexShader, fs: sh.fragmentShader, u: sh.uniforms };
+  };
+  it('a twin compiles to the very program of its material (same key, same source); only its fade uniform differs', () => {
+    const mats = createMaterials({ tier: 'high' });
+    const fade = { value: 0 };
+    for (const cls of ['steel', 'brass', 'rubber'] as const) {
+      const m = mats.of(cls);
+      const t = mats.seeThrough(m, fade)!;
+      expect(t).not.toBe(m);
+      expect(mats.seeThrough(m, fade)).toBe(t);
+      expect(t.customProgramCacheKey()).toBe(m.customProgramCacheKey());
+      const a = compiled(m), b = compiled(t);
+      expect(b.fs).toBe(a.fs);
+      expect(b.vs).toBe(a.vs);
+      expect(a.fs).toContain('discard');
+      expect(a.u['u_fade']!.value).toBe(0);
+      expect(b.u['u_fade']).toBe(fade);
+    }
+    expect(mats.seeThrough(new MeshBasicMaterial(), fade)).toBeNull();
+    mats.dispose();
+  });
+});

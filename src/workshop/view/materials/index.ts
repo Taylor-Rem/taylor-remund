@@ -98,6 +98,8 @@ export interface WorkshopMaterials extends Materials {
    * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
    */
   halo(): MeshBasicMaterial;
+  /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
+  seeThrough(material: Material, fade: { value: number }): Material | null;
 }
 
 type Pbr = MeshStandardMaterial | MeshPhysicalMaterial;
@@ -165,7 +167,25 @@ function debugUniforms(): ClassUniforms {
   };
 }
 
-function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant): Pbr {
+/**
+ * (P4 S5 round three) The screen door: with `u_fade` over 0 a pixel is dropped where a 4×4 ordered pattern lies under
+ * it, so the surface behind shows through evenly; at 0 nothing is dropped. In every program (one uniform, read once),
+ * so a see-through twin uses the program its material already has: none is added, none compiles when a robot fades.
+ * Only the colour pass: the shadow pass draws its own depth material, so the shadow stays whole.
+ */
+const SCREEN_DOOR = /* glsl */ `
+if ( u_fade > 0.0 ) {
+  // the 4×4 ordered (Bayer) threshold of this pixel, 0..15
+  vec2 sdp = mod( floor( gl_FragCoord.xy ), 4.0 );
+  vec2 sda = mod( sdp, 2.0 );
+  vec2 sdb = floor( sdp / 2.0 );
+  float sdt = 4.0 * mod( 2.0 * sda.x + 3.0 * sda.y, 4.0 ) + mod( 2.0 * sdb.x + 3.0 * sdb.y, 4.0 );
+  if ( ( sdt + 0.5 ) / 16.0 < u_fade ) discard;
+}`;
+/** The fade of every material that is not a see-through twin: none. */
+const NO_FADE = { value: 0 };
+
+function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant, fade: { value: number } = NO_FADE): Pbr {
   const { tier, noise, debug } = sh;
   const mat: Pbr = def.kind === 'physical' ? new MeshPhysicalMaterial() : new MeshStandardMaterial();
   mat.name = variant.map ? `workshop/${cls}/textured` : variant.large ? `workshop/${cls}/large` : `workshop/${cls}`;
@@ -223,7 +243,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   ].join(':');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise, u_fade: fade }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -234,7 +254,8 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'clipping_planes_fragment', SCREEN_DOOR, 'after');
+    fs = inject(fs, 'common', `uniform float u_fade;\n${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -377,6 +398,10 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
+  /** How each material here was built, so its see-through twin can be built the same (the same program). */
+  const recipes = new WeakMap<Material, { cls: MaterialClass; variant: Variant }>();
+  const twins = new WeakMap<Material, WeakMap<{ value: number }, Pbr>>();
+  const twinList: Pbr[] = [];
 
   const uniformsOf = (cls: MaterialClass): ClassUniforms => {
     let u = uniformsBy.get(cls);
@@ -398,6 +423,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       m = build(cls, def, sh, uniformsOf(cls), { large, lampGlow });
       if (lampGlow) m.name = `workshop/${cls}/lamp`;
       shared.set(k, m);
+      recipes.set(m, { cls, variant: { large, lampGlow } });
     }
     return m;
   };
@@ -418,19 +444,35 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       halo ??= buildHalo();
       return halo;
     },
+    seeThrough(material, fade) {
+      const r = recipes.get(material);
+      if (!r) return null;
+      let byFade = twins.get(material);
+      if (!byFade) twins.set(material, (byFade = new WeakMap()));
+      let t = byFade.get(fade);
+      if (!t) {
+        t = build(r.cls, CLASSES[r.cls], sh, uniformsOf(r.cls), r.variant, fade);
+        t.name = `${material.name}/see-through`;
+        byFade.set(fade, t);
+        twinList.push(t);
+      }
+      return t;
+    },
     of,
     textured(cls, key) {
       const k = `${cls}\u0000${key}`;
       let m = textured.get(k);
       if (!m) {
         if (!labels) throw new Error('materials: textured() needs Labels (pass labels to createMaterials or call setLabels)');
-        m = build(cls, CLASSES[cls], sh, uniformsOf(cls), {
+        const variant: Variant = {
           map: labels.texture(key),
           normalMap: labels.normalMap(key),
           roughnessMap: labels.roughnessMap(key),
           alpha: labelAlpha(labels, key),
-        });
+        };
+        m = build(cls, CLASSES[cls], sh, uniformsOf(cls), variant);
         textured.set(k, m);
+        recipes.set(m, { cls, variant });
       }
       return m;
     },
@@ -458,6 +500,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     dispose() {
       for (const m of shared.values()) m.dispose();
       for (const m of textured.values()) m.dispose();
+      for (const m of twinList) m.dispose();
+      twinList.length = 0;
       shared.clear();
       textured.clear();
       noise.value.dispose();

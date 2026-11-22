@@ -23,7 +23,7 @@ import { hashSeed } from '../../vignette.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 import { BADGE_TEX_CAP, crateLid, crateMouth, crateSpec, crateWordKeys, WORD_CAP, type CrateSize } from '../../kit/pieces/crate/index.ts';
 import { PICTO, type PictoName } from '../../labels/draw.ts';
-import { paintProjectCard, projectCard, projectCardRegion, projectCardSize } from '../../kit/pieces/crate/card.ts';
+import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
 
@@ -44,13 +44,11 @@ export const LID_FEEL = {
   cardDepth: 0.02,
 } as const;
 
-/** The plate's engraving: one plate label for every card (its capitals at the plate's own small size). */
-const PLATE_CAP = 0.018;
+/** The plate's engraving: one plate label for every card, made at this cap height (the plate scales it to fit). */
+const PLATE_CAP = 0.03;
 const footM = new Matrix4();
 /** (round two) The tallest thing a crate's tray holds, as its card makes room for it (world units: the test block's 0.18 and a little). */
 const THING_HEIGHT = 0.2;
-/** A pick target's padding (world units). */
-const PAD = 0.03;
 
 interface Lid {
   readonly crate: ProjectCrate;
@@ -63,6 +61,8 @@ interface Lid {
   readonly foot: number;
   /** How much higher its card stands (over a thing on its tray). */
   readonly lift: number;
+  /** How far up the card's face starts over its foot (the plate under it). */
+  readonly plateLift: number;
   readonly size: CrateSize;
   card: Object3D | null;
   cardRoot: Object3D | null;
@@ -173,7 +173,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
     // every card's face, typed now while the labels' start-up pages are open (a region made later opens a page of its own)
     const plate = ctx.labels.plate(CARD_PLATE, { capHeight: PLATE_CAP });
     const plateSize = ctx.labels.size(plate);
-    const faces = new Map<Id, string>();
+    const faces = new Map<Id, { key: string; bands: { title: CapBand; line: CapBand } }>();
     return {
       make(part: Part, obj: Object3D, group: Group, half: Vec3) {
         if (things.has(part.id)) {
@@ -186,13 +186,14 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         if (!pc || part.kind !== 'crate') return;
         const size = part.size;
         const words = BENCH_PROJECTS[pc.project];
-        let face = faces.get(part.id);
-        if (!face && words) {
+        let typed = faces.get(part.id);
+        if (!typed && words) {
           const region = projectCardRegion(ctx.labels, part.id, size);
-          paintProjectCard(region, { title: words.title, line: words.line }, hashSeed(part.id));
-          face = region.key;
-          faces.set(part.id, face);
+          typed = { key: region.key, bands: paintProjectCard(region, { title: words.title, line: words.line }, hashSeed(part.id)) };
+          faces.set(part.id, typed);
         }
+        const face = typed?.key;
+        const P = projectPlateSize(size, plateSize, PLATE_CAP);
         const S = crateSpec(size);
         const m = crateMouth(size);
         const rim = m.rim;
@@ -201,7 +202,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         // foot over the thing's top less what the camera's pitch shows of it from the front (the card is behind it)
         const trayY = Math.max(0.01, 2 * half[1] + 0.006 - 0.012 - rim);
         const lift = pc.holds !== undefined ? Math.max(0, trayY + 0.012 + THING_HEIGHT - m.d * 0.62 * Math.tan((33 * Math.PI) / 180) + 0.02) : 0;
-        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize }, trayY, lift });
+        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize, cap: PLATE_CAP }, trayY, lift });
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
         cardRoot.visible = false;
@@ -218,7 +219,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         });
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
-        lids.set(part.id, { crate: pc, holder, foot: half[1], size, lift, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
+        lids.set(part.id, { crate: pc, holder, foot: half[1], size, lift, plateLift: P.lift, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
         // (round two) what an opening asks the page to look at (the world's `look`): the risen card, the crate's mouth and
         // its tray, a box of its own never pressed (no hand takes it: only `lookAt` reads it)
         if (pc.card !== undefined) {
@@ -227,7 +228,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           holder.add(lookAt);
           const cs = projectCardSize(size);
           const hw2 = cs.w / 2 + 0.02;
-          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -S.d / 2), new Vector3(hw2, rim + lift + 0.03 + cs.h, S.d / 2 + 0.02)), pad: 0, active: () => false });
+          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -m.d / 2), new Vector3(hw2, rim + lift + 0.03 + P.lift + cs.h, m.d * 0.36)), pad: 0, active: () => false });
         }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
         // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just
@@ -241,16 +242,27 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const hw = Math.max(0.07, S.w * 0.2);
         const lidState = (): Lid | undefined => lids.get(part.id);
         ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, S.d / 2 - 0.13), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
-        // the plate's pick target, on the card (only while it stands)
-        const pw = Math.min(1, (projectCardSize(size).w * 0.34) / plateSize.w) * plateSize.w;
-        const ph = (pw / plateSize.w) * plateSize.h;
+        // the plate's pick target: the plate itself, under the card (only while it stands)
         const plateTarget = new Object3D();
         plateTarget.name = 'plate.pick';
         (card ?? cardRoot).add(plateTarget);
-        const cw = projectCardSize(size).w;
-        plateTarget.position.set(cw / 2 - pw / 2 - 0.018, ph / 2 + 0.014, 0.006);
+        plateTarget.position.set(0, P.h / 2 + 0.002, 0.006);
         const st = lids.get(part.id)!;
-        ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-pw / 2 - 0.01, -ph / 2 - 0.01, -0.01), new Vector3(pw / 2 + 0.01, ph / 2 + 0.01, 0.02)), pad: PAD, active: () => group.visible && st.still && st.rise > 0.9 });
+        ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-P.w / 2, -P.h / 2, -0.006), new Vector3(P.w / 2, P.h / 2, 0.006)), pad: 0.002, active: () => group.visible && st.still && st.rise > 0.9 });
+        // (round three) where the type is, for measuring it on screen (never pressed): the capitals of the card's title and
+        // of its line, and of the plate's word, each a flat box on the card
+        if (pc.card !== undefined) {
+          const cs = projectCardSize(size);
+          const onCard = (b: CapBand): Box3 => new Box3(new Vector3(-cs.w / 2 + b.x0 * cs.w, P.lift + cs.h * (1 - b.y1), 0), new Vector3(-cs.w / 2 + b.x1 * cs.w, P.lift + cs.h * (1 - b.y0), 0.004));
+          const bands: [string, Box3][] = [[`${pc.card}.face`, new Box3(new Vector3(-cs.w / 2, P.lift, 0), new Vector3(cs.w / 2, P.lift + cs.h, 0.004))], [`${pc.card}.plate-caps`, new Box3(new Vector3(-P.face.w * 0.4, P.h / 2 + 0.002 - P.cap / 2, 0), new Vector3(P.face.w * 0.4, P.h / 2 + 0.002 + P.cap / 2, 0.004))]];
+          if (typed) bands.push([`${pc.card}.title-caps`, onCard(typed.bands.title)], [`${pc.card}.line-caps`, onCard(typed.bands.line)]);
+          for (const [id, box] of bands) {
+            const o = new Object3D();
+            o.name = 'measure.box';
+            (card ?? cardRoot).add(o);
+            ctx.pickable(id, o, { box, pad: 0, active: () => false });
+          }
+        }
       },
 
       update(part: Part, obj: Object3D, group: Group, frame: Frame, shown: boolean) {
@@ -307,7 +319,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           const e = st.rise * st.rise * (3 - 2 * st.rise);
           st.cardRoot.visible = st.rise > 0.001 || st.lid > 0.02;
           // hidden down in the mouth, it rises on its batten until the batten lies on the walls
-          if (st.card) st.card.position.y = 0.026 + st.lift - (1 - e) * (cs.h + 0.05 + F.cardDepth + st.lift);
+          if (st.card) st.card.position.y = 0.026 + st.lift - (1 - e) * (cs.h + st.plateLift + 0.05 + F.cardDepth + st.lift);
         }
       },
 
