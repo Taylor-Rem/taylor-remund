@@ -1,0 +1,434 @@
+{
+  "panel": {
+    "close": {
+      "text": "Close",
+      "kind": "ui",
+      "source": "site.json settings.close (the same word on the settings panel)"
+    },
+    "list": {
+      "text": "Plates",
+      "kind": "ui",
+      "provisional": true,
+      "source": "REWRITE.md § B7 (\"a brass plate opens an HTML panel\"). P4 H1: the heading of the group in the controls list that opens each panel, for Taylor"
+    },
+    "copy": {
+      "text": "Copy the address",
+      "kind": "ui",
+      "provisional": true,
+      "source": "P4 H1 brief item 4 (the email shown as text that can be selected and copied): the contact panel's button, for Taylor"
+    },
+    "copied": {
+      "text": "Copied.",
+      "kind": "ui",
+      "provisional": true,
+      "source": "P4 H1: said (and shown) once the address is on the visitor's own clipboard; nothing leaves the browser. For Taylor"
+    }
+  },
+  "patchlamp": {
+    "tape": {
+      "text": "Patchlamp · the toy",
+      "kind": "ui",
+      "provisional": true,
+      "source": "REWRITE.md § B7 (hatches: Patchlamp's). P4 H1: the hatch's label tape, for Taylor"
+    },
+    "title": {
+      "text": "The toy and the real thing",
+      "kind": "ui",
+      "provisional": true,
+      "source": "REWRITE.md § B7 (\"what the real thing is, what the toy shows, what the toy simplifies\"). P4 H1: the hatch's heading, for Taylor"
+    },
+    "real": {
+      "heading": {
+        "text": "The real thing",
+        "kind": "ui",
+        "provisional": true,
+        "source": "REWRITE.md § B7 (\"what the real thing is\"). P4 H1, for Taylor"
+      },
+      "paragraphs": [
+        {
+          "text": "The owner of a small business texts a number. Patch, the operator, opens the site's files, makes the change, checks that it is live and texts back, usually in a minute.",
+          "kind": "fact",
+          "source": "resume.json projects Patchlamp, the paragraph's first sentence, carried word for word; ~/projects/patchlamp/CLAIMS.md § Hero and how it works, rows \"Patch makes the change, checks it's live, texts you back\" and \"Usually in a minute\" (true now, typical)"
+        },
+        {
+          "text": "Patch is Claude wearing a name tag that says Patch.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "~/projects/patchlamp/BRAND.md § The name (\"Claude wearing a name tag that says Patch\"); CLAIMS.md § The position (\"Patch is Claude wearing a name tag\", true now); REWRITE.md § F3 row \"Patch says it is Claude wearing a name tag\". P4 H1 draft, for Taylor"
+        }
+      ]
+    },
+    "shows": {
+      "heading": {
+        "text": "What the toy shows",
+        "kind": "ui",
+        "provisional": true,
+        "source": "REWRITE.md § B7 (\"what the toy shows\"). P4 H1, for Taylor"
+      },
+      "items": [
+        {
+          "text": "Text Patch from the phone and the thing on the line changes: the storefront, the platen, the belt or the lamp.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"A text changes the storefront and a reply comes back\" (CLAIMS.md hero rows); the toy's four lines (src/content/phone.json lines). P4 H1 draft, for Taylor"
+        },
+        {
+          "text": "Patch works on the jack the cord is in, and says so when you ask for something on another. The real Patch works inside a walled-off folder that holds only that client's things.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"Patch opens one drawer per jack and refuses what is outside it\"; CLAIMS.md § Hero and how it works, \"Works inside a walled-off folder that holds only your things\" (true now). P4 H1 draft, for Taylor"
+        },
+        {
+          "text": "“Undo that” puts the last change back, as it does for real.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"'Undo that' puts it back: the same\"; CLAIMS.md § Hero and how it works, \"'Undo that last change' puts it back\" (true now). P4 H1 draft, for Taylor"
+        },
+        {
+          "text": "Ask the toy for something it does not know and Patch points you to Taylor's mailbox. The real Patch passes out-of-scope asks to Taylor.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"An unparsed text is pointed at Taylor's mailbox; nothing is claimed sent\"; CLAIMS.md § Hero and how it works, \"Out-of-scope asks: Patch says so and passes to Taylor\" (true now). P4 H1 draft, for Taylor"
+        }
+      ]
+    },
+    "simplifies": {
+      "heading": {
+        "text": "What the toy leaves out",
+        "kind": "ui",
+        "provisional": true,
+        "source": "REWRITE.md § B7 (\"what the toy simplifies\"). P4 H1, for Taylor"
+      },
+      "items": [
+        {
+          "text": "The phone is scripted. No model is called, and nothing you type leaves your browser. The real Patch runs Claude Code.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"The phone is scripted; no model is called\" (\"said plainly in the hatch: this is a toy; the real Patch runs Claude Code\"); § 3 and § E10 (nothing a visitor types leaves the browser); resume.json projects Patchlamp (\"a Python relay that runs Claude Code\"). P4 H1 draft, for Taylor"
+        },
+        {
+          "text": "The toy answers in a few seconds. The real one usually answers in a minute.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "REWRITE.md § F3 row \"The toy takes seconds\" (\"the hatch says the toy is sped up\"); CLAIMS.md § Hero and how it works, \"Usually in a minute\" (true now, typical, not guaranteed). P4 H1 draft, for Taylor"
+        },
+        {
+          "text": "Real texts come by SMS, Telegram or Discord.",
+          "kind": "fact",
+          "provisional": true,
+          "source": "CLAIMS.md § Hero and how it works, \"A number you text; SMS, Telegram, or Discord\" (true now). P4 H1 draft, for Taylor"
+        }
+      ]
+    },
+    "facts": {
+      "heading": {
+        "text": "The facts",
+        "kind": "ui",
+        "provisional": true,
+        "source": "REWRITE.md § B7 (\"the facts with their dates\"). P4 H1, for Taylor"
+      },
+      "items": [
+        {
+          "text": "Live since September 2026.",
+          "kind": "fact",
+          "source": "resume.json projects Patchlamp label (\"Product · Live since September 2026\"), carried"
+        },
+        {
+          "text": "More than 1,800 commits and 300 test files across the three codebases as of November 2026.",
+          "kind": "fact",
+          "source": "resume.json projects Patchlamp (the bold sentence, carried word for word); ~/career/facts/projects/patchlamp.md \"Measured 2026-11-16\" (1,890 commits, 302 test files)"
+        },
+        {
+          "text": "Built and run by one person, me, working with Claude: I own the architecture, the review and the verification.",
+          "kind": "fact",
+          "source": "resume.json projects Patchlamp, carried word for word (his sentence); ~/career/facts/profile.md § Positioning"
+        }
+      ]
+    },
+    "links": [
+      {
+        "text": "See Patchlamp",
+        "kind": "ui",
+        "href": "https://patchlamp.com",
+        "source": "home.json patchlamp.links[0] (legacy/index.html #patchlamp .pl-btn)"
+      },
+      {
+        "text": "Every price, published on purpose",
+        "kind": "ui",
+        "href": "https://patchlamp.com/pricing",
+        "source": "home.json patchlamp.links[2]; REWRITE.md § 3 (no Patchlamp price is typed: a link to patchlamp.com/pricing)"
+      },
+      {
+        "text": "How it is built, on GitHub",
+        "kind": "ui",
+        "href": "https://github.com/Taylor-Rem/patchlamp",
+        "source": "resume.json projects Patchlamp links[1]"
+      }
+    ]
+  },
+  "maker": {
+    "tape": {
+      "text": "The workshop",
+      "kind": "ui",
+      "provisional": true,
+      "source": "REWRITE.md § B7 (\"the maker's plate under the sign for the workshop itself\"). P4 H1: the plate's label tape, for Taylor"
+    },
+    "title": {
+      "text": "How this was built",
+      "kind": "ui",
+      "provisional": true,
+      "source": "REWRITE.md § 3 (\"How this site itself was built is said on the site\"); § Decisions G4. P4 H1, for Taylor"
+    },
+    "paragraphs": [
+      {
+        "text": "I built this workshop working with Claude.",
+        "kind": "voice",
+        "provisional": true,
+        "draft": "ADAPTED, NOT HIS: from his published sentence about Patchlamp, \"built and run by one person — me, working with Claude\" (~/career/facts/profile.md § Positioning). REWRITE.md § 3: told confidently, never overstated, in words he approves.",
+        "source": "DRAFT for Taylor's own wording (REWRITE.md § 3, § Decisions G4)"
+      },
+      {
+        "text": "It is a static site. Three.js draws the bench, Rapier moves the loose parts, the phone is scripted, and nothing you do here leaves your browser.",
+        "kind": "fact",
+        "provisional": true,
+        "source": "CLAUDE.md § Stack (Astro static output; Three.js used directly; Rapier for loose parts; runtime dependencies exactly three and @dimforge/rapier3d); REWRITE.md § E1, § E10, § F3 (the phone is scripted). P4 H1 draft, for Taylor"
+      }
+    ],
+    "live": {
+      "heading": {
+        "text": "Running now",
+        "kind": "ui",
+        "provisional": true,
+        "source": "REWRITE.md § G \"P4 as Taylor amended it\" (the maker's plate \"may show the bench's own workings live\"). P4 H1: the heading over them, for Taylor"
+      },
+      "tests": {
+        "label": {
+          "text": "Tests",
+          "kind": "ui",
+          "provisional": true,
+          "source": "REWRITE.md § G P4 amended (\"the tests\"). P4 H1, for Taylor"
+        },
+        "value": {
+          "text": "{count} passed on {date}",
+          "kind": "ui",
+          "provisional": true,
+          "source": "src/content/bench-tests.json, written by scripts/test-count.ts from a vitest run (never typed). P4 H1, for Taylor"
+        }
+      },
+      "frame": {
+        "label": {
+          "text": "Frame time",
+          "kind": "ui",
+          "provisional": true,
+          "source": "REWRITE.md § G P4 amended (\"the frame budget\"); § E7. P4 H1, for Taylor"
+        },
+        "value": {
+          "text": "{ms} ms",
+          "kind": "ui",
+          "provisional": true,
+          "source": "the mean time between the stage's frames over the last second, measured in the visitor's browser (as ?debug does). P4 H1, for Taylor"
+        }
+      },
+      "history": {
+        "heading": {
+          "text": "What the UNDO lever can take back, newest first",
+          "kind": "ui",
+          "provisional": true,
+          "source": "REWRITE.md § G P4 amended (\"the history the UNDO lever replays\"); § E5. P4 H1, for Taylor"
+        },
+        "empty": {
+          "text": "Nothing yet. Change something on the bench and it shows up here.",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: the list while the undo stack is empty, for Taylor"
+        }
+      },
+      "log": {
+        "field": {
+          "text": "{thing} {field}: {from} → {to}",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: one history entry, a named setting (\"Belt speed: 3 → 5\"), for Taylor"
+        },
+        "state": {
+          "text": "{thing}: {from} → {to}",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: one history entry, a state (\"Belt: running → stopped\", a crate's place), for Taylor"
+        },
+        "moved": {
+          "text": "{thing} moved",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: one history entry, a part put down elsewhere on the bench (or the lamp's arm moved), for Taylor"
+        },
+        "changed": {
+          "text": "{thing} changed",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: one history entry the plate has no closer words for, for Taylor"
+        },
+        "byText": {
+          "text": "{line}, by text",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 H1: an entry Patch made for a text (the same history, the same lever: REWRITE.md § E5 rule 4), for Taylor"
+        },
+        "fields": {
+          "speed": {
+            "text": "speed",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the belt's speed dial (REWRITE.md § D 5). P4 H1, for Taylor"
+          },
+          "level": {
+            "text": "brightness",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the lamp's level (REWRITE.md § D 14). P4 H1, for Taylor"
+          },
+          "lampColour": {
+            "text": "colour",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the lamp's colour (REWRITE.md § B2 X1, LAMP line). P4 H1, for Taylor"
+          },
+          "sign": {
+            "text": "sign",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the storefront's sign colour (REWRITE.md § B2 X1). P4 H1, for Taylor"
+          },
+          "words": {
+            "text": "sign words",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the storefront's sign words (REWRITE.md § B2 X1). P4 H1, for Taylor"
+          },
+          "awning": {
+            "text": "awning",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the storefront's awning (REWRITE.md § B2 X1). P4 H1, for Taylor"
+          },
+          "picture": {
+            "text": "window",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the storefront's window picture (REWRITE.md § B2 X1). P4 H1, for Taylor"
+          },
+          "colour": {
+            "text": "paint",
+            "kind": "ui",
+            "provisional": true,
+            "source": "a part's colour (REWRITE.md § B1 property table). P4 H1, for Taylor"
+          },
+          "label": {
+            "text": "label",
+            "kind": "ui",
+            "provisional": true,
+            "source": "a part's label (REWRITE.md § B1 property table). P4 H1, for Taylor"
+          }
+        },
+        "values": {
+          "running": {
+            "text": "running",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the belt's lever (REWRITE.md § D 5). P4 H1, for Taylor"
+          },
+          "stopped": {
+            "text": "stopped",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the belt's lever. P4 H1, for Taylor"
+          },
+          "forward": {
+            "text": "forwards",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the belt's lever (texts.json replies.change.belt.forward: \"running forwards\"). P4 H1, for Taylor"
+          },
+          "backward": {
+            "text": "backwards",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the belt's lever (texts.json replies.change.belt.backward). P4 H1, for Taylor"
+          },
+          "on": {
+            "text": "on",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the lamp (texts.json replies.change.lamp.on). P4 H1, for Taylor"
+          },
+          "off": {
+            "text": "off",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the lamp (texts.json replies.change.lamp.off). P4 H1, for Taylor"
+          },
+          "open": {
+            "text": "OPEN",
+            "kind": "ui",
+            "source": "storefront.json door.open (the door's own word)"
+          },
+          "closed": {
+            "text": "CLOSED",
+            "kind": "ui",
+            "source": "storefront.json door.closed (the door's own word)"
+          },
+          "blank": {
+            "text": "blank",
+            "kind": "ui",
+            "provisional": true,
+            "source": "a sign or label with no words. P4 H1, for Taylor"
+          },
+          "bare": {
+            "text": "bare wood",
+            "kind": "ui",
+            "provisional": true,
+            "source": "an unpainted part (REWRITE.md § B1 property table: colour, bare). P4 H1, for Taylor"
+          }
+        },
+        "places": {
+          "rest": {
+            "text": "on the bench",
+            "kind": "ui",
+            "provisional": true,
+            "source": "a part at rest (REWRITE.md § E5, location). P4 H1, for Taylor"
+          },
+          "belt": {
+            "text": "on the belt",
+            "kind": "ui",
+            "provisional": true,
+            "source": "world.json said.onBelt (\"is on the belt\"). P4 H1, for Taylor"
+          },
+          "dock": {
+            "text": "at the dock",
+            "kind": "ui",
+            "provisional": true,
+            "source": "world.json said.atDock (\"is at the dock\"). P4 H1, for Taylor"
+          },
+          "platen": {
+            "text": "on the platen",
+            "kind": "ui",
+            "provisional": true,
+            "source": "world.json said.onPlaten (\"is on the platen\"). P4 H1, for Taylor"
+          },
+          "shipped": {
+            "text": "shipped",
+            "kind": "ui",
+            "provisional": true,
+            "source": "world.json said.shipped (\"shipped\"); line.json marks.shipped. P4 H1, for Taylor"
+          },
+          "away": {
+            "text": "put away",
+            "kind": "ui",
+            "provisional": true,
+            "source": "a part in a machine the plate has no word for. P4 H1, for Taylor"
+          }
+        }
+      }
+    }
+  }
+}

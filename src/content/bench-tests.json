@@ -1,0 +1,19 @@
+{
+  "count": {
+    "text": "2,665",
+    "kind": "fact",
+    "source": "scripts/test-count.ts from a vitest run of tests/unit and tests/scenario on 2026-11-22 at 7916645: 2665 passed, 0 failed, 3 skipped (not counted)"
+  },
+  "date": {
+    "text": "November 22, 2026",
+    "kind": "fact",
+    "source": "scripts/test-count.ts from a vitest run of tests/unit and tests/scenario on 2026-11-22 at 7916645: 2665 passed, 0 failed, 3 skipped (not counted)"
+  },
+  "run": {
+    "passed": 2665,
+    "total": 2668,
+    "skipped": 3,
+    "at": "2026-11-22T08:19:51.165Z",
+    "commit": "7916645"
+  }
+}
