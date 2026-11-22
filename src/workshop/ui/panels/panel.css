@@ -8,6 +8,8 @@
   --pn-sans: 'IBM Plex Sans', 'Paperwork Sans fallback', system-ui, sans-serif;
   --pn-tape: 'Strip Tape', 'Arial Narrow', system-ui, sans-serif;
   --pn-top: 56px;
+  /* a side panel is not modal (not in the top layer): over the strip's line and the controls list */
+  z-index: 36;
   --pn-max: calc(100dvh - var(--pn-top) - 40px);
   position: fixed;
   inset: var(--pn-top) var(--gutter, 16px) auto auto;
@@ -55,7 +57,8 @@
   flex: none;
   display: flex;
   justify-content: flex-end;
-  padding: 6px 8px 0;
+  /* its own row: the body's first line (the tilted tape) starts below it, at any zoom */
+  padding: 6px 8px 8px;
 }
 .pn-close {
   font: 600 0.9375rem/1 var(--pn-tape);

@@ -28,9 +28,10 @@ import { isMuted, onMuted, setMuted } from '../../audio/mute.ts';
  * The paperwork and the sections with no station of their own: with the stage running, an address naming one
  * of these opens the paperwork there (§ B6). `#patchlamp` is a section AND a station's address: with the stage
  * it frames the station (ui/controls, P3 B2); without (the Still tier, no script, a failure) it is the
- * section's plain anchor, as every id in the paperwork is.
+ * section's plain anchor, as every id in the paperwork is. (P4 H1) The two hatches' sections, `#patchlamp-toy`
+ * and `#maker`, are paperwork sections with no station of their own: they open the paperwork there too.
  */
-export const PAPERWORK_IDS = ['paperwork', 'services', 'about', 'contact'] as const;
+export const PAPERWORK_IDS = ['paperwork', 'services', 'about', 'contact', 'patchlamp-toy', 'maker'] as const;
 
 /**
  * The stations an address can frame (REWRITE.md § C, the stations table), those the bench has today. The
