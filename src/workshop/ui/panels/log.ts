@@ -12,6 +12,7 @@
  * everywhere. Tested in Node on the real bench (tests/unit/ui/panels-log.test.ts).
  */
 import type { Id, TransactionView, Value, WorldView } from '../../sim/index.ts';
+import { PAINT_TUNING } from '../../sim/index.ts';
 import textsJson from '../../../content/texts.json';
 import { plainName } from '../controls/model.ts';
 import { fill, paintName } from '../controls/words.ts';
@@ -100,6 +101,14 @@ export function entryLine(w: WorldView, e: { target: Id; field: string; before: 
     case 'speed':
     case 'level':
       return fieldOf(e.field, String(e.before), String(e.after));
+    case 'scheme': {
+      // (P4 D2b) the paint dial: a scheme by its place on the dial (the schemes have working letters only, never a name)
+      const at = (v: Value): string => {
+        const i = PAINT_TUNING.schemes.indexOf(String(v));
+        return i < 0 ? String(v) : String(i + 1);
+      };
+      return fieldOf('scheme', at(e.before), at(e.after));
+    }
     case 'running':
       return stateOf(e.before ? (V['running'] ?? '') : (V['stopped'] ?? ''), e.after ? (V['running'] ?? '') : (V['stopped'] ?? ''));
     case 'direction':

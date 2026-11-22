@@ -295,6 +295,9 @@ export class Score {
       }
       case 'ledger.refused':
         return this.play('striker.air', now, { gain: 0.6 }, this.posOf(w, e.board));
+      // P4 D2b: the paint dial's wipe has crossed the room: the bell (§ B1: verb done). Its detents click as any dial's.
+      case 'paint.wiped':
+        return this.play('dock.bell', now, { gain: 0.5 }, this.posOf(w, e.dial));
       case 'cover':
         // fitted by Revert: the cover snaps shut (a visitor's lift and shut is the `handle.worked` above)
         if (e.state === 'shut' && this.lastPlayed.get('cover.snap') !== now) this.play('cover.snap', now, { gain: 0.8 }, this.posOf(w, w.button().id));

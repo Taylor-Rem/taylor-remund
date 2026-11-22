@@ -53,6 +53,9 @@ export { LEDGER } from './scenes/bench.ts';
 export { TOKENS_FIELD } from './machines/ledger.ts';
 export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
 export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';
+// P4 D2b: the paint dial (its scene ids, its field and its schemes, for the view)
+export { PAINT } from './scenes/bench.ts';
+export { SCHEME_FIELD, PAINT_TUNING } from './machines/paint-dial.ts';
 
 /** Load Rapier (its wasm arrives now, not with the page) and make the physics port. */
 export async function createRapierPhysics(): Promise<import('./physics/port.ts').PhysicsPort> {

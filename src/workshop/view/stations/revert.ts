@@ -238,6 +238,8 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
     body.matrixAutoUpdate = false;
     root.add(body);
     const obj = ctx.realize(revertPiece({ seed, detail, card: card0 }));
+    // (P4 D2b) the crew's colours are their own, whatever paint scheme the workshop wears (the robot; its hatch is the bench's)
+    ctx.materials.keepColours?.(obj);
     obj.scale.setScalar(S);
     body.add(obj);
     const cardNode = obj.getObjectByName('card');

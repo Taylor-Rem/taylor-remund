@@ -297,6 +297,8 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
       const region = opts.tapes && part.kind === 'crate' ? (regions.get(part.id) ?? crateTapeRegion(ctx.labels, part.id, part.size)) : null;
       const pc = (opts.piece ?? standInPiece)(part, half, region ? { tape: region.key } : {});
       const obj: Object3D = ctx.realize(pc);
+      // (P4 D2b) a loose part's colours are its own, whatever paint scheme the workshop wears
+      ctx.materials.keepColours?.(obj);
       // the piece rests on y = 0 at its origin; the body's pose is its centre
       obj.position.y = -half[1];
       const g = new Group();

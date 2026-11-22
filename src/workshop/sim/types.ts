@@ -393,6 +393,11 @@ export type SimEvent =
   | { readonly type: 'ledger.refused'; readonly id: Id; readonly board: Id }
   /** A beat of the board's show, in the step it falls due (for sound): `beat` as `LedgerBeatKind`, the token it moves and where to. */
   | { readonly type: 'ledger.beat'; readonly id: Id; readonly board: Id; readonly show: LedgerShow['kind']; readonly beat: LedgerBeatKind; readonly token: number | null; readonly to: string | null; readonly month: number | null; readonly on?: boolean }
+  // ── P4 D2b: the paint dial (sim/machines/paint-dial.ts) ──
+  /** A hand turned the dial's knob to another scheme: the dial's field is already `scheme`; the view wipes it across the room. `index` of `of` in dial order. */
+  | { readonly type: 'paint.turned'; readonly id: Id; readonly dial: Id; readonly scheme: string; readonly from: string; readonly index: number; readonly of: number }
+  /** The wipe of the last change (a turn, an undo, a reset) has crossed the room: the bell. */
+  | { readonly type: 'paint.wiped'; readonly id: Id; readonly dial: Id; readonly scheme: string }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
@@ -710,7 +715,27 @@ export interface LedgerView extends MachineViewBase {
   readonly crankMisfire: { readonly level: 1 | 2; readonly since: number } | null;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView;
+/**
+ * P4 D2b: the paint dial (sim/machines/paint-dial.ts). `scheme` is its durable value, one of `schemes` (dial order; the
+ * first the approved look), `index` its place. `change` is the last change (a hand's turn, or the lever or a reset
+ * putting it back), `since` seconds ago, which the view wipes across the room over `wipe` seconds from where the dial
+ * is; null before any. `worked` seconds since a hand last worked the knob (Infinity before); `misfire` the knob's;
+ * `reachable` whether the knob can be turned now (the dial in the world and in nobody's hand).
+ */
+export interface PaintDialView extends MachineViewBase {
+  readonly kind: 'paint-dial';
+  readonly dial: Id;
+  readonly knob: Id;
+  readonly schemes: readonly string[];
+  readonly scheme: string;
+  readonly index: number;
+  readonly change: { readonly from: string; readonly to: string; readonly since: number; readonly by: 'hand' | 'restore' } | null;
+  readonly wipe: number;
+  readonly worked: number;
+  readonly reachable: boolean;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PaintDialView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

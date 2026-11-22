@@ -22,6 +22,10 @@ export interface Materials {
   /** Advance anything time-driven (the belt's scroll, bulb flicker). `time` is simulation seconds. */
   update(time: number): void;
   dispose(): void;
+  /** (P4 D2b) The paint scheme the enamel wears, and the wipe to another (materials/scheme.ts). Absent on stand-ins. */
+  readonly paint?: import('./materials/scheme.ts').SchemeState;
+  /** (P4 D2b) What is under `root` keeps its own colours whatever the scheme (the crew, loose parts). Absent on stand-ins. */
+  keepColours?(root: import('three').Object3D): number;
 }
 
 /**

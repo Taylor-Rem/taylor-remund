@@ -70,6 +70,14 @@ export const schemeColours = {
   'scheme-d-trim': '#6b7176',
   'scheme-d-deep': '#1c1f21',
   'scheme-d-accent': '#d0662a',
+  // E: sage enamel, cream trim (a runner-up shown to the owner; development pages only, not on the dial)
+  'scheme-e-enamel': '#56664b',
+  'scheme-e-trim': '#c9bc94',
+  'scheme-e-deep': '#232b1f',
+  // F: slate blue enamel, a lighter slate trim (the other runner-up; development pages only)
+  'scheme-f-enamel': '#3b5470',
+  'scheme-f-trim': '#7b93a8',
+  'scheme-f-deep': '#18222e',
 } as const;
 
 export type SchemeColour = keyof typeof schemeColours;

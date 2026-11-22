@@ -22,7 +22,7 @@
  * one says why (`said.busy`).
  */
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
-import { LEDGER } from '../../sim/index.ts';
+import { LEDGER, PAINT } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
@@ -152,6 +152,12 @@ function leftOut(w: WorldView, id: Id): boolean {
     const mode = w.motion(pr.crate.crate)?.mode;
     if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
     if (pr.as === 'plate' && (w.setting(pr.crate.crate, 'open') !== true || mode !== 'free')) return true;
+  }
+  // (P4 D2b) the paint dial's knob while the dial is not on the bench (in its crate, shipped, down the chute)
+  const pv = w.machine(PAINT.unit);
+  if (pv?.kind === 'paint-dial' && id === pv.knob) {
+    const mode = w.motion(pv.dial)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
   }
   // (P4 D1) the ledger board's crank and plunger while the board is not on the bench (in its crate, shipped, down the chute)
   const lv = ledgerOf(w, id);

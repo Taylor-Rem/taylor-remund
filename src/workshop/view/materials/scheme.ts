@@ -44,7 +44,17 @@ export const SCHEMES = {
   B: { 'teal-panel': 'scheme-b-enamel', 'teal-light': 'scheme-b-trim', 'teal-deep': 'scheme-b-deep' },
   C: { 'teal-panel': 'scheme-c-enamel', 'teal-light': 'scheme-c-trim', 'teal-deep': 'scheme-c-deep' },
   D: { 'teal-panel': 'scheme-d-enamel', 'teal-light': 'scheme-d-trim', 'teal-deep': 'scheme-d-deep', 'tape-yellow': 'scheme-d-accent' },
+  // the runners-up shown to the owner: reachable on the development pages and by a development flag, never on the dial
+  E: { 'teal-panel': 'scheme-e-enamel', 'teal-light': 'scheme-e-trim', 'teal-deep': 'scheme-e-deep' },
+  F: { 'teal-panel': 'scheme-f-enamel', 'teal-light': 'scheme-f-trim', 'teal-deep': 'scheme-f-deep' },
 } as const satisfies Record<string, Scheme>;
+
+/**
+ * How dark a scheme's chips show (1: as the approved look draws them, the dark steel under the paint; lower: nearer
+ * the enamel, as a chip in a pale paint shows its grey primer more than bare iron). A pale enamel's chips otherwise
+ * read as speckle. Only where the scheme repaints (its slots); a scheme left out is 1.
+ */
+export const SCHEME_CHIPS: Partial<Record<keyof typeof SCHEMES, number>> = { C: 0.42, E: 0.7 };
 export type SchemeId = keyof typeof SCHEMES;
 export const SCHEME_IDS = Object.keys(SCHEMES) as SchemeId[];
 export const HOME_SCHEME: SchemeId = 'A';
@@ -110,6 +120,8 @@ export function schemeUniforms(): SchemeUniforms {
     s_soft: { value: SCHEME_LOOK.soft },
     s_wet: { value: 0 },
     s_wetWidth: { value: SCHEME_LOOK.wetWidth },
+    s_chipFrom: { value: 1 },
+    s_chipTo: { value: 1 },
   };
   SCHEME_SLOTS.forEach((slot, i) => {
     u[`s_hue${i}`] = { value: new Color().fromArray(hueOf(linear(slot))) };
@@ -128,7 +140,9 @@ if (s_active * s_on > 0.5) {
   vec3 sHue = pBase / max(max(pBase.r, pBase.g), max(pBase.b, 1e-5));
   vec3 sFrom = vec3(1.0);
   vec3 sTo = vec3(1.0);
-${SCHEME_SLOTS.map((_, i) => `  { vec3 e = sHue - s_hue${i}; if (dot(e, e) < ${S_MATCH.toExponential()}) { sFrom = s_from${i}; sTo = s_to${i}; } }`).join('\n')}
+  bool sHit = false;
+${SCHEME_SLOTS.map((_, i) => `  { vec3 e = sHue - s_hue${i}; if (dot(e, e) < ${S_MATCH.toExponential()}) { sFrom = s_from${i}; sTo = s_to${i}; sHit = true; } }`).join('\n')}
+  float sChipIn = s_chipTo;
   vec3 sM = sTo;
   // only while a wipe runs: the fragment in world space (three's fragment prefix has the camera's position and
   // view matrix), its distance from the rim, a little fresh paint just inside it
@@ -139,10 +153,18 @@ ${SCHEME_SLOTS.map((_, i) => `  { vec3 e = sHue - s_hue${i}; if (dot(e, e) < ${S
     float sIn = 1.0 - smoothstep(-s_soft, s_soft, sD);
     sM = mix(sFrom, sTo, sIn);
     sM *= 1.0 + s_wet * sIn * exp(-(sD * sD) / max(s_wetWidth * s_wetWidth, 1e-6)) * step(0.001, dot(abs(sTo - sFrom), vec3(1.0)));
+    sChipIn = mix(s_chipFrom, s_chipTo, sIn);
   }
+  if (sHit) sChip = sChipIn;
   pBase *= sM;
 }
 `;
+
+/** Declared before the block: how dark this fragment's chips show (1 everywhere the scheme does not reach). */
+export const SCHEME_CHIP_DECL = /* glsl */ `float sChip = 1.0;`;
+
+/** In the steel class, once its bare steel is known: a scheme's chips nearer its enamel. Off (1) at home. */
+export const SCHEME_CHIP_GLSL = /* glsl */ `if (sChip < 0.999) bare = mix(paint * 0.62, bare, sChip);`;
 
 /** The state of the scheme over time: which is showing, which is arriving, how far the wipe has run. */
 export class SchemeState {
@@ -153,6 +175,8 @@ export class SchemeState {
   started = Number.NaN;
   readonly origin = new Vector3();
   #reduced = false;
+  /** The wipe's speed for the change running (units per second): `SCHEME_LOOK.speed`, or as a change asked. */
+  #speed: number = SCHEME_LOOK.speed;
 
   readonly u: SchemeUniforms;
 
@@ -166,13 +190,14 @@ export class SchemeState {
   }
 
   /** Change to `id`: a wipe from `origin` beginning at `time`, or a cut under reduced motion (or with no time). */
-  set(id: SchemeId, o: { time?: number; origin?: readonly [number, number, number]; reduced?: boolean } = {}): void {
+  set(id: SchemeId, o: { time?: number; origin?: readonly [number, number, number]; reduced?: boolean; seconds?: number } = {}): void {
     if (!(id in SCHEMES)) throw new Error(`scheme: unknown scheme ${String(id)}`);
     // a wipe running is finished where it stands: what has arrived is the room now
     this.from = this.to;
     this.to = id;
     this.#reduced = o.reduced === true;
     if (o.origin) this.origin.set(o.origin[0], o.origin[1], o.origin[2]);
+    this.#speed = o.seconds !== undefined && o.seconds > 0 ? SCHEME_LOOK.reach / o.seconds : SCHEME_LOOK.speed;
     this.started = o.time === undefined || this.#reduced || this.from === this.to ? Number.NaN : o.time;
     this.#write(Number.isNaN(this.started) ? Infinity : 0);
   }
@@ -180,7 +205,7 @@ export class SchemeState {
   /** Each frame: run the wipe on (simulation seconds). True while it runs. */
   update(time: number): boolean {
     if (Number.isNaN(this.started)) return false;
-    const r = Math.max(0, time - this.started) * SCHEME_LOOK.speed;
+    const r = Math.max(0, time - this.started) * this.#speed;
     if (r >= SCHEME_LOOK.reach) {
       this.started = Number.NaN;
       this.from = this.to;
@@ -203,6 +228,8 @@ export class SchemeState {
     u['s_radius']!.value = done ? 1e6 : radius;
     u['s_wet']!.value = done ? 0 : SCHEME_LOOK.wet;
     u['s_wiping']!.value = done ? 0 : 1;
+    u['s_chipFrom']!.value = SCHEME_CHIPS[from] ?? 1;
+    u['s_chipTo']!.value = SCHEME_CHIPS[this.to] ?? 1;
     u['s_rag']!.value = SCHEME_LOOK.rag;
     u['s_soft']!.value = SCHEME_LOOK.soft;
     u['s_wetWidth']!.value = SCHEME_LOOK.wetWidth;

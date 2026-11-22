@@ -328,6 +328,12 @@
             "kind": "ui",
             "provisional": true,
             "source": "a part's label (REWRITE.md § B1 property table). P4 H1, for Taylor"
+          },
+          "scheme": {
+            "text": "paint",
+            "kind": "ui",
+            "provisional": true,
+            "source": "the paint dial's setting, the scheme the workshop wears, by its place on the dial (\"Paint dial paint: 1 → 2\"). P4 D2b, for Taylor"
           }
         },
         "values": {

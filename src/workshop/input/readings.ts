@@ -21,6 +21,11 @@ export function readingFromWorld(w: WorldView, id: Id): HandleReading | null {
   const turn = it.affordances.includes('turn');
   const slide = it.affordances.includes('slide') && !it.affordances.includes('grab');
   if (!turn && !slide) return null;
+  // (P4 D2b) the paint dial's knob: its scheme of its schemes, from the dial's own unit (found by the knob's id)
+  for (const other of w.interactables()) {
+    const m = w.machine(other.id);
+    if (m?.kind === 'paint-dial' && m.knob === id) return { value: m.schemes.length > 1 ? m.index / (m.schemes.length - 1) : 0, detents: m.schemes.length };
+  }
   for (const other of w.interactables()) {
     if (other.station !== it.station) continue;
     const m = w.machine(other.id);
