@@ -11,8 +11,13 @@ describe('readingFor', () => {
   it('no hash, an empty one, a station, or anything else is the stage', () => {
     for (const h of ['', '#', '#stage', '#patchlamp', '#Patchlamp', '#about-me', '#%E2%9C%93', '#%']) expect(readingFor(h)).toBeNull();
   });
-  it('the list is exactly the paperwork and the three sections of § 2 with no station', () => {
-    expect([...PAPERWORK_IDS].sort()).toEqual(['about', 'contact', 'paperwork', 'services']);
+  it('the list is exactly the paperwork, the three sections of § 2 with no station, and the two hatches (P4 H1)', () => {
+    expect([...PAPERWORK_IDS].sort()).toEqual(['about', 'contact', 'maker', 'paperwork', 'patchlamp-toy', 'services']);
+  });
+  it('the two hatches’ sections open the paperwork there (P4 H1: Patchlamp’s hatch, the maker’s plate)', () => {
+    expect(readingFor('#patchlamp-toy')).toBe('patchlamp-toy');
+    expect(readingFor('#maker')).toBe('maker');
+    expect(stationFor('#maker')).toBeNull();
   });
 });
 

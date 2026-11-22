@@ -273,7 +273,7 @@ export class Score {
         return this.play('button.clunk', now, {}, this.posOf(w, w.button().id));
       // P4 D1: the ledger board's beats. A payment dealt into a cup clinks in its tier's note (the deal runs in tier
       // order, so it rises: brass low, copper, steel high); the rubber one thuds; the gate clicks; the repair ends
-      // with a bell (§ B1: verb done); a refusal is a dry tick.
+      // with a bell (§ B1: verb done); the flag snapping up twangs; a refusal is a dry tick.
       case 'ledger.beat': {
         const at = this.posOf(w, e.board);
         const rubber = e.token !== null && w.machine(e.id)?.kind === 'ledger' && rubberIndex(w, e.id) === e.token;
@@ -288,7 +288,9 @@ export class Score {
           case 'gate':
             return this.play('handle.lever', now, { gain: 0.5 }, at);
           case 'star':
-            return e.show === 'repair' && e.on === false ? this.play('dock.bell', now, { gain: 0.55 }, at) : undefined;
+            // up: the flag's spring twangs (a high ring); pressed down at the end of a repair: the bell (§ B1: verb done)
+            if (e.on === true) return this.play('note.metal.S', now, { gain: 0.45 }, at);
+            return e.show === 'repair' ? this.play('dock.bell', now, { gain: 0.55 }, at) : undefined;
           default:
             return;
         }

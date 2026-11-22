@@ -15,7 +15,8 @@
  * `h` (in the hopper), `c0`..`c7` (a cup: two months of four charges; c0..c3 month one, c4..c7 month two), `g` (the
  * gutter at the board's front edge: bounced out, not recorded), or `s` (the side cup: recorded as bounced). The one
  * rubber payment's place is written with an `r` in front (`rg`, `rs`, `rh`, `rc2`). Payments 0-2 are the first tier
- * (brass), 3-5 the second (copper), 6-7 the third (steel); the rubber token wears its tier's finish at its middle.
+ * (brass), 3-5 the second (copper), 6-7 the third (steel); the rubber token is dealt in its tier's place but drawn as a plain black ring
+ * (a ring that could never be taken for a coin; its tier is not shown).
  */
 
 export type Place = 'h' | 'g' | 's' | `c${number}`;
