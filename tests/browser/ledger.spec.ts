@@ -51,8 +51,14 @@ async function open(page: Page): Promise<string[]> {
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [1.15, 0, 2.6] }));
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2').location.at === 'rest' && (window as any).__bench.ws.world.holding() === null), 600, 'crate-2 set aside');
   await frames(page, 30);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-1-lid' }));
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').wrong === true), 600, 'the board dealt');
+  // (the latch answers only a crate lying still with nothing on it: pressed again until it opens, as a visitor would)
+  for (let k = 0; k < 12; k++) {
+    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open') === true)) break;
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-1-lid' }));
+    await frames(page, 40);
+  }
+  const why = await page.evaluate(() => { const w = (window as any).__bench.ws.world; return { open: w.setting('crate-1', 'open'), mode: w.mode('crate-1'), c2: w.motion('crate-2').pose.p, c1: w.motion('crate-1').pose.p }; });
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').wrong === true), 600, `the board dealt (${JSON.stringify(why)})`);
   // the board off its tray and onto the open bench in front, where a hand meets it first
   await page.evaluate(() => {
     const ws = (window as any).__bench.ws;
