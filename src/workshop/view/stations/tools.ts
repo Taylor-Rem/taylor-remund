@@ -48,8 +48,8 @@ export const TOOLS_FEEL = {
   /** Reduced motion: steady at this while in the hand. */
   steady: 0.55,
   /** The glow's brightness at level 1 (linear), its size against the thing's, and its floor on screen (CSS px). */
-  gain: 2.3,
-  grow: 1.55,
+  gain: 2.6,
+  grow: 2.1,
   minPx: 26,
   /** The rattle: degrees of yaw and of roll, units of lift, at its strongest, and how fast it shivers (Hz). */
   rattleDeg: 3.2,
@@ -426,7 +426,10 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
         const H = Math.max(1, (globalThis as { innerHeight?: number }).innerHeight ?? 900);
         const halos = beginHalos(glows, camera, H);
         const tint = (kind: ToolKind, level: number): [number, number, number] => {
-          const c = linear(TOOL_PAINT[kind]);
+          // its hue at full brightness (the paints are dark: at their own value the glow would not show), over amber-glow's
+          const c0 = linear(TOOL_PAINT[kind]);
+          const top = Math.max(c0[0], c0[1], c0[2], 1e-4);
+          const c = [c0[0] / top, c0[1] / top, c0[2] / top] as const;
           const g = level * F.gain;
           return [(c[0] / amber[0]) * g, (c[1] / amber[1]) * g, (c[2] / amber[2]) * g];
         };
