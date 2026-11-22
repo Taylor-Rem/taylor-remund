@@ -17,10 +17,11 @@ interface Props {
   entry: Project;
   /** The title's id (default: its anchor on /resume/). */
   headingId?: string;
-  /** The article's own id (default: the entry's, `patchlamp` for the one /resume/ must keep). */
-  id?: string;
+  /** The article's own id (default: the entry's, `patchlamp` for the one /resume/ must keep); `false`: none. */
+  id?: string | false;
 }
-const { entry: e, headingId = projectAnchor(e), id = e.id } = Astro.props;
+const { entry: e, headingId = projectAnchor(e) } = Astro.props;
+const id = Astro.props.id === false ? undefined : (Astro.props.id ?? e.id);
 const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
 ---
 <article class="entry project" id={id} aria-labelledby={headingId}>

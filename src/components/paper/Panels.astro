@@ -1,0 +1,89 @@
+---
+// The panels a brass plate opens over the stage on `/` (REWRITE.md § B7 "Hatches", § E9; P4 H1), mounted in the
+// stage layout's `over-stage` slot. This is their markup and every word they show; the behaviour is
+// src/workshop/ui/panels/ (it holds no words: it reads them from here).
+//
+//   #plate-panel   the one dialog, empty until a plate opens it (a modal <dialog>: no JavaScript, no panel)
+//   #pn-projects   each project's card: the entry /resume/ publishes, drawn by the same component
+//                  (ProjectEntry.astro), and a link to its place there. In a <template>: never laid out, never
+//                  read as the page's text, cloned when a crate's plate is pressed
+//   #pn-live       what only a running bench has, under the maker's plate (MakerPlate.astro, in the paperwork)
+//   #pn-address    the address to select or copy, under the paperwork's #contact when the mailbox opens it
+//   #pn-index      the controls list's Plates group (ui/controls/list.ts draws it): one button per panel
+//   #pn-words      the live lines' words (hatches.json `maker.live.log`), for the script
+//
+// Patchlamp's hatch, the maker's plate and contact are the paperwork's own sections, so their words are on the
+// page for anyone without the stage; the panel clones them (one copy). The script is asked for only once the
+// bench is usable, so the Still tier never fetches it.
+import ProjectEntry from './ProjectEntry.astro';
+import { hatches, cardProjects, liveWords } from '../../content/hatches.ts';
+import { home } from '../../content/home.ts';
+import { site } from '../../content/site.ts';
+import { projectAnchor, projectSlug } from './projects.ts';
+import { printAddress } from './links.ts';
+
+const p = hatches.panel;
+const live = hatches.maker.live;
+const cards = cardProjects();
+const resumeWord = site.strip.links.find((l) => l.href === '/resume/')!.text;
+const mail = site.strip.links.find((l) => l.href.startsWith('mailto:'))!;
+const address = printAddress(mail.href)!;
+const index = [
+  { id: 'patchlamp', label: hatches.patchlamp.tape.text },
+  ...cards.map((e) => ({ id: `project:${projectSlug(e)}`, label: e.title.text })),
+  { id: 'maker', label: hatches.maker.title.text },
+  { id: 'contact', label: home.contact.eyebrow.text },
+];
+const words = JSON.stringify(liveWords()).replace(/</g, '\\u003c');
+---
+<dialog id="plate-panel" class="pn">
+  <div class="pn-sheet">
+    <div class="pn-bar"><button type="button" class="pn-close">{p.close.text}</button></div>
+    <div class="pn-body"></div>
+    <p class="pn-said" role="status"></p>
+  </div>
+</dialog>
+<template id="pn-projects">
+  {cards.map((e) => (
+    <div class="pn-card" data-panel={`project:${projectSlug(e)}`}>
+      <ProjectEntry entry={e} headingId={`pn-${projectAnchor(e)}`} id={false} />
+      <ul class="pw-links"><li><a href={`/resume/#${projectAnchor(e)}`}>{resumeWord}</a></li></ul>
+    </div>
+  ))}
+</template>
+<template id="pn-live">
+  <section class="pn-live" aria-labelledby="pn-live-title">
+    <h3 class="pw-sub" id="pn-live-title">{live.heading.text}</h3>
+    <dl class="pw-facts">
+      <div><dt>{live.frame.label.text}</dt><dd class="pn-frame"></dd></div>
+    </dl>
+    <h4 class="pn-log-title" id="pn-log-title">{live.history.heading.text}</h4>
+    <ol class="pn-log" aria-labelledby="pn-log-title"></ol>
+  </section>
+</template>
+<template id="pn-address">
+  <p class="pn-address"><span class="pn-mail">{address}</span> <button type="button" class="pn-copy" data-copied={p.copied.text}>{p.copy.text}</button></p>
+</template>
+<template id="pn-index">
+  <p class="pn-index-title">{p.list.text}</p>
+  {index.map((x) => <button type="button" data-panel={x.id}>{x.label}</button>)}
+</template>
+<script type="application/json" id="pn-words" set:html={words}></script>
+<script>
+  // Only once the stage is live (the loader marks #stage-root `live`) is the panels' code asked for, as the controls
+  // list's is (src/workshop/ui/controls/Controls.astro).
+  const root = document.getElementById('stage-root');
+  let asked = false;
+  const ask = (): boolean => {
+    if (asked || !root?.classList.contains('live') || !document.documentElement.classList.contains('stage-on')) return asked;
+    asked = true;
+    void import('../../workshop/ui/panels/mount.ts').then((m) => m.mountPanels());
+    return true;
+  };
+  if (root && !ask()) {
+    const watch = new MutationObserver(() => {
+      if (ask()) watch.disconnect();
+    });
+    watch.observe(root, { attributes: true, attributeFilter: ['class'] });
+  }
+</script>
