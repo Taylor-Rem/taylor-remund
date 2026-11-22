@@ -373,7 +373,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
      * start-up labels have landed (`labels.ready()`, before the first frame uploads and seals the pages);
      * until then nothing is copied, and a card waits in its slot rather than go up blank.
      */
-    const cardPixels = new Map<string, Uint8Array>();
+    // (F1) what is kept is the texels each card's copy reads, not the copy: the copy is made a band a frame
+    // when the card is wanted, as for any other (the same pixels, without 150 ms of resampling at start-up)
+    const cardPixels = new Map<string, LabelSource>();
     const cachePending = [...REVERT_CARDS];
     const cacheCard = (content: string): boolean => {
       if (cardPixels.has(content)) return true;
@@ -383,11 +385,9 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       } catch {
         return false;
       }
-      const img = tex.image as { data?: Uint8Array | Uint8ClampedArray | null } | undefined;
-      if (!img?.data) return false;
-      const buf = new Uint8Array(region.px.w * region.px.h * 4);
-      copyLabel(tex, region.px.w, region.px.h, buf, 0, region.px.h);
-      cardPixels.set(content, buf);
+      const kept = keepLabel(tex, region.px.w, region.px.h);
+      if (!kept) return false;
+      cardPixels.set(content, kept);
       return true;
     };
     let labelsLanded = false;
@@ -403,9 +403,7 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
       const c = copying;
       if (!c || c.row >= region.px.h) return;
       const j1 = Math.min(region.px.h, c.row + F.copyRows);
-      const kept = cardPixels.get(c.content);
-      if (kept) regionPx.set(kept.subarray(c.row * region.px.w * 4, j1 * region.px.w * 4), c.row * region.px.w * 4);
-      else copyLabel(ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
+      copyLabel(cardPixels.get(c.content) ?? ctx.labels.texture(c.key), region.px.w, region.px.h, regionPx, c.row, j1);
       c.row = j1;
     };
     /** Once copied and with the card in its slot: into the region. True when the region holds `content`. */
@@ -1100,33 +1098,34 @@ export function createRevertView(opts: RevertViewOptions): (ctx: ViewContext) =>
  * A label's pixels (its region of an atlas page, or a texture of its own), resampled bilinearly to
  * `w` × `h` texels, rows top-down, into `out` (RGBA): what `LabelRegion.put` takes.
  */
-function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array, j0 = 0, j1 = h): void {
-  const img = tex.image as { data?: Uint8Array | Uint8ClampedArray; width: number; height: number } | undefined;
-  const data = img?.data;
-  if (!img || !data) return;
-  const W = img.width, H = img.height;
-  const u0 = tex.offset.x, v0 = tex.offset.y, du = tex.repeat.x, dv = tex.repeat.y;
+function copyLabel(tex: Texture | LabelSource, w: number, h: number, out: Uint8Array, j0 = 0, j1 = h): void {
+  const src = 'isTexture' in tex ? labelSource(tex) : tex;
+  if (!src) return;
+  const { data, W, H, x0: X0, y0: Y0, sw: SW, u0, v0, du, dv } = src;
   // the columns' source texels and weights, once per call (the same for every row)
-  if (COLS.w !== w || COLS.tex !== tex) {
+  if (COLS.w !== w || COLS.W !== W || COLS.u0 !== u0 || COLS.du !== du || COLS.x0 !== X0) {
     COLS.a = new Int32Array(w);
     COLS.b = new Int32Array(w);
     COLS.t = new Float32Array(w);
     for (let i = 0; i < w; i++) {
       const fx = Math.min(W - 1, Math.max(0, (u0 + ((i + 0.5) / w) * du) * W - 0.5));
       const x0 = Math.floor(fx);
-      COLS.a[i] = x0 * 4;
-      COLS.b[i] = Math.min(W - 1, x0 + 1) * 4;
+      COLS.a[i] = (x0 - X0) * 4;
+      COLS.b[i] = (Math.min(W - 1, x0 + 1) - X0) * 4;
       COLS.t[i] = fx - x0;
     }
     COLS.w = w;
-    COLS.tex = tex;
+    COLS.W = W;
+    COLS.u0 = u0;
+    COLS.du = du;
+    COLS.x0 = X0;
   }
   const ca = COLS.a!, cb = COLS.b!, ct = COLS.t!;
   for (let j = j0; j < j1; j++) {
     // rows top-down out; the page's rows run bottom-up (v up)
     const fy = Math.min(H - 1, Math.max(0, (v0 + (1 - (j + 0.5) / h) * dv) * H - 0.5));
     const y0 = Math.floor(fy), ty = fy - y0;
-    const r0 = y0 * W * 4, r1 = Math.min(H - 1, y0 + 1) * W * 4;
+    const r0 = (y0 - Y0) * SW * 4, r1 = (Math.min(H - 1, y0 + 1) - Y0) * SW * 4;
     let o = j * w * 4;
     for (let i = 0; i < w; i++) {
       const a = r0 + ca[i]!, b = r0 + cb[i]!, c = r1 + ca[i]!, d = r1 + cb[i]!, tx = ct[i]!;
@@ -1138,7 +1137,51 @@ function copyLabel(tex: Texture, w: number, h: number, out: Uint8Array, j0 = 0, 
     }
   }
 }
-const COLS: { w: number; tex: Texture | null; a: Int32Array | null; b: Int32Array | null; t: Float32Array | null } = { w: 0, tex: null, a: null, b: null, t: null };
+const COLS: { w: number; W: number; u0: number; du: number; x0: number; a: Int32Array | null; b: Int32Array | null; t: Float32Array | null } = { w: 0, W: 0, u0: NaN, du: NaN, x0: 0, a: null, b: null, t: null };
+
+/**
+ * Where a label's texels are, for `copyLabel`: its page's pixels (or a rectangle of them, from `x0`, `y0`,
+ * `sw` texels wide), the page's size, and the label's place on it (uv offset and repeat).
+ */
+interface LabelSource {
+  data: Uint8Array | Uint8ClampedArray;
+  W: number;
+  H: number;
+  x0: number;
+  y0: number;
+  sw: number;
+  u0: number;
+  v0: number;
+  du: number;
+  dv: number;
+}
+
+function labelSource(tex: Texture): LabelSource | null {
+  const img = tex.image as { data?: Uint8Array | Uint8ClampedArray | null; width: number; height: number } | undefined;
+  if (!img?.data) return null;
+  return { data: img.data, W: img.width, H: img.height, x0: 0, y0: 0, sw: img.width, u0: tex.offset.x, v0: tex.offset.y, du: tex.repeat.x, dv: tex.repeat.y };
+}
+
+/**
+ * F1: the texels a `w` × `h` copy of this label reads, kept (a rectangle of its page, copied row by row), so the
+ * copy itself can be made later, a band at a time, after the page has let its pixels go. The same arithmetic
+ * reads the same texels: the copy made from it is the copy made from the page, bit for bit. Measured 2026-11-21:
+ * the twelve cards resampled whole at start-up cost 150 ms on the way to usable; kept like this, a few.
+ */
+function keepLabel(tex: Texture, w: number, h: number): LabelSource | null {
+  const s = labelSource(tex);
+  if (!s) return null;
+  const { W, H, u0, v0, du, dv } = s;
+  const col = (i: number): number => Math.floor(Math.min(W - 1, Math.max(0, (u0 + ((i + 0.5) / w) * du) * W - 0.5)));
+  const row = (j: number): number => Math.floor(Math.min(H - 1, Math.max(0, (v0 + (1 - (j + 0.5) / h) * dv) * H - 0.5)));
+  // the columns rise with i and the rows fall with j (both monotone): the ends bound every read
+  const xa = Math.min(col(0), col(w - 1)), xb = Math.min(W - 1, Math.max(col(0), col(w - 1)) + 1);
+  const ya = Math.min(row(0), row(h - 1)), yb = Math.min(H - 1, Math.max(row(0), row(h - 1)) + 1);
+  const sw = xb - xa + 1;
+  const data = new Uint8Array(sw * (yb - ya + 1) * 4);
+  for (let y = ya; y <= yb; y++) data.set(s.data.subarray((y * W + xa) * 4, (y * W + xb + 1) * 4), (y - ya) * sw * 4);
+  return { data, W, H, x0: xa, y0: ya, sw, u0, v0, du, dv };
+}
 
 function jointsInto(j: ArmJoints, out: number[]): number[] {
   out[0] = j.yaw;

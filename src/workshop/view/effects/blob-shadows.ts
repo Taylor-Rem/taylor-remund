@@ -69,6 +69,9 @@ export class BlobShadows {
     this.gain = decal.opacity > 0 ? opacity / decal.opacity : 1;
     this.mesh = blobShadowMesh(this.capacity, decal);
     this.mesh.renderOrder = -1;
+    // the instance colour exists from the start (F1): the decal's program reads it, and made by the first
+    // `set` it made a second program, linked in the first frame (none is drawn while count is 0)
+    this.mesh.setColorAt(0, this.c.setScalar(0));
     this.mesh.count = 0;
   }
 

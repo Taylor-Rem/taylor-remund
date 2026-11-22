@@ -89,6 +89,12 @@ export interface Stage {
    * loading picture. Returns the programs it linked.
    */
   warm(): Promise<number>;
+  /**
+   * Start building the programs of what the scene holds now, without waiting for any (the boot calls it
+   * after each view, so they link in parallel while the next is built). Built for the target the frame
+   * draws the scene into (F1), and leaving out what the camera never draws (`hideUnseen`).
+   */
+  compile(): void;
   /** Re-read the canvas size (also done automatically on resize). */
   resize(): void;
   /** Render at a fraction of the pixel ratio (step-down when frame time worsens, § E7). */
@@ -223,6 +229,21 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
   observer?.observe(canvas);
 
+  /**
+   * Run a compile against the target the scene pass draws into (the post chain's, or the canvas without it):
+   * three keys a program by its output colour space, which follows the current render target, so programs
+   * compiled with the canvas current are not the ones the frame draws with (F1).
+   */
+  const onSceneTarget = <T,>(fn: () => T): T => {
+    const before = renderer.getRenderTarget();
+    renderer.setRenderTarget(post && chain ? chain.sceneTarget : null);
+    try {
+      return fn();
+    } finally {
+      renderer.setRenderTarget(before);
+    }
+  };
+
   let hidden = typeof document !== 'undefined' ? document.hidden : false;
   const onVisibility = (): void => {
     hidden = document.hidden;
@@ -271,11 +292,17 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
         scene.updateMatrixWorld(true);
         const t0 = performance.now();
         const seen = hideUnseen(scene, camera.camera);
-        const compiled = renderer.compileAsync(scene, camera.camera);
-        seen();
+        let compiled: Promise<unknown>;
+        try {
+          compiled = onSceneTarget(() => renderer.compileAsync(scene, camera.camera));
+        } finally {
+          seen();
+        }
         await compiled;
         const t1 = performance.now();
-        // (no full frame here: the post chain links its own on the first frame, cheaply, as before)
+        // (no full frame here: the post chain's programs were made by the stage's first, empty frame. F1 tried
+        // asking every program for its uniforms here and uploading the label pages here: together 25 ms off the
+        // first frame and most of it back on this step, so neither is done)
         const t2 = performance.now();
         warmTimes.compileAsync = t1 - t0;
         warmTimes.frame = t2 - t1;
@@ -342,6 +369,15 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
         }
       }
       return (renderer.info.programs?.length ?? 0) - before;
+    },
+    compile() {
+      scene.updateMatrixWorld(true);
+      const seen = hideUnseen(scene, camera.camera);
+      try {
+        onSceneTarget(() => renderer.compile(scene, camera.camera));
+      } finally {
+        seen();
+      }
     },
     render(frame) {
       if (hidden) return;
