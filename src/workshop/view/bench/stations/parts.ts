@@ -80,6 +80,8 @@ interface Lid {
   t: number;
   hasp: number;
   rise: number;
+  /** (round three) The latch's pick target, moved to the crate's front while a thing lies on the tray. */
+  latch?: { obj: Object3D; onTray: () => boolean; top: Vec3; front: Vec3 };
   /** Lying still on the bench, in nobody's hand: only then are its latch and plate targets (a crate in flight is caught, not opened). */
   still: boolean;
 }
@@ -239,10 +241,10 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         // thing's (or a control's riding on it), never the crate's, its lid's or its latch's: the open lid and the card
         // stand behind the thing, so the crate's box is nearer along the ray. Taken by its sides and the lid's upper
         // part where the thing is not behind the ray, as ever.
+        const thingOnTray = (): boolean => holds && (lids.get(part.id)?.rise ?? 0) > 0.5 && world?.motion(pc.holds!)?.mode === 'machine';
         if (holds) {
-          const thing = pc.holds!;
           const yields = [pc.crate, pc.lid] as const;
-          ctx.pickOver?.(thing, () => (lids.get(part.id)?.rise ?? 0) > 0.5 && world?.motion(thing)?.mode === 'machine' ? yields : []);
+          ctx.pickOver?.(pc.holds!, () => (thingOnTray() ? yields : []));
         }
         lids.set(part.id, { crate: pc, holder, foot: half[1], size, lift, plateLift: P.lift, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
         // (round two) what an opening asks the page to look at (the world's `look`): the risen card, the crate's mouth and
@@ -268,10 +270,15 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         holder.add(latch);
         const hw = Math.max(0.07, S.w * 0.2);
         const lidState = (): Lid | undefined => lids.get(part.id);
-        // (round three) a crate with a thing on its tray: the latch's target only in front of where the thing may be, so
-        // a press on the thing (the ledger board's plunger) is the thing's and never shuts the crate
-        const latchBack = holds ? Math.max(S.d / 2 - 0.13, trayZ + THING.depth / 2) : S.d / 2 - 0.13;
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, latchBack), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
+        // the box about the latch object: over the lid's front, from above (the object at its middle)
+        const lz = (S.d / 2 - 0.13 + S.d / 2 + 0.012) / 2, ldz = (0.13 + 0.012) / 2;
+        latch.position.set(0, S.h + 0.04, lz);
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, -0.02, -ldz), new Vector3(hw, 0.02, ldz)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
+        // (round three) with a thing on its tray every ray over the lid's front runs on into the thing (which wins it):
+        // the latch is pressed on the crate's front instead, over the hasp (its box turned upright against the front rail)
+        if (holds) {
+          lids.get(part.id)!.latch = { obj: latch, onTray: thingOnTray, top: [0, S.h + 0.04, lz], front: [0, S.h - 0.075, S.d / 2 + 0.016] };
+        }
         // the plate's pick target: the plate itself, under the card (only while it stands)
         const plateTarget = new Object3D();
         plateTarget.name = 'plate.pick';
@@ -345,6 +352,12 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           st.rise += Math.sign(riseGoal - st.rise) * Math.min(Math.abs(riseGoal - st.rise), F.cardRate * dt * (riseGoal ? 1 : 1.6));
         }
         crateLid(obj, st.lid, st.hasp);
+        if (st.latch) {
+          const front = st.latch.onTray();
+          const at = front ? st.latch.front : st.latch.top;
+          st.latch.obj.position.set(at[0], at[1], at[2]);
+          st.latch.obj.rotation.x = front ? -Math.PI / 2 : 0;
+        }
         if (st.cardRoot) {
           const cs = projectCardSize(st.size);
           const e = st.rise * st.rise * (3 - 2 * st.rise);
