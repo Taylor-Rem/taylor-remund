@@ -80,3 +80,10 @@ export const UV = {
 
 /** The gridded sheet's cells: four across, three down (`REPORT_MAX` marks). */
 export const GRID = { cols: 4, rows: 3 } as const;
+
+/**
+ * The press is drawn this much bigger than `PRESS_DIMS` (its measurements stay as they were drawn up; the piece wraps
+ * them in one scaled node, `body`). The simulation's bodies are the scaled sizes: `PRESS.half` [0.2625, 0.0875, 0.2],
+ * `PRESS.envelopeHalf` [0.0875, 0.00625, 0.05625], `PRESS.bed` [0.1875, 0.0725, 0.0375].
+ */
+export const PRESS_SCALE = 1.25;

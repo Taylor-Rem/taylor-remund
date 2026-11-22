@@ -247,11 +247,11 @@ export const PRESS = {
   envelope: 'report-envelope',
   crate: 'crate-2',
   lever: 'press-lever',
-  half: [0.21, 0.07, 0.16] as Vec3,
-  mass: 0.18,
-  envelopeHalf: [0.07, 0.005, 0.045] as Vec3,
+  half: [0.2625, 0.0875, 0.2] as Vec3,
+  mass: 0.22,
+  envelopeHalf: [0.0875, 0.00625, 0.05625] as Vec3,
   envelopeMass: 0.012,
-  bed: [0.15, 0.058, 0.03] as Vec3,
+  bed: [0.1875, 0.0725, 0.0375] as Vec3,
 } as const;
 
 /** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
