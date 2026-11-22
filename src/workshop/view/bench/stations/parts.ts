@@ -21,7 +21,7 @@ import { buildEntry } from '../../catalogue/registry.ts';
 import { createPartsView, paintToken, type PartDecorator } from '../../stations/parts.ts';
 import { hashSeed } from '../../vignette.ts';
 import { ORDER, type BenchStation } from '../station.ts';
-import { crateLid, crateMouth, crateSpec, type CrateSize } from '../../kit/pieces/crate/index.ts';
+import { crateLid, crateMouth, crateSpec, crateWordKeys, WORD_CAP, type CrateSize } from '../../kit/pieces/crate/index.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
@@ -79,8 +79,17 @@ export const station: BenchStation = {
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     const things = new Set((k.scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [c.holds] : [])));
     const both = legendBoth();
-    return (ctx: ViewContext): StationView =>
-      createPartsView({
+    return (ctx: ViewContext): StationView => {
+      // every project's stencil, made now while the labels' start-up pages are open, so the words land on the page the
+      // crates' arrows and letters use and merge into their mesh (a label made later opens a page of its own: one more
+      // draw call per crate). The crate's piece asks for the same keys and finds them made.
+      for (const pc of projects.values()) {
+        const words = BENCH_PROJECTS[pc.project];
+        if (!words) continue;
+        crateWordKeys(ctx.labels, words.stencil);
+        crateWordKeys(ctx.labels, words.madeFor, WORD_CAP * 0.8);
+      }
+      return createPartsView({
         half: (p) => k.world()?.halfExtents(p.id) ?? [0.3, 0.3, 0.3],
         tapes: true,
         known: k.scene.parts,
@@ -102,6 +111,7 @@ export const station: BenchStation = {
         },
         decorate: projectCrates(projects, things),
       })(ctx);
+    };
   },
 };
 

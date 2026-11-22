@@ -179,7 +179,7 @@ export function crateWordKeys(labels: Labels, lines: readonly string[], cap = WO
   });
 }
 /** The capital height a project's words are painted at (the texture; the quad is fitted to the crate). */
-export const WORD_CAP = 0.14;
+export const WORD_CAP = 0.08;
 
 /** Make every texture a crate needs (all three sizes, both inks). Call once before realizing crates. */
 export function crateLabels(labels: Labels): void {
