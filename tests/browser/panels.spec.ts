@@ -38,7 +38,7 @@ async function fromList(page: Page, name: string): Promise<void> {
 const focusIn = (page: Page): Promise<boolean> => page.evaluate(() => !!document.activeElement?.closest('dialog#plate-panel'));
 
 test.describe('the panels over the stage', { tag: ENGINES }, () => {
-  test('the Plates group opens Patchlamp’s hatch: focus in and kept in, the stage takes no keys, Esc closes and gives focus back', async ({ page, browserName, baseURL }) => {
+  test('the Plates group opens Patchlamp’s hatch beside the bench (not modal): focus in, no key from it reaches the stage, Esc closes and gives focus back', async ({ page, browserName, baseURL }) => {
     const w = watch(page, new URL(baseURL!).origin);
     await page.setViewportSize(VIEW);
     await ready(page, '/', browserName);
@@ -52,16 +52,14 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
     await expect(d).not.toContainText('$');
     await expect(d.locator('[id]').first()).toHaveAttribute('id', /^pn-/);
     expect(await focusIn(page)).toBe(true);
-    // Tab stays inside
-    for (let k = 0; k < 12; k++) {
-      await page.keyboard.press('Tab');
-      const inside = await page.evaluate(() => {
-        const a = document.activeElement;
-        return !a || a === document.body || !!a.closest('dialog#plate-panel');
-      });
-      expect(inside).toBe(true);
-    }
-    // the stage keeps running and takes no keys: U does not pull the lever
+    // beside the bench, not over it: not modal, no backdrop, the page around it not inert
+    expect(await d.evaluate((e) => e.matches(':modal'))).toBe(false);
+    expect(await page.evaluate(() => (document.getElementById('stage-root') as HTMLElement & { inert?: boolean }).inert || !!document.getElementById('stage-root')?.closest('[inert]'))).toBe(false);
+    // focus is not trapped: Tab moves through the panel's links and on
+    await page.keyboard.press('Tab');
+    expect(await focusIn(page)).toBe(true);
+    // while focus is in it, the stage takes no key from it: U does not pull the lever
+    await page.locator('dialog#plate-panel h2').focus();
     await ws(page, (x) => x.dispatch({ type: 'turn', id: 'belt-dial', value: 1 }));
     await steps(page, 10);
     const depth = await ws(page, (x) => x.simWorld.undoStack().length);
@@ -137,13 +135,140 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
   });
 });
 
-test('on a phone the panel is a sheet from the bottom; with reduced motion it does not slide', async ({ page, browserName }) => {
+/** Where a thing is on the page (its pick box, projected), in CSS pixels. */
+const onScreen = (page: Page, id: string): Promise<{ x: number; y: number; w: number; h: number }> =>
+  ws(page, (w, id) => {
+    const b = w.picking.worldBox(id);
+    const c = w.stage.canvas.getBoundingClientRect();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      const s = w.stage.camera.worldToScreen({ x: i & 1 ? b.max.x : b.min.x, y: i & 2 ? b.max.y : b.min.y, z: i & 4 ? b.max.z : b.min.z });
+      const px = c.left + ((s.x + 1) / 2) * c.width, py = c.top + ((1 - s.y) / 2) * c.height;
+      x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  }, id);
+
+test('wide screen, the maker’s plate open beside the bench: the pointer turns the dial and pulls UNDO, and the log follows within a beat; the stage takes keys again once pressed; a second plate swaps the panel', async ({ page, browserName }, info) => {
+  test.skip(browserName !== 'chromium', 'a hand on the real GPU (bench-input.spec.ts covers the hand in every engine)');
+  await page.setViewportSize(VIEW);
+  await ready(page, '/?panel=maker', browserName);
+  const d = dialog(page);
+  await expect(page.getByRole('dialog', { name: H.maker.title.text })).toBeVisible();
+  const log = d.locator('.pn-log');
+  await expect(log).toHaveText(H.maker.live.history.empty.text);
+  const panel = (await d.boundingBox())!;
+
+  // what the panel covers at the home framing (reported; the three the visitor needs here must be clear of it)
+  const covered: Record<string, number> = {};
+  for (const id of ['undo-lever', 'belt-dial', 'belt-lever', 'phone', 'button', 'storefront', 'platen', 'jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp', 'lamp', 'cord', 'dock-bell', 'dock', 'striker', 'chute']) {
+    const r = await onScreen(page, id).catch(() => null);
+    if (!r) continue;
+    const ox = Math.max(0, Math.min(r.x + r.w / 2, panel.x + panel.width) - Math.max(r.x - r.w / 2, panel.x));
+    const oy = Math.max(0, Math.min(r.y + r.h / 2, panel.y + panel.height) - Math.max(r.y - r.h / 2, panel.y));
+    covered[id] = Math.round((100 * ox * oy) / Math.max(1, r.w * r.h));
+  }
+  await info.attach('covered-by-panel-percent.json', { body: JSON.stringify(covered, null, 2), contentType: 'application/json' });
+  console.log('covered by the panel at 1280x800, % of each pick box:', JSON.stringify(covered));
+  for (const id of ['undo-lever', 'belt-dial', 'phone']) expect(covered[id], id).toBe(0);
+
+  // the belt's dial, turned by the pointer: a line arrives
+  const dial = await onScreen(page, 'belt-dial');
+  const y = dial.y + dial.h * 0.25;
+  await page.mouse.move(dial.x, y);
+  await page.mouse.down();
+  for (let k = 1; k <= 10; k++) await page.mouse.move(dial.x + 6.2 * k, y);
+  await page.mouse.up();
+  await expect(log.locator('li').first()).toHaveText(/^Belt speed: 3 → [45]$/);
+  await page.screenshot({ path: info.outputPath('lever-a.png') });
+
+  // UNDO, pulled by the pointer: the line goes within the plate's beat (250 ms) of the world taking it back
+  await page.evaluate(() => {
+    const w = (window as unknown as { __handoff: { workshop: { simWorld: { undoStack(): unknown[] } } } }).__handoff.workshop;
+    const t = window as unknown as { __undoneAt?: number; __logGoneAt?: number };
+    const n0 = w.simWorld.undoStack().length;
+    const tick = (): void => {
+      if (t.__undoneAt === undefined && w.simWorld.undoStack().length < n0) t.__undoneAt = performance.now();
+      if (t.__logGoneAt === undefined && document.querySelector('dialog#plate-panel .pn-log .pn-empty')) t.__logGoneAt = performance.now();
+      if (t.__logGoneAt === undefined || t.__undoneAt === undefined) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const undo = await onScreen(page, 'undo-lever');
+  await page.mouse.move(undo.x, undo.y);
+  await page.mouse.down();
+  for (let k = 1; k <= 6; k++) await page.mouse.move(undo.x + 4, undo.y + (undo.h * 0.6 * k) / 6);
+  await page.mouse.up();
+  await expect(log).toHaveText(H.maker.live.history.empty.text, { timeout: 20_000 });
+  const lag = await page.evaluate(() => {
+    const t = window as unknown as { __undoneAt?: number; __logGoneAt?: number };
+    return t.__logGoneAt! - t.__undoneAt!;
+  });
+  console.log(`UNDO pulled by the pointer: the log followed ${lag.toFixed(0)} ms after the world took it back`);
+  expect(lag).toBeLessThanOrEqual(250 + 50);
+  await page.screenshot({ path: info.outputPath('lever-b.png') });
+  await expect(d).toBeVisible();
+
+  // a press on the stage left the panel open and the stage takes keys again: U pulls the lever
+  await ws(page, (x) => x.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 }));
+  await expect(log.locator('li').first()).toHaveText('Belt: running → stopped');
+  await page.mouse.click(VIEW.width * 0.3, VIEW.height * 0.12); // the wall: nothing there
+  await expect(d).toBeVisible();
+  expect(await focusIn(page)).toBe(false);
+  await page.keyboard.press('u');
+  await expect(log).toHaveText(H.maker.live.history.empty.text, { timeout: 20_000 });
+  // Esc with focus on the stage is the stage's (the camera's back); the panel stays
+  await page.keyboard.press('Escape');
+  await expect(d).toBeVisible();
+
+  // a second plate while it is open: the panel swaps, focus on its heading, the live lines stop
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('workshop:panel', { detail: { panel: 'patchlamp' } })));
+  await expect(page.getByRole('dialog', { name: H.patchlamp.title.text })).toBeVisible();
+  await expect(d.locator('.pn-log, .pn-frame')).toHaveCount(0);
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe('pn-patchlamp-toy-title');
+  await expect(d.locator('.pn-said')).toHaveText('');
+  // Esc with focus inside closes it
+  await page.keyboard.press('Escape');
+  await expect(d).toBeHidden();
+});
+
+test('contact: Copy puts the address on the visitor’s own clipboard; refused, the address is selected to copy by hand', async ({ page, browserName, context }) => {
+  test.skip(browserName !== 'chromium', 'clipboard permissions are granted per engine; Chromium’s is the one asked for');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize(VIEW);
+  await ready(page, '/?panel=contact', browserName);
+  const d = dialog(page);
+  const copy = d.getByRole('button', { name: H.panel.copy.text });
+  await copy.click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('remundtaylor3@gmail.com');
+  await expect(d.locator('.pn-said')).toHaveText(H.panel.copied.text);
+  // refused: the text is selected instead
+  await page.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('refused')) } });
+  });
+  await copy.click();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('remundtaylor3@gmail.com');
+});
+
+test('on a phone the panel is a modal sheet from the bottom: Tab stays in it, no key reaches the stage; with reduced motion it does not slide', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'the engine set covers the panel itself');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });
   await ready(page, '/?panel=patchlamp', browserName);
   const sheet = page.locator('dialog#plate-panel .pn-sheet');
   await expect(sheet).toBeVisible();
+  expect(await dialog(page).evaluate((e) => e.matches(':modal'))).toBe(true);
+  for (let k = 0; k < 12; k++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => { const a = document.activeElement; return !a || a === document.body || !!a.closest('dialog#plate-panel'); })).toBe(true);
+  }
+  await ws(page, (x) => x.dispatch({ type: 'turn', id: 'belt-dial', value: 1 }));
+  await steps(page, 10);
+  const depth = await ws(page, (x) => x.simWorld.undoStack().length);
+  await page.keyboard.press('u');
+  await steps(page, 20);
+  expect(await ws(page, (x) => x.simWorld.undoStack().length)).toBe(depth);
   const r = await sheet.evaluate((e) => ({ ...e.getBoundingClientRect().toJSON(), vw: innerWidth, vh: innerHeight, moving: e.getAnimations().length }));
   expect(Math.round(r.bottom)).toBe(r.vh);
   expect(Math.round(r.width)).toBe(r.vw);

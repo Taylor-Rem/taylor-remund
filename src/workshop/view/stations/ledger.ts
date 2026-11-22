@@ -8,13 +8,16 @@
  *   rebound in the gutter; a wipe a hop back to the hopper; the gate a short sideways flick into the side cup; a
  *   rewind (the lever, a reset) a quick low hop straight back. The rubber payment is the rubber node wherever its
  *   index is; its tier's core shows at its middle.
- * - The star: lit (its bulb twin) as the script says while a show plays, else as the state says. Steady: never a blink.
+ * - The flag: up (the red star stands high over the board: the allocations do not add up) or down (folded along the
+ *   right end), as the script says while a show plays, else as the state says. Up, it snaps with a twang and
+ *   overshoots and settles on its spring; down at the end of a repair, it is pressed down and settles with a little
+ *   bounce. A mark, never a lamp: nothing glows.
  * - The crank turns once under the hand and an eighth of a turn with every token dealt; the plunger goes down and
  *   comes back under the hand (at once, even when its repair waits for a deal to finish), and only part way (a
  *   twitch) when it refuses; the gate swings across as it
  *   routes the bounced payment. A Button misfire twitches either; a tell wiggles the crank and bobs the plunger.
  * - Painted (the platen, a text), its wooden base wears the paint; the brass, the rubber and the tokens are not painted.
- * - Reduced motion: no travel at all. The tokens are drawn where the state says the moment it changes, the star with
+ * - Reduced motion: no travel at all. The tokens are drawn where the state says the moment it changes, the flag with
  *   them; the controls still move under the visitor's hand (a press is a press).
  *
  * Everything here is view-only: nothing the simulation owns is written. Time is the simulation's (`Frame.time`).
@@ -22,7 +25,7 @@
 import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type BufferGeometry, type Mesh } from 'three';
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
-import { TIER, TOKENS, placeOf, rubberOf, starAt, tokensAt, type Place, type TokenAt } from '../../sim/index.ts';
+import { TOKENS, placeOf, rubberOf, starAt, tokensAt, type Place, type TokenAt } from '../../sim/index.ts';
 import { BOARD, SIDE_AT, cupAt, gutterAt, hopperAt } from '../kit/pieces/ledger-board/dims.ts';
 import { linear } from '../palette.ts';
 import { paintToken } from './parts.ts';
@@ -51,7 +54,14 @@ export const LEDGER_FEEL = {
   refuseTime: 0.28,
   /** A tell: the crank rocks, the plunger bobs, for this long (s). */
   tellTime: 1.2,
-  /** Hover: the plunger's knob rises this much (units). */
+  /** The flag's spring: up, stiff and lightly damped (a twang, an overshoot, a settle); down, softer and well damped, with a little bounce off its rest; a kick as it lets go. */
+  flagUpOmega: 22,
+  flagUpZeta: 0.22,
+  flagDownOmega: 16,
+  flagDownZeta: 0.55,
+  flagRest: 0.3,
+  flagKick: 6,
+  /** Hover: the plunger's T-handle rises this much (units). */
   hoverLift: 0.004,
 } as const;
 
@@ -61,12 +71,10 @@ const smooth = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 
 interface Nodes {
   tokens: Object3D[];
   rubber: Object3D;
-  cores: Object3D[];
   crank: Object3D;
   plunger: Object3D;
   gate: Object3D;
-  lit: Object3D;
-  dark: Object3D;
+  flag: Object3D;
   rest: Map<Object3D, { p: Vector3; q: Quaternion }>;
 }
 
@@ -129,6 +137,11 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
     let shown = false;
     const tells = new Map<Id, number>();
     let refusedAt = -Infinity;
+    /** The flag: how far up (0 down .. 1 up, past 1 in its overshoot), its rate, the time it was last stepped, which way it was going. */
+    let flagA = 0;
+    let flagV = 0;
+    let flagT: number | null = null;
+    let flagUp = false;
     /** When each control was last worked by a hand (it travels at once, even when its work waits its turn). */
     let crankAt = -Infinity;
     let plungerAt = -Infinity;
@@ -146,24 +159,23 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
         return n;
       };
       const tokens = Array.from({ length: TOKENS }, (_, i) => by(`token-${i}`));
-      const rest = [by('rubber'), by('crank'), by('plunger'), by('gate'), by('star-lit'), by('star-dark')];
-      const cores = [0, 1, 2].map((k) => by(`rubber-core-${k}`));
-      if (tokens.some((x) => !x) || rest.some((x) => !x) || cores.some((x) => !x)) return;
+      const rest = [by('rubber'), by('crank'), by('plunger'), by('gate'), by('flag')];
+      if (tokens.some((x) => !x) || rest.some((x) => !x)) return;
       group = g;
       obj = piece;
       half = w.halfExtents(o.board)?.[1] ?? half;
-      const [rubber, crank, plunger, gate, lit, dark] = rest as Object3D[];
-      const all = [...(tokens as Object3D[]), rubber!, crank!, plunger!, gate!, lit!, dark!, ...(cores as Object3D[])];
-      nodes = { tokens: tokens as Object3D[], rubber: rubber!, cores: cores as Object3D[], crank: crank!, plunger: plunger!, gate: gate!, lit: lit!, dark: dark!, rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone() }])) };
+      const [rubber, crank, plunger, gate, flag] = rest as Object3D[];
+      const all = [...(tokens as Object3D[]), rubber!, crank!, plunger!, gate!, flag!];
+      nodes = { tokens: tokens as Object3D[], rubber: rubber!, crank: crank!, plunger: plunger!, gate: gate!, flag: flag!, rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone() }])) };
       // the crank's target: round its arm and grip (a finger finds it at the framing the camera gives; the input grows a small one to 44 px)
       const crankT = new Object3D();
       crankT.name = 'ledger:crank.pick';
       holder.add(crankT);
-      ctx.pickable(o.crank, crankT, { box: new Box3(new Vector3(BOARD.hopperX - 0.03, BOARD.crankY - 0.045, BOARD.hopperZ + BOARD.crankZ - 0.01), new Vector3(BOARD.hopperX + 0.06, BOARD.crankY + 0.05, BOARD.hopperZ + BOARD.crankZ + 0.04)), pad: 0.006, active: () => shown && reachable() });
+      ctx.pickable(o.crank, crankT, { box: new Box3(new Vector3(BOARD.hopperX - BOARD.crankArm - 0.02, BOARD.crankY - BOARD.crankArm - 0.02, BOARD.hopperZ + BOARD.crankZ - 0.01), new Vector3(BOARD.hopperX + BOARD.crankArm + 0.02, BOARD.crankY + BOARD.crankArm + 0.02, BOARD.hopperZ + BOARD.crankZ + 0.06)), pad: 0.006, active: () => shown && reachable() });
       const plungerT = new Object3D();
       plungerT.name = 'ledger:plunger.pick';
       holder.add(plungerT);
-      ctx.pickable(o.plunger, plungerT, { box: new Box3(new Vector3(BOARD.plungerX - 0.03, BOARD.h + 0.02, BOARD.plungerZ - 0.03), new Vector3(BOARD.plungerX + 0.03, BOARD.plungerTop + 0.006, BOARD.plungerZ + 0.03)), pad: 0.006, active: () => shown && reachable() });
+      ctx.pickable(o.plunger, plungerT, { box: new Box3(new Vector3(BOARD.plungerX - 0.055, BOARD.h + 0.02, BOARD.plungerZ - 0.03), new Vector3(BOARD.plungerX + 0.055, BOARD.plungerTop + 0.01, BOARD.plungerZ + 0.03)), pad: 0.006, active: () => shown && reachable() });
     };
 
     let lastWorld: WorldView | null = null;
@@ -315,11 +327,34 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
           if (isR) pose(N.rubber, tp, tq);
           else pose(N.tokens[i]!, tp, tq);
         }
-        for (let k = 0; k < 3; k++) show(N.cores[k]!, TIER[rubberNow] === k);
-        // the star
-        const lit = s && script && !reduced ? starAt(script, s.before, s.after, t) : lv.wrong;
-        show(N.lit, lit);
-        show(N.dark, !lit);
+        // the flag: its goal up or down; a spring that snaps up (stiff, little damping: it twangs and settles) and is pressed down
+        const up = s && script && !reduced ? starAt(script, s.before, s.after, t) : lv.wrong;
+        const goal = up ? 1 : 0;
+        if (reduced || flagT === null) {
+          flagA = goal;
+          flagV = 0;
+        } else {
+          let left = Math.min(0.1, Math.max(0, frame.time - flagT));
+          const omega = up ? F.flagUpOmega : F.flagDownOmega;
+          const zeta = up ? F.flagUpZeta : F.flagDownZeta;
+          while (left > 1e-6) {
+            const h = Math.min(left, 1 / 240);
+            flagV += (omega * omega * (goal - flagA) - 2 * zeta * omega * flagV) * h;
+            flagA += flagV * h;
+            // the arm lies on its rest when down: it cannot go through the board
+            if (flagA < 0) {
+              flagA = 0;
+              flagV = -flagV * F.flagRest;
+            }
+            left -= h;
+          }
+        }
+        flagT = frame.time;
+        if (up !== flagUp) {
+          if (up && !reduced) flagV += F.flagKick;
+          flagUp = up;
+        }
+        pose(N.flag, null, qa.setFromAxisAngle(Y, (Math.PI / 2) * flagA));
         // the crank: once round under the hand, an eighth with every token dealt; a misfire's twitch; a tell's rock
         let crank = Math.PI * 2 * smooth((frame.time - crankAt) / F.crankTurn);
         if (s && s.kind === 'deal' && !reduced) crank += F.crankPerToken * s.beats.filter((x) => x.kind === 'drop' && t >= x.at).length;
