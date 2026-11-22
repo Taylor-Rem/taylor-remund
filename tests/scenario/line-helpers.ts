@@ -3,7 +3,7 @@ import './rapier-node.ts';
 import { createRapierPhysics } from '../../src/workshop/sim/physics/rapier.ts';
 import { createWorld } from '../../src/workshop/sim/world.ts';
 import type { World, WorldOptions } from '../../src/workshop/sim/world.ts';
-import { bench, LINE, AT } from '../../src/workshop/sim/scenes/bench.ts';
+import { bench, LINE, AT, withPitch, PITCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Id, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 import { line } from './helpers.ts';
@@ -23,7 +23,10 @@ export { QUIET as BENCH, bench as FULL_BENCH, LINE, AT };
 
 export async function benchWorld(seed: number | string = 1, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> {
   const physics = await createRapierPhysics();
-  return createWorld({ seed, physics, scene: QUIET, ...opts });
+  const world = { seed, physics, scene: QUIET, ...opts };
+  // (P4 P1a) WITH_PITCH=1: every bench these tests make has Pitch on it, so any test of the crew or the line runs with him there
+  if (process.env.WITH_PITCH === '1' && world.scene.mouths?.some((m) => m.id === 'platen') && !world.scene.parts.some((p) => p.id === PITCH_BODY.id)) world.scene = withPitch(world.scene);
+  return createWorld(world);
 }
 
 /** A recorder: every event with the step it happened in. */

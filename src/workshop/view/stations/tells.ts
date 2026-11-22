@@ -201,6 +201,14 @@ export class StationLamps {
   }
 }
 
+/**
+ * P4 P1a: a glow of another view's own (a crew member's running lamps), drawn in the tells' one halo mesh: a view whose
+ * root (a child of the scene) carries `userData.halos = source` is asked each frame, after the station lamps, to `add`
+ * its glows (world point, radius in units, at least this many CSS px, level 0..1). At most `EXTRA_HALOS` of them.
+ */
+export type HaloSource = (add: (at: Vector3, r: number, minPx: number, level: number) => void) => void;
+export const EXTRA_HALOS = 6;
+
 /** One station's rattle in flight. */
 interface Shiver {
   id: Id;
@@ -214,7 +222,7 @@ interface Shiver {
 export function createTellsView(): StationViewFactory {
   return (ctx: ViewContext): StationView => {
     const camera = (ctx.stage.camera as unknown as { camera: PerspectiveCamera }).camera;
-    const halos = new LampHalos(ctx.materials as unknown as { halo?: () => Material }, Object.keys(TELL_PARTS).length);
+    const halos = new LampHalos(ctx.materials as unknown as { halo?: () => Material }, Object.keys(TELL_PARTS).length + EXTRA_HALOS);
     ctx.scene.add(halos.mesh);
     const lamps = new StationLamps();
     const lampNode = new Map<Id, Object3D | null>();
@@ -271,6 +279,8 @@ export function createTellsView(): StationViewFactory {
           p.setFromMatrixPosition(n.matrixWorld);
           halos.add(p, spec.glow, spec.glowPx, level);
         }
+        // (P4 P1a) any other view's own glows, through the same mesh: a crew member's lamps (`HaloSource`)
+        for (const c of ctx.scene.children) (c.userData['halos'] as HaloSource | undefined)?.((at, r, px, level) => halos.add(at, r, px, level));
         halos.end();
 
         // ── the rattle ──

@@ -6,6 +6,8 @@ import { world, lift, fling, untilHome, home, pitchOf, fmt, MOORED, BODY, PITCHE
 import { bench, PITCH_ON } from '../../src/workshop/sim/scenes/bench.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import type { Vec3 } from '../../src/workshop/sim/types.ts';
+import { registryProblems } from '../../src/workshop/sim/registry.ts';
+import { contentById } from '../../src/workshop/view/labels/content.ts';
 
 const S = (s: number): number => Math.round(s * HZ);
 
@@ -21,7 +23,11 @@ describe('Pitch', () => {
     const { w } = await world();
     expect(home(w)).toBe(true);
     const it = w.interactable('pitch');
+    // § E4 invariant 1: a name in content, a tell, a misfire, an affordance
+    expect(registryProblems([it!])).toEqual([]);
+    expect(contentById('name.pitch').text).toBe('Pitch');
     expect(it?.affordances).toEqual(['grab']);
+    expect(it?.station).toBe('patchlamp');
     expect(it?.name).toBe('name.pitch');
     expect(w.mode(BODY)).toBe('gone');
     w.dispose();

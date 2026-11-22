@@ -50,6 +50,8 @@ export { STOREFRONT_START } from './machines/storefront.ts';
 export { PATCHLAMP_BEAT_SECONDS, STOREFRONT_FIELDS, LAMP_FIELDS, WINDOW_PICTURES } from './machines/shared/patchlamp.ts';
 // P4 D1: the ledger board (its scene ids, its arithmetic and its show, for the view)
 export { LEDGER } from './scenes/bench.ts';
+/** P4 P1a: where Pitch moors and his body's id (the view draws his mast and him only on a bench that has him). */
+export { PITCH_AT, PITCH_BODY } from './scenes/bench.ts';
 export { TOKENS_FIELD } from './machines/ledger.ts';
 export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
 export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';

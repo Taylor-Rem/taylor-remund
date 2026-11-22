@@ -30,7 +30,7 @@ import { LOOK } from '../view/stage/index.ts';
 import type { StageOptions } from '../view/stage/index.ts';
 import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
-import { bench as BENCH, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { bench as BENCH, withProjectRow, withStandIn, withPitch, PITCH_BODY } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
 export type BenchBootOptions = Omit<BootOptions, 'manual' | 'onProgress'>;
@@ -185,7 +185,9 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S5, development only: `?standin=1` puts the kit's test block in t-components' crate, to prove a crate's tray)
       // (and `?crates=row`: the six project crates in a row behind the console, for pictures of all six at once)
       const dq = import.meta.env.DEV && typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-      const scene0 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
+      // (P4 P1a, development only: `?pitch=1` puts Pitch on the bench before the owner has approved him; `PITCH_ON` later)
+      const scene00 = dq?.get('pitch') === '1' && !BENCH.parts.some((p) => p.id === PITCH_BODY.id) ? withPitch(BENCH) : BENCH;
+      const scene0 = dq?.get('crates') === 'row' ? withProjectRow(scene00) : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },
