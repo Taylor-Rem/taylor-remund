@@ -957,7 +957,7 @@ test('P4 S5 round three: a station double-clicked still frames, the camera start
       }
     });
   });
-  const c = await waitClear(page, 'belt', 'mouse');
+  const c = await waitClear(page, 'belt-dial', 'mouse');
   await page.mouse.dblclick(c.x, c.y);
   await pollFrames(page, () => page.evaluate(() => (window as any).__s5.framed > 0), 240, 'framed').toBe(true);
   const r = await page.evaluate(() => (window as any).__s5);
