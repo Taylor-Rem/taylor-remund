@@ -57,16 +57,18 @@ export type Paint = (typeof paints)[number];
  * read is the owner's.
  */
 export const schemeColours = {
-  'scheme-b-enamel': '#5a2a27',
+  // B: wine enamel, cream trim (leans away from the Button's orange-red, so the Button stays the reddest thing)
+  'scheme-b-enamel': '#4a2232',
   'scheme-b-trim': '#c9b68f',
-  'scheme-b-deep': '#2b1716',
-  'scheme-c-enamel': '#cbbf9c',
-  'scheme-c-trim': '#3d5a47',
-  'scheme-c-deep': '#22312a',
-  'scheme-c-accent': '#c2622d',
-  'scheme-d-enamel': '#4c575c',
-  'scheme-d-trim': '#7d898c',
-  'scheme-d-deep': '#262d30',
+  'scheme-b-deep': '#24111a',
+  // C: putty enamel, bottle-green trim (a light scheme kept dark enough that the lamp does not wash it white)
+  'scheme-c-enamel': '#867b60',
+  'scheme-c-trim': '#2f4a3b',
+  'scheme-c-deep': '#1f2c24',
+  // D: graphite enamel, grey trim, the hazard in safety orange
+  'scheme-d-enamel': '#3a3f43',
+  'scheme-d-trim': '#6b7176',
+  'scheme-d-deep': '#1c1f21',
   'scheme-d-accent': '#d0662a',
 } as const;
 

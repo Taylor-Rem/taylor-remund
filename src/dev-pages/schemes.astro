@@ -8,6 +8,8 @@
 //   ?scheme=B          start in a scheme (cut)
 //   ?cut=1             changes cut instead of wiping (as with reduced motion)
 //   ?ox=2.2&oy=0.7&oz=1.75   the wipe's origin (default: where the dial will sit, the crate stack)
+//   ?bar=0             no buttons over the picture (captures)
+//   ?dial=1            the paint dial on top of the top-most crate (until the crates have trays), its needle on the scheme
 //
 // Keys: 1-4 the schemes A-D (wipe), 0 back home; w warm lamp, o lamp on, n lamp off, b lamp blue; h home, u the Button,
 // c the switchboard, l the line.
@@ -34,11 +36,15 @@
     <iframe id="bench" title="bench"></iframe>
     <div id="bar"></div>
     <script>
+      import { Box3, Quaternion, Vector3, type Object3D } from 'three';
       import { SCHEME_IDS, SCHEMES, slotColour, type SchemeId } from '../workshop/view/materials/scheme.ts';
+      import { realize } from '../workshop/view/kit/realize.ts';
+      import { paintDial, paintDialAngle } from '../workshop/view/kit/pieces/paint-dial/index.ts';
 
       const q = new URLSearchParams(location.search);
       const pass = new URLSearchParams(q);
-      for (const k of ['scheme', 'cut', 'ox', 'oy', 'oz']) pass.delete(k);
+      for (const k of ['scheme', 'cut', 'ox', 'oy', 'oz', 'dial', 'bar']) pass.delete(k);
+      if (q.get('bar') === '0') document.getElementById('bar')!.style.display = 'none';
       if (!pass.has('hud')) pass.set('hud', '0');
       const frame = document.getElementById('bench') as HTMLIFrameElement;
       frame.src = `/dev/bench/?${pass.toString()}`;
@@ -77,6 +83,7 @@
         const ws = win()?.__bench?.ws;
         if (!ws) return;
         ws.materials.paint.set(id, cut ? {} : { time: ws.world.time, origin });
+        turnDial(id);
         for (const k of SCHEME_IDS) buttons[k]?.setAttribute('aria-pressed', String(k === id));
       }
       /** The lamp as a visitor changes it: the cord into LAMP, then a text. */
@@ -91,6 +98,50 @@
         }, 100);
       }
       const shot = (s: string): void => win()?.__bench?.shot(s);
+
+      // ?dial=1: the paint dial on top of the top-most crate (until S5's tray exists), its needle on the scheme
+      let knob: Object3D | null = null;
+      let dial: Object3D | null = null;
+      const knobRest = new Quaternion();
+      function turnDial(id: SchemeId): void {
+        if (!knob) return;
+        knob.quaternion.copy(knobRest).multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), paintDialAngle(id) - paintDialAngle('A')));
+      }
+      function placeDial(ws: WS): void {
+        const scene = ws.stage.scene as unknown as Object3D;
+        // the top-most crate (one with nothing on it)
+        let box: Box3 | null = null;
+        scene.traverse((o) => {
+          if (!/^part:crate-\d+$/.test(o.name)) return;
+          const bb = new Box3().setFromObject(o);
+          if (!box || bb.max.y > box.max.y) box = bb;
+        });
+        if (!box) return;
+        box = box as Box3;
+        dial = realize(paintDial(), ws.materials as never, { backend: 'nodes' });
+        // built in this window, drawn by the frame's three: its arrays must be the frame's own kinds
+        const fw = frame.contentWindow as unknown as Record<string, new (a: ArrayLike<number>) => ArrayLike<number>>;
+        dial.traverse((o) => {
+          const g = (o as unknown as { geometry?: { attributes: Record<string, { array: ArrayLike<number> }>; index: { array: ArrayLike<number> } | null } }).geometry;
+          if (!g) return;
+          const move = (x: { array: ArrayLike<number> }): void => { x.array = new fw[x.array.constructor.name]!(x.array); };
+          for (const at of Object.values(g.attributes)) move(at);
+          if (g.index) move(g.index);
+        });
+        dial.position.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2 + 0.05);
+        dial.rotation.y = -0.12;
+        scene.add(dial);
+        ws.materials.keepColours(dial);
+        dial.traverse((o) => { if (!knob && o.name === 'knob') knob = o; });
+        if (knob) knobRest.copy((knob as Object3D).quaternion);
+      }
+      /** The camera close on the dial. */
+      function lookAtDial(ws: WS & { stage: { camera: { frame(b: Box3): unknown; cutTo(v: unknown): void; focusOn(p: Vector3): void } } }): void {
+        if (!dial) return;
+        const b = new Box3().setFromObject(dial).expandByScalar(0.18);
+        ws.stage.camera.cutTo(ws.stage.camera.frame(b));
+        ws.stage.camera.focusOn(b.getCenter(new Vector3()));
+      }
 
       for (const id of SCHEME_IDS) button(id, id, () => scheme(id), toHex(slotColour(id, 'teal-panel')));
       button('warm', 'lamp warm', () => lamp('back to warm'));
@@ -125,13 +176,18 @@
           if (['fetch', 'patch', 'parts', 'line-parts'].includes(c.name)) kept += ws.materials.keepColours(c);
           if (c.name === 'revert-station') kept += ws.materials.keepColours(c.getObjectByName('revert'));
         }
+        if (q.get('dial') === '1') placeDial(ws);
         const start = q.get('scheme');
         if (start && start in SCHEMES) {
           ws.materials.paint.set(start as SchemeId);
+          turnDial(start as SchemeId);
           for (const k of SCHEME_IDS) buttons[k]?.setAttribute('aria-pressed', String(k === start));
         } else buttons['A']?.setAttribute('aria-pressed', 'true');
         state.textContent = `${kept} meshes keep their colours`;
-        (window as unknown as { __schemes: unknown }).__schemes = { scheme, lamp, shot, ws };
+        (window as unknown as { __schemes: unknown }).__schemes = { scheme, lamp, shot, ws, turnDial, lookAtDial: () => lookAtDial(ws as never) };
+        // for captures driving this page: the bench's hooks, and ready
+        (window as unknown as { __bench: unknown }).__bench = w.__bench;
+        (window as unknown as { __ready: boolean }).__ready = true;
       }, 200);
     </script>
   </body>

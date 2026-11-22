@@ -1,7 +1,7 @@
 /**
  * The paint dial (D2; DEMO-CONCEPTS concept 2): a paint-chip fan with a brass knob at its pivot. Each chip is
  * one paint scheme (view/materials/scheme.ts), in that scheme's enamel with a tab of its trim at the tip; the
- * knob's needle points at the scheme the workshop is wearing. Small: it sits on a crate's tray (S5 item 5) and
+ * knob's needle points at the scheme the workshop is wearing. Small: it sits on the tray of an M crate (S5 item 5; 1.5x the first cut, which read as a smudge at the closest zoom) and
  * is picked up like any loose part. Not wired to anything yet: the owner chooses the schemes first.
  *
  *  - a dark cast-iron base plate (steel, `ink`), a rivet at each corner;
@@ -32,25 +32,25 @@ const DEG = Math.PI / 180;
 /** Sizes (units). */
 export const PAINT_DIAL = {
   /** The base plate. */
-  w: 0.21,
-  d: 0.14,
-  t: 0.016,
+  w: 0.31,
+  d: 0.21,
+  t: 0.022,
   /** The fan's pivot, from the plate's centre (toward the back). */
-  pivotZ: -0.046,
+  pivotZ: -0.07,
   /** A chip: from the pivot out to `reach`; its width at the tip and at the pivot; its thickness; how much each sits above the one under it. */
-  reach: 0.112,
-  tipW: 0.046,
-  rootW: 0.03,
-  chipT: 0.0035,
-  lift: 0.0042,
+  reach: 0.168,
+  tipW: 0.068,
+  rootW: 0.044,
+  chipT: 0.005,
+  lift: 0.006,
   /** The trim tab at a chip's tip (its length along the chip). */
-  tab: 0.02,
+  tab: 0.03,
   /** The chips' directions, degrees from straight toward the visitor (+ is to the visitor's right). */
   spread: [-42, -14, 14, 42] as readonly number[],
   /** The knob: grip radius and height, needle length (from the pivot). */
-  knobR: 0.024,
-  knobH: 0.028,
-  needle: 0.094,
+  knobR: 0.036,
+  knobH: 0.04,
+  needle: 0.14,
 } as const;
 
 /** The knob's turn (radians about its local +Y) to point at scheme `id` (or a chip index, fractions between). */
@@ -85,11 +85,11 @@ export function paintDial(o: KitOptions & { scheme?: SchemeId | number } = {}): 
   const b = piece('paint-dial', { detail, seed });
 
   // ---- the base: a cast plate, rivets at the corners ----------------------------------------
-  b.add(part('steel', slab({ w: P.w, d: P.d, t: P.t, r: 0.022, bevel: 0.005, detail: 'low' }), 'ink', { seed, shade: 1.7, jitter: 0.03 }));
+  b.add(part('steel', slab({ w: P.w, d: P.d, t: P.t, r: 0.03, bevel: 0.007, detail: 'low' }), 'ink', { seed, shade: 1.7, jitter: 0.03 }));
   b.small(() => {
     const out = [];
     for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-      out.push(part('brass', transform(stud(0.007, 0.004, 6), T(x * (P.w / 2 - 0.016), P.t, z * (P.d / 2 - 0.016))), 'brass', { seed: seed + 2, shade: 0.8, warm: 0.03 }));
+      out.push(part('brass', transform(stud(0.01, 0.006, 6), T(x * (P.w / 2 - 0.024), P.t, z * (P.d / 2 - 0.024))), 'brass', { seed: seed + 2, shade: 0.8, warm: 0.03 }));
     }
     return out;
   });
@@ -101,7 +101,7 @@ export function paintDial(o: KitOptions & { scheme?: SchemeId | number } = {}): 
     if (!id) return;
     const a = deg * DEG + R.spread(1.2) * DEG; // a fan deck is never quite even
     const at = chain(T(0, y0 + i * P.lift, P.pivotZ), new Matrix4().makeRotationY(a));
-    const chip = extrude(chipOutline(-0.012, P.reach, P.rootW, P.tipW), P.chipT, { axis: 'y', bevel: 0.0012, bevelBase: 0, radius: [0.008, 0.008, 0.01, 0.01], segs: 1, detail: 'low', band: 0, caps: 'end' });
+    const chip = extrude(chipOutline(-0.018, P.reach, P.rootW, P.tipW), P.chipT, { axis: 'y', bevel: 0.0012, bevelBase: 0, radius: [0.008, 0.008, 0.01, 0.01], segs: 1, detail: 'low', band: 0, caps: 'end' });
     b.add(setFinish(part('steel', tintRgb(transform(chip, at), slotColour(id, 'teal-panel'), 1.0)), 0.35));
     // the trim: a tab across the tip, a hair proud of the chip
     const tab = extrude(chipOutline(P.reach - P.tab, P.reach - 0.003, P.tipW - 0.004, P.tipW - 0.006), 0.0012, { axis: 'y', bevel: 0.0005, bevelBase: 0, radius: [0, 0, 0.008, 0.008], segs: 1, detail: 'low', band: 0, caps: 'end' });
@@ -127,7 +127,7 @@ export function paintDial(o: KitOptions & { scheme?: SchemeId | number } = {}): 
   const capY = P.knobH - 0.004;
   knob.add(setFinish(part('brass', lathe(profile(P.knobR * 0.7, capY - 0.002).to(P.knobR * 0.7, capY, { sharp: true }).to(P.knobR * 0.35, capY + 0.006, { fillet: 0.004, segs: 1 }).to(0, capY + 0.007), { segs: 12, detail: 'low', band: 0, caps: false }), 'brass', { seed: seed + 7, warm: 0.03 }), 0.6));
   // the needle: a thin brass blade from a short tail behind the pivot out over the chips, toward +Z
-  const needle = extrude([[-0.005, -0.016], [0.005, -0.016], [0.0042, P.needle - 0.02], [0, P.needle], [-0.0042, P.needle - 0.02]], 0.0022, { axis: 'y', bevel: 0.0008, bevelBase: 0, radius: [0.003, 0.003, 0.001, 0.0005, 0.001], segs: 1, detail: 'low', band: 0, caps: 'end' });
+  const needle = extrude([[-0.0075, -0.024], [0.0075, -0.024], [0.006, P.needle - 0.03], [0, P.needle], [-0.006, P.needle - 0.03]], 0.003, { axis: 'y', bevel: 0.0008, bevelBase: 0, radius: [0.003, 0.003, 0.001, 0.0005, 0.001], segs: 1, detail: 'low', band: 0, caps: 'end' });
   knob.add(setFinish(part('brass', transform(needle, T(0, 0.004, 0)), 'brass', { seed: seed + 8, shade: 0.95, warm: 0.03 }), 0.5));
   knob.transform = chain(T(0, top, P.pivotZ), new Matrix4().makeRotationY(paintDialAngle(o.scheme ?? 0)));
 

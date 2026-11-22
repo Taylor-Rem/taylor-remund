@@ -51,10 +51,10 @@ describe('the paint dial', () => {
     expect(a.root.parts[0]!.geometry.getAttribute('position').array).toEqual(b.root.parts[0]!.geometry.getAttribute('position').array);
   });
 
-  it('fits on the tray of the smallest crate', () => {
-    expect(p.size.x).toBeLessThan(crateSpec('S').w * 0.6);
-    expect(p.size.z).toBeLessThan(crateSpec('S').d * 0.5);
-    expect(p.size.y).toBeLessThan(0.08);
+  it('fits on the tray of a medium crate', () => {
+    expect(p.size.x).toBeLessThan(crateSpec('M').w * 0.6);
+    expect(p.size.z).toBeLessThan(crateSpec('M').d * 0.5);
+    expect(p.size.y).toBeLessThan(0.11);
   });
 
   it('wears every scheme as a chip: its enamel, and its trim at the tip', () => {

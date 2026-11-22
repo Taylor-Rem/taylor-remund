@@ -42,7 +42,7 @@ export type Scheme = Partial<Record<SchemeSlot, Token | SchemeColour>>;
 export const SCHEMES = {
   A: {},
   B: { 'teal-panel': 'scheme-b-enamel', 'teal-light': 'scheme-b-trim', 'teal-deep': 'scheme-b-deep' },
-  C: { 'teal-panel': 'scheme-c-enamel', 'teal-light': 'scheme-c-trim', 'teal-deep': 'scheme-c-deep', 'tape-yellow': 'scheme-c-accent' },
+  C: { 'teal-panel': 'scheme-c-enamel', 'teal-light': 'scheme-c-trim', 'teal-deep': 'scheme-c-deep' },
   D: { 'teal-panel': 'scheme-d-enamel', 'teal-light': 'scheme-d-trim', 'teal-deep': 'scheme-d-deep', 'tape-yellow': 'scheme-d-accent' },
 } as const satisfies Record<string, Scheme>;
 export type SchemeId = keyof typeof SCHEMES;
@@ -103,6 +103,7 @@ export type SchemeUniforms = Record<string, { value: number | Color | Vector3 }>
 export function schemeUniforms(): SchemeUniforms {
   const u: SchemeUniforms = {
     s_active: { value: 0 },
+    s_wiping: { value: 0 },
     s_origin: { value: new Vector3() },
     s_radius: { value: 0 },
     s_rag: { value: SCHEME_LOOK.rag },
@@ -128,14 +129,17 @@ if (s_active * s_on > 0.5) {
   vec3 sFrom = vec3(1.0);
   vec3 sTo = vec3(1.0);
 ${SCHEME_SLOTS.map((_, i) => `  { vec3 e = sHue - s_hue${i}; if (dot(e, e) < ${S_MATCH.toExponential()}) { sFrom = s_from${i}; sTo = s_to${i}; } }`).join('\n')}
-  // the fragment in world space (three's fragment prefix has the camera's position and view matrix)
-  vec3 sW = cameraPosition + (-vViewPosition) * mat3(viewMatrix);
-  float sRag = s_rag * (0.5 * sin(sW.x * 7.1 + sW.z * 3.3) + 0.3 * sin(sW.y * 11.7 + sW.x * 5.1) + 0.2 * sin((sW.z - sW.y) * 19.3 + sW.x * 2.3));
-  float sD = length(sW - s_origin) + sRag - s_radius;
-  float sIn = 1.0 - smoothstep(-s_soft, s_soft, sD);
-  vec3 sM = mix(sFrom, sTo, sIn);
-  // fresh paint just inside the rim
-  sM *= 1.0 + s_wet * sIn * exp(-(sD * sD) / max(s_wetWidth * s_wetWidth, 1e-6)) * step(0.001, dot(abs(sTo - sFrom), vec3(1.0)));
+  vec3 sM = sTo;
+  // only while a wipe runs: the fragment in world space (three's fragment prefix has the camera's position and
+  // view matrix), its distance from the rim, a little fresh paint just inside it
+  if (s_wiping > 0.5) {
+    vec3 sW = cameraPosition + (-vViewPosition) * mat3(viewMatrix);
+    float sRag = s_rag * (0.5 * sin(sW.x * 7.1 + sW.z * 3.3) + 0.3 * sin(sW.y * 11.7 + sW.x * 5.1) + 0.2 * sin((sW.z - sW.y) * 19.3 + sW.x * 2.3));
+    float sD = length(sW - s_origin) + sRag - s_radius;
+    float sIn = 1.0 - smoothstep(-s_soft, s_soft, sD);
+    sM = mix(sFrom, sTo, sIn);
+    sM *= 1.0 + s_wet * sIn * exp(-(sD * sD) / max(s_wetWidth * s_wetWidth, 1e-6)) * step(0.001, dot(abs(sTo - sFrom), vec3(1.0)));
+  }
   pBase *= sM;
 }
 `;
@@ -198,6 +202,7 @@ export class SchemeState {
     (u['s_origin']!.value as Vector3).copy(this.origin);
     u['s_radius']!.value = done ? 1e6 : radius;
     u['s_wet']!.value = done ? 0 : SCHEME_LOOK.wet;
+    u['s_wiping']!.value = done ? 0 : 1;
     u['s_rag']!.value = SCHEME_LOOK.rag;
     u['s_soft']!.value = SCHEME_LOOK.soft;
     u['s_wetWidth']!.value = SCHEME_LOOK.wetWidth;
