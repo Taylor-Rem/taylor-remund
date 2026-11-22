@@ -279,10 +279,10 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         pose(N.env, null, null, envHere ? 1 : 0);
         for (let n = 0; n < 3; n++) {
           const fold = s && s.envelope && !reduced ? smooth(beatAt(script!, 'fold', t, n)) : 0;
-          // standing at 90° (held by the bed's fingers), down flat over the envelope when folded
-          const ang = (1 - fold) * (Math.PI / 2);
+          // splayed open and up (135°, an envelope waiting to be folded), down flat over the envelope when folded
+          const ang = (1 - fold) * ((3 * Math.PI) / 4);
           const axis = n === 2 ? X : Z;
-          const sign = n === 0 ? -1 : n === 1 ? 1 : -1;
+          const sign = n === 1 ? -1 : 1; // (each turns up and outward about its hinge)
           pose(N.flaps[n]!, null, qa.setFromAxisAngle(axis, sign * ang));
         }
         let arm = 0;

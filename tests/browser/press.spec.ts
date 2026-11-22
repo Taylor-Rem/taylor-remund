@@ -87,6 +87,7 @@ async function inClose(page: Page, size: number): Promise<void> {
     const ws = (window as any).__bench.ws;
     const p = ws.world.motion('report-press').pose.p;
     ws.stage.camera.stationSize = size;
+    ws.stage.camera.setAspect(ws.stage.camera.aspect);
     ws.stage.camera.cutTo({ focus: [p[0], p[1] + 0.08, p[2]], zoom: 1 }, { hold: true });
   }, size);
   await frames(page, 20);
@@ -98,7 +99,7 @@ test('P4 D3: the press\'s lever by mouse at 1440×900: a pull prints, stores a c
   await page.evaluate(() => (window as any).__bench.ws.framing.bring('press-lever'));
   await frames(page, 70);
   const framed = await screenOf(page, 'press-lever');
-  await inClose(page, 1.2);
+  await inClose(page, 1.3);
   const l = (await screenOf(page, 'press-lever'))!;
   expect(l, 'the lever is a target').not.toBeNull();
   await page.mouse.move(l.x - 30, l.y - 20);
@@ -118,7 +119,7 @@ test('P4 D3: the press\'s lever by a finger at 390×844, the camera in on it: a 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   const errors = await open(page);
-  await inClose(page, 0.9);
+  await inClose(page, 0.6);
   const tip = await fingertip(page, 'press-lever');
   const l = (await screenOf(page, 'press-lever')) as XY;
   console.log(`[D3] 44 px at 390×844, camera in on the press: ${tip} ${JSON.stringify(l)}`);

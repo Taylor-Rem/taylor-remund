@@ -50,7 +50,7 @@ export const PRESS_DIMS = {
   drawerW: 0.16,
   drawerH: 0.024,
   drawerD: 0.2,
-  drawerOut: 0.11,
+  drawerOut: 0.075,
   copyT: 0.0016,
   /** The spring arm on the right: its hinge at the back, the bed's top and middle. */
   armX: 0.15,

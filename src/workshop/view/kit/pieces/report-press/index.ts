@@ -79,7 +79,7 @@ function lyingSheet(w: number, d: number, t: number, face: Rect, key: string | u
 }
 
 /** Cast iron: near-black metal, a little warm where it is worn, in the brass class's draw. */
-const iron = (g: BufferGeometry, seed: number, shade = 1.9): KitPart => setFinish(part('brass', g, 'ink', { seed, shade, jitter: 0.06 }), 0);
+const iron = (g: BufferGeometry, seed: number, shade = 2.6): KitPart => setFinish(part('brass', g, 'ink', { seed, shade, jitter: 0.06 }), 0);
 const brass = (g: BufferGeometry, seed: number, shade = 1): KitPart => part('brass', g, 'brass', { seed, shade, warm: 0.04, jitter: 0.05 });
 
 /** An arched cheek's outline (in the cheek's own (z, y): its foot on the bed plate, its back higher than its front). */
@@ -89,6 +89,17 @@ function cheekOutline(): Array<[number, number]> {
   const top = D.crossY;
   // (the outline's x is the press's z once the cheek is turned)
   return [[z0, D.baseH], [z1, D.baseH], [z1, D.baseH + 0.03], [z1 - 0.012, top - 0.02], [z1 - 0.03, top], [z0 + 0.012, top], [z0, top - 0.014]];
+}
+
+/** The arched window cast through each cheek (same space as the outline): a round-topped opening over the platen. */
+function cheekWindow(): Array<[number, number]> {
+  const cz = -0.014, w = 0.034, y0 = 0.062, yArch = 0.112;
+  const out: Array<[number, number]> = [[cz - w, y0], [cz + w, y0]];
+  for (let i = 0; i <= 6; i++) {
+    const a = (i / 6) * Math.PI;
+    out.push([cz + Math.cos(a) * w, yArch + Math.sin(a) * w * 0.9]);
+  }
+  return out;
 }
 
 export interface ReportPressOptions extends KitOptions {
@@ -112,7 +123,7 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
 
   // ---- the iron frame: a bed plate, two arched cheeks, a crosshead across their tops, the platen block -----------
   r.add(iron(transform(bevelBox({ min: [-D.cheekX - 0.025, 0, D.frameZ0 - 0.01], max: [D.cheekX + 0.025, 0.012, D.frameZ1 + 0.01], c: 0.003, omit: ['ny'] }), T(0, D.baseH - 0.001, 0)), seed + 10));
-  const cheekG = (): BufferGeometry => extrude(cheekOutline(), D.cheekT, { bevel: 0.0025, radius: 0.006, segs: 1, support: false });
+  const cheekG = (): BufferGeometry => extrude(cheekOutline(), D.cheekT, { bevel: 0.0025, radius: 0.006, segs: 1, support: false, holes: [cheekWindow()], holeRadius: 0.01 });
   for (const s of [-1, 1]) {
     // (extruded toward +Z, turned so its thickness runs across the frame; a hair off true, as a casting is)
     r.add(iron(transform(cheekG(), chain(T(s * D.cheekX + D.cheekT / 2, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2), askew(seed + 11 + s, 0.4))), seed + 12 + s));
@@ -164,7 +175,7 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
 
   // ---- the drawer in the base's front: a wooden face with a brass pull; its stack of copies inside ----------------
   const drawer = r.node('drawer', T(0, 0.006, D.d / 2));
-  drawer.add(part('wood', bevelBox({ min: [-D.drawerW / 2, 0, -0.006], max: [D.drawerW / 2, D.drawerH, 0.002], c: 0.002 }), 'wood-light', { seed: seed + 60, shade: 0.75, jitter: 0.06 }));
+  drawer.add(part('wood', bevelBox({ min: [-D.drawerW / 2, 0, -0.006], max: [D.drawerW / 2, D.drawerH, 0.002], c: 0.002 }), 'wood', { seed: seed + 60, shade: 1.15, jitter: 0.06 }));
   drawer.add(part('wood', bevelBox({ min: [-D.drawerW / 2 + 0.006, 0, -D.drawerD], max: [D.drawerW / 2 - 0.006, 0.003, -0.006], c: 0.001, omit: ['ny'] }), 'wood-light', { seed: seed + 61, shade: 0.6 }));
   for (const s of [-1, 1]) drawer.add(part('wood', bevelBox({ min: [s * (D.drawerW / 2 - 0.006) - 0.002, 0, -D.drawerD], max: [s * (D.drawerW / 2 - 0.006) + 0.002, D.drawerH - 0.004, -0.006], c: 0.0008 }), 'wood-light', { seed: seed + 62, shade: 0.62 }));
   drawer.add(brass(transform(lathe(profile(0, 0).to(0.008, 0, { sharp: true }).to(0.0085, 0.004, { sharp: true }).to(0.005, 0.009, { sharp: true }).to(0, 0.01), { segs: 8, support: false, caps: false }), chain(T(0, D.drawerH / 2, 0.002), mat({ rot: [90, 0, 0] }))), seed + 63));
