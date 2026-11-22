@@ -4,7 +4,8 @@
 // board is a loose part like any other (grabbed, thrown, shipped, its crate shut while it is out, reset) and never
 // loses a token.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape, putOn, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, tape, putOn, waitFor, onBelt, BENCH, type Tape } from './line-helpers.ts';
+import { plug, textAndWait, traySpot } from './patchlamp-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LEDGER } from '../../src/workshop/sim/scenes/bench.ts';
 import { TOKENS_FIELD } from '../../src/workshop/sim/machines/ledger.ts';
@@ -186,4 +187,45 @@ describe('the ledger board', () => {
     expect(placeOf(tokens(w)[2]!)).toBe('h');
     w.dispose();
   });
+
+  test('set on the platen and painted by a text, it is painted; its tokens and its star are as they were; it works there', async () => {
+    const { w, t } = await opened('lb-paint');
+    t.run(SHOW);
+    putOn(w, t, B, traySpot(), 120);
+    t.run(HZ);
+    expect(w.part(B)!.location).toMatchObject({ at: 'in', mouth: 'platen' });
+    plug(w, t, 'jack-platen');
+    const a = textAndWait(w, t, 'paint it blue');
+    expect(a.e.type).toBe('line.reply');
+    t.run(2 * HZ);
+    expect(w.part(B)!.colour).toBe('paint-blue');
+    expect(tokens(w)).toEqual(dealt(2));
+    expect(view(w).wrong).toBe(true);
+    press(w, LEDGER.plunger);
+    t.run(1);
+    expect(tokens(w)).toEqual(repaired(2));
+    w.dispose();
+  }, 120_000);
+
+  test('shipped off the belt, it comes back up the chute with its tokens as they were', async () => {
+    const { w, t } = await opened('lb-ship');
+    t.run(SHOW);
+    const was = tokens(w);
+    w.dispatch({ type: 'turn', id: 'belt-dial', value: 1 });
+    t.run(2);
+    putOn(w, t, B, onBelt(0.6), 60);
+    expect(waitFor(w, t, B, 'shipped', 60 * HZ)).toBe(true);
+    expect(w.mode(B)).toBe('gone');
+    let back = false;
+    for (let i = 0; i < 20 * HZ && !back; i++) {
+      t.run(1);
+      back = w.mode(B) === 'free' && w.part(B)!.location.at === 'rest';
+    }
+    expect(back).toBe(true);
+    expect(tokens(w)).toEqual(was);
+    press(w, LEDGER.plunger);
+    t.run(1);
+    expect(tokens(w)).toEqual(repaired(2));
+    w.dispose();
+  }, 120_000);
 });
