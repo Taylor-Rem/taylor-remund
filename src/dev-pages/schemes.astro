@@ -1,19 +1,20 @@
 ---
-// /dev/schemes/ (D2): the paint schemes compared on the real bench. The bench (/dev/bench/) runs in a frame; this
-// page drives its materials' paint scheme (view/materials/scheme.ts) and, for the lamp, its world (the cord into
-// LAMP and a text, the way a visitor does it). The crew and the loose parts keep their own colours, as the
-// integration will make them (materials.keepColours). Dev-only; never shipped; the letters are working names.
+// /dev/schemes/ (D2, D2b): the paint schemes compared on the real bench. The bench (/dev/bench/) runs in a frame; this
+// page paints its workshop in any scheme of the table at once (view/materials/scheme.ts: A to D are the dial's, E and
+// F the runners-up, never on the dial) and, for the lamp, works its world the way a visitor does (the cord into LAMP and
+// a text). The dial itself is on the bench, in t-components' crate: the "dial" button opens the crate and turns its
+// knob one detent on through the simulation, as a hand does. The views keep the crew's and the loose parts' colours.
+// Dev-only; never shipped; the letters are working names.
 //
 // Query (passed on to the bench, plus):
-//   ?scheme=B          start in a scheme (cut)
-//   ?cut=1             changes cut instead of wiping (as with reduced motion)
-//   ?ox=2.2&oy=0.7&oz=1.75   the wipe's origin (default: where the dial will sit, the crate stack)
+//   ?scheme=B          start in a scheme (cut); E and F too (the bench alone takes ?paint=E)
+//   ?cut=1             the buttons cut instead of wiping (as with reduced motion)
+//   ?ox=2.2&oy=0.7&oz=1.75   the buttons' wipe origin (default: where the dial's crate stands)
 //   ?bar=0             no buttons over the picture (captures)
-//   ?dial=1            the paint dial on top of the top-most crate (until the crates have trays), its needle on the scheme
+//   (?dial=deck is passed on: the bench draws the deck instead of the fan)
 //
-// Keys: 1-4 the schemes A-D (wipe), 0 back home; w warm lamp, o lamp on, n lamp off, b lamp blue; h home, u the Button,
-// c the switchboard, l the line.
-// Captures: shots/d2/capture.ts drives /dev/bench/ directly with the same calls.
+// Keys: 1-6 the schemes A-F (wipe), 0 back home, d the dial one on; w warm lamp, o lamp on, n lamp off, b lamp blue;
+// h home, u the Button, c the switchboard, l the line.
 ---
 <!doctype html>
 <html lang="en">
@@ -29,35 +30,30 @@
       #bar button { font: inherit; padding: 6px 9px; border: 1px solid #000; border-radius: 3px; background: #efe6d2; color: #1a1c1e; cursor: pointer; }
       #bar button[aria-pressed='true'] { background: #1a1c1e; color: #efe6d2; }
       #bar .chip { width: 14px; height: 14px; display: inline-block; vertical-align: -3px; margin-right: 5px; border: 1px solid #000; }
-      #state { color: #bfe3d8; padding: 6px; text-shadow: 0 0 3px #000; }
     </style>
   </head>
   <body>
     <iframe id="bench" title="bench"></iframe>
     <div id="bar"></div>
     <script>
-      import { Box3, Quaternion, Vector3, type Object3D } from 'three';
       import { SCHEME_IDS, SCHEMES, slotColour, type SchemeId } from '../workshop/view/materials/scheme.ts';
-      import { realize } from '../workshop/view/kit/realize.ts';
-      import { paintDial, paintDialAngle } from '../workshop/view/kit/pieces/paint-dial/index.ts';
 
       const q = new URLSearchParams(location.search);
       const pass = new URLSearchParams(q);
-      for (const k of ['scheme', 'cut', 'ox', 'oy', 'oz', 'dial', 'bar']) pass.delete(k);
+      for (const k of ['scheme', 'cut', 'ox', 'oy', 'oz', 'bar']) pass.delete(k);
       if (q.get('bar') === '0') document.getElementById('bar')!.style.display = 'none';
       if (!pass.has('hud')) pass.set('hud', '0');
       const frame = document.getElementById('bench') as HTMLIFrameElement;
       frame.src = `/dev/bench/?${pass.toString()}`;
       const bar = document.getElementById('bar')!;
-      const origin: [number, number, number] = [Number(q.get('ox') ?? 2.2), Number(q.get('oy') ?? 0.7), Number(q.get('oz') ?? 1.75)];
+      const origin: [number, number, number] = [Number(q.get('ox') ?? -1.0), Number(q.get('oy') ?? 0.6), Number(q.get('oz') ?? 1.85)];
       const cut = q.get('cut') === '1';
 
       type WS = {
-        materials: { paint: { set(id: SchemeId, o?: object): void; current: SchemeId }; keepColours(o: unknown): number };
-        stage: { scene: { children: Array<{ name: string; getObjectByName(n: string): unknown }> } };
-        world: { time: number; cord(id: string): { jack: string | null } | undefined };
+        materials: { paint: { set(id: SchemeId, o?: object): void; current: SchemeId } };
+        world: { time: number; cord(id: string): { jack: string | null } | undefined; setting(id: string, f: string): unknown };
         simWorld: { dispatch(i: object): void };
-        advance(n: number): void;
+        dispatch(i: object): void;
       };
       const win = (): (Window & { __bench?: { ws: WS; shot(s: string): void }; __ready?: boolean }) | null => frame.contentWindow as never;
 
@@ -76,15 +72,20 @@
         bar.append(b);
         buttons[key] = b;
       }
-      const state = document.createElement('span');
-      state.id = 'state';
 
+      /** Paint the workshop in a scheme of the table at once (any letter, the runners-up too), wiped from the buttons' origin. */
       function scheme(id: SchemeId): void {
         const ws = win()?.__bench?.ws;
         if (!ws) return;
         ws.materials.paint.set(id, cut ? {} : { time: ws.world.time, origin });
-        turnDial(id);
         for (const k of SCHEME_IDS) buttons[k]?.setAttribute('aria-pressed', String(k === id));
+      }
+      /** The dial, as a hand works it: its crate opened if it is shut, then its knob one detent on. */
+      function dial(): void {
+        const ws = win()?.__bench?.ws;
+        if (!ws) return;
+        if (ws.world.setting('crate-3', 'open') !== true) return void ws.dispatch({ type: 'press', id: 'crate-3-lid' });
+        ws.dispatch({ type: 'press', id: 'paint-dial-knob' });
       }
       /** The lamp as a visitor changes it: the cord into LAMP, then a text. */
       function lamp(text: string): void {
@@ -99,62 +100,19 @@
       }
       const shot = (s: string): void => win()?.__bench?.shot(s);
 
-      // ?dial=1: the paint dial on top of the top-most crate (until S5's tray exists), its needle on the scheme
-      let knob: Object3D | null = null;
-      let dial: Object3D | null = null;
-      const knobRest = new Quaternion();
-      function turnDial(id: SchemeId): void {
-        if (!knob) return;
-        knob.quaternion.copy(knobRest).multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), paintDialAngle(id) - paintDialAngle('A')));
-      }
-      function placeDial(ws: WS): void {
-        const scene = ws.stage.scene as unknown as Object3D;
-        // the top-most crate (one with nothing on it)
-        let box: Box3 | null = null;
-        scene.traverse((o) => {
-          if (!/^part:crate-\d+$/.test(o.name)) return;
-          const bb = new Box3().setFromObject(o);
-          if (!box || bb.max.y > box.max.y) box = bb;
-        });
-        if (!box) return;
-        box = box as Box3;
-        dial = realize(paintDial(), ws.materials as never, { backend: 'nodes' });
-        // built in this window, drawn by the frame's three: its arrays must be the frame's own kinds
-        const fw = frame.contentWindow as unknown as Record<string, new (a: ArrayLike<number>) => ArrayLike<number>>;
-        dial.traverse((o) => {
-          const g = (o as unknown as { geometry?: { attributes: Record<string, { array: ArrayLike<number> }>; index: { array: ArrayLike<number> } | null } }).geometry;
-          if (!g) return;
-          const move = (x: { array: ArrayLike<number> }): void => { x.array = new fw[x.array.constructor.name]!(x.array); };
-          for (const at of Object.values(g.attributes)) move(at);
-          if (g.index) move(g.index);
-        });
-        dial.position.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2 + 0.05);
-        dial.rotation.y = -0.12;
-        scene.add(dial);
-        ws.materials.keepColours(dial);
-        dial.traverse((o) => { if (!knob && o.name === 'knob') knob = o; });
-        if (knob) knobRest.copy((knob as Object3D).quaternion);
-      }
-      /** The camera close on the dial. */
-      function lookAtDial(ws: WS & { stage: { camera: { frame(b: Box3): unknown; cutTo(v: unknown): void; focusOn(p: Vector3): void } } }): void {
-        if (!dial) return;
-        const b = new Box3().setFromObject(dial).expandByScalar(0.18);
-        ws.stage.camera.cutTo(ws.stage.camera.frame(b));
-        ws.stage.camera.focusOn(b.getCenter(new Vector3()));
-      }
-
       for (const id of SCHEME_IDS) button(id, id, () => scheme(id), toHex(slotColour(id, 'teal-panel')));
+      button('dial', 'dial', dial);
       button('warm', 'lamp warm', () => lamp('back to warm'));
       button('on', 'lamp on', () => lamp('lights on'));
       button('off', 'lamp off', () => lamp('lights out'));
       button('blue', 'lamp blue', () => lamp('make it blue'));
       for (const s of ['home', 'button', 'cord', 'line']) button(`shot-${s}`, s, () => shot(s));
-      bar.append(state);
 
       addEventListener('keydown', (e) => {
-        const i = '1234'.indexOf(e.key);
-        if (i >= 0) scheme(SCHEME_IDS[i]!);
+        const i = '123456'.indexOf(e.key);
+        if (i >= 0 && SCHEME_IDS[i]) scheme(SCHEME_IDS[i]!);
         if (e.key === '0') scheme('A');
+        if (e.key === 'd') dial();
         if (e.key === 'w') lamp('back to warm');
         if (e.key === 'o') lamp('lights on');
         if (e.key === 'n') lamp('lights out');
@@ -165,26 +123,18 @@
         if (e.key === 'l') shot('line');
       });
 
-      // when the bench is up: the crew and the loose parts keep their colours; then the asked-for scheme
+      // when the bench is up: the asked-for scheme
       const wait = setInterval(() => {
         const w = win();
         if (!w?.__ready || !w.__bench) return;
         clearInterval(wait);
         const ws = w.__bench.ws;
-        let kept = 0;
-        for (const c of ws.stage.scene.children) {
-          if (['fetch', 'patch', 'parts', 'line-parts'].includes(c.name)) kept += ws.materials.keepColours(c);
-          if (c.name === 'revert-station') kept += ws.materials.keepColours(c.getObjectByName('revert'));
-        }
-        if (q.get('dial') === '1') placeDial(ws);
         const start = q.get('scheme');
         if (start && start in SCHEMES) {
           ws.materials.paint.set(start as SchemeId);
-          turnDial(start as SchemeId);
           for (const k of SCHEME_IDS) buttons[k]?.setAttribute('aria-pressed', String(k === start));
         } else buttons['A']?.setAttribute('aria-pressed', 'true');
-        state.textContent = `${kept} meshes keep their colours`;
-        (window as unknown as { __schemes: unknown }).__schemes = { scheme, lamp, shot, ws, turnDial, lookAtDial: () => lookAtDial(ws as never) };
+        (window as unknown as { __schemes: unknown }).__schemes = { scheme, dial, lamp, shot, ws };
         // for captures driving this page: the bench's hooks, and ready
         (window as unknown as { __bench: unknown }).__bench = w.__bench;
         (window as unknown as { __ready: boolean }).__ready = true;
