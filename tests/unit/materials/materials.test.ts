@@ -4,7 +4,7 @@
 // three's real sources, and no colour literal lives in the folder.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
+import { BoxGeometry, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
 import { describe, expect, it } from 'vitest';
 import { lookViolations } from '../../../scripts/check-look.ts';
 import { CLASS_NAMES, CLASSES, createMaterials, DEBUG_VIEWS } from '../../../src/workshop/view/materials/index.ts';
@@ -357,6 +357,17 @@ describe('see-through twins (P4 S5 round three)', () => {
       expect(b.u['u_fade']).toBe(fade);
     }
     expect(mats.seeThrough(new MeshBasicMaterial(), fade)).toBeNull();
+    // a keepColours twin (D2) has its see-through twin too: the same program, its scheme switch kept off
+    const root = new Mesh(new BoxGeometry(), mats.of('steel'));
+    mats.keepColours(root);
+    const kept = root.material as import('three').Material;
+    expect(kept).not.toBe(mats.of('steel'));
+    const g = mats.seeThrough(kept, fade)!;
+    expect(g.customProgramCacheKey()).toBe(kept.customProgramCacheKey());
+    const a = compiled(kept), b = compiled(g);
+    expect(b.fs).toBe(a.fs);
+    expect(b.u['s_on']!.value).toBe(0);
+    expect(b.u['u_fade']).toBe(fade);
     mats.dispose();
   });
 });

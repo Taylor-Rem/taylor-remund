@@ -13,12 +13,13 @@
  * Labels can be passed now or later with `setLabels` (the label textures are
  * made by view/labels, which may be built after the materials).
  */
-import { AdditiveBlending, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { AdditiveBlending, MeshBasicMaterial, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Object3D, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
 import { createNoiseTexture, NOISE_PERIOD } from './noise.ts';
 import { LAMP_GLOW } from './lamp-glow.ts';
+import { SchemeState, schemeUniforms, type SchemeUniforms } from './scheme.ts';
 import {
   DEBUG_PARS,
   FRAGMENT_CLOSE,
@@ -36,6 +37,7 @@ import {
 
 export { CLASSES, CLASS_NAMES } from './classes.ts';
 export type { ClassDef, Param } from './classes.ts';
+export { HOME_SCHEME, SCHEME_IDS, SCHEME_LOOK, SCHEME_SLOTS, SCHEMES, SchemeState, slotMultiplier, slotOf, type SchemeId, type SchemeSlot } from './scheme.ts';
 
 /**
  * Review views. 'clay': one neutral matte tone (form, bevels and shadow only).
@@ -100,7 +102,21 @@ export interface WorkshopMaterials extends Materials {
   halo(): MeshBasicMaterial;
   /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
   seeThrough(material: Material, fade: { value: number }): Material | null;
+  /**
+   * D2, the paint scheme (scheme.ts): which scheme the enamel shows and the wipe to another. `paint.set(id,
+   * { time, origin, reduced })`; `update(time)` runs the wipe on. Scheme A is the approved look.
+   */
+  readonly paint: SchemeState;
+  /**
+   * Give every workshop material under `root` its twin that never takes the paint scheme (the crew and loose
+   * parts: their colours are their own). Same program, same class uniforms. Call once after realising `root`
+   * (and again on anything added under it). Returns the meshes changed.
+   */
+  keepColours(root: Object3D): number;
 }
+
+/** The classes whose enamel takes the paint scheme (scheme.ts). */
+export const SCHEMED: ReadonlySet<MaterialClass> = new Set(['steel']);
 
 type Pbr = MeshStandardMaterial | MeshPhysicalMaterial;
 
@@ -133,6 +149,8 @@ interface Variant {
   large?: boolean;
   /** The lamp's own lit parts: the bulb class reads LAMP_GLOW (materials/lamp-glow.ts). */
   lampGlow?: boolean;
+  /** Never takes the paint scheme (a `keepColours` twin): same program, `s_on` 0. */
+  keep?: boolean;
 }
 
 /** Classes with a cheaper 'large' path (a LARGE define in their GLSL). */
@@ -154,6 +172,7 @@ interface Shared {
   noise: { value: Data3DTexture };
   debug: DebugView | undefined;
   debugUniforms: ClassUniforms;
+  scheme: SchemeUniforms;
 }
 
 function debugUniforms(): ClassUniforms {
@@ -184,6 +203,8 @@ if ( u_fade > 0.0 ) {
 }`;
 /** The fade of every material that is not a see-through twin: none. */
 const NO_FADE = { value: 0 };
+/** How each material `build` made was built (its see-through twin is built the same: the same program). */
+const RECIPES = new WeakMap<Material, { cls: MaterialClass; variant: Variant; sh: Shared }>();
 
 function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant, fade: { value: number } = NO_FADE): Pbr {
   const { tier, noise, debug } = sh;
@@ -242,8 +263,11 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     debug ?? '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
+  RECIPES.set(mat, { cls, variant, sh });
+  // the paint scheme: shared uniforms, and this material's own switch (a twin's is 0); never in the key
+  const scheme: SchemeUniforms | null = SCHEMED.has(cls) ? { ...sh.scheme, s_on: { value: variant.keep ? 0 : 1 } } : null;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise, u_fade: fade }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise, u_fade: fade }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -255,7 +279,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
 
     let fs = shader.fragmentShader;
     fs = inject(fs, 'clipping_planes_fragment', SCREEN_DOOR, 'after');
-    fs = inject(fs, 'common', `uniform float u_fade;\n${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'common', `uniform float u_fade;\n${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -296,6 +320,12 @@ export function coatOnlyWhereCoated(fs: string): string {
   }
   for (const [chunk, src] of chunks) fs = inject(fs, chunk, src, 'replace');
   return fs;
+}
+
+/** A twin is named after the material it stands in for. */
+function named(t: Pbr, of: Material): Pbr {
+  t.name = `${of.name}/own-colours`;
+  return t;
 }
 
 /** The focus mark: see WorkshopMaterials.focusMark. */
@@ -389,7 +419,11 @@ function flicker(time: number, amount: number): number {
 
 export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const tier = opts.tier;
-  const sh: Shared = { tier, noise: { value: createNoiseTexture() }, debug: opts.debug, debugUniforms: debugUniforms() };
+  const sh: Shared = { tier, noise: { value: createNoiseTexture() }, debug: opts.debug, debugUniforms: debugUniforms(), scheme: schemeUniforms() };
+  const paint = new SchemeState(sh.scheme);
+  /** Every schemed material made, and how to make its twin; the twins made. */
+  const twinOf = new Map<Material, () => Pbr>();
+  const twins = new Map<Material, Pbr>();
   const noise = sh.noise;
   let decal: MeshBasicMaterial | undefined;
   let focusMark: MeshBasicMaterial | undefined;
@@ -398,10 +432,9 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
-  /** How each material here was built, so its see-through twin can be built the same (the same program). */
-  const recipes = new WeakMap<Material, { cls: MaterialClass; variant: Variant }>();
-  const twins = new WeakMap<Material, WeakMap<{ value: number }, Pbr>>();
-  const twinList: Pbr[] = [];
+  /** (round three) The see-through twins made, per material and fade. */
+  const ghosts = new WeakMap<Material, WeakMap<{ value: number }, Pbr>>();
+  const ghostList: Pbr[] = [];
 
   const uniformsOf = (cls: MaterialClass): ClassUniforms => {
     let u = uniformsBy.get(cls);
@@ -420,10 +453,11 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     if (!m) {
       const def = CLASSES[cls];
       if (!def) throw new Error(`materials: unknown class ${String(cls)}`);
-      m = build(cls, def, sh, uniformsOf(cls), { large, lampGlow });
-      if (lampGlow) m.name = `workshop/${cls}/lamp`;
-      shared.set(k, m);
-      recipes.set(m, { cls, variant: { large, lampGlow } });
+      const made = build(cls, def, sh, uniformsOf(cls), { large, lampGlow });
+      if (lampGlow) made.name = `workshop/${cls}/lamp`;
+      if (SCHEMED.has(cls)) twinOf.set(made, () => named(build(cls, def, sh, uniformsOf(cls), { large, lampGlow, keep: true }), made));
+      shared.set(k, made);
+      m = made;
     }
     return m;
   };
@@ -445,16 +479,17 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       return halo;
     },
     seeThrough(material, fade) {
-      const r = recipes.get(material);
-      if (!r) return null;
-      let byFade = twins.get(material);
-      if (!byFade) twins.set(material, (byFade = new WeakMap()));
+      // (a shared material, a textured one or a keepColours twin alike: each knows how it was built)
+      const r = RECIPES.get(material);
+      if (!r || r.sh !== sh) return null;
+      let byFade = ghosts.get(material);
+      if (!byFade) ghosts.set(material, (byFade = new WeakMap()));
       let t = byFade.get(fade);
       if (!t) {
         t = build(r.cls, CLASSES[r.cls], sh, uniformsOf(r.cls), r.variant, fade);
         t.name = `${material.name}/see-through`;
         byFade.set(fade, t);
-        twinList.push(t);
+        ghostList.push(t);
       }
       return t;
     },
@@ -464,19 +499,39 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       let m = textured.get(k);
       if (!m) {
         if (!labels) throw new Error('materials: textured() needs Labels (pass labels to createMaterials or call setLabels)');
-        const variant: Variant = {
+        const v: Variant = {
           map: labels.texture(key),
           normalMap: labels.normalMap(key),
           roughnessMap: labels.roughnessMap(key),
           alpha: labelAlpha(labels, key),
         };
-        m = build(cls, CLASSES[cls], sh, uniformsOf(cls), variant);
-        textured.set(k, m);
-        recipes.set(m, { cls, variant });
+        const made = build(cls, CLASSES[cls], sh, uniformsOf(cls), v);
+        m = made;
+        textured.set(k, made);
+        if (SCHEMED.has(cls)) twinOf.set(made, () => named(build(cls, CLASSES[cls], sh, uniformsOf(cls), { ...v, keep: true }), made));
       }
       return m;
     },
+    paint,
+    keepColours(root) {
+      let n = 0;
+      root.traverse((o) => {
+        const mesh = o as Mesh;
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+        const make = twinOf.get(mesh.material);
+        if (!make) return;
+        let t = twins.get(mesh.material);
+        if (!t) {
+          t = make();
+          twins.set(mesh.material, t);
+        }
+        mesh.material = t;
+        n++;
+      });
+      return n;
+    },
     update(time) {
+      paint.update(time);
       const belt = uniformsOf('belt');
       const speed = belt.u_speed?.value;
       if (belt.u_offset && typeof speed === 'number') belt.u_offset.value = time * speed;
@@ -495,13 +550,16 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       u.value = Math.min(prm.max, Math.max(prm.min, value));
     },
     all() {
-      return [...shared.values(), ...textured.values()];
+      return [...shared.values(), ...textured.values(), ...twins.values()];
     },
     dispose() {
       for (const m of shared.values()) m.dispose();
       for (const m of textured.values()) m.dispose();
-      for (const m of twinList) m.dispose();
-      twinList.length = 0;
+      for (const m of ghostList) m.dispose();
+      ghostList.length = 0;
+      for (const m of twins.values()) m.dispose();
+      twins.clear();
+      twinOf.clear();
       shared.clear();
       textured.clear();
       noise.value.dispose();
