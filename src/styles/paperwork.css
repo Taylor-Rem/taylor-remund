@@ -361,9 +361,10 @@
   #paperwork .pw-section > * {
     grid-column: 2;
   }
+  /* the tape spans two rows, so a tape that wraps (Patchlamp's) does not push the title's matter down */
   #paperwork .pw-section > .pw-tape {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 1 / span 2;
     margin-top: 0.45rem;
   }
   #paperwork .pw-section > .pw-tape + .pw-title {
@@ -402,6 +403,9 @@
     text-align: right;
   }
   /* the photograph in the margin, under the tape, as on the résumé */
+  #paperwork .pw-about > .pw-tape {
+    grid-row: 1;
+  }
   #paperwork .pw-about > .pw-photo {
     grid-column: 1;
     grid-row: 2 / span 2;

@@ -281,7 +281,8 @@ const paperworkComplete = async (page: Page): Promise<void> => {
   await expect(pw.locator('#patchlamp')).toContainText('Patch takes chores off your hands');
   await expect(pw.locator('#patchlamp a[href="https://patchlamp.com/pricing"]')).toHaveCount(1);
   // the prices are /ai/'s, whole
-  await expect(pw.locator('#services .price')).toHaveText(['$150', '$500–$1,500']);
+  await expect(pw.locator('#services .pw-rate-price')).toHaveText(['$150', '$500–$1,500']);
+  await expect(pw.locator('#services .pw-rate-note')).toHaveText(['60 minutes · $250 for a 2-hour deep dive', 'one-time install · optional care plan $79/mo']);
   await expect(pw.locator('#services a[href="/ai/"]')).toHaveCount(1);
   await expect(pw.locator('#about a[href="/resume/"]')).toHaveCount(1);
   for (const href of ['https://github.com/Taylor-Rem', 'https://linkedin.com/in/taylor-remund-88169124a', 'mailto:remundtaylor3@gmail.com']) {
