@@ -226,8 +226,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           lookAt.name = 'look.box';
           holder.add(lookAt);
           const cs = projectCardSize(size);
-          const hw2 = Math.max(cs.w, S.w) / 2;
-          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, S.h * 0.55, -S.d / 2), new Vector3(hw2, rim + lift + 0.03 + cs.h, S.d / 2 + 0.02)), pad: 0, active: () => false });
+          const hw2 = cs.w / 2 + 0.02;
+          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -S.d / 2), new Vector3(hw2, rim + lift + 0.03 + cs.h, S.d / 2 + 0.02)), pad: 0, active: () => false });
         }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
         // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just

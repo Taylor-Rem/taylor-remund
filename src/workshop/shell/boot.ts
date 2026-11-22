@@ -204,7 +204,7 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * double-tap first asks the world whether a thing answers it (`select`); the station is framed only if nothing has asked
  * to be looked at `selectWait` ms later.
  */
-export const LOOK_AT = { minPx: 360, fill: 0.7, zoomStep: 0.03, tries: 40, selectWait: 140 } as const;
+export const LOOK_AT = { minPx: 360, fill: 0.9, zoomStep: 0.03, tries: 40, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {

@@ -312,16 +312,17 @@ describe('round two: asked for by itself (a double-click or double-tap), a crate
     w.dispose();
   });
 
-  test('a double-tap\'s first tap lifted the crate: let go still, it opens once it lies still, where it was', async () => {
+  test('a double-tap\'s first tap lifted the crate (and the lift carried it toward the visitor): asked for, it goes back where it lay and opens there', async () => {
     const w = await benchWorld('pc-select-held', { scene: BENCH });
     const t = tape(w);
     t.run(30);
     const p = w.motion('crate-3')!.pose.p;
     w.dispatch({ type: 'grab', id: 'crate-3', grip: p });
-    t.run(18);
-    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    w.dispatch({ type: 'carry', target: [p[0], p[1] + 0.35, p[2] + 0.45] });
+    t.run(8);
     w.dispatch({ type: 'select', id: 'crate-3' });
     t.run(1);
+    expect(w.mode('crate-3')).not.toBe('held');
     for (let i = 0; i < steps(1.5) && !isOpen(w, 'crate-3'); i++) t.run(1);
     expect(isOpen(w, 'crate-3')).toBe(true);
     expect(t.of('look').map((x) => x.e.target)).toEqual(['crate-3-card']);

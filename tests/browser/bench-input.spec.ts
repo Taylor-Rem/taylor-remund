@@ -946,8 +946,8 @@ test('P4 S5 round two: a double-click on a crate lying still opens it where it l
     const p = ctx ? await ctx.newPage() : page;
     await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
     const zoom0 = await p.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number);
-    const at0 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
     const c = await waitClear(p, 'crate-3', kind);
+    const at0 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
     if (kind === 'mouse') await p.mouse.dblclick(c.x, c.y);
     else {
       await p.touchscreen.tap(c.x, c.y);

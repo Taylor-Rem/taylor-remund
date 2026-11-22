@@ -731,6 +731,18 @@ export function createWorld(opts: WorldOptions): World {
     if (loc.at !== 'rest') return false;
     const p = physics.pose(l.id).p;
     if (Math.hypot(p[0] - loc.pose.p[0], p[2] - loc.pose.p[2]) > T.cancelDistance) return false;
+    return putDownWhereTaken(l);
+  }
+
+  /**
+   * The pick-up of the part in hand undone: it is put back exactly where it lay (its location, unchanged while it was
+   * held), still, as if never taken. False (nothing done) if it was not lying at rest when it was taken.
+   */
+  function putDownWhereTaken(l: Loose): boolean {
+    const loc = store.get(l.id, 'location') as Location;
+    if (loc.at !== 'rest') return false;
+    trail.length = 0;
+    hands.length = 0;
     physics.setPose(l.id, loc.pose);
     release(l, [0, 0, 0], [0, 0, 0]);
     physics.sleep(l.id);
@@ -1714,6 +1726,17 @@ export function createWorld(opts: WorldOptions): World {
         return true;
       case 'reset':
         return reset();
+      case 'select': {
+        // (P4 S5 round two) a double-tap's first tap took the thing up (tap-then-tap); asked for by itself, it goes
+        // back where it lay instead of falling where the tap's lift had carried it. Then the units hear the ask.
+        if (held?.kind === 'part' && held.id === intent.id) {
+          const l = lp(held.id);
+          if (!putDownWhereTaken(l)) letGoOfPart(l, [0, 0, 0], 'release');
+        }
+        if (bracket) return false;
+        for (const u of units) if (u.intent?.(intent)) return true;
+        return false;
+      }
       case 'motion':
         reduced = intent.reduced;
         button.setReducedMotion(intent.reduced);
