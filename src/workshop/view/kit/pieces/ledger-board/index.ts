@@ -92,12 +92,14 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   // a brass strip along the back edge, a hair off true, screwed down (one screw a brass replacement of a different head)
   const stripM = chain(T(0, B.h - 0.001, -B.d / 2 + 0.02), askew(seed + 3, 0.8));
   b.add(part('brass', transform(slab({ w: B.w - 0.05, d: 0.022, t: 0.004, r: 0.004, bevel: 0.0015, detail, open: true }), stripM), 'brass', { seed: seed + 4, warm: 0.04 }));
-  const odd = R.int(0, 4);
-  b.small(() => [-0.22, -0.11, 0, 0.11, 0.22].flatMap((x, i) => domeRivet({ d: i === odd ? 0.013 : 0.01, detail: 'low', seed: seed + 10 + i, cheap: true }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(stripM, T(x + (i === odd ? 0.003 : 0), 0.004, 0))) }))));
+  const odd = R.int(0, 2);
+  b.small(() => [-0.22, 0.02, 0.22].flatMap((x, i) => domeRivet({ d: i === odd ? 0.013 : 0.01, detail: 'low', seed: seed + 10 + i, cheap: true }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(stripM, T(x + (i === odd ? 0.003 : 0), 0.004, 0))) }))));
 
   // ---- medium: the cups (turned brass rings sunk a hair into the base) -----------------------------------------
   const cupG = (): BufferGeometry =>
-    lathe(profile(B.cupR - B.cupWall, B.cupH).to(B.cupR - B.cupWall * 0.3, B.cupH * 1.05, { sharp: true }).to(B.cupR, -0.002, { sharp: true }), { segs: low ? 8 : 10, support: false, caps: false });
+    lathe(profile(B.cupR - B.cupWall, B.cupH).to(B.cupR - B.cupWall * 0.3, B.cupH * 1.05, { sharp: true }).to(B.cupR, -0.002, { sharp: true }), { segs: low ? 8 : 9, support: false, caps: false });
+  // a dark rubber mat under each month's row, so a coin in a cup (and the gap where one is not) reads from across the bench
+  for (const z of B.rowZ) b.add(part('rubber', transform(slab({ w: 4 * B.cupDX + 0.012, d: 2 * B.cupR + 0.012, t: 0.002, r: B.cupR, bevel: 0.0008, detail: 'low', open: true }), T(B.cupX0 + 1.5 * B.cupDX, B.h - 0.0005, z)), 'ink', { shade: 1.4 }));
   for (let i = 0; i < 8; i++) {
     const row = Math.floor(i / 4), col = i % 4;
     b.add(part('brass', transform(cupG(), T(B.cupX0 + col * B.cupDX, B.h - 0.002, B.rowZ[row]!)), 'brass', { seed: seed + 20 + i, jitter: 0.05, warm: 0.04 }));
@@ -106,7 +108,7 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   // ---- the hopper: a turned dish on a pedestal at the left end ------------------------------------------------
   const hx = B.hopperX, hz = B.hopperZ;
   b.add(part('brass', transform(lathe(profile(0.034, 0).to(0.022, 0.012, { sharp: true }).to(0.02, B.hopperFloor - B.h - 0.01, { sharp: true }).to(0, B.hopperFloor - B.h - 0.008), { segs: 9, support: false, caps: false }), T(hx, B.h, hz)), 'brass', { seed: seed + 30, warm: 0.04 }));
-  b.add(part('brass', transform(lathe(profile(0, 0).to(B.hopperR * 0.7, 0.001, { sharp: true }).to(B.hopperR * 1.04, 0.026, { sharp: true }).to(B.hopperR * 0.96, 0.027, { sharp: true }).to(B.hopperR * 0.66, 0.006, { sharp: true }).to(0, 0.004), { segs: low ? 11 : 14, support: false, caps: false }), T(hx, B.hopperFloor - 0.004, hz)), 'brass', { seed: seed + 31, warm: 0.05 }));
+  b.add(part('brass', transform(lathe(profile(0, 0).to(B.hopperR * 0.7, 0.001, { sharp: true }).to(B.hopperR * 1.04, 0.026, { sharp: true }).to(B.hopperR * 0.96, 0.027, { sharp: true }).to(B.hopperR * 0.66, 0.006, { sharp: true }).to(0, 0.004), { segs: low ? 10 : 12, support: false, caps: false }), T(hx, B.hopperFloor - 0.004, hz)), 'brass', { seed: seed + 31, warm: 0.05 }));
 
   // ---- the crank on the hopper's pedestal front: a boss, an arm, a rubber grip (it turns about its local Y, toward the visitor)
   const crankAt = chain(T(hx, B.crankY, hz + B.crankZ), mat({ rot: [90, 0, 0] }));

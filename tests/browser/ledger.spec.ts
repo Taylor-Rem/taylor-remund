@@ -59,7 +59,7 @@ async function open(page: Page): Promise<string[]> {
     ws.dispatch({ type: 'grab', id: 'ledger-board', grip: ws.world.motion('ledger-board').pose.p });
   });
   await frames(page, 3);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [0.95, 0, 2.95] }));
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [1.0, 0, 2.4] }));
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('ledger-board').location.at === 'rest' && (window as any).__bench.ws.world.machine('ledger').show === null), 900, 'the board on the bench, its show over');
   return errors;
 }

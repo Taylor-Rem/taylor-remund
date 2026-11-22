@@ -39,8 +39,8 @@ export const BOARD = {
   /** The star lamp on its post at the back, facing the visitor. */
   starX: 0.105,
   starZ: -0.158,
-  starY: 0.2,
-  starR: 0.045,
+  starY: 0.22,
+  starR: 0.055,
   /** The plunger at the right front: its knob's top at rest, and how far a press takes it down. */
   plungerX: 0.226,
   plungerZ: 0.104,
