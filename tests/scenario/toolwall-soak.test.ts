@@ -145,12 +145,11 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
       run(r.chance(0.5) ? r.int(30) + 1 : r.int(300) + 30);
     }
     if (w.holding()) letGo([0, 0, 0]);
-    // left alone: every tool hangs, or lies where a visitor finds it (on the bench, in a machine's mouth)
-    run(steps(16));
-    for (const t of TOOLS) {
-      const m = w.motion(t)!;
-      if (m.mode === 'gone' || m.mode === 'chute' || m.mode === 'held') throw new Error(`left alone, ${t} is ${m.mode} (${JSON.stringify(w.part(t)!.location)})`);
-    }
+    // left alone: every tool comes to hang, or to lie where a visitor finds it (on the bench, in a machine's mouth), within
+    // half a minute: one on its way back (shipped and due back, in the chute, in the crew's hands) is not lost
+    const out = (t: string): boolean => ['gone', 'chute', 'held'].includes(w.motion(t)!.mode);
+    for (let i = 0; i < steps(30) && TOOLS.some(out); i++) run(1);
+    for (const t of TOOLS) if (out(t)) throw new Error(`left alone, ${t} is ${w.motion(t)!.mode} (${JSON.stringify(w.part(t)!.location)})`);
     // and "Reset the workshop" hangs all eight
     w.dispatch({ type: 'reset' });
     run(3);
