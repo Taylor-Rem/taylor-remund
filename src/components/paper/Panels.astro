@@ -16,21 +16,22 @@
 // page for anyone without the stage; the panel clones them (one copy). The script is asked for only once the
 // bench is usable, so the Still tier never fetches it.
 import ProjectEntry from './ProjectEntry.astro';
-import { hatches, cardProjects, liveWords } from '../../content/hatches.ts';
+import { hatches, liveWords } from '../../content/hatches.ts';
 import { home } from '../../content/home.ts';
 import { site } from '../../content/site.ts';
-import { projectAnchor, projectSlug } from './projects.ts';
+import { BENCH_PROJECTS } from '../../content/bench-projects.ts';
 import { printAddress } from './links.ts';
 
 const p = hatches.panel;
 const live = hatches.maker.live;
-const cards = cardProjects();
+// the project crates on the bench (P4 S5, bench-projects.json), each its published entry and its anchor on /resume/
+const cards = Object.values(BENCH_PROJECTS).map((b) => ({ entry: b.entry, anchor: b.anchor, panel: `project:${b.anchor.replace(/^p-/, '')}` }));
 const resumeWord = site.strip.links.find((l) => l.href === '/resume/')!.text;
 const mail = site.strip.links.find((l) => l.href.startsWith('mailto:'))!;
 const address = printAddress(mail.href)!;
 const index = [
+  // (the project cards are the crates' own plates, already in the list)
   { id: 'patchlamp', label: hatches.patchlamp.tape.text },
-  ...cards.map((e) => ({ id: `project:${projectSlug(e)}`, label: e.title.text })),
   { id: 'maker', label: hatches.maker.title.text },
   { id: 'contact', label: home.contact.eyebrow.text },
 ];
@@ -44,10 +45,10 @@ const words = JSON.stringify(liveWords()).replace(/</g, '\\u003c');
   </div>
 </dialog>
 <template id="pn-projects">
-  {cards.map((e) => (
-    <div class="pn-card" data-panel={`project:${projectSlug(e)}`}>
-      <ProjectEntry entry={e} headingId={`pn-${projectAnchor(e)}`} id={false} />
-      <ul class="pw-links"><li><a href={`/resume/#${projectAnchor(e)}`}>{resumeWord}</a></li></ul>
+  {cards.map((c) => (
+    <div class="pn-card" data-panel={c.panel}>
+      <ProjectEntry entry={c.entry} headingId={`pn-${c.anchor}`} id={false} />
+      <ul class="pw-links"><li><a href={`/resume/#${c.anchor}`}>{resumeWord}</a></li></ul>
     </div>
   ))}
 </template>

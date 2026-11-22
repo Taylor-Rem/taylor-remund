@@ -36,6 +36,7 @@ import { readingFor, stationFor } from '../strip/strip.ts';
 import { listModel, modelKey, projectOf, type ControlsSource, type ListModel } from './model.ts';
 import { Announcer } from './announce.ts';
 import { LIST, SAID } from './words.ts';
+import { PANEL_EVENT } from '../panels/ids.ts';
 
 export interface ControlsDom {
   /** The list's section (`#controls`, Controls.astro). */
@@ -103,6 +104,10 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
   hold.append(holdLabel, dests, put);
   const stationsEl = el('div', 'controls-stations');
   body.append(hold, stationsEl);
+  // (P4 H1) the Plates group: one button per panel a plate opens over the stage (Patchlamp's hatch, the maker's
+  // plate, contact), from the page's own markup (src/components/paper/Panels.astro `#pn-index`); none on a page without it
+  const platesEl = platesGroup(doc);
+  if (platesEl) body.append(platesEl);
   root.append(body);
   root.hidden = false;
 
@@ -215,6 +220,7 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     const h = m.hold;
     hold.hidden = h === null;
     stationsEl.hidden = h !== null;
+    if (platesEl) platesEl.hidden = h !== null;
     if (h) {
       holdLabel.textContent = h.label;
       const lis = h.dests.map((d) => {
@@ -367,6 +373,20 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     win.requestAnimationFrame(measure);
   };
   const onClick = (e: MouseEvent): void => {
+    // (P4 H1) a plate in the list opens its panel over the stage; a project's plate link goes to /resume/ only when
+    // no panel takes it (the page without the panels, a modified click)
+    const target = e.target instanceof Element ? e.target : null;
+    const plate = target?.closest<HTMLElement>('button[data-panel]');
+    if (plate && root.contains(plate)) {
+      askPanel(doc, plate.dataset['panel']!, plate);
+      return;
+    }
+    const link = target?.closest<HTMLAnchorElement>('a[data-link]');
+    if (link && root.contains(link)) {
+      const anchor = new URL(link.href).hash.slice(1);
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0 && anchor && askPanel(doc, `project:${anchor}`, link)) e.preventDefault();
+      return;
+    }
     const t = idOf(e.target);
     if (!t) return;
     if (t.kind === 'station') {
@@ -475,12 +495,12 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     update();
     const sentences = announcer.hear(frame.world, frame.events, { keyHeld: ws.gestures.keyHold ? (ws.gestures.held?.id ?? null) : null, phoneOpen: ws.phone?.isOpen ?? false });
     if (sentences.length > 0) say(sentences.join(' '));
-    // (P4 S5) the plate on an open project crate's card pressed on the stage: its entry on /resume/, as its link in this
-    // list goes (a panel over the stage will hear the same event later)
+    // (P4 S5) the plate on an open project crate's card pressed on the stage: (P4 H1) its card over the stage, or,
+    // where no panel takes it, its entry on /resume/, as its link in this list goes
     for (const e of frame.events) {
       if (e.type !== 'crate.plate') continue;
       const href = projectOf(frame.world, e.crate)?.href;
-      if (href) win.location.assign(href);
+      if (href && !askPanel(doc, `project:${new URL(href, win.location.href).hash.slice(1)}`, null)) win.location.assign(href);
       break;
     }
   });
@@ -507,4 +527,39 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     root.hidden = true;
     opener?.setAttribute('hidden', '');
   };
+}
+
+/**
+ * (P4 H1) Ask the panels over the stage to open `panel` (src/workshop/ui/panels/ids.ts): true when one did (the
+ * panels' handler cancels the event), false when nothing took it (the caller then does what it did before).
+ */
+function askPanel(doc: Document, panel: string, from: HTMLElement | null): boolean {
+  return !doc.dispatchEvent(new CustomEvent(PANEL_EVENT, { cancelable: true, detail: { panel, from } }));
+}
+
+/** (P4 H1) The Plates group, drawn from the page's `#pn-index` template (its heading and one button per panel), or null. */
+function platesGroup(doc: Document): HTMLElement | null {
+  const t = doc.getElementById('pn-index') as HTMLTemplateElement | null;
+  if (!t) return null;
+  const src = t.content;
+  const group = doc.createElement('section');
+  group.className = 'controls-station controls-plates';
+  const h = doc.createElement('h3');
+  h.className = 'controls-h controls-heading controls-plates-title';
+  h.id = 'controls-plates-title';
+  h.textContent = src.querySelector('.pn-index-title')?.textContent ?? '';
+  const ul = doc.createElement('ul');
+  ul.setAttribute('aria-labelledby', h.id);
+  for (const b of src.querySelectorAll<HTMLButtonElement>('button[data-panel]')) {
+    const li = doc.createElement('li');
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = 'controls-button';
+    button.dataset['panel'] = b.dataset['panel']!;
+    button.textContent = b.textContent;
+    li.append(button);
+    ul.append(li);
+  }
+  group.append(h, ul);
+  return group;
 }

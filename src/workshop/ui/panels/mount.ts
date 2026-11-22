@@ -4,9 +4,13 @@
  * running workshop (shell/home.ts `onWorkshop`) and opens a panel when
  *
  *   - a plate in the world is pressed: a `plate.pressed` sim event in a
- *     frame's events (ids.ts says the shape);
- *   - the page asks: a `workshop:panel` DOM event (the controls list's
- *     Plates group, ui/controls/list.ts);
+ *     frame's events (ids.ts says the shape; for the plates still to come:
+ *     Patchlamp's, the maker's, the mailbox, the clipboard);
+ *   - the page asks: a `workshop:panel` DOM event, which it cancels when it
+ *     opened a panel (the controls list sends it for a project crate's
+ *     `crate.plate` event, for the crates' plate links and for its Plates
+ *     group, and goes to /resume/ itself when nothing took it:
+ *     ui/controls/list.ts);
  *   - the address asks: `/?panel=<id>`, once, when the bench is first usable
  *     (the development flag; the crates' plates are not on the bench yet).
  *
@@ -100,9 +104,7 @@ export function mountPanels(doc: Document = document): Panels | null {
   });
   if (!panels) return null;
 
-  const open = (id: PanelId | null, from: HTMLElement | null = null): void => {
-    if (id && ws) panels.open(id, from);
-  };
+  const open = (id: PanelId | null, from: HTMLElement | null = null): boolean => (id && ws ? panels.open(id, from) : false);
 
   let offFrame: (() => void) | null = null;
   let asked = panelId(new URLSearchParams(doc.defaultView?.location.search ?? '').get('panel'));
@@ -128,7 +130,8 @@ export function mountPanels(doc: Document = document): Panels | null {
   });
   doc.addEventListener(PANEL_EVENT, (e) => {
     const d = (e as CustomEvent<{ panel?: unknown; from?: HTMLElement }>).detail;
-    open(panelId(d?.panel), d?.from ?? null);
+    // opened: the asker's fallback (a link to /resume/) is not wanted
+    if (open(panelId(d?.panel), d?.from ?? null)) e.preventDefault();
   });
   return panels;
 }

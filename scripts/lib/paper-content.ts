@@ -18,4 +18,9 @@ export const PAPER_ONLY_CONTENT: readonly string[] = [
   // (P4 A3) the home page's paperwork: nothing under src/workshop reads it
   'src/content/home.json',
   'src/content/home.ts',
+  // (P4 H1) the panels' and hatches' words and the test count: the page's HTML reads them, the workshop's code reads
+  // them from the page (src/components/paper/Panels.astro), never from here
+  'src/content/hatches.json',
+  'src/content/hatches.ts',
+  'src/content/bench-tests.json',
 ];

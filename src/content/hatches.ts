@@ -2,14 +2,13 @@ import hatchesJson from './hatches.json';
 import { assertContent } from './schema.ts';
 import type { FactEntry, UiEntry, VoiceEntry } from './schema.ts';
 import type { LinkEntry } from './resume.ts';
-import { resume, type Project } from './resume.ts';
 
 /**
  * The words of the panels a brass plate opens over the stage on `/`
  * (REWRITE.md § B7 "Hatches", § G "P4 as Taylor amended it"), and of the two
  * hatches' sections in the paperwork, where the same words are for anyone
  * without the stage (P4 H1). Read only by the page's HTML
- * (src/components/paper/Hatches.astro, Panels.astro): the workshop's code reads
+ * (src/components/paper/PatchlampHatch.astro, MakerPlate.astro, Panels.astro): the workshop's code reads
  * them from the page, so this file is paper-only content
  * (scripts/lib/paper-content.ts) and a change to it never stales the bench's
  * pictures.
@@ -23,7 +22,6 @@ type Section<T> = { heading: UiEntry; items: T[] };
 
 export interface Hatches {
   panel: { close: UiEntry; list: UiEntry; copy: UiEntry; copied: UiEntry };
-  cards: { projects: { title: string; source: string }[] };
   patchlamp: {
     tape: UiEntry;
     title: UiEntry;
@@ -57,16 +55,6 @@ export interface Hatches {
 }
 
 export const hatches = assertContent(hatchesJson, 'src/content/hatches.json') as unknown as Hatches;
-
-/** The project cards a plate can open: the published entries, in the order hatches.json lists them. A title the
- *  résumé does not publish stops the build. */
-export function cardProjects(): Project[] {
-  return hatches.cards.projects.map(({ title }) => {
-    const e = resume.projects.entries.find((p) => p.title.text === title);
-    if (!e) throw new Error(`src/content/hatches.json cards: no project titled ${JSON.stringify(title)} in src/content/resume.json`);
-    return e;
-  });
-}
 
 /** The words the workshop's code fills its live lines with (the plate's log), as plain strings by key. */
 export function liveWords(): Record<string, string | Record<string, string>> {

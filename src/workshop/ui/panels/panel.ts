@@ -65,8 +65,9 @@ function reId(root: ParentNode): void {
 
 export function createPanels(o: PanelsOptions = {}): Panels | null {
   const doc = o.doc ?? document;
-  const dialog = doc.getElementById('plate-panel') as HTMLDialogElement | null;
-  if (!dialog || typeof dialog.showModal !== 'function') return null;
+  const found = doc.getElementById('plate-panel') as HTMLDialogElement | null;
+  if (!found || typeof found.showModal !== 'function') return null;
+  const dialog: HTMLDialogElement = found;
   const body = dialog.querySelector<HTMLElement>('.pn-body')!;
   const closeButton = dialog.querySelector<HTMLButtonElement>('.pn-close')!;
   const said = dialog.querySelector<HTMLElement>('.pn-said')!;

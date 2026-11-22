@@ -24,34 +24,6 @@
       "source": "P4 H1: said (and shown) once the address is on the visitor's own clipboard; nothing leaves the browser. For Taylor"
     }
   },
-  "cards": {
-    "projects": [
-      {
-        "title": "Ledger Management System",
-        "source": "shots/p4/lead/S5-project-crates.md § The six; DEMO-CONCEPTS.md table (a crate)"
-      },
-      {
-        "title": "Report Generation Framework",
-        "source": "the same"
-      },
-      {
-        "title": "t-components",
-        "source": "the same"
-      },
-      {
-        "title": "Support Desk Rewrite",
-        "source": "the same"
-      },
-      {
-        "title": "Clean & Green Inspections",
-        "source": "the same"
-      },
-      {
-        "title": "Artificer",
-        "source": "the same"
-      }
-    ]
-  },
   "patchlamp": {
     "tape": {
       "text": "Patchlamp · the toy",
