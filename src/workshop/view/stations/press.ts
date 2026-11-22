@@ -155,7 +155,7 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
       const reach = D.leverLen + D.gripL;
       const tipY = D.leverY + Math.cos(a) * reach;
       const tipZ = D.leverZ + Math.sin(a) * reach;
-      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.05, D.leverY + 0.04, Math.min(tipZ, D.leverZ) - 0.05).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.04, tipY + 0.04, Math.max(tipZ, D.leverZ) + 0.04).multiplyScalar(PRESS_SCALE)), pad: 0.01, active: () => shown && reachable() });
+      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.05, D.leverY + 0.04, Math.min(tipZ, D.leverZ) - 0.05).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.015, tipY + 0.04, Math.max(tipZ, D.leverZ) + 0.04).multiplyScalar(PRESS_SCALE)), pad: 0.01, active: () => shown && reachable() });
       ctx.pickOver?.(o.lever, () => [o.body]);
       // what it asks the camera to frame off its tray (`look`): the whole press, sheets and lever and bed; never pressed
       const lk = new Object3D();
