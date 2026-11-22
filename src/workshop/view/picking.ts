@@ -122,7 +122,7 @@ export class Picking {
 
   remove(id: Id): void {
     this.entries.delete(id);
-    this.over.delete(id);
+    // (a `prefer` rule stays: a target taken away and registered again keeps it)
   }
 
   /**
@@ -133,6 +133,11 @@ export class Picking {
    */
   prefer(id: Id, over: () => readonly Id[]): void {
     this.over.set(id, over);
+  }
+
+  /** Does `id` win over `other` now (a `prefer` rule)? */
+  wins(id: Id, other: Id): boolean {
+    return this.over.get(id)?.().includes(other) ?? false;
   }
 
   /** The object `id`'s proxy rides (for a finer test against what is drawn), or null. */

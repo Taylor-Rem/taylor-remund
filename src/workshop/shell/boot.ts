@@ -498,7 +498,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     for (let depth = 0; depth < 3; depth++) {
       skipped.add(front.id);
       const behind = picking.pick(pickRay, { exclude, filter: (id) => !skipped.has(id) && filter(id) });
-      if (!behind || behind.grown || !missesDrawn(front.id)) break;
+      // (round three) never back to a target the front one wins over (a thing on its crate's tray: `prefer`)
+      if (!behind || behind.grown || picking.wins(front.id, behind.id) || !missesDrawn(front.id)) break;
       front = { id: behind.id, point: [behind.point.x, behind.point.y, behind.point.z] };
     }
     if (front !== first) return front;
