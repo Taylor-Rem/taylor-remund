@@ -493,11 +493,6 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
           show = null;
           if (waiting && !waiting.active) waiting = null;
         }
-        if (r.target === spec.body && r.field === 'location') {
-          const to = r.to as { at?: string } | null;
-          // (as the ledger board: an undo that leaves the press shipped and out of the world brings it back up the chute)
-          if (to?.at === 'shipped' && ctx.mode(spec.body) === 'gone') ctx.toChute(spec.body, 'system');
-        }
       }
     },
 
