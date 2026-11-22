@@ -27,6 +27,7 @@ import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { crates } from '../machines/crates.ts';
 import { ledger } from '../machines/ledger.ts';
+import { press } from '../machines/press.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -232,8 +233,29 @@ export const LEDGER = {
   mass: 0.07,
 } as const;
 
-/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board. */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : {}) }));
+/**
+ * P4 D3: the report press, the Report Generation Framework's thing (sim/machines/press.ts), in its crate (the middle one,
+ * on top of the stack). A loose part with state (what its two holders show and the copies in its drawer are its own
+ * durable fields, drawn) and one lever that rides on it; and its envelope, the one real loose part it makes, which starts
+ * in the press (`stowedIn` the press) and comes home to it after it ships. The press's body is its iron and its wooden
+ * base, about a small crate's footprint (its holders, its lever and its arm stand above the box); `bed` is where the
+ * envelope sits on the spring arm, from the body's middle. view/kit/pieces/report-press/dims.ts holds the same numbers.
+ */
+export const PRESS = {
+  unit: 'press',
+  body: 'report-press',
+  envelope: 'report-envelope',
+  crate: 'crate-2',
+  lever: 'press-lever',
+  half: [0.21, 0.07, 0.16] as Vec3,
+  mass: 0.18,
+  envelopeHalf: [0.07, 0.005, 0.045] as Vec3,
+  envelopeMass: 0.012,
+  bed: [0.15, 0.058, 0.03] as Vec3,
+} as const;
+
+/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
@@ -720,6 +742,9 @@ export const bench: SceneDesc = {
     PATCH_BODY,
     // P4 D1: the ledger board, in its crate until the crate is opened
     { id: LEDGER.board, kind: 'tool', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.ledger.board', pose: pose([0, -4, 0]), half: LEDGER.half, mass: LEDGER.mass, stowedIn: LEDGER.crate },
+    // P4 D3: the report press, in its crate until the crate is opened; its envelope, in the press
+    { id: PRESS.body, kind: 'tool', size: 'S', material: 'metal', colour: BARE, label: '', station: 'line', name: 'name.press.body', pose: pose([0, -4, 0]), half: PRESS.half, mass: PRESS.mass, stowedIn: PRESS.crate },
+    { id: PRESS.envelope, kind: 'tool', size: 'S', material: 'paper', colour: BARE, label: '', station: 'line', name: 'name.press.envelope', pose: pose([0, -4, 0]), half: PRESS.envelopeHalf, mass: PRESS.envelopeMass, stowedIn: PRESS.body },
   ],
   fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
@@ -757,11 +782,16 @@ export const bench: SceneDesc = {
   },
   crewScale: CREW_SCALE,
   projects: PROJECT_CRATES,
+  // P4 D3: the visit remembers what the press's holders show and the copies in its drawer
+  keep: [
+    { target: PRESS.body, field: 'report' },
+    { target: PRESS.body, field: 'drawer' },
+  ],
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
-    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear, home: AT.home } }),
+    dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear, home: AT.home }, homeward: [PRESS.envelope] }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
@@ -769,6 +799,17 @@ export const bench: SceneDesc = {
     crates({ id: 'crates', station: 'line' }),
     // P4 D1: the ledger board's crank and plunger (after the crates: its board is on its tray before it deals itself)
     ledger({ id: LEDGER.unit, station: 'line', board: LEDGER.board, crate: LEDGER.crate, crank: { id: LEDGER.crank, name: 'name.ledger.crank' }, plunger: { id: LEDGER.plunger, name: 'name.ledger.plunger' } }),
+    // P4 D3: the report press's lever, after the dock (it hears the dock's shipments on the bus) and the crates
+    press({
+      id: PRESS.unit,
+      station: 'line',
+      body: PRESS.body,
+      envelope: PRESS.envelope,
+      lever: { id: PRESS.lever, name: 'name.press.lever' },
+      bed: PRESS.bed,
+      belt: { mouth: 'belt', from: L.from, to: L.to, top: L.top, z: L.z, feed: AT.beltFeed, clear: DEFLECTOR.clear },
+      ignore: ['bench', 'belt-bed'],
+    }),
   ],
 };
 

@@ -116,6 +116,10 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.ledger.board': raw.names.ledger.board as Entry,
   'name.ledger.crank': raw.names.ledger.crank as Entry,
   'name.ledger.plunger': raw.names.ledger.plunger as Entry,
+  // P4 D3: the report press, its lever, its envelope
+  'name.press.body': raw.names.press.body as Entry,
+  'name.press.lever': raw.names.press.lever as Entry,
+  'name.press.envelope': raw.names.press.envelope as Entry,
 };
 
 /** Every content id this module resolves. */
