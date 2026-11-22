@@ -50,6 +50,30 @@ export const paints = [
 
 export type Paint = (typeof paints)[number];
 
+/**
+ * PROPOSED (D2), for Taylor's choice; not part of the approved look. The paint schemes' colours
+ * (view/materials/scheme.ts): what the enamel tokens become when a visitor turns the paint dial. Scheme A
+ * is the approved palette above and has no entries here. Working letters only; a name a visitor could
+ * read is the owner's.
+ */
+export const schemeColours = {
+  'scheme-b-enamel': '#5a2a27',
+  'scheme-b-trim': '#c9b68f',
+  'scheme-b-deep': '#2b1716',
+  'scheme-b-cream': '#e4d6b4',
+  'scheme-c-enamel': '#cbbf9c',
+  'scheme-c-trim': '#3d5a47',
+  'scheme-c-deep': '#22312a',
+  'scheme-c-accent': '#c2622d',
+  'scheme-c-cream': '#3d5a47',
+  'scheme-d-enamel': '#4c575c',
+  'scheme-d-trim': '#7d898c',
+  'scheme-d-deep': '#262d30',
+  'scheme-d-accent': '#d0662a',
+} as const;
+
+export type SchemeColour = keyof typeof schemeColours;
+
 /** sRGB hex string of a token, e.g. for canvas 2D drawing of label textures. */
 export function hex(token: Token): string {
   return palette[token];
@@ -57,7 +81,16 @@ export function hex(token: Token): string {
 
 /** Linear-space RGB triple (0..1) of a token, for vertex colours and uniforms. */
 export function linear(token: Token): [number, number, number] {
-  const n = parseInt(palette[token].slice(1), 16);
+  return linearHex(palette[token]);
+}
+
+/** Linear-space RGB triple of a scheme colour. */
+export function linearScheme(c: SchemeColour): [number, number, number] {
+  return linearHex(schemeColours[c]);
+}
+
+function linearHex(h: string): [number, number, number] {
+  const n = parseInt(h.slice(1), 16);
   const toLinear = (c: number): number => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
