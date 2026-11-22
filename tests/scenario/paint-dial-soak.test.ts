@@ -6,6 +6,7 @@
 // history says (the replay check). At the end of a session left alone, the dial is somewhere a visitor can find it.
 //
 // In verify: PAINT_SOAK sessions (default 6). Bigger: PAINT_SOAK=200 npx vitest run tests/scenario/paint-dial-soak.test.ts
+// (PAINT_SOAK_FROM=n starts at seed n, to run one session again).
 import { expect, test } from 'vitest';
 import { benchWorld, FULL_BENCH, onBelt } from './line-helpers.ts';
 import { checker } from './standins/replay.ts';
@@ -17,6 +18,7 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { PaintDialView, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const SESSIONS = Number(process.env.PAINT_SOAK ?? 6);
+const FROM = Number(process.env.PAINT_SOAK_FROM ?? 0);
 const PARTS = FULL_BENCH.parts.map((p) => p.id);
 const JACKS = FULL_BENCH.cord.jacks.map((j) => j.id);
 const S = PAINT_TUNING.schemes;
@@ -129,8 +131,10 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
       }
       run(r.chance(0.5) ? r.int(20) + 1 : r.int(240) + 30);
     }
-    // left alone: in time the dial is in its crate or lying on the bench, its scheme one of the dial's
-    run(steps(14));
+    // left alone: in time the dial is in its crate or lying on the bench, its scheme one of the dial's (30 s: a dial
+    // shipped late in a session may still be on its way back up the chute at 14 s; seed 6 of 60 was, and was on the
+    // bench 10 s later)
+    run(steps(30));
     const m = w.mode(D);
     const l = w.part(D)!.location;
     if (!(m === 'gone' && l.at === 'in') && !(m === 'free' || m === 'machine')) throw new Error(`left alone, the dial is ${m} (${JSON.stringify(l)})`);
@@ -144,7 +148,7 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
 
 test(`the paint dial soak: ${SESSIONS} sessions keep the dial's scheme one of its own, the view true to it, and the history replayable`, async () => {
   const bad: string[] = [];
-  for (let s = 0; s < SESSIONS; s++) {
+  for (let s = FROM; s < FROM + SESSIONS; s++) {
     const o = await session(s);
     if (!o.ok) bad.push(`seed ${s}: ${o.error}\n  after: ${o.log.join(', ')}`);
   }
