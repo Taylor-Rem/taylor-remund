@@ -74,5 +74,7 @@ describe('pitch (look sketch, C1)', () => {
 
   it('reports its budget', () => {
     for (const take of ['A', 'B'] as const) console.log(budget(pitch({ take })).text);
+    console.log(budget(pitchBanner()).text);
+    console.log(budget(pitchMast()).text);
   });
 });
