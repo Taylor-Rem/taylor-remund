@@ -634,7 +634,22 @@ function yankeeShape(): ToolShape {
 export const CANDIDATES = { flutter: ['brush', 'roller'], 'claude-code': ['drill', 'yankee'] } as const;
 export type Candidate = (typeof CANDIDATES)[keyof typeof CANDIDATES][number];
 /** Proposed: the brush and the cranked drill (the lead's suggestions held up best in the pictures); the owner chooses. */
-export const CHOSEN: { flutter: (typeof CANDIDATES)['flutter'][number]; 'claude-code': (typeof CANDIDATES)['claude-code'][number] } = { flutter: 'brush', 'claude-code': 'drill' };
+export const CHOSEN: { flutter: (typeof CANDIDATES)['flutter'][number]; 'claude-code': (typeof CANDIDATES)['claude-code'][number] } = { flutter: devChoice('toolFlutter', CANDIDATES.flutter) ?? 'brush', 'claude-code': devChoice('toolClaude', CANDIDATES['claude-code']) ?? 'drill' };
+
+/**
+ * The pictures for the owner (development pages only): `?toolFlutter=roller`, `?toolClaude=yankee` hang the other
+ * candidate on the wall. The simulation's bodies stay the chosen ones' (sim/scenes/bench.ts TOOLWALL): for looking at, not
+ * for throwing about. Never in a build.
+ */
+function devChoice<T extends string>(key: string, among: readonly T[]): T | null {
+  if (!import.meta.env?.DEV) return null;
+  try {
+    const v = new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get(key);
+    return v && (among as readonly string[]).includes(v) ? (v as T) : null;
+  } catch {
+    return null;
+  }
+}
 const CAND_BUILD: Record<Candidate, (n: NodeBuilder, seed: number) => void> = { brush, roller, drill, yankee };
 const CAND_SHAPE: Record<Candidate, () => ToolShape> = { brush: brushShape, roller: rollerShape, drill: drillShape, yankee: yankeeShape };
 

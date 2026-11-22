@@ -5,7 +5,7 @@
  * view drew them.
  */
 import { LAYOUT } from '../../bench.ts';
-import { TOOLWALL, pegId, toolLook } from '../../../sim/scenes/bench.ts';
+import { TOOLWALL, pegId, toolLook } from '../../../sim/index.ts';
 import { createToolsView } from '../../stations/tools.ts';
 import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';

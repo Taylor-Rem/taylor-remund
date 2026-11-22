@@ -58,6 +58,9 @@ export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/led
 export { PRESS } from './scenes/bench.ts';
 export { REPORT_FIELD, DRAWER_FIELD, SEAL_FIELD } from './machines/press.ts';
 export { REPORT_MAX, PRESS_SHOW, beatAt } from './machines/shared/report-press.ts';
+// P4 T2: the tool wall (its unit, its tools' table, each tool's place and look ids), its tuning
+export { TOOLWALL, toolId, pegId, toolLook } from './scenes/bench.ts';
+export { TOOLWALL_TUNING } from './machines/toolwall.ts';
 export type { Report, PressBeat, PressBeatKind, PressScript } from './machines/shared/report-press.ts';
 
 /** Load Rapier (its wasm arrives now, not with the page) and make the physics port. */

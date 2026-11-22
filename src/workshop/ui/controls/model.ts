@@ -23,7 +23,7 @@
  */
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
 import { LEDGER, PRESS } from '../../sim/index.ts';
-import { TOOLWALL, pegId } from '../../sim/scenes/bench.ts';
+import { TOOLWALL, pegId } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';

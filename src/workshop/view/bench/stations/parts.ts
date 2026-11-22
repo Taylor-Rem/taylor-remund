@@ -26,8 +26,7 @@ import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { CRATES_TUNING, LEDGER, PRESS } from '../../../sim/index.ts';
-import { TOOLWALL } from '../../../sim/scenes/bench.ts';
+import { CRATES_TUNING, LEDGER, PRESS, TOOLWALL } from '../../../sim/index.ts';
 import { toolBodyPiece } from '../../stations/tools.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
