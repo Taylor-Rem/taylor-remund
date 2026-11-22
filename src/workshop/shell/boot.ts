@@ -204,6 +204,15 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * double-tap first asks the world whether a thing answers it (`select`); the station is framed as soon as the world has
  * stepped once since without asking for a look (one frame), or `selectWait` ms later if it has not stepped (paused).
  */
+/** (round four) `?lookPx=480`: a look's `minPx` for one visit (the lead's 560 / 480 comparison), else `LOOK_AT.minPx`. */
+const lookMinPx = (): number => {
+  try {
+    const q = Number(new URLSearchParams(globalThis.location?.search ?? '').get('lookPx'));
+    return q > 0 ? q : LOOK_AT.minPx;
+  } catch {
+    return LOOK_AT.minPx;
+  }
+};
 export const LOOK_AT = { minPx: 560, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
@@ -681,9 +690,10 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const was = cam.view();
     const wasClose = cam.reach > 1;
     const look = cam.look;
+    const lookId = cam.lookId;
     cam.cutTo(v, { close });
     const out = f();
-    cam.cutTo(was, { close: wasClose, look });
+    cam.cutTo(was, { close: wasClose, look, lookId });
     return out;
   };
   /** The view the last framing eases to (null: none since the visitor last moved the camera). */
@@ -817,14 +827,16 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     // (round three) close enough when the box is `minPx` across either way, or fills the clear area's width or height
     // (`fill`): each side judged against its own side of the area, so a tall box on an upright phone comes in until
     // its width fills the screen
-    const wantW = Math.min(LOOK_AT.minPx, (c.x1 - c.x0) * LOOK_AT.fill);
-    const wantH = Math.min(LOOK_AT.minPx, (c.y1 - c.y0) * LOOK_AT.fill);
+    const minPx = lookMinPx();
+    const wantW = Math.min(minPx, (c.x1 - c.x0) * LOOK_AT.fill);
+    const wantH = Math.min(minPx, (c.y1 - c.y0) * LOOK_AT.fill);
     const enough = (): boolean => {
       const r = rectOf(id);
       return !!r && (r.x1 - r.x0 >= wantW || r.y1 - r.y0 >= wantH);
     };
     if (!cam.easing && enough() && clear(id, KEEP_CLEAR.pad)) {
       cam.look = box;
+      cam.lookId = id;
       return;
     }
     const m = box.getCenter(new Vector3());
@@ -838,7 +850,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     }
     const at = settle(id, v, true) ?? atView(v, () => cam.view(), true);
     resting = at;
-    cam.easeTo(at, undefined, { close: true, look: box });
+    cam.easeTo(at, undefined, { close: true, look: box, lookId: id });
     cam.focusOn({ x: m.x, y: m.y, z: m.z });
   };
   /** (round two) A double-click or double-tap that the world may answer (`select`); the station if nothing asked to be looked at. */

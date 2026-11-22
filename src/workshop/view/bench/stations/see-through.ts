@@ -14,7 +14,7 @@
  *
  * `?seeThrough=0`: never (measurements, "before"); `?seeThrough=all`: every body, always (the frame-time A/B).
  */
-import { Box3, Group, Matrix4, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Ray, Vector3, type Material, type Mesh, type Object3D } from 'three';
 import type { Id } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
 import type { CameraRig } from '../../stage/camera.ts';
@@ -115,8 +115,31 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
         if (m === 'off' || !ctx.materials.seeThrough || !ctx.targetObject) return;
         const cam = ctx.stage.camera as CameraRig;
         const look = m === 'all' ? null : cam.look;
-        const px = SEE_THROUGH.pad;
-        if (look) onScreen(look, cam, a);
+        // (round four) in the way by rays: lines from the camera to points of what must show (the look target's parts
+        // `.face`, `.plate`, `.thing`; else the look box's middle and four points round it), and a body is in the way
+        // when its box cuts enough of them before they arrive
+        const eye = cam.camera.getWorldPosition(new Vector3());
+        const pts: Vector3[] = [];
+        if (look) {
+          const grid = (bx: Box3, n: number): void => {
+            for (let i = 0; i < n; i++)
+              for (let j = 0; j < n; j++) {
+                const u = n === 1 ? 0.5 : 0.15 + (0.7 * i) / (n - 1), v = n === 1 ? 0.5 : 0.15 + (0.7 * j) / (n - 1);
+                pts.push(new Vector3(bx.min.x + (bx.max.x - bx.min.x) * u, bx.min.y + (bx.max.y - bx.min.y) * v, (bx.min.z + bx.max.z) / 2));
+              }
+          };
+          const id = cam.lookId;
+          if (id !== null && ctx.targetBox?.(`${id}.face`, box)) grid(box, 3);
+          if (id !== null && ctx.targetBox?.(`${id}.plate`, box)) grid(box, 1);
+          if (id !== null && ctx.targetBox?.(`${id}.thing`, box)) {
+            grid(box, 2);
+            pts.push(new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2));
+          }
+          if (pts.length === 0) grid(look, 2);
+        }
+        const need = Math.max(2, Math.ceil(pts.length * 0.15));
+        const ray = new Ray();
+        const hit = new Vector3();
         const cut = ctx.reducedMotion || frame.world.reducedMotion;
         for (const cv of frame.world.crewViews()) {
           const ids = cv.body !== null ? [cv.body, cv.id] : [cv.id];
@@ -141,9 +164,13 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
           if (!held && (m === 'all' || look) && b.obj.visible) {
             if (m === 'all') want = SEE_THROUGH.fade;
             else if (ctx.targetBox?.(key, box)) {
-              onScreen(box, cam, t);
-              const overlap = t.x0 < a.x1 + px && t.x1 > a.x0 - px && t.y0 < a.y1 + px && t.y1 > a.y0 - px;
-              if (overlap && t.near < a.mid) want = SEE_THROUGH.fade;
+              let cuts = 0;
+              for (const p of pts) {
+                const d = p.distanceTo(eye);
+                ray.set(eye, hit.copy(p).sub(eye).normalize());
+                if (ray.intersectBox(box, hit) && hit.distanceTo(eye) < d - 0.02) cuts++;
+              }
+              if (cuts >= need) want = SEE_THROUGH.fade;
             }
           }
           b.level = cut ? want : b.level + Math.sign(want - b.level) * Math.min(Math.abs(want - b.level), SEE_THROUGH.rate * frame.dt);

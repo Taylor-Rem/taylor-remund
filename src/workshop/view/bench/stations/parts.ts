@@ -189,6 +189,12 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
     let world: WorldView | null = null;
     return {
       make(part: Part, obj: Object3D, group: Group, half: Vec3) {
+        if (things.has(part.id)) {
+          // (round four) what a look at its crate must show of it: the thing itself, by its drawn bounds (never pressed;
+          // view/bench/stations/see-through.ts asks for `${look}.thing`)
+          const of = [...projects.values()].find((x) => x.holds === part.id);
+          if (of?.card !== undefined) ctx.pickable(`${of.card}.thing`, obj, { pad: 0, active: () => false });
+        }
         if (things.has(part.id) && part.id !== LEDGER.board) {
           // the stand-in thing: the test block is a unit across; scaled to the thing's body
           const s = (half[0] * 2) / 1.16;
@@ -300,7 +306,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         if (pc.card !== undefined) {
           const cs = projectCardSize(size);
           const onCard = (b: CapBand): Box3 => new Box3(new Vector3(-cs.w / 2 + b.x0 * cs.w, P.lift + cs.h * (1 - b.y1), 0), new Vector3(-cs.w / 2 + b.x1 * cs.w, P.lift + cs.h * (1 - b.y0), 0.004));
-          const bands: [string, Box3][] = [[`${pc.card}.face`, new Box3(new Vector3(-cs.w / 2, P.lift, 0), new Vector3(cs.w / 2, P.lift + cs.h, 0.004))], [`${pc.card}.plate-caps`, new Box3(new Vector3(-P.face.w * 0.4, P.h / 2 + 0.002 - P.cap / 2, 0), new Vector3(P.face.w * 0.4, P.h / 2 + 0.002 + P.cap / 2, 0.004))]];
+          const bands: [string, Box3][] = [[`${pc.card}.plate`, new Box3(new Vector3(-P.w / 2, 0.002, 0), new Vector3(P.w / 2, P.h + 0.002, 0.006))], [`${pc.card}.face`, new Box3(new Vector3(-cs.w / 2, P.lift, 0), new Vector3(cs.w / 2, P.lift + cs.h, 0.004))], [`${pc.card}.plate-caps`, new Box3(new Vector3(-P.face.w * 0.4, P.h / 2 + 0.002 - P.cap / 2, 0), new Vector3(P.face.w * 0.4, P.h / 2 + 0.002 + P.cap / 2, 0.004))]];
           if (typed) bands.push([`${pc.card}.title-caps`, onCard(typed.bands.title)], [`${pc.card}.line-caps`, onCard(typed.bands.line)]);
           for (const [id, box] of bands) {
             const o = new Object3D();

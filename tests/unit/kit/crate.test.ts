@@ -191,22 +191,52 @@ describe('crate', () => {
     expect(mats.has('steel')).toBe(false);
     const posBefore = new Map<Mesh, Float32Array>();
     for (const m of lay.keys()) posBefore.set(m, (m.geometry.getAttribute('position').array as Float32Array).slice());
-    // the front-most z of each ink's vertices: the one showing sits 0.016 proud of the sunk one
+    // the front-most z of each ink's vertices: the one showing sits at least 0.016 proud of the hidden one (round four: the
+    // hidden one is also shrunk to a speck about its middle, so its front-most is its middle, sunk)
     const front = (ink: 'ink' | 'paper'): number => {
       let z = -Infinity;
       for (const [m, l] of lay) for (const [v, k] of l.stencil) if (k === ink) z = Math.max(z, m.geometry.getAttribute('position').getZ(v));
       return z;
     };
-    expect(front('ink') - front('paper')).toBeCloseTo(0.016, 3);
+    expect(front('ink') - front('paper')).toBeGreaterThan(0.0155);
     repaint(o, 'paint-green');
-    expect(front('paper') - front('ink')).toBeCloseTo(0.016, 3);
+    expect(front('paper') - front('ink')).toBeGreaterThan(0.0155);
+    // (round four) the hidden ink is a speck: each of its vertices within a hair of the others of its decal's middle
+    const spread = (ink: 'ink' | 'paper'): number => {
+      let worst = 0;
+      for (const [m, l] of lay) {
+        const pos = m.geometry.getAttribute('position');
+        const vs = [...l.stencil].filter(([, k]) => k === ink).map(([v]) => v);
+        // vertices of one decal are consecutive: group by runs
+        let run: number[] = [];
+        const flush = (): void => {
+          if (run.length < 2) return;
+          let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+          for (const v of run) { x0 = Math.min(x0, pos.getX(v)); x1 = Math.max(x1, pos.getX(v)); y0 = Math.min(y0, pos.getY(v)); y1 = Math.max(y1, pos.getY(v)); }
+          worst = Math.max(worst, x1 - x0, y1 - y0);
+        };
+        for (const v of vs.sort((a, b) => a - b)) {
+          if (run.length && v !== run[run.length - 1]! + 1) { flush(); run = []; }
+          run.push(v);
+        }
+        flush();
+      }
+      return worst;
+    };
+    expect(spread('ink')).toBeLessThan(0.002);
+    expect(spread('paper')).toBeGreaterThan(0.05);
     // nothing but the stencil moved
     for (const [m, l] of lay) {
       const a = m.geometry.getAttribute('position').array as Float32Array, b0 = posBefore.get(m)!;
       for (let v = 0; v < a.length / 3; v++) if (!l.stencil.has(v)) expect(a[v * 3 + 2]).toBe(b0[v * 3 + 2]);
     }
     repaint(o, null);
-    expect(front('ink') - front('paper')).toBeCloseTo(0.016, 3);
+    expect(front('ink') - front('paper')).toBeGreaterThan(0.0155);
+    // and the ink comes back exactly where it was (grown back from the speck)
+    for (const [m, l] of lay) {
+      const a = m.geometry.getAttribute('position').array as Float32Array, b0 = posBefore.get(m)!;
+      for (const [v, k] of l.stencil) if (k === 'ink') for (let c = 0; c < 3; c++) expect(Math.abs(a[v * 3 + c]! - b0[v * 3 + c]!)).toBeLessThan(2e-4);
+    }
     // the painted build carries paint coverage in the finish channel
     const pp = crate({ size: 'M', seed: 2, paint: 'paint-green' });
     const r = paintRanges(pp)[0]!;
