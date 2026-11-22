@@ -73,7 +73,7 @@ export interface Stage {
   readonly gpuTimer: GpuTimer;
   /** The live pass switches (high tier with post); flip a field and the next frame follows. */
   readonly passes: PassFlags;
-  /** Whether the post chain runs. */
+  /** Whether the post chain runs. A stage made with the chain keeps it (its canvas has no depth buffer: F1). */
   post: boolean;
   toneMap: ToneMap;
   /** Show an intermediate of the post chain instead of the picture (debugging). */
@@ -115,6 +115,19 @@ const TONE: Record<ToneMap, ToneMapping> = {
   neutral: NeutralToneMapping,
 };
 
+/**
+ * The canvas's own buffers (F1). With the post chain the canvas only ever receives one full-screen triangle (the
+ * composite), already anti-aliased in the chain's multisampled target: a multisampled canvas with a depth buffer
+ * then costs a 4× colour write, a depth clear and a resolve every frame for nothing (every sample of a pixel takes
+ * the same colour, so the resolved picture is the same pixel for pixel; measured 0.5 ms a frame at home on the
+ * reference laptop). Without the chain (the low tier, `?post=0`) the scene is drawn straight to the canvas, which
+ * keeps both. Chosen once, at creation.
+ */
+export function canvasAttributes(tier: Tier, post: boolean): { antialias: boolean; depth: boolean } {
+  const chained = tier === 'high' && post;
+  return { antialias: !chained, depth: !chained };
+}
+
 /** What the last warm() spent (ms) and how many kinds of shadow caster it drew alone. */
 export const warmTimes = { compileAsync: 0, frame: 0, shadowPasses: 0, kinds: 0 };
 (globalThis as { __warmTimes?: typeof warmTimes }).__warmTimes = warmTimes;
@@ -143,9 +156,10 @@ export function hideUnseen(scene: Object3D, camera: Camera): () => void {
 
 export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stage {
   const tier = opts.tier;
+  const chained = tier === 'high' && (opts.post ?? true);
   const renderer = new WebGLRenderer({
     canvas,
-    antialias: true,
+    ...canvasAttributes(tier, opts.post ?? true),
     alpha: false,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: opts.preserveDrawingBuffer ?? false,
@@ -179,7 +193,7 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
   };
 
   const passes: PassFlags = { ...defaultFlags(), ...opts.passes };
-  let post = tier === 'high' && (opts.post ?? true);
+  let post = chained;
   let toneMap: ToneMap = opts.toneMap ?? LOOK.toneMap;
   const chain = tier === 'high' ? new PostChain(renderer, scene, camera.camera, passes) : null;
   if (chain) chain.keyLight = lights.key;
@@ -263,7 +277,8 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
       return post;
     },
     set post(v: boolean) {
-      post = tier === 'high' && v;
+      // a canvas made for the chain has no depth buffer of its own: there the chain stays on (F1)
+      post = tier === 'high' && (v || chained);
     },
     get toneMap() {
       return toneMap;

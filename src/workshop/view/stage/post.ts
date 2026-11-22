@@ -23,6 +23,8 @@ import {
   LinearFilter,
   Matrix4,
   NearestFilter,
+  RGBFormat,
+  UnsignedInt101111Type,
   UnsignedIntType,
   Vector2,
   Vector3,
@@ -77,6 +79,13 @@ export const LOOK = {
    */
   msaa: 4,
   ao: 'gtao' as 'gtao' | 'baked',
+  /**
+   * (F1, an option for the owner's eye; the default is the approved look) What the scene is drawn into before the
+   * post passes: 'half' (16-bit float per channel, as approved) or 'r11g11b10' (a packed float, half the memory
+   * per sample: 6-bit mantissas in red and green, 5 in blue). With 4× MSAA the target's bandwidth is a large share
+   * of the scene pass.
+   */
+  sceneFormat: 'half' as 'half' | 'r11g11b10',
   /** 1.1 (was 1.0): with the real, darker bench the frame read murky; the hot spot still stays below clipping on cream and wood. */
   exposure: 1.1,
   toneMap: 'neutral' as ToneMap,
@@ -593,12 +602,15 @@ export class PostChain {
     setV3(this.composite.u.shadowTintColour, c.shadowTint);
   }
 
+  private format: typeof LOOK.sceneFormat = LOOK.sceneFormat;
+
   private makeSceneTarget(w: number, h: number): WebGLRenderTarget {
     const depth = new DepthTexture(w, h, UnsignedIntType);
     depth.minFilter = NearestFilter;
     depth.magFilter = NearestFilter;
+    this.format = LOOK.sceneFormat;
     return new WebGLRenderTarget(w, h, {
-      type: HalfFloatType,
+      ...(this.format === 'r11g11b10' ? { type: UnsignedInt101111Type, format: RGBFormat } : { type: HalfFloatType }),
       samples: this.samples,
       depthTexture: depth,
       minFilter: LinearFilter,
@@ -687,7 +699,7 @@ export class PostChain {
 
   private syncSamples(): void {
     const want = this.flags.msaa ? LOOK.msaa : 0;
-    if (want === this.samples) return;
+    if (want === this.samples && LOOK.sceneFormat === this.format) return;
     this.samples = want;
     this.sceneRT.depthTexture?.dispose();
     this.sceneRT.dispose();
@@ -755,6 +767,20 @@ export class PostChain {
       timer?.end();
     }
 
+    // (F1) every full-screen pass below writes every pixel of its target: the clear the renderer would make before
+    // each (it clears on every render() while autoClear is on) is work no pixel shows
+    const autoClear = r.autoClear;
+    r.autoClear = false;
+    try {
+      this.renderPasses(focusDistance, timer);
+    } finally {
+      r.autoClear = autoClear;
+    }
+  }
+
+  /** The full-screen passes after the scene and AO: bloom, focus, the composite to the screen. */
+  private renderPasses(focusDistance: number, timer: GpuTimer | null): void {
+    const r = this.renderer;
     if (this.flags.bloom) {
       timer?.begin('bloom');
       this.renderBloom();
