@@ -96,6 +96,16 @@ async function inClose(page: Page, size: number): Promise<void> {
 test('P4 D3: the press\'s lever by mouse at 1440×900: a pull prints, stores a copy and flicks the envelope', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await open(page);
+  // at the home framing the lever is a target at least 28 px across
+  await page.evaluate(() => {
+    const cam = (window as any).__bench.ws.stage.camera;
+    cam.cutTo(cam.home(), { hold: false });
+  });
+  await frames(page, 20);
+  const home = (await screenOf(page, 'press-lever'))!;
+  console.log(`[D3] the lever at the home framing: ${JSON.stringify(home)}`);
+  expect(home, 'the lever is a target at home').not.toBeNull();
+  expect(home.r * 2, 'at least 28 px at home').toBeGreaterThanOrEqual(28);
   await page.evaluate(() => (window as any).__bench.ws.framing.bring('press-lever'));
   await frames(page, 70);
   const framed = await screenOf(page, 'press-lever');
