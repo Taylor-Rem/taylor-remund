@@ -32,6 +32,12 @@ export const palette = {
   'paint-green': '#5d8a4e',
   'paint-blue': '#3d6c9e',
   'paint-violet': '#6b5290',
+
+  // PROPOSED (P4 D3), for Taylor's eye: the report press's japanned enamel (a black-green, as a sewing machine's
+  // stand), its gold lining, and the one alternative colourway (oxblood). For the press only; never paint for parts.
+  'japan-green': '#1c2b24',
+  'japan-gold': '#c8a24f',
+  'japan-oxblood': '#4a1e1b',
 } as const;
 
 export type Token = keyof typeof palette;

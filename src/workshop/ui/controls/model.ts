@@ -22,7 +22,7 @@
  * one says why (`said.busy`).
  */
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
-import { LEDGER } from '../../sim/index.ts';
+import { LEDGER, PRESS } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
@@ -157,6 +157,11 @@ function leftOut(w: WorldView, id: Id): boolean {
   const lv = ledgerOf(w, id);
   if (lv && id !== lv.board) {
     const mode = w.motion(lv.board)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
+  }
+  // (P4 D3) the report press's lever while the press is not on the bench (in its crate, shipped, down the chute)
+  if (id === PRESS.lever) {
+    const mode = w.motion(PRESS.body)?.mode;
     if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
   }
   return false;

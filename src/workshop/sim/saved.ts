@@ -53,7 +53,24 @@ export interface WorldSaved {
   readonly used: readonly Id[];
   /** P4 S5: the project crates left open (absent when none: a snapshot from before P4 has none). */
   readonly open?: readonly Id[];
+  /**
+   * P4 D3: durable fields a scene asks a visit to remember (`SceneDesc.keep`: the report press's holders and its
+   * drawer), by `target.field`, where they differ from how the visit began (absent when none). Checked here for shape
+   * only; the world writes back only the fields its scene keeps, and only values that field accepts.
+   */
+  readonly kept?: Readonly<Record<string, KeptValue>>;
 }
+
+/** A remembered field's value: a plain value, or a short list of short texts. */
+export type KeptValue = string | number | boolean | null | readonly string[];
+
+/** The most fields a snapshot may remember, and the most items a remembered list may have. */
+export const SAVED_MAX_KEPT = 16;
+export const SAVED_MAX_KEPT_ITEMS = 32;
+const KEPT_KEY = /^[a-z0-9][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,31}$/;
+const keptText = (v: unknown): v is string => typeof v === 'string' && v.length <= 64;
+const keptValue = (v: unknown): v is KeptValue =>
+  v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || keptText(v) || (Array.isArray(v) && v.length <= SAVED_MAX_KEPT_ITEMS && v.every(keptText));
 
 /** A fresh visit's snapshot (what `saved()` is before anything happens, and after "Reset the workshop"). */
 export const FRESH_SAVED: WorldSaved = Object.freeze({
@@ -121,11 +138,26 @@ export function parseSaved(input: unknown): WorldSaved | null {
     const openRaw = own(value, 'open');
     const open = openRaw === undefined ? [] : ids(openRaw, SAVED_MAX_OPEN);
     if (open === null) return null;
+    // (P4 D3) the remembered fields: absent, or a small record of well-formed keys and plain values
+    const keptRaw = own(value, 'kept');
+    let kept: Record<string, KeptValue> | null = null;
+    if (keptRaw !== undefined) {
+      if (!isRecord(keptRaw)) return null;
+      const keys = Object.keys(keptRaw);
+      if (keys.length > SAVED_MAX_KEPT) return null;
+      kept = {};
+      for (const k of keys) {
+        const v = own(keptRaw, k);
+        if (!KEPT_KEY.test(k) || !keptValue(v)) return null;
+        kept[k] = Array.isArray(v) ? [...(v as string[])] : v;
+      }
+    }
     return {
       v: SAVED_VERSION,
       button: { rung, reached, presses, cover, deck: { left, last: lastRaw } },
       used,
       ...(open.length > 0 ? { open } : {}),
+      ...(kept && Object.keys(kept).length > 0 ? { kept } : {}),
     };
   } catch {
     return null;
