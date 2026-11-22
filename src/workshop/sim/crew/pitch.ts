@@ -44,7 +44,7 @@ export const PITCH_TUNING = {
   /** Along his way at cruise height, climbing and descending, and the last of the way into the cup. */
   cruise: 1.7,
   /** ...and on his way home after the hand, a bump or the tray: he has an appointment. */
-  home: 3.0,
+  home: 3.3,
   climb: 1.9,
   moor: 0.6,
   /** How fast his speed may change (units/s²): a light thing under a small propeller. */
@@ -63,6 +63,8 @@ export const PITCH_TUNING = {
   backSpeed: 0.3,
   /** How far behind the cup the way in begins (along his moored nose), units. */
   approach: 0.5,
+  /** Within this (level units) of the start of the way in, he turns his nose to the mast. */
+  turnIn: 1.6,
   /** Over a machine on his round: how long he looks down at it, and how far below cruise he dips to. */
   pause: 2.8,
   dip: 0.5,
@@ -481,6 +483,9 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
   };
   /** The way his nose should point along the legs: the leg's own, else the way the first leg with any level run goes. */
   const faceAlong = (): number => {
+    // (the last of the way down to the cup: he turns to it as he comes, not after)
+    const l0 = legs[0];
+    if (l0 && legs[1]?.to === MOORED && Math.hypot(l0.to[0] - at[0], l0.to[2] - at[2]) < T.turnIn) return spec.heading;
     let p = at;
     for (const l of legs) {
       if (l.face !== undefined) return l.face;
@@ -825,9 +830,11 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
 
     pre() {
       const idleNow = ctx.idleSteps();
-      if (idleNow < idleWas) quiet = 0;
+      // (an input this step: the idle count is 1 at most; a carry repeats it every step)
+      const input = idleNow <= 1 || idleNow < idleWas;
+      if (input) quiet = 0;
       else if (!ctx.bracketed) quiet += 1;
-      if (idleNow < idleWas && ctx.hovered() === lastHover) actedSince = true;
+      if (input && ctx.hovered() === lastHover) actedSince = true;
       idleWas = idleNow;
       lastHover = ctx.hovered();
       if (ctx.bracketed) return;
