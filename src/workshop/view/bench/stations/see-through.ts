@@ -81,6 +81,8 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
   return (ctx) => {
     const root = new Group();
     root.name = 'see-through';
+    // (it draws nothing; in the scene so a measurement finds its levels by name)
+    ctx.scene.add(root);
     const m = mode();
     const bodies = new Map<Id, Body>();
     /** What each body's level is (measurements read it: `root.userData.levels`). */
@@ -152,6 +154,7 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
         }
       },
       dispose() {
+        root.removeFromParent();
         for (const b of bodies.values()) swap(b, false);
         bodies.clear();
       },
