@@ -9,7 +9,9 @@
 // and two controls in the registry): a world with the board and one without it were stepped side by side for the two
 // minutes and every body but the board, every durable field but its own, the crew, attract mode and the events were
 // identical at every step. Re-recorded at P4 D2b (the paint dial in crate-3: one more body, stowed, its `scheme` field,
-// its unit and its knob in the registry), compared the same way and found identical but for the dial.
+// its unit and its knob in the registry), compared the same way and found identical but for the dial. Re-recorded at
+// P4 D2c (the dial's view gained `pending`, null all the opening): with that one field left out of the state, the
+// opening matched the D2b recording at the pictures' step and every checkpoint.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';
