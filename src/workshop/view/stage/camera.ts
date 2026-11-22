@@ -6,6 +6,10 @@
  *   zoom 0 = the whole subject (the box given to `setSubject`)
  *   zoom 1 = one station (a box about `stationSize` across)
  *
+ * Past 1 only a look goes (`easeTo`/`cutTo` with `close`: a thing asked to be looked at, shell/boot.ts `lookAt`), as
+ * far as `lookZoom` (a box `lookSize` across). The visitor's own zoom never goes past 1, nor past where a look left
+ * it: zooming in there does nothing, zooming out comes back down into the ordinary range.
+ *
  * Distance is interpolated in log space between the two, so each wheel notch
  * feels the same. Everything here is plain maths on three's math classes and
  * runs in Node for tests; nothing touches the DOM.
@@ -28,6 +32,8 @@ export interface CameraRigOptions {
   margin?: number;
   /** Size of the box zoom 1 fits (a station). */
   stationSize?: number;
+  /** Size of the box a look may come as close as (default: `stationSize`, no closer than a station). */
+  lookSize?: number;
   reducedMotion?: boolean;
 }
 
@@ -99,7 +105,16 @@ export class CameraRig {
   readonly pitch: number;
   readonly margin: number;
   stationSize: number;
+  /** Size of the box the closest look fits (null: `stationSize`). Takes effect at the next `setSubject`/`setAspect`. */
+  lookSize: number | null;
   reducedMotion: boolean;
+
+  /**
+   * (P4 S5 round three) What a look is holding the camera on (world box), while it does: set with the look's ease or cut
+   * (`look`), let go when the visitor pans or zooms or the camera goes anywhere else. Views read it (a robot in front
+   * of it goes see-through: view/bench/stations/see-through.ts).
+   */
+  look: Box3 | null = null;
 
   /** Current state. */
   readonly focus = new Vector3();
@@ -112,9 +127,15 @@ export class CameraRig {
   private aspect = 16 / 10;
   private wideDistance = 40;
   private closeDistance = 12;
+  private lookDistance = 12;
+  /**
+   * How far in the zoom may be now: 1, or more while a look holds the camera closer (never more than `lookZoom`).
+   * It only shrinks again as the zoom comes back down (zoomed out, or eased away), so nothing jumps.
+   */
+  private reachZoom = 1;
   private readonly dir = new Vector3();
 
-  private ease: { from: View; to: View; t: number; dur: number } | null = null;
+  private ease: { from: View; to: View; t: number; dur: number; close: boolean } | null = null;
   private shakeAmp = 0;
   private shakeVel = 0;
   private shakeTime = 0;
@@ -125,6 +146,7 @@ export class CameraRig {
     this.pitch = opts.pitch ?? 33;
     this.margin = opts.margin ?? 0.06;
     this.stationSize = opts.stationSize ?? 3.6;
+    this.lookSize = opts.lookSize ?? null;
     this.reducedMotion = opts.reducedMotion ?? false;
     this.camera = new PerspectiveCamera(this.fov, this.aspect, 1, 200);
     viewDirection(this.pitch, this.dir);
@@ -133,8 +155,18 @@ export class CameraRig {
 
   /** Distance from the focus for the current zoom. */
   get distance(): number {
-    const z = MathUtils.clamp(this.zoom, 0, 1);
+    const z = MathUtils.clamp(this.zoom, 0, this.reachZoom);
     return Math.exp(MathUtils.lerp(Math.log(this.wideDistance), Math.log(this.closeDistance), z));
+  }
+
+  /** The closest a look may come (≥ 1): the zoom that fits a box `lookSize` across. */
+  get lookZoom(): number {
+    return Math.max(1, this.zoomForDistance(this.lookDistance));
+  }
+
+  /** How far in the zoom may go now (1, or more while a look holds the camera closer). */
+  get reach(): number {
+    return this.reachZoom;
   }
 
   /** The zoom that gives this distance (may be outside 0..1 before clamping). */
@@ -184,6 +216,10 @@ export class CameraRig {
     const h = this.stationSize / 2;
     const station = new Box3(new Vector3(-h, 0, -h * 0.6), new Vector3(h, this.stationSize * 0.7, h * 0.6));
     this.closeDistance = Math.min(this.wideDistance, fitDistance(station, boxTarget(station, new Vector3()), this.fov, this.aspect, this.pitch, this.margin));
+    const l = (this.lookSize ?? this.stationSize) / 2;
+    const look = new Box3(new Vector3(-l, 0, -l * 0.6), new Vector3(l, l * 2 * 0.7, l * 0.6));
+    this.lookDistance = Math.min(this.closeDistance, fitDistance(look, boxTarget(look, new Vector3()), this.fov, this.aspect, this.pitch, this.margin));
+    this.reachZoom = MathUtils.clamp(this.reachZoom, 1, this.lookZoom);
   }
 
   /** The view that fits `box` in the frame at the current aspect. */
@@ -238,12 +274,15 @@ export class CameraRig {
    * the limits depend on the aspect, and near 1.85-1.95:1 the range at the live aspect can
    * exclude a view that was valid where the picture was framed).
    */
-  cutTo(v: View, o: { hold?: boolean } = {}): void {
+  cutTo(v: View, o: { hold?: boolean; close?: boolean; look?: Box3 | null } = {}): void {
     this.ease = null;
+    this.look = o.look ?? null;
     this.focus.set(v.focus[0], v.focus[1], v.focus[2]);
     this.zoom = v.zoom;
+    // (a look may come closer than a station, as far as `lookZoom`; anything else is a station's range)
+    this.reachZoom = o.close ? MathUtils.clamp(v.zoom, 1, this.lookZoom) : 1;
     this.held = !!o.hold;
-    if (this.held) this.zoom = MathUtils.clamp(this.zoom, 0, 1);
+    if (this.held) this.zoom = MathUtils.clamp(this.zoom, 0, this.reachZoom);
     else this.clampState();
     this.apply();
   }
@@ -251,19 +290,25 @@ export class CameraRig {
   /** True while a held view (cutTo with `hold`) is in force. */
   private held = false;
 
-  /** Glide to a view (a cut when reduced motion is on). */
-  easeTo(v: View, seconds = 0.7): void {
+  /** Glide to a view (a cut when reduced motion is on). `close`: a look, which may come closer than a station. */
+  easeTo(v: View, seconds = 0.7, o: { close?: boolean; look?: Box3 | null } = {}): void {
+    const close = !!o.close;
     if (this.reducedMotion || seconds <= 0) {
-      this.cutTo(v);
+      this.cutTo(v, { close, look: o.look ?? null });
       return;
     }
+    this.look = o.look ?? null;
     this.held = false;
-    this.ease = { from: this.view(), to: { focus: [...v.focus] as [number, number, number], zoom: v.zoom }, t: 0, dur: seconds };
+    const to = close ? Math.min(v.zoom, this.lookZoom) : Math.min(v.zoom, 1);
+    // (room for both ends of the glide; it shrinks back behind the zoom as it comes down)
+    this.reachZoom = Math.max(1, Math.min(this.zoom, this.reachZoom), to);
+    this.ease = { from: this.view(), to: { focus: [...v.focus] as [number, number, number], zoom: to }, t: 0, dur: seconds, close };
   }
 
   /** Slide the focus along the bench (world units; +x right, +z toward the visitor). */
   panBy(dx: number, dz = 0): void {
     this.ease = null;
+    this.look = null;
     this.held = false;
     // Past a limit the drag meets resistance: only the give is let through.
     const r = this.panRange();
@@ -283,9 +328,14 @@ export class CameraRig {
   zoomBy(f: number, towardNdc?: { x: number; y: number }): void {
     if (!(f > 0)) return;
     this.ease = null;
+    this.look = null;
     this.held = false;
     const before = towardNdc ? this.benchPoint(towardNdc, this.focus.y) : null;
-    this.zoom = MathUtils.clamp(this.zoomForDistance(this.distance * f), 0, 1);
+    // the visitor's own zoom: never past a station's, nor further in than a look left it; out from a look it comes
+    // smoothly back down into the ordinary range
+    const top = Math.max(1, Math.min(this.zoom, this.reachZoom));
+    this.zoom = MathUtils.clamp(this.zoomForDistance(this.distance * f), 0, top);
+    this.reachZoom = Math.max(1, this.zoom);
     this.apply();
     if (before && towardNdc) {
       const after = this.benchPoint(towardNdc, this.focus.y);
@@ -364,7 +414,10 @@ export class CameraRig {
         MathUtils.lerp(e.from.focus[2], e.to.focus[2], k),
       );
       this.zoom = MathUtils.lerp(e.from.zoom, e.to.zoom, k);
-      if (e.t >= 1) this.ease = null;
+      if (e.t >= 1) {
+        this.ease = null;
+        this.reachZoom = e.close ? MathUtils.clamp(e.to.zoom, 1, this.lookZoom) : 1;
+      } else if (!e.close) this.reachZoom = Math.max(1, Math.min(this.reachZoom, this.zoom));
       this.clampState();
     }
     if (!this.ease && !this.held && this.stretched) {
@@ -443,7 +496,7 @@ export class CameraRig {
    * give past the limit (it springs back in `update`); none under reduced motion.
    */
   private clampState(soft = false): void {
-    this.zoom = MathUtils.clamp(this.zoom, 0, 1);
+    this.zoom = MathUtils.clamp(this.zoom, 0, this.reachZoom);
     const r = this.panRange();
     const give = soft && !this.reducedMotion ? Math.tan(MathUtils.degToRad(this.fov) / 2) * this.distance * 2 * PAN_GIVE : 0;
     this.focus.x = rubber(this.focus.x, r.x[0], r.x[1], give);

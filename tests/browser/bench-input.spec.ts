@@ -935,9 +935,133 @@ test('P4 S5: a project crate opened by a click on its latch: a finger over it, i
   await pollFrames(page, openNow).toBe(true);
   // the plate on the standing card is a target of its own once the card has risen
   await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.surface.screen('crate-3-plate') !== null)).toBe(true);
+  // (round two on) opening brings the camera to the card: a hand waits for it to come to rest before it reaches again
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.stage.camera.easing), 240, 'the camera at rest').toBe(false);
   const again = await waitClear(page, 'crate-3-lid', 'mouse');
   await stroke(page, mouseHand(page), [again, again]);
   await pollFrames(page, openNow).toBe(false);
+});
+
+test('P4 S5 round three: a station double-clicked still frames, the camera starting within a frame or two of the world\'s answer; and a look\'s closest view is a look\'s alone', async ({ page }) => {
+  await open(page, 1440, 900);
+  const station0 = await page.evaluate(() => (window as any).__bench.ws.framing.station);
+  expect(station0).toBeNull();
+  await page.evaluate(() => {
+    const W = window as any;
+    W.__s5 = { click: 0, framed: 0, station: null };
+    window.addEventListener('dblclick', () => (W.__s5.click = performance.now()), { capture: true });
+    W.__bench.ws.framing.on((st: string | null) => {
+      if (st !== null && !W.__s5.framed) {
+        W.__s5.framed = performance.now();
+        W.__s5.station = st;
+      }
+    });
+  });
+  const c = await waitClear(page, 'belt-dial', 'mouse');
+  await page.mouse.dblclick(c.x, c.y);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__s5.framed > 0), 240, 'framed').toBe(true);
+  const r = await page.evaluate(() => (window as any).__s5);
+  expect(r.station).not.toBeNull();
+  const wait = r.framed - r.click;
+  console.log(`station framed ${wait.toFixed(0)} ms after the double-click`);
+  expect(wait).toBeLessThan(120);
+  // framed and at rest, the visitor's own zoom stops at a station's (zoom 1), never a look's closer limit
+  await pollFrames(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 600, 'at rest').toBe(true);
+  for (let i = 0; i < 30; i++) await page.mouse.wheel(0, -400);
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number), 120, 'wheel in').toBe(1);
+  expect(await page.evaluate(() => (window as any).__bench.ws.stage.camera.lookZoom as number)).toBeGreaterThan(1);
+});
+
+test('P4 S5 round three: on an open crate with a thing on its tray (the ledger board), the thing wins every press where it and the latch overlap; the latch is still pressable in front of it', async ({ page, browser }) => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;
+    const p = ctx ? await ctx.newPage() : page;
+    await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
+    // crate-1 lies at the bottom of the stack: the crate on it is set down beside it first, as a visitor would
+    await p.evaluate(() => {
+      const ws = (window as any).__bench.ws, w = ws.world;
+      const q = w.motion('crate-2').pose.p;
+      ws.dispatch({ type: 'grab', id: 'crate-2', grip: q });
+      ws.advance(10);
+      ws.dispatch({ type: 'place', at: [q[0] - 0.9, w.scene.bench.top, q[2] + 0.2] });
+      ws.advance(60);
+      ws.dispatch({ type: 'select', id: 'crate-1' });
+    });
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), 600, `${kind}: opened`).toBe(true);
+    // the board dealt itself out and lies on its tray, its show over; the camera at rest
+    await pollFrames(p, () => p.evaluate(() => { const w = (window as any).__bench.ws.world; return w.machine('ledger').show === null && w.mode('ledger-board') === 'machine'; }), 1200, `${kind}: the board on its tray`).toBe(true);
+    await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.surface.screen('ledger-plunger') !== null), 600, `${kind}: at rest`).toBe(true);
+    // every point over the board's controls (their boxes on screen) picks the control, never the latch
+    const sweep = await p.evaluate((k) => {
+      const ws = (window as any).__bench.ws, cam = ws.stage.camera;
+      const W = ws.stage.canvas.clientWidth, H = ws.stage.canvas.clientHeight;
+      const rect = (id: string) => {
+        const b = ws.picking.worldBox(id);
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (let i = 0; i < 8; i++) {
+          const s = cam.worldToScreen({ x: i & 1 ? b.max.x : b.min.x, y: i & 2 ? b.max.y : b.min.y, z: i & 4 ? b.max.z : b.min.z });
+          const x = ((s.x + 1) / 2) * W, y = ((1 - s.y) / 2) * H;
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        }
+        return { x0, y0, x1, y1 };
+      };
+      const out = { latch: 0, points: 0, latchOwn: 0, latchGot: '' };
+      for (const id of ['ledger-plunger', 'ledger-crank']) {
+        const r = rect(id);
+        for (let i = 0; i <= 8; i++)
+          for (let j = 0; j <= 8; j++) {
+            const t = ws.surface.at(r.x0 + ((r.x1 - r.x0) * i) / 8, r.y0 + ((r.y1 - r.y0) * j) / 8, k, null);
+            out.points++;
+            if (t.id === 'crate-1-lid') out.latch++;
+          }
+      }
+      const l = ws.surface.screen('crate-1-lid');
+      out.latchGot = l ? String(ws.surface.at(l.x, l.y, k, null).id) : 'no target';
+      out.latchOwn = out.latchGot === 'crate-1-lid' ? 1 : 0;
+      return out;
+    }, kind);
+    expect(sweep.latch, `${kind}: points over the board's controls that went to the latch, of ${sweep.points}`).toBe(0);
+    expect(sweep.latchOwn, `${kind}: the latch, on the crate's front, is still its own target (got ${sweep.latchGot})`).toBe(1);
+    // a press on the plunger leaves the crate open; the latch shuts it
+    const pl = await p.evaluate(() => (window as any).__bench.ws.surface.screen('ledger-plunger'));
+    if (kind === 'mouse') await p.mouse.click(pl.x, pl.y);
+    else await p.touchscreen.tap(pl.x, pl.y);
+    await frames(p, 30);
+    expect(await p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), `${kind}: the plunger did not shut it`).toBe(true);
+    const la = await waitClear(p, 'crate-1-lid', kind);
+    if (kind === 'mouse') await p.mouse.click(la.x, la.y);
+    else await p.touchscreen.tap(la.x, la.y);
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), 240, `${kind}: the latch shut it`).toBe(false);
+    if (ctx) await ctx.close();
+  }
+});
+
+test('P4 S5 round two: a double-click on a crate lying still opens it where it lies and brings the camera close to its card; a double-tap does the same at the phone framing; Esc goes back', async ({ page, browser }) => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;
+    const p = ctx ? await ctx.newPage() : page;
+    await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
+    const zoom0 = await p.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number);
+    const c = await waitClear(p, 'crate-3', kind);
+    const at0 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
+    if (kind === 'mouse') await p.mouse.dblclick(c.x, c.y);
+    else {
+      await p.touchscreen.tap(c.x, c.y);
+      await p.waitForTimeout(110);
+      await p.touchscreen.tap(c.x, c.y);
+    }
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open')), 240, `${kind}: opened`).toBe(true);
+    // where it lay (the double-tap's first tap lifted it; the second let it go still)
+    const at1 = await p.evaluate(() => (window as any).__bench.ws.world.motion('crate-3').pose.p as number[]);
+    expect(Math.hypot(at1[0]! - at0[0]!, at1[2]! - at0[2]!), `${kind}: where it lay`).toBeLessThan(0.15);
+    // the camera came closer, and rests with the plate a finger's width across
+    await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.stage.camera.view().zoom > 0), 600, `${kind}: drawn in`).toBe(true);
+    expect(await p.evaluate(() => (window as any).__bench.ws.stage.camera.view().zoom as number)).toBeGreaterThan(zoom0 + 0.3);
+    await pollFrames(p, () => p.evaluate(() => ((window as any).__bench.ws.surface.screen('crate-3-plate')?.r ?? 0) * 2 >= 44), 600, `${kind}: the plate a finger across`).toBe(true);
+    await p.keyboard.press('Escape');
+    await pollFrames(p, () => p.evaluate(() => ((window as any).__bench.ws.stage.camera.view().zoom as number) < 0.05), 600, `${kind}: back`).toBe(true);
+    if (ctx) await ctx.close();
+  }
 });
 
 /**
