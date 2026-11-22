@@ -49,7 +49,7 @@ export const BOARD = {
   /** The crank on the hopper's front: its axle's height, its arm's reach. */
   crankY: 0.052,
   crankZ: 0.058,
-  crankArm: 0.046,
+  crankArm: 0.058,
 } as const;
 
 /** Where a token rests in a cup (its bottom's centre). */

@@ -136,8 +136,9 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   const starG = (): BufferGeometry => extrude(starOutline(B.starR), 0.01, { bevel: 0.003, bevelBase: 0, radius: 0.003, segs: 1, support: false, caps: 'end' });
   const quiet = (q: KitPart): KitPart => ({ ...q, shadow: 'none' });
   const starM = T(sx, B.starY, sz + 0.006);
-  b.node('star-lit', starM).add(quiet(setFinish(part('bulb', starG(), 'cable-red'), 1)));
-  b.node('star-dark', starM).add(quiet(setFinish(part('rubber', starG(), 'cable-red', { shade: 0.42 }), 1)));
+  // lit: the patch cord's red, hotter (a lamp glows; the Button's red is the Button's alone)
+  b.node('star-lit', starM).add(quiet(setFinish(part('bulb', starG(), 'cable-red', { shade: 2.3 }), 1)));
+  b.node('star-dark', starM).add(quiet(setFinish(part('rubber', starG(), 'cable-red', { shade: 0.28 }), 1)));
 
   // ---- the plunger at the right front: a brass collar, the rod and its rubber knob (it travels down its local Y)
   const px = B.plungerX, pz = B.plungerZ;
@@ -149,7 +150,7 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   // ---- the tokens: seven or eight metal coins in deal order, and the rubber ring (posed by the view) ----------------
   for (let i = 0; i < TOKENS; i++) b.node(`token-${i}`).add(coin(TIER[i]!, seed + 80 + i, low));
   const rubber = b.node('rubber');
-  rubber.add(part('rubber', lathe(profile(B.rubberR * 0.45, 0).to(B.rubberR, 0.002, { sharp: true }).to(B.rubberR * 1.03, B.rubberT * 0.5, { sharp: true }).to(B.rubberR, B.rubberT - 0.002, { sharp: true }).to(B.rubberR * 0.45, B.rubberT, { sharp: true }), { segs: 10, support: false, caps: false }), 'ink', { shade: 1.25 }));
+  rubber.add(part('rubber', lathe(profile(B.rubberR * 0.45, 0).to(B.rubberR, 0.002, { sharp: true }).to(B.rubberR * 1.03, B.rubberT * 0.5, { sharp: true }).to(B.rubberR, B.rubberT - 0.002, { sharp: true }).to(B.rubberR * 0.45, B.rubberT, { sharp: true }), { segs: 10, support: false, caps: false }), 'ink', { shade: 0.8 }));
   for (let k = 0; k < 3; k++) {
     const core = b.node(`rubber-core-${k}`, T(0, 0, 0));
     const g = lathe(profile(B.rubberR * 0.46, 0.003).to(B.rubberR * 0.46, B.rubberT * 0.75, { sharp: true }).to(0, B.rubberT * 0.78), { segs: 7, support: false, caps: false });
