@@ -14,7 +14,7 @@
  *
  * `?seeThrough=0`: never (measurements, "before"); `?seeThrough=all`: every body, always (the frame-time A/B).
  */
-import { Box3, Group, Matrix4, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Ray, Raycaster, Vector3, type Material, type Mesh, type Object3D } from 'three';
 import type { Id } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
 import type { CameraRig } from '../../stage/camera.ts';
@@ -115,9 +115,74 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
         if (m === 'off' || !ctx.materials.seeThrough || !ctx.targetObject) return;
         const cam = ctx.stage.camera as CameraRig;
         const look = m === 'all' ? null : cam.look;
-        const px = SEE_THROUGH.pad;
-        if (look) onScreen(look, cam, a);
+        // (round four) in the way by rays: lines from the camera to points of what must show (the look target's parts
+        // `.face`, `.plate`, `.thing`; else the look box's middle and four points round it), and a body is in the way
+        // when its box cuts enough of them before they arrive
+        const eye = cam.camera.getWorldPosition(new Vector3());
+        const pts: Vector3[] = [];
+        if (look) {
+          const grid = (bx: Box3, n: number): void => {
+            for (let i = 0; i < n; i++)
+              for (let j = 0; j < n; j++) {
+                const u = n === 1 ? 0.5 : 0.15 + (0.7 * i) / (n - 1), v = n === 1 ? 0.5 : 0.15 + (0.7 * j) / (n - 1);
+                pts.push(new Vector3(bx.min.x + (bx.max.x - bx.min.x) * u, bx.min.y + (bx.max.y - bx.min.y) * v, (bx.min.z + bx.max.z) / 2));
+              }
+          };
+          const id = cam.lookId;
+          if (id !== null && ctx.targetBox?.(`${id}.face`, box)) grid(box, 3);
+          if (id !== null && ctx.targetBox?.(`${id}.plate`, box)) grid(box, 1);
+          if (id !== null && ctx.targetBox?.(`${id}.thing`, box)) {
+            grid(box, 2);
+            pts.push(new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2));
+          }
+          if (pts.length === 0) grid(look, 2);
+        }
+        const need = Math.max(2, Math.ceil(pts.length * 0.15));
+        const ray = new Ray();
+        const hit = new Vector3();
+        const caster = new Raycaster();
         const cut = ctx.reducedMotion || frame.world.reducedMotion;
+        /** (round four) Is this body, by its pick target `key`, in the way: its box first, then as drawn (memo on the object). */
+        const inWay = (obj: Object3D, key: Id): boolean => {
+          if (!ctx.targetBox?.(key, box)) return false;
+          // first the box (cheap): which of the lines it cuts before they arrive
+          const through: Vector3[] = [];
+          for (const p of pts) {
+            const d = p.distanceTo(eye);
+            ray.set(eye, hit.copy(p).sub(eye).normalize());
+            if (ray.intersectBox(box, hit) && hit.distanceTo(eye) < d - 0.02) through.push(p);
+          }
+          if (through.length < need) return false;
+          // then the body as drawn, for those lines only, every tenth of a second (a box is fat round arms and wheels:
+          // a robot beside the card cuts its box's corner, not the robot); the answer kept between
+          const memo = obj.userData as { stRayAt?: number; stRayWant?: boolean };
+          const now = frame.time;
+          if (memo.stRayAt === undefined || now - memo.stRayAt > 0.1 || now < memo.stRayAt) {
+            obj.traverse((o) => {
+              const sk = o as Mesh & { isSkinnedMesh?: boolean; computeBoundingSphere?: () => void };
+              if (sk.isSkinnedMesh) sk.computeBoundingSphere?.();
+            });
+            let n = 0;
+            for (const p of through) {
+              const d = p.distanceTo(eye);
+              caster.set(eye, hit.copy(p).sub(eye).normalize());
+              caster.far = d - 0.02;
+              if (caster.intersectObject(obj, true).length > 0) n++;
+            }
+            memo.stRayAt = now;
+            memo.stRayWant = n >= need;
+          }
+          return memo.stRayWant === true;
+        };
+        const ease = (b: Body, want: number, name: Id): void => {
+          b.level = cut ? want : b.level + Math.sign(want - b.level) * Math.min(Math.abs(want - b.level), SEE_THROUGH.rate * frame.dt);
+          if (b.level > 0) swap(b, true);
+          b.fade.value = b.level;
+          if (b.level <= 0) swap(b, false);
+          levels.set(name, b.level);
+        };
+        /** (round four) What each crew member carries goes see-through with it (keyed `carry:<part>`). */
+        const carriedNow = new Set<Id>();
         for (const cv of frame.world.crewViews()) {
           const ids = cv.body !== null ? [cv.body, cv.id] : [cv.id];
           let b = bodies.get(cv.id);
@@ -135,22 +200,39 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
             b = { key, obj, fade: { value: 0 }, swapped: null, level: 0 };
             bodies.set(cv.id, b);
           }
-          const key = b.key;
           const held = ids.includes(frame.held ?? '');
           let want = 0;
-          if (!held && (m === 'all' || look) && b.obj.visible) {
-            if (m === 'all') want = SEE_THROUGH.fade;
-            else if (ctx.targetBox?.(key, box)) {
-              onScreen(box, cam, t);
-              const overlap = t.x0 < a.x1 + px && t.x1 > a.x0 - px && t.y0 < a.y1 + px && t.y1 > a.y0 - px;
-              if (overlap && t.near < a.mid) want = SEE_THROUGH.fade;
+          if (!held && (m === 'all' || look) && b.obj.visible) want = m === 'all' || inWay(b.obj, b.key) ? SEE_THROUGH.fade : 0;
+          ease(b, want, cv.id);
+          // its load: fades when the carrier does, or when it is in the way itself
+          const load = cv.kind === 'fetch' ? cv.member.carrying : ((cv as { view?: { carrying?: Id | null } }).view?.carrying ?? null);
+          if (load !== null && load !== frame.held) {
+            const k = `carry:${load}`;
+            let c = bodies.get(k);
+            const obj = ctx.targetObject(load);
+            if (obj && (!c || c.obj !== obj)) {
+              if (c) {
+                c.level = 0;
+                swap(c, false);
+              }
+              c = { key: load, obj, fade: { value: 0 }, swapped: null, level: 0 };
+              bodies.set(k, c);
+            }
+            if (c) {
+              carriedNow.add(k);
+              const w2 = want > 0 || ((m === 'all' || look) && c.obj.visible && (m === 'all' || inWay(c.obj, load))) ? SEE_THROUGH.fade : 0;
+              ease(c, w2, k);
             }
           }
-          b.level = cut ? want : b.level + Math.sign(want - b.level) * Math.min(Math.abs(want - b.level), SEE_THROUGH.rate * frame.dt);
-          if (b.level > 0) swap(b, true);
-          b.fade.value = b.level;
-          if (b.level <= 0) swap(b, false);
-          levels.set(cv.id, b.level);
+        }
+        // a load put down (or taken by the visitor) comes back
+        for (const [k, c] of bodies) {
+          if (!k.startsWith('carry:') || carriedNow.has(k)) continue;
+          ease(c, 0, k);
+          if (c.level <= 0) {
+            bodies.delete(k);
+            levels.delete(k);
+          }
         }
       },
       dispose() {

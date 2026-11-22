@@ -115,6 +115,8 @@ export class CameraRig {
    * of it goes see-through: view/bench/stations/see-through.ts).
    */
   look: Box3 | null = null;
+  /** (round four) The id of the pick target the look is on (its parts `${id}.face`, `.plate`, `.thing` are what must show), or null. */
+  lookId: string | null = null;
 
   /** Current state. */
   readonly focus = new Vector3();
@@ -274,9 +276,10 @@ export class CameraRig {
    * the limits depend on the aspect, and near 1.85-1.95:1 the range at the live aspect can
    * exclude a view that was valid where the picture was framed).
    */
-  cutTo(v: View, o: { hold?: boolean; close?: boolean; look?: Box3 | null } = {}): void {
+  cutTo(v: View, o: { hold?: boolean; close?: boolean; look?: Box3 | null; lookId?: string | null } = {}): void {
     this.ease = null;
     this.look = o.look ?? null;
+    this.lookId = this.look ? (o.lookId ?? null) : null;
     this.focus.set(v.focus[0], v.focus[1], v.focus[2]);
     this.zoom = v.zoom;
     // (a look may come closer than a station, as far as `lookZoom`; anything else is a station's range)
@@ -291,13 +294,14 @@ export class CameraRig {
   private held = false;
 
   /** Glide to a view (a cut when reduced motion is on). `close`: a look, which may come closer than a station. */
-  easeTo(v: View, seconds = 0.7, o: { close?: boolean; look?: Box3 | null } = {}): void {
+  easeTo(v: View, seconds = 0.7, o: { close?: boolean; look?: Box3 | null; lookId?: string | null } = {}): void {
     const close = !!o.close;
     if (this.reducedMotion || seconds <= 0) {
-      this.cutTo(v, { close, look: o.look ?? null });
+      this.cutTo(v, { close, look: o.look ?? null, lookId: o.lookId ?? null });
       return;
     }
     this.look = o.look ?? null;
+    this.lookId = this.look ? (o.lookId ?? null) : null;
     this.held = false;
     const to = close ? Math.min(v.zoom, this.lookZoom) : Math.min(v.zoom, 1);
     // (room for both ends of the glide; it shrinks back behind the zoom as it comes down)
@@ -309,6 +313,7 @@ export class CameraRig {
   panBy(dx: number, dz = 0): void {
     this.ease = null;
     this.look = null;
+    this.lookId = null;
     this.held = false;
     // Past a limit the drag meets resistance: only the give is let through.
     const r = this.panRange();
@@ -327,8 +332,11 @@ export class CameraRig {
    */
   zoomBy(f: number, towardNdc?: { x: number; y: number }): void {
     if (!(f > 0)) return;
+    // (round four) a look is let go only if the zoom moves (a wheel in at a look's closest does nothing, and keeps it)
+    const was = { look: this.look, id: this.lookId, zoom: this.zoom, x: this.focus.x, z: this.focus.z, easing: this.ease !== null };
     this.ease = null;
     this.look = null;
+    this.lookId = null;
     this.held = false;
     const before = towardNdc ? this.benchPoint(towardNdc, this.focus.y) : null;
     // the visitor's own zoom: never past a station's, nor further in than a look left it; out from a look it comes
@@ -346,6 +354,10 @@ export class CameraRig {
     }
     this.clampState();
     this.apply();
+    if (!was.easing && Math.abs(this.zoom - was.zoom) < 1e-9 && Math.abs(this.focus.x - was.x) < 1e-9 && Math.abs(this.focus.z - was.z) < 1e-9) {
+      this.look = was.look;
+      this.lookId = was.id;
+    }
   }
 
   /** A small damped shake (the Button). Ignored under reduced motion. */
