@@ -276,7 +276,7 @@ export const TOOLWALL = {
   unit: 'toolwall',
   sheet: 'toolwall-sheet',
   look: 'toolwall-look',
-  board: { c: [-7.35, 3.93, -4.938], half: [2.76, 2.53, 0.05] } as Box,
+  board: { c: [-7.35, 3.705, -4.938], half: [2.76, 2.305, 0.05] } as Box,
   tools: {
     laravel: { half: [0.1696, 0.5645, 0.05], at: [-8.6436, 3.6235, -4.813], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.12 },
     vue: { half: [0.0893, 0.575, 0.0948], at: [-6.95, 3.703, -4.768], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.06 },
@@ -284,8 +284,8 @@ export const TOOLWALL = {
     python: { half: [0.1815, 0.5211, 0.0703], at: [-8.6475, 1.7661, -4.803], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.1 },
     rust: { half: [0.078, 0.6, 0.078], at: [-7.01, 1.878, -4.788], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'metal', mass: 0.08 },
     sql: { half: [0.28, 0.49, 0.054], at: [-5.472, 1.774, -4.809], q: [0, 0, 0, 1], size: 'M', material: 'wood', mass: 0.08 },
-    flutter: { half: [0.145, 0.5395, 0.058], at: [-8.85, 5.7045, -4.81], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.05 },
-    'claude-code': { half: [0.2136, 0.586, 0.1158], at: [-6.9044, 5.656, -4.7268], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.18 },
+    flutter: { half: [0.145, 0.5395, 0.058], at: [-8.7305, 5.068, -4.81], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'wood', mass: 0.05 },
+    'claude-code': { half: [0.2136, 0.586, 0.1158], at: [-6.866, 5.4136, -4.7268], q: [0, 0, Math.SQRT1_2, Math.SQRT1_2], size: 'L', material: 'metal', mass: 0.18 },
   } as Readonly<Record<string, { half: Vec3; at: Vec3; q: readonly [number, number, number, number]; size: 'S' | 'M' | 'L'; material: 'metal' | 'wood'; mass: number }>>,
 } as const;
 /** A tool's part id, its place (a mouth), and the box a look at it out on the bench asks for. */

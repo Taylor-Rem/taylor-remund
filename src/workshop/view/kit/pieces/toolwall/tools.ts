@@ -482,9 +482,10 @@ function brush(n: NodeBuilder, seed: number): void {
 function brushShape(): ToolShape {
   const g = 0.036;
   return {
-    pegs: [[0, BR.top + 0.035]],
+    // (P4 T2) it lies on its side on two pegs under its handle, as the file does (tool-local +X is down on the wall)
+    pegs: [[0.068, 0.82], [0.068, 0.62]],
     shadow: [grow(rect(-BR.w / 2 - 0.02, 0, BR.w / 2 + 0.02, BR.bristle), g), grow(rect(-BR.w / 2 - 0.015, BR.bristle - 0.01, BR.w / 2 + 0.015, BR.ferrule), g), grow(turnedOutline(BR_HANDLE.map(([r, y]) => [r * 1.15, y] as [number, number])), g)],
-    turn: 0,
+    turn: -90,
   };
 }
 
@@ -587,9 +588,10 @@ function drillShape(): ToolShape {
   const g = 0.036;
   const [gx, gy] = DR.gear;
   return {
-    pegs: [[0, DR.top + 0.03]],
+    // (P4 T2) it lies on its back on two pegs, its wheel up: under its frame and under its handle (tool-local -X is down on the wall)
+    pegs: [[-0.068, 0.97], [-0.068, 0.57]],
     shadow: [grow(rect(-0.022, 0, 0.022, DR.chuck), g), grow(rect(-0.05, DR.bit, 0.05, DR.chuck), g), grow(rect(-0.06, DR.frame0, 0.05, DR.frame1), g), grow(ellipsePts(gx, gy, DR.gearR + 0.012, DR.gearR + 0.012, 0, Math.PI * 2, 20).slice(0, -1), g), grow(turnedOutline(DR_HANDLE), g)],
-    turn: 0,
+    turn: 90,
   };
 }
 

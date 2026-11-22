@@ -6,7 +6,7 @@
  *
  * P4 T2: eight tools. The six and their shadows and tapes stay exactly where the
  * approved picture has them; the board grows UP by one row (`BOARD.h` 3.8 to
- * 5.8), which holds FLUTTER, CLAUDE CODE (two strips of tape, one word each:
+ * 5.35), which holds FLUTTER and CLAUDE CODE, each lying on its side on two pegs (CLAUDE CODE on two strips of tape, one word each:
  * one strip would be three units long) and the pinned sheet, a paper sheet with
  * the résumé's own heading that opens the full skills list (socket `sheet`).
  * Two rows of four would need a board about eight units wide at the tapes' size
@@ -63,7 +63,7 @@ export type { Candidate, ToolKind, ToolShape } from './tools.ts';
 export const BOARD = {
   /** The pegboard face (inside the frame it is a little smaller). */
   w: 5.2,
-  h: 5.8,
+  h: 5.35,
   /** Hole pitch: a peg can go in any hole. */
   pitch: 0.2,
   /** The board's bottom edge, its face off the wall. */
@@ -122,7 +122,7 @@ export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>
  * read (no words that are not published); pressed, it opens the panel with the full list. Board frame (x, y = its
  * middle), its size, and the heading's capital height.
  */
-export const SHEET = { x: 1.98, y: 4.95, w: 0.66, h: 0.86, cap: 0.045 } as const;
+export const SHEET = { x: 1.98, y: 4.92, w: 0.66, h: 0.86, cap: 0.045 } as const;
 
 /** A tape's size without the labels (clay, tests), within ~10% of the real one. */
 export function estimateTape(text: string): { w: number; h: number } {
@@ -131,7 +131,7 @@ export function estimateTape(text: string): { w: number; h: number } {
 }
 
 /** Where each tool goes: its row, the column centre of its tape, and where its own origin should land before the peg snaps to a hole. */
-const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: number }> = {
+const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: number; ty?: number }> = {
   laravel: { row: 1, x: -1.3, ox: 0, oy: 0.06 },
   vue: { row: 1, x: 0.47, ox: 0, oy: 0.08 },
   php: { row: 1, x: 1.74, ox: 0, oy: 0.06 },
@@ -139,11 +139,12 @@ const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: numb
   rust: { row: 0, x: 0.4, ox: -0.6, oy: 0.62 },
   sql: { row: 0, x: 1.78, ox: 0.2, oy: 0.14 },
   // P4 T2: the new row on top
-  flutter: { row: 2, x: -1.42, ox: 0, oy: 0.06 },
-  'claude-code': { row: 2, x: 0.5, ox: -0.17, oy: 0.04 },
+  // P4 T2: the new row on top: the two lie on their sides on two pegs each, as the file does (a row as low as it can be)
+  flutter: { row: 2, x: -1.42, ox: -0.53, oy: -0.3, ty: -0.42 },
+  'claude-code': { row: 2, x: 0.52, ox: 0.56, oy: 0 },
 };
 /** Tape centre heights (board frame, from y = 0) for the rows, and where the tools above them start (over the first strip, when a name takes two). */
-const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, { tape: 4.55, tools: 4.66 }] as const;
+const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, { tape: 4.59, tools: 4.95 }] as const;
 /** A second strip of tape sits this far under the first. */
 const LINE_GAP = 0.42;
 /** How far each tool stands off the board face (its half thickness and a gap). */
@@ -288,7 +289,7 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
     const L = LAYOUT[kind];
     tapeLines(kind).forEach((line, i) => {
       const ref = o.tapes?.[tapeKey(kind, i)] ?? { key: '', ...estimateTape(line) };
-      tapeAt.set(tapeKey(kind, i), { ref, m: chain(T(L.x + R.spread(0.04) + i * 0.05, ROW[L.row].tape - i * LINE_GAP + R.spread(0.02), zF + 0.005), mat({ rot: [0, 0, R.spread(1.8)] })) });
+      tapeAt.set(tapeKey(kind, i), { ref, m: chain(T(L.x + R.spread(0.04) + i * 0.05, ROW[L.row].tape + (L.ty ?? 0) - i * LINE_GAP + R.spread(0.02), zF + 0.005), mat({ rot: [0, 0, R.spread(1.8)] })) });
     });
   }
   // the sheet: no holes behind it either
