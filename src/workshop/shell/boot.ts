@@ -204,7 +204,7 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * double-tap first asks the world whether a thing answers it (`select`); the station is framed as soon as the world has
  * stepped once since without asking for a look (one frame), or `selectWait` ms later if it has not stepped (paused).
  */
-export const LOOK_AT = { minPx: 360, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
+export const LOOK_AT = { minPx: 560, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {
@@ -812,12 +812,16 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     following = null;
     const cam = stage.camera;
     const c = clearOf(KEEP_CLEAR.pad);
-    const want = Math.min(LOOK_AT.minPx, Math.min(c.x1 - c.x0, c.y1 - c.y0) * LOOK_AT.fill);
-    const across = (): number => {
+    // (round three) close enough when the box is `minPx` across either way, or fills the clear area's width or height
+    // (`fill`): each side judged against its own side of the area, so a tall box on an upright phone comes in until
+    // its width fills the screen
+    const wantW = Math.min(LOOK_AT.minPx, (c.x1 - c.x0) * LOOK_AT.fill);
+    const wantH = Math.min(LOOK_AT.minPx, (c.y1 - c.y0) * LOOK_AT.fill);
+    const enough = (): boolean => {
       const r = rectOf(id);
-      return r ? Math.max(r.x1 - r.x0, r.y1 - r.y0) : 0;
+      return !!r && (r.x1 - r.x0 >= wantW || r.y1 - r.y0 >= wantH);
     };
-    if (!cam.easing && across() >= want && clear(id, KEEP_CLEAR.pad)) {
+    if (!cam.easing && enough() && clear(id, KEEP_CLEAR.pad)) {
       cam.look = box;
       return;
     }
@@ -826,8 +830,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const top = cam.lookZoom;
     let v: View = { focus: [m.x, m.y, m.z], zoom: cam.view().zoom };
     for (let i = 0; i < LOOK_AT.tries; i++) {
-      const r = atView(v, () => ({ size: across(), rest: cam.view() }), true);
-      if (r.size >= want || r.rest.zoom >= top - 1e-6) break;
+      const r = atView(v, () => ({ ok: enough(), rest: cam.view() }), true);
+      if (r.ok || r.rest.zoom >= top - 1e-6) break;
       v = { focus: v.focus, zoom: Math.min(top, r.rest.zoom + LOOK_AT.zoomStep) };
     }
     const at = settle(id, v, true) ?? atView(v, () => cam.view(), true);
