@@ -56,6 +56,12 @@ export const TOOLWALL_TUNING = {
   catchSpeed: 4.0,
   /** The glide onto the peg. */
   easeSeconds: 0.14,
+  /**
+   * A tool shipped comes back up the chute after the dock's `returnAfter.tool` (6 s). If nothing has brought it back after
+   * this long (an undo took back the action its return was part of while it flew, and put it back as shipped: the dock
+   * queues no return for a part restored from shipped to shipped), the wall sends it up the chute itself, as the system.
+   */
+  stranded: 14,
 } as const;
 
 export interface ToolwallTool {
@@ -125,6 +131,8 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
   const bounced = new Set<Id>();
   let started = false;
   let resetting = false;
+  /** Tools shipped and still behind the dock's door: since when (step). */
+  const stranded = new Map<Id, number>();
 
   const onWall = (id: Id): boolean => {
     const l = ctx.part(id)?.location;
@@ -315,6 +323,17 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
           else laying.delete(t.id);
           continue;
         }
+        // shipped, and nobody bringing it back (the dock's return for it was taken back with an undo): up the chute after a while
+        if (m === 'gone' && ctx.part(t.id)?.location.at === 'shipped') {
+          const since = stranded.get(t.id) ?? ctx.clock.step;
+          stranded.set(t.id, since);
+          if (ctx.clock.step - since > steps(T.stranded)) {
+            stranded.delete(t.id);
+            ctx.toChute(t.id, 'system');
+          }
+          continue;
+        }
+        stranded.delete(t.id);
         if (m === 'held') {
           missed.delete(t.id);
           bounced.delete(t.id);
@@ -364,6 +383,7 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
       resetting = true;
       missed.clear();
       bounced.clear();
+      stranded.clear();
       pending.clear();
       for (const l of laying.values()) l.job.done();
       laying.clear();
