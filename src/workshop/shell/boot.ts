@@ -231,7 +231,9 @@ const lookMinPx = (): number => {
     return LOOK_AT.minPx;
   }
 };
-export const LOOK_AT = { minPx: 560, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
+// (the lead, from the crates' round-four sheet at 1440×900: 560 left an opened crate alone on the screen; at 480, with a
+// laptop's closest look 1.7 across, the bench stays round it and the smallest line of a card is still 15 px)
+export const LOOK_AT = { minPx: 480, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {
