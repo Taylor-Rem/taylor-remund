@@ -1947,6 +1947,11 @@ the four compliance pages, whose findings are his to rule on.
   be handed to him. He is in P4's design, his appearance is sketched early
   for Taylor's eye, and he is built "when it makes technical sense. If
   performance means he has to come afterward, that's fine."
+  His look, chosen from three sketched takes the same evening: "I think I
+  actually like the top hat the most. Black blimp, top hat, white
+  handlebar mustache." (A plump blimp whose nose is his face, one
+  heavy-lidded eye behind a monocle, a briefcase for a gondola.) The
+  finished character still comes to his eye before G4.
 - **The maker's plate** may show the bench's own workings live (the history
   the UNDO lever replays, the tests, the frame budget), in words he approves.
 - **Order.** P4 begins with a performance pass: both budgets of § E7 were

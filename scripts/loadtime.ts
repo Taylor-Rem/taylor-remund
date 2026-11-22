@@ -25,7 +25,10 @@
 // resolved and the loop is started; its first frame is still to come, so
 // they read about one first-frame early against the handoff page).
 //
-// Exit codes: 0 measured, 1 failed, 2 usage.
+// Each run also counts the WebGL programs linked, and those linked inside the boot's first frame (F1: each is
+// waited for there); more than FIRST_FRAME_LINKS in the first frame of any run fails it.
+//
+// Exit codes: 0 measured, 1 failed (or a first frame over FIRST_FRAME_LINKS), 2 usage.
 
 import { spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -169,6 +172,8 @@ export interface PageData {
   marks: { name: string; t: number; dur: number }[];
   usable: number | null;
   handoff: Record<string, unknown> | null;
+  /** When each WebGL program was linked (F1). */
+  links: number[];
 }
 
 export interface TraceSummary {
@@ -222,7 +227,9 @@ export function profileByPhase(profile: { nodes: ProfileNode[]; samples: number[
 }
 
 const INIT = `(() => {
-  const lt = (window.__lt = { long: [], lcp: [], el: [], usable: null });
+  const lt = (window.__lt = { long: [], lcp: [], el: [], usable: null, links: [] });
+  // (F1) every program link, timed: how many fall inside the first frame (they are waited for there)
+  try { const P = WebGL2RenderingContext.prototype, lp = P.linkProgram; P.linkProgram = function (p) { lt.links.push(performance.now()); return lp.call(this, p); }; } catch (e) {}
   const obs = (type, f) => { try { new PerformanceObserver((l) => l.getEntries().forEach(f)).observe({ type, buffered: true }); } catch (e) {} };
   obs('longtask', (e) => lt.long.push({ start: e.startTime, dur: e.duration }));
   obs('largest-contentful-paint', (e) => lt.lcp.push({ t: e.startTime, el: e.element ? e.element.tagName + (e.element.className ? '.' + e.element.className : '') : '', url: e.url || '', size: e.size }));
@@ -239,7 +246,7 @@ const INIT = `(() => {
 
 async function collect(page: Page): Promise<PageData> {
   return page.evaluate(() => {
-    const lt = (window as unknown as { __lt: { long: PageData['long']; lcp: PageData['lcp']; el: PageData['elements']; usable: number | null } }).__lt;
+    const lt = (window as unknown as { __lt: { long: PageData['long']; lcp: PageData['lcp']; el: PageData['elements']; usable: number | null; links: number[] } }).__lt;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
     const res = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).map((r) => ({
       name: r.name.replace(location.origin, ''),
@@ -266,6 +273,7 @@ async function collect(page: Page): Promise<PageData> {
       marks,
       usable: lt.usable,
       handoff: h?.report ? h.report() : null,
+      links: lt.links ?? [],
     };
   });
 }
@@ -496,13 +504,26 @@ export function machineState(): string {
   return `load ${loadavg()[0]!.toFixed(2)} gpu ${gpu}%`;
 }
 
+/**
+ * Programs linked inside the boot's first frame (F1): each is waited for there, on the way to usable. Before
+ * F1 it was 37 (the precompile built every program for the canvas, the frame drew into the post chain's
+ * target); after, 1 (a crate stencil's, first made when the world is). More than this fails the run.
+ */
+export const FIRST_FRAME_LINKS = 2;
+
+export function firstFrameLinks(d: PageData): number | null {
+  const f = d.marks.find((m) => m.name === 'b1:first frame');
+  if (!f) return null;
+  return d.links.filter((t) => t >= f.t && t < f.t + f.dur).length;
+}
+
 export function describe(run: Run, detail: boolean): string {
   const d = run.page;
   const L: string[] = [];
   const pic = picturePaint(d);
   const total = d.nav.transfer + d.resources.reduce((s, r) => s + r.transfer, 0);
   const decoded = d.resources.reduce((s, r) => s + r.decoded, 0);
-  L.push(`  ${run.throttle.padEnd(7)} [${run.machine ?? ''}] picture ${ms(pic)}   usable ${ms(d.usable)}   requests ${d.resources.length + 1}   transfer ${kb(total)} (decoded ${kb(decoded)})   first-paint bytes ${kb(firstPaintBytes(d, pic))}   long tasks ${d.long.length} (${d.long.reduce((s, l) => s + l.dur, 0).toFixed(0)} ms, max ${Math.max(0, ...d.long.map((l) => l.dur)).toFixed(0)})`);
+  L.push(`  ${run.throttle.padEnd(7)} [${run.machine ?? ''}] picture ${ms(pic)}   usable ${ms(d.usable)}   requests ${d.resources.length + 1}   transfer ${kb(total)} (decoded ${kb(decoded)})   first-paint bytes ${kb(firstPaintBytes(d, pic))}   long tasks ${d.long.length} (${d.long.reduce((s, l) => s + l.dur, 0).toFixed(0)} ms, max ${Math.max(0, ...d.long.map((l) => l.dur)).toFixed(0)})   programs ${d.links.length} (first frame ${firstFrameLinks(d) ?? '-'})`);
   if (!detail) return L.join('\n');
   L.push(`    html ${ms(d.nav.responseEnd)}  DCL ${ms(d.nav.domContentLoaded)}  load ${ms(d.nav.load)}  FCP ${ms(d.paints['first-contentful-paint'])}  LCP ${ms(d.lcp.at(-1)?.t)} ${d.lcp.at(-1)?.el ?? ''}`);
   L.push('    network waterfall (by start time; bar: 1 char = 100 ms):');
@@ -662,6 +683,11 @@ async function main(): Promise<number> {
       }
     }
     if (v['json']) writeFileSync(String(v['json']), JSON.stringify(all, null, 1));
+    const over = all.filter((r) => (firstFrameLinks(r.page) ?? 0) > FIRST_FRAME_LINKS);
+    if (over.length) {
+      console.log(`loadtime: FAIL — ${over.length} run(s) linked more than ${FIRST_FRAME_LINKS} program(s) in the first frame (${over.map((r) => firstFrameLinks(r.page)).join(', ')}): a precompile is building programs the frame does not use`);
+      return 1;
+    }
     return 0;
   } finally {
     await server.stop();

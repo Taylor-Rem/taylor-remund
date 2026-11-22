@@ -196,14 +196,12 @@ export function lumpsOf(pos: ArrayLike<number>, index: ArrayLike<number> | null)
   const tris = Math.floor((index ? index.length : n) / 3);
   const q = 1e4;
   const weld = new Int32Array(n);
-  const seen = new Map<string, number>();
+  const seen = new TupleIds(3, n);
+  const firstOf = new Int32Array(n);
   for (let i = 0; i < n; i++) {
-    const k = `${Math.round(pos[i * 3]! * q)},${Math.round(pos[i * 3 + 1]! * q)},${Math.round(pos[i * 3 + 2]! * q)}`;
-    const w = seen.get(k);
-    if (w === undefined) {
-      seen.set(k, i);
-      weld[i] = i;
-    } else weld[i] = w;
+    const id = seen.id(Math.round(pos[i * 3]! * q), Math.round(pos[i * 3 + 1]! * q), Math.round(pos[i * 3 + 2]! * q));
+    if (seen.added) firstOf[id] = i;
+    weld[i] = firstOf[id]!;
   }
   const parent = new Int32Array(n);
   for (let i = 0; i < n; i++) parent[i] = i;
@@ -373,13 +371,108 @@ function lumpGrids(xyz: ArrayLike<number>, index: ArrayLike<number> | null, l: L
   });
 }
 
-/** A vertex's cell key: on the world grid of `weld`, or on its lump's own grid. */
-function gridKey(xyz: ArrayLike<number>, i: number, bone: number, weld: number, g: LumpGrid | null, lump: number): string {
+/**
+ * Tuples of integers to dense ids, the first seen first: what a Map keyed by the tuple's text gives, without
+ * making the text (F1, measured 2026-11-21: the string keys of the welds and the clustering were most of the
+ * shadow proxies' 335 ms on the way to usable). Two tuples get one id exactly when every member is equal (as
+ * numbers: `===`, so 0 and -0 are one, as their text is). Open addressing over a power-of-two table.
+ */
+export class TupleIds {
+  /** How many ids there are. */
+  size = 0;
+  /** Whether the last `id` call made a new one. */
+  added = false;
+  private vals: Float64Array;
+  private table: Int32Array;
+  private mask: number;
+  private readonly w: number;
+
+  constructor(width: number, expect = 64) {
+    this.w = width;
+    let cap = 16;
+    while (cap < expect * 2) cap <<= 1;
+    this.table = new Int32Array(cap).fill(-1);
+    this.mask = cap - 1;
+    this.vals = new Float64Array(Math.max(16, expect) * width);
+  }
+
+  /** The id of the tuple (the first `width` arguments). */
+  id(a: number, b: number, c: number, d = 0, e = 0): number {
+    const w = this.w;
+    let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul(b | 0, 0x85ebca77) ^ Math.imul(c | 0, 0xc2b2ae3d);
+    if (w > 3) h ^= Math.imul(d | 0, 0x27d4eb2f);
+    if (w > 4) h ^= Math.imul(e | 0, 0x165667b1);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2c1b3c6d);
+    h ^= h >>> 12;
+    const vals = this.vals;
+    let slot = h & this.mask;
+    for (;;) {
+      const k = this.table[slot]!;
+      if (k < 0) break;
+      const o = k * w;
+      if (vals[o] === a && vals[o + 1] === b && vals[o + 2] === c && (w < 4 || vals[o + 3] === d) && (w < 5 || vals[o + 4] === e)) {
+        this.added = false;
+        return k;
+      }
+      slot = (slot + 1) & this.mask;
+    }
+    const k = this.size++;
+    if ((k + 1) * w > vals.length) {
+      const grown = new Float64Array(vals.length * 2);
+      grown.set(vals);
+      this.vals = grown;
+    }
+    const o = k * w;
+    const v = this.vals;
+    v[o] = a;
+    v[o + 1] = b;
+    v[o + 2] = c;
+    if (w > 3) v[o + 3] = d;
+    if (w > 4) v[o + 4] = e;
+    this.table[slot] = k;
+    this.added = true;
+    if (this.size * 2 > this.table.length) this.rehash();
+    return k;
+  }
+
+  private rehash(): void {
+    const cap = this.table.length * 2;
+    const table = new Int32Array(cap).fill(-1);
+    const mask = cap - 1;
+    const w = this.w;
+    const v = this.vals;
+    for (let k = 0; k < this.size; k++) {
+      const o = k * w;
+      let h = Math.imul(v[o]! | 0, 0x9e3779b1) ^ Math.imul(v[o + 1]! | 0, 0x85ebca77) ^ Math.imul(v[o + 2]! | 0, 0xc2b2ae3d);
+      if (w > 3) h ^= Math.imul(v[o + 3]! | 0, 0x27d4eb2f);
+      if (w > 4) h ^= Math.imul(v[o + 4]! | 0, 0x165667b1);
+      h ^= h >>> 15;
+      h = Math.imul(h, 0x2c1b3c6d);
+      h ^= h >>> 12;
+      let slot = h & mask;
+      while (table[slot]! >= 0) slot = (slot + 1) & mask;
+      table[slot] = k;
+    }
+    this.table = table;
+    this.mask = mask;
+  }
+}
+
+/**
+ * A vertex's cell, as an id in `cells`: on the world grid of `weld` (tagged -1), or on its lump's own grid
+ * (tagged with the lump's serial). The same cell as the text key `${bone}:${x},${y},${z}` /
+ * `${bone}#${lump}:${k}` it replaces (F1).
+ */
+function gridCell(cells: TupleIds, xyz: ArrayLike<number>, i: number, bone: number, weld: number, g: LumpGrid | null, lump: number): number {
   const x = xyz[i * 3]!, y = xyz[i * 3 + 1]!, z = xyz[i * 3 + 2]!;
-  if (!g) return `${bone}:${Math.floor(x / weld)},${Math.floor(y / weld)},${Math.floor(z / weld)}`;
+  if (!g) return cells.id(bone, -1, Math.floor(x / weld), Math.floor(y / weld), Math.floor(z / weld));
   const o = g.frame.origin;
-  const k = g.frame.axes.map((ax, e) => Math.floor(((x - o[0]) * ax[0] + (y - o[1]) * ax[1] + (z - o[2]) * ax[2]) / g.cell[e]!));
-  return `${bone}#${lump}:${k.join(',')}`;
+  const ax = g.frame.axes;
+  const k0 = Math.floor(((x - o[0]) * ax[0]![0] + (y - o[1]) * ax[0]![1] + (z - o[2]) * ax[0]![2]) / g.cell[0]);
+  const k1 = Math.floor(((x - o[0]) * ax[1]![0] + (y - o[1]) * ax[1]![1] + (z - o[2]) * ax[1]![2]) / g.cell[1]);
+  const k2 = Math.floor(((x - o[0]) * ax[2]![0] + (y - o[1]) * ax[2]![1] + (z - o[2]) * ax[2]![2]) / g.cell[2]);
+  return cells.id(bone, lump, k0, k1, k2);
 }
 
 let lumpSerial = 0;
@@ -468,7 +561,8 @@ function proxyGeometry(parts: ReadonlyArray<ProxyPart>, detail: number, weld: nu
   const v = new Vector3();
   const out: number[] = [];
   const bones: number[] = [];
-  const keys: string[] = [];
+  const keys: number[] = [];
+  const cells = new TupleIds(5, 4096);
   const hulls: Array<{ pts: number[]; bone: number }> = [];
   const A = new Vector3(), B = new Vector3(), C = new Vector3(), N = new Vector3();
   // debugging and A/B only: `?shadowFixed=abc` picks the fixedView rules (a light-facing, b below, c ground)
@@ -539,12 +633,12 @@ function proxyGeometry(parts: ReadonlyArray<ProxyPart>, detail: number, weld: nu
         const i = at(t, c);
         out.push(placed[i * 3]!, placed[i * 3 + 1]!, placed[i * 3 + 2]!);
         bones.push(p.bone);
-        if (grids) keys.push(gridKey(placed, i, p.bone, weld, grids[lump] ?? null, serial[lump]!));
+        if (grids) keys.push(gridCell(cells, placed, i, p.bone, weld, grids[lump] ?? null, serial[lump]!));
       }
     }
     hulls.push(...hullAt.values());
   }
-  const welded = weld > 0 ? clusterKeys(out, bones, keys) : { pos: out, bones };
+  const welded = weld > 0 ? clusterKeys(out, bones, keys, cells.size) : { pos: out, bones };
   for (const h of hulls) hullOf(h.pts, h.bone, welded.pos, welded.bones);
   const after = welded.pos.length / 9;
   if (after === 0) return { geometry: null, before, after };
@@ -559,39 +653,45 @@ function proxyGeometry(parts: ReadonlyArray<ProxyPart>, detail: number, weld: nu
  * 0.03 the Button guard's bars lost their self-shadow; see SHADOW_WELD.)
  */
 export function cluster(pos: readonly number[], bones: readonly number[], cell: number): { pos: number[]; bones: number[] } {
-  const keys: string[] = [];
-  for (let i = 0; i < pos.length / 3; i++) keys.push(gridKey(pos, i, bones[i]!, cell, null, 0));
-  return clusterKeys(pos, bones, keys);
+  const keys: number[] = [];
+  const cells = new TupleIds(5, pos.length / 3);
+  for (let i = 0; i < pos.length / 3; i++) keys.push(gridCell(cells, pos, i, bones[i]!, cell, null, 0));
+  return clusterKeys(pos, bones, keys, cells.size);
 }
 
-/** Vertex clustering by precomputed cell keys (see `cluster`). */
-function clusterKeys(pos: readonly number[], bones: readonly number[], keyOf: readonly string[]): { pos: number[]; bones: number[] } {
+/** Vertex clustering by precomputed cells, ids 0 … `cells` − 1 (see `cluster`). */
+function clusterKeys(pos: readonly number[], bones: readonly number[], keyOf: readonly number[], cells: number): { pos: number[]; bones: number[] } {
   const n = pos.length / 3;
-  const sum = new Map<string, [number, number, number, number]>();
+  // per cell the sum of its vertices and their count, added in vertex order (the same sums as before F1)
+  const sum = new Float64Array(cells * 4);
   for (let i = 0; i < n; i++) {
-    const x = pos[i * 3]!, y = pos[i * 3 + 1]!, z = pos[i * 3 + 2]!;
-    const k = keyOf[i]!;
-    const s = sum.get(k);
-    if (s) {
-      s[0] += x;
-      s[1] += y;
-      s[2] += z;
-      s[3]++;
-    } else sum.set(k, [x, y, z, 1]);
+    const o = keyOf[i]! * 4;
+    if (sum[o + 3] === 0) {
+      // the first vertex is the sum (not 0 + it: a -0 stays -0)
+      sum[o] = pos[i * 3]!;
+      sum[o + 1] = pos[i * 3 + 1]!;
+      sum[o + 2] = pos[i * 3 + 2]!;
+    } else {
+      sum[o] = sum[o]! + pos[i * 3]!;
+      sum[o + 1] = sum[o + 1]! + pos[i * 3 + 1]!;
+      sum[o + 2] = sum[o + 2]! + pos[i * 3 + 2]!;
+    }
+    sum[o + 3]!++;
   }
   const outPos: number[] = [];
   const outBones: number[] = [];
-  const seen = new Set<string>();
+  const seen = new TupleIds(3, n / 3);
   for (let t = 0; t < n / 3; t++) {
     const a = keyOf[t * 3]!, b = keyOf[t * 3 + 1]!, c = keyOf[t * 3 + 2]!;
     if (a === b || b === c || a === c) continue;
     // the same triangle with the same winding, whichever vertex it starts at
-    const tri = a < b && a < c ? `${a}|${b}|${c}` : b < c ? `${b}|${c}|${a}` : `${c}|${a}|${b}`;
-    if (seen.has(tri)) continue;
-    seen.add(tri);
+    if (a < b && a < c) seen.id(a, b, c);
+    else if (b < c) seen.id(b, c, a);
+    else seen.id(c, a, b);
+    if (!seen.added) continue;
     for (const k of [a, b, c]) {
-      const s = sum.get(k)!;
-      outPos.push(s[0] / s[3], s[1] / s[3], s[2] / s[3]);
+      const o = k * 4;
+      outPos.push(sum[o]! / sum[o + 3]!, sum[o + 1]! / sum[o + 3]!, sum[o + 2]! / sum[o + 3]!);
     }
     outBones.push(bones[t * 3]!, bones[t * 3 + 1]!, bones[t * 3 + 2]!);
   }
