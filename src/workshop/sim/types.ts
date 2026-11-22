@@ -253,6 +253,12 @@ export type Intent =
   | { readonly type: 'release'; readonly velocity?: Vec3; readonly lens?: Lens }
   /** Tap-then-tap carrying: put the held part at this mouth or this spot. */
   | { readonly type: 'place'; readonly at: Id | Vec3 }
+  /**
+   * P4 S5 round two: the visitor asked for this thing by itself (a double-click or a double-tap on it: § B6 "frame this").
+   * A unit may answer it (a project crate lying still opens, and asks to be looked at: the `look` event); unanswered, the
+   * page frames the thing's station as before.
+   */
+  | { readonly type: 'select'; readonly id: Id }
   /** Take hold of the cord's plug (it leaves its jack and follows `carry`). */
   | { readonly type: 'unplug'; readonly cord: Id }
   /** Push the held plug into a jack, or drop it (null): it returns to the jack it came from. */
@@ -384,6 +390,12 @@ export type SimEvent =
   | { readonly type: 'crate.shut'; readonly id: Id; readonly crate: Id; readonly project: Id; readonly why: 'press' | 'grab' | 'machine' | 'moved' | 'burden' | 'away' }
   /** The brass plate on an open project crate's card was pressed: the way to the project's full entry (on /resume/ today; a panel later). */
   | { readonly type: 'crate.plate'; readonly id: Id; readonly crate: Id; readonly project: Id }
+  /**
+   * P4 S5 round two: something asks to be looked at closely (a project crate the visitor has just opened: its card, its
+   * plate, its tray). `target` is a pick target whose box the page brings close enough to read (shell/boot.ts `lookAt`:
+   * the least move that does it). The shell knows only that a thing asked to be looked at.
+   */
+  | { readonly type: 'look'; readonly target: Id }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }

@@ -60,6 +60,8 @@ export interface ProjectCrate {
   readonly project: Id;
   readonly lid: Id;
   readonly plate: Id;
+  /** P4 S5 round two: the pick target the view gives its card (and tray): what an opening asks the page to look at. */
+  readonly card?: Id;
   readonly holds?: Id;
 }
 

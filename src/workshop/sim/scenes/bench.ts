@@ -235,7 +235,7 @@ export const LEDGER = {
 } as const;
 
 /** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board. */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : {}) }));
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;

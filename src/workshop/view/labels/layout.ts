@@ -157,6 +157,9 @@ export interface Plan {
   capWorld: number;
   /** Lines of glyphs, each with its baseline (texels from the top) and left edge (texels). */
   lines: { glyphs: GlyphPlace[]; baseline: number; left: number; width: number }[];
+  /** P4 S5 (heavy stencil): each glyph drawn this narrow (its width scaled), and this much bolder (a stroke, in capitals). */
+  squeeze?: number;
+  weight?: number;
 }
 
 export interface PlanOptions {
@@ -213,12 +216,24 @@ export function planPlate(text: string, adv: Advance, r: Rng, opts?: PlanOptions
   return finish('plate', w, P.heightPerCap, opts, [{ glyphs: line.glyphs, baseline: (P.heightPerCap + 1) / 2, left: P.sidePad, width: line.width }]);
 }
 
-export function planStencil(text: string, adv: Advance, r: Rng, opts?: PlanOptions): Plan {
+export function planStencil(text: string, adv: Advance, r: Rng, opts?: PlanOptions & { heavy?: boolean }): Plan {
   const P = PROPORTIONS.stencil;
+  if (opts?.heavy) {
+    // P4 S5: a project's name: condensed (each letter HEAVY.squeeze as wide, set tight) and bolder by HEAVY.weight
+    const H = HEAVY;
+    const line = layoutLine(text.toUpperCase(), (c, n) => adv(c, n) * H.squeeze + H.weight, { tracking: H.tracking, x: 0.015, y: 0.02, rot: 0.008, scale: 0.01 }, r);
+    const pad = P.sidePad * 0.6;
+    const w = pad * 2 + line.width;
+    const plan = finish('stencil', w, P.heightPerCap, opts, [{ glyphs: line.glyphs, baseline: (P.heightPerCap + 1) / 2, left: pad, width: line.width }]);
+    return { ...plan, squeeze: H.squeeze, weight: H.weight };
+  }
   const line = layoutLine(text.toUpperCase(), adv, { tracking: P.tracking, x: 0.02, y: 0.025, rot: 0.012, scale: 0.015 }, r);
   const w = P.sidePad * 2 + line.width;
   return finish('stencil', w, P.heightPerCap, opts, [{ glyphs: line.glyphs, baseline: (P.heightPerCap + 1) / 2, left: P.sidePad, width: line.width }]);
 }
+
+/** P4 S5: the heavy stencil (a project's name): how narrow its letters, how much bolder (capitals), how tight. */
+export const HEAVY = { squeeze: 0.74, weight: 0.075, tracking: 0.05 } as const;
 
 export function planSign(text: string, adv: Advance, r: Rng, opts?: PlanOptions): Plan {
   const P = PROPORTIONS.sign;
