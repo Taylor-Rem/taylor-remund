@@ -47,7 +47,7 @@ describe.each(['deck', 'fan'] as PaintDialStyle[])('the paint dial (%s)', (style
       for (const c of n.children ?? []) walk(c);
     };
     walk(p.root);
-    expect([...classes].sort()).toEqual(['brass', 'steel']);
+    expect([...classes].sort()).toEqual(['brass', 'paper']);
     const o: Object3D = K.realize(p, stub);
     let meshes = 0;
     // drawn by the camera (layer 0); the shadow proxy is on its own layer and only casts
@@ -80,7 +80,7 @@ describe.each(['deck', 'fan'] as PaintDialStyle[])('the paint dial (%s)', (style
     const seen = new Set<string>();
     const walk = (n: PieceNode): void => {
       for (const q of n.parts) {
-        if (q.material !== 'steel') continue;
+        if (q.material !== 'paper') continue;
         const c = q.geometry.getAttribute('color');
         for (let i = 0; i < c.count; i++) seen.add(`${c.getX(i).toFixed(5)},${c.getY(i).toFixed(5)},${c.getZ(i).toFixed(5)}`);
       }
@@ -91,6 +91,10 @@ describe.each(['deck', 'fan'] as PaintDialStyle[])('the paint dial (%s)', (style
     for (const id of DIAL_SCHEMES) {
       for (const slot of ['teal-panel', 'teal-light'] as const) expect(seen.has(slotColour(id, slot).map((x) => x.toFixed(5)).join(','))).toBe(true);
     }
+  });
+
+  it('its chips are nodes the view can pose', () => {
+    for (let i = 0; i < DIAL_SCHEMES.length; i++) expect(find(p.root, `chip-${i}`), `chip-${i}`).toBeDefined();
   });
 
   it('is registered, both styles among its variants', () => {

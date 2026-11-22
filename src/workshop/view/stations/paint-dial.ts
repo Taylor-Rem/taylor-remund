@@ -31,6 +31,8 @@ export const PAINT_FEEL = {
   tellTime: 1.1,
   /** A misfire: a short twitch of this much (radians). */
   twitch: 0.1,
+  /** The fan: the worn chip stands this much proud of the plate (units). */
+  lift: 0.012,
 };
 
 /** The development flag: a scheme to wear whatever the dial says (`?paint=E`), or null. */
@@ -70,6 +72,7 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
     let knob: Object3D | null = null;
     let chips: Object3D[] = [];
     const rest = new Map<Object3D, Quaternion>();
+    const restY = new Map<Object3D, number>();
     let half = 0.1;
     let shown = false;
     let lastWorld: WorldView | null = null;
@@ -98,12 +101,15 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       };
       const k = by('knob');
       if (!k) return;
-      const cs = o.style === 'deck' ? DIAL_SCHEMES.map((_, i) => by(`chip-${i}`)) : [];
+      const cs = DIAL_SCHEMES.map((_, i) => by(`chip-${i}`));
       if (cs.some((c) => !c)) return;
       group = g;
       knob = k;
       chips = cs as Object3D[];
-      for (const n of [k, ...chips]) rest.set(n, n.quaternion.clone());
+      for (const n of [k, ...chips]) {
+        rest.set(n, n.quaternion.clone());
+        restY.set(n, n.position.y);
+      }
       half = w.halfExtents(o.dial)?.[1] ?? half;
       // the control's target: the deck's chips and wheel (a tap anywhere on the deck flicks it), the fan's knob
       const t = new Object3D();
@@ -116,7 +122,7 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
           })()
         : (() => {
             const P = PAINT_DIAL.fan;
-            return new Box3(new Vector3(-P.knobR - 0.01, P.t, P.pivotZ - P.knobR - 0.01), new Vector3(P.knobR + 0.01, P.t + P.knobH + 0.012, P.pivotZ + P.knobR + 0.01));
+            return new Box3(new Vector3(-P.knobR - 0.02, P.t, P.pivotZ - P.knobR - 0.02), new Vector3(P.knobR + 0.02, P.t + P.knobH + 0.012, P.pivotZ + P.knobR + 0.03));
           })();
       ctx.pickable(o.knob, t, { box, pad: 0.006, active: () => shown && reachable() });
     };
@@ -135,6 +141,12 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       } else {
         knob!.quaternion.copy(rest.get(knob!)!).multiply(qa.setFromAxisAngle(Y, paintDialAngle(at) - paintDialAngle(0) + rock));
         knob!.updateMatrix();
+        // the worn chip lifts a little (the one the needle is on), the others lie on the plate
+        chips.forEach((c, i) => {
+          const k = Math.max(0, 1 - Math.abs(at - i));
+          c.position.y = restY.get(c)! + F.lift * k * k * (3 - 2 * k);
+          c.updateMatrix();
+        });
       }
     };
 

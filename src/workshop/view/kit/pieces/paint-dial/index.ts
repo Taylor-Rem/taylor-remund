@@ -3,16 +3,17 @@
  * (sim PAINT_TUNING.schemes, in dial order), each in its scheme's enamel with its trim, and a brass control that says
  * which the workshop wears. Two candidates, for the owner's eye (`style`):
  *
- *  - 'fan': a fan of chips round a brass knob on a cast plate, the chips clear of each other (they start beyond the
- *    knob), the knob's needle on the chip of the scheme worn. Node `knob` (turns about its local +Y).
+ *  - 'fan': a fan of chips round a brass knob on an old bronze plate, the chips clear of each other (they start beyond
+ *    the knob), the knob's needle on the chip of the scheme worn, that chip lifted. Nodes `knob` (turns about its local
+ *    +Y) and `chip-<i>`.
  *  - 'deck': an upright deck of chips on a brass rod between two posts, the kind a paint shop hands you: the chip of
  *    the scheme worn hangs at the front; the ones before it are flicked over the rod and hang behind. Nodes `chip-<i>`
  *    (each turns about its local +X, the rod: a turn of −swing; 0 hangs straight down, a + swing its foot toward the visitor) and `knob`
  *    (a knurled thumbwheel on the rod's right end, turns about its local +X).
  *
- * Two materials (steel for the plate and the chips' enamel, brass for the rest): two draw calls. The chips' colours
- * are the schemes' own and never take the scheme: the dial is a loose part, and the parts view calls
- * `materials.keepColours` on it. Its own space: y up, the visitor toward +Z, resting on y = 0.
+ * Two materials (brass, and paper for the chips: printed card, as a paint shop's are; matte, never chipped like the
+ * enamel, and the scheme never repaints paper): two draw calls. Its own space: y up, the visitor toward +Z, resting
+ * on y = 0. The fan's chips are nodes too (`chip-<i>`): the view lifts the worn one.
  *
  * Sockets: `grip` (where a hand takes the control).
  */
@@ -158,17 +159,18 @@ function fan(o: PaintDialOptions): Piece {
   const P = PAINT_DIAL.fan;
   const b = piece('paint-dial', { detail, seed });
   const n = DIAL_SCHEMES.length;
-  b.add(part('steel', slab({ w: P.w, d: P.d, t: P.t, r: 0.034, bevel: 0.007, detail: 'low' }), 'ink', { seed, shade: 1.7, jitter: 0.03 }));
+  b.add(part('brass', slab({ w: P.w, d: P.d, t: P.t, r: 0.034, bevel: 0.007, detail: 'low' }), 'brass', { seed, shade: 0.42, jitter: 0.03, warm: 0.04 }));
   b.small(() => [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([x, z]) => part('brass', transform(stud(0.01, 0.006, 6), T(x! * (P.w / 2 - 0.024), P.t, z! * (P.d / 2 - 0.024))), 'brass', { seed: seed + 2, shade: 0.8, warm: 0.03 })));
   // the chips: round the pivot, clear of each other and of the knob
   for (let i = 0; i < n; i++) {
     const id = DIAL_SCHEMES[i]!;
     const a = paintDialAngle(i) + R.spread(1) * DEG;
-    const at = chain(T(0, P.t, P.pivotZ), new Matrix4().makeRotationY(a));
+    // each chip its own node (the worn one lifts a little: view/stations/paint-dial.ts)
+    const c = b.node(`chip-${i}`, chain(T(0, P.t, P.pivotZ), new Matrix4().makeRotationY(a)));
     const chip = extrude(tongue(P.r0, P.r1, P.w0, P.w1), P.chipT, { axis: 'y', bevel: 0.0014, bevelBase: 0, radius: [0.007, 0.007, 0.012, 0.012], segs: 1, detail: 'low', band: 0, caps: 'end' });
-    b.add(setFinish(part('steel', tintRgb(transform(chip, at), enamel(id))), 0.35));
+    c.add(part('paper', tintRgb(chip, enamel(id))));
     const tab = extrude(tongue(P.r1 - P.tab, P.r1 - 0.004, P.w1 - 0.006, P.w1 - 0.008), 0.0012, { axis: 'y', bevel: 0.0005, bevelBase: 0, radius: [0, 0, 0.01, 0.01], segs: 1, detail: 'low', band: 0, caps: 'end' });
-    b.add(setFinish(part('steel', tintRgb(transform(tab, chain(at, T(0, P.chipT, 0))), trim(id))), 0.35));
+    c.add(part('paper', tintRgb(transform(tab, T(0, P.chipT, 0)), trim(id))));
   }
   // the knob: a washer, a fluted grip, a domed cap, and a needle out toward the chips
   const knob = b.node('knob', T(0, P.t, P.pivotZ));
@@ -199,7 +201,7 @@ function deck(o: PaintDialOptions): Piece {
   const n = DIAL_SCHEMES.length;
   const at = o.at ?? 0;
   // the base: a low cast block, a groove-free top; the posts stand in it
-  b.add(part('steel', bevelBox({ min: [-D.w / 2, 0, -D.d / 2], max: [D.w / 2, D.t, D.d / 2], c: 0.008, omit: ['ny'] }), 'ink', { seed, shade: 1.7, jitter: 0.03 }));
+  b.add(part('brass', bevelBox({ min: [-D.w / 2, 0, -D.d / 2], max: [D.w / 2, D.t, D.d / 2], c: 0.008, omit: ['ny'] }), 'brass', { seed, shade: 0.42, jitter: 0.03, warm: 0.04 }));
   for (const s of [-1, 1]) {
     const x = s * (D.rodHalf + D.postR + 0.002);
     // a turned post with a collar at its foot and an eye at its top
@@ -215,10 +217,10 @@ function deck(o: PaintDialOptions): Piece {
     const x = R.spread(0.004);
     const c = b.node(`chip-${i}`, chain(T(x, D.rodY, 0), new Matrix4().makeRotationX(-deckSwing(i, at))));
     const card = bevelBox({ min: [-D.cardW / 2, -D.cardH, -D.cardT / 2], max: [D.cardW / 2, -0.008, D.cardT / 2], c: 0.0012 });
-    c.add(setFinish(part('steel', tintRgb(card, enamel(id))), 0.35));
+    c.add(part('paper', tintRgb(card, enamel(id))));
     // the trim band, a hair proud of both faces
     const band = bevelBox({ min: [-D.cardW / 2 + 0.004, -D.cardH + 0.004, -D.cardT / 2 - 0.0008], max: [D.cardW / 2 - 0.004, -D.cardH + D.band, D.cardT / 2 + 0.0008], c: 0.0005 });
-    c.add(setFinish(part('steel', tintRgb(band, trim(id))), 0.35));
+    c.add(part('paper', tintRgb(band, trim(id))));
     c.small(() => [part('brass', transform(lathe(profile(0.007, -0.0025).to(0.007, 0.0025), { segs: 8, detail: 'low', band: 0, caps: true }), chain(T(0, -0.0, 0), new Matrix4().makeRotationZ(-Math.PI / 2))), 'brass', { seed: seed + 9 + i, shade: 0.9, warm: 0.03 })]);
   }
   // the thumbwheel on the rod's right end: knurled brass, turns as the deck is flicked
