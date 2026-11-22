@@ -14,7 +14,7 @@
  *
  * `?seeThrough=0`: never (measurements, "before"); `?seeThrough=all`: every body, always (the frame-time A/B).
  */
-import { Box3, Group, Matrix4, Ray, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Ray, Raycaster, Vector3, type Material, type Mesh, type Object3D } from 'three';
 import type { Id } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
 import type { CameraRig } from '../../stage/camera.ts';
@@ -140,6 +140,7 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
         const need = Math.max(2, Math.ceil(pts.length * 0.15));
         const ray = new Ray();
         const hit = new Vector3();
+        const caster = new Raycaster();
         const cut = ctx.reducedMotion || frame.world.reducedMotion;
         for (const cv of frame.world.crewViews()) {
           const ids = cv.body !== null ? [cv.body, cv.id] : [cv.id];
@@ -164,13 +165,35 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
           if (!held && (m === 'all' || look) && b.obj.visible) {
             if (m === 'all') want = SEE_THROUGH.fade;
             else if (ctx.targetBox?.(key, box)) {
-              let cuts = 0;
+              // first the box (cheap): which of the lines it cuts before they arrive
+              const through: Vector3[] = [];
               for (const p of pts) {
                 const d = p.distanceTo(eye);
                 ray.set(eye, hit.copy(p).sub(eye).normalize());
-                if (ray.intersectBox(box, hit) && hit.distanceTo(eye) < d - 0.02) cuts++;
+                if (ray.intersectBox(box, hit) && hit.distanceTo(eye) < d - 0.02) through.push(p);
               }
-              if (cuts >= need) want = SEE_THROUGH.fade;
+              if (through.length >= need) {
+                // then the body as drawn, for those lines only, every few frames (a box is fat round arms and wheels:
+                // a robot beside the card cuts its box's corner, not the robot); the answer kept between
+                const memo = b.obj.userData as { stRayAt?: number; stRayWant?: boolean };
+                const now = frame.time;
+                if (memo.stRayAt === undefined || now - memo.stRayAt > 0.1 || now < memo.stRayAt) {
+                  b.obj.traverse((o) => {
+                    const sk = o as Mesh & { isSkinnedMesh?: boolean; computeBoundingSphere?: () => void };
+                    if (sk.isSkinnedMesh) sk.computeBoundingSphere?.();
+                  });
+                  let n = 0;
+                  for (const p of through) {
+                    const d = p.distanceTo(eye);
+                    caster.set(eye, hit.copy(p).sub(eye).normalize());
+                    caster.far = d - 0.02;
+                    if (caster.intersectObject(b.obj, true).length > 0) n++;
+                  }
+                  memo.stRayAt = now;
+                  memo.stRayWant = n >= need;
+                }
+                if (memo.stRayWant) want = SEE_THROUGH.fade;
+              }
             }
           }
           b.level = cut ? want : b.level + Math.sign(want - b.level) * Math.min(Math.abs(want - b.level), SEE_THROUGH.rate * frame.dt);
