@@ -135,6 +135,8 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   let home: { job: Job | null; at: number } | null = null;
   /** The last shrug of the arm's spring (a pull with the envelope out), the step it began. */
   let shrugAt = -1;
+  /** "Reset the workshop" is under way (`reset`, then `restored`). */
+  let resetting = false;
 
   ctx.register({
     id: spec.lever.id,
@@ -460,6 +462,14 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     },
 
     restored(restores: readonly Restore[]) {
+      if (resetting) {
+        // "Reset the workshop": the envelope's place is in the press. One let go and not yet at rest (flying, or come
+        // back up the chute) still says so, unchanged, so no restore names it: it goes back in here.
+        resetting = false;
+        const l = ctx.part(spec.envelope)?.location;
+        const m = ctx.mode(spec.envelope);
+        if (l?.at === 'in' && l.mouth === spec.body && m !== 'gone' && m !== 'held') ctx.stow(spec.envelope, ctx.pose(spec.envelope) as Pose);
+      }
       for (const r of restores) {
         if (r.target === spec.envelope && r.field === 'location') {
           const to = r.to as { at?: string; mouth?: Id } | null;
@@ -491,6 +501,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     },
 
     reset() {
+      resetting = true;
       record = [];
       show = null;
       waiting = null;
