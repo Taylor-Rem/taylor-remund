@@ -1,39 +1,18 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect, ENGINES, HEAVY, watch, live } from './engines/engine.ts';
 
 // The home page `/` (P3 B1; REWRITE.md § 2, § B3, § B6, § B7, § E7, § E9): the strip, the picture, the stage,
-// Read, the tiers, the restart. Engine-neutral on purpose (no CDP, no channel, nothing Chromium-only): the same
-// file runs in Firefox and WebKit, where the renderer is often software, so the stage is asked for with `?tier=`
-// (a software renderer is otherwise the Still tier). It runs against the built site (playwright.config.ts).
+// Read, the tiers, the restart. In every engine (every test here carries ENGINES): no CDP, no channel of its
+// own; engine.ts's `test` gives Chromium system Chrome on the GPU and the others their own builds. The stage is
+// asked for with `?tier=low` in every engine (a software renderer is otherwise the Still tier), on a small
+// screen. It runs against the built site (playwright.config.ts).
 
-/**
- * What the Still tier must never ask for: the stage's scripts, the physics engine (its script and its wasm),
- * the bake table, the label painters and their fonts. (The physics ADAPTER's small chunk, `physics.*.js`, is
- * fetched by every page's first script today: the bundler puts its dynamic-import helper there. Not the
- * engine; reported to the lead with the one-line config change that would move it.)
- */
-const HEAVY = [/\/_astro\/home\.[^/]*\.js$/, /\/_astro\/three\.[^/]*\.js$/, /\/_astro\/rapier\.[^/]*\.js$/, /\/_astro\/stations\.[^/]*\.js$/, /\/_astro\/pieces\.[^/]*\.js$/, /\/_astro\/early\.[^/]*\.js$/, /\.wasm(\?|$)/, /bake-table/, /\/_astro\/worker-/, /\/fonts\/workshop-(stencil|print|sign)\.woff2/];
 /** The dev page's hooks: none of them on `/`. */
 const DEV_HOOKS = ['__bench', '__vignette', '__ready', '__workshop'];
 const SECTIONS = ['patchlamp', 'services', 'about', 'contact'] as const;
 /** Small, so a software renderer in another engine keeps up. */
 const STAGE_VIEW = { width: 640, height: 400 };
 
-function watch(page: Page, origin: string): { errors: string[]; requests: string[]; foreign: string[] } {
-  const w = { errors: [] as string[], requests: [] as string[], foreign: [] as string[] };
-  page.on('pageerror', (e) => w.errors.push(`pageerror: ${e.message}`));
-  page.on('console', (m) => {
-    if (m.type() === 'error') w.errors.push(`console: ${m.text()}`);
-  });
-  page.on('request', (r: Request) => {
-    const u = r.url();
-    w.requests.push(u);
-    if (!u.startsWith(origin) && !u.startsWith('data:') && !u.startsWith('blob:')) w.foreign.push(u);
-  });
-  return w;
-}
-
-const live = (page: Page): Promise<unknown> =>
-  page.waitForFunction(() => (window as unknown as { __handoff?: { phase: string } }).__handoff?.phase === 'live', null, { timeout: 120_000, polling: 100 });
 const mode = (page: Page): Promise<string> => page.evaluate(() => document.documentElement.className);
 const scrolls = (page: Page): Promise<boolean> =>
   // synchronous (an instant scroll is): with JavaScript off the page's animation frames never come
@@ -63,7 +42,7 @@ const canvasNotBlank = (page: Page): Promise<number> =>
       }),
   );
 
-test.describe('without JavaScript', () => {
+test.describe('without JavaScript', { tag: ENGINES }, () => {
   test.use({ javaScriptEnabled: false });
 
   test('the strip, the picture, the paperwork’s four sections and the legal line; the page scrolls; the first Tab stop is the way to the paperwork', async ({ page }) => {
@@ -95,11 +74,12 @@ test.describe('without JavaScript', () => {
   });
 });
 
-test.describe('P3 B3: the strip on a phone held upright', () => {
-  test.use({ hasTouch: true, isMobile: true });
+test.describe('P3 B3: the strip on a phone held upright', { tag: ENGINES }, () => {
+  // (Playwright's Firefox has no mobile emulation: with `isMobile` its window never takes the phone's size and
+  // the test hangs in setViewportSize. Firefox gets the phone's screen and touch, the others a phone too.)
+  test.use({ hasTouch: true, isMobile: async ({ browserName }, use) => use(browserName !== 'firefox'), viewport: { width: 390, height: 844 } });
 
   test('Résumé, Read, sound and settings in the strip, every target 44 px, nothing over the sign', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?tier=still');
     // the stage's layout of the strip, without drawing the bench (the strip is the same HTML either way)
     await page.evaluate(() => document.documentElement.classList.replace('still', 'stage-on'));
@@ -123,7 +103,7 @@ test.describe('P3 B3: the strip on a phone held upright', () => {
   });
 });
 
-test.describe('the stage', () => {
+test.describe('the stage', { tag: ENGINES }, () => {
   test.describe.configure({ mode: 'serial' });
   test.setTimeout(240_000);
 
@@ -244,7 +224,7 @@ test.describe('the stage', () => {
   });
 });
 
-test.describe('the Still tier', () => {
+test.describe('the Still tier', { tag: ENGINES }, () => {
   for (const [name, setup, query] of [
     ['WebGL 2 refused', true, ''],
     ['?tier=still', false, '?tier=still'],
@@ -292,7 +272,7 @@ test.describe('the Still tier', () => {
   });
 });
 
-test.describe('without JavaScript, a station’s address', () => {
+test.describe('without JavaScript, a station’s address', { tag: ENGINES }, () => {
   test.use({ javaScriptEnabled: false });
   test('#patchlamp is the section’s plain anchor', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });

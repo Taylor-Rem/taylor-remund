@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { ENGINES } from '../../playwright.config.ts';
 
 // The paper pages (REWRITE.md § F1, § E7 "Conventional pages", § E9): /resume/,
 // /ai/, the case study, the compliance pages and the 404. Engine-neutral: nothing here is
-// Chromium-only, so it runs as written in Firefox and WebKit.
+// Chromium-only, so it runs as written in Firefox and WebKit (every test carries ENGINES). No stage, so
+// each engine's own build (Playwright's Chromium in the chromium project).
 
 const PAGES: { path: string; anchors: string[] }[] = [
   { path: '/resume/', anchors: ['about', 'skills', 'projects', 'patchlamp', 'experience', 'contact'] },
@@ -57,7 +59,7 @@ async function stillness(page: Page): Promise<string[]> {
 }
 
 for (const { path, anchors } of PAGES) {
-  test.describe(path, () => {
+  test.describe(path, { tag: ENGINES }, () => {
     test('loads with no console error, no failed request, nothing from another origin, no script', async ({ page, baseURL }) => {
       const origin = new URL(baseURL!).origin;
       const w = watch(page, origin);
@@ -129,7 +131,7 @@ for (const { path, anchors } of PAGES) {
   });
 }
 
-for (const path of ['/resume/', '/ai/', '/case-studies/ledger-repair/']) test(`${path} links are at least 44 px tall to a finger, at 390 wide`, async ({ page }) => {
+for (const path of ['/resume/', '/ai/', '/case-studies/ledger-repair/']) test(`${path} links are at least 44 px tall to a finger, at 390 wide`, { tag: ENGINES }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(path);
   const small = await page.evaluate(() =>
@@ -145,7 +147,7 @@ for (const path of ['/resume/', '/ai/', '/case-studies/ledger-repair/']) test(`$
 // Prices are commitments (CLAUDE.md § Content rules): each one is set on one line with its unit,
 // at every width; the package prices are the largest type in their entries.
 for (const width of [320, 390, 1280]) {
-  test(`/ai/ prices never break apart from their units, at ${width} wide`, async ({ page }) => {
+  test(`/ai/ prices never break apart from their units, at ${width} wide`, { tag: ENGINES }, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/ai/');
     await page.evaluate(() => document.fonts.ready);

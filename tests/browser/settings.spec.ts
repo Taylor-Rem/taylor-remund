@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import type { Page, Request } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { gpuArgs } from '../../playwright.config.ts';
+import { test, expect, ENGINES, SMALL, positions, stageAt, stageTier, steps } from './engines/engine.ts';
 
 // What `/` remembers and the settings (P3 B3; REWRITE.md § B4, § B9, § B10, § E7, § E10, § I): the visit's
 // snapshot, the settings panel (sound, motion, quality, reset), reduced motion reaching the world, the
@@ -8,9 +8,12 @@ import { gpuArgs } from '../../playwright.config.ts';
 // the GPU: the stage is the real bench at the tier this browser is given, not `?tier=`.
 //
 // The assertions use standard APIs only (no CDP): reduced motion is the context's emulation, storage is the
-// page's own, the playtest file is a download. Only the `use` line below is Chromium's.
+// page's own, the playtest file is a download. engine.ts's `test` launches system Chrome with the GPU for
+// Chromium. The test tagged ENGINES (the quality changed during a visit and back) runs in every engine, at the
+// tier `stageAt` gives it (low where WebGL is software); the rest are Chromium's: they read the tier this browser
+// is given, and the reduced-motion clause in every engine is tests/browser/engines/home-stage.spec.ts's.
 
-test.use({ channel: 'chrome', launchOptions: { args: gpuArgs }, actionTimeout: 20_000 });
+test.use({ actionTimeout: 20_000 });
 test.setTimeout(180_000);
 
 const SAVED = 'workshop.saved';
@@ -59,20 +62,6 @@ async function openSettings(page: Page): Promise<void> {
   await expect(open).toHaveAttribute('aria-expanded', 'true');
 }
 const choose = (page: Page, group: string, label: string): Promise<void> => page.getByRole('group', { name: group }).getByRole('radio', { name: label, exact: true }).click();
-
-/** Every part's place and the crew's: what "nothing moves" compares. */
-const positions = (page: Page): Promise<Record<string, unknown>> =>
-  page.evaluate(() => {
-    const w = (window as unknown as Win).__handoff.workshop.world;
-    const out: Record<string, unknown> = {};
-    for (const p of w.parts()) {
-      const m = w.motion(p.id);
-      if (m) out[p.id] = [...m.pose.p, ...m.pose.q].map((v: number) => Math.round(v * 1e4) / 1e4);
-    }
-    // the crew without a body of their own (Patch): what it is doing
-    for (const c of w.crewViews()) if (c.body === null) out[`crew:${c.id}`] = c.view.state;
-    return out;
-  });
 
 test('the visit is remembered: two presses survive a reload; "Reset the workshop" (two presses) leaves a fresh visit', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -171,9 +160,14 @@ test.describe('reduced motion', () => {
   });
 });
 
-test('quality: low then high during a visit keeps the world and the camera', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/');
+test('quality: the other tier and back during a visit keeps the world and the camera', { tag: ENGINES }, async ({ page, browserName }) => {
+  // Chromium on the GPU starts high and goes low and back; an engine drawing in software starts low (`stageAt`)
+  // and goes high and back, on a small screen
+  const first = stageTier(browserName);
+  const other = first === 'high' ? 'low' : 'high';
+  const label = { high: 'High', low: 'Low' } as const;
+  await page.setViewportSize(browserName === 'chromium' ? { width: 1280, height: 800 } : SMALL.viewport);
+  await page.goto(stageAt('/', browserName));
   await live(page);
   await pressButton(page);
   // a crate the visitor has set down (the crew leaves it alone), and the camera moved
@@ -184,7 +178,7 @@ test('quality: low then high during a visit keeps the world and the camera', asy
     ws.stage.camera.zoomBy(1.2);
   });
   await page.waitForFunction(() => !(window as unknown as Win).__handoff.workshop.world.motion('crate-3').awake, null, { timeout: 20_000 });
-  await page.waitForTimeout(1_000);
+  await steps(page, 60);
   const state = (): Promise<{ presses: number; crate: number[]; cam: string; tier: string | undefined }> =>
     page.evaluate(() => {
       const ws = (window as unknown as Win).__handoff.workshop;
@@ -197,18 +191,20 @@ test('quality: low then high during a visit keeps the world and the camera', asy
       };
     });
   const s0 = await state();
-  expect(s0.tier).toBe('high');
+  expect(s0.tier).toBe(first);
   await openSettings(page);
-  await choose(page, 'Quality', 'Low');
-  await expect(page.locator('html')).toHaveAttribute('data-tier', 'low', { timeout: 20_000 });
+  await choose(page, 'Quality', label[other]);
+  await expect(page.locator('html')).toHaveAttribute('data-tier', other, { timeout: 20_000 });
   await live(page);
-  await expect(page.getByRole('radio', { name: 'Low' })).toBeEnabled();
-  expect(await state()).toEqual({ ...s0, tier: 'low' });
-  await choose(page, 'Quality', 'High');
-  await expect(page.locator('html')).toHaveAttribute('data-tier', 'high', { timeout: 20_000 });
-  await expect(page.getByRole('radio', { name: 'High' })).toBeEnabled();
+  await expect(page.getByRole('radio', { name: label[other] })).toBeEnabled();
+  expect(await state()).toEqual({ ...s0, tier: other });
+  await choose(page, 'Quality', label[first]);
+  await expect(page.locator('html')).toHaveAttribute('data-tier', first, { timeout: 20_000 });
+  await expect(page.getByRole('radio', { name: label[first] })).toBeEnabled();
   expect(await state()).toEqual(s0);
-  expect(await page.evaluate(() => localStorage.getItem('workshop.settings.quality'))).toBe('high');
+  expect(await page.evaluate(() => localStorage.getItem('workshop.settings.quality'))).toBe(first);
+  // and the bench carries on
+  await steps(page, 30);
 });
 
 test('the still picture: after a reload nothing heavy is fetched; the settings bring the bench back', async ({ page, baseURL }) => {
