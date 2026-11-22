@@ -23,7 +23,12 @@
 import { Color, Vector3 } from 'three';
 import { linear, linearScheme, schemeColours, type SchemeColour, type Token } from '../palette.ts';
 
-/** The enamel tokens a scheme repaints, in slot order. Their hues must be told apart (see S_MATCH). */
+/**
+ * The enamel tokens a scheme repaints, in slot order. Their hues must be told apart (see S_MATCH). Not a slot:
+ * `paper` (the cream of the enamel details is also the sign's lettering, TAYLOR REMUND, painted on steel: a cream
+ * slot repainted his name), and anything not on `steel` (the lane tape, the window frame, the room, the tool wall's
+ * painted shadows keep the approved colours in every scheme).
+ */
 export const SCHEME_SLOTS = ['teal-panel', 'teal-light', 'teal-deep', 'tape-yellow'] as const satisfies readonly Token[];
 export type SchemeSlot = (typeof SCHEME_SLOTS)[number];
 
