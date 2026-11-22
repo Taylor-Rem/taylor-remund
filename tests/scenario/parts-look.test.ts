@@ -83,6 +83,8 @@ async function rig(): Promise<Rig> {
         if (d.tape !== null && d.tape > 0.05 && d.tape < 0.95) r.seen.tape++;
         continue;
       }
+      // (P4 D1: a crate's thing that is not a crate, the ledger board, has no label tape and wears its paint in its own view)
+      if (part.kind !== 'crate' && d.tape === null) continue;
       const tapeOk = part.label ? d.tape !== null && d.tape > 0.999 && d.text === part.label : d.tape === 0;
       if (d.paint !== paintToken(part.colour) || !tapeOk) r.wrong.push(`step ${w.step} ${part.id}: drawn ${JSON.stringify(d)}, fields ${part.colour} "${part.label}"`);
     }

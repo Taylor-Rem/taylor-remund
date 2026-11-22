@@ -105,7 +105,9 @@ describe('contentById', () => {
     // the Patchlamp station (S3)
     'name.line', 'name.patch', 'name.platen', 'name.storefront', 'name.jack.platen', 'name.jack.belt', 'name.jack.reserved', 'slip.reserved', 'slip.platen-full',
     // P4 S5: the project crates (each called by its project's published title), their latches and plates, the stand-in
-    'name.project.ledger', 'name.project.reports', 'name.project.support-desk', 'name.project.clean-green', 'name.project.t-components', 'name.project.artificer', 'name.lid', 'name.plate', 'name.standin'];
+    'name.project.ledger', 'name.project.reports', 'name.project.support-desk', 'name.project.clean-green', 'name.project.t-components', 'name.project.artificer', 'name.lid', 'name.plate', 'name.standin',
+    // P4 D1: the ledger board and its two controls
+    'name.ledger.board', 'name.ledger.crank', 'name.ledger.plunger'];
 
   it('resolves every id the simulation speaks in, to the right entry', () => {
     for (const id of ids) expect(contentById(id).text, id).toBeTruthy();
