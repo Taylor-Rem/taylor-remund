@@ -66,6 +66,9 @@ export const LIST = {
   holding: c.holding.text,
   putDown: c.putDown.text,
   crate: { S: c.crate.S.text, M: c.crate.M.text, L: c.crate.L.text } as Readonly<Record<string, string>>,
+  /** P4 S5: a project crate's latch and its card's plate, by the project's title. */
+  crateLid: c.crateLid.text,
+  cratePlate: c.cratePlate.text,
   state: Object.fromEntries(Object.entries(c.state).map(([k, v]) => [k, v.text])) as Readonly<Record<keyof typeof c.state, string>>,
 } as const;
 

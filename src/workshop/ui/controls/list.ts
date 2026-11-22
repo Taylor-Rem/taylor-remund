@@ -33,7 +33,7 @@
 import type { Id } from '../../sim/types.ts';
 import type { FrameWhy, Workshop } from '../../shell/boot.ts';
 import { readingFor, stationFor } from '../strip/strip.ts';
-import { listModel, modelKey, type ControlsSource, type ListModel } from './model.ts';
+import { listModel, modelKey, projectOf, type ControlsSource, type ListModel } from './model.ts';
 import { Announcer } from './announce.ts';
 import { LIST, SAID } from './words.ts';
 
@@ -147,6 +147,21 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     }
     return it;
   };
+  /** P4 S5: the list's links (a project crate's plate): an `<a>` in its item, made once. */
+  const links = new Map<Id, { li: HTMLLIElement; a: HTMLAnchorElement }>();
+  const linkEls = (id: Id, href: string): { li: HTMLLIElement; a: HTMLAnchorElement } => {
+    let it = links.get(id);
+    if (!it) {
+      const li = el('li', 'controls-item');
+      const a = el('a', 'controls-button controls-link');
+      a.dataset['link'] = id;
+      li.append(a);
+      it = { li, a };
+      links.set(id, it);
+    }
+    if (it.a.getAttribute('href') !== href) it.a.href = href;
+    return it;
+  };
   /** Put `children` into `parent` in this order (moving only what is out of place), removing the rest. */
   const order = (parent: HTMLElement, children: readonly HTMLElement[]): void => {
     children.forEach((c, i) => {
@@ -176,6 +191,14 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
       groups.push(s.group);
       const lis: HTMLLIElement[] = [];
       for (const it of st.items) {
+        if (it.href !== undefined) {
+          // (P4 S5) a real link: a project crate's plate, to its entry on /resume/ (it works as any link does)
+          const e = linkEls(it.id, it.href);
+          if (e.a.textContent !== it.label) e.a.textContent = it.label;
+          lis.push(e.li);
+          seen.add(it.id);
+          continue;
+        }
         const e = itemEls(items, it.id, 'id');
         if (e.button.textContent !== it.label) e.button.textContent = it.label;
         e.button.setAttribute('aria-disabled', String(m.busy));
@@ -185,6 +208,7 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
       order(s.ul, lis);
     }
     for (const [id, e] of items) if (!seen.has(id)) items.delete(id), e.li.remove();
+    for (const [id, e] of links) if (!seen.has(id)) links.delete(id), e.li.remove();
     order(stationsEl, groups);
     for (const [id, s] of stations) if (!m.stations.some((x) => x.id === id)) stations.delete(id), s.group.remove();
     // what the keys hold, and where it may go
@@ -451,6 +475,14 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     update();
     const sentences = announcer.hear(frame.world, frame.events, { keyHeld: ws.gestures.keyHold ? (ws.gestures.held?.id ?? null) : null, phoneOpen: ws.phone?.isOpen ?? false });
     if (sentences.length > 0) say(sentences.join(' '));
+    // (P4 S5) the plate on an open project crate's card pressed on the stage: its entry on /resume/, as its link in this
+    // list goes (a panel over the stage will hear the same event later)
+    for (const e of frame.events) {
+      if (e.type !== 'crate.plate') continue;
+      const href = projectOf(frame.world, e.crate)?.href;
+      if (href) win.location.assign(href);
+      break;
+    }
   });
 
   update();
