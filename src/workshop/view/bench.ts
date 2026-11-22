@@ -150,8 +150,8 @@ export const LAYOUT = {
   wall: { width: 21, height: 9 },
   stations: {
     // ── on the wall ──
-    /** Pegboard and its six tools (the real piece, 5.56 × 4.06); it hangs past the bench's left end. */
-    toolwall: spot(-7.35, -5, 5.56, 0.4, 4.06, { y: 0.3, fill: 'piece' }),
+    /** Pegboard and its eight tools (the real piece, 5.52 × 6.06: P4 T2 grew it by a row and set it 0.1 higher, so the lowest tools hang clear of Revert's height); it hangs past the bench's left end. */
+    toolwall: spot(-7.35, -5, 5.56, 0.4, 6.06, { y: 0.4, fill: 'piece' }),
     /** The lamp's clamp on the wall rail, 1.47 right of the pegboard (P1's gap); its bulb is the key light. */
     lamp: spot(-3.1, -5, 0.5, 0.5, 4.7, { fill: 'piece' }),
     /** The sign, TAYLOR REMUND on one line, hung over the board (bottom edge at y). */

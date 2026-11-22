@@ -203,6 +203,12 @@ export class Announcer {
         case 'press.refused':
           say('pressRefused');
           break;
+        // (P4 T2) a tool let go at its own place on the wall is back on its peg (it never rests anywhere: said here)
+        case 'toolwall.hung':
+          if (e.how !== 'hand') break;
+          this.pending.delete(e.tool);
+          say('hung', { thing: name(e.tool) });
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');

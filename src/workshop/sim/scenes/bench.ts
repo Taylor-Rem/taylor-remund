@@ -269,22 +269,23 @@ export const PRESS = {
  *   laravel: open-ended spanner (rings)    vue: screwdriver          php: claw hammer (heavy, low)
  *   python: pliers                          rust: flat file           sql: try-square
  *   flutter: flat paint brush               claude-code: hand-cranked drill (the owner chooses between candidates)
- * The board is a body (`board`): a thrown thing meets its face, not the wall behind it.
+ * The board is a body (`board`): a thrown thing meets its face, not the wall behind it; from 1.4 up only (its lowest unit
+ * is left to the wall behind: under Revert's height a body there would keep Revert from the bench's back left corner).
  */
 export const TOOLWALL = {
   unit: 'toolwall',
   sheet: 'toolwall-sheet',
   look: 'toolwall-look',
-  board: { c: [-6.55, 3.23, -4.938], half: [2.76, 2.93, 0.05] } as Box,
+  board: { c: [-7.35, 3.93, -4.938], half: [2.76, 2.53, 0.05] } as Box,
   tools: {
-    laravel: { half: [0.1696, 0.5645, 0.05], at: [-7.8434, 3.5235, -4.813], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.12 },
-    vue: { half: [0.0893, 0.575, 0.0948], at: [-6.15, 3.603, -4.768], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.06 },
-    php: { half: [0.3515, 0.583, 0.0819], at: [-4.7805, 3.598, -4.788], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.2 },
-    python: { half: [0.1815, 0.5211, 0.0703], at: [-7.8475, 1.6661, -4.803], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.1 },
-    rust: { half: [0.078, 0.6, 0.078], at: [-6.21, 1.778, -4.788], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'metal', mass: 0.08 },
-    sql: { half: [0.28, 0.49, 0.054], at: [-4.672, 1.674, -4.809], q: [0, 0, 0, 1], size: 'M', material: 'wood', mass: 0.08 },
-    flutter: { half: [0.145, 0.5389, 0.058], at: [-8.05, 5.4039, -4.81], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.05 },
-    'claude-code': { half: [0.2268, 0.6472, 0.134], at: [-6.0912, 5.4938, -4.712], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.18 },
+    laravel: { half: [0.1696, 0.5645, 0.05], at: [-8.6436, 3.6235, -4.813], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.12 },
+    vue: { half: [0.0893, 0.575, 0.0948], at: [-6.95, 3.703, -4.768], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.06 },
+    php: { half: [0.3515, 0.583, 0.0819], at: [-5.5805, 3.698, -4.788], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.2 },
+    python: { half: [0.1815, 0.5211, 0.0703], at: [-8.6475, 1.7661, -4.803], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.1 },
+    rust: { half: [0.078, 0.6, 0.078], at: [-7.01, 1.878, -4.788], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'metal', mass: 0.08 },
+    sql: { half: [0.28, 0.49, 0.054], at: [-5.472, 1.774, -4.809], q: [0, 0, 0, 1], size: 'M', material: 'wood', mass: 0.08 },
+    flutter: { half: [0.145, 0.5395, 0.058], at: [-8.85, 5.7045, -4.81], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.05 },
+    'claude-code': { half: [0.2136, 0.586, 0.1158], at: [-6.9044, 5.656, -4.7268], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.18 },
   } as Readonly<Record<string, { half: Vec3; at: Vec3; q: readonly [number, number, number, number]; size: 'S' | 'M' | 'L'; material: 'metal' | 'wood'; mass: number }>>,
 } as const;
 /** A tool's part id, its place (a mouth), and the box a look at it out on the bench asks for. */

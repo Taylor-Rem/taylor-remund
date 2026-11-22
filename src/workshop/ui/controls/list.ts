@@ -497,6 +497,12 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
     if (sentences.length > 0) say(sentences.join(' '));
     // (P4 S5) the plate on an open project crate's card pressed on the stage: (P4 H1) its card over the stage, or,
     // where no panel takes it, its entry on /resume/, as its link in this list goes
+    // (P4 T2) the tool wall's pinned sheet pressed: the skills list over the stage, or its place on /resume/
+    for (const e of frame.events) {
+      if (e.type !== 'toolwall.sheet') continue;
+      if (!askPanel(doc, 'skills', null)) win.location.assign('/resume/#skills');
+      break;
+    }
     for (const e of frame.events) {
       if (e.type !== 'crate.plate') continue;
       const href = projectOf(frame.world, e.crate)?.href;

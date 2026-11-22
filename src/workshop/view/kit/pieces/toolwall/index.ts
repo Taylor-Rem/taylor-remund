@@ -6,7 +6,7 @@
  *
  * P4 T2: eight tools. The six and their shadows and tapes stay exactly where the
  * approved picture has them; the board grows UP by one row (`BOARD.h` 3.8 to
- * 5.6), which holds FLUTTER, CLAUDE CODE (two strips of tape, one word each:
+ * 5.8), which holds FLUTTER, CLAUDE CODE (two strips of tape, one word each:
  * one strip would be three units long) and the pinned sheet, a paper sheet with
  * the résumé's own heading that opens the full skills list (socket `sheet`).
  * Two rows of four would need a board about eight units wide at the tapes' size
@@ -55,7 +55,6 @@ import { ATTR } from '../../types.ts';
 import { CANDIDATES, TOOL_KINDS, buildToolInto, shadowSheet, tool, toolShape } from './tools.ts';
 import type { Candidate, ToolKind } from './tools.ts';
 import type { PieceBuilder } from '../../compose.ts';
-import { resume } from '../../../../../content/resume.ts';
 
 export { TOOL_KINDS, TOOL_PAINT, CANDIDATES, CHOSEN, tool, toolShape, buildToolInto } from './tools.ts';
 export type { Candidate, ToolKind, ToolShape } from './tools.ts';
@@ -64,7 +63,7 @@ export type { Candidate, ToolKind, ToolShape } from './tools.ts';
 export const BOARD = {
   /** The pegboard face (inside the frame it is a little smaller). */
   w: 5.2,
-  h: 5.6,
+  h: 5.8,
   /** Hole pitch: a peg can go in any hole. */
   pitch: 0.2,
   /** The board's bottom edge, its face off the wall. */
@@ -123,7 +122,7 @@ export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>
  * read (no words that are not published); pressed, it opens the panel with the full list. Board frame (x, y = its
  * middle), its size, and the heading's capital height.
  */
-export const SHEET = { x: 1.98, y: 4.62, w: 0.66, h: 0.86, cap: 0.045 } as const;
+export const SHEET = { x: 1.98, y: 4.95, w: 0.66, h: 0.86, cap: 0.045 } as const;
 
 /** A tape's size without the labels (clay, tests), within ~10% of the real one. */
 export function estimateTape(text: string): { w: number; h: number } {
@@ -144,7 +143,7 @@ const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: numb
   'claude-code': { row: 2, x: 0.5, ox: -0.17, oy: 0.04 },
 };
 /** Tape centre heights (board frame, from y = 0) for the rows, and where the tools above them start (over the first strip, when a name takes two). */
-const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, { tape: 4.34, tools: 4.58 }] as const;
+const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, { tape: 4.55, tools: 4.66 }] as const;
 /** A second strip of tape sits this far under the first. */
 const LINE_GAP = 0.42;
 /** How far each tool stands off the board face (its half thickness and a gap). */
@@ -366,9 +365,9 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
   return b.build();
 }
 
-/** The résumé's heading for the skills, as published (resume.json skills.heading). */
+/** The résumé's heading for the skills, as published (world.json names.toolwall.sheet: the same words as resume.json skills.heading). */
 function skillsHeading(): string {
-  return resume.skills.heading.text;
+  return world.toolwallSheet;
 }
 
 /**

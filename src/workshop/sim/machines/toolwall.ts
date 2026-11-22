@@ -152,6 +152,7 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
       ctx.drive(id, t.hang, true);
     }
     if (how) ctx.emit({ type: 'toolwall.hung', id: spec.id, tool: id, how });
+    if (how === 'hand') ctx.emit({ type: 'handle.worked', id }); // the peg's click
     return true;
   }
 
@@ -327,12 +328,16 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
 
     lost(part: Id, why: LostReason) {
       if (!byId.has(part)) return;
+      const wasHung = hung.has(part);
       hung.delete(part);
       laying.get(part)?.job.done();
       laying.delete(part);
       easing.delete(part);
       changed.set(part, ctx.clock.step);
-      if (why === 'grab') ctx.emit({ type: 'toolwall.taken', id: spec.id, tool: part });
+      if (why === 'grab' && wasHung) {
+        ctx.emit({ type: 'toolwall.taken', id: spec.id, tool: part });
+        ctx.emit({ type: 'handle.worked', id: part }); // the peg's click
+      }
     },
 
     restored(restores: readonly Restore[]) {

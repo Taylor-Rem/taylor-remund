@@ -435,7 +435,7 @@ function squareShape(): ToolShape {
 //
 // A hanging brass eye (a ring a peg goes through): the brush, the roller and both drills hang by one.
 function eye(n: NodeBuilder, x: number, y: number, r: number, seed: number): void {
-  const ring = sweep(arcPath([0, 0, 0], r, 0, Math.PI * 2, 14), { radius: 0.012, segs: 6 });
+  const ring = sweep({ ...arcPath([0, 0, 0], r, 0, Math.PI * 2, 8), closed: true }, { radius: 0.012, segs: 4 });
   n.add(part('brass', transform(ring, T(x, y, 0)), 'brass', { seed, warm: 0.05 }));
 }
 
@@ -525,8 +525,8 @@ function rollerShape(): ToolShape {
 }
 
 // CLAUDE CODE, candidate A: a hand-cranked drill (an egg-beater): it multiplies your turning, and you still aim it.
-const DR = { bit: 0.2, chuck: 0.34, frame0: 0.4, frame1: 0.96, top: 1.22, gear: [0.17, 0.66] as P2, gearR: 0.2 };
-const DR_HANDLE: Array<[number, number]> = [[0.045, DR.frame1], [0.06, 1.0], [0.068, 1.08], [0.062, 1.16], [0.05, 1.2], [0.0, DR.top]];
+const DR = { bit: 0.15, chuck: 0.28, frame0: 0.34, frame1: 0.86, top: 1.1, gear: [0.16, 0.58] as P2, gearR: 0.18 };
+const DR_HANDLE: Array<[number, number]> = [[0.045, DR.frame1], [0.06, 0.9], [0.068, 0.97], [0.062, 1.04], [0.05, 1.08], [0.0, DR.top]];
 
 /** A spur gear's outline: `teeth` round radius r, each tooth `h` tall. */
 function gearOutline(r: number, teeth: number, h: number): P2[] {
@@ -542,10 +542,12 @@ function drill(n: NodeBuilder, seed: number): void {
   const R = rng(seed);
   // the bit: a twist drill (a steel rod with its flutes as a raised spiral)
   n.add(setFinish(steel(lathe(profile(0, 0.0).to(0.012, 0.0, { sharp: true }).to(0.018, 0.02).to(0.018, DR.bit, { sharp: true }).to(0, DR.bit), { segs: 8, band: 0, caps: false }), seed, 1.3), 0.5));
-  n.add(steel(sweep(helixPath(0.018, 0.07, 2.4, 14), { radius: 0.006, segs: 4 }), seed + 1, 0.9));
+  // its flutes: dark diagonal grooves down the front
+  const flutes: Array<[P2, P2]> = [];
+  for (let y = 0.03; y < DR.bit - 0.04; y += 0.035) flutes.push([[-0.016, y], [0.016, y + 0.022]]);
+  n.add(steel(marks(flutes, 0.007, 0.0185), seed + 1, 0.4));
   // the chuck: a knurled steel cone and its nose
-  n.add(steel(lathe(profile(0, DR.bit - 0.01).to(0.024, DR.bit - 0.01, { sharp: true }).to(0.04, DR.bit + 0.03, { smooth: true }).to(0.046, DR.chuck - 0.02, { fillet: 0.008, segs: 1 }).to(0.03, DR.chuck).to(0, DR.chuck + 0.004), { segs: 12, band: 0, caps: false }), seed + 2, 1.15));
-  n.add(steel(transform(ridgedBand(0.047, 0.06, 14, 0.006), T(0, DR.bit + 0.06, 0)), seed + 3, 0.9));
+  n.add(steel(lathe(profile(0, DR.bit - 0.01).to(0.024, DR.bit - 0.01, { sharp: true }).to(0.04, DR.bit + 0.03, { smooth: true }).to(0.046, DR.chuck - 0.02, { fillet: 0.008, segs: 1 }).to(0.03, DR.chuck).to(0, DR.chuck + 0.004), { segs: 10, band: 0, caps: false }), seed + 2, 1.15));
   // the spindle, up through the frame
   n.add(steel(lathe(profile(0, DR.chuck).to(0.016, DR.chuck, { sharp: true }).to(0.016, DR.frame1, { sharp: true }).to(0, DR.frame1), { segs: 8, band: 0, caps: false }), seed + 4, 1.05));
   // the frame: a cast bar beside the spindle, enamelled, with a foot round the spindle at each end
@@ -553,28 +555,31 @@ function drill(n: NodeBuilder, seed: number): void {
   n.add(part('steel', plate(frame, 0.05, { bevel: 0.012, radius: 0.016, band: 0, segs: 1 }), 'paper', { seed: seed + 5, jitter: 0.04 }));
   // the drive wheel: a spoked spur gear in the same enamel, its rim's teeth bare steel where they wore
   const [gx, gy] = DR.gear;
-  const rim = gearOutline(DR.gearR, 20, 0.016);
-  const spokes: P2[][] = [];
-  for (let i = 0; i < 4; i++) {
-    const a0 = (i / 4) * Math.PI * 2 + 0.22, a1 = a0 + Math.PI / 2 - 0.44;
-    spokes.push([...ellipsePts(0, 0, 0.155, 0.155, a0, a1, 5), ...ellipsePts(0, 0, 0.05, 0.05, a1 - 0.25, a0 + 0.25, 3)]);
-  }
-  const wheel = transform(extrude(rim, 0.032, { holes: spokes, bevel: 0.006, bevelBase: 0, radius: 0, holeRadius: 0.01, style: 'chamfer', segs: 1, band: 0, caps: 'end' }), T(gx, gy, 0.035));
+  // its toothed rim (one ring), and four spokes across it
+  const rim = gearOutline(DR.gearR, 12, 0.02);
+  const bore = ellipsePts(0, 0, DR.gearR - 0.04, DR.gearR - 0.04, 0, Math.PI * 2, 10).slice(0, -1);
+  const wheel = transform(extrude(rim, 0.03, { holes: [bore], bevel: 0, bevelBase: 0, radius: 0, holeRadius: 0, segs: 1, band: 0, caps: 'end' }), T(gx, gy, 0.035));
   n.add(part('steel', wheel, 'paper', { seed: seed + 6, jitter: 0.05 }));
+  const L = DR.gearR - 0.03;
+  for (const a of [Math.PI / 4, -Math.PI / 4]) {
+    const bar = bevelBox({ min: [-L, -0.014, 0.038], max: [L, 0.014, 0.06], c: 0.005 });
+    n.add(part('steel', transform(bar, chain(T(gx, gy, 0), new Matrix4().makeRotationZ(a))), 'paper', { seed: seed + 7, jitter: 0.05 }));
+  }
   // its hub, and the pinion it turns on the spindle (brass)
-  n.add(part('brass', transform(lathe(profile(0, 0).to(0.045, 0, { fillet: 0.008, segs: 1 }).to(0.045, 0.05, { fillet: 0.01, segs: 1 }).to(0, 0.055), { segs: 12, band: 0, caps: false }), chain(T(gx, gy, 0.03), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 8, warm: 0.05 }));
-  n.add(part('brass', transform(extrude(gearOutline(0.04, 10, 0.012), 0.03, { bevel: 0.004, bevelBase: 0, radius: 0, style: 'chamfer', segs: 1, band: 0, caps: 'end' }), T(0, gy - DR.gearR - 0.03, 0.02)), 'brass', { seed: seed + 9, warm: 0.04 }));
+  n.add(part('brass', transform(lathe(profile(0, 0).to(0.045, 0, { fillet: 0.008, segs: 1 }).to(0.045, 0.05, { fillet: 0.01, segs: 1 }).to(0, 0.055), { segs: 9, band: 0, caps: false }), chain(T(gx, gy, 0.03), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 8, warm: 0.05 }));
+  n.add(part('brass', transform(lathe(profile(0, 0).to(0.036, 0, { sharp: true }).to(0.036, 0.03, { sharp: true }).to(0, 0.03), { segs: 8, band: 0, caps: 'end' }), chain(T(0, gy - DR.gearR - 0.03, 0.02), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 9, warm: 0.04 }));
   // the crank: an arm off the hub, a turned wooden knob on it toward the visitor
   const ang = -0.6 + R.spread(0.05);
-  const kx = gx + Math.cos(ang) * 0.15, ky = gy + Math.sin(ang) * 0.15;
-  n.add(steel(sweep(polylinePath([[gx, gy, 0.085], [kx, ky, 0.085]], 0.01, 1), { section: sections.roundRect(0.012, 0.006, 1), radius: 0.008, ends: 'round' }), seed + 10, 1.1));
-  const knob = lathe(profile(0, 0).to(0.026, 0.0, { fillet: 0.01, segs: 1 }).to(0.034, 0.05, { smooth: true }).to(0.03, 0.1, { fillet: 0.015, segs: 2 }).to(0, 0.11), { segs: 10, band: 0, caps: false });
-  n.add(part('wood', grain(transform(knob, chain(T(kx, ky, 0.09), new Matrix4().makeRotationX(Math.PI / 2))), 'z'), 'wood', { seed: seed + 11, jitter: 0.06, warm: 0.03 }));
+  const kx = gx + Math.cos(ang) * 0.13, ky = gy + Math.sin(ang) * 0.13;
+  const arm = bevelBox({ min: [-0.012, -0.015, 0.07], max: [0.14, 0.015, 0.09], c: 0.005 });
+  n.add(steel(transform(arm, chain(T(gx, gy, 0), new Matrix4().makeRotationZ(ang))), seed + 10, 1.1));
+  const knob = lathe(profile(0, 0).to(0.026, 0.0, { fillet: 0.01, segs: 1 }).to(0.034, 0.04, { smooth: true }).to(0.03, 0.075, { fillet: 0.015, segs: 2 }).to(0, 0.082), { segs: 8, band: 0, caps: false });
+  n.add(part('wood', grain(transform(knob, chain(T(kx, ky, 0.085), new Matrix4().makeRotationX(Math.PI / 2))), 'z'), 'wood', { seed: seed + 11, jitter: 0.06, warm: 0.03 }));
   // the top handle: turned, enamelled to match, worn to the wood where the palm sits
   const pr = profile(0, DR.frame1);
   for (const [r, y] of DR_HANDLE.slice(0, -1)) pr.to(r, y, { smooth: true });
-  pr.cubic(0, DR.top, 0.05, 1.215, 0.02, DR.top, 3);
-  n.add(paintedWood(grain(lathe(pr, { segs: 12, caps: false, band: 0 }), 'y'), 'paper', seed + 12, 0.95, { y0: 1.02, y1: 1.18, amount: 0.35 }));
+  pr.cubic(0, DR.top, 0.05, 1.095, 0.02, DR.top, 3);
+  n.add(paintedWood(grain(lathe(pr, { segs: 10, caps: false, band: 0 }), 'y'), 'paper', seed + 12, 0.95, { y0: 0.9, y1: 1.06, amount: 0.35 }));
   eye(n, 0, DR.top + 0.03, 0.03, seed + 13);
 }
 
@@ -602,7 +607,7 @@ function yankee(n: NodeBuilder, seed: number): void {
   n.add(steel(transform(ridgedBand(0.031, 0.06, 16, 0.005), T(0, YK.bit + 0.02, 0)), seed + 2, 0.85));
   // the spiral spindle: a polished rod wound with its flute, bright
   n.add(setFinish(steel(lathe(profile(0, YK.chuck).to(0.017, YK.chuck, { sharp: true }).to(0.017, YK.spiral + 0.05, { sharp: true }).to(0, YK.spiral + 0.05), { segs: 8, band: 0, caps: false }), seed + 3, 1.35), 0.6));
-  n.add(setFinish(steel(transform(sweep(helixPath(0.018, 0.085, 3.8, 12), { radius: 0.006, segs: 4 }), T(0, YK.chuck + 0.005, 0)), seed + 4, 1.1), 0.6));
+  n.add(setFinish(steel(transform(sweep(helixPath(0.018, 0.085, 3.8, 8), { radius: 0.006, segs: 3 }), T(0, YK.chuck + 0.005, 0)), seed + 4, 1.1), 0.6));
   // the sleeve it slides into, its brass shifter ring (the ratchet's three ways)
   n.add(steel(lathe(profile(0, YK.spiral).to(0.03, YK.spiral, { fillet: 0.01, segs: 1 }).to(0.032, YK.sleeve, { sharp: true }).to(0, YK.sleeve), { segs: 12, band: 0, caps: false }), seed + 5, 1.0));
   n.add(part('brass', transform(ridgedBand(0.038, 0.045, 14, 0.005), T(0, YK.sleeve - 0.12, 0)), 'brass', { seed: seed + 6, warm: 0.05 }));

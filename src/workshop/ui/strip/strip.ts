@@ -37,7 +37,7 @@ export const PAPERWORK_IDS = ['paperwork', 'services', 'about', 'contact', 'patc
  * The stations an address can frame (REWRITE.md § C, the stations table), those the bench has today. The
  * bench's framings (shell/bench-stage.ts `BENCH_STATIONS`) must name the same (tests/unit/ui/controls-model.test.ts).
  */
-export const STATION_ADDRESSES = ['top', 'patchlamp', 'button', 'line'] as const;
+export const STATION_ADDRESSES = ['top', 'patchlamp', 'button', 'line', 'tools'] as const;
 
 /** The id an address's hash names, decoded (null: none, or malformed). */
 function hashId(hash: string): string | null {

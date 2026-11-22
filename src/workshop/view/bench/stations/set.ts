@@ -35,8 +35,11 @@ export const station: BenchStation = {
     // the stool lowered for the whole board (Patch at 1.5× on it works the jack row)
     const stoolE = E('stool');
     const stool: Entry | undefined = stoolE ? { ...stoolE, build: (opts = {}) => stoolE.build({ ...opts, seatY: STOOL_SEAT }) } : undefined;
+    // P4 T2: the tool wall's board without its tools (they are loose parts: view/bench/stations/tools.ts draws them)
+    const twE = E('toolwall');
+    const toolwall: Entry | undefined = twE ? { ...twE, build: (opts = {}) => twE.build({ ...opts, tools: false }) } : undefined;
     return createSetView({
-      entries: { bench, wall, sign, toolwall: E('toolwall'), lamp: E('lamp'), phone: E('phone'), stool },
+      entries: { bench, wall, sign, toolwall, lamp: E('lamp'), phone: E('phone'), stool },
       tools: k.entries.filter((e) => e.name.startsWith('tool-')),
       // the bench tapes its own lanes (lane.ts)
       scene: k.scene,
