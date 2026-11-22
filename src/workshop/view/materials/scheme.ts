@@ -24,7 +24,7 @@ import { Color, Vector3 } from 'three';
 import { linear, linearScheme, schemeColours, type SchemeColour, type Token } from '../palette.ts';
 
 /** The enamel tokens a scheme repaints, in slot order. Their hues must be told apart (see S_MATCH). */
-export const SCHEME_SLOTS = ['teal-panel', 'teal-light', 'teal-deep', 'tape-yellow', 'paper'] as const satisfies readonly Token[];
+export const SCHEME_SLOTS = ['teal-panel', 'teal-light', 'teal-deep', 'tape-yellow'] as const satisfies readonly Token[];
 export type SchemeSlot = (typeof SCHEME_SLOTS)[number];
 
 /** A scheme: what each slot is painted. A slot left out keeps its home colour. */
@@ -36,8 +36,8 @@ export type Scheme = Partial<Record<SchemeSlot, Token | SchemeColour>>;
  */
 export const SCHEMES = {
   A: {},
-  B: { 'teal-panel': 'scheme-b-enamel', 'teal-light': 'scheme-b-trim', 'teal-deep': 'scheme-b-deep', paper: 'scheme-b-cream' },
-  C: { 'teal-panel': 'scheme-c-enamel', 'teal-light': 'scheme-c-trim', 'teal-deep': 'scheme-c-deep', 'tape-yellow': 'scheme-c-accent', paper: 'scheme-c-cream' },
+  B: { 'teal-panel': 'scheme-b-enamel', 'teal-light': 'scheme-b-trim', 'teal-deep': 'scheme-b-deep' },
+  C: { 'teal-panel': 'scheme-c-enamel', 'teal-light': 'scheme-c-trim', 'teal-deep': 'scheme-c-deep', 'tape-yellow': 'scheme-c-accent' },
   D: { 'teal-panel': 'scheme-d-enamel', 'teal-light': 'scheme-d-trim', 'teal-deep': 'scheme-d-deep', 'tape-yellow': 'scheme-d-accent' },
 } as const satisfies Record<string, Scheme>;
 export type SchemeId = keyof typeof SCHEMES;
