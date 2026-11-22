@@ -51,9 +51,6 @@ export const REPORT_FIELD = 'report';
 export const DRAWER_FIELD = 'drawer';
 export const SEAL_FIELD = 'seal';
 
-/** A select this soon after a pull (s) is the double-tap's: the pull its second tap queued is dropped. */
-const SELECT_AFTER = 0.5;
-
 /** Tune here. Units and seconds. */
 export const PRESS_TUNING = {
   /** The lob's top is this far over the higher of its two ends (a slow high lob across the bench is worth watching). */
@@ -66,6 +63,13 @@ export const PRESS_TUNING = {
   gap: 0.08,
   /** Anything within this of its middle on the way is in the way: it goes to physics there. */
   clearance: 0.03,
+  /**
+   * (as the ledger's: LEDGER_TUNING) A second press on the lever this soon after the first is held a moment
+   * (`doubleSteps`) before it pulls: if the visitor's double-tap asks for the press (`select`) meanwhile, it was half
+   * of that, and only the look happens.
+   */
+  doubleSeconds: 0.36,
+  doubleSteps: 3,
 } as const;
 
 export interface PressSpec {
@@ -376,8 +380,19 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   const askLook = (): void => ctx.emit({ type: 'look', target: lookTarget() });
   let lastMode: string | undefined = undefined;
   let setDown = false;
-  /** The step of the last pull a hand made (a double-tap's second tap on the lever must not pull again). */
-  let pulledAt = -Infinity;
+  /** The last press on the lever (its step), and a second press held a moment in case it is half of a double-tap. */
+  let lastPress: number | undefined = undefined;
+  let held: number | null = null;
+  function pressOrHold(): boolean {
+    if (ctx.bracketed) return false;
+    const last = lastPress;
+    lastPress = ctx.clock.step;
+    if (last !== undefined && ctx.clock.step - last <= steps(PRESS_TUNING.doubleSeconds)) {
+      held = ctx.clock.step;
+      return true;
+    }
+    return pull();
+  }
   function lookWhen(): void {
     const m = ctx.mode(spec.body);
     if (lastMode === 'held' && m !== 'held') setDown = true;
@@ -387,14 +402,10 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     } else if (setDown && m !== 'free') setDown = false;
     lastMode = m;
   }
-  /** A double-click or double-tap on the press or its lever: look at it; a pull the double-tap's second tap queued is dropped. */
+  /** A double-click or double-tap on the press or its lever: look at it; the double-tap's second press (held a moment, above) was half of it and is dropped. */
   function select(): boolean {
-    if (ctx.mode(spec.body) === 'gone' || ctx.mode(spec.body) === 'chute') return false;
-    if (waiting && ctx.clock.step - pulledAt <= steps(SELECT_AFTER)) {
-      const w = waiting;
-      waiting = null;
-      w.done();
-    }
+    if (ctx.bracketed || ctx.mode(spec.body) === 'gone' || ctx.mode(spec.body) === 'chute') return false;
+    held = null;
     askLook();
     return true;
   }
@@ -411,7 +422,6 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   function pull(): boolean {
     if (ctx.bracketed) return false;
     ctx.emit({ type: 'handle.worked', id: spec.lever.id });
-    pulledAt = ctx.clock.step;
     if (!reachable()) {
       // carried, stowed, shipped: a misfire (the lever twitches; nothing is printed)
       lever.hit(1);
@@ -483,11 +493,16 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     intent(intent: Intent): boolean {
       if (intent.type === 'select' && (intent.id === spec.lever.id || intent.id === spec.body)) return select();
       if (intent.type !== 'press' || intent.id !== spec.lever.id) return false;
-      return pull();
+      return pressOrHold();
     },
 
     pre() {
       if (ctx.bracketed) return;
+      // a second press no double-tap claimed: pulled now (a moment late: three steps)
+      if (held !== null && ctx.clock.step - held >= PRESS_TUNING.doubleSteps) {
+        held = null;
+        pull();
+      }
       lookWhen();
       if (show && !reachable()) {
         // out of reach or out of sight: drawn as its state says, at once; a pull waiting is done now; the flick does not happen
@@ -567,6 +582,8 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     },
 
     reset() {
+      held = null;
+      lastPress = undefined;
       resetting = true;
       record = [];
       show = null;

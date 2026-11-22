@@ -79,7 +79,7 @@ async function open(page: Page): Promise<string[]> {
   await openLedgerCrate(page);
   const why = await page.evaluate(() => { const w = (window as any).__bench.ws.world; return { open: w.setting('crate-1', 'open'), mode: w.mode('crate-1'), c2: w.motion('crate-2').pose.p, c1: w.motion('crate-1').pose.p }; });
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').wrong === true), 600, `the board dealt (${JSON.stringify(why)})`);
-  // the board off its tray and onto the open bench in front of the stack, right of where Fetch's lane turns. Not on the
+  // the board off its tray and onto the open bench in front of the platen, where nothing stands between it and the camera (in front of the stack it sat under the striker's arm, hidden, though a press still found it). Not on the
   // lane (along z 2.78 from x -2.9 to 1.16): set down on it, Fetch knocks the board onto the belt, it ships and comes
   // back up the chute, and a press aimed where it was lands on nothing or on the moving board. Not behind the lane
   // either: Fetch walking in front of the board between the camera and the crank takes the click (it is lifted). The
@@ -90,7 +90,7 @@ async function open(page: Page): Promise<string[]> {
     ws.dispatch({ type: 'grab', id: 'ledger-board', grip: ws.world.motion('ledger-board').pose.p });
   });
   await frames(page, 3);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [2.6, 0, 2.9] }));
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [4.3, 0, 1.75] }));
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('ledger-board').location.at === 'rest' && (window as any).__bench.ws.world.machine('ledger').show === null), 900, 'the board on the bench, its show over');
   return errors;
 }
@@ -202,13 +202,46 @@ test('P4 D1: the ledger board by a finger at 390×844, the camera in on it: a ta
 // NOT RIGHT YET (D1 hand-in): at the framing a control's keyboard focus brings (its station, the whole line) the crank
 // and the plunger are about 10 px across on a phone and the board takes the finger. It needs the board framed close
 // (the crates' camera that comes in on an opened crate, or Framings.of framing a board control where the board is).
-test.fixme('P4 D1: each control a 44 px fingertip at the framing its keyboard focus brings, 390×844', async ({ browser }) => {
+/** Wait for the camera to come to rest (a look's ease is over). */
+async function cameraStill(page: Page): Promise<void> {
+  await frames(page, 4);
+  await until(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 600, 'the camera at rest');
+  await frames(page, 6);
+}
+const SHOTS = process.env.D1_SHOTS ?? '';
+
+test('P4 D1: each control a 44 px fingertip at the framing the board\'s look gives (a double-tap on it), on the bench and on its tray, 390×844', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
-  await open(page);
-  await bring(page, 'ledger-plunger');
-  expect(await fingertip(page, 'ledger-plunger'), 'plunger').toBe('ok');
-  expect(await fingertip(page, 'ledger-crank'), 'crank').toBe('ok');
+  // on its open crate's tray: the look takes in the crate's card, the board on the tray before it
+  await page.goto(`${origin}/dev/bench/`);
+  await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
+  await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p }); });
+  await frames(page, 3);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [3.15, 0, 2.05] }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding() === null), 600, 'crate-2 set aside');
+  await openLedgerCrate(page);
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null && (window as any).__bench.ws.world.mode('ledger-board') === 'machine'), 900, 'the board on its tray, its show over');
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'ledger-board' }));
+  await cameraStill(page);
+  const tray = { plunger: await fingertip(page, 'ledger-plunger'), crank: await fingertip(page, 'ledger-crank') };
+  const traySizes = await page.evaluate(() => ({ crank: (window as any).__bench.ws.surface.screen('ledger-crank'), plunger: (window as any).__bench.ws.surface.screen('ledger-plunger') }));
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/look-tray-390.png` });
+  // out on the bench: the look takes in the board's own box
+  await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'ledger-board', grip: ws.world.motion('ledger-board').pose.p }); });
+  await frames(page, 3);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [4.3, 0, 1.75] }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('ledger-board').location.at === 'rest'), 900, 'the board on the bench');
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'ledger-board' }));
+  await cameraStill(page);
+  const bench = { plunger: await fingertip(page, 'ledger-plunger'), crank: await fingertip(page, 'ledger-crank') };
+  const benchSizes = await page.evaluate(() => ({ crank: (window as any).__bench.ws.surface.screen('ledger-crank'), plunger: (window as any).__bench.ws.surface.screen('ledger-plunger') }));
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/look-bench-390.png` });
+  console.log(`[D1] 44 px at 390×844 at the look's framing: tray ${JSON.stringify(tray)} ${JSON.stringify(traySizes)}; bench ${JSON.stringify(bench)} ${JSON.stringify(benchSizes)}`);
+  expect(tray.plunger, 'plunger on the tray').toBe('ok');
+  expect(tray.crank, 'crank on the tray').toBe('ok');
+  expect(bench.plunger, 'plunger on the bench').toBe('ok');
+  expect(bench.crank, 'crank on the bench').toBe('ok');
   await ctx.close();
 });
 
@@ -287,3 +320,47 @@ test('P4 D1 / S5 round three: the crate\'s body takes no press on the board on i
   expect(map.counts['ledger-crank'] ?? 0).toBeGreaterThan(10);
   expect(map.counts['ledger-plunger'] ?? 0).toBeGreaterThan(5);
 });
+
+for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+  test(`P4 D1: the board on its tray at the look's framing, ${w}×${h}: through a deal and a repair the card and its plate stay clear (pictures); the plate and the latch take their presses; the latch shuts the crate`, async ({ browser }) => {
+    const touch = w < 600;
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(touch ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}) });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/dev/bench/`);
+    await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
+    await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p }); });
+    await frames(page, 3);
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [3.15, 0, 2.05] }));
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding() === null), 600, 'crate-2 set aside');
+    await openLedgerCrate(page);
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null && (window as any).__bench.ws.world.mode('ledger-board') === 'machine'), 900, 'the board on its tray, its show over');
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'ledger-board' }));
+    await cameraStill(page);
+    const kind = touch ? 'touch' : 'mouse';
+    const pickAt = (id: string) => page.evaluate(([id, kind]) => { const ws = (window as any).__bench.ws; const s = ws.surface.screen(id); return s ? { s, got: ws.surface.at(s.x, s.y, kind, null).id } : null; }, [id, kind] as const);
+    const shot = async (name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/tray-${name}-${w}.png` }); };
+    await shot('bounced');
+    // a repair (the flag goes down, the tokens fly), then a deal (they fly again, the rubber one bounces, the flag snaps up)
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'ledger-plunger' }));
+    await frames(page, 40);
+    await shot('repair-flying');
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null), 600, 'the repair shown');
+    await shot('repaired');
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'ledger-crank' }));
+    await frames(page, 70);
+    await shot('deal-flying');
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null), 600, 'the deal shown');
+    await shot('flag-up');
+    // the plate takes a press (asked of the input; not clicked: it opens the project's entry)
+    const plate = await pickAt('crate-1-plate');
+    expect(plate?.got, 'the plate takes a press at its middle').toBe('crate-1-plate');
+    // the latch takes a press, and shuts the crate (the board goes in with it)
+    const latch = await pickAt('crate-1-lid');
+    console.log(`[D1] ${w}×${h} on the tray at the look: plate ${JSON.stringify(plate)} latch ${JSON.stringify(latch)}`);
+    expect(latch?.got, 'the latch takes a press at its middle').toBe('crate-1-lid');
+    if (touch) await page.touchscreen.tap(latch!.s.x, latch!.s.y);
+    else await page.mouse.click(latch!.s.x, latch!.s.y);
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open') === false && (window as any).__bench.ws.world.mode('ledger-board') === 'gone'), 300, 'the latch shut the crate, the board in it');
+    await ctx.close();
+  });
+}

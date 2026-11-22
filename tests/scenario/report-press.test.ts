@@ -4,7 +4,7 @@
 // comes home to the press (never up the chute). One effect group under the pull, undone exactly by the lever wherever
 // the envelope had got to.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, putOn, waitFor, onBelt, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, putOn, waitFor, onBelt, tape, BENCH, type Tape } from './line-helpers.ts';
 import { loc, pressOut, until } from './press-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { PRESS } from '../../src/workshop/sim/scenes/bench.ts';
@@ -107,7 +107,7 @@ describe('the report press', () => {
   test('a pull while one is showing (before the flick) waits its turn, and runs once the envelope has landed; with the press in a hand, the lever misfires and nothing prints', async () => {
     const { w, t } = await pressOut('rp-wait');
     pull(w);
-    t.run(10);
+    t.run(steps(0.5)); // (past a double-tap's window: a second press sooner is held a moment)
     pull(w);
     t.run(1);
     expect(drawer(w)).toBe(1);
@@ -356,6 +356,59 @@ describe('the report press', () => {
     expect(report(w)).toEqual(t.of('shipped').filter((x) => x.e.part !== E).map(() => 'bare'));
     // (round three) never the envelope's own shipments: the report is about the visitor
     expect(t.of('shipped').some((x) => x.e.part === E)).toBe(true);
+    w.dispose();
+  }, 120_000);
+});
+
+describe('"Reset the workshop" stows the press and brings its envelope home from wherever they are (crates.ts: a reset stows every crate\'s thing)', () => {
+  const settle = (w: World, t: Tape): void => {
+    for (let i = 0; i < 15 * HZ; i++) {
+      t.run(1);
+      expect(w.mode(P), `step ${i} after the reset`).toBe('gone');
+    }
+    expect(w.part(P)!.location).toMatchObject({ at: 'in', mouth: PRESS.crate });
+    expect(loc(w, E)).toBe(`in:${PRESS.body}`);
+    expect(report(w)).toBeNull();
+    expect(drawer(w)).toBe(0);
+  };
+  const throwOff = (w: World, t: Tape, id: string): void => {
+    const m0 = w.motion(id)!;
+    w.dispatch({ type: 'grab', id, grip: m0.pose.p });
+    t.run(5);
+    for (let k = 1; k <= 20; k++) {
+      w.dispatch({ type: 'carry', target: [m0.pose.p[0] + 0.5 * k, 1.8, m0.pose.p[2] + 0.3 * k] });
+      t.run(1);
+    }
+    w.dispatch({ type: 'release', velocity: [12, 3, 6] });
+  };
+
+  test('the press thrown off the bench from its tray before it ever rested (in the chute, its location still in its crate)', async () => {
+    const { w, t } = await pressOut('rp-reset-chute');
+    pull(w);
+    t.run(PRESS_SHOW_STEPS + 10);
+    throwOff(w, t, P);
+    expect(until(w, t, () => w.mode(P) === 'chute', 10 * HZ)).toBe(true);
+    w.dispatch({ type: 'reset' });
+    settle(w, t);
+    w.dispose();
+  }, 120_000);
+
+  test('the envelope in the air, then shipped and not yet home; the press out on the bench', async () => {
+    const { w, t } = await pressOut('rp-reset-flight');
+    putOn(w, t, P, [-4.0, 0, 0.6], 60);
+    pull(w);
+    expect(until(w, t, () => w.mode(E) === 'machine' && loc(w, E) !== `in:${PRESS.body}`, 6 * HZ)).toBe(true);
+    w.dispatch({ type: 'reset' });
+    settle(w, t);
+    w.dispose();
+  }, 120_000);
+
+  test('the press untouched in its shut crate', async () => {
+    const w = await benchWorld('rp-reset-untouched', { scene: BENCH });
+    const t = tape(w);
+    t.run(30);
+    w.dispatch({ type: 'reset' });
+    settle(w, t);
     w.dispose();
   }, 120_000);
 });
