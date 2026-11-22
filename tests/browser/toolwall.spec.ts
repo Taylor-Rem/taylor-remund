@@ -120,6 +120,7 @@ test('P4 T2: VUE by mouse at 1440×900: off its peg, across the bench, set down;
   await page.mouse.move(home.x, home.y, { steps: 30 });
   await frames(page, 30);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/mouse-2-at-shadow-1440.png` });
+  console.log(`[T2] held at its shadow before letting go: ${await diag(page, id)} (it hangs at ${JSON.stringify(await hangOf(page, id))})`);
   await page.mouse.up();
   await until(page, () => onPeg(page, id), 300, 'VUE back on its peg', () => diag(page, id));
   expect(errors).toEqual([]);

@@ -49,9 +49,9 @@ export const TOOLWALL_TUNING = {
   stillSpeed: 0.35,
   topple: 0.32,
   /** How near its own place (in the board's plane, from where its middle hangs) a tool must be to be taken back. */
-  catchReach: 0.5,
+  catchReach: 0.6,
   /** And how far out from where it hangs (toward the visitor) at most. */
-  catchDepth: 0.9,
+  catchDepth: 1.6,
   /** And no faster than this (a gentle throw catches; a hard one bounces off the board). */
   catchSpeed: 4.0,
   /** The glide onto the peg. */
