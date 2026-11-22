@@ -40,9 +40,10 @@ const pitch = (page: Page): Promise<PitchState | null> =>
 const screenOf = (page: Page, p: [number, number, number]): Promise<{ x: number; y: number }> =>
   page.evaluate((p) => {
     const ws = (window as any).__handoff.workshop;
+    // (the camera answers in normalised device coordinates)
     const s = ws.stage.camera.worldToScreen({ x: p[0], y: p[1], z: p[2] });
     const r = ws.stage.canvas.getBoundingClientRect();
-    return { x: r.left + s.x, y: r.top + s.y };
+    return { x: r.left + ((s.x + 1) / 2) * r.width, y: r.top + ((1 - s.y) / 2) * r.height };
   }, p);
 
 test('without the flag the bench has no Pitch', async ({ page }) => {
