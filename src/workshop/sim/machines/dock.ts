@@ -130,6 +130,11 @@ export interface DockSpec {
      */
     readonly home?: readonly (readonly [number, number])[];
   };
+  /**
+   * P4 D3: parts that, shipped, do not come back up the chute: the dock queues no return for them (no RETURN TO
+   * SENDER, no chute) and the machine they belong to brings them home itself (the report press's envelope).
+   */
+  readonly homeward?: readonly Id[];
 }
 
 export interface DockUnit extends MachineUnit {
@@ -317,6 +322,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: part.size });
       return;
     }
+    if (spec.homeward?.includes(s.id)) return; // (P4 D3) its own machine brings it home
     const at = ctx.clock.step + steps(part.kind === 'robot' && spec.pad?.home ? T.refuseAfter : T.returnAfter[part.kind]);
     if (part.kind === 'robot') returns.push({ id: s.id, at, job: null });
     else returns.push({ id: s.id, at, job: ctx.history.work(ctx.history.chargeMachine(s.id), spec.id, () => (returns = returns.filter((r) => r.id !== s.id))) });
