@@ -152,6 +152,19 @@ export function createPanels(o: PanelsOptions = {}): Panels | null {
   const onKey = (e: KeyboardEvent): void => {
     e.stopPropagation();
   };
+  // …and none from outside it either: a browser may let focus fall to the page while the dialog is open (WebKit
+  // gives Tab back to the document after the last control), and the stage answers keys aimed at the page itself.
+  // While it is open such a key goes nowhere; Tab brings focus back into the panel.
+  const win = doc.defaultView;
+  const onStrayKey = (e: KeyboardEvent): void => {
+    if (!dialog.open || dialog.contains(e.target as Node | null)) return;
+    e.stopImmediatePropagation();
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      (heading() ?? closeButton).focus({ preventScroll: true });
+    }
+  };
+  win?.addEventListener('keydown', onStrayKey, true);
   const onClosed = (): void => {
     // closed by something else (the browser, a form): tidy as Close does
     if (current !== null) {
@@ -200,6 +213,7 @@ export function createPanels(o: PanelsOptions = {}): Panels | null {
       dialog.removeEventListener('keydown', onKey);
       dialog.removeEventListener('close', onClosed);
       closeButton.removeEventListener('click', close);
+      win?.removeEventListener('keydown', onStrayKey, true);
     },
   };
 }
