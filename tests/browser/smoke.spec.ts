@@ -2,9 +2,8 @@ import { expect, test } from '@playwright/test';
 import { ENGINES } from '../../playwright.config.ts';
 
 // The built site loads: no console error and no failed request to this site.
-// /resume/ is still the legacy page, which loads Google Fonts and
-// cdn.simpleicons.org (REWRITE.md § 1); those are third-party and not judged
-// here, so console messages are attributed by the URL they came from.
+// Console messages are attributed by the URL they came from; no page asks
+// another origin for anything now (paper.spec.ts and home.spec.ts hold that).
 for (const path of ['/', '/resume/', '/privacy/']) {
   test(`${path} loads cleanly`, { tag: ENGINES }, async ({ page, baseURL }) => {
     const origin = new URL(baseURL!).origin;

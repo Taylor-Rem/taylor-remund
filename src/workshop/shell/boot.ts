@@ -28,7 +28,7 @@ import { gloveCursors, POSE_OF, type GlovePose } from '../ui/cursor.ts';
 import { createRapierPhysics, createWorld } from '../sim/index.ts';
 import type { Id, Intent, PhysicsPort, SceneDesc, StepFault, Vec3, World, WorldSaved, WorldView } from '../sim/index.ts';
 import type { Frame, StationView, Tier, ViewContext } from '../view/types.ts';
-import { createStage, CameraRig, createLoop, type Loop, type Stage, type StageOptions, type View } from '../view/stage/index.ts';
+import { createStage, CameraRig, createLoop, hideUnseen, type Loop, type Stage, type StageOptions, type View } from '../view/stage/index.ts';
 import { createMaterials, type WorkshopMaterials } from '../view/materials/index.ts';
 import { createLabels, type LabelsOptions, type WorkshopLabels } from '../view/labels/index.ts';
 import { realize } from '../view/kit/realize.ts';
@@ -1084,7 +1084,12 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
 function startCompile(stage: Stage): void {
   try {
     stage.scene.updateMatrixWorld(true);
-    stage.renderer.compile(stage.scene, stage.camera.camera);
+    const seen = hideUnseen(stage.scene, stage.camera.camera);
+    try {
+      stage.renderer.compile(stage.scene, stage.camera.camera);
+    } finally {
+      seen();
+    }
   } catch {
     /* the first frame compiles whatever is left */
   }
@@ -1093,7 +1098,14 @@ function startCompile(stage: Stage): void {
 async function compileShaders(stage: Stage): Promise<void> {
   try {
     stage.scene.updateMatrixWorld(true);
-    await stage.renderer.compileAsync(stage.scene, stage.camera.camera);
+    const seen = hideUnseen(stage.scene, stage.camera.camera);
+    let compiled: Promise<unknown>;
+    try {
+      compiled = stage.renderer.compileAsync(stage.scene, stage.camera.camera);
+    } finally {
+      seen();
+    }
+    await compiled;
   } catch {
     /* the first frame compiles whatever is left */
   }

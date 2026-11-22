@@ -8,7 +8,7 @@
  *   const loop = createLoop({ step: () => sim.step(), render: (i) => { views.update(…); stage.render(i); } });
  */
 import { Box3, Color, NoToneMapping, PCFShadowMap, SRGBColorSpace, Scene, Vector3, WebGLRenderer, AgXToneMapping, ACESFilmicToneMapping, NeutralToneMapping } from 'three';
-import type { ToneMapping } from 'three';
+import type { Camera, Mesh, Object3D, ToneMapping } from 'three';
 import type { Tier } from '../types.ts';
 import { CameraRig, type CameraRigOptions } from './camera.ts';
 import { stageColours } from './colours.ts';
@@ -112,6 +112,28 @@ const TONE: Record<ToneMap, ToneMapping> = {
 /** What the last warm() spent (ms) and how many kinds of shadow caster it drew alone. */
 export const warmTimes = { compileAsync: 0, frame: 0, shadowPasses: 0, kinds: 0 };
 (globalThis as { __warmTimes?: typeof warmTimes }).__warmTimes = warmTimes;
+
+/**
+ * For a `compile`: leave out what the camera never draws (meshes whose layers miss the camera's: the shadow
+ * proxies, kit/realize.ts). three's `compile` walks every object, hidden or not and whatever its layers, and
+ * would build a program for each one's material that no frame ever uses (and, their geometry having no normals,
+ * one that does not compile: eight on the bench, found 2026-11-21). Such a mesh is without its material for the
+ * length of the call, which is how `compile` passes it by. Call the returned function as soon as `compile` (or
+ * `compileAsync`, which compiles before it returns its promise) has returned: the shadow pass needs them back.
+ */
+export function hideUnseen(scene: Object3D, camera: Camera): () => void {
+  const lent: Array<[Mesh, Mesh['material']]> = [];
+  scene.traverse((o) => {
+    const m = o as Mesh;
+    if (m.isMesh && m.material && !o.layers.test(camera.layers)) {
+      lent.push([m, m.material]);
+      (m as { material: unknown }).material = undefined;
+    }
+  });
+  return () => {
+    for (const [m, material] of lent) m.material = material;
+  };
+}
 
 export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stage {
   const tier = opts.tier;
@@ -248,7 +270,10 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
       try {
         scene.updateMatrixWorld(true);
         const t0 = performance.now();
-        await renderer.compileAsync(scene, camera.camera);
+        const seen = hideUnseen(scene, camera.camera);
+        const compiled = renderer.compileAsync(scene, camera.camera);
+        seen();
+        await compiled;
         const t1 = performance.now();
         // (no full frame here: the post chain links its own on the first frame, cheaply, as before)
         const t2 = performance.now();
