@@ -125,7 +125,7 @@ test('the mark on the stage stands round the focused thing (the Button, a crate)
   await page.setViewportSize(VIEW);
   await page.goto('/');
   await live(page);
-  for (const name of ['Big Red Button', /^(Small|Medium|Large) crate/]) {
+  for (const name of ['Big Red Button', A_CRATE]) {
     await tabTo(page, name);
     const id = (await stop(page)).id!;
     // let the camera settle on the station, then hold the bench still and compare a frame with the mark and one without
@@ -399,7 +399,7 @@ for (const view of [
       }
     }
     // a crate held by the keys: every destination
-    await page.locator('#controls button[data-id^="crate"]').first().focus();
+    await page.locator('#controls button[data-id^="crate"]:not([data-id$="-lid"])').first().focus(); // (P4 S5: a crate, not its latch)
     await atRest(page);
     await page.keyboard.press('Enter');
     await expect(page.locator('.controls-hold-label')).toBeVisible();
