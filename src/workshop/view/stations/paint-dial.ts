@@ -118,13 +118,14 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
       const box = o.style === 'deck'
         ? (() => {
             const D = PAINT_DIAL.deck;
-            return new Box3(new Vector3(-D.cardW / 2 - 0.004, D.rodY - D.cardH - 0.01, -0.06), new Vector3(D.rodHalf + 0.032, D.rodY + D.wheelR + 0.004, 0.06));
+            return new Box3(new Vector3(-D.cardW / 2 - 0.004, D.rodY - D.cardH - 0.01, -0.06), new Vector3(D.rodHalf + 0.032, D.rodY + D.wheelR + 0.05, 0.09));
           })()
         : (() => {
             const P = PAINT_DIAL.fan;
-            return new Box3(new Vector3(-P.knobR - 0.02, P.t, P.pivotZ - P.knobR - 0.02), new Vector3(P.knobR + 0.02, P.t + P.knobH + 0.012, P.pivotZ + P.knobR + 0.03));
+            // up past the top of the dial's own (padded) box, so a pointer at the knob meets the knob before the dial
+            return new Box3(new Vector3(-P.knobR - 0.02, P.t, P.pivotZ - P.knobR - 0.02), new Vector3(P.knobR + 0.02, P.t + P.knobH + 0.06, P.pivotZ + P.knobR + 0.03));
           })();
-      ctx.pickable(o.knob, t, { box, pad: 0.006, active: () => shown && reachable() });
+      ctx.pickable(o.knob, t, { box, pad: 0.03, active: () => shown && reachable() });
     };
 
     /** The dial's pose: the deck's chips and wheel, or the fan's knob, at detent `at` (fractions between), plus a rock. */

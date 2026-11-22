@@ -43,6 +43,21 @@ const painted = (page: Page): Promise<{ current: string; active: number }> => pa
 });
 const screenOf = (page: Page, id: string): Promise<{ x: number; y: number; r: number } | null> => page.evaluate((id) => (window as any).__bench.ws.surface.screen(id), id);
 
+/**
+ * In close on the dial: until the crates' own camera comes in on an opened crate's thing, this is the page's hand on the
+ * camera (the dial about 500 px across at 1440×900 and 360 px on a phone; shots/d2/look2 are pictured the same way).
+ */
+async function closeIn(page: Page, size: number): Promise<void> {
+  await page.evaluate((size) => {
+    const ws = (window as any).__bench.ws;
+    const p = ws.world.motion('paint-dial').pose.p;
+    ws.stage.camera.stationSize = size;
+    ws.stage.camera.recomputeRange();
+    ws.stage.camera.cutTo({ focus: [p[0], p[1] + 0.03, p[2]], zoom: 1 }, { hold: true });
+  }, size);
+  await frames(page, 20);
+}
+
 async function open(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -62,8 +77,7 @@ test('P4 D2b: the paint dial by mouse at 1440×900: a drag turns it through its 
   const errors = await open(page);
   expect(await scheme(page)).toBe('A');
   expect((await painted(page)).active).toBe(0);
-  await page.evaluate((id) => (window as any).__bench.ws.framing.bring(id), KNOB);
-  await frames(page, 70);
+  await closeIn(page, 0.55);
   const k = (await screenOf(page, KNOB))!;
   expect(k, 'the knob is a target').not.toBeNull();
   // a drag to the right turns it up, detent by detent: one gesture
@@ -96,14 +110,7 @@ test('P4 D2b: the paint dial by a finger at 390×844: a tap moves it one detent 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   const errors = await open(page);
-  // in close on the dial (until the crates' own camera comes in on an opened crate, this is the page's hand on it)
-  await page.evaluate(() => {
-    const ws = (window as any).__bench.ws;
-    const p = ws.world.motion('paint-dial').pose.p;
-    ws.stage.camera.stationSize = 0.8;
-    ws.stage.camera.cutTo({ focus: [p[0], p[1] + 0.03, p[2]], zoom: 1 }, { hold: true });
-  });
-  await frames(page, 20);
+  await closeIn(page, 0.3);
   const k = (await screenOf(page, KNOB))!;
   expect(k, 'the knob is a target').not.toBeNull();
   await page.touchscreen.tap(k.x, k.y);
