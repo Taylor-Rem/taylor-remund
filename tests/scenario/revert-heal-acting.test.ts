@@ -10,7 +10,7 @@ import type { RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
 import { REVERT_TUNING } from '../../src/workshop/sim/crew/revert.ts';
 import { REVERT_HEAL } from '../../src/workshop/sim/scenes/bench.ts';
 
-const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
 const rv = (w: World): RevertView => w.machine('revert-crew') as RevertView;
 
 /** The whole bench, the visitor strewing every crate into the back-left corner until Fetch has none it may carry. */

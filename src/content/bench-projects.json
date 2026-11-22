@@ -1,0 +1,46 @@
+{
+  "about": {
+    "note": "S5 (P4): the six crates that circulate on the bench are Taylor's projects. Each key is a project id the simulation speaks in (sim/scenes/bench.ts PROJECT_CRATES maps crate ids to these). `resume` is the published title of its entry in resume.json projects.entries: the card's title, one line (the entry's subtitle) and tools (its tags) are read from that entry, carried, never retyped here. `anchor` is the id of its heading on /resume/ (src/pages/resume.astro: p- and the title slugged). `stencil.lines` is how the title is sprayed, line by line; joined with spaces they are the title in capitals (tests/unit/content/bench-projects.test.ts holds both). `for` is who it was built for, as /resume/ gives it."
+  },
+  "projects": {
+    "ledger": {
+      "resume": "Ledger Management System",
+      "anchor": "p-ledger-management-system",
+      "stencil": { "text": "LEDGER MANAGEMENT SYSTEM", "lines": ["LEDGER", "MANAGEMENT", "SYSTEM"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"Ledger Management System\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "KINGSLEY MANAGEMENT CORPORATION", "lines": ["KINGSLEY MANAGEMENT", "CORPORATION"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Work\") and #experience (employer \"Kingsley Management Corporation\"); ~/career/facts/work-kingsley.md" }
+    },
+    "reports": {
+      "resume": "Report Generation Framework",
+      "anchor": "p-report-generation-framework",
+      "stencil": { "text": "REPORT GENERATION FRAMEWORK", "lines": ["REPORT", "GENERATION", "FRAMEWORK"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"Report Generation Framework\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "KINGSLEY MANAGEMENT CORPORATION", "lines": ["KINGSLEY MANAGEMENT", "CORPORATION"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Work\") and #experience (employer \"Kingsley Management Corporation\"); ~/career/facts/work-kingsley.md" }
+    },
+    "support-desk": {
+      "resume": "Support Desk Rewrite",
+      "anchor": "p-support-desk-rewrite",
+      "stencil": { "text": "SUPPORT DESK REWRITE", "lines": ["SUPPORT DESK", "REWRITE"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"Support Desk Rewrite\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "KINGSLEY MANAGEMENT CORPORATION", "lines": ["KINGSLEY MANAGEMENT", "CORPORATION"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Work\") and #experience (employer \"Kingsley Management Corporation\"); ~/career/facts/work-kingsley.md" }
+    },
+    "clean-green": {
+      "resume": "Clean & Green Inspections",
+      "anchor": "p-clean-green-inspections",
+      "stencil": { "text": "CLEAN & GREEN INSPECTIONS", "lines": ["CLEAN & GREEN", "INSPECTIONS"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"Clean & Green Inspections\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "KINGSLEY MANAGEMENT CORPORATION", "lines": ["KINGSLEY MANAGEMENT", "CORPORATION"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Work\") and #experience (employer \"Kingsley Management Corporation\"); ~/career/facts/work-kingsley.md" }
+    },
+    "t-components": {
+      "resume": "t-components",
+      "anchor": "p-t-components",
+      "stencil": { "text": "T-COMPONENTS", "lines": ["T-COMPONENTS"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"t-components\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "KINGSLEY MANAGEMENT CORPORATION", "lines": ["KINGSLEY MANAGEMENT", "CORPORATION"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Work\") and #experience (employer \"Kingsley Management Corporation\"); ~/career/facts/work-kingsley.md" }
+    },
+    "artificer": {
+      "resume": "Artificer",
+      "anchor": "p-artificer",
+      "stencil": { "text": "ARTIFICER", "lines": ["ARTIFICER"], "kind": "fact", "source": "/resume/ #projects, the entry's title \"Artificer\" (resume.json projects.entries), in capitals" },
+      "for": { "text": "TAYLOR REMUND", "lines": ["TAYLOR REMUND"], "kind": "fact", "source": "/resume/ #projects (the entry's label \"Personal Project\": built for himself); his name as the site gives it (site.json strip.name \"Taylor Remund\"), in capitals" }
+    }
+  },
+  "card": {
+    "plate": { "text": "FULL ENTRY", "kind": "ui", "provisional": true, "source": "S5 brief item 4 (a small brass plate on the card is the way to the full entry on /resume/). New words, for Taylor" }
+  }
+}

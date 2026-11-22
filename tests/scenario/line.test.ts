@@ -51,13 +51,14 @@ describe('a crate put on the belt sounds at the striker and ships at the dock', 
 
     // a fresh crate comes up the chute onto the pad in its place (S5 R1: it no longer appears on the stack), and the door shuts
     const restocked = t.until((e) => e.type === 'restocked', 5 * HZ);
-    expect(restocked?.e).toMatchObject({ id: 'dock', part: 'crate-spare-2', on: 'pad' });
+    // (P4 S5: the spares are small; with none of crate-2's size behind the door, the first comes up)
+    expect(restocked?.e).toMatchObject({ id: 'dock', part: 'crate-spare-1', on: 'pad' });
     t.run(4 * HZ);
     expect(t.of('door').map((x) => x.e.open)).toEqual([true, false]);
-    const spare = w.part('crate-spare-2')!;
+    const spare = w.part('crate-spare-1')!;
     expect(spare.location.at).toBe('rest');
-    expect(w.writer('crate-spare-2', 'location')).toBe('system');
-    const sp = w.motion('crate-spare-2')!.pose.p;
+    expect(w.writer('crate-spare-1', 'location')).toBe('system');
+    const sp = w.motion('crate-spare-1')!.pose.p;
     expect(Math.hypot(sp[0] - AT.pad[0], sp[2] - AT.pad[1])).toBeLessThan(0.45);
 
     // one pull: it comes back in through the door, in one hop, and the spare stays

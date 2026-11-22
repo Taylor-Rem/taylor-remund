@@ -90,7 +90,7 @@ test(`soak: ${MINUTES} simulated minutes on the bench with the belt running`, { 
   const physics = await createRapierPhysics();
   const w = await benchWorld('soak-bench', { scene: FULL_BENCH, physics }); // the whole bench: Fetch's rounds run too
   const r = rng(SEED);
-  const ids = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+  const ids = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2'];
   const count = { parts: [...w.parts()].length, registry: [...w.interactables()].length, bodies: physics.bodies().length };
   const opening = settings(w);
   const b = w.scene.bench;

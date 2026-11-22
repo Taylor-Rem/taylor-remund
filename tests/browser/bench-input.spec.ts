@@ -923,6 +923,23 @@ test('R1: the glove cursor over the stage (four poses as CSS images), and the be
   await ctx.close();
 });
 
+test('P4 S5: a project crate opened by a click on its latch: a finger over it, it opens and its card stands with its plate a target; a click on the latch again shuts it', async ({ page }) => {
+  await open(page, 1440, 900);
+  const cur = () => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
+  const openNow = () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open'));
+  const latch = await waitClear(page, 'crate-3-lid', 'mouse');
+  await page.mouse.move(latch.x, latch.y);
+  await frames(page, 3);
+  expect(await cur(), 'one finger over the latch').toMatch(/image-set\(.*, pointer$/);
+  await stroke(page, mouseHand(page), [latch, latch]);
+  await pollFrames(page, openNow).toBe(true);
+  // the plate on the standing card is a target of its own once the card has risen
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.surface.screen('crate-3-plate') !== null)).toBe(true);
+  const again = await waitClear(page, 'crate-3-lid', 'mouse');
+  await stroke(page, mouseHand(page), [again, again]);
+  await pollFrames(page, openNow).toBe(false);
+});
+
 /**
  * R2 (Taylor: "sometimes when you click on the phone it doesn't open the interactive phone screen to full size,
  * instead still basically being the same size as the phone and there's no way to fix it"). A hundred times, at

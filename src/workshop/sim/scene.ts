@@ -43,6 +43,24 @@ export interface PartSpec {
   readonly feel?: { readonly friction?: number; readonly restitution?: number; readonly linearDamping?: number; readonly angularDamping?: number };
   /** How round its box's edges are (a radius inside `half`, units; the engine allows up to half its least half extent). Default: almost sharp, as a crate's. */
   readonly round?: number;
+  /**
+   * P4 S5: a thing a project crate holds (sim/machines/crates.ts): it starts in that crate (its location `in` the crate
+   * whose id this is: out of the world while the crate is shut, on its tray while it is open). Never a crate.
+   */
+  readonly stowedIn?: Id;
+}
+
+/**
+ * P4 S5: a crate that is one of Taylor's projects (sim/machines/crates.ts). `project` is the id its words are under
+ * in src/content/bench-projects.json; `lid` and `plate` the ids of its latch and its card's plate (interactables the
+ * crates unit registers); `holds` the thing it holds, if any (a part whose spec says `stowedIn` this crate).
+ */
+export interface ProjectCrate {
+  readonly crate: Id;
+  readonly project: Id;
+  readonly lid: Id;
+  readonly plate: Id;
+  readonly holds?: Id;
 }
 
 export interface StaticSpec {
@@ -263,4 +281,6 @@ export interface SceneDesc {
    * `sim/machine.ts`).
    */
   readonly units?: readonly UnitFactory[];
+  /** P4 S5: the crates that are projects (with a latch, a card and room for a thing); read by the crates unit, the view and the controls list. */
+  readonly projects?: readonly ProjectCrate[];
 }

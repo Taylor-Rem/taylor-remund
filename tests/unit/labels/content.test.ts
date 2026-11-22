@@ -103,7 +103,9 @@ describe('contentById', () => {
     // S4
     'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing', 'name.revert', 'name.undo-lever', 'name.button.cover',
     // the Patchlamp station (S3)
-    'name.line', 'name.patch', 'name.platen', 'name.storefront', 'name.jack.platen', 'name.jack.belt', 'name.jack.reserved', 'slip.reserved', 'slip.platen-full'];
+    'name.line', 'name.patch', 'name.platen', 'name.storefront', 'name.jack.platen', 'name.jack.belt', 'name.jack.reserved', 'slip.reserved', 'slip.platen-full',
+    // P4 S5: the project crates (each called by its project's published title), their latches and plates, the stand-in
+    'name.project.ledger', 'name.project.reports', 'name.project.support-desk', 'name.project.clean-green', 'name.project.t-components', 'name.project.artificer', 'name.lid', 'name.plate', 'name.standin'];
 
   it('resolves every id the simulation speaks in, to the right entry', () => {
     for (const id of ids) expect(contentById(id).text, id).toBeTruthy();
@@ -112,6 +114,7 @@ describe('contentById', () => {
     expect(contentById('slip.out-of-lane').text).toBe('OUT OF MY LANE.');
     expect(contentById('name.button')).toMatchObject({ text: 'Big Red Button', kind: 'ui' });
     expect(contentById('name.jack.lamp').text).toBe('Lamp jack');
+    expect(contentById('name.project.ledger')).toMatchObject({ text: 'Ledger Management System', kind: 'fact' });
     expect([...CONTENT_IDS].sort()).toEqual([...ids].sort());
   });
 

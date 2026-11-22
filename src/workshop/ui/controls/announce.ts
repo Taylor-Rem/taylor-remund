@@ -172,6 +172,13 @@ export class Announcer {
           else if (targets.length > 1) say('undoneMany', { count: targets.length });
           break;
         }
+        // (P4 S5) a project crate opened or shut: by the visitor's press, or clapped shut as it was picked up, taken or knocked
+        case 'crate.opened':
+          say('opened', { thing: name(e.crate) });
+          break;
+        case 'crate.shut':
+          if (e.why === 'press' || w.touched(e.crate)) say('shutBy', { thing: name(e.crate) });
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');

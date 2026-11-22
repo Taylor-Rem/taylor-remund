@@ -10,7 +10,7 @@ import { steps, HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, PatchView, RevertView, Vec3 } from '../../src/workshop/sim/types.ts';
 
-const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
 // verify runs 6; the full twenty: TRAFFIC=20 npx vitest run tests/scenario/heal-traffic.test.ts
 const SESSIONS = Number(process.env.TRAFFIC ?? 6);
 /** Patch's footprint on the bench (patch-route's own radius is about this). */

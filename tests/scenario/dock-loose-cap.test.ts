@@ -11,6 +11,8 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+/** The whole bench with a seventh crate behind the door (the large spare it had before P4 S5): one more than `looseMax`. */
+const SEVEN = { ...FULL_BENCH, parts: [...FULL_BENCH.parts, { id: 'crate-spare-3', kind: 'crate' as const, size: 'L' as const, material: 'wood' as const, colour: 'bare', label: '', station: 'line' as const, name: 'name.crate', pose: { p: [0, -4, 0] as Vec3, q: [0, 0, 0, 1] as const }, shipped: true }] };
 const loose = (w: World): Id[] => CRATES.filter((id) => w.part(id)!.location.at !== 'shipped');
 
 /** Where the test's own hand fills the bench: open floor, clear of the pad, the stack and every machine. */
@@ -40,7 +42,9 @@ describe('R3: the dock\'s cap on loose crates', () => {
   test('three crates down the hatch within a second: the bench never holds more than looseMax, and each that comes back is one that went down', async () => {
     const drops = new Map<number, Id>();
     const ups = new Map<number, Id>();
-    const w = await benchWorld('loose-cap', { scene: FULL_BENCH, units: [hatch(drops, ups)] });
+    // (P4 S5: the bench has six crates, exactly `looseMax`, so it can never hold more by itself; the cap is held against the
+    // bench with the third spare it had before the crates became Taylor's six projects)
+    const w = await benchWorld('loose-cap', { scene: SEVEN, units: [hatch(drops, ups)] });
     const t = tape(w);
     // the bench filled to looseMax + 1 (two spares up the chute), and settled
     const spares = CRATES.filter((id) => w.part(id)!.location.at === 'shipped');

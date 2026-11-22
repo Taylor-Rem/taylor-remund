@@ -24,6 +24,8 @@
 import type { Id, WorldView } from '../../sim/types.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
+import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
+import type { ProjectCrate } from '../../sim/types.ts';
 
 /** What the model reads (the running workshop, narrowed; a stub in the unit tests). */
 export interface ControlsSource {
@@ -47,6 +49,19 @@ export interface ListItem {
   readonly id: Id;
   /** The accessible name and the visible label: the thing's name, and its state where that matters. */
   readonly label: string;
+  /** P4 S5: a real link instead of a button (a project crate's plate: its entry on /resume/). */
+  readonly href?: string;
+}
+
+/** P4 S5: the project crate a thing is (the crate itself, its latch or its card's plate), and which of them. */
+export function projectOf(w: WorldView, id: Id): { readonly crate: ProjectCrate; readonly as: 'crate' | 'lid' | 'plate'; readonly title: string; readonly href: string } | null {
+  for (const c of w.scene.projects ?? []) {
+    const as = id === c.crate ? 'crate' : id === c.lid ? 'lid' : id === c.plate ? 'plate' : null;
+    if (!as) continue;
+    const p = BENCH_PROJECTS[c.project];
+    return p ? { crate: c, as, title: p.title, href: p.href } : null;
+  }
+  return null;
 }
 export interface ListStation {
   readonly id: string;
@@ -63,6 +78,9 @@ export interface ListModel {
 
 /** A thing's plain name: a crate by its size, anything else by its content name ("Fetch"), the phone by world.json's. */
 export function plainName(w: WorldView, id: Id): string {
+  // a project crate by its project's published title; its latch and its plate by the same
+  const pr = projectOf(w, id);
+  if (pr) return pr.as === 'crate' ? pr.title : fill(pr.as === 'lid' ? LIST.crateLid : LIST.cratePlate, { project: pr.title });
   const p = w.part(id);
   if (p?.kind === 'crate') return LIST.crate[p.size] ?? textOf('name.crate') ?? id;
   const it = w.interactable(id);
@@ -99,6 +117,8 @@ export function itemLabel(src: ControlsSource, id: Id): string {
     return name;
   }
   if (id === b.coverId) return b.cover === 'open' ? fill(S.open, { name }) : b.cover === 'shut' ? fill(S.shut, { name }) : name;
+  const pr = projectOf(w, id);
+  if (pr?.as === 'lid') return fill(w.setting(pr.crate.crate, 'open') === true ? S.open : S.shut, { name });
   if (role === 'dial') {
     const r = src.reading(id);
     if (!r || r.detents < 2) return name;
@@ -121,7 +141,15 @@ export function itemLabel(src: ControlsSource, id: Id): string {
 /** Is this usable thing something the list leaves out now (see the header)? */
 function leftOut(w: WorldView, id: Id): boolean {
   const b = w.button();
-  return id === b.coverId && (b.cover === 'none' || b.cover === 'fitting');
+  if (id === b.coverId && (b.cover === 'none' || b.cover === 'fitting')) return true;
+  // (P4 S5) a project crate's latch while the crate is not on the bench (shipped, down the chute); its plate unless it is open there
+  const pr = projectOf(w, id);
+  if (pr && pr.as !== 'crate') {
+    const mode = w.motion(pr.crate.crate)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
+    if (pr.as === 'plate' && (w.setting(pr.crate.crate, 'open') !== true || mode !== 'free')) return true;
+  }
+  return false;
 }
 
 export function listModel(src: ControlsSource): ListModel {
@@ -134,7 +162,8 @@ export function listModel(src: ControlsSource): ListModel {
     if (st === null) continue;
     let l = byStation.get(st);
     if (!l) byStation.set(st, (l = []));
-    l.push({ id, label: itemLabel(src, id) });
+    const pr = projectOf(w, id);
+    l.push(pr?.as === 'plate' ? { id, label: itemLabel(src, id), href: pr.href } : { id, label: itemLabel(src, id) });
   }
   // two things that would read the same (two bare small crates) are told apart by a number, in list order
   const all = [...byStation.values()].flat();
@@ -147,7 +176,7 @@ export function listModel(src: ControlsSource): ListModel {
       if ((count.get(it.label) ?? 0) < 2) continue;
       const n = (nth.get(it.label) ?? 0) + 1;
       nth.set(it.label, n);
-      l[i] = { id: it.id, label: `${it.label} ${n}` };
+      l[i] = { ...it, label: `${it.label} ${n}` };
     }
   const stations: ListStation[] = [];
   for (const [id, items] of byStation) if (items.length > 0) stations.push({ id, name: STATION_NAMES[id] ?? id, items });
