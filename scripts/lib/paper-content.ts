@@ -15,4 +15,7 @@ export const PAPER_ONLY_CONTENT: readonly string[] = [
   'src/content/case-studies.json',
   'src/content/case-studies.ts',
   'src/content/person.ts',
+  // (P4 A3) the home page's paperwork: nothing under src/workshop reads it
+  'src/content/home.json',
+  'src/content/home.ts',
 ];

@@ -183,6 +183,174 @@
       "new": "Skip to content → #content | Taylor Remund → / | Résumé → /resume/ | GitHub → https://github.com/Taylor-Rem | LinkedIn → https://linkedin.com/in/taylor-remund-88169124a | Email → mailto:remundtaylor3@gmail.com | Get in Touch → /resume/#contact | Patchlamp → /#patchlamp | Services → /ai/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
       "why": "The links of the same shared furniture (see the furniture text entry for /case-studies/ledger-repair/).",
       "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture text",
+      "live": "Taylor Remund Patchlamp Services About Talk to me Taylor Remund · 2026 · This site is run the self-serve way: plain files, edited by asking Claude. Patchlamp · Services · Résumé · Privacy · Terms · SMS",
+      "new": "Taylor Remund software engineer I build and run Patchlamp Résumé GitHub LinkedIn Email Read Back to the workshop Sound Controls Settings Privacy Terms SMS",
+      "why": "furniture on /: the live nav (Patchlamp, Services, About, Talk to me) and footer give way to the strip (REWRITE.md § B7: name, role, line, Résumé, GitHub, LinkedIn, Email, Read, sound, settings, controls) and the slim legal line (Privacy, Terms, SMS). The footer sentence \"This site is run the self-serve way: plain files, edited by asking Claude.\" stops being true at the cutover; its replacement is Taylor's to word (§ F1, Footers), so nothing is carried for it. Patchlamp and Services stay reachable from the paperwork.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "furniture",
+      "item": "furniture link",
+      "live": "Taylor Remund → #hero | Patchlamp → #patchlamp | Services → #services | About → #about | Talk to me → #contact | Patchlamp → #patchlamp | Services → /ai/ | Résumé → /resume/ | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "new": "Résumé → /resume/ | GitHub → https://github.com/Taylor-Rem | LinkedIn → https://linkedin.com/in/taylor-remund-88169124a | Email → mailto:remundtaylor3@gmail.com | Read → #paperwork | Back to the workshop → / | Privacy → /privacy/ | Terms → /terms/ | SMS → /sms/",
+      "why": "furniture on /: the same change as the furniture text above, as links. The live nav's in-page section links are dropped (the sections are the paperwork; Read reaches them); /ai/ is linked from the paperwork's services section (§ F1).",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "Built and run in Utah Software that runs small businesses.",
+      "new": "",
+      "why": "/ hero: the live page's hero (kicker, headline, tagline and its two product cards, one with \"from $25 a month\") is replaced by the stage and the strip (REWRITE.md § F1, the '/ hero' row; § 3: no Patchlamp price typed). The strip's h1 says who he is and that he builds and runs Patchlamp.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "changes the website when you text it — built and run by Taylor Remund, with hands-on AI services around it. Patchlamp",
+      "new": "",
+      "why": "/ hero: the live page's hero (kicker, headline, tagline and its two product cards, one with \"from $25 a month\") is replaced by the stage and the strip (REWRITE.md § F1, the '/ hero' row; § 3: no Patchlamp price typed). The strip's h1 says who he is and that he builds and runs Patchlamp.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "text",
+      "new": "Text",
+      "why": "#patchlamp kicker: the live hero card's kicker \"Patchlamp · text your website\" goes with the hero; the band's own kicker \"Patchlamp · Text your website\" is carried. The diff pairs the two.",
+      "approval": "structural, no words"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "Text a number, the",
+      "new": "Patch takes chores off your hands:",
+      "why": "#patchlamp: the live lead (\"You text a number. Patch, the operator, opens your site's files … Text \"undo that\" and it's gone.\") is replaced by the brand's position sentence, Position::SENTENCE, word for word (REWRITE.md § F1, the '/ Patchlamp band' row). The word-level diff interleaves the hero, the lead and the sentence; the hunks around this one are the same change.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "is live",
+      "new": "your site, get quote requests, make estimates and invoices, and confirm bookings customers make on your site—all by text. I'm Taylor Remund",
+      "why": "#patchlamp: the live lead (\"You text a number. Patch, the operator, opens your site's files … Text \"undo that\" and it's gone.\") is replaced by the brand's position sentence, Position::SENTENCE, word for word (REWRITE.md § F1, the '/ Patchlamp band' row). The word-level diff interleaves the hero, the lead and the sentence; the hunks around this one are the same change.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "about a minute. Nothing to install, from $25 a month. See Patchlamp → Services · AI, installed AI doing real work Hands-on working sessions, or Claude installed",
+      "new": "American Fork, Utah; I'm",
+      "why": "/ hero: the live page's hero (kicker, headline, tagline and its two product cards, one with \"from $25 a month\") is replaced by the stage and the strip (REWRITE.md § F1, the '/ hero' row; § 3: no Patchlamp price typed). The strip's h1 says who he is and that he builds and runs Patchlamp. Interleaved with the position sentence.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "your own computer with guardrails and training. See",
+      "new": "",
+      "why": "/ hero: the live page's hero (kicker, headline, tagline and its two product cards, one with \"from $25 a month\") is replaced by the stage and the strip (REWRITE.md § F1, the '/ hero' row; § 3: no Patchlamp price typed). The strip's h1 says who he is and that he builds and runs Patchlamp.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "services → Patchlamp · Text your website The lamp's on.",
+      "new": "hook for it.",
+      "why": "/ hero: the live page's hero (kicker, headline, tagline and its two product cards, one with \"from $25 a month\") is replaced by the stage and the strip (REWRITE.md § F1, the '/ hero' row; § 3: no Patchlamp price typed). The strip's h1 says who he is and that he builds and runs Patchlamp. Interleaved with the position sentence.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "a number.",
+      "new": "",
+      "why": "#patchlamp: the live lead (\"You text a number. Patch, the operator, opens your site's files … Text \"undo that\" and it's gone.\") is replaced by the brand's position sentence, Position::SENTENCE, word for word (REWRITE.md § F1, the '/ Patchlamp band' row). The word-level diff interleaves the hero, the lead and the sentence; the hunks around this one are the same change.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "the operator, opens your site's files, makes the change, checks it's live, and texts you back — usually in a minute. Text a photo and it's on the site. Text \"undo that\" and it's gone. Nothing to install, no logins, no dashboard. Any phone, anyone you authorize.",
+      "new": "my AI operator.",
+      "why": "#patchlamp: the live lead (\"You text a number. Patch, the operator, opens your site's files … Text \"undo that\" and it's gone.\") is replaced by the brand's position sentence, Position::SENTENCE, word for word (REWRITE.md § F1, the '/ Patchlamp band' row). The word-level diff interleaves the hero, the lead and the sentence; the hunks around this one are the same change. The same hunk ends with the dropped first bullet. #patchlamp, first bullet dropped: \"Nothing to install, no logins, no dashboard. Any phone, anyone you authorize.\" has no whole row in ~/projects/patchlamp/CLAIMS.md today: owners sign in to /account and to their site's /admin (§ Two-factor sign-in; § Data), and texters are capped per tier (1 / 3 / anyone you authorize, § Pricing). § F1 keeps a bullet only if its row stands.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "Anything Patch shouldn't handle by itself — a domain, a store, a login — it says so plainly and passes to Taylor. from $25/mo · Starter $99/mo with Patch by text · Standard $250/mo with a built site and Taylor on call · usage included",
+      "new": "",
+      "why": "#patchlamp: third bullet and price line dropped. Bullet: \"Anything Patch shouldn't handle by itself — a domain, a store, a login — it says so plainly and passes to Taylor.\" Its core has a row (CLAIMS.md § Hero, out-of-scope asks, true now), but two of its examples are now Patch's own work: a shop is a web tool Patch builds (§ Web tools; the /how-it-works FAQ row) and Patch attaches a domain itself (§ Pricing, the Account-page domain row); as written it is not true today. Price line: no Patchlamp price is typed (REWRITE.md § 3, § F1); it also named \"Starter $99/mo\", a tier Prices.php no longer has (REWRITE.md § 1).",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "",
+      "new": "Every price, published on purpose",
+      "why": "#patchlamp: a link to patchlamp.com/pricing in place of the price line (REWRITE.md § 3, § F1). Its words are the live site's own for that link (legacy/ai/index.html #patchlamp).",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "/ session",
+      "new": "60 minutes",
+      "why": "#services: the price lines are read from src/content/ai.json, the one file /ai/ uses (§ F1; CLAUDE.md: prices are commitments, never typed twice), so the home card's own price wording (\"$150 / session · $250 for two hours\") becomes /ai/'s (\"$150\" over \"60 minutes · $250 for a 2-hour deep dive\"). Same prices.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "two hours",
+      "new": "a 2-hour deep dive",
+      "why": "#services: as above, the home card's \"$250 for two hours\" is /ai/'s \"$250 for a 2-hour deep dive\". Same price.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "",
+      "new": "one-time install",
+      "why": "#services: as above, the install's price line is /ai/'s (\"$500–$1,500\" over \"one-time install · optional care plan $79/mo\") for the home card's \"$500–$1,500 · care plan $79/mo\". Same prices.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "",
+      "new": "optional",
+      "why": "#services: as above (/ai/'s \"optional care plan $79/mo\"). Same price.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "",
+      "new": "GitHub LinkedIn Email",
+      "why": "#contact: the live page's icon links (GitHub, LinkedIn, Email, named by aria-label) are text links in the document: the same names, now visible.",
+      "approval": "structural, no words"
+    },
+    {
+      "page": "/",
+      "item": "link",
+      "live": "Patchlamp · text your website The lamp's on. Text a number, the change is live in about a minute. Nothing to install, from $25 a month. See Patchlamp → → #patchlamp | Services · AI, installed AI doing real work Hands-on working sessions, or Claude installed on your own computer with guardrails and training. See the services → → #services",
+      "new": "",
+      "why": "/ hero: the two product cards were links to #patchlamp and #services; they go with the hero (§ F1).",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "link",
+      "live": "AI Working Session Hands-on help putting AI to work on your actual tasks — bring a problem, leave with it running. $150 / session · $250 for two hours → /ai/#packages | AI on Your Computer Claude installed and configured for your business — your files, your tools, your rules — plus training. $500–$1,500 · care plan $79/mo → /ai/#packages",
+      "new": "Every price, published on purpose → https://patchlamp.com/pricing | AI Working Session → /ai/#packages | AI on Your Computer → /ai/#packages",
+      "why": "#patchlamp gains the patchlamp.com/pricing link (§ 3, § F1). #services: each live card was one link holding its whole text, to /ai/#packages; in the document the package's name is the link to the same place, with its text and price beside it.",
+      "approval": "structural, no words"
     }
   ]
 }
