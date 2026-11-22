@@ -399,6 +399,15 @@ export type SimEvent =
   | { readonly type: 'look'; readonly target: Id }
   /** The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope): the page eases back to the view the look left, if the visitor has not moved the camera since. */
   | { readonly type: 'look.back' }
+  // ── P4 T2: the tool wall (sim/machines/toolwall.ts) ──
+  /** A tool came off its peg into the visitor's hand (the peg's click). `id` is the wall's unit. */
+  | { readonly type: 'toolwall.taken'; readonly id: Id; readonly tool: Id }
+  /** A tool is back on its peg: let go near its painted shadow (`hand`), or put back by an undo or "Reset the workshop". */
+  | { readonly type: 'toolwall.hung'; readonly id: Id; readonly tool: Id; readonly how: 'hand' | 'undo' | 'reset' }
+  /** A tool was let go at another tool's place (`peg`, that tool's id): not its place; it drops to the bench. */
+  | { readonly type: 'toolwall.missed'; readonly id: Id; readonly tool: Id; readonly peg: Id }
+  /** The pinned sheet was pressed: the page opens the full skills list. */
+  | { readonly type: 'toolwall.sheet'; readonly id: Id; readonly sheet: Id }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }
@@ -771,7 +780,24 @@ export interface PressView extends MachineViewBase {
   readonly shipments: number;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PressView;
+/**
+ * P4 T2: the tool wall (sim/machines/toolwall.ts). Each tool: `hung` while the wall holds it on its peg; `since` seconds
+ * since it last came off the wall or went back on (Infinity before either); `easing` while it glides onto its peg (0..1).
+ * `sheet` is the pinned sheet's id.
+ */
+export interface ToolwallTool {
+  readonly id: Id;
+  readonly hung: boolean;
+  readonly since: number;
+  readonly easing: number | null;
+}
+export interface ToolwallView extends MachineViewBase {
+  readonly kind: 'toolwall';
+  readonly tools: readonly ToolwallTool[];
+  readonly sheet: Id;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PressView | ToolwallView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

@@ -28,18 +28,22 @@ import type { NodeBuilder } from '../../compose.ts';
 import { chain, mergeGeometries, part, piece, T } from '../../compose.ts';
 import { extrude, lathe, roundedBox } from '../../solids.ts';
 import { profile } from '../../profile.ts';
-import { sweep, polylinePath, sections, pathLength } from '../../sweep.ts';
+import { sweep, polylinePath, sections, pathLength, arcPath, helixPath } from '../../sweep.ts';
 import { deform, transform } from '../../deform.ts';
 import { grain, setFinish } from '../../space.ts';
 import { finish, MeshData } from '../../mesh.ts';
-import { bevelBox, stud } from '../../cheap.ts';
+import { bevelBox, ridgedBand, stud } from '../../cheap.ts';
 import { rng } from '../../rng.ts';
 import { ATTR } from '../../types.ts';
 
-export const TOOL_KINDS = ['laravel', 'vue', 'php', 'python', 'rust', 'sql'] as const;
+/** P4 T2: eight; FLUTTER and CLAUDE CODE joined the six (REWRITE.md § D9). */
+export const TOOL_KINDS = ['laravel', 'vue', 'php', 'python', 'rust', 'sql', 'flutter', 'claude-code'] as const;
 export type ToolKind = (typeof TOOL_KINDS)[number];
 
-/** Each tool's handle colour (§ 10). */
+/**
+ * Each tool's handle colour (§ 10): the colour it is known by, the one its things answer in. P4 T2, PROPOSED for the
+ * owner: FLUTTER teal-light (nearest its own light blue among the paints), CLAUDE CODE paper (a cream enamel).
+ */
 export const TOOL_PAINT: Record<ToolKind, Token> = {
   laravel: 'cable-red',
   vue: 'paint-green',
@@ -47,6 +51,8 @@ export const TOOL_PAINT: Record<ToolKind, Token> = {
   python: 'paint-blue',
   rust: 'paint-orange',
   sql: 'tape-yellow',
+  flutter: 'teal-light',
+  'claude-code': 'paper',
 };
 
 type P2 = [number, number];
@@ -425,27 +431,231 @@ function squareShape(): ToolShape {
   };
 }
 
+// ---- the two new tools (P4 T2): two candidates each, for the owner's eye ----------------
+//
+// A hanging brass eye (a ring a peg goes through): the brush, the roller and both drills hang by one.
+function eye(n: NodeBuilder, x: number, y: number, r: number, seed: number): void {
+  const ring = sweep(arcPath([0, 0, 0], r, 0, Math.PI * 2, 14), { radius: 0.012, segs: 6 });
+  n.add(part('brass', transform(ring, T(x, y, 0)), 'brass', { seed, warm: 0.05 }));
+}
+
+// FLUTTER, candidate A: a flat paint brush (it paints interfaces). Bristles down, its handle up, hung by an eye.
+const BR = { tip: 0, bristle: 0.26, ferrule: 0.43, top: 1.0, w: 0.26, t: 0.075 };
+const BR_HANDLE: Array<[number, number]> = [[0.05, BR.ferrule], [0.058, 0.5], [0.05, 0.62], [0.046, 0.8], [0.056, 0.92], [0.05, 0.98], [0.0, BR.top]];
+
+function brush(n: NodeBuilder, seed: number): void {
+  const R = rng(seed);
+  // the bristles: a block that thins and splays a little toward its tip, the last of it dipped in paint (the tool's own colour)
+  const bristles = roundedBox({ w: BR.w, h: BR.bristle - 0.01, d: BR.t, r: 0.018, rPlan: 0.02, segs: 2, band: 0 });
+  deform(bristles, (x, y, z) => {
+    const t = Math.max(0, 1 - y / BR.bristle);
+    return [x * (1 + 0.08 * t), y, z * (1 - 0.5 * t * t)];
+  });
+  n.add(part('rubber', transform(bristles, T(0, 0.005, 0)), 'ink', { seed: seed + 1, jitter: 0.05 }));
+  // the strands: fine dark lines down both faces
+  const strands: Array<[P2, P2]> = [];
+  for (let i = 0; i < 11; i++) {
+    const x = -BR.w / 2 + 0.02 + (i / 10) * (BR.w - 0.04) + R.spread(0.004);
+    strands.push([[x, 0.03 + R() * 0.02], [x * 1.02, BR.bristle - 0.02]]);
+  }
+  n.add(part('rubber', marks(strands, 0.005, BR.t / 2 + 0.0015), 'ink', { seed: seed + 2, shade: 0.55 }));
+  // a dried dab of paint on the tip, front and back: the tool's own colour, glossy
+  const dab = roundedBox({ w: BR.w * 1.04, h: 0.07, d: BR.t * 0.62, r: 0.02, rPlan: 0.02, segs: 2, band: 0 });
+  deform(dab, (x, y, z) => [x, y + 0.012 * Math.sin(x * 31 + seed) * (y > 0.035 ? 1 : 0), z]);
+  n.add(part('steel', transform(dab, T(0, 0.0, 0)), 'teal-light', { seed: seed + 3, jitter: 0.04, shade: 1.05 }));
+  // the ferrule: a flattened tin collar, crimped twice, nailed through
+  const fer = roundedBox({ w: BR.w + 0.03, h: BR.ferrule - BR.bristle + 0.01, d: BR.t + 0.035, r: 0.03, rPlan: 0.035, segs: 2, band: 0 });
+  n.add(steel(transform(fer, T(0, BR.bristle - 0.01, 0)), seed + 4, 1.1));
+  const crimps: Array<[P2, P2]> = [[[-0.13, 0.355], [0.13, 0.355]], [[-0.13, 0.372], [0.13, 0.372]]];
+  n.add(steel(marks(crimps, 0.006, (BR.t + 0.035) / 2 + 0.001), seed + 5, 0.45));
+  for (const x of [-0.07, 0.07]) n.add(steel(transform(stud(0.012, 0.006, 6), chain(T(x, 0.395, (BR.t + 0.035) / 2), new Matrix4().makeRotationX(Math.PI / 2))), seed + 6, 0.8));
+  // the handle: turned, then pressed flat, painted, worn where the fingers go
+  const pr = profile(0, BR.ferrule);
+  for (const [r, y] of BR_HANDLE.slice(0, -1)) pr.to(r, y, { smooth: true });
+  pr.cubic(0, BR.top, 0.05, 0.99, 0.02, BR.top, 3);
+  const h = lathe(pr, { segs: 12, caps: false, band: 0 });
+  transform(h, new Matrix4().makeScale(1.15, 1, 0.62));
+  n.add(paintedWood(grain(h, 'y'), 'teal-light', seed + 7, 0.96, { y0: 0.5, y1: 0.72, amount: 0.28 }));
+  eye(n, 0, BR.top + 0.035, 0.032, seed + 8);
+}
+
+function brushShape(): ToolShape {
+  const g = 0.036;
+  return {
+    pegs: [[0, BR.top + 0.035]],
+    shadow: [grow(rect(-BR.w / 2 - 0.02, 0, BR.w / 2 + 0.02, BR.bristle), g), grow(rect(-BR.w / 2 - 0.015, BR.bristle - 0.01, BR.w / 2 + 0.015, BR.ferrule), g), grow(turnedOutline(BR_HANDLE.map(([r, y]) => [r * 1.15, y] as [number, number])), g)],
+    turn: 0,
+  };
+}
+
+// FLUTTER, candidate B: a paint roller (one coat over every surface). The roller down, the handle up.
+const RL = { axle: 0.11, r: 0.095, half: 0.24, frameTop: 0.5, top: 1.02 };
+const RL_HANDLE: Array<[number, number]> = [[0.04, RL.frameTop + 0.04], [0.05, 0.62], [0.052, 0.8], [0.045, 0.94], [0.0, RL.top]];
+
+function roller(n: NodeBuilder, seed: number): void {
+  // the nap: a fat soft cylinder in the tool's colour (felt: it is fuzzy)
+  const nap = lathe(profile(0, -RL.half).to(RL.r - 0.012, -RL.half, { sharp: true }).to(RL.r, -RL.half + 0.02, { smooth: true }).to(RL.r, RL.half - 0.02, { smooth: true }).to(RL.r - 0.012, RL.half, { sharp: true }).to(0, RL.half), { segs: 16, band: 0 });
+  const across = chain(T(0, RL.axle, 0), new Matrix4().makeRotationZ(-Math.PI / 2));
+  n.add(part('felt', transform(nap, across), 'teal-light', { seed, jitter: 0.06 }));
+  // its end caps, pressed steel
+  for (const s of [-1, 1]) {
+    const cap = lathe(profile(0, 0).to(RL.r - 0.016, 0, { fillet: 0.006, segs: 1 }).to(RL.r - 0.02, 0.012).to(0, 0.016), { segs: 14, band: 0, caps: false });
+    n.add(steel(transform(cap, chain(T(s * (RL.half + 0.001), RL.axle, 0), new Matrix4().makeRotationZ(s > 0 ? -Math.PI / 2 : Math.PI / 2))), seed + 1, 1.05));
+  }
+  // the wire frame: from the axle's right end out, up, and in over the roller to the handle's foot
+  const wire = polylinePath([[RL.half + 0.03, RL.axle, 0], [RL.half + 0.08, RL.axle, 0], [RL.half + 0.08, 0.3, 0], [0.0, 0.42, 0], [0, RL.frameTop + 0.06, 0]], 0.05, 3);
+  n.add(steel(sweep(wire, { radius: 0.014, segs: 7, ends: 'flat' }), seed + 2, 1.2));
+  // a brass collar where the wire enters the handle
+  n.add(part('brass', lathe(profile(0, RL.frameTop).to(0.034, RL.frameTop, { fillet: 0.006, segs: 1 }).to(0.04, RL.frameTop + 0.05, { fillet: 0.006, segs: 1 }).to(0, RL.frameTop + 0.055), { segs: 10, band: 0, caps: 'end' }), 'brass', { seed: seed + 3, warm: 0.04 }));
+  // the handle: turned, painted, a grip in its middle
+  const pr = profile(0, RL.frameTop + 0.04);
+  for (const [r, y] of RL_HANDLE.slice(0, -1)) pr.to(r, y, { smooth: true });
+  pr.cubic(0, RL.top, 0.045, 1.0, 0.02, RL.top, 3);
+  n.add(paintedWood(grain(lathe(pr, { segs: 12, caps: false, band: 0 }), 'y'), 'teal-light', seed + 4, 0.96, { y0: 0.66, y1: 0.86, amount: 0.3 }));
+  eye(n, 0, RL.top + 0.035, 0.03, seed + 5);
+}
+
+function rollerShape(): ToolShape {
+  const g = 0.036;
+  return {
+    pegs: [[0, RL.top + 0.035]],
+    shadow: [grow(rect(-RL.half, RL.axle - RL.r, RL.half, RL.axle + RL.r), g), grow([[RL.half + 0.06, RL.axle - 0.02], [RL.half + 0.1, RL.axle - 0.02], [RL.half + 0.1, 0.31], [0.02, 0.44], [0.02, RL.frameTop + 0.06], [-0.02, RL.frameTop + 0.06], [-0.02, 0.41], [RL.half + 0.06, 0.29]], g), grow(turnedOutline(RL_HANDLE), g)],
+    turn: 0,
+  };
+}
+
+// CLAUDE CODE, candidate A: a hand-cranked drill (an egg-beater): it multiplies your turning, and you still aim it.
+const DR = { bit: 0.2, chuck: 0.34, frame0: 0.4, frame1: 0.96, top: 1.22, gear: [0.17, 0.66] as P2, gearR: 0.2 };
+const DR_HANDLE: Array<[number, number]> = [[0.045, DR.frame1], [0.06, 1.0], [0.068, 1.08], [0.062, 1.16], [0.05, 1.2], [0.0, DR.top]];
+
+/** A spur gear's outline: `teeth` round radius r, each tooth `h` tall. */
+function gearOutline(r: number, teeth: number, h: number): P2[] {
+  const out: P2[] = [];
+  for (let i = 0; i < teeth; i++) {
+    const a = (i / teeth) * Math.PI * 2, d = (Math.PI * 2) / teeth;
+    for (const [f, rr] of [[0, r], [0.18, r + h], [0.5, r + h], [0.68, r]] as const) out.push([Math.cos(a + f * d) * rr, Math.sin(a + f * d) * rr]);
+  }
+  return out;
+}
+
+function drill(n: NodeBuilder, seed: number): void {
+  const R = rng(seed);
+  // the bit: a twist drill (a steel rod with its flutes as a raised spiral)
+  n.add(setFinish(steel(lathe(profile(0, 0.0).to(0.012, 0.0, { sharp: true }).to(0.018, 0.02).to(0.018, DR.bit, { sharp: true }).to(0, DR.bit), { segs: 8, band: 0, caps: false }), seed, 1.3), 0.5));
+  n.add(steel(sweep(helixPath(0.018, 0.07, 2.4, 14), { radius: 0.006, segs: 4 }), seed + 1, 0.9));
+  // the chuck: a knurled steel cone and its nose
+  n.add(steel(lathe(profile(0, DR.bit - 0.01).to(0.024, DR.bit - 0.01, { sharp: true }).to(0.04, DR.bit + 0.03, { smooth: true }).to(0.046, DR.chuck - 0.02, { fillet: 0.008, segs: 1 }).to(0.03, DR.chuck).to(0, DR.chuck + 0.004), { segs: 12, band: 0, caps: false }), seed + 2, 1.15));
+  n.add(steel(transform(ridgedBand(0.047, 0.06, 14, 0.006), T(0, DR.bit + 0.06, 0)), seed + 3, 0.9));
+  // the spindle, up through the frame
+  n.add(steel(lathe(profile(0, DR.chuck).to(0.016, DR.chuck, { sharp: true }).to(0.016, DR.frame1, { sharp: true }).to(0, DR.frame1), { segs: 8, band: 0, caps: false }), seed + 4, 1.05));
+  // the frame: a cast bar beside the spindle, enamelled, with a foot round the spindle at each end
+  const frame: P2[] = [[-0.05, DR.frame0], [0.03, DR.frame0], [0.05, DR.frame0 + 0.06], [0.05, DR.frame1 - 0.06], [0.03, DR.frame1], [-0.05, DR.frame1], [-0.06, DR.frame1 - 0.04], [-0.06, DR.frame0 + 0.04]];
+  n.add(part('steel', plate(frame, 0.05, { bevel: 0.012, radius: 0.016, band: 0, segs: 1 }), 'paper', { seed: seed + 5, jitter: 0.04 }));
+  // the drive wheel: a spoked spur gear in the same enamel, its rim's teeth bare steel where they wore
+  const [gx, gy] = DR.gear;
+  const rim = gearOutline(DR.gearR, 20, 0.016);
+  const spokes: P2[][] = [];
+  for (let i = 0; i < 4; i++) {
+    const a0 = (i / 4) * Math.PI * 2 + 0.22, a1 = a0 + Math.PI / 2 - 0.44;
+    spokes.push([...ellipsePts(0, 0, 0.155, 0.155, a0, a1, 5), ...ellipsePts(0, 0, 0.05, 0.05, a1 - 0.25, a0 + 0.25, 3)]);
+  }
+  const wheel = transform(extrude(rim, 0.032, { holes: spokes, bevel: 0.006, bevelBase: 0, radius: 0, holeRadius: 0.01, style: 'chamfer', segs: 1, band: 0, caps: 'end' }), T(gx, gy, 0.035));
+  n.add(part('steel', wheel, 'paper', { seed: seed + 6, jitter: 0.05 }));
+  // its hub, and the pinion it turns on the spindle (brass)
+  n.add(part('brass', transform(lathe(profile(0, 0).to(0.045, 0, { fillet: 0.008, segs: 1 }).to(0.045, 0.05, { fillet: 0.01, segs: 1 }).to(0, 0.055), { segs: 12, band: 0, caps: false }), chain(T(gx, gy, 0.03), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 8, warm: 0.05 }));
+  n.add(part('brass', transform(extrude(gearOutline(0.04, 10, 0.012), 0.03, { bevel: 0.004, bevelBase: 0, radius: 0, style: 'chamfer', segs: 1, band: 0, caps: 'end' }), T(0, gy - DR.gearR - 0.03, 0.02)), 'brass', { seed: seed + 9, warm: 0.04 }));
+  // the crank: an arm off the hub, a turned wooden knob on it toward the visitor
+  const ang = -0.6 + R.spread(0.05);
+  const kx = gx + Math.cos(ang) * 0.15, ky = gy + Math.sin(ang) * 0.15;
+  n.add(steel(sweep(polylinePath([[gx, gy, 0.085], [kx, ky, 0.085]], 0.01, 1), { section: sections.roundRect(0.012, 0.006, 1), radius: 0.008, ends: 'round' }), seed + 10, 1.1));
+  const knob = lathe(profile(0, 0).to(0.026, 0.0, { fillet: 0.01, segs: 1 }).to(0.034, 0.05, { smooth: true }).to(0.03, 0.1, { fillet: 0.015, segs: 2 }).to(0, 0.11), { segs: 10, band: 0, caps: false });
+  n.add(part('wood', grain(transform(knob, chain(T(kx, ky, 0.09), new Matrix4().makeRotationX(Math.PI / 2))), 'z'), 'wood', { seed: seed + 11, jitter: 0.06, warm: 0.03 }));
+  // the top handle: turned, enamelled to match, worn to the wood where the palm sits
+  const pr = profile(0, DR.frame1);
+  for (const [r, y] of DR_HANDLE.slice(0, -1)) pr.to(r, y, { smooth: true });
+  pr.cubic(0, DR.top, 0.05, 1.215, 0.02, DR.top, 3);
+  n.add(paintedWood(grain(lathe(pr, { segs: 12, caps: false, band: 0 }), 'y'), 'paper', seed + 12, 0.95, { y0: 1.02, y1: 1.18, amount: 0.35 }));
+  eye(n, 0, DR.top + 0.03, 0.03, seed + 13);
+}
+
+function drillShape(): ToolShape {
+  const g = 0.036;
+  const [gx, gy] = DR.gear;
+  return {
+    pegs: [[0, DR.top + 0.03]],
+    shadow: [grow(rect(-0.022, 0, 0.022, DR.chuck), g), grow(rect(-0.05, DR.bit, 0.05, DR.chuck), g), grow(rect(-0.06, DR.frame0, 0.05, DR.frame1), g), grow(ellipsePts(gx, gy, DR.gearR + 0.012, DR.gearR + 0.012, 0, Math.PI * 2, 20).slice(0, -1), g), grow(turnedOutline(DR_HANDLE), g)],
+    turn: 0,
+  };
+}
+
+// CLAUDE CODE, candidate B: a push drill (a "Yankee"): you push, it does the turning; you still aim it.
+const YK = { bit: 0.07, chuck: 0.17, spiral: 0.5, sleeve: 0.82, top: 1.16 };
+const YK_HANDLE: Array<[number, number]> = [[0.042, YK.sleeve], [0.06, 0.88], [0.074, 0.98], [0.07, 1.06], [0.055, 1.13], [0.0, YK.top]];
+
+function yankee(n: NodeBuilder, seed: number): void {
+  // the bit: a flat screwdriver tip
+  const tip = lathe(profile(0, 0).to(0.02, 0, { sharp: true }).to(0.014, YK.bit, { sharp: true }).to(0, YK.bit), { segs: 8, band: 0, caps: 'start' });
+  deform(tip, (x, y, z) => [x * (1.6 - 0.6 * (y / YK.bit)), y, z * (0.35 + 0.65 * (y / YK.bit))]);
+  n.add(steel(tip, seed, 1.2));
+  // the chuck: a knurled collar
+  n.add(steel(lathe(profile(0, YK.bit).to(0.026, YK.bit, { fillet: 0.006, segs: 1 }).to(0.03, YK.chuck, { fillet: 0.006, segs: 1 }).to(0, YK.chuck + 0.003), { segs: 12, band: 0, caps: false }), seed + 1, 1.0));
+  n.add(steel(transform(ridgedBand(0.031, 0.06, 16, 0.005), T(0, YK.bit + 0.02, 0)), seed + 2, 0.85));
+  // the spiral spindle: a polished rod wound with its flute, bright
+  n.add(setFinish(steel(lathe(profile(0, YK.chuck).to(0.017, YK.chuck, { sharp: true }).to(0.017, YK.spiral + 0.05, { sharp: true }).to(0, YK.spiral + 0.05), { segs: 8, band: 0, caps: false }), seed + 3, 1.35), 0.6));
+  n.add(setFinish(steel(transform(sweep(helixPath(0.018, 0.085, 3.8, 12), { radius: 0.006, segs: 4 }), T(0, YK.chuck + 0.005, 0)), seed + 4, 1.1), 0.6));
+  // the sleeve it slides into, its brass shifter ring (the ratchet's three ways)
+  n.add(steel(lathe(profile(0, YK.spiral).to(0.03, YK.spiral, { fillet: 0.01, segs: 1 }).to(0.032, YK.sleeve, { sharp: true }).to(0, YK.sleeve), { segs: 12, band: 0, caps: false }), seed + 5, 1.0));
+  n.add(part('brass', transform(ridgedBand(0.038, 0.045, 14, 0.005), T(0, YK.sleeve - 0.12, 0)), 'brass', { seed: seed + 6, warm: 0.05 }));
+  n.add(part('brass', lathe(profile(0, YK.sleeve - 0.124).to(0.036, YK.sleeve - 0.124, { fillet: 0.004, segs: 1 }).to(0.036, YK.sleeve - 0.075, { fillet: 0.004, segs: 1 }).to(0, YK.sleeve - 0.072), { segs: 12, band: 0, caps: false }), 'brass', { seed: seed + 7, warm: 0.05 }));
+  // the pear-shaped handle, enamelled, worn at the palm; a brass ferrule under it
+  n.add(part('brass', lathe(profile(0, YK.sleeve - 0.01).to(0.04, YK.sleeve - 0.01, { fillet: 0.005, segs: 1 }).to(0.044, YK.sleeve + 0.05, { fillet: 0.006, segs: 1 }).to(0, YK.sleeve + 0.055), { segs: 12, band: 0, caps: 'end' }), 'brass', { seed: seed + 8, warm: 0.04 }));
+  const pr = profile(0, YK.sleeve + 0.04);
+  for (const [r, y] of YK_HANDLE.slice(1, -1)) pr.to(r, y, { smooth: true });
+  pr.cubic(0, YK.top, 0.055, 1.155, 0.02, YK.top, 3);
+  n.add(paintedWood(grain(lathe(pr, { segs: 14, caps: false, band: 0 }), 'y'), 'paper', seed + 9, 0.95, { y0: 0.96, y1: 1.12, amount: 0.35 }));
+  eye(n, 0, YK.top + 0.03, 0.03, seed + 10);
+}
+
+function yankeeShape(): ToolShape {
+  const g = 0.036;
+  return {
+    pegs: [[0, YK.top + 0.03]],
+    shadow: [grow(rect(-0.032, 0, 0.032, YK.spiral), g), grow(rect(-0.034, YK.spiral, 0.034, YK.sleeve), g), grow(turnedOutline(YK_HANDLE), g)],
+    turn: 0,
+  };
+}
+
+/** The two new tools' candidates (P4 T2: their shapes are a look decision for the owner): which one the wall hangs. */
+export const CANDIDATES = { flutter: ['brush', 'roller'], 'claude-code': ['drill', 'yankee'] } as const;
+export type Candidate = (typeof CANDIDATES)[keyof typeof CANDIDATES][number];
+/** Proposed: the brush and the cranked drill (the lead's suggestions held up best in the pictures); the owner chooses. */
+export const CHOSEN: { flutter: (typeof CANDIDATES)['flutter'][number]; 'claude-code': (typeof CANDIDATES)['claude-code'][number] } = { flutter: 'brush', 'claude-code': 'drill' };
+const CAND_BUILD: Record<Candidate, (n: NodeBuilder, seed: number) => void> = { brush, roller, drill, yankee };
+const CAND_SHAPE: Record<Candidate, () => ToolShape> = { brush: brushShape, roller: rollerShape, drill: drillShape, yankee: yankeeShape };
+
 // ---- dispatch ------------------------------------------------------------------------
 
-const BUILD: Record<ToolKind, (n: NodeBuilder, seed: number) => void> = { laravel: wrench, vue: screwdriver, php: hammer, python: pliers, rust: file, sql: square };
-const SHAPE: Record<ToolKind, () => ToolShape> = { laravel: wrenchShape, vue: screwdriverShape, php: hammerShape, python: pliersShape, rust: fileShape, sql: squareShape };
+const BUILD: Record<ToolKind, (n: NodeBuilder, seed: number) => void> = { laravel: wrench, vue: screwdriver, php: hammer, python: pliers, rust: file, sql: square, flutter: (n, s) => CAND_BUILD[CHOSEN.flutter](n, s), 'claude-code': (n, s) => CAND_BUILD[CHOSEN['claude-code']](n, s) };
+const SHAPE: Record<ToolKind, () => ToolShape> = { laravel: wrenchShape, vue: screwdriverShape, php: hammerShape, python: pliersShape, rust: fileShape, sql: squareShape, flutter: () => CAND_SHAPE[CHOSEN.flutter](), 'claude-code': () => CAND_SHAPE[CHOSEN['claude-code']]() };
 
-/** Add a tool's parts to a node (tool-local frame). */
-export function buildToolInto(kind: ToolKind, n: NodeBuilder, seed = 1): void {
-  BUILD[kind](n, seed * 101 + TOOL_KINDS.indexOf(kind) * 13);
+/** Add a tool's parts to a node (tool-local frame). `candidate`: one of the new tools' other shapes (the owner's review). */
+export function buildToolInto(kind: ToolKind, n: NodeBuilder, seed = 1, candidate?: Candidate): void {
+  const s = seed * 101 + TOOL_KINDS.indexOf(kind) * 13;
+  if (candidate) CAND_BUILD[candidate](n, s);
+  else BUILD[kind](n, s);
 }
 
 /** The wall's facts about a tool (pegs, shadow), without building it. */
-export function toolShape(kind: ToolKind): ToolShape {
-  return SHAPE[kind]();
+export function toolShape(kind: ToolKind, candidate?: Candidate): ToolShape {
+  return candidate ? CAND_SHAPE[candidate]() : SHAPE[kind]();
 }
 
 /** One tool as a Piece of its own (registry names `tool-<kind>`), with socket `peg`. */
-export function tool(kind: ToolKind, o: { seed?: number; detail?: 'high' | 'low' } = {}): Piece {
+export function tool(kind: ToolKind, o: { seed?: number; detail?: 'high' | 'low'; candidate?: Candidate } = {}): Piece {
   const seed = o.seed ?? 1;
   const b = piece(`tool-${kind}`, { detail: o.detail ?? 'high', seed });
-  buildToolInto(kind, b, seed);
-  const [px, py] = toolShape(kind).pegs[0]!;
+  buildToolInto(kind, b, seed, o.candidate);
+  const [px, py] = toolShape(kind, o.candidate).pegs[0]!;
   b.socket('peg', T(px, py, 0));
   return b.build();
 }

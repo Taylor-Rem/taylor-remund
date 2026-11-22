@@ -32,6 +32,8 @@ export const world = {
     python: raw.tools.python.text,
     rust: raw.tools.rust.text,
     sql: raw.tools.sql.text,
+    flutter: raw.tools.flutter.text,
+    'claude-code': raw.tools['claude-code'].text,
   },
   cards: { revertRung1: raw.cards.revertRung1.text },
   slips: { fetchOutOfLane: raw.slips.fetchOutOfLane.text },
