@@ -32,7 +32,7 @@ export const PAINT_FEEL = {
   /** A misfire: a short twitch of this much (radians). */
   twitch: 0.1,
   /** The fan: the worn chip stands this much proud of the plate (units). */
-  lift: 0.012,
+  lift: 0.022,
 };
 
 /** The development flag: a scheme to wear whatever the dial says (`?paint=E`), or null. */

@@ -159,7 +159,7 @@ function fan(o: PaintDialOptions): Piece {
   const P = PAINT_DIAL.fan;
   const b = piece('paint-dial', { detail, seed });
   const n = DIAL_SCHEMES.length;
-  b.add(part('brass', slab({ w: P.w, d: P.d, t: P.t, r: 0.034, bevel: 0.007, detail: 'low' }), 'brass', { seed, shade: 0.42, jitter: 0.03, warm: 0.04 }));
+  b.add(part('brass', slab({ w: P.w, d: P.d, t: P.t, r: 0.034, bevel: 0.007, detail: 'low' }), 'brass', { seed, shade: 0.26, jitter: 0.03, warm: 0.04 }));
   b.small(() => [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([x, z]) => part('brass', transform(stud(0.01, 0.006, 6), T(x! * (P.w / 2 - 0.024), P.t, z! * (P.d / 2 - 0.024))), 'brass', { seed: seed + 2, shade: 0.8, warm: 0.03 })));
   // the chips: round the pivot, clear of each other and of the knob
   for (let i = 0; i < n; i++) {
@@ -185,7 +185,7 @@ function fan(o: PaintDialOptions): Piece {
   knob.add(part('brass', transform(extrude(rim, P.knobH - 0.01, { axis: 'y', bevel: 0.005, bevelBase: 0, radius: 0, segs: 1, detail: 'low', band: 0, caps: 'end' }), T(0, 0.004, 0)), 'brass', { seed: seed + 6, shade: 0.82, warm: 0.05 }));
   const capY = P.knobH - 0.006;
   knob.add(setFinish(part('brass', lathe(profile(P.knobR * 0.7, capY - 0.002).to(P.knobR * 0.7, capY, { sharp: true }).to(P.knobR * 0.35, capY + 0.008, { fillet: 0.005, segs: 1 }).to(0, capY + 0.009), { segs: 12, detail: 'low', band: 0, caps: false }), 'brass', { seed: seed + 7, warm: 0.03 }), 0.6));
-  const needle = extrude([[-0.006, P.knobR - 0.004], [0.006, P.knobR - 0.004], [0.004, P.needle - 0.016], [0, P.needle], [-0.004, P.needle - 0.016]], 0.003, { axis: 'y', bevel: 0.001, bevelBase: 0, radius: [0.002, 0.002, 0.001, 0.0005, 0.001], segs: 1, detail: 'low', band: 0, caps: 'end' });
+  const needle = extrude([[-0.011, P.knobR - 0.004], [0.011, P.knobR - 0.004], [0.007, P.needle - 0.02], [0, P.needle], [-0.007, P.needle - 0.02]], 0.004, { axis: 'y', bevel: 0.001, bevelBase: 0, radius: [0.002, 0.002, 0.001, 0.0005, 0.001], segs: 1, detail: 'low', band: 0, caps: 'end' });
   knob.add(setFinish(part('brass', transform(needle, T(0, 0.004, 0)), 'brass', { seed: seed + 8, shade: 0.95, warm: 0.03 }), 0.5));
   knob.transform = chain(T(0, P.t, P.pivotZ), new Matrix4().makeRotationY(paintDialAngle(o.at ?? 0)));
   b.socket('grip', T(0, P.t + P.knobH, P.pivotZ));
@@ -201,7 +201,7 @@ function deck(o: PaintDialOptions): Piece {
   const n = DIAL_SCHEMES.length;
   const at = o.at ?? 0;
   // the base: a low cast block, a groove-free top; the posts stand in it
-  b.add(part('brass', bevelBox({ min: [-D.w / 2, 0, -D.d / 2], max: [D.w / 2, D.t, D.d / 2], c: 0.008, omit: ['ny'] }), 'brass', { seed, shade: 0.42, jitter: 0.03, warm: 0.04 }));
+  b.add(part('brass', bevelBox({ min: [-D.w / 2, 0, -D.d / 2], max: [D.w / 2, D.t, D.d / 2], c: 0.008, omit: ['ny'] }), 'brass', { seed, shade: 0.26, jitter: 0.03, warm: 0.04 }));
   for (const s of [-1, 1]) {
     const x = s * (D.rodHalf + D.postR + 0.002);
     // a turned post with a collar at its foot and an eye at its top
