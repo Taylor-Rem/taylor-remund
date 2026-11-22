@@ -11,7 +11,7 @@ import { test, expect, ENGINES, stageAt, live, steps, ws, watch } from './engine
 //
 // The tests tagged ENGINES run in all three engines (engine.ts: Chromium on the GPU, Firefox and WebKit at
 // `?tier=low`); the phone sheet and reduced motion are Chromium's.
-test.describe.configure({ mode: 'serial' });
+
 test.setTimeout(180_000);
 
 const H = JSON.parse(readFileSync(new URL('../../src/content/hatches.json', import.meta.url), 'utf8'));
@@ -47,7 +47,7 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
     await expect(d).toBeVisible();
     await expect(page.getByRole('dialog', { name: H.patchlamp.title.text })).toBeVisible();
     // its words are the paperwork's own section, and no price is typed: the pricing page is linked
-    for (const part of ['real', 'shows', 'simplifies', 'facts']) await expect(d.getByRole('heading', { name: H.patchlamp[part].heading.text })).toBeVisible();
+    for (const part of ['real', 'shows', 'simplifies', 'facts']) await expect(d.getByRole('heading', { name: H.patchlamp[part].heading.text, exact: true })).toBeVisible();
     await expect(d.locator('a[href="https://patchlamp.com/pricing"]')).toHaveCount(1);
     await expect(d).not.toContainText('$');
     await expect(d.locator('[id]').first()).toHaveAttribute('id', /^pn-/);

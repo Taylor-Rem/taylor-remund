@@ -10,6 +10,7 @@ import type { World } from '../../../src/workshop/sim/world.ts';
 import type { Intent } from '../../../src/workshop/sim/types.ts';
 import { historyLines, linesKey, LOG_LINES, type LogWords } from '../../../src/workshop/ui/panels/log.ts';
 import { liveWords } from '../../../src/content/hatches.ts';
+import { plainName } from '../../../src/workshop/ui/controls/model.ts';
 
 const words = liveWords() as unknown as LogWords;
 
@@ -80,7 +81,8 @@ describe('the plate says what the UNDO lever can take back', () => {
     step(2);
     w.dispatch({ type: 'place', at: 'belt' });
     step(90);
-    expect(historyLines(w, w.undoStack(), words).map((l) => l.text)).toContain('Small crate: on the bench → on the belt');
+    // (called as the controls list calls it: a project crate by its project's title)
+    expect(historyLines(w, w.undoStack(), words).map((l) => l.text)).toContain(`${plainName(w, id)}: on the bench → on the belt`);
     w.dispatch({ type: 'text', text: 'make the sign blue' });
     step(60 * 20);
     expect(historyLines(w, w.undoStack(), words).map((l) => l.text)[0]).toMatch(/^Storefront sign: green → blue, by text$/);
