@@ -1,0 +1,322 @@
+/**
+ * The ledger board, alive (P4 D1; sim/machines/ledger.ts). The parts view draws the board itself (its piece is
+ * view/kit/pieces/ledger-board, posed where the simulation says, hovered, squashed, carried); this view poses the
+ * piece's moving nodes from the board's state every frame, and gives the crank and the plunger their pick targets.
+ *
+ * - The tokens: each where `LedgerView.tokens` says; while a show plays, where its script has them (`tokensAt`): a
+ *   drop is a hop from the hopper to a cup, a coin flipping once; the bounce a high jump out of the cup and a little
+ *   rebound in the gutter; a wipe a hop back to the hopper; the gate a short sideways flick into the side cup; a
+ *   rewind (the lever, a reset) a quick low hop straight back. The rubber payment is the rubber node wherever its
+ *   index is; its tier's core shows at its middle.
+ * - The star: lit (its bulb twin) as the script says while a show plays, else as the state says. Steady: never a blink.
+ * - The crank turns once as a deal begins and an eighth of a turn with every token dealt; the plunger goes down and
+ *   comes back as the repair begins, and only part way (a twitch) when it refuses; the gate swings across as it
+ *   routes the bounced payment. A Button misfire twitches either; a tell wiggles the crank and bobs the plunger.
+ * - Reduced motion: no travel at all. The tokens are drawn where the state says the moment it changes, the star with
+ *   them; the controls still move under the visitor's hand (a press is a press).
+ *
+ * Everything here is view-only: nothing the simulation owns is written. Time is the simulation's (`Frame.time`).
+ */
+import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3 } from 'three';
+import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
+import type { Frame, StationView, ViewContext } from '../types.ts';
+import { TIER, TOKENS, placeOf, rubberOf, starAt, tokensAt, type Place, type TokenAt } from '../../sim/index.ts';
+import { BOARD, SIDE_AT, cupAt, gutterAt, hopperAt } from '../kit/pieces/ledger-board/dims.ts';
+
+/** Tune here: how the board moves (view only). Heights in units. */
+export const LEDGER_FEEL = {
+  /** A drop's hop: its least height over the straight line, and how much more per unit it travels. */
+  hop: 0.055,
+  hopPerUnit: 0.28,
+  /** The bounce: how high it jumps, and its rebound in the gutter (share of the bounce's time, height). */
+  bounce: 0.23,
+  rebound: 0.32,
+  reboundH: 0.03,
+  /** The gate's flick and the rewind's hop. */
+  gateH: 0.05,
+  rewindH: 0.03,
+  /** The gate swings this far (radians). */
+  gateSwing: 1.25,
+  /** A deal turns the crank once at its start, and this much with every token dealt. */
+  crankPerToken: Math.PI / 4,
+  /** A refusal pushes the plunger this share of its travel, over this long (s). */
+  refuseDepth: 0.3,
+  refuseTime: 0.28,
+  /** A tell: the crank rocks, the plunger bobs, for this long (s). */
+  tellTime: 1.2,
+  /** Hover: the plunger's knob rises this much (units). */
+  hoverLift: 0.004,
+} as const;
+
+const HIDE = 1e-4;
+const smooth = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+
+interface Nodes {
+  tokens: Object3D[];
+  rubber: Object3D;
+  cores: Object3D[];
+  crank: Object3D;
+  plunger: Object3D;
+  gate: Object3D;
+  lit: Object3D;
+  dark: Object3D;
+  rest: Map<Object3D, { p: Vector3; q: Quaternion }>;
+}
+
+export interface LedgerViewOptions {
+  /** The board's part id and the unit's id (sim LEDGER). */
+  readonly board: Id;
+  readonly unit: Id;
+  readonly crank: Id;
+  readonly plunger: Id;
+}
+
+const qa = new Quaternion();
+const qb = new Quaternion();
+const va = new Vector3();
+const vb = new Vector3();
+const X = new Vector3(1, 0, 0);
+const Y = new Vector3(0, 1, 0);
+const Z = new Vector3(0, 0, 1);
+const footM = new Matrix4();
+
+/** Where a token lies at a place (its bottom's centre), and its tilt there. */
+function placed(p: Place, i: number, rubber: number, out: Vector3, q: Quaternion): void {
+  q.identity();
+  if (p === 'h') {
+    const h = hopperAt(i, rubber);
+    out.set(h.p[0], h.p[1], h.p[2]);
+    q.setFromAxisAngle(X, h.tilt[0]).multiply(qb.setFromAxisAngle(Z, h.tilt[1]));
+    return;
+  }
+  if (p === 'g') {
+    const g = gutterAt(rubber);
+    out.set(g[0], g[1], g[2]);
+    q.setFromAxisAngle(Z, 0.06);
+    return;
+  }
+  if (p === 's') {
+    out.set(SIDE_AT[0], SIDE_AT[1], SIDE_AT[2]);
+    q.setFromAxisAngle(X, -0.05);
+    return;
+  }
+  const c = cupAt(Number(p.slice(1)));
+  out.set(c[0], c[1], c[2]);
+}
+
+export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => StationView {
+  return (ctx: ViewContext): StationView => {
+    const F = LEDGER_FEEL;
+    const root = new Group();
+    root.name = 'ledger';
+    ctx.scene.add(root);
+    /** The pick targets hang here, posed as the board is drawn (not under the board's object, whose box is the board's target). */
+    const holder = new Group();
+    holder.name = 'ledger:targets';
+    holder.matrixAutoUpdate = false;
+    root.add(holder);
+    let group: Group | null = null;
+    let obj: Object3D | null = null;
+    let nodes: Nodes | null = null;
+    let half = 0.04;
+    let shown = false;
+    const tells = new Map<Id, number>();
+    let refusedAt = -Infinity;
+
+    const find = (w: WorldView): void => {
+      if (nodes) return;
+      const g = ctx.scene.getObjectByName(`part:${o.board}`) as Group | undefined;
+      const piece = g?.children[0];
+      if (!g || !piece) return;
+      const by = (name: string): Object3D | null => {
+        let n: Object3D | null = null;
+        piece.traverse((x) => {
+          if (!n && x.name === name && !(x as { isMesh?: boolean }).isMesh) n = x;
+        });
+        return n;
+      };
+      const tokens = Array.from({ length: TOKENS }, (_, i) => by(`token-${i}`));
+      const rest = [by('rubber'), by('crank'), by('plunger'), by('gate'), by('star-lit'), by('star-dark')];
+      const cores = [0, 1, 2].map((k) => by(`rubber-core-${k}`));
+      if (tokens.some((x) => !x) || rest.some((x) => !x) || cores.some((x) => !x)) return;
+      group = g;
+      obj = piece;
+      half = w.halfExtents(o.board)?.[1] ?? half;
+      const [rubber, crank, plunger, gate, lit, dark] = rest as Object3D[];
+      const all = [...(tokens as Object3D[]), rubber!, crank!, plunger!, gate!, lit!, dark!, ...(cores as Object3D[])];
+      nodes = { tokens: tokens as Object3D[], rubber: rubber!, cores: cores as Object3D[], crank: crank!, plunger: plunger!, gate: gate!, lit: lit!, dark: dark!, rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone() }])) };
+      // the crank's target: round its arm and grip (a finger finds it at the framing the camera gives; the input grows a small one to 44 px)
+      const crankT = new Object3D();
+      crankT.name = 'ledger:crank.pick';
+      holder.add(crankT);
+      ctx.pickable(o.crank, crankT, { box: new Box3(new Vector3(BOARD.hopperX - 0.03, BOARD.crankY - 0.045, BOARD.hopperZ + BOARD.crankZ - 0.01), new Vector3(BOARD.hopperX + 0.06, BOARD.crankY + 0.05, BOARD.hopperZ + BOARD.crankZ + 0.04)), pad: 0.006, active: () => shown && reachable() });
+      const plungerT = new Object3D();
+      plungerT.name = 'ledger:plunger.pick';
+      holder.add(plungerT);
+      ctx.pickable(o.plunger, plungerT, { box: new Box3(new Vector3(BOARD.plungerX - 0.03, BOARD.h + 0.02, BOARD.plungerZ - 0.03), new Vector3(BOARD.plungerX + 0.03, BOARD.plungerTop + 0.006, BOARD.plungerZ + 0.03)), pad: 0.006, active: () => shown && reachable() });
+    };
+
+    let lastWorld: WorldView | null = null;
+    const reachable = (): boolean => {
+      const m = lastWorld?.motion(o.board);
+      return !!m && (m.mode === 'free' || m.mode === 'machine') && !m.held;
+    };
+
+    /** Pose a node from its rest: a translation and a turn in the piece's space. */
+    const pose = (n: Object3D, p: Vector3 | null, q: Quaternion | null): void => {
+      const r = nodes!.rest.get(n)!;
+      if (p) n.position.copy(p);
+      else n.position.copy(r.p);
+      n.quaternion.copy(r.q);
+      if (q) n.quaternion.multiply(q);
+      n.updateMatrix();
+    };
+    const show = (n: Object3D, on: boolean): void => {
+      const s = on ? 1 : HIDE;
+      if (n.scale.x !== s) {
+        n.scale.setScalar(s);
+        n.updateMatrix();
+      }
+    };
+
+    /** A token on its way from one place to another, `k` of the way: its bottom's centre and its turn. */
+    const between = (a: TokenAt, i: number, rubber: number, out: Vector3, q: Quaternion): void => {
+      placed(a.from, i, rubber, va, qa);
+      placed(a.to, i, rubber, vb, q);
+      let k = a.k;
+      let h = 0;
+      let spin = 0;
+      const d = va.distanceTo(vb);
+      if (a.kind === 'bounce') {
+        // out of the cup, high, down in the gutter, and a little rebound there
+        const share = 1 - F.rebound;
+        if (k < share) {
+          const u = k / share;
+          k = u;
+          h = F.bounce * 4 * u * (1 - u);
+          spin = u * Math.PI * 3;
+        } else {
+          const u = (k - share) / F.rebound;
+          k = 1;
+          h = F.reboundH * 4 * u * (1 - u);
+          spin = Math.PI * 3;
+        }
+      } else if (a.kind === 'gate') {
+        k = smooth(k);
+        h = F.gateH * 4 * k * (1 - k);
+      } else if (a.kind === 'rewind') {
+        k = smooth(k);
+        h = F.rewindH * 4 * k * (1 - k);
+      } else {
+        // a drop, a wipe, a gather: a hop, the coin flipping once
+        h = (F.hop + F.hopPerUnit * d) * 4 * k * (1 - k);
+        spin = k * Math.PI * 2;
+      }
+      out.lerpVectors(va, vb, k);
+      out.y += h;
+      q.slerp(qa, 1 - k);
+      if (spin !== 0) q.multiply(qb.setFromAxisAngle(X, spin));
+    };
+
+    const tp = new Vector3();
+    const tq = new Quaternion();
+    const pp = new Vector3();
+
+    return {
+      root,
+      update(frame: Frame) {
+        const w = frame.world;
+        lastWorld = w;
+        find(w);
+        const lv = w.machine(o.unit) as LedgerView | undefined;
+        if (!nodes || !group || !obj || !lv || lv.kind !== 'ledger') return;
+        const N = nodes;
+        shown = group.visible;
+        holder.matrix.copy(group.matrix).multiply(footM.makeTranslation(0, -half, 0));
+        holder.matrixWorldNeedsUpdate = true;
+        holder.visible = shown;
+        for (const e of frame.events) {
+          if (e.type === 'tell' && (e.id === o.crank || e.id === o.plunger)) tells.set(e.id, frame.time);
+          if (e.type === 'ledger.refused') refusedAt = frame.time;
+        }
+        if (!shown) return;
+        const reduced = ctx.reducedMotion || w.reducedMotion;
+        const s = lv.show;
+        // seconds into the show at this render (the view's `since` is as of the last step)
+        const t = s ? s.since + Math.max(0, frame.time - w.time) : Infinity;
+        const script = s ? { beats: s.beats, length: s.length } : null;
+        const at: TokenAt[] = s && script && !reduced ? tokensAt(script, s.before, s.after, t) : lv.tokens.map((x) => ({ from: placeOf(x), to: placeOf(x), k: 1, kind: null }));
+        // which index the rubber payment is: during a show, as its `after` says (the deal changes it at the gather's end; the same index either side of a repair)
+        const rubberNow = s && !reduced ? (t < dealSwap(s) ? rubberOf(s.before) : rubberOf(s.after)) : rubberOf(lv.tokens);
+        for (let i = 0; i < TOKENS; i++) {
+          const a = at[i]!;
+          between(a, i, rubberNow, tp, tq);
+          const isR = i === rubberNow;
+          show(N.tokens[i]!, !isR);
+          if (isR) pose(N.rubber, tp, tq);
+          else pose(N.tokens[i]!, tp, tq);
+        }
+        for (let k = 0; k < 3; k++) show(N.cores[k]!, TIER[rubberNow] === k);
+        // the star
+        const lit = s && script && !reduced ? starAt(script, s.before, s.after, t) : lv.wrong;
+        show(N.lit, lit);
+        show(N.dark, !lit);
+        // the crank: once round as a deal begins, an eighth with every token dealt; a misfire's twitch; a tell's rock
+        let crank = 0;
+        if (s && s.kind === 'deal' && !reduced) {
+          const b = s.beats.find((x) => x.kind === 'crank');
+          if (b) crank += Math.PI * 2 * smooth((t - b.at) / b.dur);
+          crank += F.crankPerToken * s.beats.filter((x) => x.kind === 'drop' && t >= x.at).length;
+        } else if (s && s.kind === 'deal') crank = Math.PI * 2;
+        const cm = lv.crankMisfire;
+        if (cm && cm.since < 0.4) crank += Math.sin((cm.since / 0.4) * Math.PI) * 0.35 * cm.level;
+        const ct = tells.get(o.crank);
+        if (ct !== undefined && frame.time - ct < F.tellTime && !reduced) crank += Math.sin((frame.time - ct) * 14) * 0.18 * (1 - (frame.time - ct) / F.tellTime);
+        pose(N.crank, null, qa.setFromAxisAngle(Y, -crank));
+        // the plunger: down and back as the repair begins; part way when it refuses; a misfire's twitch; a tell's bob; a hair up under the pointer
+        let down = 0;
+        if (s && s.kind === 'repair') {
+          const b = s.beats.find((x) => x.kind === 'press');
+          if (b) {
+            const u = (t - b.at) / b.dur;
+            down = u <= 0 || u >= 1 ? 0 : u < 0.35 ? smooth(u / 0.35) : 1 - smooth((u - 0.35) / 0.65);
+          }
+        }
+        const ru = (frame.time - refusedAt) / F.refuseTime;
+        if (ru >= 0 && ru < 1) down = Math.max(down, F.refuseDepth * Math.sin(ru * Math.PI));
+        const pm = lv.misfire;
+        if (pm && pm.since < 0.3) down = Math.max(down, 0.4 * pm.level * Math.sin((pm.since / 0.3) * Math.PI));
+        const pt = tells.get(o.plunger);
+        if (pt !== undefined && frame.time - pt < F.tellTime && !reduced) down = Math.max(down, 0.12 * Math.max(0, Math.sin((frame.time - pt) * 9)));
+        const lift = frame.hovered === o.plunger && down === 0 ? F.hoverLift : 0;
+        const r = N.rest.get(N.plunger)!;
+        pp.copy(r.p);
+        pp.y += lift - down * BOARD.plungerTravel;
+        pose(N.plunger, pp, null);
+        // the gate: across and back as it routes the bounced payment
+        let swing = 0;
+        if (s && !reduced) {
+          for (const b of s.beats) {
+            if (b.kind !== 'gate') continue;
+            const u = (t - b.at) / (b.dur * 1.6);
+            if (u > 0 && u < 1) swing = Math.max(swing, F.gateSwing * Math.sin(u * Math.PI));
+          }
+        }
+        pose(N.gate, null, qa.setFromAxisAngle(Y, -swing));
+        obj.updateMatrixWorld(true);
+      },
+      dispose() {
+        root.removeFromParent();
+        nodes = null;
+      },
+    };
+  };
+}
+
+/** A deal changes which payment is rubber: before its gather is done the old one is, after it the new one. */
+function dealSwap(s: NonNullable<LedgerView['show']>): number {
+  if (s.kind !== 'deal') return -Infinity;
+  const first = s.beats.find((b) => b.kind === 'drop');
+  return first ? first.at : -Infinity;
+}
+

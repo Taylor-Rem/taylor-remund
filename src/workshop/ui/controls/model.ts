@@ -21,7 +21,8 @@
  * `aria-disabled`, so focus never falls out from under the visitor; using
  * one says why (`said.busy`).
  */
-import type { Id, WorldView } from '../../sim/types.ts';
+import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
+import { LEDGER } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
@@ -119,6 +120,9 @@ export function itemLabel(src: ControlsSource, id: Id): string {
   if (id === b.coverId) return b.cover === 'open' ? fill(S.open, { name }) : b.cover === 'shut' ? fill(S.shut, { name }) : name;
   const pr = projectOf(w, id);
   if (pr?.as === 'lid') return fill(w.setting(pr.crate.crate, 'open') === true ? S.open : S.shut, { name });
+  // (P4 D1) the ledger board: its red star, for someone who cannot see it
+  const lv = ledgerOf(w, id);
+  if (lv && id === lv.board && lv.wrong) return fill(S.starLit, { name });
   if (role === 'dial') {
     const r = src.reading(id);
     if (!r || r.detents < 2) return name;
@@ -149,7 +153,19 @@ function leftOut(w: WorldView, id: Id): boolean {
     if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
     if (pr.as === 'plate' && (w.setting(pr.crate.crate, 'open') !== true || mode !== 'free')) return true;
   }
+  // (P4 D1) the ledger board's crank and plunger while the board is not on the bench (in its crate, shipped, down the chute)
+  const lv = ledgerOf(w, id);
+  if (lv && id !== lv.board) {
+    const mode = w.motion(lv.board)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
+  }
   return false;
+}
+
+/** P4 D1: the ledger board's view, if `id` is the board or one of its two controls. */
+function ledgerOf(w: WorldView, id: Id): LedgerView | null {
+  const v = w.machine(LEDGER.unit);
+  return v?.kind === 'ledger' && (id === v.board || id === v.crank || id === v.plunger) ? v : null;
 }
 
 export function listModel(src: ControlsSource): ListModel {
