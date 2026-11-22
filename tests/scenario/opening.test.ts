@@ -11,7 +11,8 @@
 // identical at every step. Re-recorded at P4 D3 (the report press in crate-2 and its envelope in the press: two more
 // bodies, stowed, three fields, its unit and its lever in the registry): a world with the press and one without it were
 // stepped side by side for the two minutes and every body but the two, every durable field but theirs, the crew,
-// attract mode, the machines, the stack and the events were identical at every step.
+// attract mode, the machines, the stack and the events were identical at every step. Re-recorded at D3 round two (the press redrawn:
+// the envelope larger, the bed further out, a `refused` in its view), compared again the same way: identical.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';
