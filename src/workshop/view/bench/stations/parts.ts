@@ -292,6 +292,12 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         plateTarget.position.set(0, P.h / 2 + 0.002, 0.006);
         const st = lids.get(part.id)!;
         ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-P.w / 2, -P.h / 2, -0.006), new Vector3(P.w / 2, P.h / 2, 0.006)), pad: 0.002, active: () => group.visible && st.still && st.rise > 0.9 });
+        // (the lead, after round three) the plate stands in front of the open lid, and at the camera's pitch the ray to it
+        // passes through the crate's box first. The shell then asks whether that ray misses the crate as drawn, and it
+        // does not: it goes on into a plank of the lid behind the plate. So about a third of the presses on the word
+        // took hold of the crate instead (the lid clapped shut). Wherever a ray passes through the plate, it is the plate's.
+        const underPlate = [pc.crate] as const;
+        ctx.pickOver?.(pc.plate, () => underPlate);
         // (round three) where the type is, for measuring it on screen (never pressed): the capitals of the card's title and
         // of its line, and of the plate's word, each a flat box on the card
         if (pc.card !== undefined) {
