@@ -291,7 +291,9 @@ export function attachControls(ws: Workshop, dom: ControlsDom): () => void {
         else right = Math.max(0, W - r.left);
       } else topIn = Math.max(top, r.bottom);
     }
-    ws.framing.setInset({ top: topIn, right, bottom, left });
+    // (P4 H1 round three) under the list's own name: a plate's panel says what it covers under its own, and the shell
+    // keeps the widest of the two on each side
+    ws.framing.setInset({ top: topIn, right, bottom, left }, 'list');
   };
   /** The panel stands on the side the station about to be framed leaves free (then the insets are measured). */
   const sideFor = (st: string | null): void => {
