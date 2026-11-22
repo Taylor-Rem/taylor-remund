@@ -12,16 +12,19 @@
  * - The crank turns once as a deal begins and an eighth of a turn with every token dealt; the plunger goes down and
  *   comes back as the repair begins, and only part way (a twitch) when it refuses; the gate swings across as it
  *   routes the bounced payment. A Button misfire twitches either; a tell wiggles the crank and bobs the plunger.
+ * - Painted (the platen, a text), its wooden base wears the paint; the brass, the rubber and the tokens are not painted.
  * - Reduced motion: no travel at all. The tokens are drawn where the state says the moment it changes, the star with
  *   them; the controls still move under the visitor's hand (a press is a press).
  *
  * Everything here is view-only: nothing the simulation owns is written. Time is the simulation's (`Frame.time`).
  */
-import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type BufferGeometry, type Mesh } from 'three';
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { TIER, TOKENS, placeOf, rubberOf, starAt, tokensAt, type Place, type TokenAt } from '../../sim/index.ts';
 import { BOARD, SIDE_AT, cupAt, gutterAt, hopperAt } from '../kit/pieces/ledger-board/dims.ts';
+import { linear } from '../palette.ts';
+import { paintToken } from './parts.ts';
 
 /** Tune here: how the board moves (view only). Heights in units. */
 export const LEDGER_FEEL = {
@@ -194,12 +197,12 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
           const u = k / share;
           k = u;
           h = F.bounce * 4 * u * (1 - u);
-          spin = u * Math.PI * 3;
+          spin = u * Math.PI * 4;
         } else {
           const u = (k - share) / F.rebound;
           k = 1;
           h = F.reboundH * 4 * u * (1 - u);
-          spin = Math.PI * 3;
+          spin = Math.PI * 4;
         }
       } else if (a.kind === 'gate') {
         k = smooth(k);
@@ -216,6 +219,51 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
       out.y += h;
       q.slerp(qa, 1 - k);
       if (spin !== 0) q.multiply(qb.setFromAxisAngle(X, spin));
+    };
+
+    /**
+     * Painted (the platen, a text): the board's wooden base takes the paint, as a crate's planks do (the wood class
+     * reads its finish as paint coverage), in the paint's colour at each vertex's own tone; bare again, its own wood.
+     */
+    let painted = 'bare';
+    const bareOf = new Map<BufferGeometry, { col: Float32Array; finish: Float32Array }>();
+    const paint = (colour: string): void => {
+      if (colour === painted || !obj) return;
+      painted = colour;
+      const token = paintToken(colour);
+      const wood = linear('wood');
+      const wl = wood[0] + wood[1] + wood[2];
+      obj.traverse((x) => {
+        const m = x as Mesh;
+        if (!m.isMesh || m.userData['kitMaterial'] !== 'wood') return;
+        let bare = bareOf.get(m.geometry);
+        if (!bare) {
+          // this board's own copy (a piece's geometry may be shared through the build memo)
+          m.geometry = m.geometry.clone();
+          const col = (m.geometry.getAttribute('color') as BufferAttribute).array as Float32Array;
+          const sf = m.geometry.getAttribute('surf') as BufferAttribute;
+          bare = { col: col.slice(), finish: Float32Array.from({ length: sf.count }, (_, i) => sf.getZ(i)) };
+          bareOf.set(m.geometry, bare);
+        }
+        const ca = m.geometry.getAttribute('color') as BufferAttribute;
+        const sf = m.geometry.getAttribute('surf') as BufferAttribute;
+        const a = ca.array as Float32Array;
+        const pc = token ? linear(token) : null;
+        for (let i = 0; i < sf.count; i++) {
+          if (pc) {
+            const tone = (bare.col[i * 3]! + bare.col[i * 3 + 1]! + bare.col[i * 3 + 2]!) / wl;
+            a[i * 3] = pc[0] * tone;
+            a[i * 3 + 1] = pc[1] * tone;
+            a[i * 3 + 2] = pc[2] * tone;
+            sf.setZ(i, 1);
+          } else {
+            a.set(bare.col.subarray(i * 3, i * 3 + 3), i * 3);
+            sf.setZ(i, bare.finish[i]!);
+          }
+        }
+        ca.needsUpdate = true;
+        sf.needsUpdate = true;
+      });
     };
 
     const tp = new Vector3();
@@ -239,6 +287,7 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
           if (e.type === 'tell' && (e.id === o.crank || e.id === o.plunger)) tells.set(e.id, frame.time);
           if (e.type === 'ledger.refused') refusedAt = frame.time;
         }
+        paint(w.part(o.board)?.colour ?? 'bare');
         if (!shown) return;
         const reduced = ctx.reducedMotion || w.reducedMotion;
         const s = lv.show;
