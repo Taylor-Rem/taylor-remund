@@ -1,0 +1,558 @@
+/*
+ * The paperwork on `/` (REWRITE.md § B7, § F1; P4 A3): the home page's plain
+ * document, behind the stage. A sheet from the same filing drawer as /resume/
+ * and /ai/ (src/styles/paper.css): warm paper, ink, the label tape, rules and
+ * space, Plex Sans in the same sizes and measure, the margin column at 60rem.
+ *
+ * Everything here is scoped to #paperwork (and the print rules at the end to the
+ * page), because the stage page has its own furniture and its own .skip and
+ * .legal (src/layouts/Stage.astro). Colours are the layout's custom properties
+ * from the workshop's palette (src/styles/paper-tokens.ts); no colour is typed.
+ *
+ * Type, and why it is lighter than the paper pages': the first paint of `/` has
+ * a budget (REWRITE.md § E7, 200 KB) and the stage's picture spends most of it.
+ * So the paperwork declares two Plex faces only, Regular and SemiBold, the same
+ * files paper.css declares (public/fonts/README.txt), and its labels are set in
+ * the label tape's own face, which the strip has already loaded ('Strip Tape':
+ * Barlow Semi Condensed SemiBold, the bench's label tape). Where /resume/ uses
+ * Plex Mono (labels, prices), this sheet uses that tape face or Plex Sans with
+ * tabular figures. No transition, no animation, nothing starts invisible.
+ */
+
+/* Two of paper.css's faces, the same files (unmodified IBM splits) and ranges. */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Regular-Latin1.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-SemiBold-Latin1.woff2') format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+/* paper.css's fallback, shaped like Plex, so nothing moves when the face arrives (CLS 0). */
+@font-face {
+  font-family: 'Paperwork Sans fallback';
+  src: local('Arial'), local('Liberation Sans'), local('Helvetica');
+  size-adjust: 104%;
+  ascent-override: 98%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}
+
+#paperwork {
+  --pw-sans: 'IBM Plex Sans', 'Paperwork Sans fallback', system-ui, sans-serif;
+  --pw-tape: 'Strip Tape', 'Arial Narrow', system-ui, sans-serif;
+  --pw-gutter: 20px;
+  --pw-label: 11.5rem;
+  --pw-gap: 2.5rem;
+  --pw-measure: 40rem;
+  --pw-sheet: calc(var(--pw-label) + var(--pw-gap) + var(--pw-measure));
+
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: calc(var(--pw-sheet) + 2 * var(--pw-gutter));
+  margin: 0 auto;
+  padding: 0.5rem var(--pw-gutter) 3.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  color-scheme: light;
+  font-family: var(--pw-sans);
+  font-size: 1.0625rem;
+  line-height: 1.62;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+#paperwork *,
+#paperwork *::before,
+#paperwork *::after {
+  box-sizing: border-box;
+}
+#paperwork:focus {
+  outline: none;
+}
+#paperwork :where(h2, h3, p, ul, picture) {
+  margin: 0;
+}
+#paperwork :where(ul) {
+  padding: 0;
+  list-style: none;
+}
+#paperwork img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Links: the machines' teal, underlined; 44 px to a finger (§ E9). */
+#paperwork a {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+#paperwork a:hover {
+  color: var(--ink);
+  text-decoration-thickness: 2px;
+}
+#paperwork :focus-visible {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+#paperwork p a,
+#paperwork li a {
+  --reach: max(0.7em, calc((44px - 1.3em) / 2));
+  padding-block: var(--reach);
+  margin-block: calc(-1 * var(--reach));
+}
+
+/* ---------- sections: label tape, title, body ---------- */
+#paperwork .pw-section {
+  padding-top: 2.75rem;
+  scroll-margin-top: 16px;
+}
+#paperwork .pw-section > * + * {
+  margin-top: 1rem;
+}
+#paperwork .pw-section + .pw-section {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+#paperwork .pw-section:first-child {
+  padding-top: 2.25rem;
+}
+/* The label tape: ink tape, paper letters, the bench's tape face, stuck on a little crooked. */
+#paperwork .pw-tape {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  justify-self: start;
+  align-self: start;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--pw-tape);
+  font-weight: 600;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.32em 0.7em 0.26em;
+  transform: rotate(-0.8deg);
+}
+/* the Patchlamp lamp, lit (brass), as on /ai/'s panel */
+#paperwork .pw-lamp {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--brass);
+  box-shadow: 0 0 0 1.5px var(--ink), 0 0 0 2.5px var(--paper);
+}
+#paperwork .pw-section > .pw-tape + .pw-title {
+  margin-top: 0.75rem;
+}
+#paperwork .pw-title {
+  font-weight: 600;
+  font-size: 1.625rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+#paperwork .pw-lead {
+  font-size: 1.1875rem;
+  line-height: 1.5;
+}
+#paperwork .pw-intro {
+  color: var(--ink-soft);
+}
+
+/* ---------- lists ---------- */
+#paperwork .pw-bullets li {
+  position: relative;
+  padding-left: 1.25rem;
+}
+#paperwork .pw-bullets li + li {
+  margin-top: 0.5rem;
+}
+#paperwork .pw-bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0.15rem;
+  top: 0.8em;
+  width: 0.55rem;
+  border-top: 1.5px solid var(--ink);
+}
+#paperwork .pw-links,
+#paperwork .pw-contact {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
+}
+#paperwork .pw-links li,
+#paperwork .pw-contact li {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+#paperwork .pw-links a,
+#paperwork .pw-contact a {
+  padding-block: 0.6rem;
+  margin-block: 0;
+}
+#paperwork .pw-links a.pw-primary {
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
+#paperwork .pw-section > .pw-links {
+  margin-top: 0.6rem;
+}
+/* the contact links: a ruled line of three, as the résumé's contact */
+#paperwork .pw-contact {
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+}
+#paperwork .pw-section > .pw-contact {
+  margin-top: 1.5rem;
+}
+
+/* ---------- the exchange-room picture: a print pinned to the sheet ---------- */
+#paperwork .pw-plate {
+  display: block;
+  border: 1px solid var(--ink);
+  padding: 4px;
+  background: var(--paper-deep);
+}
+#paperwork .pw-section > .pw-plate {
+  margin-top: 1.5rem;
+}
+#paperwork .pw-plate img {
+  width: 100%;
+  aspect-ratio: 1280 / 714;
+}
+
+/* ---------- services: two ruled rate entries, the price set large ---------- */
+#paperwork .pw-rates {
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+}
+#paperwork .pw-section > .pw-rates {
+  margin-top: 1.5rem;
+}
+#paperwork .pw-rate {
+  padding: 1.25rem 0 1.35rem;
+}
+#paperwork .pw-rate + .pw-rate {
+  border-top: 1px solid var(--rule);
+}
+#paperwork .pw-rate > * + * {
+  margin-top: 0.45rem;
+}
+#paperwork .pw-rate-name {
+  font-weight: 600;
+  font-size: 1.3125rem;
+  line-height: 1.25;
+}
+#paperwork .pw-rate-name a {
+  color: var(--ink);
+  text-decoration-color: var(--rule);
+}
+#paperwork .pw-rate-name a:hover {
+  text-decoration-color: currentColor;
+}
+#paperwork .pw-rate > .pw-rate-price {
+  margin-top: 0.85rem;
+  font-weight: 600;
+  font-size: clamp(2rem, 9vw, 2.5rem);
+  line-height: 1;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+#paperwork .pw-rate > .pw-rate-note {
+  margin-top: 0.4rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+#paperwork .pw-sep {
+  color: var(--ink-soft);
+}
+/* A price never wraps apart from its unit (CLAUDE.md § Content rules). */
+#paperwork .price,
+#paperwork .pw-rate-note .part {
+  white-space: nowrap;
+}
+#paperwork .pw-section > .pw-more {
+  margin-top: 0.75rem;
+}
+#paperwork .pw-more a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-block: 0;
+  margin-block: 0;
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
+
+/* ---------- about: the photograph, two paragraphs ---------- */
+#paperwork .pw-photo {
+  float: right;
+  width: 6.5rem;
+  margin: 0.3rem 0 0.5rem 1rem;
+  border: 1px solid var(--ink);
+  padding: 4px;
+  background: var(--paper-deep);
+  transform: rotate(1.2deg);
+}
+#paperwork .pw-text > * + * {
+  margin-top: 1rem;
+}
+#paperwork .pw-about::after {
+  content: '';
+  display: block;
+  clear: both;
+}
+
+/* ---------- 600 px and up ---------- */
+@media (min-width: 37.5rem) {
+  #paperwork {
+    --pw-gutter: 32px;
+  }
+  #paperwork .pw-photo {
+    width: 9rem;
+    margin-left: 1.5rem;
+  }
+}
+
+/* ---------- 960 px and up: the sheet on the wall, the margin column ---------- */
+@media (min-width: 60rem) {
+  #paperwork {
+    --pw-gutter: 3rem;
+    font-size: 1.125rem;
+    margin-top: 2.5rem;
+    margin-bottom: 2.5rem;
+    padding-top: 1rem;
+    padding-bottom: 4rem;
+  }
+  #paperwork .pw-section {
+    display: grid;
+    grid-template-columns: var(--pw-label) minmax(0, var(--pw-measure));
+    column-gap: var(--pw-gap);
+    align-items: start;
+    padding-top: 3.25rem;
+  }
+  #paperwork .pw-section:first-child {
+    padding-top: 2.75rem;
+  }
+  #paperwork .pw-section + .pw-section {
+    margin-top: 1rem;
+  }
+  #paperwork .pw-section > * {
+    grid-column: 2;
+  }
+  /* the tape spans two rows, so a tape that wraps (Patchlamp's) does not push the title's matter down */
+  #paperwork .pw-section > .pw-tape {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    margin-top: 0.45rem;
+  }
+  #paperwork .pw-section > .pw-tape + .pw-title {
+    grid-row: 1;
+    margin-top: 0;
+  }
+  /* the services: the price hangs in the margin beside its entry, as on a rate sheet */
+  #paperwork .pw-section > .pw-rates {
+    grid-column: 1 / -1;
+  }
+  #paperwork .pw-rate {
+    display: grid;
+    grid-template-columns: var(--pw-label) minmax(0, var(--pw-measure));
+    column-gap: var(--pw-gap);
+    align-items: baseline;
+    padding: 1.35rem 0 1.5rem;
+  }
+  #paperwork .pw-rate > * {
+    grid-column: 2;
+  }
+  #paperwork .pw-rate > .pw-rate-name {
+    grid-row: 1;
+  }
+  #paperwork .pw-rate > .pw-rate-text {
+    grid-row: 2;
+  }
+  #paperwork .pw-rate > .pw-rate-note {
+    grid-row: 3;
+  }
+  #paperwork .pw-rate > .pw-rate-price {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    margin-top: 0;
+    font-size: 1.875rem;
+    line-height: 1.15;
+    text-align: right;
+  }
+  /* the photograph in the margin, under the tape, as on the résumé */
+  #paperwork .pw-about > .pw-tape {
+    grid-row: 1;
+  }
+  #paperwork .pw-about > .pw-photo {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    float: none;
+    width: 9.5rem;
+    margin: 1.25rem 0 0;
+  }
+  #paperwork .pw-about::after {
+    display: none;
+  }
+}
+
+/* ---------- print: the paperwork on paper, black on white ---------- */
+/* The stage, the strip's links and the legal line stay on screen; his name line (the strip's h1) and the
+   paperwork print, whatever the page was showing. Links that matter print their address after them. */
+@media print {
+  html,
+  body {
+    background: white !important;
+    color: black !important;
+    /* the stage's page does not scroll; paper does */
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .strip .sep::before {
+    content: '·';
+    width: auto;
+    height: auto;
+    margin: 0 0.4em;
+    background: none;
+    vertical-align: baseline;
+  }
+  .stage-root,
+  .strip .ways,
+  .skip,
+  .legal,
+  .stage-note,
+  #controls,
+  #settings {
+    display: none !important;
+  }
+  .strip {
+    position: static !important;
+    padding: 0 0 2mm !important;
+    border-bottom: 3px double black;
+    color: black !important;
+    font-size: 13pt !important;
+  }
+  html.stage-on #paperwork,
+  html.stage-on:not(.reading) #paperwork {
+    display: block !important;
+    visibility: visible !important;
+  }
+  #paperwork {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+  #paperwork a {
+    color: black;
+    text-decoration: none;
+  }
+  #paperwork p a,
+  #paperwork li a {
+    padding: 0;
+    margin: 0;
+  }
+  #paperwork a[data-print]::after {
+    content: ' ' attr(data-print);
+    color: black;
+  }
+  #paperwork p a[data-print]::after,
+  #paperwork .pw-rate-name a[data-print]::after {
+    content: none;
+  }
+  #paperwork .pw-tape {
+    background: none;
+    color: black;
+    border: 1px solid black;
+    transform: none;
+    font-size: 7.5pt;
+  }
+  #paperwork .pw-section {
+    padding-top: 5mm;
+    display: grid;
+    grid-template-columns: 34mm minmax(0, 1fr);
+    column-gap: 6mm;
+    align-items: start;
+    break-inside: avoid;
+  }
+  #paperwork .pw-section + .pw-section {
+    margin-top: 3mm;
+  }
+  #paperwork .pw-section > * {
+    grid-column: 2;
+  }
+  #paperwork .pw-section > .pw-tape {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  #paperwork .pw-section > .pw-tape + .pw-title {
+    grid-row: 1;
+    margin-top: 0;
+  }
+  #paperwork .pw-section > * + * {
+    margin-top: 2.5mm;
+  }
+  #paperwork .pw-title {
+    font-size: 14pt;
+  }
+  #paperwork .pw-lead {
+    font-size: 11pt;
+  }
+  #paperwork .pw-plate {
+    width: 70mm;
+    padding: 0;
+  }
+  #paperwork .pw-photo {
+    display: none;
+  }
+  #paperwork .pw-rate-name {
+    font-size: 11pt;
+  }
+  #paperwork .pw-rate > .pw-rate-price {
+    margin-top: 1.5mm;
+    font-size: 13pt;
+  }
+  #paperwork .pw-rate-note {
+    font-size: 9pt;
+  }
+  #paperwork .pw-rate {
+    padding: 2.5mm 0;
+    break-inside: avoid;
+  }
+  #paperwork .pw-links li,
+  #paperwork .pw-contact li,
+  #paperwork .pw-more a {
+    min-height: 0;
+  }
+  #paperwork .pw-links a,
+  #paperwork .pw-contact a {
+    padding: 0;
+  }
+  #paperwork .pw-contact {
+    column-gap: 6mm;
+    padding: 1mm 0;
+  }
+}

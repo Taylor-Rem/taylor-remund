@@ -54,9 +54,16 @@ export interface TextPage {
   legacy: string;
   /** `full`: content, head, links, alts, anchors, furniture. `head`: head and furniture only (the compliance pages, whose content check-legal holds byte for byte). */
   compare: 'full' | 'head';
+  /**
+   * The built page's furniture, when it is not simply everything outside <main>: the names of the elements
+   * (outside <main>) that make it. `/`: the strip (<header>) and the legal line (<footer>); the stage's own
+   * controls, settings and restart button are the stage's, held by its tests, not paperwork furniture.
+   */
+  furniture?: readonly string[];
 }
 
 export const TEXT_PAGES: readonly TextPage[] = [
+  { path: '/', file: 'index.html', legacy: 'index.html', compare: 'full', furniture: ['header', 'footer'] },
   { path: '/resume/', file: 'resume/index.html', legacy: 'resume/index.html', compare: 'full' },
   { path: '/ai/', file: 'ai/index.html', legacy: 'ai/index.html', compare: 'full' },
   { path: '/case-studies/ledger-repair/', file: 'case-studies/ledger-repair/index.html', legacy: 'case-studies/ledger-repair/index.html', compare: 'full' },
@@ -170,10 +177,13 @@ export interface Regions {
  * A live page (no <main>) has its <nav> and <footer> as furniture and the
  * rest of <body> as content.
  */
-export function regions(html: string): Regions {
+export function regions(html: string, furniture?: readonly string[]): Regions {
   const body = inner(html, 'body') ?? html;
   const main = inner(body, 'main');
-  if (main !== null) return { content: main, furniture: without(body, ['main']).rest };
+  if (main !== null) {
+    const outside = without(body, ['main']).rest;
+    return { content: main, furniture: furniture ? without(outside, furniture).removed : outside };
+  }
   const { rest, removed } = without(body, ['nav', 'footer']);
   return { content: rest, furniture: removed };
 }
@@ -416,7 +426,7 @@ export function checkText(opts: TextOptions): Report {
     compared.add(p.path);
     const before = occ.map.size;
     try {
-      const B = regions(built);
+      const B = regions(built, p.furniture);
       const L = regions(old);
       for (const h of headHunks(headItems(old), headItems(built))) occ.add(p.path, 'head', h, p.path);
       // The furniture is compared whole: one entry per distinct pair, whatever pages share it.

@@ -143,6 +143,15 @@ describe('check-text pieces', () => {
     expect(words(l.furniture)).toEqual(['Taylor', 'Remund', 'Projects', 'Taylor', 'Remund', '·', '2026']);
   });
 
+  it('regions: a page that names its furniture (the stage page `/`) keeps only those elements as furniture', () => {
+    const stage = '<body><a class="skip" href="#paperwork">Skip</a><header><h1>Taylor Remund</h1></header><div id="controls"><button>Pan</button></div><main id="paperwork"><h2>The lamp</h2></main><footer><a href="/sms/">SMS</a></footer></body>';
+    const r = regions(stage, ['header', 'footer']);
+    expect(words(r.content)).toEqual(['The', 'lamp']);
+    expect(words(r.furniture)).toEqual(['Taylor', 'Remund', 'SMS']);
+    // without the list, everything outside <main> is furniture
+    expect(words(regions(stage).furniture)).toEqual(['Skip', 'Taylor', 'Remund', 'Pan', 'SMS']);
+  });
+
   it('target: relative, root-relative and absolute forms of one path are equal; mailto keeps its subject', () => {
     expect(target('../ai/', '/resume/')).toBe('/ai/');
     expect(target('/ai', '/resume/')).toBe('/ai/');
