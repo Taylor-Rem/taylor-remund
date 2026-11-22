@@ -9,7 +9,7 @@
  *
  * What is in it: the Button's rung (the one played last), the highest rung reached, the press count, whether its
  * cover is on, the deck after the ladder (§ B4); and the stations the visitor has used, in the order first used
- * (§ B3's "discoveries": six of them and the tells stop, next visit too). What is not, on purpose: where any loose
+ * (§ B3's "discoveries": six of them and the tells stop, next visit too); (P4 S5) the project crates left open. What is not, on purpose: where any loose
  * part lies, anything the visitor typed or texted, the undo stack, the crew, reduced motion (a setting: the page's).
  *
  * Read from a browser's storage, a snapshot is untrusted: from an older version, truncated, edited by hand or
@@ -29,6 +29,8 @@ export const SAVED_VERSION = 1;
 export const SAVED_MAX_TEXT = 4096;
 /** The most stations a snapshot may list (the bench has ten; arrivals add a few). */
 export const SAVED_MAX_USED = 64;
+/** The most project crates a snapshot may list open (the bench has six). */
+export const SAVED_MAX_OPEN = 16;
 /** The most presses a snapshot may count (a press a second for eleven days). */
 export const SAVED_MAX_PRESSES = 999_999;
 
@@ -49,6 +51,8 @@ export interface WorldSaved {
   };
   /** The stations the visitor has used, in the order first used. */
   readonly used: readonly Id[];
+  /** P4 S5: the project crates left open (absent when none: a snapshot from before P4 has none). */
+  readonly open?: readonly Id[];
 }
 
 /** A fresh visit's snapshot (what `saved()` is before anything happens, and after "Reset the workshop"). */
@@ -113,10 +117,15 @@ export function parseSaved(input: unknown): WorldSaved | null {
     if (reached < 4 && (left.length > 0 || lastRaw !== null)) return null;
     const used = ids(own(value, 'used'), SAVED_MAX_USED);
     if (used === null) return null;
+    // (P4 S5) the open crates: absent, or a list of distinct ids (a crate this bench does not have is dropped as it is restored)
+    const openRaw = own(value, 'open');
+    const open = openRaw === undefined ? [] : ids(openRaw, SAVED_MAX_OPEN);
+    if (open === null) return null;
     return {
       v: SAVED_VERSION,
       button: { rung, reached, presses, cover, deck: { left, last: lastRaw } },
       used,
+      ...(open.length > 0 ? { open } : {}),
     };
   } catch {
     return null;

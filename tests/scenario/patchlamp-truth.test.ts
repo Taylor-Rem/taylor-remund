@@ -16,7 +16,7 @@ import { HZ } from '../../src/workshop/sim/clock.ts';
 
 const JACKS = ['jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp'] as const;
 const STATION: Record<string, Id> = { 'jack-storefront': 'storefront', 'jack-platen': 'platen', 'jack-belt': 'belt', 'jack-lamp': 'lamp' };
-const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2'];
 const TEXTS = [
   'make it blue', 'make it red', 'paint it yellow', 'call it FRAGILE', 'label it HELLO', 'make the sign green', 'make the sign say OPEN LATE',
   'paint the awning violet', "we're closed", 'we are open', 'put a boat in the window', 'change the picture', 'take the picture down',

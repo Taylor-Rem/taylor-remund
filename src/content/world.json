@@ -24,7 +24,10 @@
     "dock": {
       "bell": { "text": "Dock bell", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1, machines table (the dock ships it with a bell; the bell also rings when the visitor presses it). New name, P3 B2: for Taylor" }
     },
-    "phone": { "text": "Phone", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the layout (the phone, by the UNDO lever); § D 3 (tap the phone to text). New name, P3 B2: for Taylor" }
+    "phone": { "text": "Phone", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the layout (the phone, by the UNDO lever); § D 3 (tap the phone to text). New name, P3 B2: for Taylor" },
+    "lid": { "text": "Crate lid", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (contents: a latch on the lid); S5 brief item 3 (a brass latch opens the crate). The registry's name for a crate's latch; the controls list names each by its project (controls.crateLid). New name, S5: for Taylor" },
+    "standin": { "text": "Test block", "kind": "ui", "provisional": true, "source": "S5 brief item 5: the kit's test block, the stand-in thing that proves a crate's tray. Development pages only (?standin=1); never on the shipped bench" },
+    "plate": { "text": "Full entry", "kind": "ui", "provisional": true, "source": "S5 brief item 4 (a brass plate on the card is the way to the project's full entry on /resume/). The registry's name for it; the controls list names each by its project (controls.cratePlate). New name, S5: for Taylor" }
   },
   "stations": {
     "top": { "text": "The sign and the lamp", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#top: the sign and the lamp). P3 B2: a heading in the controls list, for Taylor" },
@@ -42,6 +45,8 @@
       "M": { "text": "Medium crate", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (size S, M, L); names.crate. P3 B2: a crate's name in the list, for Taylor" },
       "L": { "text": "Large crate", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (size S, M, L); names.crate. P3 B2: a crate's name in the list, for Taylor" }
     },
+    "crateLid": { "text": "{project} lid", "kind": "ui", "provisional": true, "source": "S5 brief item 6 (the keyboard list calls each crate by its project, and says open or shut): a project crate's latch in the list, {project} its published title. New words, S5: for Taylor" },
+    "cratePlate": { "text": "{project}: full entry on the résumé", "kind": "ui", "provisional": true, "source": "S5 brief item 4 (the card's plate is a real link to the project's entry on /resume/; it works from the keyboard list): the link's words in the list while the crate is open. New words, S5: for Taylor" },
     "state": {
       "colour": { "text": "{name}, {colour}", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (colour); § E9. P3 B2: a part's paint in its list name, for Taylor" },
       "label": { "text": "{name}, labelled {label}", "kind": "ui", "provisional": true, "source": "REWRITE.md § B1 property table (label); § E9. P3 B2, for Taylor" },
@@ -88,6 +93,8 @@
     "coverShut": { "text": "Button cover shut.", "kind": "ui", "provisional": true, "source": "event cover, shut, by the visitor. P3 B2: for Taylor" },
     "undone": { "text": "Undone: {thing} is back as it was.", "kind": "ui", "provisional": true, "source": "event undone, by the UNDO lever (REWRITE.md § B1 law 3, § E5). P3 B2: for Taylor" },
     "undoneMany": { "text": "Undone: {count} things are back as they were.", "kind": "ui", "provisional": true, "source": "event undone, by the UNDO lever, of several things. P3 B2: for Taylor" },
+    "opened": { "text": "{thing} opened.", "kind": "ui", "provisional": true, "source": "event crate.opened (S5: a project crate's latch pressed open). New words, S5: for Taylor" },
+    "shutBy": { "text": "{thing} shut.", "kind": "ui", "provisional": true, "source": "event crate.shut, by the visitor's own press or a clap shut when it was picked up, struck or shipped (S5). New words, S5: for Taylor" },
     "reset": { "text": "The workshop is reset.", "kind": "ui", "provisional": true, "source": "event reset (REWRITE.md § B4: \"Reset the workshop\" in the settings). P3 B2: for Taylor" }
   },
   "tools": {

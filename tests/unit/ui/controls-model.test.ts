@@ -56,7 +56,7 @@ describe('the list', () => {
     expect(m.stations.map((s) => s.id)).toEqual(['button', 'patchlamp', 'line', 'top']);
     const ids = m.stations.flatMap((s) => s.items.map((i) => i.id));
     // shipped spares, Revert in its hatch: not on the bench
-    for (const gone of ['crate-spare-1', 'crate-spare-2', 'crate-spare-3', 'revert']) expect(ids).not.toContain(gone);
+    for (const gone of ['crate-spare-1', 'crate-spare-2', 'revert']) expect(ids).not.toContain(gone);
     // the cover before Revert has fitted it; the jacks and mouths (destinations only); the line (through the phone)
     for (const no of ['button-cover', 'jack-storefront', 'belt', 'dock', 'platen', 'line']) expect(ids).not.toContain(no);
     for (const yes of ['button', 'undo-lever', 'cord', 'patch', 'phone', 'belt-dial', 'belt-lever', 'dock-bell', 'lamp', 'crate-1', 'fetch']) expect(ids).toContain(yes);
@@ -71,14 +71,14 @@ describe('the list', () => {
     expect(itemLabel(src, 'belt-lever')).toBe('Belt direction lever, forwards');
     expect(itemLabel(src, 'cord')).toBe('Patch cord, in the Storefront jack');
     expect(itemLabel(src, 'button')).toBe('Big Red Button');
-    expect(itemLabel(src, 'crate-1')).toBe('Large crate');
+    expect(itemLabel(src, 'crate-1')).toBe('Ledger Management System') // (P4 S5: a crate is called by its project's published title);
     expect(itemLabel(src, 'fetch')).toBe('Fetch'); // yellow by nature: no news
     w.dispatch({ type: 'turn', id: 'belt-lever', value: 0.5 });
     w.dispatch({ type: 'press', id: 'button' });
     run(w, 2);
     expect(itemLabel(src, 'belt-lever')).toBe('Belt direction lever, stopped');
     expect(itemLabel(src, 'button')).toBe('Big Red Button, pressed once');
-    expect(itemLabel(source(w, { held: { id: 'crate-3', what: 'part' } }), 'crate-3')).toBe('Small crate, held');
+    expect(itemLabel(source(w, { held: { id: 'crate-3', what: 'part' } }), 'crate-3')).toBe('t-components, held');
   });
 
   test('while the Button’s rung plays, nothing responds: the list says busy (its buttons stay, aria-disabled)', () => {
@@ -94,11 +94,30 @@ describe('the list', () => {
   test('while the keys hold a part, the list offers the mouths; holding the plug, the jacks', () => {
     const w = world();
     const part = listModel(source(w, { held: { id: 'crate-3', what: 'part' }, keys: true }));
-    expect(part.hold?.label).toBe('Holding: Small crate. Where should it go?');
+    expect(part.hold?.label).toBe('Holding: t-components. Where should it go?');
     expect(part.hold?.dests.map((d) => d.label)).toEqual(['Belt', 'Dock', 'Platen']);
     const plug = listModel(source(w, { held: { id: 'cord', what: 'plug' }, keys: true }));
     expect(plug.hold?.dests.map((d) => d.label)).toEqual(['Reserved jack 1', 'Reserved jack 2', 'Storefront jack', 'Platen jack', 'Belt jack', 'Lamp jack']);
     // held by the pointer (tap-then-tap), the list stays the list
     expect(listModel(source(w, { held: { id: 'crate-3', what: 'part' } })).hold).toBeNull();
+  });
+});
+
+describe('P4 S5: the project crates in the list', () => {
+  test('each crate by its project, its lid open or shut; its plate a link to its entry while it is open; none of a crate not on the bench', () => {
+    const w = world();
+    run(w, 30);
+    const items = (): Map<Id, { id: Id; label: string; href?: string }> => new Map(listModel(source(w)).stations.flatMap((s) => s.items.map((i) => [i.id, i] as const)));
+    let m = items();
+    expect(m.get('crate-3')?.label).toBe('t-components');
+    expect(m.get('crate-3-lid')?.label).toBe('t-components lid, shut');
+    expect(m.has('crate-3-plate')).toBe(false);
+    // the two behind the dock door: neither they nor their latches
+    for (const id of ['crate-spare-1', 'crate-spare-1-lid', 'crate-spare-2-lid', 'crate-spare-2-plate']) expect(m.has(id), id).toBe(false);
+    w.dispatch({ type: 'press', id: 'crate-3-lid' });
+    run(w, 2);
+    m = items();
+    expect(m.get('crate-3-lid')?.label).toBe('t-components lid, open');
+    expect(m.get('crate-3-plate')).toEqual({ id: 'crate-3-plate', label: 't-components: full entry on the résumé', href: '/resume/#p-t-components' });
   });
 });
