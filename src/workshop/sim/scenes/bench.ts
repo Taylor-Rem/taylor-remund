@@ -247,8 +247,8 @@ export const PAINT = {
   mass: 0.02,
 } as const;
 
-/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board, t-components' its paint dial. */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PAINT.crate ? { holds: PAINT.dial } : {}) }));
+/** Each project crate's latch, its card and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board, t-components' its paint dial. */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PAINT.crate ? { holds: PAINT.dial } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;

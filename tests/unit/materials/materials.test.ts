@@ -4,7 +4,7 @@
 // three's real sources, and no colour literal lives in the folder.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
+import { BoxGeometry, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderLib, Texture, UniformsUtils, type WebGLProgramParametersWithUniforms } from 'three';
 import { describe, expect, it } from 'vitest';
 import { lookViolations } from '../../../scripts/check-look.ts';
 import { CLASS_NAMES, CLASSES, createMaterials, DEBUG_VIEWS } from '../../../src/workshop/view/materials/index.ts';
@@ -331,5 +331,47 @@ describe('materials', () => {
       const path = join(dir, f);
       expect(lookViolations(path, readFileSync(path, 'utf8'))).toEqual([]);
     }
+  });
+});
+
+describe('see-through twins (P4 S5 round three)', () => {
+  const compiled = (m: import('three').Material): { vs: string; fs: string; u: Record<string, { value: unknown }> } => {
+    const sh = { vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, { value: unknown }> };
+    (m.onBeforeCompile as unknown as (s: unknown) => void)(sh);
+    return { vs: sh.vertexShader, fs: sh.fragmentShader, u: sh.uniforms };
+  };
+  // (D2c, the lead's ruling) the screen door is in no ordinary program: a ghost has a program of its own (`SEE_THROUGH`,
+  // `:ghost` in its key), built ahead (prepareFade), so the bench never pays for a discard it is not using
+  it('a twin has a program of its own carrying the screen door; no ordinary program discards or reads a fade', () => {
+    const mats = createMaterials({ tier: 'high' });
+    const fade = { value: 0 };
+    for (const cls of ['steel', 'brass', 'rubber'] as const) {
+      const m = mats.of(cls);
+      const t = mats.seeThrough(m, fade)!;
+      expect(t).not.toBe(m);
+      expect(mats.seeThrough(m, fade)).toBe(t);
+      expect(t.customProgramCacheKey()).toBe(`${m.customProgramCacheKey()}ghost`);
+      const a = compiled(m), b = compiled(t);
+      expect(a.fs).not.toContain('discard');
+      expect(a.fs).not.toContain('u_fade');
+      expect(a.u['u_fade']).toBeUndefined();
+      expect(b.fs).toContain('discard');
+      expect(b.u['u_fade']).toBe(fade);
+      expect(b.vs).toBe(a.vs);
+    }
+    expect(mats.seeThrough(new MeshBasicMaterial(), fade)).toBeNull();
+    // a keepColours twin (D2) has its see-through twin too: the program of its material's ghost, its scheme switch kept off
+    const root = new Mesh(new BoxGeometry(), mats.of('steel'));
+    mats.keepColours(root);
+    mats.paint.set('B');
+    const kept = root.material as import('three').Material;
+    expect(kept).not.toBe(mats.of('steel'));
+    const g = mats.seeThrough(kept, fade)!;
+    expect(g.customProgramCacheKey()).toBe(mats.seeThrough(mats.of('steel'), fade)!.customProgramCacheKey());
+    expect(compiled(g).fs).toBe(compiled(mats.seeThrough(mats.of('steel'), fade)!).fs);
+    expect(compiled(g).u['s_on']!.value).toBe(0);
+    expect(compiled(g).u['u_fade']).toBe(fade);
+    mats.paint.set('A');
+    mats.dispose();
   });
 });

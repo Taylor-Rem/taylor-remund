@@ -37,6 +37,24 @@ export interface EffectMaterials {
   decal(): import('three').Material;
   /** The keyboard focus mark: unlit paper, drawn over everything, never lit or shadowed (view/stations/focus.ts). */
   focusMark(): import('three').Material;
+  /**
+   * (P4 S5 round three) A see-through twin of one of these materials: the same program (nothing compiles), its pixels
+   * dropped in a fine screen-door pattern as `fade.value` goes 0 → 1 (one uniform; its shadow is untouched). Cached per
+   * material and `fade` object. Null for a material that is not one of these (it is left as it is).
+   */
+  seeThrough?(material: import('three').Material, fade: { value: number }): import('three').Material | null;
+  /**
+   * (D2c) Fade `root`'s meshes to a screen door driven by `fade.value` (see-through twins of whatever each mesh is drawn
+   * with: its own material or its paint-scheme keep twin), or stop (null): the materials module sets `mesh.material`
+   * (one owner; the caller never does). Absent on stand-ins.
+   */
+  /**
+   * (D2c) Make ready the see-through twins `root`'s meshes will be drawn with when `fade` is asked for (of their own
+   * materials and of their paint-scheme keep twins): their programs are built by `compile` (`Stage.compileObject`) on
+   * the meshes themselves (skinned or not), and the meshes are given straight back what they had. Resolves when linked.
+   */
+  prepareFade?(root: import('three').Object3D, fade: { value: number }, compile: (o: import('three').Object3D) => Promise<number>): Promise<number>;
+  fade?(root: import('three').Object3D, fade: { value: number } | null): void;
 }
 
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
@@ -48,7 +66,11 @@ export interface Labels {
    */
   tape(text: string, colour?: 'black' | 'red' | 'blue', opts?: LabelOptions): string;
   /** Sprayed stencil, in `paint` (default `ink`); transparent background. */
-  stencil(text: string, opts?: LabelOptions & { paint?: Token }): string;
+  /**
+   * Sprayed stencil, in `paint` (default `ink`); transparent background. `heavy` (P4 S5: a project's name on its crate):
+   * condensed and bolder, sprayed thicker, so a title fills the face at the largest capitals it can.
+   */
+  stencil(text: string, opts?: LabelOptions & { paint?: Token; heavy?: boolean }): string;
   /** A big typed cue card (the crew's voice). */
   card(text: string, opts?: LabelOptions): string;
   /** A narrow torn slip, as Fetch prints. */
@@ -114,7 +136,7 @@ export interface LabelPhoneMessage {
  * camera (`camera.focusOn`, `camera.shake`), and set or dip the lamp
  * (`lights.setLamp`, `lights.dip`, `lights.setBulb`). Never the renderer.
  */
-export type StageHandle = Pick<Stage, 'camera' | 'lights'>;
+export type StageHandle = Pick<Stage, 'camera' | 'lights'> & Partial<Pick<Stage, 'compileObject'>>;
 
 /** What every station view is built with. */
 export interface ViewContext {
@@ -137,6 +159,13 @@ export interface ViewContext {
   pickable(id: Id, object: Object3D, opts?: import('./picking.ts').PickableOptions): void;
   /** A pick target's box in world space (padded as it picks), into `out`; null if `id` has none. For marks drawn round targets. */
   targetBox?(id: Id, out: import('three').Box3): import('three').Box3 | null;
+  /** (P4 S5 round three) The object a pick target was registered with (a crew member's body), or null. */
+  targetObject?(id: Id): Object3D | null;
+  /**
+   * (P4 S5 round three) Wherever a ray passes through `id`'s pick box, `id` wins over the targets `over()` names (a
+   * thing on an open crate's tray over the crate, its lid and its latch). view/picking.ts `prefer`.
+   */
+  pickOver?(id: Id, over: () => readonly Id[]): void;
 }
 
 /** One frame's worth of what a view may read. */

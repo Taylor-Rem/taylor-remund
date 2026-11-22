@@ -100,6 +100,15 @@ export interface WorkshopMaterials extends Materials {
    * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
    */
   halo(): MeshBasicMaterial;
+  /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
+  seeThrough(material: Material, fade: { value: number }): Material | null;
+  /**
+   * (D2c) The see-through asks for `root`'s meshes to fade (a `{ value }` it drives), or to stop (null). The meshes'
+   * materials are set here, with the paint scheme's keep twins (one owner): never by the caller.
+   */
+  fade(root: Object3D, fade: { value: number } | null): void;
+  /** (D2c) The ghosts `fade` will draw `root` with, built and linked ahead: see `EffectMaterials.prepareFade`. */
+  prepareFade(root: Object3D, fade: { value: number }, compile: (o: Object3D) => Promise<number>): Promise<number>;
   /**
    * D2, the paint scheme (scheme.ts): which scheme the enamel shows and the wipe to another. `paint.set(id,
    * { time, origin, reduced })`; `update(time)` runs the wipe on. Scheme A is the approved look.
@@ -184,7 +193,29 @@ function debugUniforms(): ClassUniforms {
   };
 }
 
-function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant): Pbr {
+/**
+ * (P4 S5 round three; D2c) The screen door: with `u_fade` over 0 a pixel is dropped where a 4×4 ordered pattern lies
+ * under it, so the surface behind shows through evenly; at 0 nothing is dropped. ONLY in a see-through twin's program
+ * (the `SEE_THROUGH` define, `:ghost` in its key): an opaque shader that may `discard` loses early depth rejection and,
+ * on a tile-based GPU (a phone's), hidden-surface removal, so no ordinary program carries it. The ghosts' programs
+ * are compiled ahead, off the first frame (`EffectMaterials.prepareFade`), and a body fades only once they are linked.
+ * Only the colour pass: the shadow pass draws its own depth material, so the shadow stays whole.
+ */
+const SCREEN_DOOR = /* glsl */ `
+if ( u_fade > 0.0 ) {
+  // the 4×4 ordered (Bayer) threshold of this pixel, 0..15
+  vec2 sdp = mod( floor( gl_FragCoord.xy ), 4.0 );
+  vec2 sda = mod( sdp, 2.0 );
+  vec2 sdb = floor( sdp / 2.0 );
+  float sdt = 4.0 * mod( 2.0 * sda.x + 3.0 * sda.y, 4.0 ) + mod( 2.0 * sdb.x + 3.0 * sdb.y, 4.0 );
+  if ( ( sdt + 0.5 ) / 16.0 < u_fade ) discard;
+}`;
+/** The fade of every material that is not a see-through twin: none. */
+const NO_FADE = { value: 0 };
+/** How each material `build` made was built (its see-through twin is built the same: the same program). */
+const RECIPES = new WeakMap<Material, { cls: MaterialClass; variant: Variant; sh: Shared }>();
+
+function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUniforms, variant: Variant, fade: { value: number } = NO_FADE): Pbr {
   const { tier, noise, debug } = sh;
   const mat: Pbr = def.kind === 'physical' ? new MeshPhysicalMaterial() : new MeshStandardMaterial();
   mat.name = variant.map ? `workshop/${cls}/textured` : variant.large ? `workshop/${cls}/large` : `workshop/${cls}`;
@@ -235,16 +266,20 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   }
   mat.defines = { ...(mat.defines ?? {}), ...defines };
 
+  // a see-through twin: its own program (the screen door is in no other)
+  const ghost = fade !== NO_FADE;
+  if (ghost) mat.defines = { ...mat.defines, SEE_THROUGH: '' };
   const key = [
     'workshop', cls, tier,
     variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '', variant.lampGlow ? 'lamp' : '',
-    debug ?? '',
+    debug ?? '', ghost ? 'ghost' : '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
+  RECIPES.set(mat, { cls, variant, sh });
   // the paint scheme: shared uniforms, and this material's own switch (a twin's is 0); never in the key
   const scheme: SchemeUniforms | null = SCHEMED.has(cls) ? { ...sh.scheme, s_on: { value: variant.keep ? 0 : 1 } } : null;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, ghost ? { u_fade: fade } : {}, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -255,7 +290,8 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     shader.vertexShader = vs;
 
     let fs = shader.fragmentShader;
-    fs = inject(fs, 'common', `${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
+    if (ghost) fs = inject(fs, 'clipping_planes_fragment', SCREEN_DOOR, 'after');
+    fs = inject(fs, 'common', `${ghost ? 'uniform float u_fade;\n' : ''}${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -403,7 +439,31 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
    * the shared one, and the expensive steel shader then runs twice where it stands in front (measured: +0.6 ms a frame
    * at home with the twins always in). At home the meshes are on their own materials, as before the scheme existed.
    */
-  const kept = new Map<Mesh, { own: Material; twin: Material; order: number }>();
+  /**
+   * D2c: THE ONE OWNER of a kept or fading mesh's material. Two things change what such a mesh draws with: the paint
+   * scheme (a mesh given to `keepColours` goes to its keep twin while a scheme repaints, see above) and the crates'
+   * see-through (a crew body in the way of a look fades: `fade`). Neither writes `mesh.material` itself: each sets its
+   * own fact here and `apply` works the material out from all of them, so any order of fade, scheme, home and un-fade
+   * leaves the right one, and with neither in force the mesh is back on the very material it had.
+   *
+   *   own    the material the mesh had when it was first owned (what it is given back);
+   *   twin   its keep twin (keepColours), or null: drawn while a scheme repaints;
+   *   order  its own renderOrder;
+   *   fade   the see-through's `{ value }` while it fades, or null: the ghost of whichever of own and twin is drawn
+   *          (a ghost of a keep twin keeps `s_on` 0: it is built from the twin's recipe).
+   *
+   * renderOrder: a kept opaque mesh is drawn first while its twin is in (see above), faded or not. A faded one discards
+   * pixels: no depth is written where it does, so what lies behind is still drawn there whatever came first, and
+   * where it keeps a pixel it hides what is behind as any opaque draw does. So the order is right either way, and
+   * first keeps the machines behind a kept body rejected by depth where the body still stands.
+   */
+  interface Owned {
+    own: Material | Material[];
+    twin: Material | null;
+    order: number;
+    fade: { value: number } | null;
+  }
+  const owned = new Map<Mesh, Owned>();
   let swapped = false;
   /**
    * While swapped, an opaque kept mesh is drawn first (`renderOrder` sorts before the material): the crew and the
@@ -411,13 +471,22 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
    * of the kept meshes being shaded over them. Transparent ones keep their order (blending depends on it).
    */
   const FIRST = -1;
+  const ghostOf = (m: Material, f: { value: number }): Material => api.seeThrough(m, f) ?? m;
+  const isOpaque = (m: Material | Material[]): boolean => (Array.isArray(m) ? m.every((x) => !x.transparent) : !m.transparent);
+  /** Set the mesh's material and renderOrder from what it is, its twin, the scheme and its fade. */
+  const apply = (mesh: Mesh, o: Owned): void => {
+    const keep = swapped && o.twin !== null;
+    const base: Material | Material[] = keep ? o.twin! : o.own;
+    const f = o.fade;
+    mesh.material = f ? (Array.isArray(base) ? base.map((x) => ghostOf(x, f)) : ghostOf(base, f)) : base;
+    mesh.renderOrder = keep && isOpaque(o.own) ? FIRST : o.order;
+    // owned only while something changes it: a mesh with no twin and no fade is its own again, and forgotten
+    if (o.twin === null && o.fade === null) owned.delete(mesh);
+  };
   paint.onActive = (on) => {
     if (on === swapped) return;
     swapped = on;
-    for (const [mesh, k] of kept) {
-      mesh.material = on ? k.twin : k.own;
-      if (!k.own.transparent) mesh.renderOrder = on ? FIRST : k.order;
-    }
+    for (const [mesh, o] of owned) if (o.twin) apply(mesh, o);
   };
   /** Every schemed material made, and how to make its twin; the twins made. */
   const twinOf = new Map<Material, () => Pbr>();
@@ -430,6 +499,9 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
   const textured = new Map<string, Pbr>();
+  /** (round three) The see-through twins made, per material and fade. */
+  const ghosts = new WeakMap<Material, WeakMap<{ value: number }, Pbr>>();
+  const ghostList: Pbr[] = [];
 
   const uniformsOf = (cls: MaterialClass): ClassUniforms => {
     let u = uniformsBy.get(cls);
@@ -473,6 +545,21 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       halo ??= buildHalo();
       return halo;
     },
+    seeThrough(material, fade) {
+      // (a shared material, a textured one or a keepColours twin alike: each knows how it was built)
+      const r = RECIPES.get(material);
+      if (!r || r.sh !== sh) return null;
+      let byFade = ghosts.get(material);
+      if (!byFade) ghosts.set(material, (byFade = new WeakMap()));
+      let t = byFade.get(fade);
+      if (!t) {
+        t = build(r.cls, CLASSES[r.cls], sh, uniformsOf(r.cls), r.variant, fade);
+        t.name = `${material.name}/see-through`;
+        byFade.set(fade, t);
+        ghostList.push(t);
+      }
+      return t;
+    },
     of,
     textured(cls, key) {
       const k = `${cls}\u0000${key}`;
@@ -495,24 +582,60 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     paint,
     keepColours(root) {
       let n = 0;
-      root.traverse((o) => {
-        const mesh = o as Mesh;
-        if (!mesh.isMesh || Array.isArray(mesh.material) || kept.has(mesh)) return;
-        const make = twinOf.get(mesh.material);
+      root.traverse((x) => {
+        const mesh = x as Mesh;
+        if (!mesh.isMesh) return;
+        const o = owned.get(mesh);
+        if (o?.twin) return;
+        const own = o ? o.own : mesh.material;
+        if (Array.isArray(own)) return;
+        const make = twinOf.get(own);
         if (!make) return;
-        let t = twins.get(mesh.material);
+        let t = twins.get(own);
         if (!t) {
           t = make();
-          twins.set(mesh.material, t);
+          twins.set(own, t);
         }
-        kept.set(mesh, { own: mesh.material, twin: t, order: mesh.renderOrder });
-        if (swapped) {
-          mesh.material = t;
-          if (!t.transparent) mesh.renderOrder = FIRST;
-        }
+        const next: Owned = o ?? { own, twin: null, order: mesh.renderOrder, fade: null };
+        next.twin = t;
+        owned.set(mesh, next);
+        apply(mesh, next);
         n++;
       });
       return n;
+    },
+    prepareFade(root, fade, compile) {
+      // each mesh, for the length of the compile call, on the ghost of what it is drawn with at home (the ghost of its
+      // keep twin shares that program: it is made now too, so a fade under a scheme builds nothing either)
+      const lent: Array<[Mesh, Material | Material[]]> = [];
+      root.traverse((x) => {
+        const mesh = x as Mesh;
+        if (!mesh.isMesh) return;
+        const o = owned.get(mesh);
+        const own = o ? o.own : mesh.material;
+        if (o?.twin) ghostOf(o.twin, fade);
+        lent.push([mesh, mesh.material]);
+        mesh.material = Array.isArray(own) ? own.map((m) => ghostOf(m, fade)) : ghostOf(own, fade);
+      });
+      let p: Promise<number>;
+      try {
+        p = compile(root);
+      } finally {
+        for (const [mesh, m] of lent) mesh.material = m;
+      }
+      return p;
+    },
+    fade(root, fade) {
+      root.traverse((x) => {
+        const mesh = x as Mesh;
+        if (!mesh.isMesh) return;
+        const o = owned.get(mesh);
+        if (!o && fade === null) return;
+        const next: Owned = o ?? { own: mesh.material, twin: null, order: mesh.renderOrder, fade: null };
+        next.fade = fade;
+        owned.set(mesh, next);
+        apply(mesh, next);
+      });
     },
     update(time) {
       paint.update(time);
@@ -539,6 +662,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     dispose() {
       for (const m of shared.values()) m.dispose();
       for (const m of textured.values()) m.dispose();
+      for (const m of ghostList) m.dispose();
+      ghostList.length = 0;
       for (const m of twins.values()) m.dispose();
       twins.clear();
       twinOf.clear();

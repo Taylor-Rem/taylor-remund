@@ -44,7 +44,7 @@ import type { LabelOptions, LabelRegion as LabelRegionContract, Labels } from '.
 import type { Alpha, AtlasInfo, Page, PageKind, Rect } from './atlas.ts';
 import { Atlas } from './atlas.ts';
 import type { Painted } from './draw.ts';
-import { ARROW, ARROW_ADVANCE, advance, checkText, context, paintPhone } from './draw.ts';
+import { ARROW, ARROW_ADVANCE, PICTO_ADVANCE, advance, checkText, context, isShape, paintPhone } from './draw.ts';
 import { fontBytes, loadFonts } from './fonts.ts';
 import type { FaceRole } from './fonts.ts';
 import type { Plan, PlanOptions, Register } from './layout.ts';
@@ -167,7 +167,7 @@ export interface RegionOptions {
 /** The concrete labels: the `Labels` contract plus inspection for dev pages and budgets. */
 export interface WorkshopLabels extends Labels {
   tape(text: string, colour?: 'black' | 'red' | 'blue', opts?: LabelOpts): string;
-  stencil(text: string, opts?: LabelOpts & { paint?: import('../palette.ts').Token }): string;
+  stencil(text: string, opts?: LabelOpts & { paint?: import('../palette.ts').Token; heavy?: boolean }): string;
   card(text: string, opts?: LabelOpts): string;
   slip(text: string, opts?: LabelOpts): string;
   plate(text: string, opts?: LabelOpts): string;
@@ -292,7 +292,7 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
     let a = advFor.get(role);
     if (!a) {
       const base = advance(role);
-      a = role === 'stencil' ? (ch, next) => (ch === ARROW ? ARROW_ADVANCE : base(ch, next === ARROW ? undefined : next)) : base;
+      a = role === 'stencil' ? (ch, next) => (ch === ARROW ? ARROW_ADVANCE : isShape(ch) ? PICTO_ADVANCE : base(ch, next !== undefined && isShape(next) ? undefined : next)) : base;
       advFor.set(role, a);
     }
     return a;
@@ -438,11 +438,12 @@ export async function createLabels(opts: LabelsOptions = {}): Promise<WorkshopLa
     },
     stencil(text, o) {
       const paint = o?.paint ?? 'ink';
-      const key = labelKey('stencil', text, paint, o);
+      const heavy = o?.heavy === true;
+      const key = labelKey('stencil', text, heavy ? `${paint}.heavy` : paint, o);
       return make(key, 'stencil', text, o, (rr) => {
         const t = text.toUpperCase();
-        checkText('stencil', t.split(ARROW).join(''));
-        return planStencil(t, adv('stencil'), rr, o);
+        checkText('stencil', [...t].filter((c) => !isShape(c)).join(''));
+        return planStencil(t, adv('stencil'), rr, { ...o, heavy });
       }, { paint });
     },
     card(text, o) {

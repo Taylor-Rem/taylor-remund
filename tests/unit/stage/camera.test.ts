@@ -200,3 +200,66 @@ describe('camera rig: pan limits follow what is off-screen', () => {
     expect(hard.focus.x).toBeCloseTo(hard.panRange().x[1], 6);
   });
 });
+
+describe('camera rig: only a look comes closer than a station (P4 S5 round three)', () => {
+  const rig = (): CameraRig => {
+    const r = new CameraRig({ fov: 20, pitch: 33, stationSize: 1.9, lookSize: 1.3 });
+    r.setSubject(bench);
+    return r;
+  };
+  it('the station range is what it was: lookSize changes neither zoom 1 nor the visitor\'s zoom', () => {
+    const a = rig();
+    const b = new CameraRig({ fov: 20, pitch: 33, stationSize: 1.9 });
+    b.setSubject(bench);
+    for (const r of [a, b]) {
+      r.cutTo({ focus: [0, 0.5, 0], zoom: 1 });
+      for (let i = 0; i < 40; i++) r.zoomBy(0.8);
+    }
+    expect(a.zoom).toBe(1);
+    expect(a.distance).toBeCloseTo(b.distance, 9);
+    // an ordinary ease or cut past 1 is held at a station's
+    a.easeTo({ focus: [0, 0.5, 0], zoom: 1.4 });
+    for (let i = 0; i < 60; i++) a.update(1 / 30);
+    expect(a.zoom).toBe(1);
+    a.cutTo({ focus: [0, 0.5, 0], zoom: 1.4 });
+    expect(a.zoom).toBe(1);
+    expect(b.lookZoom).toBe(1);
+  });
+  it('a look goes closer, as far as lookZoom; wheel in there does nothing, wheel out comes smoothly back into the range', () => {
+    const r = rig();
+    expect(r.lookZoom).toBeGreaterThan(1.05);
+    r.easeTo({ focus: [0, 0.5, 0], zoom: 9 }, 0.7, { close: true });
+    for (let i = 0; i < 60; i++) r.update(1 / 30);
+    expect(r.zoom).toBeCloseTo(r.lookZoom, 9);
+    const d0 = r.distance;
+    r.zoomBy(0.8);
+    expect(r.distance).toBeCloseTo(d0, 9);
+    let last = r.distance;
+    for (let i = 0; i < 12; i++) {
+      r.zoomBy(1.1);
+      expect(r.distance / last).toBeCloseTo(1.1, 6); // each notch the same, through 1 and below
+      last = r.distance;
+    }
+    expect(r.zoom).toBeLessThan(1);
+    // and once back in the range, the visitor's zoom stops at a station's again
+    for (let i = 0; i < 40; i++) r.zoomBy(0.8);
+    expect(r.zoom).toBe(1);
+  });
+  it('easing away from a look (back to a station) glides down without a jump; reduced motion cuts', () => {
+    const r = rig();
+    r.cutTo({ focus: [0, 0.5, 0], zoom: 1.2 }, { close: true });
+    expect(r.zoom).toBeCloseTo(Math.min(1.2, r.lookZoom), 9);
+    const z0 = r.zoom;
+    r.easeTo({ focus: [1, 0.5, 0], zoom: 0.6 });
+    r.update(1 / 60);
+    expect(r.zoom).toBeLessThanOrEqual(z0);
+    expect(z0 - r.zoom).toBeLessThan(0.02);
+    for (let i = 0; i < 60; i++) r.update(1 / 30);
+    expect(r.zoom).toBeCloseTo(0.6, 9);
+    expect(r.reach).toBe(1);
+    r.reducedMotion = true;
+    r.easeTo({ focus: [0, 0.5, 0], zoom: 9 }, 0.7, { close: true });
+    expect(r.easing).toBe(false);
+    expect(r.zoom).toBeCloseTo(r.lookZoom, 9);
+  });
+});

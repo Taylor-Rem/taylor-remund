@@ -95,6 +95,13 @@ export interface Stage {
    * draws the scene into (F1), and leaving out what the camera never draws (`hideUnseen`).
    */
   compile(): void;
+  /**
+   * (D2c) Build the programs of one object's materials as they are now (for the target the frame draws the scene into,
+   * with the scene's lights), then make each one finish linking, one per task, so none is linked by the frame that
+   * first draws with it. For programs nothing in the scene draws yet (the see-through ghosts). Returns how many
+   * programs were added.
+   */
+  compileObject(object: import('three').Object3D): Promise<number>;
   /** Re-read the canvas size (also done automatically on resize). */
   resize(): void;
   /** Render at a fraction of the pixel ratio (step-down when frame time worsens, § E7). */
@@ -382,6 +389,18 @@ export function createStage(canvas: HTMLCanvasElement, opts: StageOptions): Stag
           o.visible = v;
           o.frustumCulled = c;
         }
+      }
+      return (renderer.info.programs?.length ?? 0) - before;
+    },
+    async compileObject(object) {
+      const before = renderer.info.programs?.length ?? 0;
+      const made = onSceneTarget(() => renderer.compile(object, camera.camera, scene));
+      // without KHR_parallel_shader_compile a program finishes linking when it is first asked about: ask now, one a task
+      for (const m of made) {
+        const p = (renderer.properties.get(m) as { currentProgram?: { getUniforms(): unknown } }).currentProgram;
+        if (!p) continue;
+        p.getUniforms();
+        await new Promise((r) => setTimeout(r, 0));
       }
       return (renderer.info.programs?.length ?? 0) - before;
     },

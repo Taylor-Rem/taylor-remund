@@ -17,6 +17,7 @@ export type { CommitResult } from './context.ts';
 export type { Change, HistoryHooks, HistoryPort, Recorded, ActionKind, Entry, Job, TransactionView, UndoOutcome, UndoRequest, Undone } from './history.ts';
 export { createHistory, p1History, HISTORY_TUNING } from './history.ts';
 export type { Writer } from './store.ts';
+export { CRATES_TUNING } from './machines/crates.ts';
 export { BUTTON_TUNING } from './machines/button.ts';
 export { FETCH_TUNING, fetchReach, fetchStand, canRunLap } from './crew/fetch.ts';
 export { lanePath, laneOutline } from './path.ts';
