@@ -7,7 +7,7 @@ import { steps, HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, RevertView, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 
-const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
 const BACK_LEFT: Vec3 = [-8.2, 0, -4.2];
 const rv = (w: World): RevertView => w.machine('revert-crew') as RevertView;
 const loose = (w: World): Id => CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;

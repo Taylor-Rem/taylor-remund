@@ -8,6 +8,7 @@ import buttonJson from '../../../content/button.json';
 import revertJson from '../../../content/revert.json';
 import patchlampJson from '../../../content/patchlamp.json';
 import { assertContent } from '../../../content/schema.ts';
+import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
 import type { Entry } from '../../../content/schema.ts';
 import type { PhoneMessage } from './layout.ts';
 
@@ -106,6 +107,11 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.jack.reserved': patchlamp.names.jack.reserved as Entry,
   'slip.reserved': patchlamp.slips.reserved as Entry,
   'slip.platen-full': patchlamp.slips.platenFull as Entry,
+  // P4 S5: the project crates (src/content/bench-projects.json): each crate is called by its project's published title
+  ...Object.fromEntries(Object.values(BENCH_PROJECTS).map((p) => [`name.project.${p.id}`, p.entry.title as Entry])),
+  'name.lid': raw.names.lid as Entry,
+  'name.plate': raw.names.plate as Entry,
+  'name.standin': raw.names.standin as Entry,
 };
 
 /** Every content id this module resolves. */

@@ -167,6 +167,19 @@ export interface PartsViewOptions {
   feel?: Partial<PartsFeel>;
   /** Contact shadows under the parts: 'auto' = strong on the low tier, faint on high. */
   blobs?: 'auto' | 'off' | number;
+  /**
+   * P4 S5: more on some parts, drawn with them: `make` once a part's piece is realized (its object, and the group the
+   * part is posed by), `update` every frame after the part is posed (`shown`: drawn this frame), `dispose` with the view.
+   * The project crates' lids, cards and the pick targets of their latches and plates (view/bench/stations/parts.ts).
+   */
+  decorate?: (ctx: ViewContext) => PartDecorator;
+}
+
+/** What `PartsViewOptions.decorate` gives: view-only additions to parts (never a pose the simulation owns). */
+export interface PartDecorator {
+  make(part: Part, obj: Object3D, group: Group, half: Vec3): void;
+  update(part: Part, obj: Object3D, group: Group, frame: Frame, shown: boolean): void;
+  dispose?(): void;
 }
 
 /** The parts view, and what it draws on a part (read back from the drawing itself: tests and review pages). */
@@ -276,6 +289,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
     const shadows = blobOpacity > 0 ? new BlobShadows(ctx.materials.decal(), 64, blobOpacity).addTo(root) : null;
     const blobs: Blob[] = [];
     const regions = new Map<Id, LabelRegion>();
+    const deco = opts.decorate?.(ctx) ?? null;
     if (opts.tapes) for (const p of opts.known ?? []) if (p.kind === 'crate') regions.set(p.id, crateTapeRegion(ctx.labels, p.id, p.size));
 
     const make = (part: Part): Entry => {
@@ -302,6 +316,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
       };
       if (region) crateTape(obj, 0);
       entries.set(part.id, e);
+      deco?.make(part, obj, g, half);
       return e;
     };
 
@@ -409,6 +424,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
             // out of sight it still wears its fields, so it comes back as it went
             partShows(hooks, part, frame, work);
             look(e, work, m ? qa.set(m.pose.q[0], m.pose.q[1], m.pose.q[2], m.pose.q[3]) : qa.identity());
+            deco?.update(part, e.obj, e.root, frame, false);
             continue;
           }
           e.root.visible = true;
@@ -483,6 +499,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
             blobs.push(b);
             e.lastBlob = Object.assign(e.lastBlob ?? { x: 0, z: 0, rx: 0, rz: 0, strength: 0, y: 0 }, b);
           }
+          deco?.update(part, e.obj, e.root, frame, true);
           // as it was drawn, should the chute take it from here (its exit)
           e.shown = true;
           e.exitAt = null;
@@ -498,6 +515,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
         return { ...r, text: e.text };
       },
       dispose() {
+        deco?.dispose?.();
         shadows?.dispose();
         root.removeFromParent();
         entries.clear();

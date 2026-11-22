@@ -38,7 +38,7 @@ describe("Revert's sweep", () => {
       // R3: into the dustpan, carried home and down the hatch, and back up the chute onto the pad
       expect(dropped.has(s.part), `${s.part} down the hatch`).toBe(true);
       // back up the chute onto the pad, or owed until the pad is free (this bench has no rounds: nobody takes the pad's crate)
-      const padTaken = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'].some((id) => {
+      const padTaken = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'].some((id) => {
         const q = w.motion(id)?.pose.p;
         return w.mode(id) === 'free' && !!q && Math.hypot(q[0] - AT.pad[0], q[2] - AT.pad[1]) < 0.5;
       });

@@ -38,7 +38,7 @@ const N = Number(process.env.SIGHT_SESSIONS ?? 2);
 const FROM = Number(process.env.SIGHT_FROM ?? 1);
 const MINUTES = Number(process.env.SIGHT_MINUTES ?? 3);
 const ONLY = process.env.SIGHT_SEED ?? null;
-const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
 
 /**
  * The bounds (seconds), from the page's eye. Standing still: 3, a salute (1.1 s) or a shrug (1.0 s) and the idle pause

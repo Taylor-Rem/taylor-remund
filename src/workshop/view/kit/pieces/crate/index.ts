@@ -32,7 +32,7 @@
  * Stencil textures come from view/labels: call `crateLabels(labels)` once
  * before realizing a crate (it makes the keys the crate's parts name).
  */
-import { BufferAttribute, CatmullRomCurve3, Matrix4, Vector3, type BufferGeometry } from 'three';
+import { BufferAttribute, CatmullRomCurve3, Matrix4, Quaternion, Vector3, type BufferGeometry, type Mesh, type Object3D } from 'three';
 import type { KitOptions, KitPart, MaterialClass, Piece, PieceNode } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import type { Labels } from '../../../types.ts';
@@ -45,6 +45,7 @@ import { rng, type Rng } from '../../rng.ts';
 import { sweep, polylinePath, curvePath } from '../../sweep.ts';
 import { labelKey } from '../../../labels/layout.ts';
 import { world } from '../../../labels/content.ts';
+import { benchProject as P } from '../../../../../content/bench-projects.ts';
 import { axisChamfer, bevelBox, chamferBox, cornerChamfer, decalBands, innerBox, mergeMarked, pip, skin, type FaceName } from './geo.ts';
 import type { V3 } from '../../loft.ts';
 import { PAINT, STENCIL, TAPE, stencilInk, writePaint, writeStencil, type PaintInfo, type StencilInfo, type StencilInk } from './paint.ts';
@@ -64,6 +65,22 @@ export interface CrateOptions extends KitOptions {
    * `crateTape`): the texture key of a label region the size `crateTapeSize` gives. None without it.
    */
   tape?: string;
+  /**
+   * P4 S5: a project's name, sprayed across the front planks in the stencil (the crate-stencil voice: facts), one entry
+   * per line, each a stencil label in both inks (`crateWordKeys` makes them) with the label's own width / height. The
+   * lines are fitted to the panel at one capital height, as large as they go.
+   */
+  words?: readonly StencilLine[];
+  /** With `words`: keep the size letter and the arrows too, small, under the words (`both`), or not (`words`, the default). */
+  legend?: 'words' | 'both';
+  /** P4 S5: a short mark on the crate's right side (+X): who it was built for, line by line, as `words`. */
+  mark?: readonly StencilLine[];
+}
+
+/** One sprayed line of stencil: its label key in each ink, and the label quad's width over its height. */
+export interface StencilLine {
+  readonly keys: Readonly<Record<StencilInk, string>>;
+  readonly aspect: number;
 }
 
 interface Spec {
@@ -149,6 +166,20 @@ export function crateLabelKeys(size: CrateSize, ink: StencilInk = 'ink'): { arro
     letter: labelKey('stencil', t.letter, ink, { capHeight: s.letterCap }),
   };
 }
+
+/**
+ * P4 S5: the stencil labels for lines of words (a project's name, who it was built for), both inks, at one capital height
+ * (`cap`, world units: the texture's; the quad on the crate is scaled to fit, so a larger `cap` is a sharper spray).
+ */
+export function crateWordKeys(labels: Labels, lines: readonly string[], cap = WORD_CAP): StencilLine[] {
+  return lines.map((text) => {
+    const keys = { ink: labels.stencil(text, { paint: 'ink', capHeight: cap }), paper: labels.stencil(text, { paint: 'paper', capHeight: cap }) };
+    const sz = labels.size(keys.ink);
+    return { keys, aspect: sz.w / sz.h };
+  });
+}
+/** The capital height a project's words are painted at (the texture; the quad is fitted to the crate). */
+export const WORD_CAP = 0.08;
 
 /** Make every texture a crate needs (all three sizes, both inks). Call once before realizing crates. */
 export function crateLabels(labels: Labels): void {
@@ -328,6 +359,57 @@ export function crate(o: CrateOptions = {}): Piece {
       y += ph + (gaps[i] ?? 0);
     }
     // the dark inside, seen through the gaps
+    /** Spray stencil quads on this wall's planks, each band riding its own plank (its tilt), cut at the gaps. */
+    const spray = (marks: ReadonlyArray<readonly [string, number, number, number, number, number]>): void => {
+      const zs = 0.0042;
+      for (const [key, cx, cy, w, h, tilt] of marks) {
+        for (let i = 0; i < n; i++) {
+          const band = bands[i]!;
+          const g = decalBands(cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, [band]);
+          if (!g) continue;
+          // the stencil was held a little crooked: turn the texture, not the band (the band must stop at the gap)
+          const uv = g.getAttribute('uv') as BufferAttribute;
+          const ca = Math.cos(tilt * DEG), sa = Math.sin(tilt * DEG);
+          for (let j = 0; j < uv.count; j++) {
+            const px = (uv.getX(j) - 0.5) * w, py = (uv.getY(j) - 0.5) * h;
+            uv.setXY(j, (px * ca - py * sa) / w + 0.5, (px * sa + py * ca) / h + 0.5);
+          }
+          // the band is in wall coordinates: onto plank i's face (its own cup)
+          transform(g, chain(plankMats[i]!, T(0, -plankYs[i]!, zs)));
+          into(b, texturedPart('wood', g, key));
+        }
+      }
+    };
+    /**
+     * P4 S5: lines of words fitted to a box of this wall (x across, y up, in wall coordinates), at one capital height, as
+     * large as the box allows; each line a hair crooked and off centre (a hand with a stencil), from its own stream.
+     */
+    const fitWords = (lines: readonly StencilLine[], x0: number, x1: number, y0: number, y1: number, Rw: Rng): Array<{ line: StencilLine; cx: number; cy: number; w: number; h: number; tilt: number }> => {
+      if (lines.length === 0) return [];
+      const PITCH = 1.3; // capitals from one line's baseline to the next's
+      // (P4 S5) a line is never sprayed across a gap between planks: the lines are shared out among the planks the box
+      // covers, top first, as evenly as they go, and each plank's lines are fitted to that plank's face
+      const planks = bands.map(([a, b]) => [Math.max(a, y0), Math.min(b, y1)] as const).filter(([a, b]) => b - a > 0.02).reverse();
+      const slots = planks.length > 0 ? planks : [[y0, y1] as const];
+      const per = slots.map((_, k) => Math.floor(lines.length / slots.length) + (k < lines.length % slots.length ? 1 : 0)).filter((c) => c > 0);
+      const widest = Math.max(...lines.map((l) => l.aspect * STENCIL_H));
+      let cap = ((x1 - x0) * 0.97) / widest;
+      per.forEach((c, k) => {
+        const [a, b] = slots[k]!;
+        cap = Math.min(cap, ((b - a) * 0.96) / (PITCH * (c - 1) + STENCIL_H));
+      });
+      const out: Array<{ line: StencilLine; cx: number; cy: number; w: number; h: number; tilt: number }> = [];
+      let li = 0;
+      per.forEach((c, k) => {
+        const [a, b] = slots[k]!;
+        const top = (a + b) / 2 + (cap * PITCH * (c - 1)) / 2;
+        for (let m = 0; m < c; m++, li++) {
+          const line = lines[li]!;
+          out.push({ line, cx: (x0 + x1) / 2 + Rw.spread(cap * 0.08), cy: top - m * cap * PITCH + Rw.spread(cap * 0.04), w: line.aspect * STENCIL_H * cap, h: STENCIL_H * cap, tilt: Rw.spread(0.9) });
+        }
+      });
+      return out;
+    };
     if (wl.front) {
       // stencil: arrows over the size letter, sprayed across the planks
       if (o.stencil !== false) {
@@ -346,32 +428,37 @@ export function crate(o: CrateOptions = {}): Piece {
           ax = R.spread(0.01); ay = n === 1 ? panelY0 + ph2 * 0.73 : mid(bands[n - 1]!);
           lxp = R.spread(0.012); lyp = n === 1 ? panelY0 + ph2 * 0.34 : mid(bands[0]!) + 0.015;
         }
-        const zs = 0.0042;
         const tilts = [R.spread(1.2), R.spread(1.2)];
+        // (P4 S5) the draws above are made whatever is sprayed, so every later plank keeps the tint, lean and chips it had
+        const words = o.words ?? [];
+        const Rw = rng(seed * 7919 + size.charCodeAt(0) + 104729);
+        const both = words.length > 0 && o.legend === 'both';
+        // the words fill the panel; with the size letter and arrows kept, the panel above a strip at its foot for them
+        const k = 0.62;
+        const legendH = both ? Math.max(ah, lh) * k + 0.012 : 0;
+        const placed = fitWords(words, -pw / 2 + 0.006, pw / 2 - 0.006, panelY0 + legendH + 0.004, panelY1 - 0.006, Rw);
         // both inks are sprayed in the same place; the one the paint does not want sinks into the plank
         for (const ink of STENCIL_INKS) {
           const keys = crateLabelKeys(size, ink);
-          const marks = [[keys.arrows, ax, ay, aw, ah, tilts[0]!], [keys.letter, lxp, lyp, lw, lh, tilts[1]!]] as const;
-          for (const [key, cx, cy, w, h, tilt] of marks) {
-            // each band rides its own plank (its tilt), cut at the gaps
-            for (let i = 0; i < n; i++) {
-              const band = bands[i]!;
-              const g = decalBands(cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2, [band]);
-              if (!g) continue;
-              // the stencil was held a little crooked: turn the texture, not the band (the band must stop at the gap)
-              const uv = g.getAttribute('uv') as BufferAttribute;
-              const ca = Math.cos(tilt * DEG), sa = Math.sin(tilt * DEG);
-              for (let j = 0; j < uv.count; j++) {
-                const px = (uv.getX(j) - 0.5) * w, py = (uv.getY(j) - 0.5) * h;
-                uv.setXY(j, (px * ca - py * sa) / w + 0.5, (px * sa + py * ca) / h + 0.5);
-              }
-              // the band is in wall coordinates: onto plank i's face (its own cup)
-              transform(g, chain(plankMats[i]!, T(0, -plankYs[i]!, zs)));
-              into(b, texturedPart('wood', g, key));
-            }
+          const marks: Array<readonly [string, number, number, number, number, number]> = [];
+          if (words.length === 0) marks.push([keys.arrows, ax, ay, aw, ah, tilts[0]!], [keys.letter, lxp, lyp, lw, lh, tilts[1]!]);
+          else if (both) {
+            // small, in the strip at the panel's foot: the arrows at the left, the letter at the right
+            const sy = panelY0 + legendH / 2 + 0.002;
+            marks.push([keys.arrows, -pw / 2 + (aw * k) / 2 + 0.012, sy, aw * k, ah * k, tilts[0]!], [keys.letter, pw / 2 - (lw * k) / 2 - 0.012, sy, lw * k, lh * k, tilts[1]!]);
           }
+          for (const p of placed) marks.push([p.line.keys[ink], p.cx, p.cy, p.w, p.h, p.tilt]);
+          spray(marks);
         }
       }
+    }
+    // P4 S5: who it was built for, on the right side (+X), smaller, in the upper part of the panel
+    if (o.stencil !== false && o.mark && o.mark.length > 0 && wl.rot === 90) {
+      const pw = 2 * xIn;
+      const ph2 = panelY1 - panelY0;
+      const Rm = rng(seed * 7919 + size.charCodeAt(0) + 130363);
+      const placed = fitWords(o.mark, -pw * 0.42, pw * 0.42, panelY0 + ph2 * 0.5, panelY1 - 0.01, Rm);
+      for (const ink of STENCIL_INKS) spray(placed.map((p) => [p.line.keys[ink], p.cx, p.cy, p.w, p.h, p.tilt] as const));
     }
     // S: nail heads where the rails meet the posts
     if (S.nails && !low) {
@@ -410,12 +497,13 @@ export function crate(o: CrateOptions = {}): Piece {
   // the inside: dark, so the gaps read as depth (faces look inward)
   {
     const inX = W / 2 - S.proud - S.plankT, inZ = D / 2 - S.proud - S.plankT;
-    into(b, part('wood', innerBox([-inX, y0 + 0.02, -inZ], [inX, yLid - 0.002, inZ]), 'wood', { seed: 3, shade: 0.4 }));
+    into(b, part('wood', innerBox([-inX, y0 + 0.02, -inZ], [inX, yLid - 0.002, inZ], true), 'wood', { seed: 3, shade: 0.4 }));
     // the floor seen from below
     into(b, wood(bevelBox({ min: [-W / 2 + P * 0.5, y0 + 0.004, -D / 2 + P * 0.5], max: [W / 2 - P * 0.5, y0 + 0.03, D / 2 - P * 0.5], omit: ['px', 'nx', 'py', 'pz', 'nz'] }), 'wood-light', { seed: R.int(0, 1e6), shade: 0.8 }));
   }
 
-  // L: the diagonal brace across the front, its ends cut level against the rails
+  // L: the diagonal brace across the front, its ends cut level against the rails (P4 S5: across the back, when the
+  // front carries a project's name: the brace hid it)
   if (S.brace) {
     const xIn = W / 2 - P;
     const zf = zP(D / 2);
@@ -426,6 +514,7 @@ export function crate(o: CrateOptions = {}): Piece {
     const ym = (ya + yb) / 2;
     deform(g, (x, yy, z) => [x + (yy - ym) * slope, yy, z], { keepSurf: true });
     grain(g, new Matrix4().makeRotationZ(-Math.atan(slope))); // grain along the brace
+    if (o.words && o.words.length > 0 && o.stencil !== false) transform(g, Ry(180));
     into(b, wood(g, 'wood-light', { seed: R.int(0, 1e6), jitter: 0.08, warm: 0.05, shade: 0.95 }));
   }
 
@@ -505,6 +594,8 @@ export function crate(o: CrateOptions = {}): Piece {
       into(lid, wood(g, 'wood-light', { seed: R.int(0, 1e6), jitter: 0.13, warm: 0.07, shade: 0.8 }, { geoms: [sk], tone: paintTone(), under: face }), toLid);
       z += pd + (gaps[i] ?? 0);
     }
+    // (P4 S5) its underside, one flat board face: an open lid shows it (two triangles; no draw from the crate's stream)
+    into(lid, wood(bevelBox({ min: [-W / 2 + 0.004, yLid + 0.0015, -D / 2 + 0.004], max: [W / 2 - 0.004, yLid + 0.003, D / 2 - 0.004], c: 0, omit: ['px', 'nx', 'py', 'pz', 'nz'] }), 'wood', { seed: seed * 31 + 7, shade: 0.7 }), toLid);
     // two cleats across the planks, near the ends
     for (const sx of [-1, 1]) {
       const xc = sx * (W / 2 - S.cleatW / 2 - 0.012) + R.spread(0.004);
@@ -642,10 +733,17 @@ export const catalogue: CatalogueEntry[] = [
         ...(opts['stencil'] === true ? {} : { stencil: false }),
         // label tape: a label region's key (the parts view makes one per crate)
         ...(typeof opts['tape'] === 'string' ? { tape: opts['tape'] } : {}),
+        // P4 S5: a project's words and who it was built for (the stencil lines `labels` below makes from `words`, `mark`)
+        ...(Array.isArray(opts['wordLines']) ? { words: opts['wordLines'] as StencilLine[] } : {}),
+        ...(Array.isArray(opts['markLines']) ? { mark: opts['markLines'] as StencilLine[] } : {}),
+        ...(opts['legend'] === 'both' ? { legend: 'both' as const } : {}),
       }),
-    labels: (labels) => {
+    labels: (labels, opts) => {
       crateLabels(labels);
-      return { stencil: true };
+      const lines = (v: unknown): string[] | null => (Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : null);
+      const words = lines(opts['words']);
+      const mark = lines(opts['mark']);
+      return { stencil: true, ...(words ? { wordLines: crateWordKeys(labels, words) } : {}), ...(mark ? { markLines: crateWordKeys(labels, mark, WORD_CAP * 0.8) } : {}) };
     },
     variants: {
       M: { size: 'M' },
@@ -655,6 +753,12 @@ export const catalogue: CatalogueEntry[] = [
       'S red': { size: 'S', paint: 'cable-red' },
       'L green': { size: 'L', paint: 'paint-green' },
       'M low': { size: 'M', detail: 'low' },
+      // P4 S5: a project crate (the words are the published title; who it was built for on its right side)
+      'L project': { size: 'L', words: P('ledger').stencil, mark: P('ledger').madeFor },
+      'M project': { size: 'M', words: P('reports').stencil, mark: P('reports').madeFor },
+      'S project': { size: 'S', words: P('artificer').stencil, mark: P('artificer').madeFor },
+      'S project, size kept': { size: 'S', words: P('t-components').stencil, mark: P('t-components').madeFor, legend: 'both' },
+      'L project, size kept': { size: 'L', words: P('ledger').stencil, mark: P('ledger').madeFor, legend: 'both' },
     },
     camera: { distance: 3.2 },
     note: 'Shipping crate, S/M/L built differently; paint on the panels (repaint without rebuild), stencil from labels.',
@@ -662,3 +766,36 @@ export const catalogue: CatalogueEntry[] = [
 ];
 
 export type { FaceName };
+
+// ---- the lid (P4 S5) ------------------------------------------------------------
+
+const lidRest = new WeakMap<Object3D, Quaternion>();
+const lq = new Quaternion();
+const lyAxis = new Vector3(0, 1, 0);
+/** How far the lid swings open (it leans back past upright), and the hasp off its staple first (radians). */
+export const LID_OPEN = 112 * DEG;
+export const HASP_OPEN = 105 * DEG;
+
+/**
+ * Pose a realized crate's lid: `lid` 0 shut .. 1 open (the lid about its back hinge), `hasp` 0 down over the staple ..
+ * 1 swung up off it. View-only: the bones (or the per-node groups) of nodes `lid` and `latch` turn about their local Y.
+ */
+export function crateLid(object: Object3D, lid: number, hasp: number): void {
+  for (const [name, a] of [['lid', -lid * LID_OPEN], ['latch', -hasp * HASP_OPEN]] as const) {
+    let node: Object3D | undefined;
+    object.traverse((x) => {
+      if (!node && x.name === name && !(x as Mesh).isMesh) node = x;
+    });
+    if (!node) continue;
+    let rest = lidRest.get(node);
+    if (!rest) lidRest.set(node, (rest = node.quaternion.clone()));
+    node.quaternion.copy(rest).multiply(lq.setFromAxisAngle(lyAxis, a));
+    node.updateMatrix();
+  }
+}
+
+/** The world size of a crate's mouth inside its walls (x, z), and the height of its rim over its base: where its card stands and its thing sits. */
+export function crateMouth(size: CrateSize): { w: number; d: number; rim: number } {
+  const S = SPECS[size];
+  return { w: S.w - 2 * (S.proud + S.plankT), d: S.d - 2 * (S.proud + S.plankT), rim: S.h - S.cleatT - S.lidT };
+}

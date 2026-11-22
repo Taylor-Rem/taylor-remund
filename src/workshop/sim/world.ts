@@ -489,8 +489,9 @@ export function createWorld(opts: WorldOptions): World {
       store.define(spec.id, f, values[f]);
       validators.set(vkey(spec.id, f), PART_VALIDATORS[f]);
     }
-    // (a crew member's own body waits out of the world, as a spare does, until its unit is taken hold of)
-    const out = spec.shipped === true || spec.crewBody === true;
+    // (a crew member's own body waits out of the world, as a spare does, until its unit is taken hold of; so does a
+    // thing a project crate holds, until its crate is opened: P4 S5)
+    const out = spec.shipped === true || spec.crewBody === true || spec.stowedIn !== undefined;
     const pose0 = out ? HIDDEN : spec.pose;
     const feel = { ...m, ...spec.feel };
     physics.addBody({ id: spec.id, kind: 'dynamic', shape: { type: 'box', half, ...(spec.round !== undefined ? { radius: spec.round } : {}) }, pose: pose0, mass, friction: feel.friction, restitution: feel.restitution, linearDamping: feel.linearDamping, angularDamping: feel.angularDamping, ccd: true });
@@ -517,7 +518,9 @@ export function createWorld(opts: WorldOptions): World {
   for (const l of loose.values()) {
     validators.set(vkey(l.id, 'location'), PART_VALIDATORS.location);
     if (l.mode === 'gone') {
-      store.define(l.id, 'location', { at: 'shipped' });
+      // (P4 S5: a crate's thing starts in its crate: `in` it, its crate's id the mouth; sim/machines/crates.ts keeps it)
+      const inside = scene.parts.find((p) => p.id === l.id)?.stowedIn;
+      store.define(l.id, 'location', inside !== undefined ? { at: 'in', station: scene.parts.find((p) => p.id === l.id)!.station, mouth: inside } : { at: 'shipped' });
       continue;
     }
     const p = physics.pose(l.id);
@@ -1581,7 +1584,9 @@ export function createWorld(opts: WorldOptions): World {
   // ── P3: the visit's snapshot (§ E10) ──
   const savedNow = (): WorldSaved => {
     const b = button.saved();
-    return { v: SAVED_VERSION, button: { rung: b.rung, reached: b.reached, presses: b.presses, cover: b.cover, deck: { left: [...b.deck.left], last: b.deck.last } }, used: [...button.used().list()] };
+    // (P4 S5) the project crates the visitor left open: only when there are any (a snapshot from before has none)
+    const open = (scene.projects ?? []).filter((c) => store.has(c.crate, 'open') && store.get(c.crate, 'open') === true).map((c) => c.crate);
+    return { v: SAVED_VERSION, button: { rung: b.rung, reached: b.reached, presses: b.presses, cover: b.cover, deck: { left: [...b.deck.left], last: b.deck.last } }, used: [...button.used().list()], ...(open.length > 0 ? { open } : {}) };
   };
   let savedKey = savedText(savedNow());
 
@@ -1596,6 +1601,17 @@ export function createWorld(opts: WorldOptions): World {
   }
   /** How the visit began: what "Reset the workshop" goes back to. */
   const initial = store.snapshot();
+  // (P4 S5) the project crates the last visit left open open again, as how this visit is (settled: not the lever's), where
+  // each can be: on the bench, free, nothing on it (a crate that starts in Fetch's hands, behind the door or under
+  // another stays shut). "Reset the workshop" still shuts them: it goes back to `initial`, above.
+  for (const id of restored?.open ?? []) {
+    const c = (scene.projects ?? []).find((x) => x.crate === id);
+    const l = loose.get(id);
+    if (!c || !l || l.mode !== 'free' || !store.has(id, 'open')) continue;
+    const top = l.pose.p[1] + l.half[1];
+    const under = [...loose.values()].some((o) => o.id !== id && o.mode !== 'gone' && o.mode !== 'chute' && Math.abs(o.pose.p[1] - o.half[1] - top) < 0.12 && Math.abs(o.pose.p[0] - l.pose.p[0]) < l.half[0] && Math.abs(o.pose.p[2] - l.pose.p[2]) < l.half[2]);
+    if (!under) store.write(id, 'open', true, 'settled');
+  }
 
   /** "Reset the workshop": cancel every pending job, empty the stack, every durable field back to its start (writer settled). */
   function reset(): boolean {
