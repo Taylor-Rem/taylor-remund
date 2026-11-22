@@ -1412,8 +1412,13 @@ is always a place a part can be put back to.
     transaction whose value a newer entry still holds as its `before`.
     That is what keeps a later pull of the lever from bringing back a
     value no surviving action set.
-13. **Not in the history at all:** the camera, panels, lids and hatches,
-    sound, what has been discovered, and the Button.
+13. **Not in the history at all:** the camera, panels and hatches, sound,
+    what has been discovered, and the Button. *(Amended in P4, 2026-11-22:
+    a project crate's lid IS in the history. Since the crates became
+    containers, opening one puts a thing on the bench, so it is one effect
+    in the visitor's transaction like any other: the lever shuts it, "Reset
+    the workshop" shuts them all, and the visit remembers which were open.
+    `sim/machines/crates.ts`.)*
 14. **Forgetting.** The stack holds thirty transactions. When the oldest
     drops off, its entries are deleted, and wherever it was a field's
     writer or an entry's previous writer, that becomes `settled`: a
@@ -1666,7 +1671,8 @@ when those machines are specified.
 | Patch says it is Claude wearing a name tag | The same | `BRAND.md` § The name |
 | The phone is scripted; no model is called | Said plainly in the hatch: this is a toy; the real Patch runs Claude Code | this file |
 | Robots stay in their lanes; changes can be undone | How he builds with agents: permissions, versioning | `profile.md` § Positioning; wording for Taylor |
-| Pallet labels and crate stencils | Roles, employers, dates, project names as published | `/resume/` |
+| Pallet labels (if the pallets are built: the lead has recommended against, Taylor has not ruled) | Roles, employers, dates as published | `/resume/` |
+| Crate stencils, cards and plates | Project names, their one line (subtitle) and tools (tags), the employer they were built for, as published; the plate opens the project's entry | `/resume/` #projects and #experience; `src/content/bench-projects.json` |
 
 The belt, the striker and the dock claim nothing. They are there because
 they are fun.
