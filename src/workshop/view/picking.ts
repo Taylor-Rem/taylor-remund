@@ -106,6 +106,9 @@ function faceNormal(box: Box3, p: Vector3, out: Vector3): Vector3 {
 
 export class Picking {
   private readonly entries = new Map<Id, Entry>();
+  /** (P4 S5 round three) Targets that win over others wherever the ray passes through them (`prefer`). */
+  private readonly over = new Map<Id, () => readonly Id[]>();
+  private readonly hits: { e: Entry; d: number; p: Vector3 }[] = [];
   private readonly hit: PickHit = { id: '', point: new Vector3(), normal: new Vector3(), distance: 0, grown: false };
   private camera: PerspectiveCamera | null = null;
   private viewportH = 1;
@@ -119,6 +122,17 @@ export class Picking {
 
   remove(id: Id): void {
     this.entries.delete(id);
+    this.over.delete(id);
+  }
+
+  /**
+   * (P4 S5 round three) Wherever a ray passes through `id`'s box, `id` wins over the targets `over()` names, even
+   * when theirs are nearer along the ray: a thing on an open crate's tray over the crate, its lid and its latch (the
+   * open lid and the card stand behind it, so the crate's box is nearer). Asked at every pick; an empty list, no rule.
+   * Whatever rides on `id` (a control inside its box) still wins over it by the shell's small-inside-big rule.
+   */
+  prefer(id: Id, over: () => readonly Id[]): void {
+    this.over.set(id, over);
   }
 
   /** The object `id`'s proxy rides (for a finer test against what is drawn), or null. */
@@ -166,6 +180,7 @@ export class Picking {
     const exclude = opts.exclude ?? null;
     let bestD = Infinity;
     let best: Entry | null = null;
+    let nHits = 0;
     // pass 1: the true boxes
     for (const e of this.entries.values()) {
       if (e.id === exclude || !visible(e.object) || (e.active && !e.active()) || (opts.filter && !opts.filter(e.id))) continue;
@@ -177,11 +192,29 @@ export class Picking {
       if (!tmpRay.intersectBox(tmpBox, tmpP)) continue;
       tmpP.applyMatrix4(e.object.matrixWorld);
       const d = tmpP.distanceTo(ray.origin);
+      if (this.over.has(e.id)) {
+        const h = (this.hits[nHits] ??= { e, d, p: new Vector3() });
+        h.e = e;
+        h.d = d;
+        h.p.copy(tmpP);
+        nHits++;
+      }
       if (d < bestD) {
         bestD = d;
         best = e;
         this.hit.point.copy(tmpP);
       }
+    }
+    // (round three) a target the ray also passes through that wins over the nearest one (`prefer`): the nearest such
+    let won: { e: Entry; d: number; p: Vector3 } | null = null;
+    for (let i = 0; best && i < nHits; i++) {
+      const h = this.hits[i]!;
+      if (h.e === best || (won && h.d >= won.d)) continue;
+      if (this.over.get(h.e.id)!().includes(best.id)) won = h;
+    }
+    if (won) {
+      this.hit.point.copy(won.p);
+      return this.finish(won.e, ray, false);
     }
     if (best) return this.finish(best, ray, false);
     const minPx = opts.minPx ?? 0;

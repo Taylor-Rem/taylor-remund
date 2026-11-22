@@ -935,6 +935,8 @@ test('P4 S5: a project crate opened by a click on its latch: a finger over it, i
   await pollFrames(page, openNow).toBe(true);
   // the plate on the standing card is a target of its own once the card has risen
   await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.surface.screen('crate-3-plate') !== null)).toBe(true);
+  // (round two on) opening brings the camera to the card: a hand waits for it to come to rest before it reaches again
+  await pollFrames(page, () => page.evaluate(() => (window as any).__bench.ws.stage.camera.easing), 240, 'the camera at rest').toBe(false);
   const again = await waitClear(page, 'crate-3-lid', 'mouse');
   await stroke(page, mouseHand(page), [again, again]);
   await pollFrames(page, openNow).toBe(false);

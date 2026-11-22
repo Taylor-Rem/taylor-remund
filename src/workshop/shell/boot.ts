@@ -307,6 +307,7 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
     pickable: (id, object, o) => picking.add(id, object, o),
     targetBox: (id, out) => focusBox(id, out),
     targetObject: (id) => picking.objectOf(id),
+    pickOver: (id, over) => picking.prefer(id, over),
     stage,
     picking,
   };

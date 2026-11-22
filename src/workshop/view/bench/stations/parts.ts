@@ -14,7 +14,7 @@
  * `?crateLegend=both` (development: the pictures for the owner) keeps the size letter and the arrows under the words.
  */
 import { Box3, Group, Matrix4, Object3D, Vector3 } from 'three';
-import type { Id, Part, Vec3 } from '../../../sim/types.ts';
+import type { Id, Part, Vec3, WorldView } from '../../../sim/types.ts';
 import type { ProjectCrate } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
 import { buildEntry } from '../../catalogue/registry.ts';
@@ -183,6 +183,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
     const plate = ctx.labels.plate(CARD_PLATE, { capHeight: PLATE_CAP });
     const plateSize = ctx.labels.size(plate);
     const faces = new Map<Id, { key: string; bands: { title: CapBand; line: CapBand } }>();
+    /** The world as of the last frame (what `pickOver` asks: is the crate's thing on its tray). */
+    let world: WorldView | null = null;
     return {
       make(part: Part, obj: Object3D, group: Group, half: Vec3) {
         if (things.has(part.id) && part.id !== LEDGER.board) {
@@ -233,6 +235,15 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         });
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
+        // (round three) while the crate is open and its thing lies on its tray, a press anywhere through the thing is the
+        // thing's (or a control's riding on it), never the crate's, its lid's or its latch's: the open lid and the card
+        // stand behind the thing, so the crate's box is nearer along the ray. Taken by its sides and the lid's upper
+        // part where the thing is not behind the ray, as ever.
+        if (holds) {
+          const thing = pc.holds!;
+          const yields = [pc.crate, pc.lid] as const;
+          ctx.pickOver?.(thing, () => (lids.get(part.id)?.rise ?? 0) > 0.5 && world?.motion(thing)?.mode === 'machine' ? yields : []);
+        }
         lids.set(part.id, { crate: pc, holder, foot: half[1], size, lift, plateLift: P.lift, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
         // (round two) what an opening asks the page to look at (the world's `look`): the risen card, the crate's mouth and
         // its tray, a box of its own never pressed (no hand takes it: only `lookAt` reads it)
@@ -285,6 +296,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
       },
 
       update(part: Part, obj: Object3D, group: Group, frame: Frame, shown: boolean) {
+        world = frame.world;
         const st = lids.get(part.id);
         if (!st) return;
         // the holder where the crate's piece is: its part's pose (as drawn), down to the piece's foot

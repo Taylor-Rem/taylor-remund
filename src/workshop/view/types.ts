@@ -145,6 +145,11 @@ export interface ViewContext {
   targetBox?(id: Id, out: import('three').Box3): import('three').Box3 | null;
   /** (P4 S5 round three) The object a pick target was registered with (a crew member's body), or null. */
   targetObject?(id: Id): Object3D | null;
+  /**
+   * (P4 S5 round three) Wherever a ray passes through `id`'s pick box, `id` wins over the targets `over()` names (a
+   * thing on an open crate's tray over the crate, its lid and its latch). view/picking.ts `prefer`.
+   */
+  pickOver?(id: Id, over: () => readonly Id[]): void;
 }
 
 /** One frame's worth of what a view may read. */
