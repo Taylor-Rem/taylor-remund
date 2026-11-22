@@ -219,7 +219,7 @@ export const PROJECT_OF: Readonly<Record<string, string>> = {
 /**
  * P4 D1: the ledger board, the Ledger Management System's thing (sim/machines/ledger.ts), in its crate (the large one at
  * the bottom of the stack). A loose part with state (the tokens are its own durable field, drawn, not bodies) and two
- * controls that ride on it. Its body: a board a little bigger than a small crate's lid, low (the hopper, the star's post
+ * controls that ride on it. Its body: as large as the large crate's tray allows (view/kit/pieces/ledger-board/dims.ts says why), low (the hopper, the flag
  * and the plunger stand above its box). `half` is the view's too (view/kit/pieces/ledger-board/dims.ts holds the same).
  */
 export const LEDGER = {
@@ -228,8 +228,8 @@ export const LEDGER = {
   crate: 'crate-1',
   crank: 'ledger-crank',
   plunger: 'ledger-plunger',
-  half: [0.28, 0.04, 0.19] as Vec3,
-  mass: 0.07,
+  half: [0.38, 0.04, 0.215] as Vec3,
+  mass: 0.1,
 } as const;
 
 /** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board. */

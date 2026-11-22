@@ -1,55 +1,61 @@
 /**
  * The ledger board's measurements (P4 D1), shared by the piece and its view: where each place a token can be is, in
  * the piece's own space (base on y = 0, centred, good side +Z). The simulation's body is `LEDGER.half` in
- * sim/scenes/bench.ts ([0.28, 0.04, 0.19]): the board's base is that footprint; the hopper, the star's post and the
- * plunger stand above the body's box.
+ * sim/scenes/bench.ts ([0.38, 0.04, 0.215]): the board's base is that footprint, as large as the large crate's tray
+ * allows (the crate is 0.80 across; the tray puts the board's middle 0.155 in front of the crate's, so 0.43 deep is
+ * as deep as it can be without overhanging the crate's front). The hopper, the flag and the plunger stand above it.
  */
 
 export const BOARD = {
   /** The wooden base. */
-  w: 0.56,
-  d: 0.38,
+  w: 0.76,
+  d: 0.43,
   h: 0.05,
   /** The cups: two rows of four (month one at the back, month two in front). */
-  cupX0: -0.088,
-  cupDX: 0.084,
-  rowZ: [-0.05, 0.058] as const,
-  cupR: 0.033,
-  cupWall: 0.006,
-  cupH: 0.013,
-  /** A token: its radius and thickness (the metal ones), and the rubber ring's. */
-  tokenR: 0.024,
-  tokenT: 0.008,
-  rubberR: 0.026,
-  rubberT: 0.015,
+  cupX0: -0.165,
+  cupDX: 0.105,
+  rowZ: [-0.068, 0.062] as const,
+  cupR: 0.043,
+  cupWall: 0.007,
+  cupH: 0.014,
+  /** A metal token: its radius and thickness. The rubber one: a fat ring, wider and twice as thick. */
+  tokenR: 0.032,
+  tokenT: 0.009,
+  rubberR: 0.035,
+  rubberT: 0.022,
   /** The hopper: a turned brass dish on a short pedestal at the left end. */
-  hopperX: -0.205,
-  hopperZ: -0.01,
-  hopperR: 0.062,
-  hopperFloor: 0.074,
+  hopperX: -0.29,
+  hopperZ: -0.02,
+  hopperR: 0.072,
+  hopperFloor: 0.08,
   /** The gutter along the front edge (its floor's height and its line). */
-  gutterZ: 0.158,
+  gutterZ: 0.176,
   gutterY: 0.053,
   /** The side cup at the right end, with its flip gate between it and the rows. */
-  sideX: 0.226,
-  sideZ: -0.032,
-  sideR: 0.04,
+  sideX: 0.3,
+  sideZ: -0.045,
+  sideR: 0.05,
   sideFloor: 0.054,
-  gateX: 0.181,
-  /** The star lamp on its post at the back, facing the visitor. */
-  starX: 0.105,
-  starZ: -0.158,
-  starY: 0.22,
-  starR: 0.055,
-  /** The plunger at the right front: its knob's top at rest, and how far a press takes it down. */
-  plungerX: 0.226,
-  plungerZ: 0.104,
-  plungerTop: 0.16,
-  plungerTravel: 0.045,
+  gateX: 0.236,
+  /**
+   * The flag: a red star on a sprung brass arm, hinged at the board's back right corner on an axle running front to
+   * back. Down (the allocations add up) the arm lies along the back edge, the star low on its side; up (they do
+   * not) the arm stands straight and the star is high over the board. Both ways it faces the visitor.
+   */
+  flagX: 0.33,
+  flagY: 0.112,
+  flagZ: -0.17,
+  flagArm: 0.17,
+  starR: 0.058,
+  /** The plunger at the right front: a T-handle; its top at rest, and how far a press takes it down. */
+  plungerX: 0.3,
+  plungerZ: 0.115,
+  plungerTop: 0.175,
+  plungerTravel: 0.05,
   /** The crank on the hopper's front: its axle's height, its arm's reach. */
-  crankY: 0.052,
-  crankZ: 0.058,
-  crankArm: 0.058,
+  crankY: 0.06,
+  crankZ: 0.07,
+  crankArm: 0.075,
 } as const;
 
 /** Where a token rests in a cup (its bottom's centre). */
@@ -70,15 +76,15 @@ export function hopperAt(i: number): { p: [number, number, number]; tilt: [numbe
   const k = order.indexOf(i);
   const layer = k < 5 ? 0 : 1;
   const a = (k * 2.39996 + 0.4) % (Math.PI * 2);
-  const rad = layer === 0 ? 0.032 : k === 7 ? 0.004 : 0.022;
-  const p: [number, number, number] = [BOARD.hopperX + Math.cos(a) * rad, BOARD.hopperFloor + layer * 0.007 + 0.002 * Math.sin(k * 3.1), BOARD.hopperZ + Math.sin(a) * rad];
+  const rad = layer === 0 ? 0.036 : k === 7 ? 0.004 : 0.026;
+  const p: [number, number, number] = [BOARD.hopperX + Math.cos(a) * rad, BOARD.hopperFloor + layer * 0.008 + 0.002 * Math.sin(k * 3.1), BOARD.hopperZ + Math.sin(a) * rad];
   return { p, tilt: [Math.sin(k * 1.7) * 0.2, Math.cos(k * 2.3) * 0.2] };
 }
 
-/** The gutter: under the cup it bounced out of, at the front edge. */
+/** The gutter: in front of the cup it bounced out of, at the front edge. */
 export function gutterAt(i: number): [number, number, number] {
   const c = cupAt(i);
-  return [c[0] + 0.012, BOARD.gutterY, BOARD.gutterZ];
+  return [c[0] + 0.014, BOARD.gutterY, BOARD.gutterZ];
 }
 
 /** The side cup. */
