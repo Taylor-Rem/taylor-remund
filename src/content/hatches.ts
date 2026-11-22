@@ -46,6 +46,8 @@ export interface Hatches {
         moved: UiEntry;
         changed: UiEntry;
         byText: UiEntry;
+        pulled: UiEntry;
+        pulledSent: UiEntry;
         fields: Record<string, UiEntry>;
         values: Record<string, UiEntry>;
         places: Record<string, UiEntry>;
@@ -66,6 +68,8 @@ export function liveWords(): Record<string, string | Record<string, string>> {
     moved: l.moved.text,
     changed: l.changed.text,
     byText: l.byText.text,
+    pulled: l.pulled.text,
+    pulledSent: l.pulledSent.text,
     empty: hatches.maker.live.history.empty.text,
     frame: hatches.maker.live.frame.value.text,
     copied: hatches.panel.copied.text,

@@ -24,7 +24,7 @@
  *
  * The envelope never comes back up the chute. Shipped, the dock queues no return for it (the dock's `homeward`); this
  * unit brings it home, back in the press folded flat, the dock's own return time later
- * (`DOCK_TUNING.returnAfter.tool`), charged as the dock charges a tool's return (to whoever shipped it, while that is
+ * (`DOCK_TUNING.returnAfter.tool`, handed in by the scene as `homeAfter`), charged as the dock charges a tool's return (to whoever shipped it, while that is
  * on the stack). Off the bench it comes back up the chute as every part does; nothing else here knows about it.
  *
  * Undo restores recorded values: the sheets show the report before, the drawer is one thinner, the seal is what it
@@ -44,7 +44,6 @@ import type { UnitFactory } from '../scene.ts';
 import { HZ, steps } from '../clock.ts';
 import { Beat, OK, gesture, handleTxn } from '../machine.ts';
 import { qyaw, rotate, yawOf } from '../math.ts';
-import { DOCK_TUNING } from './dock.ts';
 import { DRAWER_MAX, pullScript, reportOf, sealOf, validDrawer, validReport, validSeal, type PressScript, type Report, type Shipment } from './shared/report-press.ts';
 
 /** The press's durable fields (on its own id) and the envelope's. */
@@ -80,6 +79,8 @@ export interface PressSpec {
    * z), where things are set on it (`feed`, x), and how far from its motor end nothing is set down (`clear`, the deflector's).
    */
   readonly belt: { readonly mouth: Id; readonly from: number; readonly to: number; readonly top: number; readonly z: number; readonly feed: number; readonly clear: number };
+  /** Seconds from the envelope's shipment to its homecoming: the dock's own return time for a tool (the scene passes `DOCK_TUNING.returnAfter.tool`). */
+  readonly homeAfter: number;
   /** Statics the envelope may touch on its way without being stopped (the bench top and the belt's bed it lands on). */
   readonly ignore?: readonly Id[];
 }
@@ -389,7 +390,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
 
   function expectHome(cause: Cause | null): void {
     home?.job?.done();
-    const at = ctx.clock.step + steps(DOCK_TUNING.returnAfter.tool);
+    const at = ctx.clock.step + steps(spec.homeAfter);
     const c = cause ?? ctx.history.chargeMachine(spec.envelope);
     const h: { job: Job | null; at: number } = { job: null, at };
     h.job = c === 'crew' || c === 'system' ? null : ctx.history.work(c, spec.id, () => {

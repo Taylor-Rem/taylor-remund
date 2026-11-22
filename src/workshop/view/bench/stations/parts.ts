@@ -25,7 +25,7 @@ import { crateLid, crateMouth, crateSpec, crateWordKeys, WORD_CAP, type CrateSiz
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { LEDGER } from '../../../sim/index.ts';
+import { LEDGER, PRESS } from '../../../sim/index.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
 export const LID_FEEL = {
@@ -88,6 +88,8 @@ export const station: BenchStation = {
     const crate = k.entry('crate');
     const block = k.entry('test-block');
     const ledgerBoard = k.entry('ledger-board');
+    const reportPress = k.entry('report-press');
+    const reportEnvelope = k.entry('report-envelope');
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     const things = new Set((k.scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [c.holds] : [])));
     const both = legendBoth();
@@ -107,6 +109,8 @@ export const station: BenchStation = {
         known: k.scene.parts,
         piece: (p, half, extras) => {
           if (p.id === LEDGER.board && ledgerBoard) return buildEntry(ledgerBoard, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D1: the ledger board
+          if (p.id === PRESS.body && reportPress) return buildEntry(reportPress, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D3: the report press
+          if (p.id === PRESS.envelope && reportEnvelope) return buildEntry(reportEnvelope, null, { seed: hashSeed(p.id) }, ctx.labels); // and its envelope
           if (things.has(p.id) && block) {
             // a crate's thing: the stand-in is the kit's test block, at the thing's size (its width across)
             return buildEntry(block, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels);
@@ -142,7 +146,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
     const faces = new Map<Id, string>();
     return {
       make(part: Part, obj: Object3D, group: Group, half: Vec3) {
-        if (things.has(part.id) && part.id !== LEDGER.board) {
+        if (things.has(part.id) && part.id !== LEDGER.board && part.id !== PRESS.body) {
           // the stand-in thing: the test block is a unit across; scaled to the thing's body
           const s = (half[0] * 2) / 1.16;
           obj.scale.setScalar(s);

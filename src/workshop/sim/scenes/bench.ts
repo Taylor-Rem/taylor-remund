@@ -23,7 +23,7 @@ import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
 import { belt, BELT_FIELDS, BELT_TUNING } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
-import { dock } from '../machines/dock.ts';
+import { dock, DOCK_TUNING } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { crates } from '../machines/crates.ts';
 import { ledger } from '../machines/ledger.ts';
@@ -808,6 +808,7 @@ export const bench: SceneDesc = {
       lever: { id: PRESS.lever, name: 'name.press.lever' },
       bed: PRESS.bed,
       belt: { mouth: 'belt', from: L.from, to: L.to, top: L.top, z: L.z, feed: AT.beltFeed, clear: DEFLECTOR.clear },
+      homeAfter: DOCK_TUNING.returnAfter.tool,
       ignore: ['bench', 'belt-bed'],
     }),
   ],

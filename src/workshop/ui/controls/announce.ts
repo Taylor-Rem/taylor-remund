@@ -190,6 +190,16 @@ export class Announcer {
         case 'ledger.refused':
           say('ledgerNothing');
           break;
+        // (P4 D3) the report press: what it printed, and whether the envelope went; the envelope home again
+        case 'press.printed':
+          if (e.marks === 0) say('pressPrintedNone');
+          else if (e.marks === 1) say('pressPrintedOne');
+          else say('pressPrinted', { count: e.marks });
+          if (!e.envelope) say('pressStillOut');
+          break;
+        case 'press.home':
+          say('pressHome');
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');
