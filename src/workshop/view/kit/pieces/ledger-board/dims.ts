@@ -39,10 +39,11 @@ export const BOARD = {
   gateX: 0.236,
   /**
    * The flag: a red star on a sprung brass arm, hinged at the board's back right corner on an axle running front to
-   * back. Down (the allocations add up) the arm lies along the back edge, the star low on its side; up (they do
-   * not) the arm stands straight and the star is high over the board. Both ways it faces the visitor.
+   * back, like a taxi's flag. Down (the allocations add up) the arm lies level, pointing out past the board's right
+   * end, the star low on its side; up (they do not) the arm stands straight and the star is high over the board. Both
+   * ways it faces the visitor, and down it covers nothing behind the board (the crate's card stands there).
    */
-  flagX: 0.33,
+  flagX: 0.35,
   flagY: 0.112,
   flagZ: -0.17,
   flagArm: 0.17,

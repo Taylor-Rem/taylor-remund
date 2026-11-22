@@ -17,7 +17,7 @@
  *   'crank'                  turns about its local Y (aimed toward the visitor)
  *   'plunger'                travels along its local Y (down is a press)
  *   'gate'                   swings about its local Y (vertical) toward the side cup
- *   'flag'                   swings about its local Y (an axle running front to back): 0 down, -90° up
+ *   'flag'                   swings about its local Y (an axle running front to back): 0 down (level, outward), 90° up
  */
 import { BufferAttribute, type BufferGeometry } from 'three';
 import type { KitOptions, KitPart, Piece } from '../../types.ts';
@@ -64,11 +64,11 @@ function coin(tier: number, seed: number): KitPart[] {
   return [setFinish(part('brass', g), tier === 2 ? 0.3 : 0.55)];
 }
 
-/** The star's outline: five points, the top one along -X (outward along the flag's arm). */
+/** The star's outline: five points, the top one along +X (outward along the flag's arm). */
 function starOutline(R: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (let i = 0; i < 10; i++) {
-    const a = Math.PI + (i * Math.PI) / 5;
+    const a = (i * Math.PI) / 5;
     const rr = i % 2 === 0 ? R : R * 0.45;
     out.push([Math.cos(a) * rr, Math.sin(a) * rr]);
   }
@@ -126,10 +126,10 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   // the axle runs front to back: the flag node's local Y along +Z
   const flag = b.node('flag', chain(T(fx, B.flagY, fz), mat({ rot: [90, 0, 0] })));
   flag.add(part('brass', transform(lathe(profile(0, 0).to(0.011, 0, { sharp: true }).to(0.011, 0.012, { sharp: true }).to(0, 0.012), { segs: 6, support: false, caps: false }), T(0, -0.006, 0)), 'brass', { seed: seed + 62 }));
-  flag.add(part('brass', transform(roundedBox({ w: B.flagArm, h: 0.006, d: 0.012, r: 0.0025, segs: 1, detail: 'low' }), T(-B.flagArm / 2, -0.003, 0)), 'brass', { seed: seed + 63, warm: 0.04 }));
-  // the star: a thick wooden star painted red, its face toward the visitor (local +Y) and its top point outward (-X)
+  flag.add(part('brass', transform(roundedBox({ w: B.flagArm, h: 0.006, d: 0.012, r: 0.0025, segs: 1, detail: 'low' }), T(B.flagArm / 2, -0.003, 0)), 'brass', { seed: seed + 63, warm: 0.04 }));
+  // the star: a thick wooden star painted red, its face toward the visitor (local +Y) and its top point outward (+X)
   const starG = extrude(starOutline(B.starR), 0.012, { axis: 'y', bevel: 0.003, bevelBase: 0, radius: 0.002, segs: 1, support: false });
-  flag.add(setFinish(part('wood', transform(starG, T(-B.flagArm - B.starR * 0.55, -0.006, 0)), 'cable-red', { seed: seed + 64, shade: 1.15 }), 1));
+  flag.add(setFinish(part('wood', transform(starG, T(B.flagArm + B.starR * 0.55, -0.006, 0)), 'cable-red', { seed: seed + 64, shade: 1.15 }), 1));
 
   // ---- the plunger at the right front: a brass collar; the rod and a wooden T-handle (it travels down its local Y)
   const px = B.plungerX, pz = B.plungerZ;
@@ -144,7 +144,7 @@ export function ledgerBoard(o: LedgerBoardOptions = {}): Piece {
   for (let i = 0; i < TOKENS; i++) b.node(`token-${i}`).add(coin(TIER[i]!, seed + 80 + i));
   // a fat black ring, bulging at its waist: it looks as if it would bounce, and it could never be taken for a coin
   const rr = B.rubberR, rt = B.rubberT;
-  b.node('rubber').add(part('rubber', lathe(profile(rr * 0.4, 0.002).to(rr * 0.8, 0, { sharp: true }).to(rr * 1.0, rt * 0.25, { sharp: true }).to(rr * 1.05, rt * 0.5, { sharp: true }).to(rr * 1.0, rt * 0.75, { sharp: true }).to(rr * 0.8, rt, { sharp: true }).to(rr * 0.4, rt - 0.002, { sharp: true }).to(rr * 0.34, rt * 0.5, { sharp: true }).to(rr * 0.4, 0.002, { sharp: true }), { segs: 9, support: false, caps: false }), 'ink', { shade: 0.55 }));
+  b.node('rubber').add(part('rubber', lathe(profile(rr * 0.4, 0.002).to(rr * 0.85, 0, { sharp: true }).to(rr * 1.05, rt * 0.5, { sharp: true }).to(rr * 0.85, rt, { sharp: true }).to(rr * 0.4, rt - 0.002, { sharp: true }).to(rr * 0.34, rt * 0.5, { sharp: true }).to(rr * 0.4, 0.002, { sharp: true }), { segs: 12, support: false, caps: false }), 'ink', { shade: 0.3 }));
   return b.build();
 }
 

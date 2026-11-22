@@ -9,7 +9,7 @@
  *   rewind (the lever, a reset) a quick low hop straight back. The rubber payment is the rubber node wherever its
  *   index is; its tier's core shows at its middle.
  * - The flag: up (the red star stands high over the board: the allocations do not add up) or down (folded along the
- *   back edge), as the script says while a show plays, else as the state says. Up, it snaps with a twang and
+ *   right end), as the script says while a show plays, else as the state says. Up, it snaps with a twang and
  *   overshoots and settles on its spring; down at the end of a repair, it is pressed down and settles with a little
  *   bounce. A mark, never a lamp: nothing glows.
  * - The crank turns once under the hand and an eighth of a turn with every token dealt; the plunger goes down and
@@ -354,7 +354,7 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
           if (up && !reduced) flagV += F.flagKick;
           flagUp = up;
         }
-        pose(N.flag, null, qa.setFromAxisAngle(Y, -Math.PI / 2 * flagA));
+        pose(N.flag, null, qa.setFromAxisAngle(Y, (Math.PI / 2) * flagA));
         // the crank: once round under the hand, an eighth with every token dealt; a misfire's twitch; a tell's rock
         let crank = Math.PI * 2 * smooth((frame.time - crankAt) / F.crankTurn);
         if (s && s.kind === 'deal' && !reduced) crank += F.crankPerToken * s.beats.filter((x) => x.kind === 'drop' && t >= x.at).length;
