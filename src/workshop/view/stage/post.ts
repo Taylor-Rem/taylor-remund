@@ -606,6 +606,16 @@ export class PostChain {
     });
   }
 
+  /**
+   * The target the scene is drawn into. A program three builds depends on the target it is built for (into
+   * a render target it writes linear colour, to the canvas sRGB): a precompile must be made against this one,
+   * or every program it builds is one no frame uses (F1: 37 links moved from the first frame).
+   */
+  get sceneTarget(): WebGLRenderTarget {
+    this.syncSamples();
+    return this.sceneRT;
+  }
+
   /** Drawing-buffer size in pixels. */
   setSize(width: number, height: number): void {
     this.width = Math.max(1, Math.floor(width));
@@ -725,7 +735,6 @@ export class PostChain {
     const r = this.renderer;
     const info = r.info;
     this.syncSamples();
-    this.syncDefines();
     this.syncGtao();
     this.frameNo = (this.frameNo + 1) % 1024;
 
@@ -735,6 +744,9 @@ export class PostChain {
     r.render(this.scene, this.camera);
     timer?.end();
     this.sceneInfo = { calls: info.render.calls, triangles: info.render.triangles };
+    // After the scene: its render made the key's shadow map if there was none (the stage's first, empty frame),
+    // so the passes are built with the key's shadow from the start instead of once without it and again (F1).
+    this.syncDefines();
 
     if (this.flags.gtao && LOOK.ao === 'gtao') {
       timer?.begin('gtao');
@@ -743,6 +755,20 @@ export class PostChain {
       timer?.end();
     }
 
+    // (F1) every full-screen pass below writes every pixel of its target: the clear the renderer would make before
+    // each (it clears on every render() while autoClear is on) is work no pixel shows
+    const autoClear = r.autoClear;
+    r.autoClear = false;
+    try {
+      this.renderPasses(focusDistance, timer);
+    } finally {
+      r.autoClear = autoClear;
+    }
+  }
+
+  /** The full-screen passes after the scene and AO: bloom, focus, the composite to the screen. */
+  private renderPasses(focusDistance: number, timer: GpuTimer | null): void {
+    const r = this.renderer;
     if (this.flags.bloom) {
       timer?.begin('bloom');
       this.renderBloom();

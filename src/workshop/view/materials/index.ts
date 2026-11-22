@@ -247,9 +247,34 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
     fs = inject(fs, 'emissivemap_fragment', FRAGMENT_EMISSIVE, 'after');
     fs = inject(fs, 'lights_physical_fragment', FRAGMENT_SHEEN, 'after');
     fs = inject(fs, 'opaque_fragment', FRAGMENT_GLINT, 'before');
+    if ((def.props['clearcoat'] ?? 0) > 0) fs = coatOnlyWhereCoated(fs);
     shader.fragmentShader = fs;
   };
   return mat;
+}
+
+/**
+ * F1: the clearcoat lobe is worked out only where there is a coat. A class with a clearcoat (steel, tape) has one
+ * per pixel (`pCoat`), and on most enamel it is 0 (finish 0); three works the lobe out for every light and the
+ * environment anyway and then multiplies it by that 0. Skipped where the coat is 0, the sum it was added to is the
+ * same number (x + 0 × lobe is x), so the picture is the same pixel for pixel; the measured gain is the lobe's
+ * share of the scene pass (about 0.3 ms at home on the reference laptop).
+ */
+const COAT_GUARDS: ReadonlyArray<[chunk: string, find: string]> = [
+  ['lights_physical_pars_fragment', 'clearcoatSpecularDirect += ccIrradiance * BRDF_GGX_Clearcoat('],
+  ['lights_physical_pars_fragment', 'clearcoatSpecularIndirect += clearcoatRadiance * EnvironmentBRDF('],
+  ['lights_fragment_maps', 'clearcoatRadiance += getIBLRadiance('],
+];
+
+export function coatOnlyWhereCoated(fs: string): string {
+  const chunks = new Map<string, string>();
+  for (const [chunk, find] of COAT_GUARDS) {
+    const src = chunks.get(chunk) ?? (ShaderChunk as unknown as Record<string, string>)[chunk]!;
+    if (!src.includes(find)) throw new Error(`materials: <${chunk}> has no "${find}" (three changed?)`);
+    chunks.set(chunk, src.replace(find, `if ( material.clearcoat > 0.0 ) ${find}`));
+  }
+  for (const [chunk, src] of chunks) fs = inject(fs, chunk, src, 'replace');
+  return fs;
 }
 
 /** The focus mark: see WorkshopMaterials.focusMark. */
