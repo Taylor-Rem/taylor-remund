@@ -403,12 +403,21 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
    * the shared one, and the expensive steel shader then runs twice where it stands in front (measured: +0.6 ms a frame
    * at home with the twins always in). At home the meshes are on their own materials, as before the scheme existed.
    */
-  const kept = new Map<Mesh, { own: Material; twin: Material }>();
+  const kept = new Map<Mesh, { own: Material; twin: Material; order: number }>();
   let swapped = false;
+  /**
+   * While swapped, an opaque kept mesh is drawn first (`renderOrder` sorts before the material): the crew and the
+   * loose parts mostly stand in front of the machines, so the machines behind them are then rejected by depth instead
+   * of the kept meshes being shaded over them. Transparent ones keep their order (blending depends on it).
+   */
+  const FIRST = -1;
   paint.onActive = (on) => {
     if (on === swapped) return;
     swapped = on;
-    for (const [mesh, k] of kept) mesh.material = on ? k.twin : k.own;
+    for (const [mesh, k] of kept) {
+      mesh.material = on ? k.twin : k.own;
+      if (!k.own.transparent) mesh.renderOrder = on ? FIRST : k.order;
+    }
   };
   /** Every schemed material made, and how to make its twin; the twins made. */
   const twinOf = new Map<Material, () => Pbr>();
@@ -496,8 +505,11 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
           t = make();
           twins.set(mesh.material, t);
         }
-        kept.set(mesh, { own: mesh.material, twin: t });
-        if (swapped) mesh.material = t;
+        kept.set(mesh, { own: mesh.material, twin: t, order: mesh.renderOrder });
+        if (swapped) {
+          mesh.material = t;
+          if (!t.transparent) mesh.renderOrder = FIRST;
+        }
         n++;
       });
       return n;
