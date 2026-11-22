@@ -397,6 +397,19 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const tier = opts.tier;
   const sh: Shared = { tier, noise: { value: createNoiseTexture() }, debug: opts.debug, debugUniforms: debugUniforms(), scheme: schemeUniforms() };
   const paint = new SchemeState(sh.scheme);
+  /**
+   * The meshes that keep their own colours, and their twins. A twin is drawn only while the scheme repaints anything:
+   * three sorts opaque draws by material before depth, so a mesh on a material of its own is drawn after everything on
+   * the shared one, and the expensive steel shader then runs twice where it stands in front (measured: +0.6 ms a frame
+   * at home with the twins always in). At home the meshes are on their own materials, as before the scheme existed.
+   */
+  const kept = new Map<Mesh, { own: Material; twin: Material }>();
+  let swapped = false;
+  paint.onActive = (on) => {
+    if (on === swapped) return;
+    swapped = on;
+    for (const [mesh, k] of kept) mesh.material = on ? k.twin : k.own;
+  };
   /** Every schemed material made, and how to make its twin; the twins made. */
   const twinOf = new Map<Material, () => Pbr>();
   const twins = new Map<Material, Pbr>();
@@ -475,7 +488,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       let n = 0;
       root.traverse((o) => {
         const mesh = o as Mesh;
-        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+        if (!mesh.isMesh || Array.isArray(mesh.material) || kept.has(mesh)) return;
         const make = twinOf.get(mesh.material);
         if (!make) return;
         let t = twins.get(mesh.material);
@@ -483,7 +496,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
           t = make();
           twins.set(mesh.material, t);
         }
-        mesh.material = t;
+        kept.set(mesh, { own: mesh.material, twin: t });
+        if (swapped) mesh.material = t;
         n++;
       });
       return n;

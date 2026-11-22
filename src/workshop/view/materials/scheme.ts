@@ -179,6 +179,8 @@ export class SchemeState {
   #speed: number = SCHEME_LOOK.speed;
 
   readonly u: SchemeUniforms;
+  /** Told when the scheme starts or stops repainting anything (the block on or off): materials swaps the kept meshes' twins in and out. */
+  onActive: ((on: boolean) => void) | null = null;
 
   constructor(u: SchemeUniforms) {
     this.u = u;
@@ -234,6 +236,10 @@ export class SchemeState {
     u['s_soft']!.value = SCHEME_LOOK.soft;
     u['s_wetWidth']!.value = SCHEME_LOOK.wetWidth;
     // home and still: the block is skipped, the approved picture exactly
-    u['s_active']!.value = done && this.to === HOME_SCHEME ? 0 : 1;
+    const active = done && this.to === HOME_SCHEME ? 0 : 1;
+    if (u['s_active']!.value !== active) {
+      u['s_active']!.value = active;
+      this.onActive?.(active === 1);
+    }
   }
 }
