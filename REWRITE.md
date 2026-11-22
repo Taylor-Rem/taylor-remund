@@ -1951,6 +1951,32 @@ the four compliance pages, whose findings are his to rule on.
   the UNDO lever replays, the tests, the frame budget), in words he approves.
 - **Order.** P4 begins with a performance pass: both budgets of § E7 were
   nearly spent at G3 (about 0.9 ms a frame to spare; usable in 2.93 s of 3).
+- **Concepts he approved the same evening** (the builds come back to him
+  at their approval points; `shots/p4/lead/DEMO-CONCEPTS.md` holds each in
+  full). *The ledger repair* (a tray of tokens that deals itself again):
+  "Yes", with this asked of it: "I'd like the machine to visibly handle the
+  bounced payment correctly and rebuild the allocations, rather than just
+  magically making the problem disappear"; what the repair did for the
+  support department may be said, the "exact wording and figures" checked
+  "against the résumé before publishing". *t-components* (one dial repaints
+  every machine): "Yes", "provided the original approved appearance returns
+  on a new visit"; "a few thoughtfully designed palettes rather than
+  arbitrary colors"; he sees the options before they are final. *The report
+  framework* (one blank on the platen, three outputs, the belt as the
+  queue): "Absolutely. This might be my favorite"; "a satisfying little
+  mechanical sequence". *Support Automation* (the key that does Fetch's
+  chore): later; "I don't want to risk destabilizing Fetch for it."
+- **Older work is memorabilia.** "Older work should feel celebrated, not
+  abandoned": like "a retired professional baseball player hanging his old
+  bat on the mantle". Plateful and its like are a displayed object with a
+  story (a sign, something framed), which opens to what it was, perhaps a
+  picture, and where to read more; not a crate under a sheet. "The
+  workshop has a history of its own": machines working today, crates for
+  what has shipped, memorabilia from what was built before. Not rigid
+  categories, and "we shouldn't clutter the workshop just to represent
+  every project".
+- **Three demonstrations is not a ceiling**, and a project may get a new
+  machine of its own "if a project inspires something genuinely new".
 - **None of this is a specification.** "I don't want every good idea to
   become a rigid requirement." A better idea found on the way is brought to
   him (§ "What is fixed, and what may change" still holds). "Keep the
