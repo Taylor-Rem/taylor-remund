@@ -241,6 +241,11 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
     lost() {},
 
     restored(restores: readonly Restore[]) {
+      // an undo that puts the board back as shipped (its letting go undone while it had only just come back up the
+      // chute and not yet come to rest, so the location it had was still `shipped`) would leave it behind the dock's
+      // door for ever: nobody is bringing it back. It comes back up the chute, as a shipped tool does.
+      const loc = restores.find((x) => x.target === spec.board && x.field === 'location');
+      if (loc && (loc.to as { at?: string } | null)?.at === 'shipped' && ctx.mode(spec.board) === 'gone') ctx.toChute(spec.board, 'system');
       const r = restores.find((x) => x.target === spec.board && x.field === TOKENS_FIELD);
       if (!r) return;
       // an undo or a reset put the tokens back: a waiting press was cancelled with its transaction (rule 10) or by the reset
