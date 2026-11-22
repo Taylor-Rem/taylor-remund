@@ -236,7 +236,10 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
   let lastInput = 0;
   let wasRound = false;
   let traceState = '';
+  /** Steps of a Button rung since the last input (the crew is frozen through one). */
+  let frozen = 0;
   const check = (): void => {
+    if (w.bracketed) frozen++;
     const v = pitchOf(w);
     if (!v.at.every(Number.isFinite) || !Number.isFinite(v.heading)) fails.push(`step ${w.step}: not a number (${v.state})`);
     const m = w.mode(BODY);
@@ -264,6 +267,7 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
     },
     input() {
       lastInput = w.step;
+      frozen = 0;
     },
   };
   const plan: string[] = [];
@@ -284,14 +288,19 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
       c.run(1);
     }
     let homeAt: number | null = null;
-    while (w.step - lastInput < steps(AFTER)) {
+    let frozenBefore = 0;
+    // (a Button rung after the last input freezes the crew for its length: that time is on top, as in Patch's soak)
+    while (w.step - lastInput - frozen < steps(AFTER)) {
       c.run(1);
-      if (homeAt === null && home(w)) homeAt = w.step;
+      if (homeAt === null && home(w)) {
+        homeAt = w.step;
+        frozenBefore = frozen;
+      }
       if (homeAt !== null && !home(w) && pitchOf(w).leg !== 'round') homeAt = null;
     }
     if (!home(w)) fails.push(`not at his mast ${AFTER} s after the last input: ${pitchOf(w).state} at ${fmt(pitchOf(w).at)}, body ${w.mode(BODY)}`);
     if (w.holding() !== null) fails.push('something still in the hand');
-    const after = homeAt === null ? null : (homeAt - lastInput) / HZ;
+    const after = homeAt === null ? null : (homeAt - lastInput - frozenBefore) / HZ;
     if (after !== null) HOME_TIMES.push(after);
     return { fails, homeAfter: after, label: `seed ${seed}: ${plan.join(', ')}` };
   } catch (e) {

@@ -242,6 +242,8 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
   let roundNotBefore = 0;
   let lastHover: Id | null = null;
   let idleWas = 0;
+  /** Steps since the visitor's last input, a Button rung's not counted (the crew is frozen through it). */
+  let quiet = 0;
   /** The visitor has acted since the script last looked (read in every step, a rung's included). */
   let actedSince = false;
   // ── the hand ──
@@ -670,7 +672,6 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
 
   /** The script's own step in a state that is his (not held, loose or on the tray). */
   function scripted(): void {
-    const idle = ctx.idleSteps();
     // the visitor did something (not only passed the pointer over a thing): a round is cut short, home
     const acted = actedSince;
     actedSince = false;
@@ -684,7 +685,7 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
         prevAt = at;
         turnTo(spec.heading);
         const free = !ctx.reducedMotion && !ctx.still && ctx.holding() === null && ctx.clock.step >= roundNotBefore;
-        if (free && idle >= roundIdle) goRound();
+        if (free && quiet >= roundIdle) goRound();
         return;
       }
       case 'castoff':
@@ -824,6 +825,8 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
 
     pre() {
       const idleNow = ctx.idleSteps();
+      if (idleNow < idleWas) quiet = 0;
+      else if (!ctx.bracketed) quiet += 1;
       if (idleNow < idleWas && ctx.hovered() === lastHover) actedSince = true;
       idleWas = idleNow;
       lastHover = ctx.hovered();

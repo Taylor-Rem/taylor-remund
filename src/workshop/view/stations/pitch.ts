@@ -30,8 +30,8 @@ export const PITCH_LOOK = {
   climbPitch: 5,
   pitchMost: 12,
   /** Bank per (rad/s of turn × unit/s of speed), and the most. */
-  bank: 5,
-  bankMost: 14,
+  bank: 3.5,
+  bankMost: 9,
   /** The swing under the hand: degrees per unit/s² of the hand's pull, and the most. */
   swing: 1.6,
   swingMost: 18,
