@@ -274,11 +274,6 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
         const s = STATION_BOXES[st as BenchStation];
         return (s.min[0] + s.max[0]) / 2 > 1.5 ? 'left' : 'right';
       },
-      thing(box, stage, inset) {
-        // the thing with some of the bench round it
-        const c = box.getCenter(new Vector3());
-        return ease(stage, new Box3(new Vector3(c.x - 1.6, 0, c.z - 0.9), new Vector3(c.x + 1.6, Math.max(1.6, box.max.y), c.z + 0.9)), inset);
-      },
     };
   }
 }

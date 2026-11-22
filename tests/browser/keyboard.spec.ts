@@ -21,7 +21,8 @@ const VIEW = { width: 1280, height: 720 };
 
 interface Ws {
   world: { button(): { presses: number }; part(id: string): { location: { at: string; mouth?: string } } | undefined; motion(id: string): { mode: string } | undefined };
-  stage: { canvas: HTMLCanvasElement; camera: { zoom: number; easing: boolean; worldToScreen(p: { x: number; y: number; z: number }): { x: number; y: number; z: number } } };
+  stage: { canvas: HTMLCanvasElement; camera: { zoom: number; easing: boolean; view(): { focus: [number, number, number]; zoom: number }; worldToScreen(p: { x: number; y: number; z: number }): { x: number; y: number; z: number } } };
+  dispatch(intent: unknown): void;
   picking: { worldBox(id: string): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null };
   framing: { station: string | null };
   loop: { stop(): void; start(): void };
@@ -296,12 +297,13 @@ const inClear = (page: Page) =>
     const a = document.activeElement as HTMLElement | null;
     const id = a?.dataset['id'] ?? a?.dataset['dest'] ?? null;
     const label = (a?.textContent ?? '').trim();
-    if (!id) return { label, id, box: null as number[] | null, covered: [] as string[], inView: true, ok: true };
+    const easing = w.stage.camera.easing;
+    if (!id) return { label, id, box: null as number[] | null, covered: [] as string[], inView: true, ok: true, easing };
     const mouth = (w.world.scene.mouths ?? []).find((m) => m.id === id);
     const b = mouth
       ? { min: { x: mouth.drop[0] - half, y: mouth.drop[1], z: mouth.drop[2] - half }, max: { x: mouth.drop[0] + half, y: mouth.drop[1] + 2 * half, z: mouth.drop[2] + half } }
       : w.picking.worldBox(id);
-    if (!b) return { label, id, box: null, covered: [], inView: true, ok: true };
+    if (!b) return { label, id, box: null, covered: [], inView: true, ok: true, easing };
     const c = w.stage.canvas.getBoundingClientRect();
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let i = 0; i < 8; i++) {
@@ -314,7 +316,7 @@ const inClear = (page: Page) =>
       return !!r && r.width > 4 && r.height > 4 && x0 < r.right && x1 > r.left && y0 < r.bottom && y1 > r.top;
     });
     const inView = x0 >= 0 && y0 >= 0 && x1 <= innerWidth && y1 <= innerHeight;
-    return { label, id, box: [x0, y0, x1, y1].map(Math.round), covered, inView, ok: inView && covered.length === 0 };
+    return { label, id, box: [x0, y0, x1, y1].map(Math.round), covered, inView, ok: inView && covered.length === 0, easing };
   }, DROP_HALF);
 const atRest = async (page: Page): Promise<void> => {
   await page.waitForTimeout(100);
@@ -322,6 +324,19 @@ const atRest = async (page: Page): Promise<void> => {
   // a focus judged once the camera rests may start one more ease (shell/boot.ts `keepFocusClear`)
   await page.waitForTimeout(100);
   await page.waitForFunction(() => !window.__handoff!.workshop.stage.camera.easing, null, { timeout: 20_000 });
+};
+
+/**
+ * The focused thing against the clear area with the camera at rest: the camera's rest and the thing's place are read
+ * in one breath (a crate the crew are carrying may leave the area a moment after the camera rested; the camera then
+ * eases after it, shell/boot.ts `keepFocusClear`, and the reading is taken again once it rests).
+ */
+const settled = async (page: Page): Promise<Awaited<ReturnType<typeof inClear>>> => {
+  for (let i = 0; ; i++) {
+    await atRest(page);
+    const r = await inClear(page);
+    if (!r.easing || i >= 30) return r;
+  }
 };
 
 for (const view of [
@@ -340,8 +355,7 @@ for (const view of [
     const total = await page.locator('#controls .controls-stations button').count();
     // every stop in the list, Tab by Tab, as a visitor walks it
     for (let i = 0; i < total; i++) {
-      await atRest(page);
-      const r = await inClear(page);
+      const r = await settled(page);
       if (r.id) {
         seen.push(r.id);
         if (!r.ok) bad.push(`${r.label} (${r.id}) box ${JSON.stringify(r.box)} covered by ${r.covered.join(', ') || '-'}, in view ${r.inView}`);
@@ -355,8 +369,7 @@ for (const view of [
         await page.locator(`#controls button[data-id="${from}"]`).focus();
         await atRest(page);
         await page.locator(`#controls button[data-id="${to}"]`).focus();
-        await atRest(page);
-        const r = await inClear(page);
+        const r = await settled(page);
         if (!r.ok) bad.push(`${from} → ${r.label} (${r.id}) box ${JSON.stringify(r.box)} covered by ${r.covered.join(', ') || '-'}, in view ${r.inView}`);
       }
     }
@@ -368,8 +381,7 @@ for (const view of [
     const dests = await page.locator('.controls-dests button').count();
     expect(dests).toBeGreaterThanOrEqual(3);
     for (let i = 0; i < dests; i++) {
-      await atRest(page);
-      const r = await inClear(page);
+      const r = await settled(page);
       expect(r.id, 'focus is on a destination').not.toBeNull();
       seen.push(`dest:${r.id}`);
       if (!r.ok) bad.push(`destination ${r.label} (${r.id}) box ${JSON.stringify(r.box)} covered by ${r.covered.join(', ') || '-'}, in view ${r.inView}`);
@@ -395,6 +407,29 @@ test('inside a station, Tab to a thing already comfortably in view leaves the ca
   expect((await stop(page)).id).toBe('undo-lever');
   await atRest(page);
   expect(await where()).toBe(before);
+});
+
+test('what has focus is followed: a crate carried off after the camera has settled is brought back into the clear area', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await live(page);
+  await page.keyboard.press('?');
+  const id = 'crate-3';
+  await page.locator(`#controls button[data-id="${id}"]`).focus();
+  expect((await settled(page)).ok, 'in the clear area to begin with').toBe(true);
+  const before = await ws(page, (w) => w.stage.camera.view().focus[0]);
+  // a hand that is not the keys' (focus stays where it is) takes it to the bench's far front corner: off this screen
+  await page.evaluate((part) => {
+    const w = window.__handoff!.workshop as unknown as Ws;
+    const b = w.picking.worldBox(part)!;
+    w.dispatch({ type: 'grab', id: part, grip: [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2] });
+    w.dispatch({ type: 'place', at: [8.3, b.max.y, 4.2] });
+  }, id);
+  await expect.poll(() => page.evaluate((part) => (window.__handoff!.workshop as unknown as Ws).picking.worldBox(part)?.min.x ?? 0, id), { timeout: 15_000 }).toBeGreaterThan(6);
+  const r = await settled(page);
+  expect(r.id, 'focus has not moved').toBe(id);
+  expect(r.ok, `box ${JSON.stringify(r.box)} covered by ${r.covered.join(', ') || '-'}, in view ${r.inView}`).toBe(true);
+  expect(await ws(page, (w) => w.stage.camera.view().focus[0]), 'the camera went after it').toBeGreaterThan(before + 1);
 });
 
 /**
