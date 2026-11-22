@@ -21,7 +21,8 @@ import { buildEntry } from '../../catalogue/registry.ts';
 import { createPartsView, paintToken, type PartDecorator } from '../../stations/parts.ts';
 import { hashSeed } from '../../vignette.ts';
 import { ORDER, type BenchStation } from '../station.ts';
-import { crateLid, crateMouth, crateSpec, crateWordKeys, WORD_CAP, type CrateSize } from '../../kit/pieces/crate/index.ts';
+import { BADGE_TEX_CAP, crateLid, crateMouth, crateSpec, crateWordKeys, WORD_CAP, type CrateSize } from '../../kit/pieces/crate/index.ts';
+import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
@@ -46,6 +47,8 @@ export const LID_FEEL = {
 /** The plate's engraving: one plate label for every card (its capitals at the plate's own small size). */
 const PLATE_CAP = 0.018;
 const footM = new Matrix4();
+/** (round two) The tallest thing a crate's tray holds, as its card makes room for it (world units: the test block's 0.18 and a little). */
+const THING_HEIGHT = 0.2;
 /** A pick target's padding (world units). */
 const PAD = 0.03;
 
@@ -58,6 +61,8 @@ interface Lid {
   readonly holder: Group;
   /** The crate's piece stands this far under its body's middle (its half height). */
   readonly foot: number;
+  /** How much higher its card stands (over a thing on its tray). */
+  readonly lift: number;
   readonly size: CrateSize;
   card: Object3D | null;
   cardRoot: Object3D | null;
@@ -72,13 +77,41 @@ interface Lid {
   still: boolean;
 }
 
-const legendBoth = (): boolean => {
+const query = (k: string): string | null => {
   try {
-    return new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get('crateLegend') === 'both';
+    return new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get(k);
   } catch {
-    return false;
+    return null;
   }
 };
+const legendBoth = (): boolean => query('crateLegend') === 'both';
+
+/**
+ * (round two) Each project crate's one mark, read across the bench: its pictogram, sprayed through a stencil like the
+ * arrows a shipping crate carries. A coin for the ledger, a sheet of paper for the reports, a fan of paint chips for
+ * t-components (each hints at what will be inside), a service bell for the support desk, a clipboard ticked for the
+ * inspections, a processor chip for Artificer (its GPUs). A look, not a word: none says a fact that is not on /resume/.
+ */
+export const PICTO_OF: Readonly<Record<string, PictoName>> = { ledger: 'coin', reports: 'sheet', 't-components': 'chips', 'support-desk': 'bell', 'clean-green': 'check', artificer: 'chip' };
+/**
+ * Which mark the crates carry: `initial` (the project's initial in the place and the voice the size letter had at G1),
+ * `picto`, or `none` (round one: the title across the front). `?crateMark=` chooses, for the pictures for the owner.
+ */
+export type CrateMark = 'initial' | 'picto' | 'none';
+export const CRATE_MARK_DEFAULT: CrateMark = 'initial';
+const crateMark = (): CrateMark => {
+  const q = query('crateMark');
+  return q === 'initial' || q === 'picto' || q === 'none' ? q : CRATE_MARK_DEFAULT;
+};
+/** A project's mark as the stencil text that sprays it (its title's first letter, or its pictogram's character). */
+export function markText(project: string, title: string, mark: CrateMark): string | null {
+  if (mark === 'none') return null;
+  if (mark === 'picto') {
+    const p = PICTO_OF[project];
+    return p ? PICTO[p] : null;
+  }
+  return title.slice(0, 1).toUpperCase();
+}
 
 export const station: BenchStation = {
   name: 'parts',
@@ -89,6 +122,7 @@ export const station: BenchStation = {
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     const things = new Set((k.scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [c.holds] : [])));
     const both = legendBoth();
+    const mark = crateMark();
     return (ctx: ViewContext): StationView => {
       // every project's stencil, made now while the labels' start-up pages are open, so the words land on the page the
       // crates' arrows and letters use and merge into their mesh (a label made later opens a page of its own: one more
@@ -96,8 +130,10 @@ export const station: BenchStation = {
       for (const pc of projects.values()) {
         const words = BENCH_PROJECTS[pc.project];
         if (!words) continue;
-        crateWordKeys(ctx.labels, words.stencil);
+        crateWordKeys(ctx.labels, words.stencil, WORD_CAP, true);
         crateWordKeys(ctx.labels, words.madeFor, WORD_CAP * 0.8);
+        const m = markText(pc.project, words.title, mark);
+        if (m) crateWordKeys(ctx.labels, [m], BADGE_TEX_CAP, true);
       }
       return createPartsView({
         half: (p) => k.world()?.halfExtents(p.id) ?? [0.3, 0.3, 0.3],
@@ -117,6 +153,7 @@ export const station: BenchStation = {
             seed: hashSeed(p.id),
             ...(extras.tape ? { tape: extras.tape } : {}),
             ...(words ? { words: [...words.stencil], mark: [...words.madeFor], ...(both ? { legend: 'both' } : {}) } : {}),
+            ...(words && pc && markText(pc.project, words.title, mark) ? { badge: markText(pc.project, words.title, mark)! } : {}),
           }, ctx.labels);
         },
         decorate: projectCrates(projects, things),
@@ -152,7 +189,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         let face = faces.get(part.id);
         if (!face && words) {
           const region = projectCardRegion(ctx.labels, part.id, size);
-          paintProjectCard(region, { title: words.title, line: words.line, tools: words.tools }, hashSeed(part.id));
+          paintProjectCard(region, { title: words.title, line: words.line }, hashSeed(part.id));
           face = region.key;
           faces.set(part.id, face);
         }
@@ -160,7 +197,11 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const m = crateMouth(size);
         const rim = m.rim;
         // the card, in the crate's mouth (the crate's piece stands on its base at the object's origin)
-        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize }, trayY: Math.max(0.01, 2 * half[1] + 0.006 - 0.012 - rim) });
+        // (round two) a crate with a thing on its tray stands its card higher, on posts, so the thing does not cover it: its
+        // foot over the thing's top less what the camera's pitch shows of it from the front (the card is behind it)
+        const trayY = Math.max(0.01, 2 * half[1] + 0.006 - 0.012 - rim);
+        const lift = pc.holds !== undefined ? Math.max(0, trayY + 0.012 + THING_HEIGHT - m.d * 0.62 * Math.tan((33 * Math.PI) / 180) + 0.02) : 0;
+        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize }, trayY, lift });
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
         cardRoot.visible = false;
@@ -177,7 +218,17 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         });
         const trayNode = tray as Object3D | null;
         if (trayNode && pc.holds === undefined) trayNode.scale.setScalar(HIDDEN);
-        lids.set(part.id, { crate: pc, holder, foot: half[1], size, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
+        lids.set(part.id, { crate: pc, holder, foot: half[1], size, lift, card, cardRoot, tray: trayNode, lid: 0, v: 0, t: 0, hasp: 0, rise: 0, still: false });
+        // (round two) what an opening asks the page to look at (the world's `look`): the risen card, the crate's mouth and
+        // its tray, a box of its own never pressed (no hand takes it: only `lookAt` reads it)
+        if (pc.card !== undefined) {
+          const lookAt = new Object3D();
+          lookAt.name = 'look.box';
+          holder.add(lookAt);
+          const cs = projectCardSize(size);
+          const hw2 = Math.max(cs.w, S.w) / 2;
+          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, S.h * 0.55, -S.d / 2), new Vector3(hw2, rim + lift + 0.03 + cs.h, S.d / 2 + 0.02)), pad: 0, active: () => false });
+        }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
         // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just
         // where the hasp hangs (about five sixths of its height up), and a press at a crate's middle must take hold of the
@@ -256,7 +307,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           const e = st.rise * st.rise * (3 - 2 * st.rise);
           st.cardRoot.visible = st.rise > 0.001 || st.lid > 0.02;
           // hidden down in the mouth, it rises on its batten until the batten lies on the walls
-          if (st.card) st.card.position.y = 0.026 - (1 - e) * (cs.h + 0.05 + F.cardDepth);
+          if (st.card) st.card.position.y = 0.026 + st.lift - (1 - e) * (cs.h + 0.05 + F.cardDepth + st.lift);
         }
       },
 

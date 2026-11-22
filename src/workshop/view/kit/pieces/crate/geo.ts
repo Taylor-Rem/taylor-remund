@@ -216,10 +216,12 @@ export const cornerChamfer = (sx: number, sy: number, sz: number) => (a: number,
 export const axisChamfer = (axis: number) => (a: number, _sa: number, b: number): boolean => a !== axis && b !== axis;
 
 /** A box seen from inside: six faces whose normals point inward (12 triangles). */
-export function innerBox(min: V3, max: V3, noCeiling = false): BufferGeometry {
+export function innerBox(min: V3, max: V3, noCeiling = false, noFloor = false): BufferGeometry {
   const md = new MeshData();
   for (let a = 0; a < 3; a++) {
     for (const s of [-1, 1]) {
+      // (round two: packing straw lies on the floor's place)
+      if (noFloor && a === 1 && s < 0) continue;
       // (P4 S5: the ceiling faces down into the crate: no camera above ever sees it, and an open lid's underside takes its place)
       if (noCeiling && a === 1 && s > 0) continue;
       const n: V3 = [0, 0, 0];
@@ -363,3 +365,14 @@ export function mergeMarked(geoms: readonly BufferGeometry[], marked: ReadonlySe
 }
 
 export const FACES = FACE;
+
+/**
+ * (P4 S5 round two) Packing straw in a crate: a bed over the rectangle [x0, x1] × [z0, z1] at height y, uneven (each
+ * corner up to `rise` higher or lower, two corners heaped), facing up: two triangles, the crate's floor's two given up for it.
+ */
+export function strawMound(x0: number, x1: number, z0: number, z1: number, y: number, rise: number, r: () => number): BufferGeometry {
+  const md = new MeshData();
+  const ids = [[x0, z1], [x1, z1], [x1, z0], [x0, z0]].map(([x, z], k) => md.v(x!, y + (k % 2 === 0 ? rise : -rise * 0.3) * (0.5 + r() * 0.5), z!, 0, 1, 0));
+  md.quad(ids[0]!, ids[1]!, ids[2]!, ids[3]!);
+  return writeSurf(finish(md), []);
+}

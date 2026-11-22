@@ -197,6 +197,15 @@ export function measure(name: string, start: number): void {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
 
+/**
+ * Tune here (P4 S5 round two): a thing that asks to be looked at (the world's `look` event: a project crate just opened)
+ * is brought close enough to read: its box at least `minPx` CSS px across (or as close as the camera goes, or as large
+ * as the clear area allows, `fill` of its smaller side). The least move that does it (`lookAt`). A double-click or
+ * double-tap first asks the world whether a thing answers it (`select`); the station is framed only if nothing has asked
+ * to be looked at `selectWait` ms later.
+ */
+export const LOOK_AT = { minPx: 230, fill: 0.62, zoomStep: 0.03, tries: 40, selectWait: 140 } as const;
+
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {
   /** CSS px the focused thing's box keeps inside the clear area (the mark stands about this far outside the box). */
@@ -785,6 +794,51 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       inset = { ...inset, ...i };
     },
   };
+  /**
+   * (P4 S5 round two) A thing asked to be looked at (`look`): from the view now, the least move that shows its box at
+   * least `LOOK_AT.minPx` across in the clear area. Already that close and in the clear: the camera stays. Else it is
+   * drawn in a step at a time toward the thing, as far as the camera goes, then slid (`settle`) into the clear area.
+   * Esc, the back button and pinching out leave it as they leave a station. Under reduced motion the ease is a cut.
+   */
+  const lookAt = (id: Id): void => {
+    const box = focusBox(id, new Box3());
+    if (!box) return;
+    following = null;
+    const cam = stage.camera;
+    const c = clearOf(KEEP_CLEAR.pad);
+    const want = Math.min(LOOK_AT.minPx, Math.min(c.x1 - c.x0, c.y1 - c.y0) * LOOK_AT.fill);
+    const across = (): number => {
+      const r = rectOf(id);
+      return r ? Math.max(r.x1 - r.x0, r.y1 - r.y0) : 0;
+    };
+    if (!cam.easing && across() >= want && clear(id, KEEP_CLEAR.pad)) return;
+    const m = box.getCenter(new Vector3());
+    let v: View = { focus: [m.x, m.y, m.z], zoom: cam.view().zoom };
+    for (let i = 0; i < LOOK_AT.tries; i++) {
+      const r = atView(v, () => ({ size: across(), rest: cam.view() }));
+      if (r.size >= want || r.rest.zoom >= 1) break;
+      v = { focus: v.focus, zoom: Math.min(1, r.rest.zoom + LOOK_AT.zoomStep) };
+    }
+    const at = settle(id, v) ?? atView(v, () => cam.view());
+    resting = at;
+    cam.easeTo(at);
+    cam.focusOn({ x: m.x, y: m.y, z: m.z });
+  };
+  /** (round two) A double-click or double-tap that the world may answer (`select`); the station if nothing asked to be looked at. */
+  let pendingFrame: { id: Id; until: number } | null = null;
+  const lookEvents = (frame: Frame): void => {
+    for (const e of frame.events) {
+      if (e.type !== 'look') continue;
+      pendingFrame = null;
+      lookAt(e.target);
+    }
+    if (pendingFrame && now() > pendingFrame.until) {
+      const id = pendingFrame.id;
+      pendingFrame = null;
+      if (framings) framing.frame(framings.of(id), 'select');
+      else opts.onFrameRequest?.(id, stage);
+    }
+  };
   /** Once per frame, the camera at rest: what has focus is still in the clear area, or is brought back to it. */
   const keepFocusClear = (): void => {
     if (following === null || stage.camera.easing) return;
@@ -821,7 +875,14 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       }
     },
     frame(_x, _y, id) {
-      if (framings) framing.frame(id === null ? null : framings.of(id), 'select');
+      // (round two) a thing double-clicked or double-tapped may answer it itself (a project crate opens and asks to be
+      // looked at); the station is framed if nothing does
+      if (id !== null) {
+        dispatch({ type: 'select', id });
+        pendingFrame = { id, until: now() + LOOK_AT.selectWait };
+        return;
+      }
+      if (framings) framing.frame(null, 'select');
       else opts.onFrameRequest?.(id, stage);
     },
     back() {
@@ -873,6 +934,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       for (const f of frameListeners) guard.run('ui:frame', () => f(frame));
       // (K2) a focus that moved on while the camera eased, judged now it rests
       guard.run('ui:focus', keepFocusClear);
+      // (P4 S5 round two) a thing that asked to be looked at; a double-click nothing answered frames its station
+      guard.run('ui:look', () => lookEvents(frame));
     },
   });
   driverRef.d = driver;

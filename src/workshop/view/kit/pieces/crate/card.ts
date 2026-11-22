@@ -22,16 +22,17 @@ import { bevelBox, sheet } from '../../cheap.ts';
 import { hex, type Token } from '../../../palette.ts';
 import { font } from '../../../labels/fonts.ts';
 import { rng as labelRng } from '../../../labels/rng.ts';
-import { crateMouth, type CrateSize } from './index.ts';
+import { crateMouth, crateSpec, type CrateSize } from './index.ts';
 import { Matrix4 } from 'three';
 
 /** Texels per world unit of a card's face: its smallest type stays sharp with the camera close. */
 export const CARD_TPU = 900;
 /** The card's face (world units) for a crate of this size: as wide as the mouth allows, an index card's proportion. */
 export function projectCardSize(size: CrateSize): { w: number; h: number } {
-  const m = crateMouth(size);
-  const w = Math.min(m.w * 0.86, 0.56);
-  return { w, h: w * 0.64 };
+  // (round two) as wide as the crate nearly (it stands above the rim, on its batten), so its type can be large
+  const W = crateSpec(size).w;
+  const w = Math.min(W * 0.92, 0.6);
+  return { w, h: w * 0.62 };
 }
 
 /** The card's region (one per project crate, by name), on the cards' page. */
@@ -47,6 +48,8 @@ export interface ProjectCardOptions extends KitOptions {
   plate?: { key: string; w: number; h: number };
   /** How far over the rim the tray's floor is (its thing sits on it), world units. */
   trayY?: number;
+  /** (round two) How much higher the card stands, on two posts under its batten: over the thing on the tray, not behind it. */
+  lift?: number;
 }
 
 const DEG = Math.PI / 180;
@@ -87,6 +90,14 @@ export function projectCard(o: ProjectCardOptions = {}): Piece {
   // (the card's node leans back; its batten is laid level)
   const batten = transform(bevelBox({ min: [-fw / 2, -0.026, -0.024], max: [fw / 2, 0.004, 0.02], c: 0.004, omit: ['ny'], wear: 0.8 }), new Matrix4().makeRotationX(lean * DEG));
   card.add(part('wood', batten, 'wood-light', { seed: seed + 3, jitter: 0.08, shade: 0.9 }));
+  // (round two) lifted over a thing on the tray: two posts from the batten down to the rim
+  const lift = o.lift ?? 0;
+  if (lift > 0.01) {
+    for (const sx of [-1, 1]) {
+      const post = transform(bevelBox({ min: [sx * (fw / 2 - 0.03) - 0.012, -0.026 - lift, -0.012], max: [sx * (fw / 2 - 0.03) + 0.012, -0.026, 0.012], c: 0.003, omit: ['ny'] }), new Matrix4().makeRotationX(lean * DEG));
+      card.add(part('wood', post, 'wood-light', { seed: seed + 6, jitter: 0.08, shade: 0.85 }));
+    }
+  }
 
   // the tray at the mouth's front, where the crate's thing sits: a shallow wooden tray with a lip
   const td = m.d * 0.34, tw = Math.min(m.w * 0.62, 0.3);
@@ -124,73 +135,75 @@ function wrapPx(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2
  * and faint blue lines below (an index card); the type a little uneven, as a typewriter's is. Nothing is written here:
  * every word comes in (`title`, `line`, `tools`: the résumé's published words).
  */
-export function paintProjectCard(region: LabelRegion, words: { title: string; line: string; tools: readonly string[] }, seed = 1): void {
+export function paintProjectCard(region: LabelRegion, words: { title: string; line: string }, seed = 1): void {
   region.draw((ctx, W, H) => {
     const r = labelRng(`crate-card|${seed}|${words.title}`);
     const j = (m: number): number => (r() * 2 - 1) * m;
-    // the stock
+    // (round two) the stock at the value of the crew's cards: cream index stock aged toward the wood, a little grey,
+    // darker at its edges; never the white of the brightest thing on the bench
     ctx.fillStyle = css('paper');
     ctx.fillRect(0, 0, W, H);
-    const g = ctx.createRadialGradient(W * 0.5, H * 0.45, H * 0.2, W * 0.5, H * 0.5, W * 0.75);
+    ctx.fillStyle = css('wood-light', 0.3);
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css('ink', 0.07);
+    ctx.fillRect(0, 0, W, H);
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.45, H * 0.25, W * 0.5, H * 0.5, W * 0.72);
     g.addColorStop(0, css('paper', 0));
-    g.addColorStop(1, css('wood-light', 0.22));
+    g.addColorStop(1, css('wood', 0.22));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    const side = W * 0.07;
+    const side = W * 0.065;
     const room = W - 2 * side;
-    /** Where the plate is, at the foot on the right: a line that reaches down to it stops short of it. */
-    const plateTop = H * 0.8;
+    /** Where the brass plate is, at the foot on the right: a line that reaches down to it stops short of it. */
+    const plateTop = H * 0.72;
     const narrow = room * 0.6;
     ctx.textBaseline = 'alphabetic';
-    // laid out top down at a scale: the title (two lines at most), a rule, the one line, the tools; smaller until it fits
+    // the title large (two lines at most), a red rule, the one line under it (three at most); smaller together until it
+    // fits. (The tools are not on the card: at the distance a card is read they cannot be 12 px; the plate opens them.)
     type Row = { text: string; px: number; y: number; a: number };
     const plan = (k: number): { rows: Row[]; rule: number; bottom: number } => {
       const rows: Row[] = [];
-      const tp = H * 0.15 * k;
+      const tp = H * 0.22 * k;
       let px = tp;
       ctx.font = font('type', px);
       let title = wrapPx(ctx, words.title, room);
       while (title.length > 2 && px > tp * 0.6) {
-        px *= 0.92;
+        px *= 0.93;
         ctx.font = font('type', px);
         title = wrapPx(ctx, words.title, room);
       }
-      let y = H * 0.08 + px;
+      let y = H * 0.07 + px;
       for (const l of title) {
-        rows.push({ text: l, px, y, a: 0.95 });
-        y += px * 1.18;
+        rows.push({ text: l, px, y, a: 0.96 });
+        y += px * 1.12;
       }
-      const rule = y - px * 0.72;
-      const sp = px * 0.6;
+      const rule = y - px * 0.7;
+      const sp = px * 0.72;
       y += sp * 0.3;
       ctx.font = font('type', sp);
-      for (const l of wrapPx(ctx, words.line, y + sp * 1.3 > plateTop ? narrow : room)) {
-        rows.push({ text: l, px: sp, y, a: 0.88 });
-        y += sp * 1.28;
+      let lines = wrapPx(ctx, words.line, room);
+      // a line that would reach down beside the plate is set narrower
+      if (y + sp * 1.25 * (lines.length - 1) > plateTop) lines = [...wrapPx(ctx, words.line, room).slice(0, 1), ...wrapPx(ctx, wrapPx(ctx, words.line, room).slice(1).join(' '), narrow)];
+      for (const l of lines) {
+        rows.push({ text: l, px: sp, y, a: 0.9 });
+        y += sp * 1.25;
       }
-      const tp2 = px * 0.5;
-      y += tp2 * 0.5;
-      ctx.font = font('type', tp2);
-      for (const l of wrapPx(ctx, words.tools.join(' · '), narrow)) {
-        rows.push({ text: l, px: tp2, y, a: 0.85 });
-        y += tp2 * 1.25;
-      }
-      return { rows, rule, bottom: y - tp2 * 0.95 };
+      return { rows, rule, bottom: y - sp * 0.95 };
     };
     let k = 1;
     let p = plan(k);
     while (p.bottom > H * 0.95 && k > 0.4) {
-      k *= 0.93;
+      k *= 0.94;
       p = plan(k);
     }
-    // the red rule under the title, faint blue lines under the rest (an index card)
-    ctx.strokeStyle = css('cable-red', 0.55);
-    ctx.lineWidth = Math.max(1, H * 0.006);
+    // the red rule under the title, faint blue rules under the line (an index card)
+    ctx.strokeStyle = css('cable-red', 0.5);
+    ctx.lineWidth = Math.max(1, H * 0.007);
     ctx.beginPath();
     ctx.moveTo(side * 0.5, p.rule);
     ctx.lineTo(W - side * 0.5, p.rule + j(H * 0.004));
     ctx.stroke();
-    ctx.strokeStyle = css('paint-blue', 0.16);
+    ctx.strokeStyle = css('paint-blue', 0.14);
     ctx.lineWidth = Math.max(1, H * 0.003);
     for (const row of p.rows) {
       if (row.y < p.rule + 2) continue;
@@ -202,10 +215,10 @@ export function paintProjectCard(region: LabelRegion, words: { title: string; li
     // letter by letter: a typewriter's baseline wanders, some strikes land a little light
     for (const row of p.rows) {
       ctx.font = font('type', row.px);
-      let cx = side + j(row.px * 0.05);
+      let cx = side + j(row.px * 0.04);
       for (const ch of row.text) {
-        ctx.fillStyle = css('ink', r() < 0.15 ? row.a * 0.8 : row.a);
-        ctx.fillText(ch, cx + j(row.px * 0.015), row.y + j(row.px * 0.03));
+        ctx.fillStyle = css('ink', r() < 0.12 ? row.a * 0.85 : row.a);
+        ctx.fillText(ch, cx + j(row.px * 0.012), row.y + j(row.px * 0.025));
         cx += ctx.measureText(ch).width;
       }
     }

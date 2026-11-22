@@ -41,6 +41,7 @@ import type { Cause, Id, Intent, Pose, Restore, SimEvent, StationId, Vec3 } from
 import type { SimContext, Unit } from '../context.ts';
 import type { ProjectCrate, UnitFactory } from '../scene.ts';
 import { gesture, handleTxn } from '../machine.ts';
+import { steps } from '../clock.ts';
 import { qmul, rotate } from '../math.ts';
 
 /** The durable field a project crate's lid is: true open, false shut. */
@@ -60,6 +61,8 @@ export const CRATES_TUNING = {
   trayLift: 0.006,
   /** A thing set down within this share of the crate's half extents of the tray, on the open crate, is stowed again. */
   trayCatch: 1.0,
+  /** (round two) A crate asked for by a double-click or double-tap opens once it lies still, if it does within this (s). */
+  selectWait: 1.5,
 } as const;
 
 export interface CratesSpec {
@@ -80,6 +83,11 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
   const byPlate = new Map(list.map((c) => [c.plate, c]));
   /** Crates that were in the visitor's hand while open: they clap shut when let go (under the letting go). */
   const wasHeld = new Set<Id>();
+  /**
+   * (round two) A crate the visitor asked for by itself (`select`: a double-click or double-tap on it) that could not open
+   * yet (the double-tap's first tap had lifted it; it is settling): it opens once it lies still, within `selectWait`.
+   */
+  const selected = new Map<Id, number>();
 
   for (const c of list) {
     // (the world's parts are not readable while units are made: the scene's specs say the same)
@@ -214,20 +222,47 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
     if (ctx.take(id, spec.id)) ctx.drive(id, at);
   }
 
+  /** (round two) Ask the page to bring the crate's card close enough to read. */
+  function look(c: ProjectCrate): void {
+    if (c.card !== undefined) ctx.emit({ type: 'look', target: c.card });
+  }
+  /** The latch worked: open (and asks to be looked at) or shut (the camera stays where it is). */
+  function toggle(c: ProjectCrate, open: boolean): void {
+    ctx.emit({ type: 'handle.worked', id: c.lid, value: open ? 0 : 1 });
+    const t = handleTxn(ctx, gesture(), 'press', c.lid);
+    const r = ctx.commit([{ target: c.crate, field: OPEN, after: !open }], t);
+    if (r.effects.length > 0) {
+      if (open) ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why: 'press' });
+      else {
+        ctx.emit({ type: 'crate.opened', id: spec.id, crate: c.crate, project: c.project });
+        look(c);
+      }
+    }
+    placeThing(c, true);
+  }
+
   const unit: Unit = {
     id: spec.id,
 
     intent(intent: Intent): boolean {
-      if (intent.type !== 'press' || ctx.bracketed) return false;
+      if (ctx.bracketed) return false;
+      if (intent.type === 'select') {
+        // (round two) a double-click or double-tap on a project crate: it opens (now, or once it lies still), and asks to
+        // be looked at; an open one asks to be looked at again
+        const c = list.find((x) => x.crate === intent.id || x.lid === intent.id || x.plate === intent.id);
+        if (!c) return false;
+        if (isOpen(c.crate)) look(c);
+        else if (mayOpen(c)) toggle(c, false);
+        else if (ctx.mode(c.crate) === 'free' || ctx.mode(c.crate) === 'held') selected.set(c.crate, ctx.clock.step + steps(T.selectWait));
+        else return false;
+        return true;
+      }
+      if (intent.type !== 'press') return false;
       const lid = byLid.get(intent.id);
       if (lid) {
         const open = isOpen(lid.crate);
         if (!open && !mayOpen(lid)) return false; // in a hand, a machine, on the move, tipped, or something on it
-        ctx.emit({ type: 'handle.worked', id: lid.lid, value: open ? 0 : 1 });
-        const t = handleTxn(ctx, gesture(), 'press', lid.lid);
-        const r = ctx.commit([{ target: lid.crate, field: OPEN, after: !open }], t);
-        if (r.effects.length > 0) ctx.emit(open ? { type: 'crate.shut', id: spec.id, crate: lid.crate, project: lid.project, why: 'press' } : { type: 'crate.opened', id: spec.id, crate: lid.crate, project: lid.project });
-        placeThing(lid, true);
+        toggle(lid, open);
         return true;
       }
       const plate = byPlate.get(intent.id);
@@ -241,6 +276,14 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
 
     pre() {
       if (ctx.bracketed) return;
+      for (const [crate, until] of [...selected]) {
+        const c = list.find((x) => x.crate === crate);
+        if (!c || ctx.clock.step > until || isOpen(crate)) selected.delete(crate);
+        else if (mayOpen(c)) {
+          selected.delete(crate);
+          toggle(c, false);
+        }
+      }
       for (const c of list) {
         if (isOpen(c.crate)) {
           const m = ctx.mode(c.crate);
@@ -280,6 +323,7 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
 
     reset() {
       wasHeld.clear();
+      selected.clear();
     },
 
     heard(events: readonly SimEvent[]) {

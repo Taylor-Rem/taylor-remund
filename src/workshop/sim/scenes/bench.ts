@@ -216,7 +216,7 @@ export const PROJECT_OF: Readonly<Record<string, string>> = {
   'crate-spare-2': 'clean-green',
 };
 /** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them). */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate` }));
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card` }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;

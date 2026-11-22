@@ -459,6 +459,15 @@ export class Gestures {
           return;
         }
         if (!a.moved && !a.fresh) {
+          // (P4 S5 round two) the second tap of a double-tap on the thing its first tap lifted: let go where it is,
+          // still (a pick-up undone on the spot is put back exactly), and the double-tap asks for the thing itself
+          const last = this.lastTap;
+          if (last && s.t - last.t <= this.tuning.doubleMs && Math.hypot(s.x - last.x, s.y - last.y) <= this.tuning.doublePx) {
+            this.intent({ type: 'release', velocity: [0, 0, 0] }, s.t);
+            this.endHold(s.t);
+            this.noteTap(s, h.id);
+            return;
+          }
           // pressed the tap-held thing again without moving: set it down here
           this.place(s.x, s.y, s.kind, s.t);
           this.noteTap(s, h.id);

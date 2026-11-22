@@ -285,3 +285,48 @@ describe('a place for a thing (the development stand-in in t-components\' crate)
     w.dispose();
   }, 60_000);
 });
+
+describe('round two: asked for by itself (a double-click or double-tap), a crate opens and asks to be looked at', () => {
+  test('select on a still crate opens it and emits look; on an open one, look again; on anything else nothing; the shut press asks for no look', async () => {
+    const w = await benchWorld('pc-select', { scene: BENCH });
+    const t = tape(w);
+    t.run(30);
+    w.dispatch({ type: 'select', id: 'crate-3' });
+    let ev = t.run(1);
+    expect(isOpen(w, 'crate-3')).toBe(true);
+    expect(ev).toContainEqual({ type: 'look', target: 'crate-3-card' });
+    w.dispatch({ type: 'select', id: 'crate-3' });
+    ev = t.run(1);
+    expect(isOpen(w, 'crate-3')).toBe(true);
+    expect(ev).toContainEqual({ type: 'look', target: 'crate-3-card' });
+    press(w, 'crate-3-lid');
+    ev = t.run(1);
+    expect(isOpen(w, 'crate-3')).toBe(false);
+    expect(ev.some((e) => e.type === 'look')).toBe(false);
+    w.dispatch({ type: 'select', id: 'fetch' });
+    ev = t.run(1);
+    expect(ev.some((e) => e.type === 'look' || e.type === 'crate.opened')).toBe(false);
+    // the latch opens it too, and asks to be looked at
+    press(w, 'crate-3-lid');
+    expect(t.run(1)).toContainEqual({ type: 'look', target: 'crate-3-card' });
+    w.dispose();
+  });
+
+  test('a double-tap\'s first tap lifted the crate: let go still, it opens once it lies still, where it was', async () => {
+    const w = await benchWorld('pc-select-held', { scene: BENCH });
+    const t = tape(w);
+    t.run(30);
+    const p = w.motion('crate-3')!.pose.p;
+    w.dispatch({ type: 'grab', id: 'crate-3', grip: p });
+    t.run(18);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    w.dispatch({ type: 'select', id: 'crate-3' });
+    t.run(1);
+    for (let i = 0; i < steps(1.5) && !isOpen(w, 'crate-3'); i++) t.run(1);
+    expect(isOpen(w, 'crate-3')).toBe(true);
+    expect(t.of('look').map((x) => x.e.target)).toEqual(['crate-3-card']);
+    const q = w.motion('crate-3')!.pose.p;
+    expect(Math.hypot(q[0] - p[0], q[2] - p[2])).toBeLessThan(0.1);
+    w.dispose();
+  });
+});

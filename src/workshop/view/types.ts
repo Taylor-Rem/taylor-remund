@@ -44,7 +44,11 @@ export interface Labels {
    */
   tape(text: string, colour?: 'black' | 'red' | 'blue', opts?: LabelOptions): string;
   /** Sprayed stencil, in `paint` (default `ink`); transparent background. */
-  stencil(text: string, opts?: LabelOptions & { paint?: Token }): string;
+  /**
+   * Sprayed stencil, in `paint` (default `ink`); transparent background. `heavy` (P4 S5: a project's name on its crate):
+   * condensed and bolder, sprayed thicker, so a title fills the face at the largest capitals it can.
+   */
+  stencil(text: string, opts?: LabelOptions & { paint?: Token; heavy?: boolean }): string;
   /** A big typed cue card (the crew's voice). */
   card(text: string, opts?: LabelOptions): string;
   /** A narrow torn slip, as Fetch prints. */
