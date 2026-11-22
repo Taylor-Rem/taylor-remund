@@ -106,8 +106,26 @@ export interface Framing {
   bring(id: Id): void;
   /** Called on every framing, with its reason. */
   on(f: (st: string | null, why: FrameWhy) => void): () => void;
-  /** What of the canvas the page covers now (framings keep clear of it). */
-  setInset(i: Partial<Inset>): void;
+  /**
+   * What of the canvas the page covers now (framings keep clear of it). Each thing laid over the stage says what IT
+   * covers under its own name (`from`: the controls list `'list'`, a plate's panel `'panel'`; default `'page'`); the
+   * clear area is the canvas less the widest of them on each side, so no writer undoes another's.
+   */
+  setInset(i: Partial<Inset>, from?: string): void;
+  /** (P4 H1 round three) `id`'s box on the canvas now (CSS px), or null: read only. */
+  screenRect(id: Id): { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number } | null;
+  /**
+   * (P4 H1 round three) Something laid over the stage is about `id`: bring it into the clear area by the least move
+   * (a look in force re-settles there and stays a look). Returns how to give the picture back: `back()` eases to the
+   * view from before (a cut under reduced motion) unless the visitor has moved the camera since. `prev`: what an
+   * earlier reveal for the same covering returned (a panel's content swapped): the view to go back to stays its.
+   */
+  reveal(id: Id | null, prev?: Reveal | null): Reveal;
+}
+
+/** (P4 H1 round three) A reveal's way back (`Framing.reveal`). */
+export interface Reveal {
+  back(): void;
 }
 
 export interface BootOptions {
@@ -204,7 +222,18 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * double-tap first asks the world whether a thing answers it (`select`); the station is framed as soon as the world has
  * stepped once since without asking for a look (one frame), or `selectWait` ms later if it has not stepped (paused).
  */
-export const LOOK_AT = { minPx: 560, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
+/** (round four) `?lookPx=480`: a look's `minPx` for one visit (the lead's 560 / 480 comparison), else `LOOK_AT.minPx`. */
+const lookMinPx = (): number => {
+  try {
+    const q = Number(new URLSearchParams(globalThis.location?.search ?? '').get('lookPx'));
+    return q > 0 ? q : LOOK_AT.minPx;
+  } catch {
+    return LOOK_AT.minPx;
+  }
+};
+// (the lead, from the crates' round-four sheet at 1440×900: 560 left an opened crate alone on the screen; at 480, with a
+// laptop's closest look 1.7 across, the bench stays round it and the smallest line of a card is still 15 px)
+export const LOOK_AT = { minPx: 480, fill: 0.9, zoomStep: 0.03, tries: 80, selectWait: 140 } as const;
 
 /** Tune here (K2): keeping what has focus in what the page leaves uncovered (`Framing.bring`). */
 export const KEEP_CLEAR = {
@@ -620,6 +649,18 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     dispatch(intent, t);
   };
   let inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** (P4 H1 round three) What each covering says it covers (`Framing.setInset`'s `from`); `inset` is their widest. */
+  const insets = new Map<string, Partial<Inset>>();
+  /** (P4 H1 round three) A reveal's record: the view to go back to, the view it moved to, and how (a look or not). */
+  interface RevealImpl extends Reveal {
+    before: View | null;
+    to: View | null;
+    close: boolean;
+    look: Box3 | null;
+    /** Which pick target that look is on (the see-through view reads its parts): kept with the look, both ways. */
+    lookId: string | null;
+    moved(): boolean;
+  }
   const onScreen = (id: Id): boolean => {
     const s = screenOf(id);
     if (!s) return true;
@@ -681,9 +722,10 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     const was = cam.view();
     const wasClose = cam.reach > 1;
     const look = cam.look;
+    const lookId = cam.lookId;
     cam.cutTo(v, { close });
     const out = f();
-    cam.cutTo(was, { close: wasClose, look });
+    cam.cutTo(was, { close: wasClose, look, lookId });
     return out;
   };
   /** The view the last framing eases to (null: none since the visitor last moved the camera). */
@@ -798,8 +840,61 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       framingListeners.add(f);
       return () => framingListeners.delete(f);
     },
-    setInset(i) {
-      inset = { ...inset, ...i };
+    setInset(i, from = 'page') {
+      // (P4 H1 round three) each covering keeps its own inset; the clear area is the canvas less the widest of them
+      insets.set(from, { ...(insets.get(from) ?? {}), ...i });
+      const s = { top: 0, right: 0, bottom: 0, left: 0 };
+      for (const v of insets.values()) for (const k of ['top', 'right', 'bottom', 'left'] as const) s[k] = Math.max(s[k], v[k] ?? 0);
+      inset = s;
+    },
+    screenRect: (id) => rectOf(id),
+    reveal(id, prev) {
+      const cam = stage.camera;
+      const old = prev && (prev as RevealImpl).before ? (prev as RevealImpl) : null;
+      // (asked before this reveal moves anything: is the earlier one's picture still the one in front of us?)
+      const oldHolds = old ? !old.moved() : false;
+      // where the camera is, or will rest (an ease under way: its end)
+      const base = cam.easing && resting ? resting : cam.view();
+      const close = cam.reach > 1 || cam.look !== null;
+      const look = cam.look;
+      const lookId = cam.lookId;
+      const keep = (to: View | null): RevealImpl => {
+        const before = oldHolds ? old!.before : to ? base : null;
+        const r: RevealImpl = {
+          before,
+          to: to ?? (oldHolds ? old!.to : null),
+          close: oldHolds ? old!.close : close,
+          look: oldHolds ? old!.look : look,
+          lookId: oldHolds ? old!.lookId : lookId,
+          moved() {
+            if (!this.to) return true;
+            const v = cam.easing && resting ? resting : cam.view();
+            const near = Math.abs(v.zoom - this.to.zoom) < 1e-3 && v.focus.every((f, k) => Math.abs(f - this.to!.focus[k]!) < 1e-3);
+            return !near;
+          },
+          back() {
+            if (!this.before || this.moved()) return;
+            resting = this.before;
+            cam.easeTo(this.before, undefined, { close: this.close, look: this.look ?? cam.look, lookId: this.look ? this.lookId : cam.lookId });
+          },
+        };
+        return r;
+      };
+      if (id === null) return keep(null);
+      const box = focusBox(id, new Box3());
+      if (!box) return keep(null);
+      following = null;
+      // already in the clear area where the camera rests: nothing moves
+      if (atView(base, () => clear(id, KEEP_CLEAR.pad), close)) return keep(null);
+      // A look on the same thing (a crate's card, its entry opened from it) re-settles close and stays a look (the crew
+      // stay see-through in front of what it holds). Anything else is shown at a station's scale: a look on one crate is
+      // no reason to come that close to the UNDO lever. Closing goes back to the look either way (`before`).
+      const same = look !== null && look.intersectsBox(box);
+      const to = settle(id, base, same);
+      if (!to) return keep(null);
+      resting = to;
+      cam.easeTo(to, undefined, same ? { close: true, look, lookId } : {});
+      return keep(to);
     },
   };
   /**
@@ -817,14 +912,16 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     // (round three) close enough when the box is `minPx` across either way, or fills the clear area's width or height
     // (`fill`): each side judged against its own side of the area, so a tall box on an upright phone comes in until
     // its width fills the screen
-    const wantW = Math.min(LOOK_AT.minPx, (c.x1 - c.x0) * LOOK_AT.fill);
-    const wantH = Math.min(LOOK_AT.minPx, (c.y1 - c.y0) * LOOK_AT.fill);
+    const minPx = lookMinPx();
+    const wantW = Math.min(minPx, (c.x1 - c.x0) * LOOK_AT.fill);
+    const wantH = Math.min(minPx, (c.y1 - c.y0) * LOOK_AT.fill);
     const enough = (): boolean => {
       const r = rectOf(id);
       return !!r && (r.x1 - r.x0 >= wantW || r.y1 - r.y0 >= wantH);
     };
     if (!cam.easing && enough() && clear(id, KEEP_CLEAR.pad)) {
       cam.look = box;
+      cam.lookId = id;
       return;
     }
     const m = box.getCenter(new Vector3());
@@ -838,7 +935,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     }
     const at = settle(id, v, true) ?? atView(v, () => cam.view(), true);
     resting = at;
-    cam.easeTo(at, undefined, { close: true, look: box });
+    cam.easeTo(at, undefined, { close: true, look: box, lookId: id });
     cam.focusOn({ x: m.x, y: m.y, z: m.z });
   };
   /** (round two) A double-click or double-tap that the world may answer (`select`); the station if nothing asked to be looked at. */

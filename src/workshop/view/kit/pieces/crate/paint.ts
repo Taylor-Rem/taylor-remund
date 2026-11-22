@@ -74,6 +74,14 @@ export const TAPE = new WeakMap<BufferGeometry, TapeInfo>();
 const PAINT_COVERAGE = 1;
 /** How far the unused stencil sinks behind the face (decals sit 0.0042 proud; planks are at least 0.024 thick). */
 const STENCIL_SINK = 0.016;
+/**
+ * (P4 S5 round four) And how small it is drawn there: a speck about its own middle. Sunk alone it showed: the sprayed
+ * decals' polygon offset (materials: factor −2) pulls a decal toward the camera by two pixels' worth of the face's depth
+ * slope, which at the home framing (42 units, a pixel 0.016 across) is more than the sink, so the unused `paper` stencil
+ * came out through the plank, light, wherever it won the depth test (the marks and words flipped with distance). Shrunk
+ * to a thousandth it covers no pixel at any distance. Its showing place is still recoverable from the mesh (`own`).
+ */
+const STENCIL_SHRINK = 1e-3;
 /** Scale of a hidden node (the house rule). */
 export const HIDDEN = 1e-4;
 /** The wipe's edge: how uneven it is (units), and the default axis (from the top at the back, down the front). */
@@ -145,10 +153,24 @@ const vS = new Vector3();
 export function writeStencil(g: BufferGeometry, info: StencilInfo, ink: StencilInk, at = 0, world?: Matrix4): number {
   const pos = g.getAttribute('position') as BufferAttribute;
   const p = pos.array as Float32Array;
-  const sink = info.ink === ink ? 0 : STENCIL_SINK;
+  const hide = info.ink !== ink;
+  const sink = hide ? STENCIL_SINK : 0;
+  const k = hide ? STENCIL_SHRINK : 1;
   const n = info.rest.length / 3;
+  // (round four) hidden: shrunk to a speck about its middle as well as sunk
+  let cx = 0, cy = 0, cz = 0;
+  if (hide) {
+    for (let i = 0; i < n; i++) {
+      cx += info.rest[i * 3]! / n;
+      cy += info.rest[i * 3 + 1]! / n;
+      cz += info.rest[i * 3 + 2]! / n;
+    }
+  }
   for (let i = 0; i < n; i++) {
-    vS.set(info.rest[i * 3]! - info.normal[i * 3]! * sink, info.rest[i * 3 + 1]! - info.normal[i * 3 + 1]! * sink, info.rest[i * 3 + 2]! - info.normal[i * 3 + 2]! * sink);
+    const rx = hide ? cx + (info.rest[i * 3]! - cx) * k : info.rest[i * 3]!;
+    const ry = hide ? cy + (info.rest[i * 3 + 1]! - cy) * k : info.rest[i * 3 + 1]!;
+    const rz = hide ? cz + (info.rest[i * 3 + 2]! - cz) * k : info.rest[i * 3 + 2]!;
+    vS.set(rx - info.normal[i * 3]! * sink, ry - info.normal[i * 3 + 1]! * sink, rz - info.normal[i * 3 + 2]! * sink);
     if (world) vS.applyMatrix4(world);
     p[(at + i) * 3] = vS.x;
     p[(at + i) * 3 + 1] = vS.y;
@@ -226,12 +248,22 @@ function own(object: Object3D, m: Mesh): Own | null {
       const n = st.rest.length / 3;
       const mr = new Float32Array(n * 3), mn = new Float32Array(n * 3);
       const c = new Vector3();
+      // (round four) built hidden, it is a speck about its middle: grown back about that middle (the decal is flat, one
+      // normal, so the speck's middle is its showing middle sunk)
+      const m0 = new Vector3();
+      if (sunk) {
+        for (let i = 0; i < n; i++) m0.x += pos.getX(s.start + i) / n, m0.y += pos.getY(s.start + i) / n, m0.z += pos.getZ(s.start + i) / n;
+      }
       for (let i = 0; i < n; i++) {
         const v = s.start + i;
         vS.set(nm.getX(v), nm.getY(v), nm.getZ(v)).normalize();
         mn.set([vS.x, vS.y, vS.z], i * 3);
         const k = sunk ? STENCIL_SINK : 0;
-        mr.set([pos.getX(v) + vS.x * k, pos.getY(v) + vS.y * k, pos.getZ(v) + vS.z * k], i * 3);
+        const g0 = sunk ? 1 / STENCIL_SHRINK : 1;
+        const px = sunk ? m0.x + (pos.getX(v) - m0.x) * g0 : pos.getX(v);
+        const py = sunk ? m0.y + (pos.getY(v) - m0.y) * g0 : pos.getY(v);
+        const pz = sunk ? m0.z + (pos.getZ(v) - m0.z) * g0 : pos.getZ(v);
+        mr.set([px + vS.x * k, py + vS.y * k, pz + vS.z * k], i * 3);
         c.x += mr[i * 3]!;
         c.y += mr[i * 3 + 1]!;
         c.z += mr[i * 3 + 2]!;

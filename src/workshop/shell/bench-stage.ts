@@ -33,6 +33,16 @@ import type { PhysicsPort, Vec3 } from '../sim/index.ts';
 import { bench as BENCH, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
+/** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
+const lookSizeQuery = (): number | null => {
+  try {
+    const q = Number(new URLSearchParams(globalThis.location?.search ?? '').get('lookSize'));
+    return q > 0 ? q : null;
+  } catch {
+    return null;
+  }
+};
+
 export type BenchBootOptions = Omit<BootOptions, 'manual' | 'onProgress'>;
 
 export interface BenchGlueOptions {
@@ -228,8 +238,9 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
           const edge = homeEdge(aspect, scene.bench);
           stage.camera.stationSize = 1.9;
           // (P4 S5) only a look comes closer than a station (shell/boot.ts `lookAt`; the visitor's own zoom stops at a
-          // station's): 1.3 across on a laptop, 0.62 on an upright phone, so an opened crate's card reads
-          stage.camera.lookSize = portrait() ? 0.62 : 1.3;
+          // station's): 1.7 across on a laptop (1.3 at first: too close, the bench was gone), 0.62 on an upright phone, so
+          // an opened crate's card reads
+          stage.camera.lookSize = portrait() ? 0.62 : lookSizeQuery() ?? 1.7;
           stage.camera.setSubject(homeBox(aspect), { edge, bounds: new Box3(new Vector3(...FRAMING.bounds.min), new Vector3(...FRAMING.bounds.max)) });
           stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
           Object.assign(LOOK.focus, FRAMING.blur);
