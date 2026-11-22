@@ -91,6 +91,41 @@ describe('one owner of a mesh\'s material (paint scheme × see-through)', () => 
     expect(bad).toEqual([]);
   });
 
+  it('a kept loose part that never fades (the report press: enamel, brass, wood, paper) swaps with every order of up to four of B, C and home, and ends on its own instances', () => {
+    // (the press's view calls keepColours on its piece; the piece itself needs the label atlas, a canvas, so it is
+    // stood in for by its four classes)
+    const S: Array<'B' | 'C' | 'A'> = ['B', 'C', 'A'];
+    const bad: string[] = [];
+    let n = 0;
+    const run = (seq: Array<'B' | 'C' | 'A'>): void => {
+      n++;
+      const mats = createMaterials({ tier: 'high' });
+      const own = (['steel', 'brass', 'wood', 'paper'] as const).map((c) => mats.of(c));
+      const body = new Group();
+      const meshes = own.map((m) => new Mesh(new BoxGeometry(), m));
+      body.add(...meshes);
+      mats.keepColours(body);
+      for (let i = 0; i < seq.length; i++) {
+        mats.paint.set(seq[i]!);
+        const shown = seq[i] !== 'A';
+        // the enamel is on its keep twin (s_on 0, drawn first) while a scheme shows; the others never change
+        const m0 = meshes[0]!.material as Material;
+        if (shown && (m0 === own[0] || !m0.name.endsWith('own-colours') || meshes[0]!.renderOrder !== -1)) bad.push(`${seq.slice(0, i + 1).join(' > ')}: the enamel is not on its own colours`);
+        if (!shown && (m0 !== own[0] || meshes[0]!.renderOrder !== 0)) bad.push(`${seq.slice(0, i + 1).join(' > ')}: home, not its own material`);
+        for (let k = 1; k < 4; k++) if (meshes[k]!.material !== own[k] || meshes[k]!.renderOrder !== 0) bad.push(`${seq.slice(0, i + 1).join(' > ')}: a ${own[k]!.name} mesh changed`);
+      }
+      mats.paint.set('A');
+      if (meshes.some((m, k) => m.material !== own[k] || m.renderOrder !== 0)) bad.push(`${seq.join(' > ')} then home: not its own instances`);
+    };
+    const all = (left: number, pre: Array<'B' | 'C' | 'A'>): void => {
+      if (pre.length) run(pre);
+      if (left > 0) for (const s of S) all(left - 1, [...pre, s]);
+    };
+    all(4, []);
+    expect(n).toBe(3 + 9 + 27 + 81);
+    expect(bad).toEqual([]);
+  });
+
   it('a ghost of a keep twin keeps s_on 0 (the crew stay in their own colours while see-through under a scheme)', () => {
     const mats = createMaterials({ tier: 'high' });
     const steel = mats.of('steel');

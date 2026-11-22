@@ -119,6 +119,10 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   // P4 D2b: the paint dial and its knob
   'name.paint.dial': raw.names.paint.dial as Entry,
   'name.paint.knob': raw.names.paint.knob as Entry,
+  // P4 D3: the report press, its lever, its envelope
+  'name.press.body': raw.names.press.body as Entry,
+  'name.press.lever': raw.names.press.lever as Entry,
+  'name.press.envelope': raw.names.press.envelope as Entry,
 };
 
 /** Every content id this module resolves. */
