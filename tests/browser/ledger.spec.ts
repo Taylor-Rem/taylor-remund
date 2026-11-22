@@ -212,7 +212,8 @@ test.fixme('P4 D1: each control a 44 px fingertip at the framing its keyboard fo
   await ctx.close();
 });
 
-test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray: what takes it', async ({ page }) => {
+/** The board on its open crate's tray, the camera in on it: what a mouse press takes at each point of a 15 × 9 grid over its top. */
+async function boardPressMap(page: Page): Promise<{ counts: Record<string, number>; rows: string[] }> {
   await page.setViewportSize({ width: 1440, height: 900 });
   // the board stays on its tray: the crate freed and opened, the board left where it comes out
   await page.goto(`${origin}/dev/bench/`);
@@ -258,6 +259,11 @@ test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray
     }
     return { counts, rows };
   });
+  return map;
+}
+
+test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray: what takes it', async ({ page }) => {
+  const map = await boardPressMap(page);
   console.log(`[D1] a press over the board's top on its tray (b board, K crank, P plunger, L the crate's latch, C the crate, p its plate; back row first):\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}`);
   // What holds today (rewrite 8839671): the crank and the plunger take the presses over them, the latch none, the board
   // the middle and the front. NOT RIGHT YET: the crate's body takes the board's back (about two rows of nine): the open
@@ -273,6 +279,11 @@ test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray
   expect(map.rows.slice(3).join('').includes('C') ? map.rows.slice(3).join('').replace(/[^C]/g, '').length : 0, 'the crate takes nothing over the board\'s front six rows but the folded flag\'s end').toBeLessThanOrEqual(6);
 });
 
-test.fixme('P4 D1: (after the crates\' round three) the crate\'s body takes no press on the board on its tray', async () => {
-  // the same map as above, with expect(counts['crate-1'] ?? 0).toBe(0)
+test('P4 D1 / S5 round three: the crate\'s body takes no press on the board on its tray (a thing on the tray wins over the crate, its lid and its latch: view/picking.ts prefer)', async ({ page }) => {
+  const map = await boardPressMap(page);
+  console.log(`[S5] a press over the board's top on its tray, the crate's body yielding:\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}`);
+  expect(map.counts['crate-1-lid'] ?? 0, 'the latch').toBe(0);
+  expect(map.counts['crate-1'] ?? 0, 'the crate\'s body').toBe(0);
+  expect(map.counts['ledger-crank'] ?? 0).toBeGreaterThan(10);
+  expect(map.counts['ledger-plunger'] ?? 0).toBeGreaterThan(5);
 });
