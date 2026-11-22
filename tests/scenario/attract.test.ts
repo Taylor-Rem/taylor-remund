@@ -17,7 +17,7 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, LineView, PatchView, PlatenView, SimEvent, Value } from '../../src/workshop/sim/types.ts';
 
 const JACKS = ['jack-storefront', 'jack-platen', 'jack-belt', 'jack-lamp'] as const;
-const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const PARTS = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'fetch', 'crate-spare-1', 'crate-spare-2'];
 const LAP_MAX = 40;
 /** The first lap holds the fumble of § B3 (about 4 s in; Fetch offers the crate for 12 s before it carries on). */
 const FIRST_LAP_MAX = LAP_MAX + 12;

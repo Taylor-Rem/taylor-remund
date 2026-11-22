@@ -76,7 +76,7 @@ describe('thrown off the bench, a crate comes back up the chute onto the pad', (
     const r = backAndStill(w, t, 'crate-3');
     const p = r.at!;
     // (unless a replacement got there first: then beside it, as above)
-    const replacementOnPad = ['crate-1', 'crate-2', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'].some((id) => {
+    const replacementOnPad = ['crate-1', 'crate-2', 'crate-4', 'crate-spare-1', 'crate-spare-2'].some((id) => {
       const q = w.motion(id)?.pose.p;
       return !!q && w.mode(id) === 'free' && Math.hypot(q[0] - PAD[0], q[2] - PAD[1]) < 0.6;
     });

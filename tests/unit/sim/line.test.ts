@@ -50,7 +50,7 @@ describe('the bench registry', () => {
 
   test('spares wait behind the dock door: shipped, out of the world', () => {
     const { world } = benchStub();
-    for (const id of ['crate-spare-1', 'crate-spare-2', 'crate-spare-3']) {
+    for (const id of ['crate-spare-1', 'crate-spare-2']) {
       expect(world.part(id)!.location).toEqual({ at: 'shipped' });
       expect(world.mode(id)).toBe('gone');
       expect(world.motion(id)!.pose.p[1]).toBeLessThan(-1);
@@ -331,7 +331,9 @@ describe('the dock', () => {
     expect(out.find((e) => e.type === 'shipped')).toEqual({ type: 'shipped', id: 'dock', part: id });
     expect(world.part(id)!.marks).toEqual([MARK_SHIPPED]);
     expect(world.mode(id)).toBe('gone');
-    expect(out.find((e) => e.type === 'restocked')).toMatchObject({ part: 'crate-spare-2' }); // the M spare, for the M shipped
+    // (P4 S5: the two spares are small: none of the middle size waits behind the door, so the first small one comes up, and
+    // crate-2 stays shipped, the lever's to bring back through the door)
+    expect(out.find((e) => e.type === 'restocked')).toMatchObject({ part: 'crate-spare-1' });
   });
 
   test('a misfire jumps the door open and shut; nothing durable changes', () => {
@@ -358,7 +360,7 @@ describe('the dock', () => {
         if (world.mode(p.id) !== 'free' || Math.hypot(q[0] - pad[0], q[2] - pad[1]) > 0.6) continue;
         world.dispatch({ type: 'grab', id: p.id, grip: q });
         run(world, 1);
-        world.dispatch({ type: 'place', at: [0.6 * ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'].indexOf(p.id) - 3, 0, -2] });
+        world.dispatch({ type: 'place', at: [0.6 * ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'].indexOf(p.id) - 3, 0, -2] });
         run(world, HZ);
       }
       setOnBelt(world, physics, id, LINE.belt.to - 0.3);
@@ -366,9 +368,9 @@ describe('the dock', () => {
       expect(world.part(id)!.location.at).toBe('shipped');
       run(world, 3 * HZ);
     };
-    // the stack is two high (A1 round 7): the three spares replace crate-2, crate-1 and the M spare; the S spare
+    // the stack is two high (A1 round 7): the two spares (P4 S5: both small) replace crate-2 and crate-1; the second spare
     // shipped in its turn is replaced by crate-2, the longest shipped, forgotten by the history first
-    for (const id of ['crate-2', 'crate-1', 'crate-spare-2', 'crate-spare-1']) ship(id);
+    for (const id of ['crate-2', 'crate-1', 'crate-spare-2']) ship(id);
     const restocked = world.drainEvents();
     void restocked;
     expect(world.part('crate-2')!.location.at).toBe('rest');

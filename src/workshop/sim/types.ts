@@ -372,6 +372,17 @@ export type SimEvent =
    * Fetch's view: in attract mode it lands beside Fetch as it watches its crate ship (a flinch and a look).
    */
   | { readonly type: 'restock.launched'; readonly id: Id; readonly part: Id; readonly from: Vec3; readonly to: Vec3; readonly flight: number }
+  // ── P4 S5: the project crates (sim/machines/crates.ts) ──
+  /** A project crate (`crate`, its project `project`: a SceneDesc.projects id) was opened by its latch: its card stands. `id` is the crates unit. */
+  | { readonly type: 'crate.opened'; readonly id: Id; readonly crate: Id; readonly project: Id }
+  /**
+   * A project crate shut: pressed shut (`press`), or clapped shut first as it was let go after a pick-up (`grab`), taken by a
+   * machine or the crew (`machine`), knocked moving or tipped (`moved`), something came to rest on it (`burden`), or it left
+   * the bench (`away`: down the chute, shipped, put away). An undo or a reset that shuts one says so in its own event.
+   */
+  | { readonly type: 'crate.shut'; readonly id: Id; readonly crate: Id; readonly project: Id; readonly why: 'press' | 'grab' | 'machine' | 'moved' | 'burden' | 'away' }
+  /** The brass plate on an open project crate's card was pressed: the way to the project's full entry (on /resume/ today; a panel later). */
+  | { readonly type: 'crate.plate'; readonly id: Id; readonly crate: Id; readonly project: Id }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it

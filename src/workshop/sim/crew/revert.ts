@@ -1220,6 +1220,7 @@ export function createRevert(ctx: SimContext, spec: RevertSpec): RevertUnit {
       const p = ctx.part(id);
       if (!p || p.kind !== 'crate' || p.location.at !== 'rest' || ctx.mode(id) !== 'free' || !ctx.settled(id)) return false;
       if (fetchMay(id)) return false;
+      if (ctx.setting(id, 'open') === true) return false; // P4 S5: an open project crate is being looked at, not clutter
       if (now - stirred(id) < stir) return false;
       const pl = piled(id);
       if (pl.under) return false;

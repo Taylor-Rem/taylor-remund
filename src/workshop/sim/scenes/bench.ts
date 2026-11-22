@@ -17,7 +17,7 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { FetchRounds, MouthSpec, PartSpec, SceneDesc, StaticSpec } from '../scene.ts';
+import type { FetchRounds, MouthSpec, PartSpec, ProjectCrate, SceneDesc, StaticSpec } from '../scene.ts';
 import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
@@ -25,6 +25,7 @@ import { belt, BELT_FIELDS, BELT_TUNING } from '../machines/belt.ts';
 import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
+import { crates } from '../machines/crates.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -198,6 +199,25 @@ export const AT = {
   chute: { p: [-7.031, 1.23, 2.932] as Vec3, linvel: [1.7, 0.6, -0.36] as Vec3 },
 } as const;
 
+/**
+ * P4 S5: the crates are Taylor's projects ("the workshop is literally shipping my work", 2026-11-21), each by the id its
+ * words are under in src/content/bench-projects.json (tests/unit/content/bench-projects.test.ts holds the two together).
+ * The three with demonstrations to come (DEMO-CONCEPTS.md) are the three that stay where a visitor finds them: the ledger
+ * repair in the large crate at the bottom of the stack, the report framework in the middle one on top of it, t-components
+ * (the paint dial) in the loose crate in front of the console, the first thing to pick up. The other three take turns
+ * on Fetch's rounds (`SPARES` below): Artificer starts in its hands.
+ */
+export const PROJECT_OF: Readonly<Record<string, string>> = {
+  'crate-1': 'ledger',
+  'crate-2': 'reports',
+  'crate-3': 't-components',
+  'crate-4': 'artificer',
+  'crate-spare-1': 'support-desk',
+  'crate-spare-2': 'clean-green',
+};
+/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them). */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate` }));
+
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
 const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
@@ -304,8 +324,15 @@ const MOUTHS: readonly MouthSpec[] = [
   { id: 'dock', machine: 'dock', station: 'line', c: [(L.to + rampBox.maxX) / 2, 1.3, (rampBox.minZ + rampBox.maxZ) / 2], half: [(rampBox.maxX - L.to) / 2, 1.3, (rampBox.maxZ - rampBox.minZ) / 2], drop: rampAt(RAMP, 0.2).p },
 ];
 
-/** Spare crates behind the dock door: one of each size, set on the stack as plain crates ship (§ D 7). */
-const SPARES = (['S', 'M', 'L'] as const).map((size, i) => ({ id: `crate-spare-${i + 1}`, kind: 'crate' as const, size, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: 'name.crate', pose: pose([0, -4, 0]), shipped: true }));
+/**
+ * The crates that wait behind the dock door at the start and come up the chute as crates ship (§ D 7; R3's last
+ * resort). P4 S5: two, not three, both small, and each a project: with the four on the bench, Taylor's six projects.
+ * Small, because on Fetch's rounds it is the small crate it starts with that ships, lap after lap (the stack's two stay
+ * where they are until a hand moves them): the dock sends up the same size first, a crate that has waited behind the
+ * door before one that has just shipped, so with these two the small crates take turns, and each lap ships another
+ * project, which comes back up the chute as itself two laps on. Their ids stay what they were (tests, saves).
+ */
+const SPARES = ([1, 2] as const).map((n) => ({ id: `crate-spare-${n}`, kind: 'crate' as const, size: 'S' as const, material: 'wood' as const, colour: BARE, label: '', station: 'line' as const, name: `name.project.${PROJECT_OF[`crate-spare-${n}`]}`, pose: pose([0, -4, 0]), shipped: true }));
 
 // ───────────── S4: the Button's ladder, Revert, the UNDO lever (numbers from AT, plus Revert's own places) ─────────────
 
@@ -666,10 +693,10 @@ export const bench: SceneDesc = {
     ...RAMP_STATICS,
   ],
   parts: [
-    { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx, e.L / 2, sz], 0.04) },
-    { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
-    { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.crate', pose: pose(AT.firstCrate, 0.13) },
-    { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: 'name.crate', pose: pose(AT.looseCrate) },
+    { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: `name.project.${PROJECT_OF['crate-1']}`, pose: pose([sx, e.L / 2, sz], 0.04) },
+    { id: 'crate-2', kind: 'crate', size: 'M', material: 'wood', colour: BARE, label: '', station: 'line', name: `name.project.${PROJECT_OF['crate-2']}`, pose: pose([sx + 0.04, e.L + e.M / 2, sz - 0.03], -0.09) },
+    { id: 'crate-3', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: `name.project.${PROJECT_OF['crate-3']}`, pose: pose(AT.firstCrate, 0.13) },
+    { id: 'crate-4', kind: 'crate', size: 'S', material: 'wood', colour: BARE, label: '', station: 'button', name: `name.project.${PROJECT_OF['crate-4']}`, pose: pose(AT.looseCrate) },
     { id: 'fetch', kind: 'robot', size: 'M', material: 'metal', colour: 'tape-yellow', label: '', station: 'line', name: 'name.fetch', pose: pose([lanePoint(laneT(AT.fetchStartX))[0], FETCH_HALF[1], lanePoint(laneT(AT.fetchStartX))[1]]), half: FETCH_HALF, mass: 0.9 },
     ...SPARES,
     ...S4_PARTS,
@@ -710,13 +737,52 @@ export const bench: SceneDesc = {
     attract: s6Attract(), // S6
   },
   crewScale: CREW_SCALE,
+  projects: PROJECT_CRATES,
   mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear, home: AT.home } }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
+    crates({ id: 'crates', station: 'line' }), // P4 S5: the project crates' latches, cards and things
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
   ],
 };
+
+/**
+ * P4 S5, development only (`?standin=1` on the bench's dev pages): the bench with a stand-in thing in one crate, the
+ * kit's test block in t-components' crate (crate-3), to prove a crate's tray: shut, the block is not in the world; open,
+ * it sits on the tray; taken off it is a loose part; set back on the open crate it is stowed. The shipped bench has every
+ * tray empty. The worked example of sim/machines/crates.ts's three lines.
+ */
+export const STAND_IN_THING = 'standin-block';
+export function withStandIn(scene: SceneDesc = bench): SceneDesc {
+  const thing: PartSpec = { id: STAND_IN_THING, kind: 'tool', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.standin', pose: pose([0, -4, 0]), half: [0.09, 0.09, 0.09], stowedIn: 'crate-3' };
+  return {
+    ...scene,
+    id: `${scene.id}+standin`,
+    parts: [...scene.parts, thing],
+    projects: (scene.projects ?? []).map((c) => (c.crate === 'crate-3' ? { ...c, holds: STAND_IN_THING } : c)),
+  };
+}
+
+/**
+ * P4 S5, development only (`?crates=row` on the bench's dev pages): the six project crates at rest in a row across the
+ * open bench behind the console, none in Fetch's hands or behind the dock door, so all six can be seen (and opened) at
+ * once in the bench's own light: the pictures for the owner. Never the shipped bench.
+ */
+export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
+  const row: Record<string, number> = { 'crate-1': -2.15, 'crate-2': -1.25, 'crate-3': -0.5, 'crate-4': 0.15, 'crate-spare-1': 0.8, 'crate-spare-2': 1.45 };
+  return {
+    ...scene,
+    id: `${scene.id}+row`,
+    parts: scene.parts.map((p) => {
+      const x = row[p.id];
+      if (x === undefined) return p;
+      const { shipped: _shipped, ...rest } = p;
+      return { ...rest, pose: pose([x, CRATE_EDGE[p.size] / 2, -1.55]) };
+    }),
+    runner: { ...scene.runner, carrying: null },
+  };
+}

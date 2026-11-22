@@ -12,7 +12,7 @@ import type { BeltView, Id, Vec3 } from '../../src/workshop/sim/types.ts';
 import { REVERT } from '../../src/workshop/sim/scenes/bench.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 
-const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2', 'crate-spare-3'];
+const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
 const WAIT = 240; // seconds the visitor then leaves the bench alone
 let lastCarried = '';
 let trail: string[] = [];

@@ -163,18 +163,36 @@ describe('Fetch takes the pad\'s crate after a real landing, every size', () => 
   const cases: [Id, number][] = [];
   for (const id of ['crate-1', 'crate-2', 'crate-3']) for (let seed = 0; seed < 4; seed++) cases.push([id, seed]);
   test.each(cases)('%s (seed %i): shipped, its replacement thrown back onto the pad, Fetch takes it without knocking it first', async (id, seed) => {
-    const w = await benchWorld(`chute-landing-take-${id}-${seed}`, { scene: FULL_BENCH });
+    const s = sender();
+    const w = await benchWorld(`chute-landing-take-${id}-${seed}`, { scene: FULL_BENCH, units: [s.unit] });
     const t = tape(w);
     startPlay(w);
-    putOn(w, t, id, onBelt(0.3));
-    expect(t.until((e) => e.type === 'shipped' && e.part === id, steps(20)), `${id} shipped`).not.toBeNull();
-    const l = t.until((e) => e.type === 'restock.launched', steps(4));
-    expect(l).not.toBeNull();
-    const part = (l!.e as Extract<SimEvent, { type: 'restock.launched' }>).part;
-    expect(w.part(part)!.size).toBe(w.part(id)!.size);
+    let part: Id;
+    if (w.part(id)!.size === 'S') {
+      // shipped by the visitor: a small spare waits behind the door, and comes up in its place
+      putOn(w, t, id, onBelt(0.3));
+      expect(t.until((e) => e.type === 'shipped' && e.part === id, steps(20)), `${id} shipped`).not.toBeNull();
+      const l = t.until((e) => e.type === 'restock.launched', steps(4));
+      expect(l).not.toBeNull();
+      part = (l!.e as Extract<SimEvent, { type: 'restock.launched' }>).part;
+      expect(w.part(part)!.size).toBe(w.part(id)!.size);
+    } else {
+      // (P4 S5: the two spares are small, so no large or middle crate comes up in another's place; one of those sizes
+      // lands on the pad when it comes back up the chute as itself, as one Revert drops down its hatch does: sent up
+      // the chute here, fresh, as an edge would)
+      s.send(id);
+      const l = t.until((e) => e.type === 'restock.launched' && e.part === id, steps(6));
+      expect(l, `${id} thrown back onto the pad`).not.toBeNull();
+      part = id;
+    }
     t.until((e) => e.type === 'restocked' && e.part === part, steps(3));
     // settled by itself (the engine's landing), then left alone until Fetch's claws close on it
-    for (let i = 0; i < steps(3) && w.part(part)!.location.at !== 'rest'; i++) t.run(1);
+    // (its durable rest on the pad: a crate sent up the chute keeps the rest it had until it rests again)
+    const onPad = (): boolean => {
+      const l = w.part(part)!.location;
+      return l.at === 'rest' && Math.hypot(l.pose.p[0] - PAD[0], l.pose.p[2] - PAD[1]) <= PAD_RADIUS;
+    };
+    for (let i = 0; i < steps(3) && !onPad(); i++) t.run(1);
     expect(w.part(part)!.location.at).toBe('rest');
     const rest = w.motion(part)!.pose.p;
     let taken = false;
