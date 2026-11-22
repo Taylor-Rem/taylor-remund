@@ -519,9 +519,10 @@ function roller(n: NodeBuilder, seed: number): void {
 function rollerShape(): ToolShape {
   const g = 0.036;
   return {
-    pegs: [[0, RL.top + 0.035]],
+    // (P4 T2) on its side on two pegs under its handle, as the brush (tool-local +X is down on the wall)
+    pegs: [[0.054, 0.86], [0.054, 0.66]],
     shadow: [grow(rect(-RL.half, RL.axle - RL.r, RL.half, RL.axle + RL.r), g), grow([[RL.half + 0.06, RL.axle - 0.02], [RL.half + 0.1, RL.axle - 0.02], [RL.half + 0.1, 0.31], [0.02, 0.44], [0.02, RL.frameTop + 0.06], [-0.02, RL.frameTop + 0.06], [-0.02, 0.41], [RL.half + 0.06, 0.29]], g), grow(turnedOutline(RL_HANDLE), g)],
-    turn: 0,
+    turn: -90,
   };
 }
 
@@ -626,9 +627,10 @@ function yankee(n: NodeBuilder, seed: number): void {
 function yankeeShape(): ToolShape {
   const g = 0.036;
   return {
-    pegs: [[0, YK.top + 0.03]],
+    // (P4 T2) on its back on two pegs under its handle, as the drill (tool-local -X is down on the wall)
+    pegs: [[-0.075, 1.0], [-0.075, 0.8]],
     shadow: [grow(rect(-0.032, 0, 0.032, YK.spiral), g), grow(rect(-0.034, YK.spiral, 0.034, YK.sleeve), g), grow(turnedOutline(YK_HANDLE), g)],
-    turn: 0,
+    turn: 90,
   };
 }
 
