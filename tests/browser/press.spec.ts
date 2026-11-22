@@ -58,16 +58,6 @@ async function open(page: Page): Promise<string[]> {
   }
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 600, 'the press on its tray');
   await frames(page, 40);
-  // set down on the open bench beside its crate (until the crates' round three lands, a press at a thing on a tray goes
-  // to the crate behind it: that is the crates' to settle, not the press's)
-  await page.evaluate(() => {
-    const ws = (window as any).__bench.ws;
-    ws.dispatch({ type: 'grab', id: 'report-press', grip: ws.world.motion('report-press').pose.p });
-  });
-  await frames(page, 3);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [-5.2, 0, 1.3] }));
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.holding() === null && (window as any).__bench.ws.world.part('report-press').location.at === 'rest'), 600, 'the press on the bench');
-  await frames(page, 40);
   return errors;
 }
 
@@ -150,4 +140,53 @@ test('P4 D3: the press\'s lever by a finger at 390×844, the camera in on it: a 
   await until(page, async () => (await drawer(page)) === before + 1, 120, 'a pull by a tap on the lever');
   expect(errors).toEqual([]);
   await ctx.close();
+});
+
+/** The press on its open crate's tray, the camera at the look's framing: what a mouse press takes at each point of a grid over the press's top. */
+test('P4 D3 round three: a press at each point of the press on its open crate\'s tray: what takes it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = await open(page);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-2' }));
+  await until(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 900, 'the look at rest');
+  await frames(page, 30);
+  const map = await page.evaluate(() => {
+    const B = (window as any).__bench, ws = B.ws;
+    const m = ws.world.motion('report-press').pose;
+    const [qx, qy, qz, qw] = m.q as [number, number, number, number];
+    const rot = (x: number, y: number, z: number): [number, number, number] => {
+      const ix = qw * x + qy * z - qz * y, iy = qw * y + qz * x - qx * z, iz = qw * z + qx * y - qy * x, iw = -qx * x - qy * y - qz * z;
+      return [ix * qw - iw * qx - iy * qz + iz * qy, iy * qw - iw * qy - iz * qx + ix * qz, iz * qw - iw * qz - ix * qy + iy * qx];
+    };
+    const code: Record<string, string> = { 'report-press': 'r', 'press-lever': 'L', 'crate-2-lid': 'l', 'crate-2': 'C', 'crate-2-plate': 'p' };
+    const counts: Record<string, number> = {};
+    const rows: string[] = [];
+    // a grid over the top of the press's wooden base (its own frame), back row first: every ray to it passes through the press
+    for (let j = 0; j <= 10; j++) {
+      let row = '';
+      for (let i = 0; i <= 16; i++) {
+        const o = rot(-0.24 + (0.48 * i) / 16, -0.0425, -0.18 + (0.36 * j) / 10);
+        const s = B.project([m.p[0] + o[0], m.p[1] + o[1], m.p[2] + o[2]]);
+        const id: string = ws.surface.at(s.x, s.y, 'mouse', null).id ?? '-';
+        counts[id] = (counts[id] ?? 0) + 1;
+        row += code[id] ?? (id === '-' ? '.' : '?');
+      }
+      rows.push(row);
+    }
+    // the lever's own points: along its arm and grip as it rests (every one is the lever's)
+    const lever: string[] = [];
+    for (let k = 0; k <= 6; k++) {
+      const a = (-42 * Math.PI) / 180, len = 0.12 + (0.46 * k) / 6;
+      const o = rot(-0.25, 0.25 + Math.cos(a) * len * 1.25, -0.0125 + Math.sin(a) * len * 1.25);
+      const s = B.project([m.p[0] + o[0], m.p[1] + o[1], m.p[2] + o[2]]);
+      lever.push(String(ws.surface.at(s.x, s.y, 'mouse', null).id ?? '-'));
+    }
+    return { counts, rows, lever };
+  });
+  console.log(`[D3] a press over the press on its tray (r press, L lever, l latch, C crate, p plate; back row first):\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}\nalong the lever: ${map.lever.join(' ')}`);
+  expect(map.counts['crate-2'] ?? 0, 'the crate takes nothing over the press').toBe(0);
+  expect(map.counts['crate-2-lid'] ?? 0, 'the latch takes nothing over the press').toBe(0);
+  expect(map.counts['press-lever'] ?? 0, 'the lever takes the points over it').toBeGreaterThan(3);
+  expect(map.counts['report-press'] ?? 0, 'the press takes the rest of itself').toBeGreaterThan(40);
+  expect(map.lever.filter((x) => x !== 'press-lever'), 'every point along the lever is the lever\'s').toEqual([]);
+  expect(errors).toEqual([]);
 });

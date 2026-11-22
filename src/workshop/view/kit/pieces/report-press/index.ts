@@ -239,7 +239,7 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   // the axle out from the cheek to the lever, past the sheets' edge so the lever stands clear of them
   r.add(enamel(transform(lathe(profile(0, 0).to(0.012, 0, { sharp: true }).to(0.012, hubX - D.leverX, { sharp: true }).to(0, hubX - D.leverX), { segs: 10, support: false, caps: false }), chain(T(D.leverX, D.leverY, D.leverZ), mat({ rot: [0, 0, -90] }))), 69));
   const wheel = r.node('wheel', T((hubX + D.leverX) / 2 + 0.006, D.leverY, D.leverZ));
-  wheel.add(brass(transform(extrude(wheelOutline(D.wheelR, D.wheelTeeth), 0.008, { bevel: 0.0006, bevelBase: 0, radius: 0, segs: 1, support: false, caps: "end", holes: wheelWindows(D.wheelR), holeRadius: 0 }), chain(new Matrix4().makeRotationY(-Math.PI / 2), T(0, 0, -0.004))), 71));
+  wheel.add(brass(transform(extrude(wheelOutline(D.wheelR, D.wheelTeeth), 0.008, { bevel: 0.0006, bevelBase: 0, radius: 0, segs: 1, support: false, caps: "end", holes: wheelWindows(D.wheelR), holeRadius: 0 }), chain(new Matrix4().makeRotationY(-Math.PI / 2), T(0, 0, -0.004))), 71, 0.7));
   // the pawl that clicks on the wheel's teeth (fixed to the cheek above it)
   r.add(enamel(bevelBox({ min: [hubX - 0.016, D.leverY + D.wheelR - 0.004, D.leverZ - 0.035], max: [hubX - 0.006, D.leverY + D.wheelR + 0.01, D.leverZ + 0.004], c: 0.002 }), 72));
   const lever = r.node('lever', chain(T(D.leverX, D.leverY, D.leverZ), mat({ rot: [D.leverRest, 0, 0] })));
