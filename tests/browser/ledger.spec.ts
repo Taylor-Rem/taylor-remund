@@ -106,10 +106,11 @@ test('P4 D1: the ledger board by mouse at 1440×900: the plunger repairs it, the
   await bring(page, 'ledger-plunger');
   const p = (await screenOf(page, 'ledger-plunger'))!;
   expect(p, 'the plunger is a target').not.toBeNull();
-  await page.mouse.move(p.x, p.y);
-  await frames(page, 3);
-  const cur = await page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
-  expect(cur, 'one finger over the plunger').toMatch(/pointer$/);
+  await page.mouse.move(p.x - 30, p.y - 20);
+  await frames(page, 2);
+  await page.mouse.move(p.x, p.y, { steps: 4 });
+  const cur = () => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
+  await until(page, async () => /pointer$/.test(await cur()), 60, `one finger over the plunger (${await cur()})`);
   await page.mouse.click(p.x, p.y);
   await until(page, async () => repaired(await tokens(page)), 120, 'repaired by a click on the plunger');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null), 600, 'the repair shown');
