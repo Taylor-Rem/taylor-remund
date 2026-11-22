@@ -8,7 +8,8 @@
 // that comes up the chute in the second lap is another small crate now) and found identical. Re-recorded at P4 D1 (the ledger board in crate-1: one more body, stowed, its `tokens` field, its unit
 // and two controls in the registry): a world with the board and one without it were stepped side by side for the two
 // minutes and every body but the board, every durable field but its own, the crew, attract mode and the events were
-// identical at every step.
+// identical at every step. Re-recorded at P4 D2b (the paint dial in crate-3: one more body, stowed, its `scheme` field,
+// its unit and its knob in the registry), compared the same way and found identical but for the dial.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';

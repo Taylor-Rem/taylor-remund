@@ -35,8 +35,12 @@ const DEG = Math.PI / 180;
 
 export type PaintDialStyle = 'fan' | 'deck';
 
-/** The style the bench draws (the owner chooses; the lead's pick pending). The simulation's body (sim PAINT.half) is this style's. */
-export const DIAL_STYLE: PaintDialStyle = 'deck';
+/**
+ * The style the bench draws. The fan: it lies low on its crate's tray, so a crate set on top of the open crate still
+ * claps it shut (crates.ts `onTop`). The deck stands taller than that rule reaches; it is drawn with `?dial=deck`
+ * (development), the simulation's body (sim PAINT.half) staying the fan's. The owner chooses.
+ */
+export const DIAL_STYLE: PaintDialStyle = new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get('dial') === 'deck' ? 'deck' : 'fan';
 
 /** Sizes (units). The fan's and the deck's. */
 export const PAINT_DIAL = {
@@ -141,7 +145,7 @@ export interface PaintDialOptions extends KitOptions {
 }
 
 export function paintDial(o: PaintDialOptions = {}): Piece {
-  return (o.style ?? 'deck') === 'fan' ? fan(o) : deck(o);
+  return (o.style ?? 'fan') === 'fan' ? fan(o) : deck(o);
 }
 
 /** A tapered tongue in plan (x across, z out along +Z). */

@@ -116,6 +116,9 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.ledger.board': raw.names.ledger.board as Entry,
   'name.ledger.crank': raw.names.ledger.crank as Entry,
   'name.ledger.plunger': raw.names.ledger.plunger as Entry,
+  // P4 D2b: the paint dial and its knob
+  'name.paint.dial': raw.names.paint.dial as Entry,
+  'name.paint.knob': raw.names.paint.knob as Entry,
 };
 
 /** Every content id this module resolves. */

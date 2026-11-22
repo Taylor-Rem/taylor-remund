@@ -243,7 +243,7 @@ export const PAINT = {
   dial: 'paint-dial',
   crate: 'crate-3',
   knob: 'paint-dial-knob',
-  half: [0.115, 0.103, 0.066] as Vec3,
+  half: [0.155, 0.036, 0.1] as Vec3,
   mass: 0.02,
 } as const;
 
