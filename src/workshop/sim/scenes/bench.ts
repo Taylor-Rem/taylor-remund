@@ -880,6 +880,7 @@ export const bench: SceneDesc = {
       tools: Object.entries(TOOLWALL.tools).map(([kind, t]) => ({ id: toolId(kind), peg: pegId(kind), hang: { p: t.at, q: [...t.q] as [number, number, number, number] }, look: toolLook(kind) })),
       sheet: { id: TOOLWALL.sheet, name: 'name.toolwall.sheet' },
       look: TOOLWALL.look,
+      sight: PATCHLAMP.patch.sight,
     }),
   ],
 };

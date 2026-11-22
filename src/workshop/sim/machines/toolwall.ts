@@ -49,9 +49,9 @@ export const TOOLWALL_TUNING = {
   stillSpeed: 0.35,
   topple: 0.32,
   /** How near its own place (in the board's plane, from where its middle hangs) a tool must be to be taken back. */
-  catchReach: 0.6,
+  catchReach: 0.55,
   /** And how far out from where it hangs (toward the visitor) at most. */
-  catchDepth: 1.6,
+  catchDepth: 2.2,
   /** And no faster than this (a gentle throw catches; a hard one bounces off the board). */
   catchSpeed: 4.0,
   /** The glide onto the peg. */
@@ -83,6 +83,8 @@ export interface ToolwallSpec {
   readonly sheet: { readonly id: Id; readonly name: string };
   /** What a look at a hanging tool asks for: the board (a pick target the view registers that is never pressed). */
   readonly look: Id;
+  /** The way the visitor looks at the bench (unit, toward them): a tool is over its place where it covers it on the screen. */
+  readonly sight?: Vec3;
 }
 
 export interface ToolwallUnit extends MachineUnit {
@@ -167,7 +169,12 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
   /** Where a tool is from its own place: in the board's plane, and out from it toward the visitor. */
   function offset(p: Vec3, t: ToolwallTool): { plane: number; out: number } {
     const h = t.hang.p;
-    return { plane: Math.hypot(p[0] - h[0], p[1] - h[1]), out: p[2] - h[2] };
+    const out = p[2] - h[2];
+    // over its place as the visitor sees it: slid back along the eye's line to the board's plane (a tool the hand holds up
+    // the wall is carried short of the board, and is over its shadow on the screen, not in the world)
+    const s = spec.sight;
+    const k = s && out > 0 && s[2] > 1e-3 ? out / s[2] : 0;
+    return { plane: Math.hypot(p[0] - (s?.[0] ?? 0) * k - h[0], p[1] - (s?.[1] ?? 0) * k - h[1]), out };
   }
 
   /** Let go at its own place, slowly enough: it goes back on (its location written by whoever last placed it). */
