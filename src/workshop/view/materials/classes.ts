@@ -19,6 +19,7 @@
 import { Color } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import { linear, type Token } from '../palette.ts';
+import { SCHEME_GLSL } from './scheme.ts';
 
 export interface Param {
   value: number;
@@ -159,6 +160,7 @@ float steelChipField(vec3 q, float base) {
 }
 `,
     glsl: /* glsl */ `
+${SCHEME_GLSL}
 float fin = pFinish;
 vec4 T = pNoise4(pP * u_toneScale);            // r tone, g tone2, b fleck gate, a dust
 vec4 D = pFbm4(pP * u_dirtScale + 13.0);       // r dirt, g grime var, b rust var
