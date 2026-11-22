@@ -1,0 +1,39 @@
+---
+// One project's entry as /resume/ publishes it (REWRITE.md § F1, § F2): its label, title, subtitle, paragraphs,
+// tool tags and links, every word from src/content/resume.json. The one way a project entry is drawn: /resume/'s
+// #projects list (src/pages/resume.astro) and the workshop's project cards (src/components/paper/Panels.astro,
+// opened from a crate's plate over the stage) both render this component, so the card on the bench can never
+// say something the résumé does not.
+//
+// `headingId`: the title's id, the anchor of the entry on /resume/ (`projectAnchor`). A card over the stage is
+// drawn inside a <template> and cloned into the panel, so on `/` it keeps its own id prefix (no clash with the
+// paperwork's ids).
+import { isLink, type Project } from '../../content/resume.ts';
+import { renderInline } from './inline.ts';
+import { externalAttrs, printAttrs } from './links.ts';
+import { projectAnchor } from './projects.ts';
+
+interface Props {
+  entry: Project;
+  /** The title's id (default: its anchor on /resume/). */
+  headingId?: string;
+  /** The article's own id (default: the entry's, `patchlamp` for the one /resume/ must keep). */
+  id?: string;
+}
+const { entry: e, headingId = projectAnchor(e), id = e.id } = Astro.props;
+const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
+---
+<article class="entry project" id={id} aria-labelledby={headingId}>
+  <p class="entry-label">{e.label.text}</p>
+  <h3 class="entry-title" id={headingId}>{e.title.text}</h3>
+  <p class="entry-subtitle">{e.subtitle.text}</p>
+  <div class="entry-body">{e.paragraphs.map((p) => <p set:html={rich(p.text)} />)}</div>
+  <ul class="tags">{e.tags.map((t) => <li>{t.text}</li>)}</ul>
+  {e.links.length > 0 && (
+    <ul class="entry-links">
+      {e.links.map((l) => isLink(l)
+        ? <li><a href={l.href} {...printAttrs(l.href, l.text)} {...externalAttrs(l.href)}>{l.text}</a></li>
+        : <li class="private">{l.text}</li>)}
+    </ul>
+  )}
+</article>
