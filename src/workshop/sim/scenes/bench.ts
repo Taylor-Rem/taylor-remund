@@ -744,9 +744,10 @@ export const bench: SceneDesc = {
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
     dock({ id: 'dock', station: 'line', name: 'name.dock', mouth: 'dock', ramp: LINE.ramp, stack: AT.stack, feed: beltFeed, stackMax: 2, pad: { at: AT.pad, radius: 0.45, from: AT.chute.p, apex: AT.padApex, near: AT.padNear, home: AT.home } }),
     chute({ id: 'chute', station: 'line', name: 'name.chute' }),
-    crates({ id: 'crates', station: 'line' }), // P4 S5: the project crates' latches, cards and things
     ...S4_UNITS,
     ...PATCHLAMP_UNITS,
+    // P4 S5: the project crates' latches, cards and things (last: their latches and plates follow every other control in the list)
+    crates({ id: 'crates', station: 'line' }),
   ],
 };
 
