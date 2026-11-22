@@ -21,6 +21,10 @@ test.setTimeout(180_000);
 const VIEW = { width: 1280, height: 720 };
 /** The live region's sentences, as content says them (never typed here). */
 const SAID = JSON.parse(readFileSync(new URL('../../src/content/world.json', import.meta.url), 'utf8')).said as Record<string, { text: string }>;
+/** P4 S5: the crates are called by their projects' published titles (bench-projects.json names each résumé entry). */
+const PROJECT_TITLES = Object.values(JSON.parse(readFileSync(new URL('../../src/content/bench-projects.json', import.meta.url), 'utf8')).projects as Record<string, { resume: string }>).map((p) => p.resume);
+const esc = (t: string): string => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const A_CRATE = new RegExp(`^(${PROJECT_TITLES.map(esc).join('|')})$`);
 
 interface Ws {
   world: { button(): { presses: number }; part(id: string): { location: { at: string; mouth?: string } } | undefined; motion(id: string): { mode: string } | undefined };
@@ -198,7 +202,7 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   await page.setViewportSize(VIEW);
   await page.goto(stageAt('/', browserName));
   await live(page);
-  await tabTo(page, /^(Small|Medium|Large) crate/);
+  await tabTo(page, A_CRATE);
   const crate = (await stop(page)).id!;
   await page.keyboard.press('Enter');
   // held: the list is now where it can go, and focus is on the first of them
@@ -214,6 +218,23 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   // and the list is the list again, focus back on the crate
   await expect(page.locator('.controls-hold-label')).toBeHidden();
   expect((await stop(page)).id).toBe(crate);
+});
+
+test('P4 S5: a project crate opened from the list: Enter on its lid opens it and it is said; its plate is a real link to its entry; Enter again shuts it', async ({ page }) => {
+  await page.setViewportSize(VIEW);
+  await page.goto('/');
+  await live(page);
+  await tabTo(page, 't-components lid, shut');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open'))).toBe(true);
+  await expect.poll(() => said(page)).toContain(SAID['opened']!.text.replace('{thing}', 't-components'));
+  // focus stays on the lid's own button, which now says it is open
+  await expect.poll(async () => (await stop(page)).text).toBe('t-components lid, open');
+  const plate = page.locator('#controls a.controls-link', { hasText: 't-components: full entry' });
+  await expect(plate).toHaveAttribute('href', '/resume/#p-t-components');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open'))).toBe(false);
+  await expect(plate).toHaveCount(0);
 });
 
 test('? opens the list and puts focus in it; Esc closes it and focus returns to where it was', async ({ page }) => {

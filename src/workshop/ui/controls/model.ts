@@ -25,7 +25,7 @@ import type { Id, WorldView } from '../../sim/types.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
-import type { ProjectCrate } from '../../sim/scene.ts';
+import type { ProjectCrate } from '../../sim/types.ts';
 
 /** What the model reads (the running workshop, narrowed; a stub in the unit tests). */
 export interface ControlsSource {

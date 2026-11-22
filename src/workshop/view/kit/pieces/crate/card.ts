@@ -101,10 +101,8 @@ export function projectCard(o: ProjectCardOptions = {}): Piece {
 
 // ---- the card's face (browser only: canvas 2D) ----------------------------------
 
-const css = (tk: Token, a = 1): string => {
-  const n = parseInt(hex(tk).slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-};
+/** A palette token as a canvas colour with alpha (as the crate's tape paints its colours). */
+const css = (tk: Token, a = 1): string => `${hex(tk)}${Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0')}`;
 
 /** Words that fit `max` px wide at the context's font, broken at spaces (a word longer than the line gets a line of its own). */
 function wrapPx(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, text: string, max: number): string[] {

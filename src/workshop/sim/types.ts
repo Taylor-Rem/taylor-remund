@@ -17,10 +17,10 @@
  * `WorldView.scene` (`SceneDesc`); the numbers live in one table,
  * `sim/scenes/vignette.ts` `AT`. Never copy them into `view`.
  */
-import type { SceneDesc } from './scene.ts';
+import type { ProjectCrate, SceneDesc } from './scene.ts';
 import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
 
-export type { SceneDesc };
+export type { ProjectCrate, SceneDesc };
 
 export type Id = string;
 export type Vec3 = readonly [x: number, y: number, z: number];

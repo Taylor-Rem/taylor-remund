@@ -1,7 +1,11 @@
 // P3 S1: with reduced motion off and nothing restored, a fresh bench opens step for step as it did before tells, the
 // visit's snapshot and reduced motion were built: the loading pictures (rendered at the pictures' step) and every test
 // that follows the opening depend on it. `opening-fingerprint.json` was recorded from `rewrite` at c4bbefe, before any
-// of that work, by stepping `openingWorld()` through `fingerprint()` (opening-helpers.ts).
+// of that work, by stepping `openingWorld()` through `fingerprint()` (opening-helpers.ts). Re-recorded at P4 S5 (the crates
+// became Taylor's six projects: a latch and a plate each in the registry, an `open` field each, two small spares behind the
+// door instead of three of each size): every body's pose, mode and wakefulness and every crew view, step for step over
+// the two minutes, was compared with the recording from `rewrite` at 01c6d57 (the small crates by size, since the one
+// that comes up the chute in the second lap is another small crate now) and found identical.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';

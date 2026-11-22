@@ -15,7 +15,7 @@
  */
 import { Box3, Object3D, Vector3, type Group } from 'three';
 import type { Id, Part, Vec3 } from '../../../sim/types.ts';
-import type { ProjectCrate } from '../../../sim/scene.ts';
+import type { ProjectCrate } from '../../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../../types.ts';
 import { buildEntry } from '../../catalogue/registry.ts';
 import { createPartsView, paintToken, type PartDecorator } from '../../stations/parts.ts';
