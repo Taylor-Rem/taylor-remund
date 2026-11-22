@@ -103,8 +103,8 @@ export function tapeLines(kind: ToolKind): string[] {
 }
 export const tapeKey = (kind: ToolKind, line: number): string => `${kind}#${line}`;
 
-/** Make the name tapes (the labels' default cap height: the 12 px rule), and the sheet's heading. */
-export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>; sheetFace: TapeRef } {
+/** Make the name tapes (the labels' default cap height: the 12 px rule). */
+export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>; sheetFace?: TapeRef } {
   const out: Record<string, TapeRef> = {};
   for (const k of TOOL_KINDS) {
     tapeLines(k).forEach((line, i) => {
@@ -112,8 +112,9 @@ export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>
       out[tapeKey(k, i)] = { key, ...labels.size(key) };
     });
   }
-  const face = labels.card(skillsHeading(), { capHeight: SHEET.cap });
-  return { tapes: out, sheetFace: { key: face, ...labels.size(face) } };
+  // (round two) the sheet's heading is not typed on it: a texture of its own was one more draw call for words too small to
+  // read at the bench's distance; its face is rows of type, the heading's row bolder (the words are the panel's)
+  return { tapes: out };
 }
 
 /**
@@ -366,11 +367,6 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
   return b.build();
 }
 
-/** The résumé's heading for the skills, as published (world.json names.toolwall.sheet: the same words as resume.json skills.heading). */
-function skillsHeading(): string {
-  return world.toolwallSheet;
-}
-
 /**
  * P4 T2: the pinned sheet (`SHEET`): a typed page, its lower right corner curled off the board, a brass drawing pin at
  * its top; its heading on the face (`face`: a card label), and under it rows of type too small to read. Socket
@@ -398,6 +394,8 @@ function pinnedSheet(b: PieceBuilder, face: TapeRef | null, zF: number, seed: nu
     rows.push([x0, x1, yy]);
   }
   b.add(part('paper', transform(typeRows(rows, 0.016, R), at), 'ink', { seed: seed + 43, shade: 0.85 }));
+  // the heading's row, bolder and shorter, where no typed heading is given (round two: none is)
+  if (!face || !face.key) b.add(part('paper', transform(typeRows([[-w / 2 + 0.07, w * 0.15, h / 2 - 0.1]], 0.032, R), at), 'ink', { seed: seed + 45, shade: 0.8 }));
   // the brass pin: its head
   b.small(() => part('brass', transform(stud(0.035, 0.022, 8), chain(at, T(0, h / 2 - 0.045, 0.004), new Matrix4().makeRotationX(Math.PI / 2))), 'brass', { seed: seed + 44, warm: 0.05 }));
   b.socket('sheet', chain(at, T(0, 0, 0.01)));

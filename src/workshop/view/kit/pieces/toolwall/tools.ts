@@ -451,14 +451,14 @@ function brush(n: NodeBuilder, seed: number): void {
     const t = Math.max(0, 1 - y / BR.bristle);
     return [x * (1 + 0.08 * t), y, z * (1 - 0.5 * t * t)];
   });
-  n.add(part('rubber', transform(bristles, T(0, 0.005, 0)), 'ink', { seed: seed + 1, jitter: 0.05 }));
+  n.add(part('wood', transform(bristles, T(0, 0.005, 0)), 'ink', { seed: seed + 1, jitter: 0.05, warm: -0.02 }));
   // the strands: fine dark lines down both faces
   const strands: Array<[P2, P2]> = [];
   for (let i = 0; i < 11; i++) {
     const x = -BR.w / 2 + 0.02 + (i / 10) * (BR.w - 0.04) + R.spread(0.004);
     strands.push([[x, 0.03 + R() * 0.02], [x * 1.02, BR.bristle - 0.02]]);
   }
-  n.add(part('rubber', marks(strands, 0.005, BR.t / 2 + 0.0015), 'ink', { seed: seed + 2, shade: 0.55 }));
+  n.add(part('wood', marks(strands, 0.005, BR.t / 2 + 0.0015), 'ink', { seed: seed + 2, shade: 0.55 }));
   // a dried dab of paint on the tip, front and back: the tool's own colour, glossy
   const dab = roundedBox({ w: BR.w * 1.04, h: 0.07, d: BR.t * 0.62, r: 0.02, rPlan: 0.02, segs: 2, band: 0 });
   deform(dab, (x, y, z) => [x, y + 0.012 * Math.sin(x * 31 + seed) * (y > 0.035 ? 1 : 0), z]);
