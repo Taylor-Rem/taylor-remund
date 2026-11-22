@@ -32,6 +32,7 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
 <Stage
   title={site.pages.home.title.text}
   description={site.pages.home.description.text}
+  og={home.og}
 >
   <ControlsOpener slot="strip-end" />
   <SettingsControl slot="strip-end" />

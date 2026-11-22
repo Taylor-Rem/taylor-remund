@@ -38,11 +38,11 @@ import { tokensCss } from '../styles/paper-tokens.ts';
 interface Props {
   title: string;
   description: string;
+  /** Open Graph tags, where the page has them (the home page: the live page's, src/content/home.json `og`). */
+  og?: { title: { text: string }; description: { text: string }; type: string; url: string; image: string };
 }
-const { title, description } = Astro.props;
+const { title, description, og } = Astro.props;
 const { strip, home } = site;
-// Open Graph, as the live home page has it (legacy/index.html), so a link to `/` previews as it does today.
-const og = site.pages.home.og;
 const links = strip.links;
 // The slim line under the stage carries Privacy, Terms and SMS and nothing else (§ B7); the paper pages' footer
 // (Footer.astro) prints the whole list, the site's own links first.

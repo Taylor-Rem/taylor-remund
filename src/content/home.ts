@@ -37,6 +37,10 @@ export interface ServiceCard {
 }
 
 export interface Home {
+  /** Open Graph, as the live home page has it (legacy/index.html); passed to src/layouts/Stage.astro by the
+   *  page. Not in site.json, and not imported by the layout: both are inputs of the bench's pictures' hash
+   *  (scripts/poster.ts), and a word changed here must not make them stale. */
+  og: { title: UiEntry; description: FactEntry; type: string; url: string; image: string };
   patchlamp: { kicker: UiEntry; position: FactEntry; bullets: FactEntry[]; links: LinkEntry[]; picture: Picture };
   services: { eyebrow: UiEntry; intro: FactEntry; cards: ServiceCard[]; more: LinkEntry };
   about: {
