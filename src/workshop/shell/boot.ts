@@ -655,6 +655,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     to: View | null;
     close: boolean;
     look: Box3 | null;
+    /** Which pick target that look is on (the see-through view reads its parts): kept with the look, both ways. */
+    lookId: string | null;
     moved(): boolean;
   }
   const onScreen = (id: Id): boolean => {
@@ -853,6 +855,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       const base = cam.easing && resting ? resting : cam.view();
       const close = cam.reach > 1 || cam.look !== null;
       const look = cam.look;
+      const lookId = cam.lookId;
       const keep = (to: View | null): RevealImpl => {
         const before = oldHolds ? old!.before : to ? base : null;
         const r: RevealImpl = {
@@ -860,6 +863,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
           to: to ?? (oldHolds ? old!.to : null),
           close: oldHolds ? old!.close : close,
           look: oldHolds ? old!.look : look,
+          lookId: oldHolds ? old!.lookId : lookId,
           moved() {
             if (!this.to) return true;
             const v = cam.easing && resting ? resting : cam.view();
@@ -869,7 +873,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
           back() {
             if (!this.before || this.moved()) return;
             resting = this.before;
-            cam.easeTo(this.before, undefined, { close: this.close, look: this.look ?? cam.look });
+            cam.easeTo(this.before, undefined, { close: this.close, look: this.look ?? cam.look, lookId: this.look ? this.lookId : cam.lookId });
           },
         };
         return r;
@@ -887,7 +891,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       const to = settle(id, base, same);
       if (!to) return keep(null);
       resting = to;
-      cam.easeTo(to, undefined, same ? { close: true, look } : {});
+      cam.easeTo(to, undefined, same ? { close: true, look, lookId } : {});
       return keep(to);
     },
   };

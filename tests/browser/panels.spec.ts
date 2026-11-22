@@ -367,6 +367,13 @@ test.describe('round three: what a panel is about stays in view', () => {
     await expect.poll(() => inClear(page, c.card), { timeout: 1500 }).toBe(true);
     await resting(page);
     expect(await ws(page, (w) => !!w.stage.camera.look)).toBe(true);
+    // (the lead, at the merge of the crates' round four) and it is still a look ON the card: the see-through view reads
+    // the look's id for what must show (the card's face, its plate, the thing on the tray), with the panel open and after
+    expect(await ws(page, (w) => w.stage.camera.lookId), 'the look is still on the card with the panel open').toBe(c.card);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toBeHidden();
+    await resting(page);
+    expect(await ws(page, (w) => w.stage.camera.lookId), 'and after the panel closed').toBe(c.card);
   });
 
   test('closing gives the view back when the visitor has not moved the camera, and leaves it when they have', async ({ page, browserName }) => {
