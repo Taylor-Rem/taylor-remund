@@ -10,6 +10,7 @@ import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { yawOf } from '../../src/workshop/sim/math.ts';
 import type { Id, Pose, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
+import type { SimContext, Unit } from '../../src/workshop/sim/context.ts';
 
 type Launched = Extract<SimEvent, { type: 'restock.launched' }>;
 const STAND = FULL_BENCH.runner.stands!.pad as readonly [number, number];
@@ -48,10 +49,15 @@ function shipAndLaunch(w: World, t: ReturnType<typeof tape>, id: Id): Launched {
 
 describe('fresh crates come up the chute onto the pad', () => {
   test('a large crate: the arc clears the row by 1.2, it lands on the pad with its near side at the near edge, clear of Fetch at its stand, and rests inside no body', async () => {
-    const w = await benchWorld('chute-L');
+    // (P4 S5: the spares behind the door are small, so a large crate that ships has no large replacement; a large crate
+    // comes up the chute onto the pad as itself, as one Revert drops down its hatch does: crate-1, sent up it fresh)
+    let send: Id | null = null;
+    const w = await benchWorld('chute-L', { units: [(ctx: SimContext): Unit => ({ id: 'test-sender', pre() { if (send) ctx.toChute(send, 'system'); send = null; } })] });
     const t = tape(w);
     startPlay(w);
-    const l = shipAndLaunch(w, t, 'crate-1');
+    send = 'crate-1';
+    const l = t.until((e) => e.type === 'restock.launched' && e.part === 'crate-1', steps(6))!.e as Launched;
+    expect(l, 'thrown onto the pad').toBeTruthy();
     const part = l.part;
     expect(w.part(part)!.size).toBe('L');
     const half = w.halfExtents(part)!;
@@ -72,7 +78,12 @@ describe('fresh crates come up the chute onto the pad', () => {
     // at rest a moment later (and before anything else on this bench comes by: a crate tumbling across the row can knock it later)
     // (2026-11-20: it lands moving now, bounces and settles by physics: at rest about 0.6-0.7 s after touchdown; was
     // placed still and at rest within 0.4 s)
-    for (let i = 0; i < steps(1.5) && w.part(part)!.location.at !== 'rest'; i++) t.run(1);
+    // (its durable rest on the pad: a crate sent up the chute keeps the rest it had until it rests again)
+    const onPad = (): boolean => {
+      const loc = w.part(part)!.location;
+      return loc.at === 'rest' && Math.hypot(loc.pose.p[0] - AT.pad[0], loc.pose.p[2] - AT.pad[1]) < 0.45;
+    };
+    for (let i = 0; i < steps(1.5) && !onPad(); i++) t.run(1);
     const pose = w.motion(part)!.pose;
     expect(w.part(part)!.location.at).toBe('rest');
     expect(w.writer(part, 'location')).toBe('system');

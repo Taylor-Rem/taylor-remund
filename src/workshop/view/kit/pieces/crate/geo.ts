@@ -216,10 +216,12 @@ export const cornerChamfer = (sx: number, sy: number, sz: number) => (a: number,
 export const axisChamfer = (axis: number) => (a: number, _sa: number, b: number): boolean => a !== axis && b !== axis;
 
 /** A box seen from inside: six faces whose normals point inward (12 triangles). */
-export function innerBox(min: V3, max: V3): BufferGeometry {
+export function innerBox(min: V3, max: V3, noCeiling = false): BufferGeometry {
   const md = new MeshData();
   for (let a = 0; a < 3; a++) {
     for (const s of [-1, 1]) {
+      // (P4 S5: the ceiling faces down into the crate: no camera above ever sees it, and an open lid's underside takes its place)
+      if (noCeiling && a === 1 && s > 0) continue;
       const n: V3 = [0, 0, 0];
       n[a] = -s;
       const u = (a + 1) % 3, v = (a + 2) % 3;

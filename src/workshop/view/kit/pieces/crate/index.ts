@@ -479,7 +479,7 @@ export function crate(o: CrateOptions = {}): Piece {
   // the inside: dark, so the gaps read as depth (faces look inward)
   {
     const inX = W / 2 - S.proud - S.plankT, inZ = D / 2 - S.proud - S.plankT;
-    into(b, part('wood', innerBox([-inX, y0 + 0.02, -inZ], [inX, yLid - 0.002, inZ]), 'wood', { seed: 3, shade: 0.4 }));
+    into(b, part('wood', innerBox([-inX, y0 + 0.02, -inZ], [inX, yLid - 0.002, inZ], true), 'wood', { seed: 3, shade: 0.4 }));
     // the floor seen from below
     into(b, wood(bevelBox({ min: [-W / 2 + P * 0.5, y0 + 0.004, -D / 2 + P * 0.5], max: [W / 2 - P * 0.5, y0 + 0.03, D / 2 - P * 0.5], omit: ['px', 'nx', 'py', 'pz', 'nz'] }), 'wood-light', { seed: R.int(0, 1e6), shade: 0.8 }));
   }
@@ -563,8 +563,7 @@ export function crate(o: CrateOptions = {}): Piece {
       const zc = z + pd / 2;
       // a plank lying face up: built facing +Z, turned so +Z is up
       const Mp = chain(T(R.spread(0.003), yLid + S.lidT, zc), Rx(-90), Rx(R.spread(0.8)));
-      // (P4 S5: its underside too: an open lid shows it)
-      const g = bevelBox({ min: [-W / 2, -pd / 2, -S.lidT], max: [W / 2, pd / 2, 0], c: cB(S.plankC), wear: 0.75 });
+      const g = bevelBox({ min: [-W / 2, -pd / 2, -S.lidT], max: [W / 2, pd / 2, 0], c: cB(S.plankC), omit: ['nz'], wear: 0.75 });
       const face = faceVertices(g);
       const xs = W / 2 - S.cleatW - 0.035;
       const sk = skin(-xs, xs, -pd / 2 + cB(S.plankC), pd / 2 - cB(S.plankC), low ? 5 : S.skinPts, low ? 0.004 : S.gap * 0.9, R);
@@ -575,6 +574,8 @@ export function crate(o: CrateOptions = {}): Piece {
       into(lid, wood(g, 'wood-light', { seed: R.int(0, 1e6), jitter: 0.13, warm: 0.07, shade: 0.8 }, { geoms: [sk], tone: paintTone(), under: face }), toLid);
       z += pd + (gaps[i] ?? 0);
     }
+    // (P4 S5) its underside, one flat board face: an open lid shows it (two triangles; no draw from the crate's stream)
+    into(lid, wood(bevelBox({ min: [-W / 2 + 0.004, yLid + 0.0015, -D / 2 + 0.004], max: [W / 2 - 0.004, yLid + 0.003, D / 2 - 0.004], c: 0, omit: ['px', 'nx', 'py', 'pz', 'nz'] }), 'wood', { seed: seed * 31 + 7, shade: 0.7 }), toLid);
     // two cleats across the planks, near the ends
     for (const sx of [-1, 1]) {
       const xc = sx * (W / 2 - S.cleatW / 2 - 0.012) + R.spread(0.004);
