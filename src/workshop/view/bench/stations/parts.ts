@@ -277,7 +277,10 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         // (round three) with a thing on its tray every ray over the lid's front runs on into the thing (which wins it):
         // the latch is pressed on the crate's front instead, over the hasp (its box turned upright against the front rail)
         if (holds) {
-          lids.get(part.id)!.latch = { obj: latch, onTray: thingOnTray, top: [0, S.h + 0.04, lz], front: [0, S.h - 0.075, S.d / 2 + 0.016] };
+          // (and there, where its box is on the ray, it wins over the crate whose front it lies on)
+          const crateOnly = [pc.crate] as const;
+          ctx.pickOver?.(pc.lid, () => (thingOnTray() ? crateOnly : []));
+          lids.get(part.id)!.latch = { obj: latch, onTray: thingOnTray, top: [0, S.h + 0.04, lz], front: [0, S.h - 0.075, S.d / 2 - 0.005] };
         }
         // the plate's pick target: the plate itself, under the card (only while it stands)
         const plateTarget = new Object3D();
@@ -311,7 +314,9 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         st.holder.matrixWorldNeedsUpdate = true;
         st.holder.visible = shown && group.visible;
         const mo = frame.world.motion(part.id);
-        st.still = shown && mo?.mode === 'free' && !mo.held && !mo.awake;
+        // (round three) an open crate with its thing on the tray is kept awake by it (the world holds the thing there each
+        // step): it lies still all the same
+        st.still = shown && mo?.mode === 'free' && !mo.held && (!mo.awake || (st.latch?.onTray() ?? false));
         const w = frame.world;
         const m = w.motion(part.id);
         const want = shown && w.setting(part.id, 'open') === true && !m?.held && m?.mode === 'free' ? 1 : 0;

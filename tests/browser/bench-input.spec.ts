@@ -988,6 +988,8 @@ test('P4 S5 round three: on an open crate with a thing on its tray (the ledger b
       ws.dispatch({ type: 'select', id: 'crate-1' });
     });
     await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), 600, `${kind}: opened`).toBe(true);
+    // the board dealt itself out and lies on its tray, its show over; the camera at rest
+    await pollFrames(p, () => p.evaluate(() => { const w = (window as any).__bench.ws.world; return w.machine('ledger').show === null && w.mode('ledger-board') === 'machine'; }), 1200, `${kind}: the board on its tray`).toBe(true);
     await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.surface.screen('ledger-plunger') !== null), 600, `${kind}: at rest`).toBe(true);
     // every point over the board's controls (their boxes on screen) picks the control, never the latch
     const sweep = await p.evaluate((k) => {
@@ -1003,7 +1005,7 @@ test('P4 S5 round three: on an open crate with a thing on its tray (the ledger b
         }
         return { x0, y0, x1, y1 };
       };
-      const out = { latch: 0, points: 0, latchOwn: 0 };
+      const out = { latch: 0, points: 0, latchOwn: 0, latchGot: '' };
       for (const id of ['ledger-plunger', 'ledger-crank']) {
         const r = rect(id);
         for (let i = 0; i <= 8; i++)
@@ -1014,11 +1016,12 @@ test('P4 S5 round three: on an open crate with a thing on its tray (the ledger b
           }
       }
       const l = ws.surface.screen('crate-1-lid');
-      out.latchOwn = l && ws.surface.at(l.x, l.y, k, null).id === 'crate-1-lid' ? 1 : 0;
+      out.latchGot = l ? String(ws.surface.at(l.x, l.y, k, null).id) : 'no target';
+      out.latchOwn = out.latchGot === 'crate-1-lid' ? 1 : 0;
       return out;
     }, kind);
     expect(sweep.latch, `${kind}: points over the board's controls that went to the latch, of ${sweep.points}`).toBe(0);
-    expect(sweep.latchOwn, `${kind}: the latch, in front of the board, is still its own target`).toBe(1);
+    expect(sweep.latchOwn, `${kind}: the latch, on the crate's front, is still its own target (got ${sweep.latchGot})`).toBe(1);
     // a press on the plunger leaves the crate open; the latch shuts it
     const pl = await p.evaluate(() => (window as any).__bench.ws.surface.screen('ledger-plunger'));
     if (kind === 'mouse') await p.mouse.click(pl.x, pl.y);
