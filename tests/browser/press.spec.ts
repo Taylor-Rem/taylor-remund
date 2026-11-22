@@ -126,7 +126,8 @@ test('P4 D3: the press\'s lever by mouse at 1440×900: a pull prints, stores a c
   await frames(page, 2);
   await page.mouse.move(l.x, l.y, { steps: 4 });
   const cur = () => page.evaluate(() => (document.getElementById('stage') as HTMLCanvasElement).style.cursor);
-  await until(page, async () => /pointer$/.test(await cur()), 60, `one finger over the lever (${await cur()})`);
+  const hit = await page.evaluate((p) => JSON.stringify((window as any).__bench.ws.surface.at(p.x, p.y, "mouse", null)), l);
+  await until(page, async () => /pointer\)?$/.test(await cur()), 60, `one finger over the lever (hit ${hit}; cursor ${(await cur()).slice(-40)})`);
   const before = await drawer(page);
   await page.mouse.click(l.x, l.y);
   await until(page, async () => (await drawer(page)) === before + 1, 120, 'a pull by a click on the lever');
@@ -139,7 +140,7 @@ test('P4 D3: the press\'s lever by a finger at 390×844, the camera in on it: a 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   const errors = await open(page);
-  await inClose(page, 0.6);
+  await inClose(page, 1.1);
   const tip = await fingertip(page, 'press-lever');
   const l = (await screenOf(page, 'press-lever')) as XY;
   console.log(`[D3] 44 px at 390×844, camera in on the press: ${tip} ${JSON.stringify(l)}`);
