@@ -7,7 +7,7 @@ import { startDevServer, type DevServer } from '../../scripts/capture.ts';
 // sprayed decals' polygon offset pulled it back through at a distance (the home framing): the marks and words flipped
 // light, or half and half, as the camera moved. Now it is also shrunk to a speck (view/kit/pieces/crate/paint.ts).
 // Rendered on the real GPU, crate-3 and crate-2 at the home framing and at seven camera distances, each read by its
-// pixels: the brightest of the mark's middle against the brightest of the bare front beside it. A light mark on bare
+// pixels: the bright end of the mark's middle (its 85th percentile: a light stencil covers more than that; a brass hasp or a passing robot's edge does not) against the brightest of the bare front beside it. A light mark on bare
 // wood fails; and on crate-3 painted paint-blue (through the line, as a visitor does it) a dark mark fails.
 
 test.use({ channel: 'chrome', launchOptions: { args: gpuArgs } });
@@ -69,7 +69,7 @@ const readMarks = (page: Page, id: string): Promise<Read[]> =>
         for (const u of [-0.62, -0.58, 0.58, 0.62]) beside.push(lum(u, v));
       }
       const q = (a: number[], f: number): number => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(f * a.length))]!;
-      out.push({ view, d: +cam.distance.toFixed(1), mark: Math.round(q(mark, 0.95)), beside: Math.round(q(beside, 0.95)), dark: Math.round(q(mark, 0.05)) });
+      out.push({ view, d: +cam.distance.toFixed(1), mark: Math.round(q(mark, 0.85)), beside: Math.round(q(beside, 0.95)), dark: Math.round(q(mark, 0.05)) });
     }
     return out;
   }, id);
