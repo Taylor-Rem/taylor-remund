@@ -34,10 +34,20 @@ import { paintToken } from './parts.ts';
 export const PRESS_FEEL = {
   /** The lever's pull (from its rest, forward and down) and how long it takes to come back up. */
   leverPull: (PRESS_DIMS.leverPull * Math.PI) / 180,
-  leverDown: 0.12,
-  leverBack: 0.5,
-  /** The flick: how far the arm swings up, its spring's wobble after (radians, per second, seconds). */
-  flick: 1.05,
+  /** A beat of resistance (the lever gives this share of its travel over this long), then it goes, holds, comes back. */
+  leverGive: 0.12,
+  giveShare: 0.12,
+  leverDown: 0.09,
+  leverHold: 0.2,
+  leverBack: 0.6,
+  /** Refused (the envelope in the air): after its give, it springs back over this long. */
+  refuseBack: 0.3,
+  /** The ratchet wheel: how far it turns with the lever, and with each click of the printed sheet (radians). */
+  wheelTurn: 1.2,
+  wheelClick: (2 * Math.PI) / PRESS_DIMS.wheelTeeth,
+  /** The wind-back before the flick (radians down), the flick (radians up), its spring's wobble after. */
+  wind: 0.22,
+  flick: 0.95,
   wobble: 0.18,
   wobbleHz: 9,
   wobbleTime: 0.7,
@@ -70,6 +80,8 @@ export interface PressViewOptions {
 
 interface Nodes {
   lever: Object3D;
+  wheel: Object3D;
+  platen: Object3D;
   printed: Object3D;
   gridded: Object3D;
   blank: Object3D;
@@ -121,24 +133,27 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         });
         return n;
       };
-      const names = ['lever', 'printed', 'gridded', 'blank', 'drawer', 'stack', 'arm', 'env', 'flap-0', 'flap-1', 'flap-2'];
+      const names = ['lever', 'wheel', 'platen', 'printed', 'gridded', 'blank', 'drawer', 'stack', 'arm', 'env', 'flap-0', 'flap-1', 'flap-2'];
       const found = names.map(by);
       if (found.some((x) => !x)) return;
-      const [lever, printed, gridded, blank, drawer, stack, arm, env, f0, f1, f2] = found as Object3D[];
+      const [lever, wheel, platen, printed, gridded, blank, drawer, stack, arm, env, f0, f1, f2] = found as Object3D[];
       group = g;
       obj = piece;
       half = w.halfExtents(o.body)?.[1] ?? half;
       const all = found as Object3D[];
-      nodes = { lever: lever!, printed: printed!, gridded: gridded!, blank: blank!, drawer: drawer!, stack: stack!, arm: arm!, env: env!, flaps: [f0!, f1!, f2!], rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone(), s: n.scale.clone() }])) };
-      // the lever's target: round its knob and the top of its arm, at rest and pulled (a finger finds it at the framing
-      // the camera gives; the input grows a small one to 44 px)
+      nodes = { lever: lever!, wheel: wheel!, platen: platen!, printed: printed!, gridded: gridded!, blank: blank!, drawer: drawer!, stack: stack!, arm: arm!, env: env!, flaps: [f0!, f1!, f2!], rest: new Map(all.map((n) => [n, { p: n.position.clone(), q: n.quaternion.clone(), s: n.scale.clone() }])) };
+      // the press keeps its own colours when the room's paint scheme changes (it is a loose thing, not a machine)
+      (ctx.materials as Partial<{ keepColours(root: Object3D): number }>).keepColours?.(piece);
+      // the lever's target: the upper arm and the grip, at rest (up and back): at least 28 px at the home framing, a
+      // fingertip with the camera in
       const t = new Object3D();
       t.name = 'press:lever.pick';
       holder.add(t);
       const a = (D.leverRest * Math.PI) / 180;
-      const tipY = D.leverY + Math.cos(a) * D.leverLen;
-      const tipZ = D.leverZ + Math.sin(a) * D.leverLen;
-      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.05, D.leverY + 0.04, D.leverZ - 0.02).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.03, tipY + 0.05, tipZ + 0.05).multiplyScalar(PRESS_SCALE)), pad: 0.006, active: () => shown && reachable() });
+      const reach = D.leverLen + D.gripL;
+      const tipY = D.leverY + Math.cos(a) * reach;
+      const tipZ = D.leverZ + Math.sin(a) * reach;
+      ctx.pickable(o.lever, t, { box: new Box3(new Vector3(D.leverX - 0.05, D.leverY + 0.1, tipZ - 0.05).multiplyScalar(PRESS_SCALE), new Vector3(D.leverX + 0.05, tipY + 0.03, D.leverZ + 0.04).multiplyScalar(PRESS_SCALE)), pad: 0.01, active: () => shown && reachable() });
     };
 
     /** Pose a node from its rest: a translation added, a turn after its own, a scale. */
@@ -213,7 +228,7 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         const script = s ? { beats: s.beats, length: s.length, flickAt: null } : null;
         const at = (kind: Parameters<typeof beatAt>[1], n?: number): number => (script && !reduced ? beatAt(script, kind, t, n) : s ? 1 : 0);
         // the paper: the report the holders show (the old one until both sheets are down in their slots)
-        const down = s && !reduced ? t < PRESS_SHOW.thunk : false;
+        const down = s && !reduced ? t < PRESS_SHOW.thunkAt + PRESS_SHOW.thunk : false;
         const report = s && down ? s.before : pv.report;
         const key = JSON.stringify([report, w.part(o.envelope)?.colour ?? 'bare', pv.seal]);
         if (key !== paperKey) {
@@ -229,25 +244,43 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         paintWood(w.part(o.body)?.colour ?? 'bare');
         if (!shown) return;
 
-        // the lever: down with the thunk (at once under the hand, even when its pull waits its turn), back up slowly
+        // the lever: it gives a little under the hand, then goes (fast) and thunks at the bottom, holds, and springs back
+        // up with a small overshoot. At once under the hand, even when its pull waits its turn. Refused (the envelope in
+        // the air): it gives the same little, then springs back without going.
         const since = frame.time - leverAt;
-        let pull = since < F.leverDown ? smooth(since / F.leverDown) : since < F.leverDown + F.leverBack ? 1 - smooth((since - F.leverDown) / F.leverBack) : 0;
+        const refused = pv.refused < 1.2 && Math.abs(since - pv.refused) < 0.2;
+        let pull = 0;
+        if (since >= 0 && since < F.leverGive) pull = F.giveShare * smooth(since / F.leverGive);
+        else if (refused && since < F.leverGive + F.refuseBack) pull = F.giveShare * (1 - smooth((since - F.leverGive) / F.refuseBack)) - 0.03 * Math.sin(((since - F.leverGive) / F.refuseBack) * Math.PI);
+        else if (!refused && since < F.leverGive + F.leverDown) {
+          const u = (since - F.leverGive) / F.leverDown;
+          pull = F.giveShare + (1 - F.giveShare) * u * u;
+        } else if (!refused && since < F.leverGive + F.leverDown + F.leverHold) pull = 1;
+        else if (!refused && since < F.leverGive + F.leverDown + F.leverHold + F.leverBack) {
+          const u = (since - F.leverGive - F.leverDown - F.leverHold) / F.leverBack;
+          pull = 1 - smooth(u) - 0.06 * u * Math.sin(u * Math.PI);
+        }
         const lm = pv.misfire;
         if (lm && lm.since < 0.35) pull = Math.max(pull, 0.18 * lm.level * Math.sin((lm.since / 0.35) * Math.PI));
         if (!reduced && frame.time - toldAt < F.tellTime) pull = Math.max(pull, 0.08 * Math.max(0, Math.sin((frame.time - toldAt) * 10)) * (1 - (frame.time - toldAt) / F.tellTime));
         if (frame.hovered === o.lever && pull === 0) pull = -0.02;
         pose(N.lever, null, qa.setFromAxisAngle(X, pull * F.leverPull));
+        // the platen comes down with the lever; the wheel turns with it, then clicks round as the printed sheet rises
+        pose(N.platen, dv.set(0, -Math.max(0, pull) * D.platenDrop, 0), null);
+        let wheel = Math.max(0, pull) * F.wheelTurn;
+        if (s && !reduced) for (let n = 0; n < PRESS_SHOW.ratchets; n++) wheel += F.wheelClick * smooth(beatAt(script!, 'ratchet', t, n));
+        pose(N.wheel, null, qa.setFromAxisAngle(X, wheel));
 
-        // the blank: taken in along the tray with the thunk, and the next one there by the time the lever is back
-        const bi = at('thunk');
-        const binside = s && !reduced && t < PRESS_SHOW.thunk + 0.5;
-        pose(N.blank, dv.set(F.blankIn * smooth(bi), 0, 0), null, binside && bi >= 0.95 ? 0 : 1);
+        // the blank: drawn in from the tray as the lever goes down; the next one is there by the time it is back
+        const dropT = PRESS_SHOW.thunkAt + PRESS_SHOW.thunk;
+        const bi = s && !reduced ? Math.min(1, t / dropT) : 0;
+        const binside = s && !reduced && t < dropT + 0.45;
+        pose(N.blank, dv.set(0, -0.004 * smooth(bi), F.blankIn * smooth(bi)), null, binside && bi >= 0.98 ? 0 : 1);
 
-        // the printed sheet: down into its slot with the thunk, up again in four clicks
+        // the printed sheet: down into its slot with the thunk, then up again in four separate clicks, like toast
         let rise = pv.report === null && !s ? 0 : 1;
         if (s && !reduced) {
-          const dropping = t < PRESS_SHOW.thunk;
-          if (dropping) rise = s.before === null ? 0 : 1 - smooth(t / PRESS_SHOW.thunk);
+          if (t < dropT) rise = s.before === null ? 0 : 1 - smooth(t / dropT);
           else {
             rise = 0;
             for (let n = 0; n < PRESS_SHOW.ratchets; n++) rise += smooth(beatAt(script!, 'ratchet', t, n)) / PRESS_SHOW.ratchets;
@@ -255,16 +288,17 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         }
         pose(N.printed, dv.set(0, -(1 - rise) * D.sheetH, 0), null, rise <= 0.002 ? 0 : 1);
 
-        // the gridded sheet: gone with the thunk, then it flips over into its holder (its plain back first)
+        // the gridded sheet: down with the thunk, then over like a calendar page into the holder beside it: it swings up
+        // from lying back on the feed tray's side, about its foot, and stands
         let flip = pv.report === null && !s ? -1 : 1;
         if (s && !reduced) {
-          if (t < PRESS_SHOW.thunk) flip = s.before === null ? -1 : 1 - t / PRESS_SHOW.thunk;
+          if (t < dropT) flip = s.before === null ? -1 : 1 - t / dropT;
           else flip = t < PRESS_SHOW.flipAt ? -1 : beatAt(script!, 'flip', t);
         }
         if (flip < 0) pose(N.gridded, null, null, 0);
         else {
-          const k = smooth(flip);
-          pose(N.gridded, dv.set(0, (1 - k) * 0.03, 0), qa.setFromAxisAngle(Y, (1 - k) * Math.PI), Math.max(0.02, Math.min(1, k * 3)));
+          const k = flip >= 1 ? 1 : 1 - (1 - flip) * (1 - flip) * (1 + 2.2 * flip);
+          pose(N.gridded, null, qa.setFromAxisAngle(X, -(1 - k) * Math.PI * 0.55));
         }
 
         // the drawer: out, the copy in, shut with a click; its stack one sheet thicker from the copy's drop
@@ -287,15 +321,17 @@ export function createPressView(o: PressViewOptions): (ctx: ViewContext) => Stat
         }
         let arm = 0;
         if (s && !reduced) {
+          // wound back (down: the held breath), then flicked up hard, then its spring's wobble
+          const wk = beatAt(script!, 'wind', t);
           const fk = beatAt(script!, 'flick', t);
-          if (fk > 0 && fk < 1) arm = Math.sin(fk * Math.PI) * F.flick;
+          if (wk > 0 && fk <= 0) arm = -F.wind * smooth(wk);
+          if (fk > 0 && fk < 1) arm = -F.wind + (F.flick + F.wind) * Math.sin(fk * Math.PI);
           const after = t - (PRESS_SHOW.flickAt + PRESS_SHOW.flick);
-          if (s.envelope && after > 0 && after < F.wobbleTime) arm += Math.sin(after * F.wobbleHz * Math.PI * 2) * F.wobble * (1 - after / F.wobbleTime);
+          if (s.envelope && after > 0 && after < F.wobbleTime) arm = Math.sin(after * F.wobbleHz * Math.PI * 2) * F.wobble * (1 - after / F.wobbleTime);
           const sk = beatAt(script!, 'shrug', t);
           if (!s.envelope && sk > 0 && sk < 1) arm = Math.sin(sk * Math.PI) * F.shrug + Math.sin(sk * Math.PI * 4) * F.shrug * 0.35 * (1 - sk);
         }
-        pose(N.arm, null, qa.setFromAxisAngle(X, -arm));
-        void Z;
+        pose(N.arm, null, qa.setFromAxisAngle(Z, arm));
         obj.updateMatrixWorld(true);
       },
       dispose() {

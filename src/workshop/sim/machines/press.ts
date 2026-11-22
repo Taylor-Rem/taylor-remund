@@ -54,7 +54,9 @@ export const SEAL_FIELD = 'seal';
 /** Tune here. Units and seconds. */
 export const PRESS_TUNING = {
   /** The lob's top is this far over the higher of its two ends (a slow high lob across the bench is worth watching). */
-  lob: 1.7,
+  lob: 2.3,
+  /** The lob falls this hard (units/s²): floatier than the bench's gravity, so the flight is slow and worth watching (the engine takes over for the last step). */
+  flightGravity: 8,
   /** The envelope turns this many times about the vertical in the air (a flicked card spins flat). */
   spin: 1,
   /** It lands this far behind the last thing riding the belt. */
@@ -120,7 +122,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   ctx.defineSetting(spec.body, REPORT_FIELD, null, validReport as (v: Value) => boolean);
   ctx.defineSetting(spec.body, DRAWER_FIELD, 0, validDrawer as (v: Value) => boolean);
   ctx.defineSetting(spec.envelope, SEAL_FIELD, null, validSeal as (v: Value) => boolean);
-  const g = Math.abs(ctx.scene.gravity);
+  const g = PRESS_TUNING.flightGravity;
   const HOME: Value = { at: 'in', station: envSpec.station, mouth: spec.body };
 
   /** What the dock has shipped this visit, as heard (transient). */
@@ -136,6 +138,8 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
   let home: { job: Job | null; at: number } | null = null;
   /** The last shrug of the arm's spring (a pull with the envelope out), the step it began. */
   let shrugAt = -1;
+  /** The last polite refusal (a pull with the envelope in the air), the step it began. */
+  let refusedAt = -1;
   /** "Reset the workshop" is under way (`reset`, then `restored`). */
   let resetting = false;
 
@@ -339,11 +343,41 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     return true;
   }
 
+  /** The envelope is on its way through the air: flicked and not yet come to rest (its place still the press). */
+  function airborne(): boolean {
+    if (flight) return true;
+    const l = ctx.part(spec.envelope)?.location;
+    return ctx.mode(spec.envelope) === 'free' && !!l && l.at === 'in' && l.mouth === spec.body;
+  }
+  function refuse(): void {
+    refusedAt = ctx.clock.step;
+    ctx.emit({ type: 'press.refused', id: spec.id, body: spec.body });
+  }
+
+  /**
+   * Ask to be looked at (`press.look`, the seam the crates' `look` takes over): when its crate opens with it on the
+   * tray, and when a hand sets it down and it has come to rest. Never on a pull.
+   */
+  let lastMode: string | undefined = undefined;
+  let setDown = false;
+  function lookWhen(): void {
+    const m = ctx.mode(spec.body);
+    const l = ctx.part(spec.body)?.location;
+    if (lastMode === 'gone' && m === 'machine' && l?.at === 'in') ctx.emit({ type: 'press.look', id: spec.id, body: spec.body, why: 'opened' });
+    if (lastMode === 'held' && m !== 'held') setDown = true;
+    if (setDown && m === 'free' && ctx.settled(spec.body)) {
+      setDown = false;
+      ctx.emit({ type: 'press.look', id: spec.id, body: spec.body, why: 'set-down' });
+    } else if (setDown && m !== 'free') setDown = false;
+    lastMode = m;
+  }
+
   function runWaiting(): void {
     const w = waiting;
     if (!w) return;
     waiting = null;
-    if (w.active) act((c) => w.commit(c).effects.length > 0, w.cause);
+    if (w.active && airborne()) refuse();
+    else if (w.active) act((c) => w.commit(c).effects.length > 0, w.cause);
     w.done();
   }
 
@@ -354,6 +388,12 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
       // carried, stowed, shipped: a misfire (the lever twitches; nothing is printed)
       lever.hit(1);
       ctx.emit({ type: 'misfire', id: spec.lever.id, level: 1 });
+      return true;
+    }
+    if (airborne()) {
+      // the envelope is in the air: the lever gives and springs back, and nothing is printed, so its landing can never
+      // fall into a second pull's transaction
+      refuse();
       return true;
     }
     const t = handleTxn(ctx, gesture(), 'press', spec.lever.id);
@@ -419,6 +459,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
 
     pre() {
       if (ctx.bracketed) return;
+      lookWhen();
       if (show && !reachable()) {
         // out of reach or out of sight: drawn as its state says, at once; a pull waiting is done now; the flick does not happen
         show = null;
@@ -428,10 +469,10 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
         }
         runWaiting();
       }
-      if (show && !playing()) {
-        show = null;
-        runWaiting();
-      }
+      if (show && !playing()) show = null;
+      // a pull made before the flick waits for the show to end and the envelope to land (one made while the envelope is
+      // in the air is refused at once: `pull`)
+      if (!show && waiting && !airborne() && !flick) runWaiting();
       if (flick && ctx.clock.step >= flick.at) {
         const f = flick;
         flick = null;
@@ -505,6 +546,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
       flight = null;
       home = null;
       shrugAt = -1;
+      refusedAt = -1;
       lever.reset();
     },
 
@@ -545,6 +587,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
         show: s ? { since: (ctx.clock.step - s.start) / HZ, before: s.before, after: s.after, drawer: s.drawer, envelope: s.envelope, beats: s.script.beats, length: s.script.length } : null,
         waiting: waiting !== null,
         shrug: shrugAt < 0 ? Infinity : (ctx.clock.step - shrugAt) / HZ,
+        refused: refusedAt < 0 ? Infinity : (ctx.clock.step - refusedAt) / HZ,
         shipments: record.length,
       };
     },
@@ -553,4 +596,4 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
 }
 
 /** For tests: steps until a pull's show is over, with a margin. */
-export const PRESS_SHOW_STEPS = steps(3.4) + 1;
+export const PRESS_SHOW_STEPS = steps(4) + 1;

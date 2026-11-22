@@ -18,23 +18,27 @@ const names = (n: PieceNode, out: string[] = []): string[] => {
 };
 
 describe('the report press piece', () => {
-  test('under 3,000 triangles; three material classes; every moving node there; the body\'s footprint', () => {
+  test('under 5,000 triangles; four material classes (enamel, brass, wood, paper); every moving node there; the body\'s footprint', () => {
     for (const paper of [undefined, 'region|report-press|paper']) {
       const p = reportPress({ seed: 3, ...(paper ? { paper } : {}) });
       process.stderr.write(`\nreport press: ${p.triangles} triangles, classes ${[...classes(p.root)].join(', ')}, size ${JSON.stringify(p.size)}\n`);
-      expect(p.triangles).toBeLessThanOrEqual(3000);
-      expect([...classes(p.root)].sort()).toEqual(['brass', 'paper', 'wood']);
+      expect(p.triangles).toBeLessThanOrEqual(5000);
+      expect([...classes(p.root)].sort()).toEqual(['brass', 'paper', 'steel', 'wood']);
       const n = names(p.root);
-      for (const k of ['lever', 'printed', 'gridded', 'blank', 'drawer', 'stack', 'arm', 'env', 'flap-0', 'flap-1', 'flap-2']) expect(n, k).toContain(k);
-      expect(p.size.x).toBeCloseTo(PRESS.half[0] * 2, 1);
-      expect(p.size.z).toBeLessThanOrEqual(PRESS.half[2] * 2 + 0.12);
+      for (const k of ['lever', 'wheel', 'platen', 'printed', 'gridded', 'blank', 'drawer', 'stack', 'arm', 'env', 'flap-0', 'flap-1', 'flap-2']) expect(n, k).toContain(k);
+      // its base is the body's footprint; the lever and the spring arm's bed reach past it
+      expect(p.size.x).toBeGreaterThanOrEqual(PRESS.half[0] * 2);
+      expect(p.size.x).toBeLessThanOrEqual(0.85);
+      expect(p.size.z).toBeLessThanOrEqual(PRESS.half[2] * 2 + 0.2);
+      // the oxblood colourway builds the same
+      expect(reportPress({ seed: 3, colourway: 'oxblood' }).triangles).toBe(p.triangles);
     }
   });
 
-  test('the envelope: one class, under 60 triangles, the body\'s size', () => {
+  test('the envelope: one class, under 100 triangles, the body\'s size', () => {
     const e = reportEnvelope({ seed: 3, paper: 'region|report-press|paper' });
     process.stderr.write(`\nenvelope: ${e.triangles} triangles, size ${JSON.stringify(e.size)}\n`);
-    expect(e.triangles).toBeLessThanOrEqual(60);
+    expect(e.triangles).toBeLessThanOrEqual(100);
     expect([...classes(e.root)]).toEqual(['paper']);
     expect(e.size.x).toBeCloseTo(PRESS.envelopeHalf[0] * 2, 2);
     expect(e.size.z).toBeCloseTo(PRESS.envelopeHalf[2] * 2, 2);

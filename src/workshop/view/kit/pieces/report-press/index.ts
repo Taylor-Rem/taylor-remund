@@ -1,32 +1,38 @@
 /**
- * The report press (P4 D3): a table-top press of cast iron and brass on a wooden base, something between a hand
- * letterpress and a cheque-writer, the thing in the Report Generation Framework's crate. And its envelope.
+ * The report press (P4 D3, round two): a table-top press in black-green japanned enamel with gold lining and bright
+ * brass, on a wooden base, the thing in the Report Generation Framework's crate. A cousin of an Albion hand press
+ * (the arched cast frame, the long bar), a cheque-writer (the big side handle, the paper standing up out of the top)
+ * and a hand-cranked sewing machine (the japanning, the gold lines, the bright wheel). Its silhouette, before any
+ * detail: a press with a big handle and paper sticking out of it.
  *
- * Three scales: the large (the wooden base, the two arched iron cheeks, the crosshead across their tops, the long
- * lever); the medium (the two brass holders and their sheets, the sloping feed tray and its blanks, the drawer in the
- * base's front, the spring arm and its brass bed, the platen block, a small handwheel on the right cheek); the small
- * (bolts through the cheeks, screws in the base, a brass oil cup on the crosshead, rivets on the tray, the drawer's
- * brass pull, the spring's coils).
+ * Three scales. Large: the base, the arched cheeks and the crown, the long lever with its fat grip, the two sheets
+ * standing out of the crown, the spring arm with its paddle of a bed. Middle: the brass ratchet wheel on the lever's
+ * hub (it turns as the lever comes down), the raised panels on the cheeks with their arched windows, the platen block
+ * on its spindle, the cast feet, the drawer's face and pull, the feed tray with its blanks (the top one askew), the
+ * coil spring. Small: gold lining along the crown and the bed plate, screw and bolt heads, a blank brass maker's oval
+ * (no words), rivets on the tray; the enamel chips to bare metal at worn edges by itself (the enamel class, seeded).
  *
- * Materials, honestly, in three draws: wood (the base, the drawer, the lever's turned knob), brass (every fitting; and
- * the cast iron, which is drawn in the brass class in iron's own near-black, as the ledger board's steel tokens are,
- * so it shares the draw), paper (every sheet: one label region, `SHEETS`, its rectangles `UV`). The iron is not
- * enamel: the press keeps its own colours whatever the room's paint scheme (it is a loose part). Painted on the
- * platen, its wooden base wears the paint (the view, as the ledger board's).
+ * Materials, honestly: enamel (`steel`, the japanning and its painted gold lining; the press keeps its own colours
+ * when the room's scheme changes: its view calls `keepColours`), brass (the wheel, the oval, the slot plates, the
+ * bed, the bolts, the spring), wood (the base, the drawer, the lever's grip), paper (every sheet: one label region,
+ * `SHEETS`). Four draws: see the hand-in for why not three.
  *
- * Nodes that move (the view poses them, view/stations/press.ts):
+ * Nodes that move (the view poses them, view/stations/press.ts), all under 'body' (the scaled node):
  *   'lever'                    turns about its local X (forward and down is a pull); origin its pivot
- *   'printed'                  the printed sheet: rises along its local Y out of the crosshead's slot
+ *   'wheel'                    the ratchet wheel on the lever's hub: turns about its local X
+ *   'platen'                   the platen block: down along its local Y as the lever comes down
+ *   'printed'                  the printed sheet: rises along its local Y out of the crown's slot
  *   'gridded'                  the gridded sheet: turns about its local Y (it flips over into its holder)
- *   'blank'                    the top blank on the feed tray: slides in along its local X
+ *   'blank'                    the top blank on the feed tray: slides in along its local -Z
  *   'drawer', 'stack'          the drawer slides along +Z; the stack in it scales in Y (one copy a sheet)
- *   'arm'                      the spring arm: turns about its local X at its hinge (the flick)
+ *   'arm'                      the spring arm: turns about its local Z at its hinge (up is the flick)
  *   'env', 'flap-0'..'flap-2'  the envelope on the bed, and its three flaps (each turns about its hinge)
  */
 import { Matrix4, type BufferGeometry, type BufferAttribute } from 'three';
 import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import type { LabelRegion, Labels } from '../../../types.ts';
+import type { Token } from '../../../palette.ts';
 import { roundedBox, lathe, extrude } from '../../solids.ts';
 import { bevelBox, sheet } from '../../cheap.ts';
 import { profile } from '../../profile.ts';
@@ -35,10 +41,11 @@ import { chain, mat, part, piece, texturedPart, T } from '../../compose.ts';
 import { askew } from '../../rng.ts';
 import { transform } from '../../deform.ts';
 import { setFinish } from '../../space.ts';
-import { PRESS_DIMS, PRESS_SCALE, SHEETS, UV } from './dims.ts';
+import { COLOURWAYS, PRESS_DIMS, PRESS_SCALE, SHEETS, UV, type Colourway } from './dims.ts';
 import { paperOnce } from './paper.ts';
 
-export { PRESS_DIMS, PRESS_SCALE, SHEETS, UV, GRID } from './dims.ts';
+export { COLOURWAYS, PRESS_DIMS, PRESS_SCALE, SHEETS, UV, GRID } from './dims.ts';
+export type { Colourway } from './dims.ts';
 
 const DEG = Math.PI / 180;
 type Rect = readonly [number, number, number, number];
@@ -63,10 +70,10 @@ function paper(g: BufferGeometry, r: Rect, key: string | undefined, shade = 1): 
 }
 
 /** A sheet of paper standing up, its foot's middle at the origin, its face +Z: the face on `face`, the back and edge blank. */
-function standingSheet(w: number, h: number, face: Rect, key: string | undefined, bow = 0.003): KitPart[] {
+function standingSheet(w: number, h: number, face: Rect, key: string | undefined, bow = 0.004): KitPart[] {
   const lift = (u: number): number => bow * Math.sin(Math.PI * u);
-  const f = transform(sheet({ w, h, t: 0.0012, nx: 3, ny: 1, lift }), T(0, h / 2, 0));
-  const b = transform(sheet({ w, h, t: 0.0012, nx: 3, ny: 1, lift, back: true }), T(0, h / 2, 0));
+  const f = transform(sheet({ w, h, t: 0.0014, nx: 3, ny: 1, lift }), T(0, h / 2, 0));
+  const b = transform(sheet({ w, h, t: 0.0014, nx: 3, ny: 1, lift, back: true }), T(0, h / 2, 0));
   return [paper(f, face, key), paper(b, UV.blank, key, 0.94)];
 }
 
@@ -78,33 +85,65 @@ function lyingSheet(w: number, d: number, t: number, face: Rect, key: string | u
   return [paper(f, face, key), paper(b, edge, key, 0.92)];
 }
 
-/** Cast iron: near-black metal, a little warm where it is worn, in the brass class's draw. */
-const iron = (g: BufferGeometry, seed: number, shade = 2.6): KitPart => setFinish(part('brass', g, 'ink', { seed, shade, jitter: 0.06 }), 0);
-const brass = (g: BufferGeometry, seed: number, shade = 1): KitPart => part('brass', g, 'brass', { seed, shade, warm: 0.04, jitter: 0.05 });
-
-/** An arched cheek's outline (in the cheek's own (z, y): its foot on the bed plate, its back higher than its front). */
-function cheekOutline(): Array<[number, number]> {
-  const D = PRESS_DIMS;
-  const z0 = D.frameZ0, z1 = D.frameZ1;
-  const top = D.crossY;
-  // (the outline's x is the press's z once the cheek is turned)
-  return [[z0, D.baseH], [z1, D.baseH], [z1, D.baseH + 0.03], [z1 - 0.012, top - 0.02], [z1 - 0.03, top], [z0 + 0.012, top], [z0, top - 0.014]];
+/** Parts moved by a matrix (a new geometry each). */
+function moved(parts: KitPart[], m: Matrix4): KitPart[] {
+  return parts.map((q) => ({ ...q, geometry: transform(q.geometry, m) }));
 }
 
-/** The arched window cast through each cheek (same space as the outline): a round-topped opening over the platen. */
+/** The arched cheek's outline, in the cheek's own (z, y): a wide cast foot, waisted, up to the crown. */
+function cheekOutline(): Array<[number, number]> {
+  const D = PRESS_DIMS;
+  const y0 = D.baseH + D.footH + 0.012;
+  return [[D.frameZ0, y0], [D.frameZ1, y0], [D.frameZ1, y0 + 0.03], [0.05, 0.14], [0.048, D.crownY], [-0.078, D.crownY], [-0.082, 0.14], [D.frameZ0, y0 + 0.03]];
+}
+/** The raised panel on each cheek's outer face (the same shape, inset). */
+function panelOutline(): Array<[number, number]> {
+  const D = PRESS_DIMS;
+  const y0 = D.baseH + D.footH + 0.03;
+  return [[D.frameZ0 + 0.02, y0], [D.frameZ1 - 0.02, y0], [D.frameZ1 - 0.02, y0 + 0.018], [0.034, 0.14], [0.032, D.crownY - 0.018], [-0.062, D.crownY - 0.018], [-0.066, 0.14], [D.frameZ0 + 0.02, y0 + 0.018]];
+}
+/** The arched window through each cheek and its panel (same space). */
 function cheekWindow(): Array<[number, number]> {
-  const cz = -0.014, w = 0.034, y0 = 0.062, yArch = 0.112;
+  const cz = -0.015, w = 0.026, y0 = 0.1, yArch = 0.19;
   const out: Array<[number, number]> = [[cz - w, y0], [cz + w, y0]];
   for (let i = 0; i <= 6; i++) {
     const a = (i / 6) * Math.PI;
-    out.push([cz + Math.cos(a) * w, yArch + Math.sin(a) * w * 0.9]);
+    out.push([cz + Math.cos(a) * w, yArch + Math.sin(a) * w]);
   }
   return out;
+}
+/** The ratchet wheel's outline: `n` sloping teeth round radius `r` (in its own plane). */
+function wheelOutline(r: number, n: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const b = ((i + 0.62) / n) * Math.PI * 2;
+    out.push([Math.cos(a) * r * 0.88, Math.sin(a) * r * 0.88], [Math.cos(b) * r, Math.sin(b) * r]);
+  }
+  return out;
+}
+/** Five spoke windows in the wheel. */
+function wheelWindows(r: number): Array<Array<[number, number]>> {
+  return Array.from({ length: 5 }, (_, k) => {
+    const a0 = (k / 5) * Math.PI * 2 + 0.22, a1 = ((k + 1) / 5) * Math.PI * 2 - 0.22;
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i <= 3; i++) {
+      const a = a0 + ((a1 - a0) * i) / 3;
+      pts.push([Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7]);
+    }
+    for (let i = 3; i >= 0; i--) {
+      const a = a0 + ((a1 - a0) * i) / 3;
+      pts.push([Math.cos(a) * r * 0.32, Math.sin(a) * r * 0.32]);
+    }
+    return pts;
+  });
 }
 
 export interface ReportPressOptions extends KitOptions {
   /** The paper region's key (`pressPaper(labels).key`). Without it, plain paper. */
   paper?: string;
+  /** Which japanning (`COLOURWAYS`): 'japan' (black-green, the one to ship) or 'oxblood'. */
+  colourway?: Colourway;
 }
 
 export function reportPress(o: ReportPressOptions = {}): Piece {
@@ -113,136 +152,168 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   const low = detail === 'low';
   const D = PRESS_DIMS;
   const key = o.paper;
+  const C = COLOURWAYS[o.colourway ?? 'japan'];
   const b = piece('report-press', { detail, seed });
   // (everything at the press's size: built in its own measurements, drawn at `PRESS_SCALE`)
   const r = b.node('body', new Matrix4().makeScale(PRESS_SCALE, PRESS_SCALE, PRESS_SCALE));
 
-  // ---- large: the wooden base (a little off true, its front edge worn), screwed down at its corners --------------
-  r.add(part('wood', roundedBox({ w: D.w, h: D.baseH, d: D.d, r: 0.008, segs: 2, detail }), 'wood', { seed, jitter: 0.05, warm: 0.04 }));
-  r.small(() => [[-0.19, -0.14], [0.19, -0.14], [-0.19, 0.14], [0.19, 0.14]].flatMap(([x, z], i) => domeRivet({ d: 0.011, detail: 'low', seed: seed + 2 + i, cheap: true, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(x!, D.baseH - 0.001, z!)) }))));
+  /** Japanned enamel: glossy, a little deeper where thick; it chips to bare metal at worn edges by itself. */
+  const enamel = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, shade, jitter: 0.04 }), 0.85);
+  /** Gold lining: a painted line, glossy. */
+  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03 }), 1);
+  const brass = (g: BufferGeometry, s: number, shade = 1): KitPart => part('brass', g, 'brass', { seed: seed + s, shade, warm: 0.04, jitter: 0.05 });
+  const wood = (g: BufferGeometry, s: number, token: Token = 'wood', shade = 1): KitPart => part('wood', g, token, { seed: seed + s, shade, jitter: 0.05, warm: 0.04 });
 
-  // ---- the iron frame: a bed plate, two arched cheeks, a crosshead across their tops, the platen block -----------
-  r.add(iron(transform(bevelBox({ min: [-D.cheekX - 0.025, 0, D.frameZ0 - 0.01], max: [D.cheekX + 0.025, 0.012, D.frameZ1 + 0.01], c: 0.003, omit: ['ny'] }), T(0, D.baseH - 0.001, 0)), seed + 10));
-  const cheekG = (): BufferGeometry => extrude(cheekOutline(), D.cheekT, { bevel: 0.0025, radius: 0.006, segs: 1, support: false, holes: [cheekWindow()], holeRadius: 0.01 });
+  // ---- the wooden base, screwed at its corners ------------------------------------------------------------------
+  r.add(wood(roundedBox({ w: D.w, h: D.baseH, d: D.d, r: 0.008, segs: 2, detail }), 0));
+  r.small(() => [[-0.195, -0.145], [0.195, -0.145], [-0.195, 0.145], [0.195, 0.145]].flatMap(([x, z], i) => domeRivet({ d: 0.012, detail: 'low', seed: seed + 2 + i, cheap: true, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(x!, D.baseH - 0.001, z!)) }))));
+
+  // ---- the cast feet and the bed plate the frame stands on, lined in gold ------------------------------------------
+  const plateY = D.baseH + D.footH;
+  for (const [i, [x, z]] of D.feet.entries()) {
+    r.add(enamel(bevelBox({ min: [x - 0.026, D.baseH - 0.001, z - 0.022], max: [x + 0.026, plateY, z + 0.022], c: 0.004, omit: ['ny'] }), 10 + i));
+    r.small(() => hexBolt({ af: 0.014, h: 0.005, cheap: true, seed: seed + 14 + i, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(x + (x < 0 ? -0.016 : 0.016), plateY - 0.001, z)) })));
+  }
+  const px0 = -D.cheekX - 0.03, px1 = D.cheekX + 0.03, pz0 = D.frameZ0 - 0.012, pz1 = D.frameZ1 + 0.012;
+  r.add(enamel(bevelBox({ min: [px0, plateY - 0.002, pz0], max: [px1, plateY + 0.012, pz1], c: 0.004, omit: ['ny'] }), 20));
+  // gold lining round the plate's top, a hair in from its edge
+  const ly = plateY + 0.0125;
+  for (const [a, bb] of [[[px0 + 0.008, pz1 - 0.008], [px1 - 0.008, pz1 - 0.006]], [[px0 + 0.008, pz0 + 0.006], [px1 - 0.008, pz0 + 0.008]], [[px0 + 0.006, pz0 + 0.008], [px0 + 0.008, pz1 - 0.008]], [[px1 - 0.008, pz0 + 0.008], [px1 - 0.006, pz1 - 0.008]]] as const) {
+    r.add(gold(bevelBox({ min: [a[0], ly - 0.0006, a[1]], max: [bb[0], ly, bb[1]], omit: ['ny'] }), 21));
+  }
+
+  // ---- the arched cheeks, each with a raised panel; arched windows through both --------------------------------------
+  const holes = { holes: [cheekWindow()], holeRadius: 0.01 };
   for (const s of [-1, 1]) {
-    // (extruded toward +Z, turned so its thickness runs across the frame; a hair off true, as a casting is)
-    r.add(iron(transform(cheekG(), chain(T(s * D.cheekX + D.cheekT / 2, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2), askew(seed + 11 + s, 0.4))), seed + 12 + s));
+    const at = chain(T(s * D.cheekX + D.cheekT / 2, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2), askew(seed + 30 + s, 0.4));
+    r.add(enamel(transform(extrude(cheekOutline(), D.cheekT, { bevel: 0.003, radius: 0.008, segs: 1, support: false, ...holes }), at), 31 + s));
+    // the panel on the outer face (its thickness outward)
+    const pat = s < 0 ? chain(T(s * D.cheekX - D.cheekT / 2 + 0.0005, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2)) : chain(T(s * D.cheekX + D.cheekT / 2 + 0.0065, 0, 0), new Matrix4().makeRotationY(-Math.PI / 2));
+    r.add(enamel(transform(extrude(panelOutline(), 0.006, { bevel: 0.002, radius: 0.006, segs: 1, support: false, caps: 'end', ...holes }), pat), 34 + s, 1.15));
   }
-  const crossTop = D.crossY + D.crossH;
-  r.add(iron(transform(roundedBox({ w: 2 * D.cheekX + D.cheekT + 0.02, h: D.crossH, d: D.crossD, r: 0.006, segs: 1, detail: 'low' }), T(0, D.crossY, D.crossZ)), seed + 14, 2.1));
-  r.add(iron(transform(bevelBox({ min: [-D.cheekX + D.cheekT / 2 + 0.005, 0, -0.05], max: [D.cheekX - D.cheekT / 2 - 0.005, 0.036, 0.05], c: 0.003 }), T(0, 0.074, -0.012)), seed + 15, 1.6));
-  // the brass slot plates the two sheets stand in, on the crosshead's top
-  for (const x of D.sheetX) r.add(brass(transform(bevelBox({ min: [-D.sheetW / 2 - 0.007, 0, -0.009], max: [D.sheetW / 2 + 0.007, 0.004, 0.009], c: 0.0012, omit: ['ny'] }), T(x, crossTop - 0.001, D.sheetZ)), seed + 16));
-  // bolts through the cheeks into the crosshead, and a brass oil cup on top
-  r.small(() => [-1, 1].flatMap((s, i) => hexBolt({ af: 0.014, h: 0.006, cheap: true, seed: seed + 20 + i, material: 'brass', token: 'ink' }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(T(s * (D.cheekX + D.cheekT / 2 + 0.0005), D.crossY + D.crossH / 2, D.crossZ), mat({ rot: [0, 0, -s * 90] }))) }))));
-  r.small(() => [brass(transform(lathe(profile(0, 0).to(0.007, 0, { sharp: true }).to(0.006, 0.01, { sharp: true }).to(0.009, 0.014, { sharp: true }).to(0, 0.016), { segs: 7, support: false, caps: false }), T(-0.012, crossTop, D.crossZ + 0.02)), seed + 22, 0.95)]);
 
-  // ---- the handwheel on the right cheek (it sets the platen's depth; it does not move) ---------------------------
-  const wheelAt = chain(T(D.cheekX + D.cheekT / 2, 0.1, -0.02), mat({ rot: [0, 0, -90] }));
-  r.add(iron(transform(lathe(profile(0.012, 0).to(0.032, 0.002, { sharp: true }).to(0.034, 0.008, { sharp: true }).to(0.03, 0.011, { sharp: true }).to(0.012, 0.009, { sharp: true }).to(0, 0.016), { segs: 10, support: false, caps: false }), wheelAt), seed + 24, 1.7));
+  // ---- the crown across the cheeks' tops: a cornice, gold lines, the brass slot plates and a blank maker's oval ------
+  const crownW = 2 * D.cheekX + D.cheekT + 0.034;
+  r.add(enamel(roundedBox({ w: crownW, h: D.crownH, d: D.crownD, r: 0.008, segs: 1, detail: 'low' }).translate(0, D.crownY, D.crownZ), 40));
+  const topY = D.crownY + D.crownH;
+  r.add(enamel(roundedBox({ w: crownW + 0.016, h: 0.012, d: D.crownD + 0.014, r: 0.005, segs: 1, detail: 'low' }).translate(0, topY - 0.006, D.crownZ), 41, 1.1));
+  for (const z of [D.crownZ + D.crownD / 2 + 0.0005, D.crownZ - D.crownD / 2 - 0.0005]) {
+    const f = z > D.crownZ ? 1 : -1;
+    r.add(gold(bevelBox({ min: [-crownW / 2 + 0.01, D.crownY + 0.008, z - (f > 0 ? 0 : 0.0008)], max: [crownW / 2 - 0.01, D.crownY + 0.0105, z + (f > 0 ? 0.0008 : 0)] }), 42));
+  }
+  const capTop = topY + 0.006;
+  for (const x of D.sheetX) r.add(brass(bevelBox({ min: [x - D.sheetW / 2 - 0.008, capTop - 0.001, D.sheetZ - 0.012], max: [x + D.sheetW / 2 + 0.008, capTop + 0.005, D.sheetZ + 0.012], c: 0.0015, omit: ['ny'] }), 43));
+  // the maker's oval on the crown's front (blank brass: no words)
+  r.add(brass(transform(lathe(profile(0, 0).to(0.022, 0, { sharp: true }).to(0.022, 0.003, { sharp: true }).to(0.019, 0.005, { sharp: true }).to(0, 0.005), { segs: 14, support: false, caps: false }), chain(T(0, D.crownY + D.crownH * 0.5, D.crownZ + D.crownD / 2), mat({ rot: [90, 0, 0] }), new Matrix4().makeScale(1.7, 1, 1))), 44, 1.05));
+  r.small(() => [-1, 1].flatMap((s, i) => hexBolt({ af: 0.016, h: 0.006, cheap: true, seed: seed + 45 + i, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(s * (crownW / 2 - 0.02), capTop, D.crownZ + 0.025)) }))));
 
-  // ---- the feed tray at the back left, sloping up, a short stack of blanks on it ---------------------------------
-  const trayAt = chain(T(D.trayX, D.trayY, D.trayZ), mat({ rot: [0, 0, -D.trayTilt] }));
-  r.add(iron(transform(bevelBox({ min: [-D.trayW / 2, -0.004, -D.trayD / 2], max: [D.trayW / 2, 0, D.trayD / 2], c: 0.0015, omit: ['ny'] }), trayAt), seed + 30, 1.8));
-  for (const z of [-D.trayD / 2, D.trayD / 2]) r.add(iron(transform(bevelBox({ min: [-D.trayW / 2, 0, -0.002], max: [D.trayW / 2, 0.014, 0.002], c: 0.001, omit: ['ny'] }), chain(trayAt, T(0, 0, z))), seed + 31, 1.8));
-  // the tray's leg down to the base, at its high end
-  r.add(iron(transform(bevelBox({ min: [-0.006, 0, -0.025], max: [0.006, D.trayY - D.baseH + 0.01, 0.025], c: 0.002, omit: ['ny'] }), T(D.trayX - D.trayW / 2 + 0.012, D.baseH - 0.002, D.trayZ)), seed + 32, 1.7));
-  r.small(() => [-0.03, 0.03].flatMap((z, i) => domeRivet({ d: 0.006, detail: 'low', seed: seed + 33 + i, cheap: true, material: 'brass', token: 'ink' }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(trayAt, T(D.trayW / 2 - 0.008, 0, z))) }))));
+  // ---- the platen block on its spindle (the block comes down as the lever does) ---------------------------------------
+  r.add(brass(transform(lathe(profile(0, 0).to(0.009, 0, { sharp: true }).to(0.009, D.crownY - D.platenY - 0.035, { sharp: true }).to(0, D.crownY - D.platenY - 0.035), { segs: 8, support: false, caps: false }), T(0, D.platenY + 0.035, -0.015)), 50, 0.9));
+  const platen = r.node('platen', T(0, D.platenY, -0.015));
+  platen.add(enamel(roundedBox({ w: 2 * D.cheekX - D.cheekT - 0.012, h: 0.04, d: 0.13, r: 0.006, segs: 1, detail: 'low' }), 51, 0.9));
+  platen.add(gold(bevelBox({ min: [-D.cheekX + D.cheekT, 0.0355, 0.0655], max: [D.cheekX - D.cheekT, 0.0375, 0.0662] }), 52));
+
+  // ---- the feed tray behind the crown, its blanks (the top one askew) ---------------------------------------------------
+  const trayAt = chain(T(0, D.trayY, D.trayZ), mat({ rot: [D.trayTilt, 0, 0] }));
+  r.add(enamel(transform(bevelBox({ min: [-D.trayW / 2, -0.005, -D.trayD / 2], max: [D.trayW / 2, 0, D.trayD / 2], c: 0.002, omit: ['ny'] }), trayAt), 60));
+  for (const x of [-D.trayW / 2, D.trayW / 2]) r.add(enamel(transform(bevelBox({ min: [x - 0.003, 0, -D.trayD / 2], max: [x + 0.003, 0.02, D.trayD / 2], c: 0.0012, omit: ['ny'] }), trayAt), 61));
+  // two struts from the tray to the crown's back
+  for (const x of [-D.trayW / 2 + 0.02, D.trayW / 2 - 0.02]) r.add(enamel(bevelBox({ min: [x - 0.005, D.crownY - 0.02, D.trayZ + 0.01], max: [x + 0.005, D.crownY + 0.008, D.crownZ - D.crownD / 2 + 0.002], c: 0.0015 }), 62));
+  r.small(() => [-0.06, 0.06].flatMap((x, i) => domeRivet({ d: 0.007, detail: 'low', seed: seed + 63 + i, cheap: true, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(trayAt, T(x, 0, D.trayD / 2 - 0.01))) }))));
   const stackT = D.blanks * D.blankT;
-  r.add(transform0(lyingSheet(D.trayW - 0.012, D.trayD - 0.012, stackT, UV.blank, key), chain(trayAt, T(0.002, stackT, 0))));
-  const blank = r.node('blank', chain(trayAt, T(0.002, stackT + 0.0002, 0)));
-  blank.add(lyingSheet(D.trayW - 0.014, D.trayD - 0.014, D.blankT, UV.blank, key));
+  r.add(moved(lyingSheet(D.trayW - 0.014, D.trayD - 0.012, stackT, UV.blank, key), chain(trayAt, T(0, stackT, 0.002))));
+  const blank = r.node('blank', chain(trayAt, T(0.004, stackT + 0.0003, 0.004), mat({ rot: [0, 4, 0] })));
+  blank.add(lyingSheet(D.trayW - 0.016, D.trayD - 0.014, D.blankT, UV.blank, key));
 
-  // ---- the two holders and their sheets on the crosshead: the printed sheet left, the gridded sheet right ----------
-  const lean = chain(new Matrix4().makeRotationX(-D.sheetLean * DEG));
-  for (const [i, x] of D.sheetX.entries()) {
-    // a brass clip at each top corner, on a thin back post
-    const post = chain(T(x, crossTop, D.sheetZ - 0.006), lean);
-    r.add(brass(transform(bevelBox({ min: [-0.003, 0, -0.004], max: [0.003, D.sheetH * 0.9, 0], c: 0.001, omit: ['ny'] }), post), seed + 40 + i, 0.9));
-    r.add(brass(transform(bevelBox({ min: [-D.sheetW * 0.32, D.sheetH * 0.86, -0.004], max: [D.sheetW * 0.32, D.sheetH * 0.92, 0.002], c: 0.0012 }), post), seed + 42 + i));
-  }
-  const printed = r.node('printed', chain(T(D.sheetX[0], crossTop, D.sheetZ), lean));
-  printed.add(standingSheet(D.sheetW, D.sheetH, UV.printed, key));
-  const gridded = r.node('gridded', chain(T(D.sheetX[1], crossTop, D.sheetZ), lean));
-  gridded.add(standingSheet(D.sheetW, D.sheetH, UV.gridded, key));
+  // ---- the two sheets standing out of the crown ----------------------------------------------------------------------
+  const lean = new Matrix4().makeRotationX(-D.sheetLean * DEG);
+  r.node('printed', chain(T(D.sheetX[0], capTop + 0.004, D.sheetZ), lean)).add(standingSheet(D.sheetW, D.sheetH, UV.printed, key));
+  r.node('gridded', chain(T(D.sheetX[1], capTop + 0.004, D.sheetZ), lean)).add(standingSheet(D.sheetW, D.sheetH, UV.gridded, key));
 
-  // ---- the lever on the left cheek: an iron boss, a long arm, a turned wooden knob --------------------------------
-  r.add(iron(transform(lathe(profile(0, 0).to(0.02, 0, { sharp: true }).to(0.02, 0.012, { sharp: true }).to(0.012, 0.016, { sharp: true }).to(0, 0.016), { segs: low ? 9 : 12, support: false, caps: false }), chain(T(-D.cheekX - D.cheekT / 2, D.leverY, D.leverZ), mat({ rot: [0, 0, 90] }))), seed + 50, 1.7));
-  const lever = r.node('lever', chain(T(D.leverX - 0.012, D.leverY, D.leverZ), mat({ rot: [D.leverRest, 0, 0] })));
-  lever.add(iron(transform(lathe(profile(0, 0).to(0.008, 0, { sharp: true }).to(0.0065, D.leverLen * 0.5, { sharp: true }).to(0.005, D.leverLen, { sharp: true }).to(0, D.leverLen), { segs: 7, support: false, caps: false }), T(0, 0, 0)), seed + 51, 1.9));
-  lever.add(part('wood', transform(lathe(profile(0, 0).to(0.006, 0.002, { sharp: true }).to(D.knobR * 0.9, D.knobR * 0.7).to(D.knobR, D.knobR * 1.25).to(D.knobR * 0.7, D.knobR * 2).to(0, D.knobR * 2.15), { segs: low ? 9 : 11, support: false, caps: false }), T(0, D.leverLen - 0.004, 0)), 'wood', { seed: seed + 52, shade: 0.8, warm: 0.05 }));
-  lever.add(brass(transform(lathe(profile(0.0075, 0).to(0.009, 0.002, { sharp: true }).to(0.009, 0.008, { sharp: true }).to(0.0065, 0.009), { segs: 8, support: false, caps: false }), T(0, D.leverLen - 0.01, 0)), seed + 53));
+  // ---- the lever on the left: a hub on the cheek, the ratchet wheel and its pawl, the long cast arm, the fat grip -------
+  const hubX = -D.cheekX - D.cheekT / 2;
+  r.add(enamel(transform(lathe(profile(0, 0).to(0.026, 0, { sharp: true }).to(0.026, 0.008, { sharp: true }).to(0.018, 0.012, { sharp: true }).to(0, 0.012), { segs: low ? 10 : 14, support: false, caps: false }), chain(T(hubX, D.leverY, D.leverZ), mat({ rot: [0, 0, 90] }))), 70));
+  const wheel = r.node('wheel', T(hubX - 0.012, D.leverY, D.leverZ));
+  wheel.add(brass(transform(extrude(wheelOutline(D.wheelR, D.wheelTeeth), 0.008, { bevel: 0.0006, bevelBase: 0, radius: 0, segs: 1, support: false, caps: "end", holes: wheelWindows(D.wheelR), holeRadius: 0 }), chain(new Matrix4().makeRotationY(-Math.PI / 2), T(0, 0, -0.004))), 71));
+  // the pawl that clicks on the wheel's teeth (fixed to the cheek above it)
+  r.add(enamel(bevelBox({ min: [hubX - 0.016, D.leverY + D.wheelR - 0.004, D.leverZ - 0.035], max: [hubX - 0.006, D.leverY + D.wheelR + 0.01, D.leverZ + 0.004], c: 0.002 }), 72));
+  const lever = r.node('lever', chain(T(D.leverX, D.leverY, D.leverZ), mat({ rot: [D.leverRest, 0, 0] })));
+  lever.add(enamel(transform(lathe(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.014, { sharp: true }).to(0.02, 0.02, { sharp: true }).to(0, 0.02), { segs: low ? 10 : 14, support: false, caps: false }), chain(mat({ rot: [0, 0, 90] }), T(0, -0.01, 0))), 73));
+  lever.add(enamel(lathe(profile(0, 0).to(0.017, 0, { sharp: true }).to(0.0135, D.leverLen * 0.35, { sharp: true }).to(0.0105, D.leverLen, { sharp: true }).to(0, D.leverLen), { segs: low ? 8 : 10, support: false, caps: false }), 74));
+  // gold bands on the arm and a brass ferrule under the grip
+  for (const y of [0.04, D.leverLen * 0.62]) lever.add(gold(lathe(profile(0.0142 - y * 0.008, y).to(0.0152 - y * 0.008, y + 0.002, { sharp: true }).to(0.0152 - y * 0.008, y + 0.006, { sharp: true }).to(0.0142 - y * 0.008, y + 0.008), { segs: 10, support: false, caps: false }), 75));
+  lever.add(brass(lathe(profile(0.011, D.leverLen - 0.004).to(0.016, D.leverLen - 0.002, { sharp: true }).to(0.016, D.leverLen + 0.01, { sharp: true }).to(0.012, D.leverLen + 0.012), { segs: 12, support: false, caps: false }), 76));
+  lever.add(wood(lathe(profile(0, D.leverLen + 0.01).to(0.018, D.leverLen + 0.012, { sharp: true }).to(D.gripR, D.leverLen + 0.03).to(D.gripR * 1.04, D.leverLen + 0.055).to(D.gripR * 0.86, D.leverLen + D.gripL - 0.004).to(0, D.leverLen + D.gripL), { segs: low ? 10 : 14, support: false, caps: false }), 77, 'wood', 0.95));
 
-  // ---- the drawer in the base's front: a wooden face with a brass pull; its stack of copies inside ----------------
+  // ---- the drawer in the base's front: a wooden face with a brass pull; its stack of copies inside ------------------------
   const drawer = r.node('drawer', T(0, 0.006, D.d / 2));
-  drawer.add(part('wood', bevelBox({ min: [-D.drawerW / 2, 0, -0.006], max: [D.drawerW / 2, D.drawerH, 0.002], c: 0.002 }), 'wood', { seed: seed + 60, shade: 1.15, jitter: 0.06 }));
-  drawer.add(part('wood', bevelBox({ min: [-D.drawerW / 2 + 0.006, 0, -D.drawerD], max: [D.drawerW / 2 - 0.006, 0.003, -0.006], c: 0.001, omit: ['ny'] }), 'wood-light', { seed: seed + 61, shade: 0.6 }));
-  for (const s of [-1, 1]) drawer.add(part('wood', bevelBox({ min: [s * (D.drawerW / 2 - 0.006) - 0.002, 0, -D.drawerD], max: [s * (D.drawerW / 2 - 0.006) + 0.002, D.drawerH - 0.004, -0.006], c: 0.0008 }), 'wood-light', { seed: seed + 62, shade: 0.62 }));
-  drawer.add(brass(transform(lathe(profile(0, 0).to(0.008, 0, { sharp: true }).to(0.0085, 0.004, { sharp: true }).to(0.005, 0.009, { sharp: true }).to(0, 0.01), { segs: 8, support: false, caps: false }), chain(T(0, D.drawerH / 2, 0.002), mat({ rot: [90, 0, 0] }))), seed + 63));
-  // the stack: one sheet's thickness at scale 1 (the view scales it by the count), its foot on the drawer's floor
+  drawer.add(wood(bevelBox({ min: [-D.drawerW / 2, 0, -0.006], max: [D.drawerW / 2, D.drawerH, 0.003], c: 0.002 }), 80, 'wood', 1.2));
+  drawer.add(wood(bevelBox({ min: [-D.drawerW / 2 + 0.006, 0, -D.drawerD], max: [D.drawerW / 2 - 0.006, 0.003, -0.006], c: 0.001, omit: ['ny'] }), 81, 'wood-light', 0.6));
+  for (const s of [-1, 1]) drawer.add(wood(bevelBox({ min: [s * (D.drawerW / 2 - 0.006) - 0.002, 0, -D.drawerD], max: [s * (D.drawerW / 2 - 0.006) + 0.002, D.drawerH - 0.004, -0.006], c: 0.0008 }), 82, 'wood-light', 0.62));
+  drawer.add(brass(transform(lathe(profile(0, 0).to(0.011, 0, { sharp: true }).to(0.0115, 0.004, { sharp: true }).to(0.007, 0.011, { sharp: true }).to(0, 0.012), { segs: 10, support: false, caps: false }), chain(T(0, D.drawerH / 2, 0.003), mat({ rot: [90, 0, 0] }))), 83));
   const stack = drawer.node('stack', T(0, 0.003, -D.drawerD / 2 - 0.003));
-  stack.add(transform0(lyingSheet(D.drawerW - 0.02, D.drawerD - 0.03, D.copyT, UV.blank, key), T(0, D.copyT, 0)));
+  stack.add(moved(lyingSheet(D.drawerW - 0.024, D.drawerD - 0.03, D.copyT, UV.blank, key), T(0, D.copyT, 0)));
 
-  // ---- the spring arm on the right: a bracket at the back, a coil spring, an iron arm and the brass bed -------------
-  const hinge = T(D.armX, D.armHingeY, D.armHingeZ);
-  r.add(iron(transform(bevelBox({ min: [-0.03, D.baseH - D.armHingeY, -0.016], max: [0.03, 0.008, 0.016], c: 0.002, omit: ['ny'] }), hinge), seed + 70, 1.8));
-  const arm = r.node('arm', hinge);
-  const bedC: [number, number, number] = [0, D.bedY - D.armHingeY, D.bedZ - D.armHingeZ];
-  // the arm: an iron strap from the hinge to under the bed
-  arm.add(iron(transform(bevelBox({ min: [-0.012, -0.003, 0], max: [0.012, 0.004, bedC[2] - 0.02], c: 0.0015 }), chain(T(0, 0.004, 0), mat({ rot: [-Math.atan2(bedC[1] - 0.012, bedC[2] - 0.02) / DEG, 0, 0] }))), seed + 71, 1.8));
-  arm.add(brass(transform(bevelBox({ min: [-D.bedW / 2, -0.004, -D.bedD / 2], max: [D.bedW / 2, 0, D.bedD / 2], c: 0.0015 }), T(bedC[0], bedC[1], bedC[2])), seed + 72, 0.95));
-  // two brass fingers at the bed's back that hold the flaps up
-  for (const s of [-1, 1]) arm.add(brass(transform(bevelBox({ min: [-0.002, 0, -0.002], max: [0.002, 0.022, 0.002], c: 0.0008, omit: ['ny'] }), T(s * (D.envW / 2 + 0.004), bedC[1], bedC[2] - D.envD / 2 + 0.006)), seed + 73));
-  arm.small(() => spring({ r: 0.009, wire: 0.0022, pitch: 0.008, turns: 3, detail: 'low', material: 'brass', token: 'brass', seed: seed + 74 }).map((q) => ({ ...q, geometry: transform(q.geometry, T(0, -0.02, 0.05)) })));
-  // the envelope on the bed: its body flat, its three flaps standing (they fold down over it)
-  const env = arm.node('env', T(bedC[0], bedC[1] + 0.0005, bedC[2]));
+  // ---- the spring arm on the right: a bracket on the cheek, the coil, the strap, the brass paddle of a bed ------------------
+  const [hx, hy, hz] = D.hinge;
+  r.add(enamel(bevelBox({ min: [hx - 0.004, hy - 0.03, hz - 0.03], max: [hx + 0.018, hy + 0.02, hz + 0.03], c: 0.003 }), 90));
+  r.small(() => spring({ r: 0.011, wire: 0.0026, pitch: 0.009, turns: 3, detail: 'low', material: 'brass', token: 'brass', seed: seed + 91 }).map((q) => ({ ...q, geometry: transform(q.geometry, chain(T(hx + 0.009, hy, hz - 0.03), mat({ rot: [90, 0, 0] }))) })));
+  const arm = r.node('arm', T(hx, hy, hz));
+  const bed: [number, number, number] = [D.bedAt[0] - hx, D.bedAt[1] - hy, D.bedAt[2] - hz];
+  arm.add(enamel(bevelBox({ min: [0.01, -0.006, -0.014], max: [bed[0] - 0.02, 0.004, 0.014], c: 0.002 }), 92));
+  arm.add(gold(bevelBox({ min: [0.02, 0.0042, -0.002], max: [bed[0] - 0.03, 0.0048, 0.002], omit: ['ny'] }), 93));
+  arm.add(brass(bevelBox({ min: [bed[0] - D.bedW / 2, bed[1] - 0.005, bed[2] - D.bedD / 2], max: [bed[0] + D.bedW / 2, bed[1], bed[2] + D.bedD / 2], c: 0.002 }), 94, 0.95));
+  for (const s of [-1, 1]) arm.add(brass(bevelBox({ min: [bed[0] + s * (D.envW / 2 + 0.006) - 0.002, bed[1], bed[2] - D.envD / 2 - 0.002], max: [bed[0] + s * (D.envW / 2 + 0.006) + 0.002, bed[1] + 0.03, bed[2] - D.envD / 2 + 0.002], c: 0.0008, omit: ['ny'] }), 95));
+  // the envelope on the bed: its body flat, its three flaps splayed (they fold down over it)
+  const env = arm.node('env', T(bed[0], bed[1] + 0.0005, bed[2]));
   env.add(lyingSheet(D.envW, D.envD, 0.0015, UV.envFace, key));
   const flapT = 0.0012;
-  const fl = env.node('flap-0', T(-D.envW / 2, 0.0015, 0));
-  fl.add(transform0(lyingSheet(D.envW * 0.42, D.envD * 0.96, flapT, UV.blank, key), T(D.envW * 0.21, 0, 0)));
-  const fr = env.node('flap-1', T(D.envW / 2, 0.0015, 0));
-  fr.add(transform0(lyingSheet(D.envW * 0.42, D.envD * 0.96, flapT, UV.blank, key), T(-D.envW * 0.21, 0.0015, 0)));
-  const ff = env.node('flap-2', T(0, 0.0015, D.envD / 2));
-  ff.add(transform0(lyingSheet(D.envW * 0.98, D.envD * 0.62, flapT, UV.blank, key), T(0, 0.003, -D.envD * 0.31)));
+  env.node('flap-0', T(-D.envW / 2, 0.0015, 0)).add(moved(lyingSheet(D.envW * 0.42, D.envD * 0.96, flapT, UV.blank, key), T(D.envW * 0.21, 0, 0)));
+  env.node('flap-1', T(D.envW / 2, 0.0015, 0)).add(moved(lyingSheet(D.envW * 0.42, D.envD * 0.96, flapT, UV.blank, key), T(-D.envW * 0.21, 0.0015, 0)));
+  env.node('flap-2', T(0, 0.0015, D.envD / 2)).add(moved(lyingSheet(D.envW * 0.98, D.envD * 0.62, flapT, UV.blank, key), T(0, 0.003, -D.envD * 0.31)));
   return b.build();
 }
 
-/** Parts moved by a matrix (a new geometry each). */
-function transform0(parts: KitPart[], m: Matrix4): KitPart[] {
-  return parts.map((q) => ({ ...q, geometry: transform(q.geometry, m) }));
-}
-
 /**
- * The envelope (the one loose part the press makes): a flat paper envelope, its flap side up, and on it nothing but a
- * wax-seal dot (drawn on the paper region by the view: the seal's colour, the envelope's paint). Its middle at the
- * body's middle's foot (base on y = 0), its size the simulation's body. One draw, under 60 triangles.
+ * The envelope (the one loose part the press makes): a flat paper envelope at toy scale (big enough to read on the
+ * belt from the whole bench), its flap side up, and on it nothing but the flap's fold lines and a wax seal (drawn on
+ * the paper region by the view: the seal's colour, the envelope's paint). Base on y = 0, its size the simulation's
+ * body. One draw, under 100 triangles.
  */
 export function reportEnvelope(o: ReportPressOptions = {}): Piece {
   const D = PRESS_DIMS;
   const key = o.paper;
   const b = piece('report-envelope', { detail: o.detail ?? 'high', seed: o.seed ?? 1, ao: false });
   const down = new Matrix4().makeRotationX(-Math.PI / 2);
-  const pillow = (u: number, v: number): number => 0.0025 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
-  const top = transform(sheet({ w: D.envW * PRESS_SCALE, h: D.envD * PRESS_SCALE, t: D.envT * PRESS_SCALE - 0.001, nx: 2, ny: 2, lift: pillow }), down);
-  const under = transform(sheet({ w: D.envW * PRESS_SCALE, h: D.envD * PRESS_SCALE, t: D.envT * PRESS_SCALE - 0.001, nx: 1, ny: 1, back: true }), down);
+  const w = D.envW * PRESS_SCALE, d = D.envD * PRESS_SCALE, t = D.envT * PRESS_SCALE;
+  const pillow = (u: number, v: number): number => 0.003 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+  const top = transform(sheet({ w, h: d, t: t - 0.003, nx: 3, ny: 3, lift: pillow }), down);
+  const under = transform(sheet({ w, h: d, t: t - 0.003, nx: 1, ny: 1, back: true }), down);
   b.add(paper(top, UV.envBack, key), paper(under, UV.envFace, key, 0.92));
   return b.build();
 }
 
+const buildOpts = (opts: Record<string, unknown>): ReportPressOptions => ({
+  ...(typeof opts['seed'] === 'number' ? { seed: opts['seed'] } : {}),
+  ...(opts['detail'] === 'low' || opts['detail'] === 'high' ? { detail: opts['detail'] } : {}),
+  ...(typeof opts['paper'] === 'string' ? { paper: opts['paper'] } : {}),
+  ...(opts['colourway'] === 'japan' || opts['colourway'] === 'oxblood' ? { colourway: opts['colourway'] } : {}),
+});
+
 export const catalogue: CatalogueEntry[] = [
   {
     name: 'report-press',
-    build: (opts = {}) => reportPress({ ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.detail ? { detail: opts.detail } : {}), ...(typeof (opts as { paper?: unknown }).paper === 'string' ? { paper: (opts as { paper: string }).paper } : {}) }),
+    build: (opts = {}) => reportPress(buildOpts(opts as Record<string, unknown>)),
     labels: (labels) => ({ paper: paperOnce(pressPaper(labels)).key }),
-    variants: { high: { detail: 'high' }, low: { detail: 'low' } },
-    camera: { distance: 1.2 },
-    note: 'The report press (P4 D3): a cast-iron press on a wooden base; a lever, two holders, a feed tray, a drawer, a spring arm and its envelope; the moving parts are nodes the view poses.',
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, oxblood: { colourway: 'oxblood' } },
+    camera: { distance: 1.6 },
+    note: 'The report press (P4 D3): japanned enamel, gold lining and brass on a wooden base; the long lever, the ratchet wheel, two sheets out of the crown, a feed tray, a drawer, a spring arm and its envelope; the moving parts are nodes the view poses.',
   },
   {
     name: 'report-envelope',
-    build: (opts = {}) => reportEnvelope({ ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(typeof (opts as { paper?: unknown }).paper === 'string' ? { paper: (opts as { paper: string }).paper } : {}) }),
+    build: (opts = {}) => reportEnvelope(buildOpts(opts as Record<string, unknown>)),
     labels: (labels) => ({ paper: paperOnce(pressPaper(labels)).key }),
-    camera: { distance: 0.5 },
-    note: 'The report press\'s envelope (P4 D3): a flat paper envelope with a wax-seal dot.',
+    camera: { distance: 0.6 },
+    note: 'The report press\'s envelope (P4 D3): a flat paper envelope, its fold lines and a wax seal.',
   },
 ];

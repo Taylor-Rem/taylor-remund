@@ -77,8 +77,8 @@ describe('the report press, for someone who cannot see it', () => {
     expect(second).toHaveLength(1);
     expect(second[0]).toMatch(/^Printed: (one shipment|\d+ shipments)\.$/);
     r.step(30);
-    // and a third at once, the envelope out
-    const third = r.act({ type: 'press', id: PRESS.lever }, 4 * 60);
+    // and a third while the second is still showing: it waits its turn, and once the envelope has landed it prints with the envelope out
+    const third = r.act({ type: 'press', id: PRESS.lever }, 8 * 60);
     expect(third.some((x) => /^Printed: (one shipment|\d+ shipments)\.$/.test(x))).toBe(true);
     expect(third).toContain('The envelope is still out.');
     expect(historyLines(r.w, r.w.undoStack(), words).map((l) => l.text)[0]).toBe('Report press: report printed, copy stored');

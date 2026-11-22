@@ -48,7 +48,7 @@ describe('the report press', () => {
     expect(top.entries.map((e) => `${e.target}.${e.field}`).sort()).toEqual([`${E}.${SEAL_FIELD}`, `${P}.${DRAWER_FIELD}`, `${P}.${REPORT_FIELD}`].sort());
     expect(ev.some((e) => e.type === 'press.printed' && e.marks === 0 && e.envelope)).toBe(true);
     // the flick, about two seconds in; it lands on the belt and rides
-    t.run(steps(2.1));
+    t.run(steps(2.8));
     const fl = t.of('press.flicked');
     expect(fl).toHaveLength(1);
     expect(w.mode(E)).not.toBe('gone');
@@ -104,7 +104,7 @@ describe('the report press', () => {
     w.dispose();
   }, 60_000);
 
-  test('a pull while one is showing waits its turn; with the press in a hand, the lever misfires and nothing prints', async () => {
+  test('a pull while one is showing (before the flick) waits its turn, and runs once the envelope has landed; with the press in a hand, the lever misfires and nothing prints', async () => {
     const { w, t } = await pressOut('rp-wait');
     pull(w);
     t.run(10);
@@ -112,7 +112,7 @@ describe('the report press', () => {
     t.run(1);
     expect(drawer(w)).toBe(1);
     expect(view(w).waiting).toBe(true);
-    t.run(PRESS_SHOW_STEPS);
+    expect(until(w, t, () => drawer(w) === 2, 8 * HZ), "the waiting pull runs once the envelope has landed").toBe(true);
     expect(drawer(w)).toBe(2);
     expect(view(w).waiting).toBe(false);
     w.dispatch({ type: 'grab', id: P, grip: w.motion(P)!.pose.p });
@@ -123,6 +123,43 @@ describe('the report press', () => {
     expect(drawer(w)).toBe(2);
     w.dispatch({ type: 'release', velocity: [0, 0, 0] });
     t.run(HZ);
+    w.dispose();
+  }, 60_000);
+
+  test('a pull while the envelope is in the air is refused politely: nothing prints, nothing joins the first pull', async () => {
+    const { w, t } = await pressOut('rp-refuse');
+    pull(w);
+    expect(until(w, t, () => t.events.some((x) => x.e.type === 'press.flicked'), 4 * HZ)).toBe(true);
+    t.run(10);
+    const stack = w.undoStack().length;
+    pull(w);
+    const ev = t.run(1);
+    expect(ev.some((e) => e.type === 'press.refused')).toBe(true);
+    expect(ev.some((e) => e.type === 'press.printed')).toBe(false);
+    expect(drawer(w)).toBe(1);
+    expect(w.undoStack().length).toBe(stack);
+    expect(view(w).refused).toBeLessThan(0.1);
+    // it lands on the belt under the first pull, and then a pull prints again
+    expect(until(w, t, () => loc(w, E) === 'in:belt', 4 * HZ)).toBe(true);
+    expect(w.undoStack().at(-1)!.entries.some((e) => e.target === E && e.field === 'location')).toBe(true);
+    pull(w);
+    t.run(1);
+    expect(drawer(w)).toBe(2);
+    w.dispose();
+  }, 60_000);
+
+  test('the flick is a slow high lob: over a second in the air, its top well over the press', async () => {
+    const { w, t } = await pressOut('rp-lob');
+    pull(w);
+    expect(until(w, t, () => t.events.some((x) => x.e.type === 'press.flicked'), 4 * HZ)).toBe(true);
+    const f = t.of('press.flicked')[0]!.e;
+    expect(f.flight).toBeGreaterThan(1.2);
+    let top = -Infinity;
+    for (let i = 0; i < 2 * HZ; i++) {
+      t.run(1);
+      top = Math.max(top, w.motion(E)?.pose.p[1] ?? -Infinity);
+    }
+    expect(top - f.from[1]).toBeGreaterThan(1.8);
     w.dispose();
   }, 60_000);
 
@@ -247,7 +284,7 @@ describe('the report press', () => {
   test('a visit remembers the holders and the drawer; "Reset the workshop" puts the press in its crate, its holders empty, its drawer empty', async () => {
     const { w, t } = await pressOut('rp-save');
     pull(w);
-    t.run(PRESS_SHOW_STEPS);
+    expect(until(w, t, () => loc(w, E) === "in:belt", 8 * HZ)).toBe(true);
     pull(w);
     t.run(2);
     const s = w.saved();

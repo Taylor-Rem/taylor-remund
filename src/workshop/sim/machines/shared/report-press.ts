@@ -53,11 +53,12 @@ export const sealOf = (r: Report): string | null => (r && r.length > 0 ? (r[r.le
  * - `ratchet`: the printed sheet comes up out of its slot one click (`n` 0..3).
  * - `flip`: the gridded sheet flips over into the holder beside it.
  * - `fold`: the envelope on the arm's bed folds one flap (`n` 0..2).
+ * - `wind`: the spring arm winds back (the held breath before the flick).
  * - `flick`: the spring arm flicks the envelope off its bed (the simulation launches it here).
  * - `shrug`: the arm's bed comes up empty (the envelope is still out): a small shrug of the spring.
  * - `drawer`: the drawer slides out; `copy`: the copy drops into it (the stack one thicker); `click`: it shuts.
  */
-export type PressBeatKind = 'thunk' | 'ratchet' | 'flip' | 'fold' | 'flick' | 'shrug' | 'drawer' | 'copy' | 'click';
+export type PressBeatKind = 'thunk' | 'ratchet' | 'flip' | 'fold' | 'wind' | 'flick' | 'shrug' | 'drawer' | 'copy' | 'click';
 export interface PressBeat {
   readonly at: number;
   readonly kind: PressBeatKind;
@@ -65,28 +66,33 @@ export interface PressBeat {
   readonly n: number;
 }
 
-/** Tune here. Seconds. One pull is about three. */
+/** Tune here. Seconds. One pull is about three and a half; each beat by itself. */
 export const PRESS_SHOW = {
-  thunk: 0.22,
-  ratchetAt: 0.36,
-  ratchetGap: 0.12,
+  /** The lever gives a little, then goes: the thunk is the platen landing. */
+  thunkAt: 0.2,
+  thunk: 0.12,
+  ratchetAt: 0.5,
+  ratchetGap: 0.17,
   ratchet: 0.08,
   ratchets: 4,
-  flipAt: 0.92,
-  flip: 0.34,
-  foldAt: 1.38,
-  foldGap: 0.17,
-  fold: 0.13,
+  flipAt: 1.22,
+  flip: 0.36,
+  foldAt: 1.72,
+  foldGap: 0.2,
+  fold: 0.14,
   folds: 3,
-  flickAt: 1.95,
+  /** The spring arm winds back (a held breath), then flicks. */
+  windAt: 2.38,
+  wind: 0.3,
+  flickAt: 2.7,
   flick: 0.16,
-  shrugAt: 1.42,
-  shrug: 0.55,
-  drawerAt: 2.28,
+  shrugAt: 1.75,
+  shrug: 0.6,
+  drawerAt: 3.0,
   drawer: 0.24,
-  copyAt: 2.56,
+  copyAt: 3.3,
   copy: 0.12,
-  clickAt: 2.8,
+  clickAt: 3.55,
   click: 0.18,
 } as const;
 
@@ -102,12 +108,12 @@ const beat = (at: number, kind: PressBeatKind, dur: number, n = 0): PressBeat =>
 /** One pull's beats: the envelope folded and flicked (`envelope`), or the bed's shrug. */
 export function pullScript(envelope: boolean): PressScript {
   const S = PRESS_SHOW;
-  const out: PressBeat[] = [beat(0, 'thunk', S.thunk)];
+  const out: PressBeat[] = [beat(S.thunkAt, 'thunk', S.thunk)];
   for (let i = 0; i < S.ratchets; i++) out.push(beat(S.ratchetAt + i * S.ratchetGap, 'ratchet', S.ratchet, i));
   out.push(beat(S.flipAt, 'flip', S.flip));
   if (envelope) {
     for (let i = 0; i < S.folds; i++) out.push(beat(S.foldAt + i * S.foldGap, 'fold', S.fold, i));
-    out.push(beat(S.flickAt, 'flick', S.flick));
+    out.push(beat(S.windAt, 'wind', S.wind), beat(S.flickAt, 'flick', S.flick));
   } else out.push(beat(S.shrugAt, 'shrug', S.shrug));
   out.push(beat(S.drawerAt, 'drawer', S.drawer), beat(S.copyAt, 'copy', S.copy), beat(S.clickAt, 'click', S.click));
   return { beats: out, length: out.reduce((m, b) => Math.max(m, b.at + b.dur), 0), flickAt: envelope ? S.flickAt : null };

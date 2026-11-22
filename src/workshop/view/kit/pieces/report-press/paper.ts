@@ -1,6 +1,6 @@
 /**
  * The report press's paper, painted (P4 D3; browser only: canvas 2D): one label region (`SHEETS`) for every sheet the
- * press and its envelope show. The printed sheet a ruled head and a row of stamped marks (rows of six, newest last);
+ * press and its envelope show. The printed sheet a ruled head and a row of stamped marks (rows of four, newest last);
  * the gridded sheet a ruled grid, the same marks one to a cell; the blank stock; the envelope's two faces in its paint,
  * the flap's fold lines and the wax seal. Every colour a palette token; no words anywhere (a report with invented text
  * would be an invented fact). The view (view/stations/press.ts) repaints it when what it shows changes; the piece's
@@ -77,7 +77,7 @@ export function paintPressPaper(region: LabelRegion, s: PaperState): void {
       ctx.restore();
     };
     const marks = s.report ?? [];
-    // the printed sheet: a ruled head (no words), then the marks in rows of six, newest last
+    // the printed sheet: a ruled head (no words), then the marks in rows of four, newest last
     {
       const b = rect(UV.printed);
       stock(b);
@@ -93,14 +93,14 @@ export function paintPressPaper(region: LabelRegion, s: PaperState): void {
       ctx.moveTo(b.x + m, b.y + b.h * 0.15);
       ctx.lineTo(b.x + b.w - m, b.y + b.h * 0.15);
       ctx.stroke();
-      const cols = 6;
+      const cols = 4;
       const cw = (b.w - 2 * m) / cols;
-      marks.forEach((c, i) => stamp(b.x + m + cw * (i % cols + 0.5), b.y + b.h * 0.27 + Math.floor(i / cols) * cw * 1.25, cw * 0.36, markToken(c)));
+      marks.forEach((c, i) => stamp(b.x + m + cw * (i % cols + 0.5), b.y + b.h * 0.25 + Math.floor(i / cols) * cw * 1.05, cw * 0.38, markToken(c)));
       // a short rule under the last row, so an empty report reads as a report with nothing in it
       ctx.strokeStyle = css('ink', 0.3);
       ctx.lineWidth = Math.max(1, b.h * 0.004);
       ctx.beginPath();
-      const y = b.y + b.h * 0.27 + Math.max(1, Math.ceil(marks.length / cols)) * cw * 1.25;
+      const y = b.y + b.h * 0.25 + Math.max(1, Math.ceil(marks.length / cols)) * cw * 1.05;
       ctx.moveTo(b.x + m, y);
       ctx.lineTo(b.x + b.w - m, y);
       ctx.stroke();
@@ -160,7 +160,7 @@ export function paintPressPaper(region: LabelRegion, s: PaperState): void {
       ctx.stroke();
       if (s.seal !== null) {
         const tk = markToken(s.seal);
-        const rad = b.h * 0.13;
+        const rad = b.h * 0.19;
         ctx.fillStyle = css(tk);
         ctx.beginPath();
         for (let k = 0; k < 14; k++) {

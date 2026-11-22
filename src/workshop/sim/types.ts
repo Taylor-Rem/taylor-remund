@@ -401,6 +401,13 @@ export type SimEvent =
   | { readonly type: 'press.beat'; readonly id: Id; readonly body: Id; readonly beat: PressBeatKind; readonly n: number }
   /** The spring arm flicked the envelope: from the bed toward the belt, `flight` seconds in the air (0: set down at once, reduced motion). */
   | { readonly type: 'press.flicked'; readonly id: Id; readonly envelope: Id; readonly from: Vec3; readonly to: Vec3; readonly flight: number }
+  /** A pull refused politely: the envelope is in the air (the lever gives and springs back; nothing is printed). */
+  | { readonly type: 'press.refused'; readonly id: Id; readonly body: Id }
+  /**
+   * The press asks to be looked at (its crate opened with it on the tray, or it was set down on the bench): the seam the
+   * crates' `look` event will take over. Never on a pull.
+   */
+  | { readonly type: 'press.look'; readonly id: Id; readonly body: Id; readonly why: 'opened' | 'set-down' }
   /** The envelope, shipped, is back in the press (folded flat). */
   | { readonly type: 'press.home'; readonly id: Id; readonly envelope: Id }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
@@ -750,6 +757,8 @@ export interface PressView extends MachineViewBase {
   readonly show: PressShow | null;
   readonly waiting: boolean;
   readonly shrug: number;
+  /** Seconds since a pull was refused because the envelope was in the air (Infinity before). */
+  readonly refused: number;
   readonly shipments: number;
 }
 

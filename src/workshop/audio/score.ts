@@ -310,6 +310,8 @@ export class Score {
             return this.play('card.slip', now, { gain: 0.6 }, at);
           case 'fold':
             return this.play('card.slip', now, { gain: 0.32, rate: 1.15 + 0.08 * e.n }, at);
+          case 'wind':
+            return this.play('revert.ratchet', now, { gain: 0.3, rate: 0.7 }, at);
           case 'flick':
             this.play('throw.whoosh', now, { gain: 0.45 }, at);
             return this.play('cover.snap', now, { gain: 0.35 }, at);
@@ -325,6 +327,9 @@ export class Score {
             return;
         }
       }
+      case 'press.refused':
+        // the lever gives and springs back: a dry puff, as the ledger's refusal
+        return this.play('striker.air', now, { gain: 0.5, rate: 1.2 }, this.posOf(w, e.body));
       case 'ledger.refused':
         return this.play('striker.air', now, { gain: 0.6 }, this.posOf(w, e.board));
       case 'cover':

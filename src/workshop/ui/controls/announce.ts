@@ -200,6 +200,9 @@ export class Announcer {
         case 'press.home':
           say('pressHome');
           break;
+        case 'press.refused':
+          say('pressRefused');
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');
