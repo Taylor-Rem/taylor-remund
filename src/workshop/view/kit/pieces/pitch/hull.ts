@@ -158,8 +158,11 @@ export function hullPatch(
   return finish(md);
 }
 
-/** A ring band round the hull from z0 to z1, standing `lift` proud, with rounded shoulders. */
-export function hullBand(h: HullShape, z0: number, z1: number, lift: number, segs: number): BufferGeometry {
+/**
+ * A ring band round the hull from z0 to z1, standing `lift` proud, with rounded shoulders. `tilt` leans
+ * it: the band sits `tilt` further aft on top and further forward underneath (a collar under a chin).
+ */
+export function hullBand(h: HullShape, z0: number, z1: number, lift: number, segs: number, tilt = 0): BufferGeometry {
   const md = new MeshData();
   const prof: Array<[number, number]> = [
     [z0, 0],
@@ -173,7 +176,7 @@ export function hullBand(h: HullShape, z0: number, z1: number, lift: number, seg
     const row: number[] = [];
     for (let k = 0; k < segs; k++) {
       const phi = (k / segs) * Math.PI * 2;
-      const { p, n } = onHull(h, z, phi, l);
+      const { p, n } = onHull(h, z - tilt * Math.cos(phi), phi, l);
       // shoulders lean their normals fore and aft
       const lean = j === 0 ? -0.9 : j === 1 ? -0.25 : j === prof.length - 1 ? 0.9 : j === prof.length - 2 ? 0.25 : 0;
       const nn = n.clone().add(new Vector3(0, 0, lean)).normalize();

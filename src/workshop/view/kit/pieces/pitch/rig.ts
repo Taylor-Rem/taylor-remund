@@ -22,7 +22,16 @@
  */
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 
-export type Take = 'A' | 'B' | 'C';
+/**
+ * A: the pinstripe in a bowler. C: the chairman in a topper. F: the 1930s-40s salesman in a fedora (the
+ * owner asked to see it, 2026-11-21). (B, the enamel company man, was dropped in round two.)
+ */
+export type Take = 'A' | 'C' | 'F';
+
+export type Moustache = 'handlebar' | 'pencil';
+
+/** The cloth of his suit. */
+export type Cloth = 'flannel' | 'linen' | 'charcoal';
 
 export interface PitchPose {
   /** Height of the hull's centre above the root (units). */
@@ -48,7 +57,7 @@ export interface PitchPose {
   rudder: number;
   /** The car's sway under the hull, degrees about Z. */
   car: number;
-  /** Cable length below the drum (units); 0 is stowed (hook tucked under the car). */
+  /** Line paid out below the drum (units); 0 is stowed (the umbrella tucked under the briefcase like a gent's under his arm). */
   cable: number;
   /** The hook's swing, degrees about X and Z. */
   hookSwing: [number, number];
@@ -61,9 +70,9 @@ export interface PitchPose {
 /** Where things are, relative to the hull's centre (shared by every take; each take's geometry is built to them). */
 export const RIG = {
   /** The hull's centre above the ground at rest in the catalogue (the car's keel just clear of the bench). */
-  float: 0.74,
+  float: 0.9,
   /** The hook's stowed drop below the drum. */
-  stowed: 0.055,
+  stowed: 0.025,
 } as const;
 
 export const NEUTRAL: PitchPose = {
@@ -86,20 +95,20 @@ export const NEUTRAL: PitchPose = {
 };
 
 export const EXPRESSIONS = {
-  /** At ease: nose a touch up, lid at half mast. */
+  /** At ease: level, lid at half mast. He never points his nose at anything. */
   rest: NEUTRAL,
-  /** Very pleased with himself: nose up, lid lower, tie flicked forward. */
-  proud: { ...NEUTRAL, pitch: 11, lid: 0.66, look: [0, -6], tie: [-14, 3], tieLag: 0.5 },
+  /** Very pleased with himself: nose a touch up, lid lower, tie flicked. */
+  proud: { ...NEUTRAL, pitch: 7, lid: 0.66, look: [0, -6], tie: [-12, 3], tieLag: 0.5 },
   /** Raising his hat to the visitor. */
-  greet: { ...NEUTRAL, pitch: 6, hat: 1, lid: 0.25, look: [0, 4], tie: [-6, 0] },
-  /** Hook out, a small crate on it, all business. */
-  carry: { ...NEUTRAL, pitch: -2, cable: 0.12, sling: 0.3, tie: [10, -2], car: 1.5, lid: 0.35, look: [0, 14] },
-  /** A big crate: sagging, nose down, straining, and not admitting it. */
-  strain: { ...NEUTRAL, float: RIG.float - 0.12, pitch: -9, roll: -3, cable: 0.3, sling: 0.53, tie: [16, 4], car: 3, lid: 0.2, look: [0, -4], prop: 20 },
-  /** Lowering a crate: cable long, eye on the job. */
-  lower: { ...NEUTRAL, pitch: -6, cable: 0.62, sling: 0.3, tie: [8, 0], lid: 0.15, look: [0, 22] },
-  /** The banner out, nose up, presenting. */
-  present: { ...NEUTRAL, pitch: 7, banner: 1, lid: 0.5, look: [-10, 0], tie: [-8, 0] },
+  greet: { ...NEUTRAL, pitch: 4, hat: 1, lid: 0.25, look: [0, 4], tie: [-6, 0] },
+  /** The line out a little, a small crate on the umbrella's crook, level and all business. */
+  carry: { ...NEUTRAL, pitch: 1, cable: 0.04, sling: 0.3, tie: [6, -2], car: 1, lid: 0.4, look: [0, 10] },
+  /** A big crate: sagging tail-down and puffing, and not admitting it. */
+  strain: { ...NEUTRAL, float: RIG.float - 0.1, pitch: 9, roll: -2, cable: 0.04, sling: 0.53, tie: [-10, 4], car: 4, lid: 0.15, look: [0, -10], prop: 20 },
+  /** Lowering a crate: level, the line long, sinking like a lift, eye on the job. */
+  lower: { ...NEUTRAL, pitch: 0, cable: 0.5, sling: 0.3, tie: [4, 0], lid: 0.2, look: [0, 24] },
+  /** The banner out, nose a touch up, presenting. */
+  present: { ...NEUTRAL, pitch: 5, banner: 1, lid: 0.5, look: [-10, 0], tie: [-8, 0] },
 } satisfies Record<string, PitchPose>;
 
 export type ExpressionName = keyof typeof EXPRESSIONS;
@@ -155,9 +164,12 @@ export function poseMatrices(pose: PitchPose, pv: Pivots): Record<string, Matrix
   out.cable = M(pv.drum, new Quaternion(), [1, len, 1]);
   const swing = R(pose.hookSwing[0], 0, pose.hookSwing[1]);
   const drop = new Vector3(0, -len, 0).applyQuaternion(swing);
-  out.hook = M([pv.drum[0] + drop.x, pv.drum[1] + drop.y, pv.drum[2] + drop.z], swing);
+  // stowed, the umbrella swings up to lie along under the briefcase (its crook aft)
+  const stow = Math.max(0, Math.min(1, 1 - pose.cable / 0.03));
+  const hq = swing.clone().multiply(R(stow * 90, 0, 0));
+  out.hook = M([pv.drum[0] + drop.x, pv.drum[1] + drop.y + stow * 0.03, pv.drum[2] + drop.z + stow * 0.012], hq);
   const sl = pose.sling > 0 ? pose.sling / 0.3 : HIDDEN;
-  out.sling = M([0, -0.06, 0], new Quaternion(), sl);
+  out.sling = M([0.024, -0.284, 0], new Quaternion(), sl);
   out.banner = M(pv.tow, new Quaternion(), pose.banner > 0 ? 1 : HIDDEN);
   return out;
 }

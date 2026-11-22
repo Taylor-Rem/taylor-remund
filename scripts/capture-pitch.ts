@@ -47,7 +47,13 @@ try {
     });
     try {
       await page.goto(`${origin}/dev/pitch/?hud=0&${s.q}`, { waitUntil: 'load', timeout: 90_000 });
-      await page.waitForFunction('window.__ready === true', null, { timeout: 90_000 });
+      // ready, or give up at once on a page error
+      for (let t = 0; ; t += 250) {
+        if (await page.evaluate('window.__ready === true')) break;
+        if (errors.length) throw new Error('page error');
+        if (t > 90_000) throw new Error('not ready in 90 s');
+        await page.waitForTimeout(250);
+      }
       const renderer = await page.evaluate(() => {
         const c = document.createElement('canvas').getContext('webgl2');
         const e = c?.getExtension('WEBGL_debug_renderer_info');

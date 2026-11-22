@@ -5,24 +5,24 @@
  * shows a few big words on a towed banner. A LOOK SKETCH for the owner's eye
  * (brief C1): nothing here is in the bench scene or the simulation.
  *
- * Two takes, built far enough to judge:
+ * Round two (the lead, 2026-11-21: "he reads as a bomb"): one plump body, a
+ * balloon not a projectile. About 1.35 times as long as he is round, widest
+ * forward of the middle (a pot belly under the waistcoat), a blunt round nose,
+ * a round tail, four small soft fins set diagonally, a briefcase hung from the
+ * envelope on lines, and he always flies level. On it, two takes:
  *
- *   A  "the pinstripe": the envelope IS the suit. Charcoal wool felt whose gore
- *      seams are chalk stripes; a white collar round his neck with a dark
- *      jacket collar behind it, a red striped tie hanging free, a bowler, a
- *      monocle on a chain over his one eye, and a briefcase for a gondola,
- *      hung by its own handle from a brass bar under the hull.
- *   B  "the company man": the workshop's own enamel livery, immaculate. A
- *      riveted teal zeppelin in a high gloss, a stiff white collar ring and a
- *      red tie, a double-breasted pair of brass buttons, a homburg pressed out
- *      of the same sheet steel, Fetch's brass-bezelled eye under a cream lid,
- *      and a little lit office for a gondola.
+ *   A  "the pinstripe": a bowler, the suit cloth with a chalk stripe (the gore
+ *      seams), a white collar under the chin and a bold red tie, a monocle on
+ *      a chain over one heavy-lidded eye, a handlebar moustache, and a
+ *      furled umbrella that the winch lowers by its tip: its crook catches the
+ *      crate's sling.
+ *   C  "the chairman": the same gentleman in a stovepipe topper, with a gold
+ *      watch chain across his middle.
  *
- * Shared: one eye with a heavy upper lid (he lives at half mast), a
- * propeller in a guard ring at the tail, four fins with a hinged rudder, a
- * winch under the car paying out a line to a hook, and a rope cradle for a
- * crate. The rig is in rig.ts; the banner and the mooring mast are their own
- * catalogue pieces (they are drawn only while they are wanted).
+ * The suit comes in cloths (`cloth`): 'flannel' (mid grey, chalk stripe),
+ * 'linen' (cream, a tan stripe) and 'charcoal' (round one's). The rig is in
+ * rig.ts; the banner and the mooring mast are their own catalogue pieces
+ * (drawn only while they are wanted).
  */
 import { BufferAttribute, Matrix4, Vector3 } from 'three';
 import type { BufferGeometry } from 'three';
@@ -30,11 +30,11 @@ import type { KitOptions, KitPart, Piece, PieceNode } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import type { Labels } from '../../../types.ts';
 import { profile } from '../../profile.ts';
-import { extrude, lathe, roundedBox } from '../../solids.ts';
+import { extrude, lathe } from '../../solids.ts';
 import { deform, transform } from '../../deform.ts';
 import { sweep, polylinePath, linePath, sections } from '../../sweep.ts';
 import { bevelBox } from '../../cheap.ts';
-import { aim, chain, mat, merge, part, piece, place, T, texturedPart } from '../../compose.ts';
+import { aim, chain, mat, piece, place, T, texturedPart } from '../../compose.ts';
 import type { NodeBuilder } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import type { Rng } from '../../rng.ts';
@@ -43,14 +43,19 @@ import { linear } from '../../../palette.ts';
 import type { Token } from '../../../palette.ts';
 import { colourBy, hullBand, hullGeometry, hullR, hullRibbons, onHull } from './hull.ts';
 import type { HullShape, RGB } from './hull.ts';
-import { EXPRESSIONS, EXPRESSION_NAMES, HIDDEN, NEUTRAL, poseMatrices } from './rig.ts';
-import type { ExpressionName, PitchPose, Pivots, Take } from './rig.ts';
+import { EXPRESSIONS, EXPRESSION_NAMES, NEUTRAL, poseMatrices } from './rig.ts';
+import type { Cloth, ExpressionName, Moustache, PitchPose, Pivots, Take } from './rig.ts';
 
 export { EXPRESSIONS, EXPRESSION_NAMES, NEUTRAL, RIG, HIDDEN, poseMatrices, posePitch, lidAngle } from './rig.ts';
-export type { ExpressionName, PitchPose, Pivots, Take } from './rig.ts';
+export type { Cloth, ExpressionName, Moustache, PitchPose, Pivots, Take } from './rig.ts';
 
 export interface PitchOptions extends KitOptions {
   take?: Take;
+  cloth?: Cloth;
+  /** Default: the handlebar (the pencil was tried under the fedora and reads as a grimace at bench scale). */
+  moustache?: Moustache;
+  /** The fedora's felt: 'brown' (default) or 'grey'. */
+  felt?: 'brown' | 'grey';
   pose?: ExpressionName | PitchPose;
 }
 
@@ -66,17 +71,50 @@ const mix = (a: Token, b: Token, t: number, shade = 1): RGB => {
   const A = linear(a), B = linear(b);
   return [(A[0] + (B[0] - A[0]) * t) * shade, (A[1] + (B[1] - A[1]) * t) * shade, (A[2] + (B[2] - A[2]) * t) * shade];
 };
-/** Charcoal suiting: ink lifted toward steel, a breath of teal so it sits in the room. */
-const CHARCOAL: RGB = mix('ink', 'steel', 0.16, 1.05);
-const CHARCOAL_DEEP: RGB = mix('ink', 'teal-deep', 0.25, 0.9);
-/** The chalk stripe: paper, dimmed so it is a stripe and not a light. */
-const CHALK: RGB = mix('paper', 'steel', 0.25, 0.72);
-const SHIRT: RGB = mix('paper', 'paper', 0, 0.94);
-const BOWLER: RGB = mix('ink', 'teal-deep', 0.15, 0.8);
-const BOWLER_BAND: RGB = mix('ink', 'cable-red', 0.12, 0.62);
+const scale = (c: RGB, k: number): RGB => [c[0] * k, c[1] * k, c[2] * k];
+
+interface Tones {
+  cloth: RGB;
+  stripe: RGB;
+  /** The jacket's collar, the lid's lip, the fins' trailing roll: the cloth, deeper. */
+  deep: RGB;
+  hat: RGB;
+  band: RGB;
+  moustache: RGB;
+}
+const CLOTHS: Record<Cloth, Tones> = {
+  flannel: {
+    cloth: mix('steel', 'ink', 0.3, 0.52),
+    stripe: mix('paper', 'paper', 0, 0.96),
+    deep: mix('steel', 'ink', 0.6, 0.42),
+    hat: mix('ink', 'teal-deep', 0.15, 0.8),
+    band: mix('ink', 'cable-red', 0.12, 0.62),
+    moustache: mix('ink', 'wood', 0.35, 0.85),
+  },
+  linen: {
+    cloth: mix('wood-light', 'paper', 0.15, 0.42),
+    stripe: mix('paper', 'paper', 0, 0.9),
+    deep: mix('wood-light', 'wood', 0.6, 0.55),
+    hat: mix('wood', 'ink', 0.35, 0.8),
+    band: mix('ink', 'wood', 0.25, 0.7),
+    moustache: mix('wood', 'ink', 0.25, 0.8),
+  },
+  charcoal: {
+    cloth: mix('ink', 'steel', 0.16, 1.05),
+    stripe: mix('paper', 'steel', 0.25, 0.72),
+    deep: mix('ink', 'teal-deep', 0.25, 0.9),
+    hat: mix('ink', 'teal-deep', 0.15, 0.8),
+    band: mix('ink', 'cable-red', 0.12, 0.62),
+    moustache: mix('steel', 'paper', 0.3, 0.8),
+  },
+};
+const SHIRT: RGB = mix('paper', 'paper', 0, 0.95);
 const TIE: RGB = mix('cable-red', 'button-red', 0.25, 1.0);
+const TIE_STRIPE: RGB = mix('paper', 'brass', 0.2, 0.9);
 const LEATHER: RGB = mix('wood', 'cable-red', 0.18, 0.62);
 const LEATHER_DARK: RGB = mix('wood', 'ink', 0.45, 0.6);
+const ROPE: RGB = mix('wood-light', 'paper', 0.35, 0.9);
+const BRASS: RGB = linear('brass');
 
 /** Write one colour into a geometry (with a little seeded tone jitter). */
 function tone(g: BufferGeometry, c: RGB, R?: Rng, jitter = 0.02): BufferGeometry {
@@ -105,104 +143,78 @@ function stud(d: number, segs = 7): BufferGeometry {
   return turn(profile(0, 0).to(r, 0, { sharp: true }).curve(0, h, r * 0.95, h * 1.05, 2), { segs, support: false, caps: 'end' });
 }
 
-// ---- the takes ------------------------------------------------------------------------------
+const line = (a: Vector3 | [number, number, number], b: Vector3 | [number, number, number], r = 0.0032): BufferGeometry =>
+  sweep(linePath(a instanceof Vector3 ? [a.x, a.y, a.z] : a, b instanceof Vector3 ? [b.x, b.y, b.z] : b, 1), { radius: r, segs: 4, ends: 'flat' });
 
-interface TakeDef {
-  hull: HullShape;
-  /** z of the eye's centre on the nose (it sits on top, looking forward). */
-  eyeZ: number;
-  eyeR: number;
-  /** z of the tie's knot under the chin. */
-  knotZ: number;
-  hatZ: number;
-  /** Fin root span along z, and how far the fins stand out. */
-  fin: { z0: number; z1: number; span: number; t: number };
-}
+// ---- the body -------------------------------------------------------------------------------
 
-export const TAKES: Record<Take, TakeDef> = {
-  A: {
-    hull: { nose: 0.4, tail: 0.8, r: 0.24, noseK: 2.2, tailK: 1.6, tailQ: 0.85 },
-    eyeZ: 0.3,
-    eyeR: 0.082,
-    knotZ: 0.07,
-    hatZ: 0.13,
-    fin: { z0: -0.4, z1: -0.79, span: 0.15, t: 0.014 },
-  },
-  B: {
-    hull: { nose: 0.38, tail: 0.74, r: 0.255, noseK: 2.3, tailK: 1.7, tailQ: 0.95 },
-    eyeZ: 0.28,
-    eyeR: 0.082,
-    knotZ: 0.07,
-    hatZ: 0.13,
-    fin: { z0: -0.36, z1: -0.73, span: 0.15, t: 0.016 },
-  },
-  C: {
-    hull: { nose: 0.36, tail: 0.5, r: 0.31, noseK: 2.0, tailK: 1.9, tailQ: 0.62, sy: 0.94 },
-    eyeZ: 0.22,
-    eyeR: 0.07,
-    knotZ: 0.24,
-    hatZ: 0.0,
-    fin: { z0: -0.24, z1: -0.5, span: 0.15, t: 0.014 },
-  },
-};
-
-/** The car hangs a little aft of the hull's middle, so the tie hangs clear in front of it. */
+/** The one body both takes share: plump, widest forward, blunt nose, round tail. */
+export const BODY: HullShape = { nose: 0.34, tail: 0.6, r: 0.31, noseK: 2.0, tailK: 1.9, tailQ: 0.62, sy: 0.96 };
+const HEAD = {
+  /** The eye: on the upper front of the nose, a big one. */
+  eyeZ: 0.235,
+  eyeR: 0.1,
+  /** The collar: round his neck, leaning so it sits under the chin in front. */
+  collarZ: 0.06,
+  collarTilt: 0.1,
+  hatZ: -0.03,
+} as const;
+/** The car (the briefcase) hangs a little aft, so the tie hangs clear in front of it. */
 const CAR_Z = -0.2;
+/** Fins: four small rounded tabs, set diagonally. */
+const FIN = { zc: -0.44, a: 0.1, span: 0.1, t: 0.018 } as const;
 
 /** Where a take's moving parts pivot (rig.ts poses them). */
 export function pivotsOf(take: Take): Pivots {
-  const t = TAKES[take];
-  const h = t.hull;
-  // the eye sits on the upper front of the nose, a little sunk, looking straight ahead
-  const eyeOn = onHull(h, t.eyeZ, 0, -t.eyeR * 0.5);
-  const eyeAt = eyeOn.p;
-  const eyeTilt = (Math.atan2(eyeOn.n.y, eyeOn.n.z) * 180) / Math.PI * 0.75;
-  const knot = onHull(h, t.knotZ - 0.012, Math.PI, 0.02).p;
+  const h = BODY;
+  const eyeOn = onHull(h, HEAD.eyeZ, 0, -HEAD.eyeR * 0.5);
+  const eyeTilt = ((Math.atan2(eyeOn.n.y, eyeOn.n.z) * 180) / Math.PI) * 0.7;
+  const knot = onHull(h, HEAD.collarZ + HEAD.collarTilt - 0.004, Math.PI, 0.02).p;
   return {
-    eye: [0, eyeAt.y, eyeAt.z],
+    eye: [0, eyeOn.p.y, eyeOn.p.z],
     eyeTilt,
-    hat: [0, hullR(h, t.hatZ) * (h.sy ?? 1) - 0.006, t.hatZ],
-    hatTilt: take === 'C' ? -4 : 7,
+    hat: [0, hullR(h, HEAD.hatZ) * (h.sy ?? 1) + 0.004, HEAD.hatZ],
+    hatTilt: take === 'C' ? -4 : take === 'F' ? 7 : 4,
     knot: [0, knot.y, knot.z],
-    tieMid: 0.15,
-    prop: [0, 0, -h.tail - 0.035],
-    rudder: [0, 0, t.fin.z1 + 0.08],
-    tow: [0, -0.06, -h.tail - 0.05],
+    tieMid: 0.1,
+    prop: [0, 0, -h.tail - 0.03],
+    rudder: [0, 0, FIN.zc],
+    tow: [0, -0.05, -h.tail - 0.05],
     car: [0, -h.r * (h.sy ?? 1), CAR_Z],
-    drum: [0, take === 'B' ? -0.305 : -0.345, 0.02],
+    drum: [0, -0.375, 0.02],
   };
 }
 
 export function pitch(o: PitchOptions = {}): Piece {
   const take = o.take ?? 'A';
+  const tones = CLOTHS[o.cloth ?? 'flannel'];
   const seed = o.seed ?? 1;
   const detail = o.detail ?? 'high';
   const R = rng(seed);
-  const def = TAKES[take];
   const pv = pivotsOf(take);
   const b = piece('pitch', { detail, seed });
   const rest = poseMatrices(NEUTRAL, pv);
   const float = b.node('float', rest.float);
 
-  if (take === 'B') buildHullB(float, def, R.fork(1));
-  else buildHullA(float, def, R.fork(1));
-  buildFins(float, def, take, R.fork(2), rest);
-  buildProp(float, def, take, rest);
-  const eye = float.node('eye', rest.eye);
-  buildEye(eye, def, take, rest, R.fork(3));
-  if (take === 'B') buildHomburg(float.node('hat', rest.hat), R.fork(4));
-  else buildBowler(float.node('hat', rest.hat), take, R.fork(4));
-  buildCollar(float, def, take, R.fork(5));
-  const tie = float.node('tie', rest.tie);
-  buildTie(tie, take, rest);
+  buildEnvelope(float, tones, take, R.fork(1));
+  buildFins(float, tones, R.fork(2), rest);
+  buildProp(float, rest);
+  buildEye(float.node('eye', rest.eye), tones, rest, R.fork(3));
+  buildMoustache(float, tones, R.fork(7), o.moustache ?? 'handlebar');
+  const hat = float.node('hat', rest.hat);
+  if (take === 'C') buildTopper(hat, tones, R.fork(4));
+  else if (take === 'F') buildFedora(hat, o.felt ?? 'brown', R.fork(4));
+  else buildBowler(hat, tones, R.fork(4));
+  buildCollar(float, tones, R.fork(5));
+  buildTie(float.node('tie', rest.tie), rest, take === 'F' ? 1.25 : 1);
+  if (take === 'F') buildPocketSquare(float, R.fork(8));
   const car = float.node('car', rest.car);
-  if (take === 'B') buildCabin(car, def, R.fork(6));
-  else buildBriefcase(car, def, R.fork(6));
+  buildBriefcase(car, R.fork(6));
   buildWinch(car, rest, pv.drum[1]);
 
   b.socket('tow', mat({ at: [pv.tow[0], pv.tow[1] + NEUTRAL.float, pv.tow[2]] }));
   const built = b.build();
-  // the hidden cradle, tie tip and lid move far from where they were baked: keep their cavity light
+  // parts that move far from where they were baked keep a light cavity
   clearCavity(built.root, new Set(['sling', 'lid', 'hat', 'tie', 'tieTip', 'hook', 'cable']), 0.15);
   if (o.pose) applyPose(built, typeof o.pose === 'string' ? EXPRESSIONS[o.pose] : o.pose, pv);
   return built;
@@ -231,220 +243,130 @@ export function applyPose(p: Piece, pose: PitchPose, pv: Pivots): Piece {
   return p;
 }
 
-// ---- A: the suit ------------------------------------------------------------------------------
+// ---- the envelope ------------------------------------------------------------------------------
 
-function buildHullA(n: NodeBuilder, def: TakeDef, R: Rng): void {
-  const h = def.hull;
+function buildEnvelope(n: NodeBuilder, t: Tones, take: Take, R: Rng): void {
+  const h = BODY;
   const lo = n.detail === 'low';
-  // the envelope: charcoal wool, a shade lighter along the top where it has been brushed
   const env = hullGeometry(h, lo ? 16 : 20, lo ? 18 : 22);
-  colourBy(env, (_x, y) => {
-    const k = 0.94 + 0.08 * Math.max(-1, Math.min(1, y / h.r));
-    return [CHARCOAL[0] * k, CHARCOAL[1] * k, CHARCOAL[2] * k];
-  });
+  colourBy(env, (_x, y) => scale(t.cloth, 0.95 + 0.07 * Math.max(-1, Math.min(1, y / h.r))));
   n.add(wear({ material: 'felt', geometry: env }, 0.3));
-  // the chalk stripe is the gore seams: fourteen of them, nose cap to tail cone, skipping the shirt front
-  const gores = 10;
+  // the stripe is the gore seams: twelve, tail cap to the jacket's collar
+  const gores = 12;
   const curves: Array<Array<[number, number]>> = [];
   for (let k = 0; k < gores; k++) {
     const phi = (k / gores) * Math.PI * 2 + Math.PI / gores;
+    const zEnd = HEAD.collarZ - HEAD.collarTilt * Math.cos(phi) - 0.05;
     const c: Array<[number, number]> = [];
     const steps = lo ? 8 : 12;
-    for (let i = 0; i <= steps; i++) {
-      const zEnd = def.knotZ - 0.06;
-      const z = -h.tail * 0.9 + ((zEnd + h.tail * 0.9) * i) / steps;
-      c.push([z, phi]);
-    }
+    for (let i = 0; i <= steps; i++) c.push([-h.tail * 0.88 + ((zEnd + h.tail * 0.88) * i) / steps, phi]);
     curves.push(c);
   }
-  n.add(wear(lump('felt', hullRibbons(h, curves, 0.005, 0.0026), CHALK, R), 0.2));
-  // the nose cap: a covered button where the gores meet
-  const tip = onHull(h, h.nose * 0.93, 0, 0).p;
-  n.add(wear(lump('felt', transform(turn(profile(0, 0).to(0.05, 0, { sharp: true }).curve(0, 0.02, 0.048, 0.02, 3), { segs: 14, caps: 'end' }), aim([0, 0, tip.z - 0.004], [0, 0, 1])), CHARCOAL_DEEP, R), 0.4));
-  // the tail cone: a turned brass bearing the propeller shaft runs out of
-  n.add(wear(lump('brass', transform(turn(profile(0, 0).to(0.032, 0, { fillet: 0.006 }).to(0.024, 0.03, { fillet: 0.004 }).to(0.012, 0.04).to(0, 0.04), { segs: 12, caps: true }), chain(T(0, 0, -h.tail + 0.012), Y_TO_NZ)), linear('brass') as RGB, R), 0.6));
-}
-
-// ---- B: the livery ----------------------------------------------------------------------------
-
-function buildHullB(n: NodeBuilder, def: TakeDef, R: Rng): void {
-  const h = def.hull;
-  const lo = n.detail === 'low';
-  const env = hullGeometry(h, lo ? 16 : 20, lo ? 18 : 22);
-  // the head (ahead of the collar) in cream enamel, the body in the machines' teal
-  const body = linear('teal-panel');
-  colourBy(env, (_x, y) => {
-    const k = 0.95 + 0.08 * (y / h.r);
-    return [body[0] * k, body[1] * k, body[2] * k];
-  });
-  // immaculate: a high gloss, almost no chips
-  n.add(wear({ material: 'steel', geometry: env }, 0.15, 0.7));
-  // the frame bands: three teal-light rings standing a little proud, each with its rivets
-  const bands = [-0.16, -0.42];
-  for (const z of bands) {
-    const g = hullBand(h, z - 0.016, z + 0.016, 0.006, lo ? 16 : 20);
-    n.add(wear(lump('steel', g, mix('teal-light', 'teal-panel', 0.2, 1.05), R), 0.4, 0.6));
-    n.small(() => {
-      const out: KitPart[] = [];
-      const k = 5;
-      for (let i = 0; i < k; i++) {
-        const phi = (i / k) * Math.PI * 2 + 0.13;
-        const { p, n: nn } = onHull(h, z, phi, 0.0055);
-        out.push(...place([lump('brass', stud(0.013, 4), linear('brass') as RGB)], aim([p.x, p.y, p.z], [nn.x, nn.y, nn.z])));
-      }
-      return out;
-    });
-  }
-  // the nose: a brass cap with a mooring eye
-  const tip = onHull(h, h.nose * 0.95, 0, 0).p;
-  n.add(setFinish(lump('brass', transform(turn(profile(0, 0).to(0.045, 0, { sharp: true }).curve(0, 0.024, 0.044, 0.024, 3), { segs: 14, caps: 'end' }), aim([0, 0, tip.z - 0.006], [0, 0, 1])), linear('brass') as RGB, R), 0.55));
-  // tail cone bearing
-  n.add(wear(lump('brass', transform(turn(profile(0, 0).to(0.03, 0, { fillet: 0.006 }).to(0.022, 0.03, { fillet: 0.004 }).to(0.012, 0.04).to(0, 0.04), { segs: 12, caps: true }), chain(T(0, 0, -h.tail + 0.012), Y_TO_NZ)), linear('brass') as RGB, R), 0.6));
-  // the double-breasted pair: two pairs of brass buttons on the chest, behind the collar
-  for (const [z, w] of [[-0.0, 0.78], [-0.1, 0.8]] as const) {
-    for (const s of [-1, 1]) {
-      const { p, n: nn } = onHull(h, z, Math.PI + s * w, 0.0);
-      n.add(setFinish(place([lump('brass', stud(0.026, 6), linear('brass') as RGB)], aim([p.x, p.y, p.z], [nn.x, nn.y, nn.z])), 0.6));
+  n.add(wear(lump('felt', hullRibbons(h, curves, 0.009, 0.0026), t.stripe, R), 0.2));
+  // the tail cap: a brass bearing the propeller shaft runs out of, and the gas valve on top (round two: "something that says balloon")
+  n.add(wear(lump('brass', transform(turn(profile(0, 0).to(0.034, 0, { fillet: 0.006 }).to(0.026, 0.03, { fillet: 0.004 }).to(0.012, 0.04).to(0, 0.04), { segs: 12, caps: true }), chain(T(0, 0, -h.tail + 0.014), Y_TO_NZ)), BRASS, R), 0.6));
+  const vt = onHull(h, -0.26, 0, -0.004);
+  n.add(setFinish(lump('brass', transform(turn(profile(0, 0).to(0.03, 0, { sharp: true }).to(0.03, 0.012, { fillet: 0.004, segs: 1 }).to(0.018, 0.02, { sharp: true }).to(0.018, 0.03, { fillet: 0.004, segs: 1 }).to(0, 0.034), { segs: 10, caps: 'end' }), aim([vt.p.x, vt.p.y, vt.p.z], [vt.n.x, vt.n.y, vt.n.z])), BRASS, R), 0.55));
+  if (take === 'C') {
+    // the chairman's gold watch chain, swagged across his middle on the side the visitor sees
+    const pts: Vector3[] = [];
+    for (let i = 0; i <= 10; i++) {
+      const f = i / 10;
+      const z = 0.0 - 0.22 * f;
+      const phi = -Math.PI / 2 - 0.5 - 0.35 * Math.sin(Math.PI * f);
+      pts.push(onHull(h, z, phi, 0.006).p);
     }
+    n.add(setFinish(lump('brass', sweep({ points: pts }, { radius: 0.0042, segs: 4, ends: 'flat' }), BRASS), 0.8));
+    const fob = onHull(h, -0.22, -Math.PI / 2 - 0.5, 0.0);
+    n.add(setFinish(place([lump('brass', stud(0.03, 8), BRASS)], aim([fob.p.x, fob.p.y, fob.p.z], [fob.n.x, fob.n.y, fob.n.z])), 0.7));
   }
 }
 
-// ---- fins, rudder and the propeller --------------------------------------------------------------
+// ---- fins and propeller -------------------------------------------------------------------------
 
-function buildFins(n: NodeBuilder, def: TakeDef, take: Take, R: Rng, rest: Record<string, Matrix4>): void {
-  const h = def.hull;
-  const { z0, z1, span, t } = def.fin;
-  const hinge = z1 + 0.08; // the rudder's hinge line (aft of it moves)
-  const rootAt = (z: number): number => Math.max(0.012, hullR(h, z) - 0.01);
-  // a fin's outline in (z, s): root along the hull, a raked leading edge, a straight trailing edge
-  const outline = (aft: boolean): Array<[number, number]> => {
-    if (!aft) {
-      const pts: Array<[number, number]> = [];
-      const n0 = 3;
-      for (let i = 0; i <= n0; i++) {
-        const z = z0 + ((hinge - z0) * i) / n0;
-        pts.push([z, rootAt(z)]);
-      }
-      pts.push([hinge, rootAt(hinge) + span + 0.02], [z0 - (z0 - hinge) * 0.55, rootAt(z0 - (z0 - hinge) * 0.55) + span]);
-      return pts;
-    }
-    return [[0, rootAt(hinge)], [z1 - hinge, rootAt(z1)], [z1 - hinge - 0.01, rootAt(hinge) + span + 0.01], [0, rootAt(hinge) + span + 0.02]];
-  };
-  const finColour: RGB = take === 'B' ? mix('teal-light', 'teal-panel', 0.15, 1.0) : CHARCOAL;
-  const edgeColour: RGB = take === 'B' ? linear('paper') : CHALK;
-  const cls: KitPart['material'] = take === 'B' ? 'steel' : 'felt';
-  const slab = (pts: Array<[number, number]>): BufferGeometry => {
-    // extrude in (x = z along the hull, y = out from the axis), thickness along local z; then lay it in the (z, radial) plane
-    const g = extrude(pts.map(([a, s]) => [a, -s] as [number, number]), t, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
-    // extrude's outline y is flipped for axis 'z'; the fin now has x = z, y = s, z = thickness 0..t
-    transform(g, T(0, 0, -t / 2));
-    // map (x, y, z) -> (thickness, radial, along): x->Z, y->Y, z->-X (a proper rotation)
+function buildFins(n: NodeBuilder, t: Tones, R: Rng, rest: Record<string, Matrix4>): void {
+  const h = BODY;
+  const { zc, a, span, t: th } = FIN;
+  const base = (z: number): number => Math.max(0.02, hullR(h, z) - 0.012);
+  // a rounded tab in (z, s): along the hull's skin, then a half-ellipse out and back
+  const outline: Array<[number, number]> = [];
+  for (let i = 0; i <= 3; i++) {
+    const z = zc + a - (2 * a * i) / 3;
+    outline.push([z, base(z)]);
+  }
+  for (let i = 1; i < 8; i++) {
+    const u = Math.PI - (Math.PI * i) / 8;
+    const z = zc + a * Math.cos(u);
+    outline.push([z, base(z) + span * Math.sin(u) * (0.75 + 0.25 * Math.sin(u))]);
+  }
+  const slab = (): BufferGeometry => {
+    const g = extrude(outline.map(([z, s]) => [z, -s] as [number, number]), th, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
+    transform(g, T(0, 0, -th / 2));
     return transform(g, new Matrix4().set(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1));
   };
-  // one fin about the axis at angle phi (0 = top)
-  const about = (phi: number): Matrix4 => new Matrix4().makeRotationZ(-phi);
+  // the piping round the tab's edge, in the stripe
+  const pipe: Array<[number, number, number]> = outline.slice(3).map(([z, s]) => [0, s, z]);
   const rudder = n.node('rudder', rest.rudder);
   for (let k = 0; k < 4; k++) {
-    const phi = (k * Math.PI) / 2;
-    const fixed = slab(outline(false));
-    n.add(wear(lump(cls, transform(fixed, about(phi)), finColour, R), take === 'B' ? 0.6 : 0.4, take === 'B' ? 0.55 : undefined));
-    const aft = slab(outline(true));
-    const g = transform(aft, about(phi));
-    // the rudder is the upright pair; the side pair's flaps are elevators (fixed in this sketch)
-    if (k % 2 === 0) rudder.add(wear(lump(cls, g, take === 'B' ? mix('paper', 'paper', 0.0, 0.9) : CHARCOAL, R), 0.5, take === 'B' ? 0.55 : undefined));
-    else n.add(wear(lump(cls, transform(g, T(0, 0, hinge)), take === 'B' ? mix('paper', 'paper', 0.0, 0.9) : CHARCOAL, R), 0.5, take === 'B' ? 0.55 : undefined));
-    // piping along the fixed fin's leading edge
-    const le: Array<[number, number, number]> = [];
-    const a0 = outline(false);
-    const tipL = a0[a0.length - 1]!, rootL = a0[0]!;
-    for (let i = 0; i <= 1; i++) {
-      const f = i;
-      const z = rootL[0] + (tipL[0] - rootL[0]) * f, s = rootL[1] + (tipL[1] - rootL[1]) * f;
-      le.push([Math.sin(phi) * s, Math.cos(phi) * s, z]);
-    }
-    const tipT = a0[a0.length - 2]!;
-    le.push([Math.sin(phi) * tipT[1], Math.cos(phi) * tipT[1], tipT[0]]);
-    n.add(wear(lump(cls === 'felt' ? 'felt' : 'brass', sweep(polylinePath(le, 0.02, 1), { radius: t * 0.62, segs: 3, ends: 'flat' }), cls === 'felt' ? edgeColour : (linear('brass') as RGB), R), 0.5));
+    const phi = Math.PI / 4 + (k * Math.PI) / 2;
+    const about = new Matrix4().makeRotationZ(-phi);
+    const parts = [
+      wear(lump('felt', transform(slab(), about), t.cloth, R), 0.4),
+      wear(lump('felt', transform(sweep({ points: pipe.map(([x, y, z]) => new Vector3(x, y, z)) }, { radius: th * 0.6, segs: 3, ends: 'flat' }), about), t.stripe, R), 0.3),
+    ];
+    // the upper pair are the rudder (they turn together); the lower pair are fixed
+    if (k === 0 || k === 3) rudder.add(...parts.map((q) => ({ ...q, geometry: transform(q.geometry, T(0, 0, -zc)) })));
+    else n.add(...parts);
   }
 }
 
-function buildProp(n: NodeBuilder, def: TakeDef, take: Take, rest: Record<string, Matrix4>): void {
-  const h = def.hull;
+function buildProp(n: NodeBuilder, rest: Record<string, Matrix4>): void {
+  const h = BODY;
   const lo = n.detail === 'low';
-  const zp = -h.tail - 0.035;
-  const ring = 0.11;
-  // the guard: a brass hoop round the propeller's disc, held by the four fins' trailing tips
-  const hoop = turn(profile(ring - 0.005, -0.015).to(ring + 0.005, -0.015, { sharp: true }).to(ring + 0.006, 0.015, { sharp: true }).to(ring - 0.005, 0.015, { sharp: true }).close(), { segs: lo ? 14 : 18 });
-  n.add(setFinish(lump('brass', transform(hoop, chain(T(0, 0, zp), Y_TO_Z)), linear('brass') as RGB), 0.45));
-  // the hoop's four stays to the fins
-  for (let k = 0; k < 4; k++) {
-    const phi = (k * Math.PI) / 2 + Math.PI / 4;
-    const a: [number, number, number] = [Math.sin(phi) * ring, Math.cos(phi) * ring, zp];
-    const bb: [number, number, number] = [Math.sin(phi) * 0.02, Math.cos(phi) * 0.02, zp + 0.05];
-    n.add(lump('brass', sweep(linePath(a, bb, 1), { radius: 0.0035, segs: 4, ends: 'flat' }), linear('brass') as RGB));
+  const zp = -h.tail - 0.03;
+  const ring = 0.08;
+  const hoop = turn(profile(ring - 0.005, -0.012).to(ring + 0.005, -0.012, { sharp: true }).to(ring + 0.006, 0.012, { sharp: true }).to(ring - 0.005, 0.012, { sharp: true }).close(), { segs: lo ? 14 : 18 });
+  n.add(setFinish(lump('brass', transform(hoop, chain(T(0, 0, zp), Y_TO_Z)), BRASS), 0.45));
+  for (let k = 0; k < 3; k++) {
+    const phi = (k * Math.PI * 2) / 3 + Math.PI;
+    n.add(lump('brass', line([Math.sin(phi) * ring, Math.cos(phi) * ring, zp], [Math.sin(phi) * 0.02, Math.cos(phi) * 0.02, zp + 0.035], 0.0035), BRASS));
   }
   const p = n.node('prop', rest.prop);
-  // a spinner and three (B: four) paddle blades with a twist
-  p.add(setFinish(lump('brass', transform(turn(profile(0, 0).to(0.022, 0, { sharp: true }).curve(0, 0.04, 0.024, 0.032, 2), { segs: 9, caps: 'end' }), Y_TO_NZ), linear('brass') as RGB), 0.7));
-  const blades = take === 'B' ? 4 : 3;
-  const blade = extrude([[-0.008, 0.012], [0.008, 0.012], [0.02, 0.06], [0.016, 0.095], [-0.004, 0.1], [-0.016, 0.07]], 0.006, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
-  transform(blade, T(0, 0, -0.003));
+  p.add(setFinish(lump('brass', transform(turn(profile(0, 0).to(0.02, 0, { sharp: true }).curve(0, 0.034, 0.022, 0.028, 2), { segs: 9, caps: 'end' }), Y_TO_NZ), BRASS), 0.7));
+  const blade = extrude([[-0.007, 0.01], [0.007, 0.01], [0.017, 0.05], [0.013, 0.07], [-0.004, 0.074], [-0.014, 0.052]], 0.005, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
+  transform(blade, T(0, 0, -0.0025));
   const twisted = deform(blade, (x, y, z) => {
-    const a = 0.5 - y * 2.5;
-    return [x * Math.cos(a) - z * Math.sin(a), y, x * Math.sin(a) + z * Math.cos(a)];
+    const an = 0.5 - y * 3;
+    return [x * Math.cos(an) - z * Math.sin(an), y, x * Math.sin(an) + z * Math.cos(an)];
   });
-  for (let k = 0; k < blades; k++) p.add(setFinish(lump('brass', transform(twisted.clone(), chain(new Matrix4().makeRotationZ((k / blades) * Math.PI * 2), T(0, 0, -0.012))), mix('brass', 'wood-light', take === 'B' ? 0.0 : 0.15, 1.0)), 0.5));
+  for (let k = 0; k < 3; k++) p.add(setFinish(lump('brass', transform(twisted.clone(), chain(new Matrix4().makeRotationZ((k / 3) * Math.PI * 2), T(0, 0, -0.01))), mix('brass', 'wood-light', 0.15, 1.0)), 0.5));
 }
 
-// ---- the eye -----------------------------------------------------------------------------------
+// ---- the face: the eye, the monocle, the moustache ---------------------------------------------------
 
-function buildEye(eye: NodeBuilder, def: TakeDef, take: Take, rest: Record<string, Matrix4>, R: Rng): void {
+function buildEye(eye: NodeBuilder, t: Tones, rest: Record<string, Matrix4>, R: Rng): void {
   const lo = eye.detail === 'low';
-  const r = def.eyeR;
-  // the eyeball: a dark glass dome facing forward, set half into the hull
-  const ball = turn(capSamples(r, 0, Math.PI * 0.62, lo ? 4 : 5), { segs: lo ? 14 : 16, caps: false });
-  eye.add(setFinish(wear(lump('steel', transform(ball, Y_TO_Z), mix('teal-deep', 'ink', 0.5, 0.45)), 0), 1));
-  // the iris: a warm lit ring on the dome, and the pupil
-  const iris = turn(capSamples(r + 0.0015, 0.13, 0.36, 2), { segs: lo ? 14 : 18, caps: false });
-  eye.add(setFinish(lump('bulb', transform(iris, Y_TO_Z), linear('amber')), 1));
-  const pupil = turn(capSamples(r + 0.0022, 0, 0.14, 2), { segs: lo ? 10 : 14, caps: false });
-  eye.add(setFinish(wear(lump('steel', transform(pupil, Y_TO_Z), mix('ink', 'ink', 0, 0.4)), 0), 1));
-  // the socket: a rim round the eye where it meets the hull
-  const rim = turn(profile(r * 0.98, -0.004).to(r + 0.016, -0.004, { fillet: 0.004, segs: 1 }).to(r + 0.014, 0.012, { fillet: 0.008, segs: 2 }).to(r * 0.98, 0.008).close(), { segs: lo ? 14 : 18, filletSegs: 1 });
-  if (take === 'B') {
-    // Fetch's family: a fat brass bezel, four screws
-    eye.add(setFinish(wear(lump('brass', transform(rim, chain(T(0, 0, r * 0.55), Y_TO_Z)), linear('brass') as RGB, R), 0.5), 0.4));
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      eye.small(() => place([lump('brass', stud(0.01, 6), linear('steel'))], aim([Math.cos(a) * (r + 0.008), Math.sin(a) * (r + 0.008), r * 0.55 + 0.012], [Math.cos(a) * 0.3, Math.sin(a) * 0.3, 1])));
-    }
-  }
-  // the lid: a hemispherical shell over the eye, hinged about the eye's X. At angle 0 it covers the
-  // top half of the eye (half mast); -90 tucks it back into the hull (wide open), +90 shuts it.
+  const r = HEAD.eyeR;
+  // the eyeball: a dark glass dome facing forward, set half into the nose
+  eye.add(setFinish(wear(lump('steel', transform(turn(capSamples(r, 0, Math.PI * 0.62, lo ? 4 : 6), { segs: lo ? 14 : 18, caps: false }), Y_TO_Z), mix('teal-deep', 'ink', 0.5, 0.45)), 0), 1));
+  // the iris: a warm lit ring, and the pupil
+  eye.add(setFinish(lump('bulb', transform(turn(capSamples(r + 0.0015, 0.13, 0.38, 2), { segs: lo ? 14 : 18, caps: false }), Y_TO_Z), mix('amber', 'amber-glow', 0.3, 1)), 1));
+  eye.add(setFinish(wear(lump('steel', transform(turn(capSamples(r + 0.0022, 0, 0.14, 2), { segs: lo ? 10 : 12, caps: false }), Y_TO_Z), mix('ink', 'ink', 0, 0.4)), 0), 1));
+  // the lid: a hemispherical shell hinged about the eye's X (0: tucked back, half mast at about 0.47)
   const lid = eye.node('lid', rest.lid);
   const Ro = r + 0.01;
-  const shell = turn(capSamples(Ro, 0, Math.PI / 2, lo ? 3 : 4), { segs: lo ? 12 : 16, caps: false });
-  const lidTone: RGB = take === 'B' ? mix('paper', 'paper', 0, 0.86) : mix('ink', 'steel', 0.42, 1.5);
-  const lidCls: KitPart['material'] = take === 'B' ? 'steel' : 'felt';
-  lid.add(wear(lump(lidCls, shell, lidTone, R), 0.2, take === 'B' ? 0.6 : undefined));
-  // its rolled lip round the open edge, a shade darker
-  const lipPts = Array.from({ length: lo ? 12 : 16 }, (_, i) => {
-    const a = (i / (lo ? 12 : 16)) * Math.PI * 2;
+  lid.add(wear(lump('felt', turn(capSamples(Ro, 0, Math.PI / 2, lo ? 3 : 4), { segs: lo ? 12 : 16, caps: false }), scale(t.cloth, 0.92), R), 0.2));
+  const lipPts = Array.from({ length: lo ? 12 : 18 }, (_, i) => {
+    const a = (i / (lo ? 12 : 18)) * Math.PI * 2;
     return new Vector3(Math.cos(a) * (Ro - 0.001), 0.001, Math.sin(a) * (Ro - 0.001));
   });
-  const lipTone: RGB = take === 'B' ? mix('teal-panel', 'teal-panel', 0, 0.8) : CHARCOAL_DEEP;
-  lid.add(wear(lump(lidCls, sweep({ points: lipPts, closed: true }, { radius: 0.0055, segs: 4 }), lipTone, R), 0.3, take === 'B' ? 0.5 : undefined));
-  // the monocle: a brass ring before the eye and its chain looping back to the hull (A and C)
-  if (take !== 'B') {
-    const mr = r + 0.012;
-    const ringG = turn(profile(mr - 0.004, -0.004).to(mr + 0.005, -0.004, { fillet: 0.003, segs: 1 }).to(mr + 0.005, 0.004, { fillet: 0.003, segs: 1 }).to(mr - 0.004, 0.004).close(), { segs: lo ? 14 : 20, filletSegs: 1 });
-    const mon = chain(T(0.004, -0.004, r * 0.92), mat({ rot: [4, -8, 0] }), Y_TO_Z);
-    eye.add(setFinish(lump('brass', transform(ringG, mon), linear('brass') as RGB), 0.75));
-    // the chain: a slack loop from the ring's lower right, down and back along the cheek
-    const c0 = new Vector3(0.06, -0.05, r * 0.85);
-    const pts = [c0, new Vector3(0.09, -0.1, r * 0.4), new Vector3(0.12, -0.13, 0.0), new Vector3(0.15, -0.12, -0.08)];
-    eye.small(() => [lump('brass', sweep(polylinePath(pts.map((v) => [v.x, v.y, v.z] as [number, number, number]), 0.05, 3), { radius: 0.0028, segs: 4, ends: 'flat' }), mix('brass', 'brass', 0, 1.1))]);
-  }
+  lid.add(wear(lump('felt', sweep({ points: lipPts, closed: true }, { radius: 0.007, segs: 4 }), t.deep, R), 0.3));
+  // the monocle: a brass ring before the eye and its chain looping back down the cheek
+  const mr = r + 0.014;
+  const ringG = turn(profile(mr - 0.004, -0.004).to(mr + 0.005, -0.004, { sharp: true }).to(mr + 0.005, 0.004, { sharp: true }).to(mr - 0.004, 0.004, { sharp: true }).close(), { segs: lo ? 16 : 22 });
+  eye.add(setFinish(lump('brass', transform(ringG, chain(T(0.004, -0.004, r * 0.92), mat({ rot: [4, -8, 0] }), Y_TO_Z)), BRASS), 0.75));
+  const pts: Array<[number, number, number]> = [[0.075, -0.06, r * 0.8], [0.11, -0.12, r * 0.35], [0.15, -0.15, 0.0], [0.19, -0.14, -0.1]];
+  eye.small(() => [lump('brass', sweep(polylinePath(pts, 0.05, 2), { radius: 0.003, segs: 4, ends: 'flat' }), scale(BRASS, 1.1))]);
 }
 
 /** A spherical cap of radius r round +Y from polar angle a0 to a1, as lathe samples (outside facing out). */
@@ -457,209 +379,202 @@ function capSamples(r: number, a0: number, a1: number, n: number): Array<{ o: nu
   return out;
 }
 
-// ---- the bowler -------------------------------------------------------------------------------
-
-function buildBowler(hat: NodeBuilder, take: Take, R: Rng): void {
-  buildBowlerParts(hat, take, R);
-  const k = new Matrix4().makeScale(1.25, 1.25, 1.25);
-  for (const q of hat.parts) transform(q.geometry, k);
+/** The point on the nose's skin in front of (x, y), lifted `lift` along its normal. */
+function onNose(x: number, y: number, lift: number): Vector3 {
+  const h = BODY;
+  const sy = h.sy ?? 1;
+  const rho = Math.min(h.r * 0.999, Math.hypot(x, y / sy));
+  const z = h.nose * Math.pow(Math.max(0, 1 - Math.pow(rho / h.r, h.noseK)), 1 / h.noseK);
+  const phi = Math.atan2(x, y / sy);
+  return onHull(h, z, phi, lift).p;
 }
 
-function buildBowlerParts(hat: NodeBuilder, take: Take, R: Rng): void {
-  const lo = hat.detail === 'low';
-  const top = take === 'C';
-  if (top) {
-    // C: a stovepipe topper
-    const g = turn(
-      profile(0, 0.006).to(0.15, 0.006, { fillet: 0.006, segs: 1 }).to(0.158, 0.016, { fillet: 0.006, segs: 2 }).to(0.092, 0.022, { sharp: true }).to(0.092, 0.03, { sharp: true }).to(0.1, 0.19, { smooth: true }).to(0.103, 0.2, { fillet: 0.006, segs: 1 }).to(0, 0.202),
-      { segs: lo ? 18 : 26, caps: true },
-    );
-    hat.add(wear(lump('felt', deform(g, (x, y, z) => [x, y + (y < 0.03 ? 0.6 * x * x - 0.2 * z * z : 0), z]), BOWLER, R), 0.4));
-    hat.add(lump('felt', turn(profile(0.0935, 0.03).to(0.096, 0.03, { sharp: true }).to(0.0965, 0.06, { sharp: true }).to(0.0935, 0.06).close(), { segs: lo ? 14 : 18 }), BOWLER_BAND));
+/** A handlebar moustache under the eye: two fat curls of felt that taper to waxed points turned up. */
+function buildMoustache(n: NodeBuilder, t: Tones, R: Rng, kind: Moustache): void {
+  const y0 = -0.035;
+  if (kind === 'pencil') {
+    // the pencil: a neat thin line, a little gap in the middle, the ends just turned down
+    for (const s of [-1, 1]) {
+      const path = [[0.012, y0 - 0.004], [0.05, y0 - 0.01], [0.09, y0 - 0.012], [0.115, y0 - 0.022]].map(([x, y]) => onNose(s * x!, y!, 0.01));
+      n.add(wear(lump('felt', sweep({ points: path }, { radius: 0.012, segs: 4, ends: 'round', taper: (u) => 1 - 0.5 * u, step: 0.03 }), t.moustache, R), 0.3));
+    }
     return;
   }
-  // the crown: a hard felt dome, the brim curled up at the sides
-  const crown = turn(
-    profile(0, 0)
-      .to(0.098, 0, { sharp: true })
-      .to(0.1, 0.05, { smooth: true })
-      .to(0.1, 0.07, { smooth: true })
-      .curve(0.0, 0.142, 0.098, 0.14, lo ? 3 : 5),
-    { segs: lo ? 14 : 18, caps: 'end', filletSegs: 2 },
-  );
-  hat.add(wear(lump('felt', crown, BOWLER, R), 0.5));
-  const brim = turn(
-    profile(0.092, 0.004).to(0.152, 0.004, { sharp: true }).to(0.157, 0.016, { fillet: 0.006, segs: 1 }).to(0.092, 0.014, { sharp: true }).close(),
-    { segs: lo ? 14 : 18, filletSegs: 1 },
-  );
-  // curl the sides up, the front and back down a touch (and the whole brim follows the hull's crown)
-  hat.add(wear(lump('felt', deform(brim, (x, y, z) => [x, y + 1.5 * x * x - 0.5 * z * z, z]), BOWLER, R), 0.5));
-  // the band: grosgrain, a little bow on his left
-  hat.add(lump('felt', turn(profile(0.1, 0.012).to(0.1035, 0.012, { sharp: true }).to(0.1045, 0.036, { sharp: true }).to(0.1, 0.036).close(), { segs: lo ? 14 : 18 }), BOWLER_BAND));
-  hat.small(() => [lump('felt', roundedBox({ w: 0.012, h: 0.022, d: 0.028, r: 0.004, detail: 'low' }), BOWLER_BAND), ...[]].map((q) => ({ ...q, geometry: transform(q.geometry, T(0.104, 0.013, -0.01)) })));
+  for (const s of [-1, 1]) {
+    const path = [
+      [0.0, y0 + 0.004],
+      [0.04, y0 - 0.008],
+      [0.085, y0 - 0.014],
+      [0.125, y0 - 0.004],
+      [0.16, y0 + 0.02],
+      [0.18, y0 + 0.055],
+      [0.17, y0 + 0.08],
+    ].map(([x, y], i) => onNose(s * x!, y!, 0.012 + 0.055 * Math.pow(i / 6, 2)));
+    const g = sweep({ points: path }, { radius: 0.022, segs: 5, ends: 'round', taper: (u) => Math.max(0.12, 1 - u * 0.95) * (u < 0.08 ? 0.75 + u * 3 : 1), step: 0.03 });
+    n.add(wear(lump('felt', g, t.moustache, R), 0.3));
+  }
 }
 
-/** B: a homburg pressed out of the workshop's own sheet steel (it is also his gas valve's cap): a creased crown, a curled brim, a brass band. */
-function buildHomburg(hat: NodeBuilder, R: Rng): void {
+// ---- hats -----------------------------------------------------------------------------------------
+
+/** A: the bowler, generous in the brim so it survives at 40 px. */
+function buildBowler(hat: NodeBuilder, t: Tones, R: Rng): void {
   const lo = hat.detail === 'low';
-  const crown = turn(
-    profile(0, 0).to(0.112, 0, { sharp: true }).to(0.116, 0.06, { smooth: true }).to(0.108, 0.13, { fillet: 0.03, segs: 3 }).to(0, 0.14),
-    { segs: lo ? 14 : 18, caps: 'end', filletSegs: 2 },
-  );
-  // the centre crease, front to back, and the two pinches at the front
-  const creased = deform(crown, (x, y, z) => {
-    const top = Math.max(0, (y - 0.08) / 0.06);
-    const crease = 0.032 * Math.exp(-((x / 0.03) ** 2)) * top;
-    const pinch = 0.012 * Math.max(0, z / 0.11) * top * Math.exp(-(((Math.abs(x) - 0.06) / 0.03) ** 2));
-    return [x * (1 - pinch * 3), y - crease, z];
-  });
-  hat.add(setFinish(wear(lump('steel', creased, mix('teal-light', 'teal-panel', 0.35, 1.0), R), 0.3), 0.6));
-  const brim = turn(
-    profile(0.105, 0.004).to(0.17, 0.004, { sharp: true }).to(0.176, 0.02, { fillet: 0.007, segs: 1 }).to(0.105, 0.016, { sharp: true }).close(),
-    { segs: lo ? 14 : 18, filletSegs: 1 },
-  );
-  hat.add(setFinish(wear(lump('steel', deform(brim, (x, y, z) => [x, y + 0.9 * x * x - 0.3 * z * z, z]), mix('teal-light', 'teal-panel', 0.35, 0.95), R), 0.4), 0.6));
-  hat.add(setFinish(lump('brass', turn(profile(0.113, 0.014).to(0.118, 0.014, { sharp: true }).to(0.119, 0.04, { sharp: true }).to(0.114, 0.04).close(), { segs: lo ? 14 : 18 }), linear('brass') as RGB, R), 0.5));
+  const k = 1.55;
+  const S = new Matrix4().makeScale(k, k, k);
+  const crown = turn(profile(0, 0).to(0.098, 0, { sharp: true }).to(0.1, 0.075, { smooth: true }).curve(0.0, 0.158, 0.098, 0.155, lo ? 3 : 5), { segs: lo ? 14 : 18, caps: 'end', filletSegs: 2 });
+  hat.add(wear(lump('felt', transform(crown, S), t.hat, R), 0.5));
+  const brim = turn(profile(0.092, 0.004).to(0.17, 0.004, { sharp: true }).to(0.176, 0.018, { fillet: 0.006, segs: 1 }).to(0.092, 0.014, { sharp: true }).close(), { segs: lo ? 16 : 22, filletSegs: 1 });
+  hat.add(wear(lump('felt', transform(deform(brim, (x, y, z) => [x, y + 1.4 * x * x - 0.4 * z * z, z]), S), t.hat, R), 0.5));
+  hat.add(lump('felt', transform(turn(profile(0.1, 0.012).to(0.1035, 0.012, { sharp: true }).to(0.1045, 0.036, { sharp: true }).to(0.1, 0.036).close(), { segs: lo ? 12 : 14 }), S), t.band));
 }
 
-// ---- collar, shirt front and tie ---------------------------------------------------------------------
+/** C: the chairman's stovepipe topper. */
+function buildTopper(hat: NodeBuilder, t: Tones, R: Rng): void {
+  const lo = hat.detail === 'low';
+  const k = 1.45;
+  const S = new Matrix4().makeScale(k, k, k);
+  const g = turn(
+    profile(0, 0.006).to(0.16, 0.006, { sharp: true }).to(0.166, 0.018, { fillet: 0.006, segs: 1 }).to(0.092, 0.022, { sharp: true }).to(0.09, 0.03, { sharp: true }).to(0.1, 0.2, { smooth: true }).to(0.103, 0.21, { fillet: 0.006, segs: 1 }).to(0, 0.212),
+    { segs: lo ? 14 : 20, caps: true },
+  );
+  hat.add(wear(lump('felt', transform(deform(g, (x, y, z) => [x, y + (y < 0.03 ? 1.2 * x * x - 0.3 * z * z : 0), z]), S), t.hat, R), 0.4));
+  hat.add(lump('felt', transform(turn(profile(0.0915, 0.03).to(0.095, 0.03, { sharp: true }).to(0.0955, 0.062, { sharp: true }).to(0.0925, 0.062).close(), { segs: lo ? 14 : 20 }), S), t.band));
+}
 
-function buildCollar(n: NodeBuilder, def: TakeDef, take: Take, R: Rng): void {
-  const h = def.hull;
-  const kz = def.knotZ;
+/**
+ * F: a soft felt fedora, 1930s-40s: a tapered crown with a centre crease and two front pinches, a
+ * snap brim down at the front and up at the back, a ribbon band with a small bow; worn a little rakishly.
+ */
+function buildFedora(hat: NodeBuilder, felt: 'brown' | 'grey', R: Rng): void {
+  const lo = hat.detail === 'low';
+  const colour: RGB = felt === 'grey' ? mix('steel', 'ink', 0.45, 0.6) : mix('wood', 'ink', 0.2, 0.8);
+  const band: RGB = felt === 'grey' ? mix('ink', 'teal-deep', 0.3, 0.8) : mix('ink', 'wood', 0.35, 0.7);
+  const k = 1.45;
+  const S = chain(new Matrix4().makeRotationZ(-0.12), new Matrix4().makeScale(k, k, k));
+  const crown = turn(profile(0, 0).to(0.096, 0, { sharp: true }).to(0.09, 0.09, { smooth: true }).to(0.074, 0.138, { fillet: 0.022, segs: 2 }).to(0, 0.142), { segs: lo ? 14 : 20, caps: 'end' });
+  const shaped = deform(crown, (x, y, z) => {
+    const top = Math.max(0, (y - 0.08) / 0.06);
+    const crease = 0.05 * Math.exp(-((x / 0.028) ** 2)) * top * (0.6 + 0.4 * Math.max(0, -z / 0.1 + 0.5));
+    const pinch = Math.max(0, z / 0.1) * top * Math.exp(-(((Math.abs(x) - 0.055) / 0.03) ** 2));
+    // a teardrop in plan: narrower toward the front
+    const taper = 1 - 0.12 * Math.max(0, z / 0.1) * Math.min(1, y / 0.05);
+    return [x * taper * (1 - pinch * 0.35), y - crease - pinch * 0.012, z];
+  });
+  hat.add(wear(lump('felt', transform(shaped, S), colour, R), 0.4));
+  const brim = turn(profile(0.09, 0.004).to(0.152, 0.004, { sharp: true }).to(0.156, 0.012, { fillet: 0.004, segs: 1 }).to(0.09, 0.012, { sharp: true }).close(), { segs: lo ? 16 : 22 });
+  // the snap: down at the front, up at the back and a little at the sides
+  const snapped = deform(brim, (x, y, z) => [x, y - 3.2 * Math.max(0, z - 0.04) ** 2 + 1.6 * Math.max(0, -z) ** 2 + 0.6 * x * x, z]);
+  hat.add(wear(lump('felt', transform(snapped, S), colour, R), 0.4));
+  hat.add(lump('felt', transform(turn(profile(0.1, 0.01).to(0.0995, 0.01, { sharp: true }).to(0.0985, 0.036, { sharp: true }).to(0.095, 0.036).close(), { segs: lo ? 12 : 16 }), S), band));
+  hat.add(lump('felt', transform(bevelBox({ min: [0.096, 0.012, -0.03], max: [0.108, 0.034, -0.004], c: 0.003 }), S), band));
+}
+
+/** F: a white pocket square in a breast pocket on the side the visitor sees. */
+function buildPocketSquare(n: NodeBuilder, R: Rng): void {
+  const h = BODY;
+  const z = -0.05, phi = Math.PI / 2 + 0.35;
+  n.add(lump('felt', hullRibbons(h, [[[z - 0.045, phi + 0.05], [z + 0.045, phi - 0.05]]], 0.016, 0.004), mix('steel', 'ink', 0.6, 0.4)));
+  for (const [dz, up] of [[-0.024, 0.05], [0.0, 0.066], [0.026, 0.046]] as const) {
+    const at = onHull(h, z + dz, phi - dz * 1.1, 0.0);
+    const g = extrude([[-0.016, 0], [0.016, 0], [0.003, up], [-0.003, up]], 0.006, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
+    const fr = new Matrix4().lookAt(new Vector3(0, 0, 0), at.n.clone().negate(), new Vector3(0, 1, 0));
+    n.add(wear(lump('paper', transform(g, chain(T(at.p.x, at.p.y, at.p.z), fr, mat({ rot: [0, 180, 0] }), mat({ rot: [0, 0, dz * 250] }), T(0, -0.02, 0))), SHIRT, R), 0.2));
+  }
+}
+
+// ---- collar and tie ----------------------------------------------------------------------------------
+
+function buildCollar(n: NodeBuilder, t: Tones, R: Rng): void {
+  const h = BODY;
+  const kz = HEAD.collarZ, tl = HEAD.collarTilt;
   const segs = n.detail === 'low' ? 18 : 24;
-  // the collar: a white band round his neck, between the head (eye, hat) and the body (the suit, the car)
-  const white: RGB = take === 'B' ? mix('paper', 'paper', 0, 1.0) : SHIRT;
-  const cls: KitPart['material'] = take === 'B' ? 'steel' : 'paper';
-  const fin = take === 'B' ? 0.7 : undefined;
-  n.add(wear(lump(cls, hullBand(h, kz - 0.03, kz + 0.022, 0.014, segs), white, R), 0.25, fin));
-  // A: the jacket's collar, a dark felt roll just behind the shirt collar
-  if (take !== 'B') n.add(wear(lump('felt', hullBand(h, kz - 0.062, kz - 0.026, 0.02, segs), CHARCOAL_DEEP, R), 0.5));
+  // the shirt collar, white, and the jacket's collar behind it in the cloth's deep tone
+  n.add(wear(lump('paper', hullBand(h, kz - 0.028, kz + 0.024, 0.015, segs, tl), SHIRT, R), 0.25));
+  n.add(wear(lump('felt', hullBand(h, kz - 0.062, kz - 0.026, 0.02, segs, tl), t.deep, R), 0.5));
   // the collar's two points, turned down and out either side of the knot
   for (const s of [-1, 1]) {
-    const pts: Array<[number, number]> = [[0, 0], [0.052, 0.004], [0.012, -0.058]];
+    const pts: Array<[number, number]> = [[0, 0], [0.06, 0.004], [0.014, -0.064]];
     const g2 = extrude(pts.map(([x, y]) => [s * x, y] as [number, number]), 0.007, { bevel: 0.002, radius: 0.004, detail: 'low', segs: 1 });
-    const at = onHull(h, kz + 0.01, Math.PI - s * 0.13, 0.016);
+    const at = onHull(h, kz + tl * Math.cos(0.13) + 0.012, Math.PI - s * 0.13, 0.017);
     const fr = new Matrix4().lookAt(new Vector3(0, 0, 0), at.n.clone().negate(), new Vector3(0, 0, 1));
-    n.add(wear(lump(cls, transform(g2, chain(T(at.p.x, at.p.y, at.p.z), fr, mat({ rot: [0, 0, s * 6] }))), white, R), 0.2, fin));
+    n.add(wear(lump('paper', transform(g2, chain(T(at.p.x, at.p.y, at.p.z), fr, mat({ rot: [0, 0, s * 6] }))), SHIRT, R), 0.2));
   }
 }
 
-function buildTie(tie: NodeBuilder, take: Take, rest: Record<string, Matrix4>): void {
-  const lo = tie.detail === 'low';
-  const cls: KitPart['material'] = take === 'B' ? 'steel' : 'felt';
-  const fin = take === 'B' ? 0.55 : undefined;
-  // the knot: a fat little trapezoid
-  const knot = extrude([[-0.024, 0.006], [0.024, 0.006], [0.016, -0.034], [-0.016, -0.034]], 0.026, { bevel: 0.007, radius: 0.006, detail: 'low', segs: 1, style: 'chamfer' });
-  tie.add(wear(lump(cls, transform(knot, T(0, 0, -0.008)), TIE), 0.4, fin));
-  // the blade, upper half (to the tip node's pivot) and lower half with the point
-  const mid = 0.15;
-  const upper = extrude([[-0.02, -0.022], [0.02, -0.022], [0.042, -mid - 0.004], [-0.042, -mid - 0.004]], 0.011, { bevel: 0.003, radius: 0.004, detail: 'low', segs: 1 });
-  tie.add(wear(lump(cls, transform(upper, T(0, 0, -0.002)), TIE), 0.4, fin));
+/** A wide, short, bold tie: a fat knot at the collar and a blade with two stripes. */
+function buildTie(tie: NodeBuilder, rest: Record<string, Matrix4>, wide = 1): void {
+  const W = new Matrix4().makeScale(wide, 1, 1);
+  const knot = extrude([[-0.032, 0.008], [0.032, 0.008], [0.02, -0.042], [-0.02, -0.042]], 0.032, { bevel: 0.008, radius: 0.007, detail: 'low', segs: 1, style: 'chamfer' });
+  tie.add(wear(lump('felt', transform(knot, chain(W, T(0, 0, -0.012))), TIE), 0.4));
+  const mid = 0.1;
+  const upper = extrude([[-0.024, -0.03], [0.024, -0.03], [0.044, -mid - 0.004], [-0.044, -mid - 0.004]], 0.012, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
+  tie.add(wear(lump('felt', transform(upper, chain(W, T(0, 0, -0.002))), TIE), 0.4));
   const tip = tie.node('tieTip', rest.tieTip);
-  const lower = extrude([[-0.042, 0.004], [0.042, 0.004], [0.054, -0.13], [0, -0.185], [-0.054, -0.13]], 0.011, { bevel: 0.003, radius: 0.005, detail: 'low', segs: 1 });
-  tip.add(wear(lump(cls, transform(lower, T(0, 0, -0.002)), TIE), 0.4, fin));
-  // a stripe across the blade (A: chalk; B: none) and a brass tie pin
-  if (take !== 'B') {
-    for (const y of [-0.05, -0.095]) {
-      tip.add(lump('felt', bevelBox({ min: [-0.047, y - 0.006, 0.0085], max: [0.047, y + 0.006, 0.0105], c: 0 }), mix('cable-red', 'paper', 0.55, 0.85)));
-    }
+  const lower = extrude([[-0.044, 0.004], [0.044, 0.004], [0.05, -0.07], [0, -0.115], [-0.05, -0.07]], 0.012, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
+  tip.add(wear(lump('felt', transform(lower, chain(W, T(0, 0, -0.002))), TIE), 0.4));
+  for (const [node, y, w] of [[tie, -0.065, 0.036], [tip, -0.03, 0.048]] as const) {
+    node.add(lump('felt', transform(bevelBox({ min: [-w, y - 0.008, 0.0095], max: [w, y + 0.008, 0.0115], c: 0 }), W), TIE_STRIPE));
   }
-  if (take !== 'B') tie.small(() => [setFinish(lump('brass', bevelBox({ min: [-0.03, -0.07, 0.008], max: [0.03, -0.064, 0.012], c: 0.0015 }), linear('brass') as RGB), 0.8)]);
 }
 
-// ---- the cars ---------------------------------------------------------------------------------
+// ---- the briefcase and its rigging ---------------------------------------------------------------------
 
-/** A: a briefcase, standing on its edge, hung by its own handle from a bar under the hull. */
-function buildBriefcase(car: NodeBuilder, def: TakeDef, R: Rng): void {
-  const w = 0.13, hh = 0.19, d = 0.36;
-  const top = -0.13;
+/** The gondola: a briefcase on its edge, hung by its handle from a brass bar, the bar and the case on lines from the envelope. */
+function buildBriefcase(car: NodeBuilder, R: Rng): void {
+  const w = 0.13, hh = 0.19, d = 0.3;
+  const top = -0.15;
   const y0 = top - hh;
-  const body = bevelBox({ min: [-w / 2, 0, -d / 2], max: [w / 2, hh, d / 2], c: 0.012 });
-  car.add(wear(lump('steel', transform(body, T(0, y0, 0)), LEATHER, R, 0.02), 0.15, 0.35));
-  // brass corners on the four lower corners, and two clasps by the handle on each face
+  car.add(wear(lump('steel', bevelBox({ min: [-w / 2, y0, -d / 2], max: [w / 2, top, d / 2], c: 0.014 }), LEATHER, R, 0.02), 0.15, 0.35));
   for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
-    const c = bevelBox({ min: [-0.012, -0.004, -0.012], max: [0.012, 0.028, 0.012], c: 0.004 });
-    car.add(setFinish(lump('brass', transform(c, T(sx * (w / 2 - 0.008), y0 - 0.003, sz * (d / 2 - 0.008))), linear('brass') as RGB, R), 0.5));
+    car.add(setFinish(lump('brass', transform(bevelBox({ min: [-0.013, -0.004, -0.013], max: [0.013, 0.03, 0.013], c: 0.004 }), T(sx * (w / 2 - 0.008), y0 - 0.003, sz * (d / 2 - 0.008))), BRASS, R), 0.5));
   }
-  for (const sx of [-1, 1]) for (const sz of [0]) {
-    const c = bevelBox({ min: [0, -0.024, -0.014], max: [0.008, 0.004, 0.014], c: 0.002 });
-    car.add(setFinish(lump('brass', transform(c, T(sx > 0 ? w / 2 - 0.002 : -w / 2 - 0.006, top - 0.012, sz * 0.09)), linear('brass') as RGB, R), 0.7));
-  }
-  // the handle: a leather arch between two brass loops, through the hull's carrying bar
-  const hp = polylinePath([[0, top + 0.002, -0.08], [0, top + 0.055, -0.064], [0, top + 0.066, 0], [0, top + 0.055, 0.064], [0, top + 0.002, 0.08]], 0.03, 2);
+  for (const sx of [-1, 1]) car.add(setFinish(lump('brass', transform(bevelBox({ min: [0, -0.028, -0.016], max: [0.009, 0.004, 0.016], c: 0.002 }), T(sx > 0 ? w / 2 - 0.002 : -w / 2 - 0.007, top - 0.014, 0)), BRASS, R), 0.7));
+  // the handle, a leather arch, and the brass bar through it
+  const hp = polylinePath([[0, top + 0.002, -0.07], [0, top + 0.05, -0.056], [0, top + 0.06, 0], [0, top + 0.05, 0.056], [0, top + 0.002, 0.07]], 0.03, 2);
   car.add(wear(lump('steel', sweep(hp, { section: sections.roundRect(0.004, 0.009, 1), radius: 0.004, ends: 'flat', up: [1, 0, 0] }), LEATHER_DARK, R), 0.2, 0.35));
-  for (const sz of [-1, 1]) car.add(setFinish(lump('brass', transform(turn(profile(0, 0).to(0.012, 0, { fillet: 0.003 }).to(0.01, 0.012, { fillet: 0.003 }).to(0, 0.012), { segs: 8, caps: 'end' }), T(0, top - 0.002, sz * 0.08)), linear('brass') as RGB), 0.6));
-  // the carrying bar under the hull and its two hangers
-  const barY = top + 0.058;
-  car.add(setFinish(lump('brass', sweep(linePath([0, barY, -0.12], [0, barY, 0.12], 1), { radius: 0.007, segs: 8, ends: 'round' }), linear('brass') as RGB), 0.6));
-  for (const sz of [-1, 1]) {
-    car.add(lump('brass', sweep(linePath([0, barY, sz * 0.11], [0, 0.03, sz * 0.11], 1), { radius: 0.0065, segs: 6, ends: 'flat' }), linear('brass') as RGB));
-    car.add(lump('brass', transform(turn(profile(0, 0).to(0.022, 0, { fillet: 0.004 }).to(0.015, 0.01, { fillet: 0.003 }).to(0, 0.012), { segs: 7, caps: 'end' }), chain(T(0, 0.012, sz * 0.11), new Matrix4().makeRotationX(Math.PI))), linear('brass') as RGB));
-  }
-  // rigging: four lines from the hull's flanks to the case's top corners
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const hullPt = onHull(def.hull, CAR_Z + sz * 0.24, Math.PI + sx * 0.95, 0.0).p;
-    const a: [number, number, number] = [hullPt.x, hullPt.y + def.hull.r, hullPt.z - CAR_Z];
-    const bb: [number, number, number] = [sx * (w / 2 - 0.01), top - 0.004, sz * (d / 2 - 0.03)];
-    car.small(() => [lump('paper', sweep(linePath(a, bb, 1), { radius: 0.0026, segs: 4, ends: 'flat' }), mix('paper', 'wood-light', 0.4, 0.85))]);
+  const barY = top + 0.052;
+  car.add(setFinish(lump('brass', sweep(linePath([0, barY, -0.11], [0, barY, 0.11], 1), { radius: 0.008, segs: 8, ends: 'round' }), BRASS), 0.6));
+  // the lines: a V from each end of the bar up to the envelope, and four from its flanks to the case's corners
+  const at = (z: number, phi: number): Vector3 => {
+    const p = onHull(BODY, CAR_Z + z, phi, -0.004).p;
+    return new Vector3(p.x, p.y + BODY.r * (BODY.sy ?? 1), p.z - CAR_Z);
+  };
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
+    car.add(lump('paper', line(new Vector3(0, barY, sz * 0.105), at(sz * 0.12, Math.PI + sx * 0.42)), ROPE));
+    car.add(lump('paper', line(new Vector3(sx * (w / 2 - 0.006), top, sz * (d / 2 - 0.02)), at(sz * 0.2, Math.PI + sx * 1.0)), ROPE));
   }
 }
 
-/** B: a little office: cream walls over a teal skirt, a row of lit windows, a brass rail. */
-function buildCabin(car: NodeBuilder, def: TakeDef, R: Rng): void {
-  const w = 0.15, hh = 0.14, d = 0.33;
-  const top = -0.1;
-  const y0 = top - hh;
-  const body = roundedBox({ w, h: hh, d, r: 0.022, rPlan: 0.05, segs: 1, detail: car.detail });
-  colourBy(body, (_x, y) => (y < hh * 0.42 ? mix('teal-panel', 'teal-panel', 0, 1.0) : mix('paper', 'paper', 0, 0.88)));
-  car.add(setFinish(wear({ material: 'steel', geometry: transform(body, T(0, y0, 0)) }, 0.25), 0.6));
-  // roof: a teal-light cap
-  const roof = roundedBox({ w: w + 0.012, h: 0.018, d: d + 0.012, r: 0.008, rPlan: 0.055, segs: 1, detail: car.detail });
-  car.add(setFinish(wear(lump('steel', transform(roof, T(0, top - 0.004, 0)), mix('teal-light', 'teal-panel', 0.2, 1.0), R), 0.4), 0.55));
-  // windows: three a side and one at the front, lit from inside
-  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
-    const z = -0.095 + i * 0.095;
-    const win = bevelBox({ min: [-0.003, -0.023, -0.029], max: [0.003, 0.023, 0.029], c: 0.002 });
-    car.add(lump('bulb', transform(win, T(s * (w / 2 - 0.0015), top - 0.055, z)), mix('amber', 'amber-glow', 0.5, 0.55)));
-  }
-  // a brass rail round the cabin's waist
-  const rail = polylinePath([[-w / 2 - 0.01, y0 + 0.055, -d / 2 + 0.03], [-w / 2 - 0.01, y0 + 0.055, d / 2 - 0.03], [w / 2 + 0.01, y0 + 0.055, d / 2 - 0.03], [w / 2 + 0.01, y0 + 0.055, -d / 2 + 0.03]], 0.04, 3);
-  car.add(setFinish(lump('brass', sweep(rail, { radius: 0.0042, segs: 5, ends: 'round' }), linear('brass') as RGB), 0.6));
-  // struts up to the hull
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    car.add(lump('brass', sweep(linePath([sx * 0.045, top, sz * 0.1], [sx * 0.06, 0.03, sz * 0.12], 1), { radius: 0.005, segs: 5, ends: 'flat' }), linear('brass') as RGB));
-  }
-  void def;
-}
-
-/** The winch under the car, its line and its hook, and the rope cradle for a crate. */
+/** The winch under the case, its line, the umbrella on it (hung by its tip; its crook is the hook) and the rope cradle. */
 function buildWinch(car: NodeBuilder, rest: Record<string, Matrix4>, drumY: number): void {
-  const lo = car.detail === 'low';
-  // two cheeks from the car's keel holding the drum's axle
   for (const s of [-1, 1]) {
     const cheek = extrude([[-0.024, 0.03], [0.024, 0.03], [0.016, -0.012], [-0.016, -0.012]], 0.006, { bevel: 0, bevelBase: 0, radius: 0, detail: 'low', segs: 1 });
-    car.add(setFinish(lump('brass', transform(cheek, chain(T(s * 0.036, drumY, 0.02), mat({ rot: [0, 90, 0] }), T(0, 0, -0.003))), linear('brass') as RGB), 0.5));
+    car.add(setFinish(lump('brass', transform(cheek, chain(T(s * 0.036, drumY, 0.02), mat({ rot: [0, 90, 0] }), T(0, 0, -0.003))), BRASS), 0.5));
   }
   const winch = car.node('winch', rest.winch);
-  // the drum (turns as the line pays out): flanged, with a few turns of line on it
-  winch.add(setFinish(lump('brass', transform(turn(profile(0, -0.032).to(0.024, -0.032, { sharp: true }).to(0.024, -0.026, { sharp: true }).to(0.015, -0.026, { sharp: true }).to(0.015, 0.026, { sharp: true }).to(0.024, 0.026, { sharp: true }).to(0.024, 0.032, { sharp: true }).to(0, 0.032), { segs: 9, caps: true }), Y_TO_X), linear('brass') as RGB), 0.5));
-  winch.add(lump('paper', transform(turn(profile(0, -0.026).to(0.019, -0.026, { sharp: true }).to(0.019, 0.026, { sharp: true }).to(0, 0.026), { segs: 8, caps: false }), Y_TO_X), mix('steel', 'paper', 0.25, 0.9)));
-  // a crank on the right cheek
-  car.small(() => [lump('brass', sweep(polylinePath([[0.045, drumY, 0.02], [0.05, drumY, 0.02], [0.05, drumY - 0.03, 0.03]], 0.006, 2), { radius: 0.003, segs: 4, ends: 'round' }), linear('brass') as RGB)]);
-  // the line: unit length down -Y from the drum's underside (the pose scales it)
+  winch.add(setFinish(lump('brass', transform(turn(profile(0, -0.032).to(0.024, -0.032, { sharp: true }).to(0.024, -0.026, { sharp: true }).to(0.015, -0.026, { sharp: true }).to(0.015, 0.026, { sharp: true }).to(0.024, 0.026, { sharp: true }).to(0.024, 0.032, { sharp: true }).to(0, 0.032), { segs: 9, caps: true }), Y_TO_X), BRASS), 0.5));
+  winch.add(lump('paper', transform(turn(profile(0, -0.026).to(0.019, -0.026, { sharp: true }).to(0.019, 0.026, { sharp: true }).to(0, 0.026), { segs: 8, caps: false }), Y_TO_X), ROPE));
   const cable = car.node('cable', rest.cable);
-  cable.add(lump('paper', transform(sweep(linePath([0, 0, 0], [0, -1, 0], 1), { radius: 0.0032, segs: 4, ends: 'flat' }), T(0, -0.0, 0)), mix('steel', 'paper', 0.25, 0.9)));
-  // the hook: a brass shackle and a steel hook
+  cable.add(lump('paper', line([0, 0, 0], [0, -1, 0], 0.003), ROPE));
+  // the umbrella, built hanging down from its ferrule at the node's origin
   const hook = car.node('hook', rest.hook);
-  hook.add(setFinish(lump('brass', transform(turn(profile(0, -0.012).to(0.01, -0.012, { fillet: 0.003 }).to(0.01, 0.0, { fillet: 0.003 }).to(0, 0), { segs: 8, caps: true }), T(0, -0.0, 0)), linear('brass') as RGB), 0.6));
-  const J = polylinePath([[0, -0.012, 0], [0, -0.045, 0], [0.004, -0.07, 0], [0.028, -0.072, 0], [0.032, -0.05, 0]], 0.018, 3);
-  hook.add(setFinish(lump('brass', sweep(J, { radius: 0.0065, segs: 5, ends: 'flat', taper: (t) => 1 - 0.45 * t, step: 0.02 }), mix('steel', 'steel', 0, 1.15)), 0.5));
-  // the cradle: two rope loops round a crate hanging from the hook's bowl (sized to an S crate, 0.3; the pose scales it)
+  hook.add(setFinish(lump('brass', turn(profile(0, -0.03).to(0.006, -0.03, { sharp: true }).to(0.003, 0, { sharp: true }).to(0, 0.004), { segs: 6, caps: false }), BRASS), 0.7));
+  const canopy = turn(profile(0, -0.215).to(0.009, -0.215, { sharp: true }).to(0.021, -0.165, { smooth: true }).to(0.016, -0.09, { smooth: true }).to(0.005, -0.028, { sharp: true }).to(0, -0.026), { segs: 8, caps: false });
+  // the furled panels: a slight twist of flutes
+  hook.add(wear(lump('felt', deform(canopy, (x, y, z) => {
+    const a = Math.atan2(z, x) + y * 6;
+    const rr = Math.hypot(x, z) * (1 + 0.12 * Math.cos(a * 4));
+    return [Math.cos(a - y * 6) * rr, y, Math.sin(a - y * 6) * rr];
+  }), mix('ink', 'teal-deep', 0.3, 0.9)), 0.3));
+  hook.add(lump('paper', transform(turn(profile(0.016, -0.135).to(0.0185, -0.135, { sharp: true }).to(0.0185, -0.125, { sharp: true }).to(0.016, -0.125).close(), { segs: 8 }), new Matrix4()), ROPE));
+  const crook = polylinePath([[0, -0.215, 0], [0, -0.255, 0], [0.006, -0.282, 0], [0.034, -0.288, 0], [0.042, -0.262, 0]], 0.016, 3);
+  hook.add(wear(lump('steel', sweep(crook, { radius: 0.0068, segs: 5, ends: 'round' }), mix('wood-light', 'wood', 0.4, 0.9)), 0.2, 0.5));
+  // the cradle: two rope loops round a crate, hanging from the crook's bowl (built for an S crate, 0.3; the pose scales it)
   const sling = hook.node('sling', rest.sling);
   const e = 0.3, topY = -0.1, s2 = e / 2 + 0.004;
-  const rope = (pts: Array<[number, number, number]>): KitPart => lump('paper', sweep({ points: pts.map(([x, y, z]) => new Vector3(x, y, z)) }, { radius: 0.0055, segs: 3, ends: 'flat' }), mix('wood-light', 'paper', 0.35, 0.9));
-  const bowl: [number, number, number] = [0.012, -0.0, 0];
+  const rope = (pts: Array<[number, number, number]>): KitPart => lump('paper', sweep({ points: pts.map(([x, y, z]) => new Vector3(x, y, z)) }, { radius: 0.0055, segs: 3, ends: 'flat' }), ROPE);
+  const bowl: [number, number, number] = [0, 0, 0];
   sling.add(rope([bowl, [-s2, topY, 0], [-s2, topY - e - 0.008, 0], [s2, topY - e - 0.008, 0], [s2, topY, 0], bowl]));
   sling.add(rope([bowl, [0, topY, -s2], [0, topY - e - 0.008, -s2], [0, topY - e - 0.008, s2], [0, topY, s2], bowl]));
 }
@@ -740,7 +655,10 @@ export function pitchBanner(o: BannerOptions = {}): Piece {
   b.add(lump('paper', face(-1, 0), mix('paper', 'brass', 0.06, 0.9), R));
   if (o.words) {
     const lw = Math.min(L * 0.92, o.words.w), lh = Math.min(H * 0.8, o.words.h);
-    b.add(texturedPart('paper', face(-1, 0.0025, { u0: 0.5 - lw / L / 2, u1: 0.5 + lw / L / 2, v0: 0.5 - lh / H / 2, v1: 0.5 + lh / H / 2 }), o.words.key));
+    const win = { u0: 0.5 - lw / L / 2, u1: 0.5 + lw / L / 2, v0: 0.5 - lh / H / 2, v1: 0.5 + lh / H / 2 };
+    // two coats of spray, so the red reads as red on the cloth and not as a pink wash
+    b.add(texturedPart('paper', face(-1, 0.0025, win), o.words.key));
+    b.add(texturedPart('paper', face(-1, 0.004, win), o.words.key));
   }
   b.add(lump('paper', face(1), mix('paper', 'brass', 0.1, 0.8), R));
   // a hem along the top and bottom edges
@@ -815,16 +733,22 @@ export const catalogue: CatalogueEntry[] = [
       if (opts.seed !== undefined) o.seed = opts.seed;
       if (opts.detail) o.detail = opts.detail;
       const t = opts['take'];
-      if (t === 'A' || t === 'B' || t === 'C') o.take = t;
+      if (t === 'A' || t === 'C' || t === 'F') o.take = t;
+      const m = opts['moustache'];
+      if (m === 'handlebar' || m === 'pencil') o.moustache = m;
+      const f = opts['felt'];
+      if (f === 'brown' || f === 'grey') o.felt = f;
+      const c = opts['cloth'];
+      if (c === 'flannel' || c === 'linen' || c === 'charcoal') o.cloth = c;
       const pose = opts['pose'];
       if (typeof pose === 'string' && pose in EXPRESSIONS) o.pose = pose as ExpressionName;
       else if (pose && typeof pose === 'object') o.pose = pose as PitchPose;
       return pitch(o);
     },
     poses: EXPRESSION_NAMES,
-    variants: { ...POSES, A: { take: 'A' }, B: { take: 'B' }, low: { detail: 'low' } },
+    variants: { ...POSES, A: { take: 'A' }, C: { take: 'C' }, F: { take: 'F' }, linen: { cloth: 'linen' }, low: { detail: 'low' } },
     camera: { distance: 4.2 },
-    note: 'Pitch (look sketch, C1): the businessman airship. ?take=A|B ?pose=rest|proud|greet|carry|strain|lower|present',
+    note: 'Pitch (look sketch, C1, round two): the businessman airship. ?take=A|C|F ?moustache=handlebar|pencil ?felt=brown|grey ?cloth=flannel|linen|charcoal ?pose=rest|proud|greet|carry|strain|lower|present',
   },
   {
     name: 'pitch-banner',
@@ -846,4 +770,3 @@ export const catalogue: CatalogueEntry[] = [
   },
 ];
 
-export { HIDDEN as PITCH_HIDDEN };

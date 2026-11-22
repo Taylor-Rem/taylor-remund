@@ -47,8 +47,8 @@
       import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
       import { realize, drawStats } from '../workshop/view/kit/realize.ts';
       import {
-        pitch, pitchBanner, pitchMast, pivotsOf, bannerWords, posePitch, EXPRESSIONS, NEUTRAL, TAKES,
-        type PitchPose, type Take, type ExpressionName,
+        pitch, pitchBanner, pitchMast, pivotsOf, bannerWords, posePitch, EXPRESSIONS, NEUTRAL, BODY,
+        type PitchPose, type Take, type ExpressionName, type Cloth,
       } from '../workshop/view/kit/pieces/pitch/index.ts';
       import { SIGN_WORDS, CREW_SCALE } from '../workshop/view/bench.ts';
 
@@ -56,7 +56,11 @@
       const canvas = document.getElementById('stage') as HTMLCanvasElement;
       const hud = document.getElementById('hud')!;
       const mode = q.get('mode') ?? 'studio';
-      const take = (['A', 'B', 'C'].includes(q.get('take') ?? '') ? q.get('take') : 'A') as Take;
+      const take = (['A', 'C', 'F'].includes(q.get('take') ?? '') ? q.get('take') : 'A') as Take;
+      const extra = { ...(q.get('moustache') === 'pencil' || q.get('moustache') === 'handlebar' ? { moustache: q.get('moustache') as 'pencil' | 'handlebar' } : {}), ...(q.get('felt') === 'grey' || q.get('felt') === 'brown' ? { felt: q.get('felt') as 'grey' | 'brown' } : {}) };
+      /** Each hat on the cloth that suits it (the sheet's choice): ?cloth= overrides. */
+      const clothOf = (t: Take): Cloth => (q.get('cloth') ? cloth : t === 'F' ? 'linen' : t === 'C' ? 'charcoal' : 'flannel');
+      const cloth = (['flannel', 'linen', 'charcoal'].includes(q.get('cloth') ?? '') ? q.get('cloth') : 'flannel') as Cloth;
       const poseName = (q.get('pose') ?? 'rest') as ExpressionName;
       const basePose: PitchPose = { ...(EXPRESSIONS[poseName] ?? NEUTRAL) };
       const yaw = Number(q.get('yaw') ?? 0);
@@ -104,8 +108,8 @@
             for (const p of posed) posePitch(p.obj, idlePose(p.pose, info.time), pivotsOf(p.take));
           },
         });
-        const addPitch = (t: Take, pose: PitchPose, at: { x: number; z: number; yaw: number; y?: number }): Object3D => {
-          const obj = show.add(pitch({ take: t, seed: 3 }), { x: at.x, y: at.y ?? 0, z: at.z, yaw: at.yaw, blob: sil ? 0 : 0.55 });
+        const addPitch = (t: Take, pose: PitchPose, at: { x: number; z: number; yaw: number; y?: number }, c: Cloth = clothOf(t)): Object3D => {
+          const obj = show.add(pitch({ take: t, cloth: c, seed: 3, ...extra }), { x: at.x, y: at.y ?? 0, z: at.z, yaw: at.yaw, blob: sil ? 0 : 0.55 });
           obj.scale.setScalar(S);
           posePitch(obj, pose, pivotsOf(t));
           posed.push({ obj, take: t, pose });
@@ -135,17 +139,24 @@
           await addCrew('fetch-porter', { pose: 'curious' }, { x: -3.2, z: 0, yaw: -25 });
           await addCrew('revert', {}, { x: -1.7, z: 0, yaw: -20 }, S / 1.25);
           await addCrew('patch-felt', { pose: 'unimpressed' }, { x: -0.2, z: 0, yaw: -10 });
-          addPitch("A", basePose, { x: 1.5, z: 0, yaw: 75, y: 0.25 });
-          addPitch("B", basePose, { x: 3.4, z: 0, yaw: 75, y: 0.25 });
+          addPitch("A", basePose, { x: 1.3, z: 0, yaw: 80 });
+          addPitch("F", basePose, { x: 4.6, z: 0, yaw: 80 });
+          addPitch("C", basePose, { x: 2.95, z: 0, yaw: 80 });
           const black = new MeshBasicMaterial({ color: new Color(0, 0, 0) });
           show.stage.scene.overrideMaterial = black;
           show.stage.scene.background = new Color(1, 1, 1);
           show.stage.scene.environment = null;
-          subject = new Box3(new Vector3(-4, 0, -0.6), new Vector3(4.4, 2.4, 0.6));
+          subject = new Box3(new Vector3(-4, 0, -0.6), new Vector3(5.6, 2.4, 0.6));
+        } else if (q.get('cloths') === '1') {
+          // the same gentleman in two (or three) cloths
+          const list = (q.get('list') ?? 'flannel,linen').split(',') as Cloth[];
+          list.forEach((c, i) => addPitch(take, basePose, { x: (i - (list.length - 1) / 2) * 2.3, z: 0, yaw: yaw || 38 }, c));
+          subject = new Box3(new Vector3(-1.2 * list.length, 0, -1), new Vector3(1.2 * list.length, 2.2, 1));
         } else if (q.get('takes') === '1') {
-          addPitch('A', basePose, { x: -1.25, z: 0, yaw: yaw || 38 });
-          addPitch('B', basePose, { x: 1.35, z: 0, yaw: yaw || 38 });
-          subject = new Box3(new Vector3(-2.4, 0, -1), new Vector3(2.5, 2.2, 1));
+          addPitch('A', basePose, { x: -2.3, z: 0, yaw: yaw || 38 });
+          addPitch('C', basePose, { x: 0, z: 0, yaw: yaw || 38 });
+          addPitch('F', basePose, { x: 2.3, z: 0, yaw: yaw || 38 });
+          subject = new Box3(new Vector3(-3.4, 0, -1), new Vector3(3.4, 2.4, 1));
         } else if (frame === 'crew') {
           await addCrew('fetch-porter', { pose: 'curious' }, { x: -1.55, z: 0.3, yaw: 20 });
           await addCrew('patch-felt', { pose: 'unimpressed' }, { x: 0.05, z: -0.2, yaw: 5 });
@@ -205,21 +216,21 @@
         let pose: PitchPose = { ...NEUTRAL };
         let place = { x: -8.25, y: 0, z: 1.0, yaw: 90 };
         let crate: { size: 'S' | 'M' | 'L' } | null = null;
-        const mast = { x: Number(q.get('mastX') ?? -8.55), z: Number(q.get('mastZ') ?? 1.2) };
+        const mast = { x: Number(q.get('mastX') ?? -7.3), z: Number(q.get('mastZ') ?? 1.1), h: Number(q.get('mastH') ?? 0.74) };
         let mastYaw = 0;
-        const hull = TAKES[take].hull;
+        const hull = BODY;
         if (at === 'moor') {
           // nose in the mast's cup, swung round to face the visitor three-quarters (a moored airship weathervanes)
           pose = { ...NEUTRAL, pitch: 0, lid: 0.66, look: [10, 6] };
-          const yawD = Number(q.get('moorYaw') ?? -50);
+          const yawD = Number(q.get('moorYaw') ?? 45);
           const d = new Vector3(Math.sin((yawD * Math.PI) / 180), 0, Math.cos((yawD * Math.PI) / 180));
           mastYaw = Math.atan2(d.z, -d.x); // turns the mast's cup (+X) to face him
-          const cup = new Vector3(0.07 + 0.03, 0.86 - 0.04 + 0.02, 0).applyAxisAngle(new Vector3(0, 1, 0), mastYaw).multiplyScalar(S).add(new Vector3(mast.x, 0, mast.z));
+          const cup = new Vector3(0.07 + 0.03, mast.h - 0.04 + 0.02, 0).applyAxisAngle(new Vector3(0, 1, 0), mastYaw).multiplyScalar(S).add(new Vector3(mast.x, 0, mast.z));
           const root = cup.clone().addScaledVector(d, -(hull.nose + 0.01) * S).add(new Vector3(0, -NEUTRAL.float * S, 0));
           place = { x: root.x, y: root.y, z: root.z, yaw: yawD };
         } else if (at === 'carry') {
           pose = { ...EXPRESSIONS.carry };
-          place = { x: 0.7, y: 1.55, z: 1.2, yaw: -35 };
+          place = { x: Number(q.get('x') ?? 1.55), y: 1.35, z: Number(q.get('z') ?? 1.0), yaw: -40 };
           crate = { size: 'S' };
         } else if (at === 'lower') {
           pose = { ...EXPRESSIONS.lower };
@@ -241,14 +252,14 @@
               update(frame: import('../workshop/view/types.ts').Frame) {
                 if (!built) {
                   built = true;
-                  obj = ctx.realize(pitch({ take, seed: 3 }));
+                  obj = ctx.realize(pitch({ take, cloth: clothOf(take), seed: 3, ...extra }));
                   obj.scale.setScalar(S);
                   obj.position.set(place.x, place.y, place.z);
                   obj.rotation.y = (place.yaw * Math.PI) / 180;
                   root.add(obj);
                   posePitch(obj, pose, pv);
                   if (at === 'moor') {
-                    const m = ctx.realize(pitchMast());
+                    const m = ctx.realize(pitchMast({ height: mast.h }));
                     m.scale.setScalar(S);
                     m.position.set(mast.x, 0, mast.z);
                     m.rotation.y = mastYaw;

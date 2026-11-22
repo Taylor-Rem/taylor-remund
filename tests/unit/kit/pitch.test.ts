@@ -26,7 +26,7 @@ function walk(n: PieceNode, f: (n: PieceNode) => void): void {
 }
 
 describe('pitch (look sketch, C1)', () => {
-  for (const take of ['A', 'B'] as const) {
+  for (const take of ['A', 'C', 'F'] as const) {
     describe(`take ${take}`, () => {
       const p = pitch({ take, seed: 3 });
       it('is deterministic for a seed', () => {
@@ -49,7 +49,7 @@ describe('pitch (look sketch, C1)', () => {
   }
 
   it('poses every expression with finite, invertible node transforms', () => {
-    for (const take of ['A', 'B'] as const) {
+    for (const take of ['A', 'C', 'F'] as const) {
       const pv = pivotsOf(take);
       for (const e of EXPRESSION_NAMES) {
         const ms = poseMatrices(EXPRESSIONS[e], pv);
@@ -73,7 +73,7 @@ describe('pitch (look sketch, C1)', () => {
   });
 
   it('reports its budget', () => {
-    for (const take of ['A', 'B'] as const) console.log(budget(pitch({ take })).text);
+    for (const take of ['A', 'C', 'F'] as const) console.log(budget(pitch({ take })).text);
     console.log(budget(pitchBanner()).text);
     console.log(budget(pitchMast()).text);
   });
