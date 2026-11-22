@@ -20,6 +20,7 @@
 import type { ProjectCrate, SceneDesc } from './scene.ts';
 import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
 import type { LedgerBeat, LedgerBeatKind } from './machines/shared/ledger-board.ts';
+import type { PressBeat, PressBeatKind } from './machines/shared/report-press.ts';
 
 export type { ProjectCrate, SceneDesc };
 
@@ -396,6 +397,8 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
+  /** The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope): the page eases back to the view the look left, if the visitor has not moved the camera since. */
+  | { readonly type: 'look.back' }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }
@@ -405,6 +408,17 @@ export type SimEvent =
   | { readonly type: 'ledger.refused'; readonly id: Id; readonly board: Id }
   /** A beat of the board's show, in the step it falls due (for sound): `beat` as `LedgerBeatKind`, the token it moves and where to. */
   | { readonly type: 'ledger.beat'; readonly id: Id; readonly board: Id; readonly show: LedgerShow['kind']; readonly beat: LedgerBeatKind; readonly token: number | null; readonly to: string | null; readonly month: number | null; readonly on?: boolean }
+  // ── P4 D3: the report press (sim/machines/press.ts) ──
+  /** A pull printed: the report (`marks` shipments, 0 an honest empty report), a copy in the drawer, and the envelope out (`envelope`) or the bed's shrug. */
+  | { readonly type: 'press.printed'; readonly id: Id; readonly body: Id; readonly marks: number; readonly envelope: boolean }
+  /** A beat of a pull's sequence, in the step it falls due (for sound): `beat` as `PressBeatKind`, `n` which click or fold. */
+  | { readonly type: 'press.beat'; readonly id: Id; readonly body: Id; readonly beat: PressBeatKind; readonly n: number }
+  /** The spring arm flicked the envelope: from the bed toward the belt, `flight` seconds in the air (0: set down at once, reduced motion). */
+  | { readonly type: 'press.flicked'; readonly id: Id; readonly envelope: Id; readonly from: Vec3; readonly to: Vec3; readonly flight: number }
+  /** A pull refused politely: the envelope is in the air (the lever gives and springs back; nothing is printed). */
+  | { readonly type: 'press.refused'; readonly id: Id; readonly body: Id }
+  /** The envelope, shipped, is back in the press (folded flat). */
+  | { readonly type: 'press.home'; readonly id: Id; readonly envelope: Id }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
@@ -722,7 +736,42 @@ export interface LedgerView extends MachineViewBase {
   readonly crankMisfire: { readonly level: 1 | 2; readonly since: number } | null;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView;
+/**
+ * P4 D3: the report press (sim/machines/press.ts). `report` and `drawer` are the press's durable fields (what its two
+ * holders show: paint names oldest first, null when nothing has been printed; the copies in its drawer); `seal` the
+ * envelope's. `envelopeIn`: the envelope is in the press, on the arm's bed. `show` is the pull being shown (`before`
+ * the report its holders showed, `after` the new one, `drawer` the count before, `envelope` whether it is folded and
+ * flicked), `since` seconds in; null when the press is drawn as its state says. `shrug` seconds since the bed last
+ * came up empty (Infinity before). `shipments` how many the press has on its record (the next report's size, up to
+ * twelve). `misfire` is the lever's.
+ */
+export interface PressShow {
+  readonly since: number;
+  readonly before: readonly string[] | null;
+  readonly after: readonly string[] | null;
+  readonly drawer: number;
+  readonly envelope: boolean;
+  readonly beats: readonly PressBeat[];
+  readonly length: number;
+}
+export interface PressView extends MachineViewBase {
+  readonly kind: 'press';
+  readonly body: Id;
+  readonly envelope: Id;
+  readonly lever: Id;
+  readonly report: readonly string[] | null;
+  readonly drawer: number;
+  readonly seal: string | null;
+  readonly envelopeIn: boolean;
+  readonly show: PressShow | null;
+  readonly waiting: boolean;
+  readonly shrug: number;
+  /** Seconds since a pull was refused because the envelope was in the air (Infinity before). */
+  readonly refused: number;
+  readonly shipments: number;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PressView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

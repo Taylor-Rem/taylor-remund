@@ -111,9 +111,18 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
         log.push('lid');
       } else {
         if (r.chance(0.3)) {
+          // (D1 part five) and half the time at a random moment of the board's way back from the dock
+          if (r.chance(0.5)) {
+            carry(onBelt(r.range(0.2, 0.8)), [0, 0, 0]);
+            run(r.int(16 * 60) + 1);
+            SEEN.resetOnTheWay = (SEEN.resetOnTheWay ?? 0) + 1;
+            log.push(`reset with the board ${w.mode(B)} (${w.part(B)!.location.at})`);
+          } else log.push('reset');
           w.dispatch({ type: 'reset' });
           SEEN.reset!++;
-          log.push('reset');
+          run(1);
+          // stowed in its crate at once, wherever it was
+          if (w.mode(B) !== 'gone' || w.part(B)!.location.at !== 'in') throw new Error(`after a reset the board is ${w.mode(B)} (${JSON.stringify(w.part(B)!.location)})`);
         }
       }
       run(r.chance(0.5) ? r.int(20) + 1 : r.int(240) + 30);

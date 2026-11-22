@@ -32,6 +32,11 @@
       "board": { "text": "Ledger board", "kind": "ui", "provisional": true, "source": "P4 D1 brief (the counting board in the Ledger Management System crate; DEMO-CONCEPTS.md concept 1, approved 2026-11-21). The board's name in the controls list and the live region. New name, D1: for Taylor" },
       "crank": { "text": "Ledger board crank", "kind": "ui", "provisional": true, "source": "P4 D1 brief (a small crank on the hopper deals a month's payments). New name, D1: for Taylor" },
       "plunger": { "text": "Ledger board plunger", "kind": "ui", "provisional": true, "source": "P4 D1 brief (one plunger: the repair; case study: \"A one-click repair\"). New name, D1: for Taylor" }
+    },
+    "press": {
+      "body": { "text": "Report press", "kind": "ui", "provisional": true, "source": "P4 D3 brief (a table-top press in the Report Generation Framework crate; DEMO-CONCEPTS.md concept 3, approved 2026-11-21, and the lead's second refinement). The press's name in the controls list and the live region. New name, D3: for Taylor" },
+      "lever": { "text": "Report press lever", "kind": "ui", "provisional": true, "source": "P4 D3 brief (one lever, the only control). New name, D3: for Taylor" },
+      "envelope": { "text": "Envelope", "kind": "ui", "provisional": true, "source": "P4 D3 brief (the envelope the press folds and flicks onto the belt; /resume/ Report Generation Framework: \"async email delivery\"). New name, D3: for Taylor" }
     }
   },
   "stations": {
@@ -102,6 +107,12 @@
     "opened": { "text": "{thing} opened.", "kind": "ui", "provisional": true, "source": "event crate.opened (S5: a project crate's latch pressed open). New words, S5: for Taylor" },
     "shutBy": { "text": "{thing} shut.", "kind": "ui", "provisional": true, "source": "event crate.shut, by the visitor's own press or a clap shut when it was picked up, struck or shipped (S5). New words, S5: for Taylor" },
     "reset": { "text": "The workshop is reset.", "kind": "ui", "provisional": true, "source": "event reset (REWRITE.md § B4: \"Reset the workshop\" in the settings). P3 B2: for Taylor" },
+    "pressPrinted": { "text": "Printed: {count} shipments.", "kind": "ui", "provisional": true, "source": "event press.printed (P4 D3: the report press's lever; the report is what the dock has shipped this visit, one mark each, the last twelve). New words, D3: for Taylor" },
+    "pressPrintedOne": { "text": "Printed: one shipment.", "kind": "ui", "provisional": true, "source": "event press.printed with one mark (P4 D3). New words, D3: for Taylor" },
+    "pressPrintedNone": { "text": "Printed: nothing has shipped yet.", "kind": "ui", "provisional": true, "source": "event press.printed with no marks (P4 D3: an honest empty report). New words, D3: for Taylor" },
+    "pressStillOut": { "text": "The envelope is still out.", "kind": "ui", "provisional": true, "source": "event press.printed without the envelope (P4 D3: while the envelope is out, a pull still prints and stores, and the arm's bed comes up empty). New words, D3: for Taylor" },
+    "pressRefused": { "text": "Not yet: the envelope is in the air.", "kind": "ui", "provisional": true, "source": "event press.refused (P4 D3 round two: a pull while the envelope is in the air is refused politely; the lever gives and springs back). New words, D3: for Taylor" },
+    "pressHome": { "text": "The envelope is back in the press.", "kind": "ui", "provisional": true, "source": "event press.home (P4 D3: the envelope, shipped, comes home to the press, never up the chute). New words, D3: for Taylor" },
     "ledgerDealt": { "text": "Dealt.", "kind": "ui", "provisional": true, "source": "event ledger.dealt (P4 D1: the ledger board's crank, or the board dealing itself as its crate opens). New words, D1: for Taylor" },
     "ledgerBounced": { "text": "One payment bounced.", "kind": "ui", "provisional": true, "source": "event ledger.dealt (P4 D1: every deal has one bounced payment, the rubber token); case study: \"bounced payments\". New words, D1: for Taylor" },
     "ledgerRepaired": { "text": "Repaired: one charge unpaid, one payment bounced.", "kind": "ui", "provisional": true, "source": "event ledger.repaired (P4 D1: the plunger; case study: \"clears the allocations of a target month and re-processes its transactions in order, month by month, unwinding and re-applying bounced payments\"). New words, D1: for Taylor" },

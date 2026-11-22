@@ -26,7 +26,7 @@ import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { CRATES_TUNING, LEDGER } from '../../../sim/index.ts';
+import { CRATES_TUNING, LEDGER, PRESS } from '../../../sim/index.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
 export const LID_FEEL = {
@@ -129,6 +129,8 @@ export const station: BenchStation = {
     const crate = k.entry('crate');
     const block = k.entry('test-block');
     const ledgerBoard = k.entry('ledger-board');
+    const reportPress = k.entry('report-press');
+    const reportEnvelope = k.entry('report-envelope');
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     const things = new Set((k.scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [c.holds] : [])));
     const both = legendBoth();
@@ -151,6 +153,8 @@ export const station: BenchStation = {
         known: k.scene.parts,
         piece: (p, half, extras) => {
           if (p.id === LEDGER.board && ledgerBoard) return buildEntry(ledgerBoard, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D1: the ledger board
+          if (p.id === PRESS.body && reportPress) return buildEntry(reportPress, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D3: the report press
+          if (p.id === PRESS.envelope && reportEnvelope) return buildEntry(reportEnvelope, null, { seed: hashSeed(p.id) }, ctx.labels); // and its envelope
           if (things.has(p.id) && block) {
             // a crate's thing: the stand-in is the kit's test block, at the thing's size (its width across)
             return buildEntry(block, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels);
@@ -195,7 +199,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           const of = [...projects.values()].find((x) => x.holds === part.id);
           if (of?.card !== undefined) ctx.pickable(`${of.card}.thing`, obj, { pad: 0, active: () => false });
         }
-        if (things.has(part.id) && part.id !== LEDGER.board) {
+        if (things.has(part.id) && part.id !== LEDGER.board && part.id !== PRESS.body) {
           // the stand-in thing: the test block is a unit across; scaled to the thing's body
           const s = (half[0] * 2) / 1.16;
           obj.scale.setScalar(s);
@@ -225,7 +229,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const trayZ = half[2] * CRATES_TUNING.trayForward; // (where the world sets a thing down: sim/machines/crates.ts trayPose)
         const cardZ = -m.d / 2 + 0.035;
         const holds = pc.holds !== undefined;
-        const lift = holds ? Math.max(0, trayY + 0.012 + THING.height - (trayZ - THING.depth / 2 - cardZ) * TAN_PITCH + 0.02) : 0;
+        const allows = pc.thing ?? THING; // (P4 D3 round three) what this tray allows its thing
+        const lift = holds ? Math.max(0, trayY + 0.012 + allows.height - (trayZ - allows.depth / 2 - cardZ) * TAN_PITCH + 0.02) : 0;
         const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize, cap: PLATE_CAP }, trayY, trayZ, lift });
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
@@ -262,7 +267,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           const cs = projectCardSize(size);
           // (round three) and a thing on the tray, whole: as wide as the mouth, as deep as the tray allows
           const hw2 = Math.max(cs.w / 2, holds ? m.w / 2 : 0) + 0.02;
-          const front = holds ? Math.max(m.d * 0.36, trayZ + THING.depth / 2) : m.d * 0.36;
+          const front = holds ? Math.max(m.d * 0.36, trayZ + allows.depth / 2) : m.d * 0.36;
           ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -m.d / 2), new Vector3(hw2, rim + lift + 0.03 + P.lift + cs.h, front)), pad: 0, active: () => false });
         }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand

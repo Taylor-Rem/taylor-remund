@@ -84,6 +84,8 @@ export interface LedgerViewOptions {
   readonly unit: Id;
   readonly crank: Id;
   readonly plunger: Id;
+  /** The board's own look target (sim LEDGER.look): what must be in the picture when it asks for the camera out on the bench. */
+  readonly look: Id;
 }
 
 const qa = new Quaternion();
@@ -176,6 +178,12 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
       plungerT.name = 'ledger:plunger.pick';
       holder.add(plungerT);
       ctx.pickable(o.plunger, plungerT, { box: new Box3(new Vector3(BOARD.plungerX - 0.055, BOARD.h + 0.02, BOARD.plungerZ - 0.03), new Vector3(BOARD.plungerX + 0.055, BOARD.plungerTop + 0.01, BOARD.plungerZ + 0.03)), pad: 0.006, active: () => shown && reachable() });
+      // what the camera must take in when the board asks to be looked at out on the bench (crates.ts "Asking for the
+      // camera", step 3): the base, the hopper, the flag up and the T-handle; never pressed
+      const lookT = new Object3D();
+      lookT.name = 'ledger:look';
+      holder.add(lookT);
+      ctx.pickable(o.look, lookT, { box: new Box3(new Vector3(-BOARD.w / 2, 0, -BOARD.d / 2), new Vector3(BOARD.w / 2, BOARD.flagY + BOARD.flagArm + BOARD.starR, BOARD.d / 2)), pad: 0, active: () => false });
     };
 
     let lastWorld: WorldView | null = null;
