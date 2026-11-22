@@ -228,6 +228,8 @@ export const LEDGER = {
   crate: 'crate-1',
   crank: 'ledger-crank',
   plunger: 'ledger-plunger',
+  /** What the camera looks at when the board asks for it out on the bench (a pick target the view registers that is never pressed). */
+  look: 'ledger-look',
   half: [0.38, 0.04, 0.215] as Vec3,
   mass: 0.1,
 } as const;
@@ -768,7 +770,7 @@ export const bench: SceneDesc = {
     // P4 S5: the project crates' latches, cards and things (last: their latches and plates follow every other control in the list)
     crates({ id: 'crates', station: 'line' }),
     // P4 D1: the ledger board's crank and plunger (after the crates: its board is on its tray before it deals itself)
-    ledger({ id: LEDGER.unit, station: 'line', board: LEDGER.board, crate: LEDGER.crate, crank: { id: LEDGER.crank, name: 'name.ledger.crank' }, plunger: { id: LEDGER.plunger, name: 'name.ledger.plunger' } }),
+    ledger({ id: LEDGER.unit, station: 'line', board: LEDGER.board, crate: LEDGER.crate, crank: { id: LEDGER.crank, name: 'name.ledger.crank' }, plunger: { id: LEDGER.plunger, name: 'name.ledger.plunger' }, look: { card: `${LEDGER.crate}-card`, board: LEDGER.look } }),
   ],
 };
 
