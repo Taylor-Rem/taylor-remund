@@ -42,7 +42,8 @@
     <div id="stage-root"><canvas id="stage"></canvas></div>
     <div id="hud"></div>
     <script>
-      import { Box3, Color, Group, MeshBasicMaterial, Vector3, type Object3D } from 'three';
+      import { Box3, Color, Group, MeshBasicMaterial, Vector3, type Material, type Object3D, type PerspectiveCamera } from 'three';
+      import { LampHalos } from '../workshop/view/effects/lamp-halos.ts';
       import { mountShowcase } from '../workshop/view/catalogue/mount.ts';
       import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
       import { realize, drawStats } from '../workshop/view/kit/realize.ts';
@@ -57,7 +58,8 @@
       const hud = document.getElementById('hud')!;
       const mode = q.get('mode') ?? 'studio';
       const take = (['A', 'C', 'F'].includes(q.get('take') ?? '') ? q.get('take') : 'A') as Take;
-      const extra = { ...(q.get('moustache') === 'pencil' || q.get('moustache') === 'handlebar' ? { moustache: q.get('moustache') as 'pencil' | 'handlebar' } : {}), ...(q.get('felt') === 'grey' || q.get('felt') === 'brown' ? { felt: q.get('felt') as 'grey' | 'brown' } : {}) };
+      const hookKind = q.get('hook') === 'hook' ? 'hook' : 'cane';
+      const extra = { hook: hookKind as 'cane' | 'hook', ...(q.get('moustache') === 'pencil' || q.get('moustache') === 'handlebar' ? { moustache: q.get('moustache') as 'pencil' | 'handlebar' } : {}), ...(q.get('felt') === 'grey' || q.get('felt') === 'brown' ? { felt: q.get('felt') as 'grey' | 'brown' } : {}) };
       /** Each hat on the cloth that suits it (the sheet's choice): ?cloth= overrides. */
       const clothOf = (t: Take): Cloth => (q.get('cloth') ? cloth : t === 'F' ? 'linen' : t === 'C' ? 'charcoal' : 'flannel');
       const cloth = (['flannel', 'linen', 'charcoal'].includes(q.get('cloth') ?? '') ? q.get('cloth') : 'flannel') as Cloth;
@@ -89,6 +91,45 @@
         };
       }
 
+      /**
+       * His running lamps and his eye glow through the shared halo layer (view/effects/lamp-halos.ts), as the
+       * stations' pilot lamps do. In the game they would join the tells' one halo mesh; on this page they get one of
+       * their own. Brighter with the lamp off.
+       */
+      function pitchGlow(materials: unknown, scene: { add(o: Object3D): unknown }) {
+        const halos = new LampHalos(materials as { halo?: () => Material }, 24);
+        halos.mesh.renderOrder = 10;
+        scene.add(halos.mesh);
+        const v = new Vector3();
+        return (camera: PerspectiveCamera, items: Array<{ obj: Object3D; take: Take }>, night: boolean): void => {
+          camera.updateMatrixWorld();
+          halos.begin(camera, Math.max(1, innerHeight));
+          for (const it of items) {
+            const pv = pivotsOf(it.take, hookKind);
+            const f = it.obj.getObjectByName('float');
+            const eye = it.obj.getObjectByName('eye');
+            if (!f) continue;
+            f.updateWorldMatrix(true, false);
+            const sc = it.obj.scale.x;
+            const o = new Vector3().setFromMatrixPosition(f.matrixWorld);
+            const cam = new Vector3().setFromMatrixPosition(camera.matrixWorld);
+            for (const l of pv.lamps) {
+              v.set(...l).applyMatrix4(f.matrixWorld);
+              // only a lamp on the side the camera sees glows (the far one is behind the envelope)
+              const side = v.clone().sub(o).setY(0).normalize();
+              const look = cam.clone().sub(o).setY(0).normalize();
+              if (side.dot(look) < 0.15) continue;
+              halos.add(v, 0.09 * sc, 10, night ? 1 : 0.55);
+            }
+            if (eye) {
+              eye.updateWorldMatrix(true, false);
+              halos.add(v.set(0, 0, 0.1).applyMatrix4(eye.matrixWorld), 0.08 * sc, 8, night ? 0.75 : 0.25);
+            }
+          }
+          halos.end();
+        };
+      }
+
       if (mode === 'bench') await benchMode();
       else await studioMode();
 
@@ -97,6 +138,7 @@
         const sil = q.get('sil') === '1';
         const frame = q.get('frame') ?? (q.get('crew') === '1' ? 'crew' : 'close');
         const posed: Array<{ obj: Object3D; take: Take; pose: PitchPose }> = [];
+        let glow: ReturnType<typeof pitchGlow> | null = null;
         const show = await mountShowcase(canvas, {
           tier: 'high',
           manual,
@@ -105,19 +147,21 @@
           ...(sil ? { post: false } : {}),
           ...(lamp !== null ? { lamp } : {}),
           onFrame(info) {
-            for (const p of posed) posePitch(p.obj, idlePose(p.pose, info.time), pivotsOf(p.take));
+            for (const p of posed) posePitch(p.obj, idlePose(p.pose, info.time), pivotsOf(p.take, hookKind));
+            if (glow && !sil) glow(show.stage.camera.camera, posed, lamp === 0);
           },
         });
+        glow = pitchGlow(show.materials, show.stage.scene);
         const addPitch = (t: Take, pose: PitchPose, at: { x: number; z: number; yaw: number; y?: number }, c: Cloth = clothOf(t)): Object3D => {
           const obj = show.add(pitch({ take: t, cloth: c, seed: 3, ...extra }), { x: at.x, y: at.y ?? 0, z: at.z, yaw: at.yaw, blob: sil ? 0 : 0.55 });
           obj.scale.setScalar(S);
-          posePitch(obj, pose, pivotsOf(t));
+          posePitch(obj, pose, pivotsOf(t, hookKind));
           posed.push({ obj, take: t, pose });
           if (pose.banner > 0) {
             const tow = obj.getObjectByName('float');
             if (tow) {
               const ban = realize(pitchBanner({ words: bannerWords(show.labels, SIGN_WORDS) }), show.materials);
-              const pv = pivotsOf(t);
+              const pv = pivotsOf(t, hookKind);
               ban.position.set(pv.tow[0], pv.tow[1], pv.tow[2]);
               tow.add(ban);
             }
@@ -212,7 +256,7 @@
         const { benchGlue, startBench } = await import('../workshop/shell/bench-stage.ts');
         const { earlyPhysics } = await import('../workshop/shell/early.ts');
         const at = q.get('at') ?? 'moor';
-        const pv = pivotsOf(take);
+        const pv = pivotsOf(take, hookKind);
         let pose: PitchPose = { ...NEUTRAL };
         let place = { x: -8.25, y: 0, z: 1.0, yaw: 90 };
         let crate: { size: 'S' | 'M' | 'L' } | null = null;
@@ -247,6 +291,7 @@
           let obj: Object3D | null = null;
           return (ctx: import('../workshop/shell/boot.ts').BootViewContext) => {
             ctx.scene.add(root);
+            const glow = pitchGlow(ctx.materials, ctx.scene);
             return {
               root,
               update(frame: import('../workshop/view/types.ts').Frame) {
@@ -289,7 +334,10 @@
                     })();
                   }
                 }
-                if (obj) posePitch(obj, idlePose(pose, frame.time), pv);
+                if (obj) {
+                  posePitch(obj, idlePose(pose, frame.time), pv);
+                  glow(ctx.stage.camera.camera, [{ obj, take }], lamp === 0);
+                }
               },
               dispose() {
                 root.removeFromParent();

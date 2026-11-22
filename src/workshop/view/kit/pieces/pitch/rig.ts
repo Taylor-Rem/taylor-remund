@@ -30,6 +30,9 @@ export type Take = 'A' | 'C' | 'F';
 
 export type Moustache = 'handlebar' | 'pencil';
 
+/** What the winch lowers: the chairman's cane (by its tip; the crook takes the sling) or a plain brass hook. */
+export type Hook = 'cane' | 'hook';
+
 /** The cloth of his suit. */
 export type Cloth = 'flannel' | 'linen' | 'charcoal';
 
@@ -141,6 +144,10 @@ export interface Pivots {
   car: [number, number, number];
   /** The winch drum's axle, in the car's frame. */
   drum: [number, number, number];
+  /** Where the crate's sling hangs, in the hook's frame (the cane's crook, or the brass hook's bowl). */
+  sling: [number, number, number];
+  /** His running lamps, in the float's frame (for their glow). */
+  lamps: Array<[number, number, number]>;
 }
 
 /** The node transforms for a pose. */
@@ -152,8 +159,8 @@ export function poseMatrices(pose: PitchPose, pv: Pivots): Record<string, Matrix
   out.lid = M([0, 0, 0], R(lidAngle(pose.lid), 0, 0));
   // the hat: lifted along its own up and tipped forward toward the visitor
   const h = Math.max(0, Math.min(1, pose.hat));
-  const lift = Math.sin(h * Math.PI * 0.5) * 0.16;
-  out.hat = M([pv.hat[0], pv.hat[1] + lift, pv.hat[2] + h * 0.07], R(pv.hatTilt + h * 30, 0, h * -10));
+  const lift = Math.sin(h * Math.PI * 0.5) * 0.26;
+  out.hat = M([pv.hat[0], pv.hat[1] + lift, pv.hat[2] + h * 0.07], R(pv.hatTilt + h * 38, 0, h * -14));
   out.tie = M(pv.knot, R(pose.tie[0], 0, pose.tie[1]));
   out.tieTip = M([0, -pv.tieMid, 0], R(pose.tie[0] * pose.tieLag, 0, pose.tie[1] * pose.tieLag));
   out.prop = M(pv.prop, R(0, 0, pose.prop));
@@ -169,7 +176,7 @@ export function poseMatrices(pose: PitchPose, pv: Pivots): Record<string, Matrix
   const hq = swing.clone().multiply(R(stow * 90, 0, 0));
   out.hook = M([pv.drum[0] + drop.x, pv.drum[1] + drop.y + stow * 0.03, pv.drum[2] + drop.z + stow * 0.012], hq);
   const sl = pose.sling > 0 ? pose.sling / 0.3 : HIDDEN;
-  out.sling = M([0.024, -0.284, 0], new Quaternion(), sl);
+  out.sling = M(pv.sling, new Quaternion(), sl);
   out.banner = M(pv.tow, new Quaternion(), pose.banner > 0 ? 1 : HIDDEN);
   return out;
 }
