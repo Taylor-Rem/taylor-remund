@@ -13,7 +13,7 @@
  * Labels can be passed now or later with `setLabels` (the label textures are
  * made by view/labels, which may be built after the materials).
  */
-import { AdditiveBlending, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Object3D, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { AdditiveBlending, MeshBasicMaterial, type Mesh, MeshPhysicalMaterial, MeshStandardMaterial, ShaderChunk, type Color, type Data3DTexture, type Material, type Object3D, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
@@ -475,7 +475,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       let n = 0;
       root.traverse((o) => {
         const mesh = o as Mesh;
-        if (!(mesh instanceof Mesh) || Array.isArray(mesh.material)) return;
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
         const make = twinOf.get(mesh.material);
         if (!make) return;
         let t = twins.get(mesh.material);
