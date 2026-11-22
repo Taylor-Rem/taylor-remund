@@ -68,7 +68,7 @@ const stop = (page: Page) =>
   });
 
 /** Tab until the focused element's text starts with `text` (at most `max` presses). */
-async function tabTo(page: Page, text: string | RegExp, max = 40): Promise<void> {
+async function tabTo(page: Page, text: string | RegExp, max = 60): Promise<void> {
   for (let i = 0; i < max; i++) {
     await page.keyboard.press('Tab');
     const s = await stop(page);

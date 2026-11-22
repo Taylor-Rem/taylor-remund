@@ -2,16 +2,18 @@
 // /resume/ (REWRITE.md § 2, § F1): the engineer's view, carried whole from the
 // live page into the Paper layout. Every word is src/content/resume.json; this
 // file holds structure only. Anchors that must keep working (§ 2): #about,
-// #skills, #projects, #patchlamp, #experience, #contact.
+// #skills, #projects, #patchlamp, #experience, #contact. A project entry is
+// src/components/paper/ProjectEntry.astro, the same component the workshop's
+// project cards are drawn with.
 import Paper from '../layouts/Paper.astro';
-import { resume, isLink } from '../content/resume.ts';
+import { resume } from '../content/resume.ts';
 import { personJsonLd } from '../content/person.ts';
 import { renderInline } from '../components/paper/inline.ts';
 import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
+import ProjectEntry from '../components/paper/ProjectEntry.astro';
 
 const { page, nav, about, figures, skills, projects, experience, contact } = resume;
 const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
-const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 // Person structured data: only what the page itself states (the home page carries the same).
 const jsonLd = personJsonLd();
@@ -62,22 +64,7 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
     <h2 class="title" id="projects-title">{projects.heading.text}</h2>
     <p class="intro" set:html={rich(projects.intro.text)} />
     <div class="entries">
-      {projects.entries.map((e) => (
-        <article class="entry project" id={e.id} aria-labelledby={`p-${slug(e.title.text)}`}>
-          <p class="entry-label">{e.label.text}</p>
-          <h3 class="entry-title" id={`p-${slug(e.title.text)}`}>{e.title.text}</h3>
-          <p class="entry-subtitle">{e.subtitle.text}</p>
-          <div class="entry-body">{e.paragraphs.map((p) => <p set:html={rich(p.text)} />)}</div>
-          <ul class="tags">{e.tags.map((t) => <li>{t.text}</li>)}</ul>
-          {e.links.length > 0 && (
-            <ul class="entry-links">
-              {e.links.map((l) => isLink(l)
-                ? <li><a href={l.href} {...printAttrs(l.href, l.text)} {...externalAttrs(l.href)}>{l.text}</a></li>
-                : <li class="private">{l.text}</li>)}
-            </ul>
-          )}
-        </article>
-      ))}
+      {projects.entries.map((e) => <ProjectEntry entry={e} />)}
     </div>
   </section>
 

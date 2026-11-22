@@ -1,0 +1,30 @@
+---
+// The maker's plate, in the paperwork on `/` (REWRITE.md § B7: "the maker's plate under the sign for the workshop
+// itself"; § 3: how this site was built, in words Taylor approves; § G "P4 as Taylor amended it"). The plate over
+// the stage opens this same section (src/workshop/ui/panels/panel.ts clones it) and adds what only a running bench
+// has: the frame time and the history the UNDO lever replays (Panels.astro's `pn-live`).
+//
+// The test count is never typed: scripts/test-count.ts writes src/content/bench-tests.json from a vitest run in
+// which every test passed, with the run's date. Without that file the line is left out.
+import { hatches } from '../../content/hatches.ts';
+import { renderInline } from './inline.ts';
+
+interface BenchTests {
+  count: { text: string };
+  date: { text: string };
+}
+const found = Object.values(import.meta.glob<BenchTests>('../../content/bench-tests.json', { eager: true, import: 'default' }))[0];
+const m = hatches.maker;
+const t = m.live.tests;
+const testsLine = found ? t.value.text.replace('{count}', found.count.text).replace('{date}', found.date.text) : null;
+---
+<section class="pw-section pw-hatch" id="maker" aria-labelledby="maker-title">
+  <p class="pw-tape">{m.tape.text}</p>
+  <h2 class="pw-title" id="maker-title">{m.title.text}</h2>
+  <div class="pw-text">{m.paragraphs.map((p) => <p set:html={renderInline(p.text)} />)}</div>
+  {testsLine && (
+    <dl class="pw-facts">
+      <div><dt>{t.label.text}</dt><dd>{testsLine}</dd></div>
+    </dl>
+  )}
+</section>
