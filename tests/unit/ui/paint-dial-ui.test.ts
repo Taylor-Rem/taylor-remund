@@ -70,8 +70,7 @@ describe('the paint dial, for someone who cannot see it', () => {
     m = r.items();
     expect(m.get(PAINT.dial)).toBe('Paint dial');
     expect(m.get(PAINT.knob)).toBe(`Paint dial knob, 1 of ${N}`);
-    // (D2c) a press turns the paint once the double-tap window is past
-    const said = r.act({ type: 'press', id: PAINT.knob }, Math.round(PAINT_TUNING.pressWait * 60) + 2);
+    const said = r.act({ type: 'press', id: PAINT.knob }, 2);
     expect(said).toEqual(['The workshop is repainted.']);
     expect(r.items().get(PAINT.knob)).toBe(`Paint dial knob, 2 of ${N}`);
     const lines = historyLines(r.w, r.w.undoStack(), logWords());

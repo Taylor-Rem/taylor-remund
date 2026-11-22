@@ -22,8 +22,8 @@ const view = (w: World): PaintDialView => w.machine(PAINT.unit) as PaintDialView
 const press = (w: World, id: string): void => w.dispatch({ type: 'press', id });
 const turn = (w: World, value: number): void => w.dispatch({ type: 'turn', id: K, value });
 const at = (i: number): number => i / (S.length - 1);
-/** A press turns the paint once the double-tap window is past (`pressWait`), and a step. */
-const PRESS = steps(PAINT_TUNING.pressWait) + 2;
+/** Past the double-tap window (`doubleSeconds`), and a step: the next press is done at once, not held. */
+const PRESS = steps(PAINT_TUNING.doubleSeconds) + 2;
 
 /** The bench with t-components' crate opened: the dial on its tray. */
 async function opened(seed: string): Promise<{ w: World; t: Tape }> {
@@ -105,7 +105,6 @@ describe('the paint dial', () => {
   test('the bell rings once the wipe has crossed the room, for a turn and for the lever', async () => {
     const { w, t } = await opened('pd-bell');
     press(w, K);
-    t.run(PRESS);
     t.run(steps(PAINT_TUNING.wipeSeconds) - 3);
     expect(t.of('paint.wiped')).toHaveLength(0);
     t.run(5);
@@ -251,25 +250,36 @@ describe('the paint dial', () => {
     w.dispose();
   });
 
-  test('(D2c) a double-tap only looks: its first tap\'s press is withdrawn, the camera asked to its crate\'s card; out on the bench, to the dial', async () => {
+  test('(D2c) a double-tap turns once and looks: its second press is held a moment and dropped by the select; the camera asked to its crate\'s card; out on the bench, to the dial', async () => {
     const { w, t } = await opened('pd-select');
     const n0 = w.undoStack().length;
     // the double-tap as the input sends it: the first tap's press, the second tap's press, then the select
     press(w, K);
-    t.run(3);
-    expect(view(w).pending).toBe(1); // the knob is drawn one on at once
-    expect(scheme(w)).toBe(S[0]); // the paint waits
+    const first = t.run(3);
+    expect(scheme(w)).toBe(S[1]); // the first tap is a press like any other: done at once
+    expect(first.filter((e) => e.type === 'paint.turned')).toHaveLength(1);
     press(w, K);
-    t.run(3);
-    expect(view(w).pending).toBe(2);
+    t.run(1);
+    expect(scheme(w)).toBe(S[1]); // the second, this soon after, is held
     w.dispatch({ type: 'select', id: K });
     const ev = t.run(PRESS);
-    expect(scheme(w)).toBe(S[0]);
-    expect(view(w).pending).toBeNull();
+    expect(scheme(w)).toBe(S[1]); // and dropped: half of the double-tap
     expect(ev).toContainEqual({ type: 'look', target: `${PAINT.crate}-card` });
     expect(ev.some((e) => e.type === 'paint.turned' || e.type === 'look.back')).toBe(false);
-    // nothing recorded: the withdrawn press left no transaction for the lever to find
-    expect(w.undoStack().length).toBe(n0);
+    expect(w.undoStack().length).toBe(n0 + 1);
+    // two quick presses with no select: both turn (the second a moment late)
+    press(w, K);
+    t.run(2);
+    press(w, K);
+    t.run(PRESS);
+    expect(scheme(w)).toBe(S[3]);
+    // a quick run of presses (the keys): one turn a press, none dropped
+    for (let i = 0; i < 3; i++) {
+      press(w, K);
+      t.run(2);
+    }
+    t.run(PRESS);
+    expect(scheme(w)).toBe(S[(3 + 3) % S.length]);
     // out on the bench: a select on the dial itself looks at the dial
     putOn(w, t, D, [-0.4, 0, -1.0]);
     t.run(HZ);
@@ -278,7 +288,7 @@ describe('the paint dial', () => {
     w.dispose();
   });
 
-  test('(D2c) a turn by hand sends the camera back out (look.back), a press once its window is past and a drag at once; the lever and a reset do not', async () => {
+  test('(D2c) a turn by hand sends the camera back out (look.back), a press and a drag alike; the lever and a reset do not', async () => {
     const { w, t } = await opened('pd-back');
     press(w, K);
     expect(t.run(PRESS).filter((e) => e.type === 'look.back')).toHaveLength(1);

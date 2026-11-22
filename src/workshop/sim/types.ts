@@ -746,8 +746,6 @@ export interface PaintDialView extends MachineViewBase {
   readonly schemes: readonly string[];
   readonly scheme: string;
   readonly index: number;
-  /** (D2c) A press waiting out the double-tap window: the place it turns to (the knob is drawn there at once), or null. */
-  readonly pending: number | null;
   readonly change: { readonly from: string; readonly to: string; readonly since: number; readonly by: 'hand' | 'restore' } | null;
   readonly wipe: number;
   readonly worked: number;

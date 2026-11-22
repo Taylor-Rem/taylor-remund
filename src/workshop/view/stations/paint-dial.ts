@@ -204,8 +204,8 @@ export function createPaintDialView(o: PaintDialViewOptions): (ctx: ViewContext)
         holder.matrixWorldNeedsUpdate = true;
         holder.visible = shown;
         for (const e of frame.events) if (e.type === 'tell' && e.id === o.knob) tellAt = frame.time;
-        // the control travels to the detent the dial is at (or a waiting press's: the knob moves at once), a detent per `flick`
-        const target = lv.pending ?? lv.index;
+        // the control travels to the detent the dial is at, a detent per `flick`
+        const target = lv.index;
         // the fan's chips: the chosen one springs up
         if (up.length !== chips.length) up = chips.map((_, i) => ({ x: i === target ? 1 : 0, v: 0 }));
         const sdt = Math.min(1 / 30, Math.max(0, frame.dt));
