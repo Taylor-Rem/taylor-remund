@@ -274,6 +274,18 @@
           "provisional": true,
           "source": "P4 H1: an entry Patch made for a text (the same history, the same lever: REWRITE.md § E5 rule 4), for Taylor"
         },
+        "pulled": {
+          "text": "{thing}: report printed, copy stored",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 D3: one pull of the report press's lever, the two sheets and the drawer's copy taken back together (the envelope was already out), for Taylor"
+        },
+        "pulledSent": {
+          "text": "{thing}: report printed, copy stored, envelope sent",
+          "kind": "ui",
+          "provisional": true,
+          "source": "P4 D3: one pull of the report press's lever with the envelope folded and flicked onto the belt (/resume/ Report Generation Framework: \"async email delivery\"), all taken back together, for Taylor"
+        },
         "fields": {
           "speed": {
             "text": "speed",
