@@ -112,6 +112,10 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.lid': raw.names.lid as Entry,
   'name.plate': raw.names.plate as Entry,
   'name.standin': raw.names.standin as Entry,
+  // P4 D1: the ledger board and its two controls
+  'name.ledger.board': raw.names.ledger.board as Entry,
+  'name.ledger.crank': raw.names.ledger.crank as Entry,
+  'name.ledger.plunger': raw.names.ledger.plunger as Entry,
 };
 
 /** Every content id this module resolves. */
