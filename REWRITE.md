@@ -1913,6 +1913,51 @@ the way".*
   approves: both hatches, the paperwork, the truth table, every line the
   crew prints.
 
+**P4 as Taylor amended it, 2026-11-21** (before any of P4 was built; his
+words are quoted, the rest is the lead's summary of what was agreed). G3's
+four checks had been run on `16f34ad`: `verify` 13 of 13, the browser tests
+in three engines, `check-text`, and `shot design` clean on every page but
+the four compliance pages, whose findings are his to rule on.
+
+- **The direction.** "I want the workshop to actually demonstrate my work
+  wherever we can, not just provide creative ways to navigate to
+  information." A crate that opens to a card is a menu item dressed as an
+  object; where it can, the bench shows the work and the plain page tells
+  it. "The traditional pages can remain available for anyone who just
+  wants to read."
+- **It stays a toy first.** "It's supposed to be fun. The portfolio
+  integration should make it more interesting to explore, not turn it into
+  a series of demonstrations people are obligated to sit through."
+- **The crates on the belt are his projects** ("Absolutely. I love the idea
+  that the workshop is literally shipping my work"): stencilled with a
+  project's name as published; the pallets are his roles. Opening one
+  gives something to use, not only a card.
+- **Demonstrations.** A few projects get a thing the visitor can try, on a
+  machine that is already there or on something new "if a different
+  presentation would be better". Which projects is the lead's to evaluate
+  ("rather than treating those selections as final"); candidates he liked:
+  t-components, the ledger repair, the report framework, perhaps Support
+  Automation. Each must be "faithful to the actual work", is a claim with a
+  row in § F3, and **its concept is reviewed by him before it is built.**
+- **Pitch, a fourth member of the crew**: "a pompous little businessman
+  airship who takes his job very seriously". Primarily a courier (he
+  brings the thing asked for to the middle of the bench, which is what a
+  phone's narrow view needs); he may also show information "in a readable
+  way when appropriate". A text Patch cannot act on inside its folder may
+  be handed to him. He is in P4's design, his appearance is sketched early
+  for Taylor's eye, and he is built "when it makes technical sense. If
+  performance means he has to come afterward, that's fine."
+- **The maker's plate** may show the bench's own workings live (the history
+  the UNDO lever replays, the tests, the frame budget), in words he approves.
+- **Order.** P4 begins with a performance pass: both budgets of § E7 were
+  nearly spent at G3 (about 0.9 ms a frame to spare; usable in 2.93 s of 3).
+- **None of this is a specification.** "I don't want every good idea to
+  become a rigid requirement." A better idea found on the way is brought to
+  him (§ "What is fixed, and what may change" still holds). "Keep the
+  content and visual approval gates intact": no new visible sentence without
+  his wording, no new character or changed look without his eye, G4 as
+  written.
+
 **P5. Polish.** *Depends on:* G4.
 - Sound, the crew's idle behaviour, timing, the share card.
 - Real phones: his own, and an older one if one can be borrowed.
