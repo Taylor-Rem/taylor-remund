@@ -33,6 +33,12 @@ export const SEE_THROUGH = {
 
 /** (D2c) Seconds after this view's first frame before the ghosts' programs are built (the bench usable by then). */
 export const PREPARE_AFTER = 1.5;
+/**
+ * (D2c) ...and only once the bench has been calm this long: nothing in a hand and no loose part flying or rolling. A
+ * program links on the main thread where the GPU has no parallel compile (this laptop), long enough to jolt a hand
+ * mid-throw (measured: the juggling tests drift 0.53 where they hold under 0.3).
+ */
+export const PREPARE_CALM = 1.2;
 
 type Mode = 'on' | 'off' | 'all';
 const mode = (): Mode => {
@@ -105,9 +111,21 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
      */
     const queue: Body[] = [];
     let firstAt: number | null = null;
+    let busyAt = -Infinity;
     let preparing = false;
-    const pump = (time: number): void => {
-      if (preparing || queue.length === 0 || firstAt === null || time - firstAt < PREPARE_AFTER) return;
+    /** Something in a hand, or a loose part awake and free (thrown, falling, rolling): a hand may be at work. */
+    const busy = (w: Frame['world']): boolean => {
+      if (w.holding() !== null) return true;
+      for (const p of w.parts()) {
+        const m = w.motion(p.id);
+        if (m && m.awake && (m.mode === 'free' || m.held)) return true;
+      }
+      return false;
+    };
+    const pump = (time: number, w: Frame['world']): void => {
+      if (preparing || queue.length === 0 || firstAt === null) return;
+      if (busy(w)) busyAt = time;
+      if (time - firstAt < PREPARE_AFTER || time - busyAt < PREPARE_CALM) return;
       const b = queue.shift()!;
       const compile = ctx.stage.compileObject?.bind(ctx.stage);
       if (!ctx.materials.prepareFade || !compile) {
@@ -142,7 +160,7 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
       update(frame: Frame) {
         if (m === 'off' || !ctx.materials.fade || !ctx.targetObject) return;
         firstAt ??= frame.time;
-        pump(frame.time);
+        pump(frame.time, frame.world);
         const cam = ctx.stage.camera as CameraRig;
         const look = m === 'all' ? null : cam.look;
         const px = SEE_THROUGH.pad;
