@@ -970,6 +970,67 @@ test('P4 S5 round three: a station double-clicked still frames, the camera start
   expect(await page.evaluate(() => (window as any).__bench.ws.stage.camera.lookZoom as number)).toBeGreaterThan(1);
 });
 
+test('P4 S5 round three: on an open crate with a thing on its tray (the ledger board), the thing wins every press where it and the latch overlap; the latch is still pressable in front of it', async ({ page, browser }) => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;
+    const p = ctx ? await ctx.newPage() : page;
+    await open(p, kind === 'touch' ? 390 : 1440, kind === 'touch' ? 844 : 900);
+    // crate-1 lies at the bottom of the stack: the crate on it is set down beside it first, as a visitor would
+    await p.evaluate(() => {
+      const ws = (window as any).__bench.ws, w = ws.world;
+      const q = w.motion('crate-2').pose.p;
+      ws.dispatch({ type: 'grab', id: 'crate-2', grip: q });
+      ws.advance(10);
+      ws.dispatch({ type: 'place', at: [q[0] - 0.9, w.scene.bench.top, q[2] + 0.2] });
+      ws.advance(60);
+      ws.dispatch({ type: 'select', id: 'crate-1' });
+    });
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), 600, `${kind}: opened`).toBe(true);
+    await pollFrames(p, () => p.evaluate(() => !(window as any).__bench.ws.stage.camera.easing && (window as any).__bench.ws.surface.screen('ledger-plunger') !== null), 600, `${kind}: at rest`).toBe(true);
+    // every point over the board's controls (their boxes on screen) picks the control, never the latch
+    const sweep = await p.evaluate((k) => {
+      const ws = (window as any).__bench.ws, cam = ws.stage.camera;
+      const W = ws.stage.canvas.clientWidth, H = ws.stage.canvas.clientHeight;
+      const rect = (id: string) => {
+        const b = ws.picking.worldBox(id);
+        let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (let i = 0; i < 8; i++) {
+          const s = cam.worldToScreen({ x: i & 1 ? b.max.x : b.min.x, y: i & 2 ? b.max.y : b.min.y, z: i & 4 ? b.max.z : b.min.z });
+          const x = ((s.x + 1) / 2) * W, y = ((1 - s.y) / 2) * H;
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        }
+        return { x0, y0, x1, y1 };
+      };
+      const out = { latch: 0, points: 0, latchOwn: 0 };
+      for (const id of ['ledger-plunger', 'ledger-crank']) {
+        const r = rect(id);
+        for (let i = 0; i <= 8; i++)
+          for (let j = 0; j <= 8; j++) {
+            const t = ws.surface.at(r.x0 + ((r.x1 - r.x0) * i) / 8, r.y0 + ((r.y1 - r.y0) * j) / 8, k, null);
+            out.points++;
+            if (t.id === 'crate-1-lid') out.latch++;
+          }
+      }
+      const l = ws.surface.screen('crate-1-lid');
+      out.latchOwn = l && ws.surface.at(l.x, l.y, k, null).id === 'crate-1-lid' ? 1 : 0;
+      return out;
+    }, kind);
+    expect(sweep.latch, `${kind}: points over the board's controls that went to the latch, of ${sweep.points}`).toBe(0);
+    expect(sweep.latchOwn, `${kind}: the latch, in front of the board, is still its own target`).toBe(1);
+    // a press on the plunger leaves the crate open; the latch shuts it
+    const pl = await p.evaluate(() => (window as any).__bench.ws.surface.screen('ledger-plunger'));
+    if (kind === 'mouse') await p.mouse.click(pl.x, pl.y);
+    else await p.touchscreen.tap(pl.x, pl.y);
+    await frames(p, 30);
+    expect(await p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), `${kind}: the plunger did not shut it`).toBe(true);
+    const la = await waitClear(p, 'crate-1-lid', kind);
+    if (kind === 'mouse') await p.mouse.click(la.x, la.y);
+    else await p.touchscreen.tap(la.x, la.y);
+    await pollFrames(p, () => p.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open')), 240, `${kind}: the latch shut it`).toBe(false);
+    if (ctx) await ctx.close();
+  }
+});
+
 test('P4 S5 round two: a double-click on a crate lying still opens it where it lies and brings the camera close to its card; a double-tap does the same at the phone framing; Esc goes back', async ({ page, browser }) => {
   for (const kind of ['mouse', 'touch'] as const) {
     const ctx = kind === 'touch' ? await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }) : null;

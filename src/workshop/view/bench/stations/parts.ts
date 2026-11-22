@@ -26,7 +26,7 @@ import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { LEDGER } from '../../../sim/index.ts';
+import { CRATES_TUNING, LEDGER } from '../../../sim/index.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
 export const LID_FEEL = {
@@ -48,8 +48,14 @@ export const LID_FEEL = {
 /** The plate's engraving: one plate label for every card, made at this cap height (the plate scales it to fit). */
 const PLATE_CAP = 0.03;
 const footM = new Matrix4();
-/** (round two) The tallest thing a crate's tray holds, as its card makes room for it (world units: the test block's 0.18 and a little). */
-const THING_HEIGHT = 0.2;
+/**
+ * (round three) What a crate's tray allows a thing (world units), so things are designed under it: at most THING.height
+ * tall over the tray's floor and THING.depth deep (front to back, centred on the tray; it may overhang the tray), and as
+ * wide as the crate's mouth. The card stands high enough that a thing this tall leaves its lines and its plate clear
+ * from the camera's pitch; the latch's target keeps out of its way; a look takes it in.
+ */
+export const THING = { height: 0.3, depth: 0.4 } as const;
+const TAN_PITCH = Math.tan((33 * Math.PI) / 180);
 
 interface Lid {
   readonly crate: ProjectCrate;
@@ -204,8 +210,13 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         // (round two) a crate with a thing on its tray stands its card higher, on posts, so the thing does not cover it: its
         // foot over the thing's top less what the camera's pitch shows of it from the front (the card is behind it)
         const trayY = Math.max(0.01, 2 * half[1] + 0.006 - 0.012 - rim);
-        const lift = pc.holds !== undefined ? Math.max(0, trayY + 0.012 + THING_HEIGHT - m.d * 0.62 * Math.tan((33 * Math.PI) / 180) + 0.02) : 0;
-        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize, cap: PLATE_CAP }, trayY, lift });
+        // (round three) the card's foot over the tallest thing the tray allows, less what the pitch gains for the card standing
+        // behind it (from the thing's back edge to the card)
+        const trayZ = half[2] * CRATES_TUNING.trayForward; // (where the world sets a thing down: sim/machines/crates.ts trayPose)
+        const cardZ = -m.d / 2 + 0.035;
+        const holds = pc.holds !== undefined;
+        const lift = holds ? Math.max(0, trayY + 0.012 + THING.height - (trayZ - THING.depth / 2 - cardZ) * TAN_PITCH + 0.02) : 0;
+        const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize, cap: PLATE_CAP }, trayY, trayZ, lift });
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
         cardRoot.visible = false;
@@ -230,8 +241,10 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           lookAt.name = 'look.box';
           holder.add(lookAt);
           const cs = projectCardSize(size);
-          const hw2 = cs.w / 2 + 0.02;
-          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -m.d / 2), new Vector3(hw2, rim + lift + 0.03 + P.lift + cs.h, m.d * 0.36)), pad: 0, active: () => false });
+          // (round three) and a thing on the tray, whole: as wide as the mouth, as deep as the tray allows
+          const hw2 = Math.max(cs.w / 2, holds ? m.w / 2 : 0) + 0.02;
+          const front = holds ? Math.max(m.d * 0.36, trayZ + THING.depth / 2) : m.d * 0.36;
+          ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -m.d / 2), new Vector3(hw2, rim + lift + 0.03 + P.lift + cs.h, front)), pad: 0, active: () => false });
         }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
         // lifts a lid. Not the hasp on the front: at the camera's pitch the ray to a crate's middle crosses its front just
@@ -244,7 +257,10 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         holder.add(latch);
         const hw = Math.max(0.07, S.w * 0.2);
         const lidState = (): Lid | undefined => lids.get(part.id);
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, S.d / 2 - 0.13), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
+        // (round three) a crate with a thing on its tray: the latch's target only in front of where the thing may be, so
+        // a press on the thing (the ledger board's plunger) is the thing's and never shuts the crate
+        const latchBack = holds ? Math.max(S.d / 2 - 0.13, trayZ + THING.depth / 2) : S.d / 2 - 0.13;
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, S.h + 0.02, latchBack), new Vector3(hw, S.h + 0.06, S.d / 2 + 0.012)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
         // the plate's pick target: the plate itself, under the card (only while it stands)
         const plateTarget = new Object3D();
         plateTarget.name = 'plate.pick';

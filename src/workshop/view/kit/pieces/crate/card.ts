@@ -68,6 +68,8 @@ export interface ProjectCardOptions extends KitOptions {
   plate?: { key: string; w: number; h: number; cap: number };
   /** How far over the rim the tray's floor is (its thing sits on it), world units. */
   trayY?: number;
+  /** (round three) How far forward of the mouth's middle the tray is (where the world sets its thing down). */
+  trayZ?: number;
   /** (round two) How much higher the card stands, on two posts under its batten: over the thing on the tray, not behind it. */
   lift?: number;
 }
@@ -125,7 +127,7 @@ export function projectCard(o: ProjectCardOptions = {}): Piece {
 
   // the tray at the mouth's front, where the crate's thing sits: a shallow wooden tray with a lip
   const td = m.d * 0.34, tw = Math.min(m.w * 0.62, 0.3);
-  const trayAt = T(0, o.trayY ?? 0.01, m.d * 0.18);
+  const trayAt = T(0, o.trayY ?? 0.01, o.trayZ ?? m.d * 0.18);
   const tray = b.node('tray', trayAt);
   tray.add(part('wood', transform(bevelBox({ min: [-tw / 2, 0, -td / 2], max: [tw / 2, 0.012, td / 2], c: 0.003, omit: ['ny'] }), T(0, 0, 0)), 'wood', { seed: seed + 4, shade: 1.05 }));
   for (const [x0, x1, z0, z1] of [[-tw / 2, tw / 2, td / 2 - 0.008, td / 2], [-tw / 2, tw / 2, -td / 2, -td / 2 + 0.008], [-tw / 2, -tw / 2 + 0.008, -td / 2, td / 2], [tw / 2 - 0.008, tw / 2, -td / 2, td / 2]] as const) {

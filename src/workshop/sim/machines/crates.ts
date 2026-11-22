@@ -32,6 +32,19 @@
  *     2. the crate's entry, in the scene's `projects`:   { crate: 'crate-1', ..., holds: 'ledger-tray' }
  *     3. its piece, in the parts view (view/bench/stations/parts.ts `piece`): the kit function that draws it.
  *   (`bench.ts` `withStandIn` is the worked example: the kit's test block in t-components' crate.)
+ *   What the tray allows a thing: view/bench/stations/parts.ts `THING` (0.3 tall over the tray's floor, 0.4 deep centred
+ *   on the tray, as wide as the mouth). Taller and it stands in front of the card's lines and its plate.
+ *
+ *   Asking for the camera (any unit, any thing; round three), three steps:
+ *     1. Answer `select` (a double-click or double-tap on it) in the unit's `intent()` for its own ids, and return true.
+ *        The world has already put the thing back where it lay if the double-tap's first tap had taken it up.
+ *     2. Emit `{ type: 'look', target }` whenever the camera should come (on a select, or as a show begins). `target`
+ *        is any id; this unit's is its crate's `card` (`${crate}-card`).
+ *     3. In the view, register `target` as a pick target that is never pressed, its box what must be in the picture:
+ *        `ctx.pickable(target, object, { box, pad: 0, active: () => false })` (parts.ts does it for `${crate}-card`).
+ *        The shell (`lookAt`) brings that box close enough to read and holds it (`CameraRig.look`: a robot in front of
+ *        it goes see-through) until the visitor moves the camera. A select nobody answers frames the thing's station
+ *        once the world has stepped.
  *
  * Events: `crate.opened` and `crate.shut` (with the project and why), `crate.plate` when the card's plate is
  * pressed (the controls list and the page open the project's entry on /resume/; a panel over the stage will hear
