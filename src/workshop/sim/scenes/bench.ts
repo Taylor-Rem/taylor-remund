@@ -26,6 +26,7 @@ import { striker } from '../machines/striker.ts';
 import { dock } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { crates } from '../machines/crates.ts';
+import { ledger } from '../machines/ledger.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -215,8 +216,24 @@ export const PROJECT_OF: Readonly<Record<string, string>> = {
   'crate-spare-1': 'support-desk',
   'crate-spare-2': 'clean-green',
 };
-/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them). */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card` }));
+/**
+ * P4 D1: the ledger board, the Ledger Management System's thing (sim/machines/ledger.ts), in its crate (the large one at
+ * the bottom of the stack). A loose part with state (the tokens are its own durable field, drawn, not bodies) and two
+ * controls that ride on it. Its body: a board a little bigger than a small crate's lid, low (the hopper, the star's post
+ * and the plunger stand above its box). `half` is the view's too (view/kit/pieces/ledger-board/dims.ts holds the same).
+ */
+export const LEDGER = {
+  unit: 'ledger',
+  board: 'ledger-board',
+  crate: 'crate-1',
+  crank: 'ledger-crank',
+  plunger: 'ledger-plunger',
+  half: [0.28, 0.04, 0.19] as Vec3,
+  mass: 0.07,
+} as const;
+
+/** Each project crate's latch and its card's plate (sim/machines/crates.ts registers them); the ledger's crate holds its board. */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
@@ -701,6 +718,8 @@ export const bench: SceneDesc = {
     ...SPARES,
     ...S4_PARTS,
     PATCH_BODY,
+    // P4 D1: the ledger board, in its crate until the crate is opened
+    { id: LEDGER.board, kind: 'tool', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.ledger.board', pose: pose([0, -4, 0]), half: LEDGER.half, mass: LEDGER.mass, stowedIn: LEDGER.crate },
   ],
   fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
@@ -748,6 +767,8 @@ export const bench: SceneDesc = {
     ...PATCHLAMP_UNITS,
     // P4 S5: the project crates' latches, cards and things (last: their latches and plates follow every other control in the list)
     crates({ id: 'crates', station: 'line' }),
+    // P4 D1: the ledger board's crank and plunger (after the crates: its board is on its tray before it deals itself)
+    ledger({ id: LEDGER.unit, station: 'line', board: LEDGER.board, crate: LEDGER.crate, crank: { id: LEDGER.crank, name: 'name.ledger.crank' }, plunger: { id: LEDGER.plunger, name: 'name.ledger.plunger' } }),
   ],
 };
 

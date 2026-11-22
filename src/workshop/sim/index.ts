@@ -48,6 +48,11 @@ export { PATCH_TUNING } from './crew/patch.ts';
 export { LAMP_TUNING } from './machines/lamp.ts';
 export { STOREFRONT_START } from './machines/storefront.ts';
 export { PATCHLAMP_BEAT_SECONDS, STOREFRONT_FIELDS, LAMP_FIELDS, WINDOW_PICTURES } from './machines/shared/patchlamp.ts';
+// P4 D1: the ledger board (its scene ids, its arithmetic and its show, for the view)
+export { LEDGER } from './scenes/bench.ts';
+export { TOKENS_FIELD } from './machines/ledger.ts';
+export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
+export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';
 
 /** Load Rapier (its wasm arrives now, not with the page) and make the physics port. */
 export async function createRapierPhysics(): Promise<import('./physics/port.ts').PhysicsPort> {

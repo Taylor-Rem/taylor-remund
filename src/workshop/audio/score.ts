@@ -9,7 +9,7 @@
  * lever's phase, a crank's angle) and of what it played a moment ago (so a pile-up of contacts does
  * not become a roar).
  */
-import { HZ } from '../sim/index.ts';
+import { HZ, TIER, rubberOf } from '../sim/index.ts';
 import type { Id, PatchView, SimEvent, Vec3, WorldView } from '../sim/index.ts';
 import { soundDef } from './voices.ts';
 
@@ -271,6 +271,30 @@ export class Score {
       }
       case 'button.pressed':
         return this.play('button.clunk', now, {}, this.posOf(w, w.button().id));
+      // P4 D1: the ledger board's beats. A payment dealt into a cup clinks in its tier's note (the deal runs in tier
+      // order, so it rises: brass low, copper, steel high); the rubber one thuds; the gate clicks; the repair ends
+      // with a bell (§ B1: verb done); a refusal is a dry tick.
+      case 'ledger.beat': {
+        const at = this.posOf(w, e.board);
+        const rubber = e.token !== null && w.machine(e.id)?.kind === 'ledger' && rubberIndex(w, e.id) === e.token;
+        switch (e.beat) {
+          case 'drop':
+            return this.play(rubber ? 'hit.rubber.S' : `hit.metal.${(['L', 'M', 'S'] as const)[TIER[e.token ?? 0] ?? 0]}`, now, { gain: 0.55, lowpass: 9000 }, at);
+          case 'bounce':
+            return this.play('hit.rubber.M', now, { gain: 0.8 }, at);
+          case 'wipe':
+          case 'gather':
+            return this.play('pick.metal.S', now, { gain: 0.4 }, at);
+          case 'gate':
+            return this.play('handle.lever', now, { gain: 0.5 }, at);
+          case 'star':
+            return e.show === 'repair' && e.on === false ? this.play('dock.bell', now, { gain: 0.55 }, at) : undefined;
+          default:
+            return;
+        }
+      }
+      case 'ledger.refused':
+        return this.play('striker.air', now, { gain: 0.6 }, this.posOf(w, e.board));
       case 'cover':
         // fitted by Revert: the cover snaps shut (a visitor's lift and shut is the `handle.worked` above)
         if (e.state === 'shut' && this.lastPlayed.get('cover.snap') !== now) this.play('cover.snap', now, { gain: 0.8 }, this.posOf(w, w.button().id));
@@ -631,4 +655,10 @@ export class Score {
   }
 
   private bench: { readonly minX: number; readonly maxX: number } | null = null;
+}
+
+/** P4 D1: which payment on the ledger board is the rubber one now. */
+function rubberIndex(w: WorldView, unit: Id): number {
+  const v = w.machine(unit);
+  return v && v.kind === 'ledger' ? rubberOf(v.tokens) : -1;
 }

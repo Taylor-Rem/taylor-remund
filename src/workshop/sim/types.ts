@@ -19,6 +19,7 @@
  */
 import type { ProjectCrate, SceneDesc } from './scene.ts';
 import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
+import type { LedgerBeat, LedgerBeatKind } from './machines/shared/ledger-board.ts';
 
 export type { ProjectCrate, SceneDesc };
 
@@ -395,6 +396,15 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
+  // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
+  /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
+  | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }
+  /** The plunger repaired the board: its state is already `repaired(bounce)`; the show follows. */
+  | { readonly type: 'ledger.repaired'; readonly id: Id; readonly board: Id; readonly bounce: number }
+  /** The plunger was pressed with nothing to put right: a short refusal (its knob twitches). */
+  | { readonly type: 'ledger.refused'; readonly id: Id; readonly board: Id }
+  /** A beat of the board's show, in the step it falls due (for sound): `beat` as `LedgerBeatKind`, the token it moves and where to. */
+  | { readonly type: 'ledger.beat'; readonly id: Id; readonly board: Id; readonly show: LedgerShow['kind']; readonly beat: LedgerBeatKind; readonly token: number | null; readonly to: string | null; readonly month: number | null; readonly on?: boolean }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
@@ -684,7 +694,35 @@ export interface UndoLeverView extends MachineViewBase {
 }
 
 /** Every machine's view state; narrow on `kind`. A new machine adds its interface here. */
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView;
+/**
+ * P4 D1: the ledger board (sim/machines/ledger.ts). `tokens` is its durable value (`ledger-board.ts` `Tokens`); `wrong`
+ * whether the red star is lit by it. `show` is the change being shown: the script of beats from `before` to `after`
+ * (`after` equals `tokens`), `since` seconds in; null when the board is drawn as its state says. `waiting` a press
+ * that waits for the show to end. `refused` seconds since the plunger last refused (Infinity before); `misfire` is
+ * the plunger's, `crankMisfire` the crank's.
+ */
+export interface LedgerShow {
+  readonly kind: 'deal' | 'repair' | 'rewind';
+  readonly since: number;
+  readonly before: readonly string[];
+  readonly after: readonly string[];
+  readonly beats: readonly LedgerBeat[];
+  readonly length: number;
+}
+export interface LedgerView extends MachineViewBase {
+  readonly kind: 'ledger';
+  readonly board: Id;
+  readonly crank: Id;
+  readonly plunger: Id;
+  readonly tokens: readonly string[];
+  readonly wrong: boolean;
+  readonly show: LedgerShow | null;
+  readonly waiting: 'deal' | 'repair' | null;
+  readonly refused: number;
+  readonly crankMisfire: { readonly level: 1 | 2; readonly since: number } | null;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

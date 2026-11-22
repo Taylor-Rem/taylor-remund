@@ -179,6 +179,17 @@ export class Announcer {
         case 'crate.shut':
           if (e.why === 'press' || w.touched(e.crate)) say('shutBy', { thing: name(e.crate) });
           break;
+        // (P4 D1) the ledger board: dealt (and every deal has its bounced payment), repaired, or nothing to repair
+        case 'ledger.dealt':
+          say('ledgerDealt');
+          say('ledgerBounced');
+          break;
+        case 'ledger.repaired':
+          say('ledgerRepaired');
+          break;
+        case 'ledger.refused':
+          say('ledgerNothing');
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');
