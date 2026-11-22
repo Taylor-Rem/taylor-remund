@@ -1,0 +1,36 @@
+---
+// Patchlamp's hatch, in the paperwork on `/` (REWRITE.md § B7 "Hatches": what the real thing is, what the toy
+// shows, what the toy simplifies, the facts with their dates, and links; § F3, the toy truth table). The same
+// section is what Patchlamp's plate opens over the stage (src/workshop/ui/panels/panel.ts clones it), so the words
+// are one copy, readable by anyone without the stage (P4 H1). Every word is src/content/hatches.json; every
+// Patchlamp sentence there names its CLAIMS.md row. No price is typed: the pricing page is linked.
+import { hatches } from '../../content/hatches.ts';
+import { site } from '../../content/site.ts';
+import { renderInline } from './inline.ts';
+import { externalAttrs, printAttrs } from './links.ts';
+
+const h = hatches.patchlamp;
+const rich = (text: string): string => renderInline(text, { linkAttrs: (href) => ({ ...printAttrs(href), ...externalAttrs(href) }) });
+const resumeLink = site.strip.links.find((l) => l.href === '/resume/')!;
+const links = [...h.links, { text: resumeLink.text, href: '/resume/#patchlamp' }];
+const parts = [
+  { heading: h.real.heading, paragraphs: h.real.paragraphs },
+  { heading: h.shows.heading, items: h.shows.items },
+  { heading: h.simplifies.heading, items: h.simplifies.items },
+  { heading: h.facts.heading, items: h.facts.items },
+];
+---
+<section class="pw-section pw-hatch" id="patchlamp-toy" aria-labelledby="patchlamp-toy-title">
+  <p class="pw-tape"><span class="pw-lamp" aria-hidden="true"></span>{h.tape.text}</p>
+  <h2 class="pw-title" id="patchlamp-toy-title">{h.title.text}</h2>
+  {parts.map((p) => (
+    <div class="pw-part">
+      <h3 class="pw-sub">{p.heading.text}</h3>
+      {p.paragraphs && p.paragraphs.map((x) => <p set:html={rich(x.text)} />)}
+      {p.items && <ul class="pw-bullets">{p.items.map((x) => <li set:html={rich(x.text)} />)}</ul>}
+    </div>
+  ))}
+  <ul class="pw-links">
+    {links.map((l) => <li><a href={l.href} {...printAttrs(l.href, l.text)} {...externalAttrs(l.href)}>{l.text}</a></li>)}
+  </ul>
+</section>

@@ -330,14 +330,6 @@
     },
     {
       "page": "/",
-      "item": "text",
-      "live": "",
-      "new": "GitHub LinkedIn Email",
-      "why": "#contact: the live page's icon links (GitHub, LinkedIn, Email, named by aria-label) are text links in the document: the same names, now visible.",
-      "approval": "structural, no words"
-    },
-    {
-      "page": "/",
       "item": "link",
       "live": "Patchlamp · text your website The lamp's on. Text a number, the change is live in about a minute. Nothing to install, from $25 a month. See Patchlamp → → #patchlamp | Services · AI, installed AI doing real work Hands-on working sessions, or Claude installed on your own computer with guardrails and training. See the services → → #services",
       "new": "",
@@ -351,6 +343,22 @@
       "new": "Every price, published on purpose → https://patchlamp.com/pricing | AI Working Session → /ai/#packages | AI on Your Computer → /ai/#packages",
       "why": "#patchlamp gains the patchlamp.com/pricing link (§ 3, § F1). #services: each live card was one link holding its whole text, to /ai/#packages; in the document the package's name is the link to the same place, with its text and price beside it.",
       "approval": "structural, no words"
+    },
+    {
+      "page": "/",
+      "item": "text",
+      "live": "",
+      "new": "GitHub LinkedIn Email Patchlamp · the toy The toy and the real thing The real thing The owner of a small business texts a number. Patch, the operator, opens the site's files, makes the change, checks that it is live and texts back, usually in a minute. Patch is Claude wearing a name tag that says Patch. What the toy shows Text Patch from the phone and the thing on the line changes: the storefront, the platen, the belt or the lamp. Patch works on the jack the cord is in, and says so when you ask for something on another. The real Patch works inside a walled-off folder that holds only that client's things. “Undo that” puts the last change back, as it does for real. Ask the toy for something it does not know and Patch points you to Taylor's mailbox. The real Patch passes out-of-scope asks to Taylor. What the toy leaves out The phone is scripted. No model is called, and nothing you type leaves your browser. The real Patch runs Claude Code. The toy answers in a few seconds. The real one usually answers in a minute. Real texts come by SMS, Telegram or Discord. The facts Live since September 2026. More than 1,800 commits and 300 test files across the three codebases as of November 2026. Built and run by one person, me, working with Claude: I own the architecture, the review and the verification. See Patchlamp Every price, published on purpose How it is built, on GitHub Résumé The workshop How this was built I built this workshop working with Claude. It is a static site. Three.js draws the bench, Rapier moves the loose parts, the phone is scripted, and nothing you do here leaves your browser. Tests 2,665 passed on November 22, 2026",
+      "why": "P4 H1: the two hatches, in the paperwork under their own headings after the live page's four sections (REWRITE.md § B7 \"Hatches\": Patchlamp's, and the maker's plate), so their words are on the page for anyone without the stage; the plates over the stage open these same sections (src/components/paper/Panels.astro). New words, every one in src/content/hatches.json with its source and its CLAIMS.md row; the carried ones are /resume/'s. The test count is written by scripts/test-count.ts. The run begins with \"GitHub LinkedIn Email\", which was its own entry until the hatches followed it (structural, no words): #contact's icon links (named by aria-label on the live page) are text links in the document, the same names now visible.",
+      "approval": "pending Taylor"
+    },
+    {
+      "page": "/",
+      "item": "link",
+      "live": "",
+      "new": "See Patchlamp → https://patchlamp.com/ | Every price, published on purpose → https://patchlamp.com/pricing | How it is built, on GitHub → https://github.com/Taylor-Rem/patchlamp | Résumé → /resume/#patchlamp",
+      "why": "P4 H1: the links of Patchlamp's hatch (see the text entry for the hatches): patchlamp.com and its pricing page as the paperwork's #patchlamp already links them (no price typed, REWRITE.md § 3), the Patchlamp repository as /resume/ links it, and its /resume/ entry.",
+      "approval": "pending Taylor"
     }
   ]
 }

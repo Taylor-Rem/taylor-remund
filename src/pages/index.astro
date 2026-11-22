@@ -6,7 +6,9 @@
 // page's #patchlamp, #services, #about and #contact (legacy/index.html), in that
 // order, set in the paper pages' type (src/styles/paperwork.css). Every word is
 // src/content/ (home.json; the headings are site.json `paperwork`; the services'
-// names and prices are ai.json's); this file holds structure only.
+// names and prices are ai.json's); this file holds structure only. After the live page's four sections,
+// Patchlamp's hatch and the maker's plate (P4 H1: src/components/paper/, words in hatches.json): the same sections the
+// plates open over the stage (Panels.astro, in the over-stage slot).
 // Title and description (src/content/site.json `pages.home`) are the live page's until Taylor words new ones (§ F1).
 import Stage from '../layouts/Stage.astro';
 import SettingsControl from '../workshop/ui/settings/SettingsControl.astro';
@@ -18,6 +20,9 @@ import ControlsOpener from '../workshop/ui/controls/ControlsOpener.astro';
 import { renderInline } from '../components/paper/inline.ts';
 import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
 import { keepPricesWhole, noteParts } from '../components/paper/prices.ts';
+import PatchlampHatch from '../components/paper/PatchlampHatch.astro';
+import MakerPlate from '../components/paper/MakerPlate.astro';
+import Panels from '../components/paper/Panels.astro';
 import '../styles/paperwork.css';
 
 const { patchlamp, services, about, contact } = home;
@@ -38,6 +43,7 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
   <SettingsControl slot="strip-end" />
   <Controls slot="over-stage" />
   <SettingsPanel slot="over-stage" />
+  <Panels slot="over-stage" />
   <main id="paperwork" tabindex="-1">
     <section class="pw-section" id="patchlamp" aria-labelledby="patchlamp-title">
       <p class="pw-tape"><span class="pw-lamp" aria-hidden="true"></span>{patchlamp.kicker.text}</p>
@@ -89,5 +95,9 @@ const srcset = pic.sources.map((s) => `${s.src} ${s.width}w`).join(', ');
         {contactLinks.map((l) => <li><a href={l.href} {...linkAttrs(l.href)}>{l.text}</a></li>)}
       </ul>
     </section>
+
+    <PatchlampHatch />
+
+    <MakerPlate />
   </main>
 </Stage>
