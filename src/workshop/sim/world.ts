@@ -832,7 +832,7 @@ export function createWorld(opts: WorldOptions): World {
     if (!l) return;
     const st = physics.state(l.id);
     const level = qyaw(yawOf(st.pose.q));
-    const centreTarget = sub(clampTarget(l, l.target), rotate(level, l.grip));
+    const centreTarget = sub(clampTarget(l, crewHandles.get(l.id)?.heldAt?.(l.target) ?? l.target), rotate(level, l.grip));
     const gap = sub(centreTarget, st.pose.p);
     const light = Math.min(1, T.carryMassRef / Math.max(l.mass, 1e-3));
     // against something (it met it last step) the hand pushes, it does not ram: no faster than `carryPush` and
