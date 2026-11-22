@@ -9,8 +9,9 @@
  *   rewind (the lever, a reset) a quick low hop straight back. The rubber payment is the rubber node wherever its
  *   index is; its tier's core shows at its middle.
  * - The star: lit (its bulb twin) as the script says while a show plays, else as the state says. Steady: never a blink.
- * - The crank turns once as a deal begins and an eighth of a turn with every token dealt; the plunger goes down and
- *   comes back as the repair begins, and only part way (a twitch) when it refuses; the gate swings across as it
+ * - The crank turns once under the hand and an eighth of a turn with every token dealt; the plunger goes down and
+ *   comes back under the hand (at once, even when its repair waits for a deal to finish), and only part way (a
+ *   twitch) when it refuses; the gate swings across as it
  *   routes the bounced payment. A Button misfire twitches either; a tell wiggles the crank and bobs the plunger.
  * - Painted (the platen, a text), its wooden base wears the paint; the brass, the rubber and the tokens are not painted.
  * - Reduced motion: no travel at all. The tokens are drawn where the state says the moment it changes, the star with
@@ -40,8 +41,11 @@ export const LEDGER_FEEL = {
   rewindH: 0.03,
   /** The gate swings this far (radians). */
   gateSwing: 1.25,
-  /** A deal turns the crank once at its start, and this much with every token dealt. */
+  /** A hand turns the crank once over this long (s); a deal turns it this much more with every token dealt. */
+  crankTurn: 0.3,
   crankPerToken: Math.PI / 4,
+  /** A press takes the plunger down and back over this long (s). */
+  press: 0.24,
   /** A refusal pushes the plunger this share of its travel, over this long (s). */
   refuseDepth: 0.3,
   refuseTime: 0.28,
@@ -125,6 +129,9 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
     let shown = false;
     const tells = new Map<Id, number>();
     let refusedAt = -Infinity;
+    /** When each control was last worked by a hand (it travels at once, even when its work waits its turn). */
+    let crankAt = -Infinity;
+    let plungerAt = -Infinity;
 
     const find = (w: WorldView): void => {
       if (nodes) return;
@@ -283,9 +290,12 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
         holder.matrix.copy(group.matrix).multiply(footM.makeTranslation(0, -half, 0));
         holder.matrixWorldNeedsUpdate = true;
         holder.visible = shown;
+        const refused = frame.events.some((e) => e.type === 'ledger.refused');
         for (const e of frame.events) {
           if (e.type === 'tell' && (e.id === o.crank || e.id === o.plunger)) tells.set(e.id, frame.time);
           if (e.type === 'ledger.refused') refusedAt = frame.time;
+          if (e.type === 'handle.worked' && e.id === o.crank) crankAt = frame.time;
+          if (e.type === 'handle.worked' && e.id === o.plunger && !refused) plungerAt = frame.time;
         }
         paint(w.part(o.board)?.colour ?? 'bare');
         if (!shown) return;
@@ -310,13 +320,9 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
         const lit = s && script && !reduced ? starAt(script, s.before, s.after, t) : lv.wrong;
         show(N.lit, lit);
         show(N.dark, !lit);
-        // the crank: once round as a deal begins, an eighth with every token dealt; a misfire's twitch; a tell's rock
-        let crank = 0;
-        if (s && s.kind === 'deal' && !reduced) {
-          const b = s.beats.find((x) => x.kind === 'crank');
-          if (b) crank += Math.PI * 2 * smooth((t - b.at) / b.dur);
-          crank += F.crankPerToken * s.beats.filter((x) => x.kind === 'drop' && t >= x.at).length;
-        } else if (s && s.kind === 'deal') crank = Math.PI * 2;
+        // the crank: once round under the hand, an eighth with every token dealt; a misfire's twitch; a tell's rock
+        let crank = Math.PI * 2 * smooth((frame.time - crankAt) / F.crankTurn);
+        if (s && s.kind === 'deal' && !reduced) crank += F.crankPerToken * s.beats.filter((x) => x.kind === 'drop' && t >= x.at).length;
         const cm = lv.crankMisfire;
         if (cm && cm.since < 0.4) crank += Math.sin((cm.since / 0.4) * Math.PI) * 0.35 * cm.level;
         const ct = tells.get(o.crank);
@@ -324,13 +330,8 @@ export function createLedgerView(o: LedgerViewOptions): (ctx: ViewContext) => St
         pose(N.crank, null, qa.setFromAxisAngle(Y, -crank));
         // the plunger: down and back as the repair begins; part way when it refuses; a misfire's twitch; a tell's bob; a hair up under the pointer
         let down = 0;
-        if (s && s.kind === 'repair') {
-          const b = s.beats.find((x) => x.kind === 'press');
-          if (b) {
-            const u = (t - b.at) / b.dur;
-            down = u <= 0 || u >= 1 ? 0 : u < 0.35 ? smooth(u / 0.35) : 1 - smooth((u - 0.35) / 0.65);
-          }
-        }
+        const u = (frame.time - plungerAt) / F.press;
+        if (u > 0 && u < 1) down = u < 0.35 ? smooth(u / 0.35) : 1 - smooth((u - 0.35) / 0.65);
         const ru = (frame.time - refusedAt) / F.refuseTime;
         if (ru >= 0 && ru < 1) down = Math.max(down, F.refuseDepth * Math.sin(ru * Math.PI));
         const pm = lv.misfire;
