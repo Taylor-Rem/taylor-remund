@@ -163,7 +163,9 @@ async function record(origin: string): Promise<{ entries: Map<string, Uint8Array
       page.on('pageerror', (e) => errors.push(String(e)));
       await page.addInitScript('globalThis.__bakeRecord = true;');
       await page.goto(origin + r.path, { waitUntil: 'commit', timeout: 60_000 });
-      await page.waitForFunction(READY, null, { timeout: 180_000, polling: 100 });
+      // (ten minutes: with the table stale for many pieces, a page bakes each of them live before it is ready; with 47
+      // new pieces the low tier took more than the three minutes this had)
+      await page.waitForFunction(READY, null, { timeout: 600_000, polling: 100 });
       await page.evaluate(r.play);
       if (errors.length) throw new Error(`${r.path}: page error: ${errors[0]}`);
       const got = (await page.evaluate('globalThis.__bakeRecorded ?? []')) as Array<{ key: string; values: number[] }>;
