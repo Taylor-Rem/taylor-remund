@@ -245,6 +245,17 @@ describe('camera rig: only a look comes closer than a station (P4 S5 round three
     for (let i = 0; i < 40; i++) r.zoomBy(0.8);
     expect(r.zoom).toBe(1);
   });
+  it('(round four) a wheel in at a look\'s closest keeps the look; a wheel out lets it go', () => {
+    const r = rig();
+    const box = new Box3(new Vector3(-0.1, 0, -0.1), new Vector3(0.1, 0.2, 0.1));
+    r.cutTo({ focus: [0, 0.5, 0], zoom: 9 }, { close: true, look: box, lookId: 'crate-3-card' });
+    r.zoomBy(0.8);
+    expect(r.look).toBe(box);
+    expect(r.lookId).toBe('crate-3-card');
+    r.zoomBy(1.1);
+    expect(r.look).toBeNull();
+    expect(r.lookId).toBeNull();
+  });
   it('easing away from a look (back to a station) glides down without a jump; reduced motion cuts', () => {
     const r = rig();
     r.cutTo({ focus: [0, 0.5, 0], zoom: 1.2 }, { close: true });

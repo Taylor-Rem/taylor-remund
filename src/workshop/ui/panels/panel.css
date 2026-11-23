@@ -53,6 +53,13 @@
   from { transform: translateX(28px); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
+/* (round three) on the left when what it is about stands right of the middle (mount.ts `placeFor`) */
+.pn.pn-left { inset: var(--pn-top) auto auto var(--gutter, 16px); }
+.pn.pn-left[open] .pn-sheet { animation-name: pn-in-left; }
+@keyframes pn-in-left {
+  from { transform: translateX(-28px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
 .pn-bar {
   flex: none;
   display: flex;
@@ -177,6 +184,8 @@
   content: ''; position: absolute; left: 0; top: 0.55rem; bottom: 0.55rem; width: 3px; border-radius: 1px; background: var(--brass);
 }
 .pn .pn-log li.pn-empty { color: var(--ink-soft); border-bottom: 0; padding-left: 0; }
+/* taken back by UNDO: the lines stay, struck through */
+.pn .pn-log li.pn-gone { color: var(--ink-soft); text-decoration: line-through; text-decoration-thickness: 1px; }
 
 /* contact: the address, to select or copy */
 .pn .pn-address {
@@ -192,7 +201,7 @@
 
 /* ── a phone held upright: a sheet from the bottom, the bench above it ── */
 @media (max-width: 640px) {
-  .pn {
+  .pn, .pn.pn-left {
     --pn-max: min(85dvh, calc(100dvh - 72px));
     inset: auto 0 0 0;
     width: 100%;
