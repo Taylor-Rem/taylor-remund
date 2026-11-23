@@ -157,17 +157,17 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   // (everything at the press's size: built in its own measurements, drawn at `PRESS_SCALE`)
   const r = b.node('body', new Matrix4().makeScale(PRESS_SCALE, PRESS_SCALE, PRESS_SCALE));
 
-  /** Japanned enamel: glossy, a little deeper where thick; it chips to bare metal at worn edges by itself. */
-  const enamel = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, shade, jitter: 0.04 }), 0.85);
-  /** Gold lining: a painted line, glossy. */
-  // (round three) a painted line, satin (no gloss coat: the bed plate's level lines mirrored the lamp's bulb at the look's framing) and a shade down
-  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03, shade: 0.72 }), 0);
   /**
-   * (round three, the lead's review) Cast-iron flats in satin, not gloss: a broad level face under the gloss coat mirrors
-   * the lamp's bulb whole (a ball of light that blooms, the brightest thing in the picture at the look's framing). The
-   * feet and the bed plate the frame stands on are as cast; the upright and curved faces keep their gloss and its edges.
+   * Japanned enamel, satin: the steel class's normal finish (0), with no gloss coat. (After the merge, the lead's sweep:
+   * the class's clearcoat is crisp, roughness 0.045 at least, and at any finish above 0 some glossy face of the press
+   * mirrored a bulb whole from some eye point near the look's framing: a ball of light past the bloom's threshold, 328 px
+   * at worst. Turning the coat down only shrank it (0.4: 215 px, 0.2: 105). Satin has none from anywhere in the sweep,
+   * and its broad soft lobe still finds the cheeks' and the crown's edges. A rougher coat on the class (coatRough 0.18
+   * cures it too, gloss kept: view/materials/classes.ts) is the paint dial's to choose. It chips to bare metal at worn edges.
    */
-  const satin = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, jitter: 0.04 }), 0);
+  const enamel = (g: BufferGeometry, s: number, shade = 1): KitPart => setFinish(part('steel', g, C.enamel as Token, { seed: seed + s, shade, jitter: 0.04 }), 0);
+  /** Gold lining: a painted line, satin like the enamel it is on, and a shade down. */
+  const gold = (g: BufferGeometry, s: number): KitPart => setFinish(part('steel', g, C.lining as Token, { seed: seed + s, jitter: 0.03, shade: 0.72 }), 0);
   const brass = (g: BufferGeometry, s: number, shade = 1): KitPart => part('brass', g, 'brass', { seed: seed + s, shade, warm: 0.04, jitter: 0.05 });
   const wood = (g: BufferGeometry, s: number, token: Token = 'wood', shade = 1): KitPart => part('wood', g, token, { seed: seed + s, shade, jitter: 0.05, warm: 0.04 });
 
@@ -178,11 +178,11 @@ export function reportPress(o: ReportPressOptions = {}): Piece {
   // ---- the cast feet and the bed plate the frame stands on, lined in gold ------------------------------------------
   const plateY = D.baseH + D.footH;
   for (const [i, [x, z]] of D.feet.entries()) {
-    r.add(satin(bevelBox({ min: [x - 0.026, D.baseH - 0.001, z - 0.022], max: [x + 0.026, plateY, z + 0.022], c: 0.004, omit: ['ny'] }), 10 + i));
+    r.add(enamel(bevelBox({ min: [x - 0.026, D.baseH - 0.001, z - 0.022], max: [x + 0.026, plateY, z + 0.022], c: 0.004, omit: ['ny'] }), 10 + i));
     r.small(() => hexBolt({ af: 0.014, h: 0.005, cheap: true, seed: seed + 14 + i, material: 'brass', token: 'brass' }).map((q) => ({ ...q, geometry: transform(q.geometry, T(x + (x < 0 ? -0.016 : 0.016), plateY - 0.001, z)) })));
   }
   const px0 = -D.cheekX - 0.03, px1 = D.cheekX + 0.03, pz0 = D.frameZ0 - 0.012, pz1 = D.frameZ1 + 0.012;
-  r.add(satin(bevelBox({ min: [px0, plateY - 0.002, pz0], max: [px1, plateY + 0.012, pz1], c: 0.004, omit: ['ny'] }), 20));
+  r.add(enamel(bevelBox({ min: [px0, plateY - 0.002, pz0], max: [px1, plateY + 0.012, pz1], c: 0.004, omit: ['ny'] }), 20));
   // gold lining round the plate's top, a hair in from its edge
   const ly = plateY + 0.0125;
   for (const [a, bb] of [[[px0 + 0.008, pz1 - 0.008], [px1 - 0.008, pz1 - 0.006]], [[px0 + 0.008, pz0 + 0.006], [px1 - 0.008, pz0 + 0.008]], [[px0 + 0.006, pz0 + 0.008], [px0 + 0.008, pz1 - 0.008]], [[px1 - 0.008, pz0 + 0.008], [px1 - 0.006, pz1 - 0.008]]] as const) {
