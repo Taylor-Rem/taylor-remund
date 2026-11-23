@@ -446,8 +446,11 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
             qb.set(P.q[0], P.q[1], P.q[2], P.q[3]);
             qa.slerp(qb, frame.alpha);
           }
-          // hover: a hair, eased; never while held (the simulation lifts it then)
-          const goal = frame.hovered === part.id && !m.held && !w.bracketed ? F.hoverLift : 0;
+          // hover: a hair, eased; never while held (the simulation lifts it then). (D2d) Nor a part a machine holds (a
+          // thing on its crate's tray rides it), nor an open crate: lifting either slid the other in and out under a
+          // still pointer, and the two took the hover in turn, the card bobbing (t-components' crate and its dial)
+          const rides = m.mode === 'machine' || w.setting(part.id, 'open') === true;
+          const goal = frame.hovered === part.id && !m.held && !w.bracketed && !rides ? F.hoverLift : 0;
           e.lift += (goal - e.lift) * hoverK;
           // squash: a damped spring, integrated in small steps
           let left = dt;

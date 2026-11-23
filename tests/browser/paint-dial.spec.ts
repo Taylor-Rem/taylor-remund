@@ -165,10 +165,28 @@ test('(D2d) look.back gives back only its own look: the press flicking while the
   await until(page, async () => !(await cam()).look, 200, 'the camera back out');
   await page.waitForTimeout(500);
   // the press's crate opened (its latch: the camera comes in on its card), then a pull
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-2-lid' }));
+  // (its latch, again until it opens: the crate must lie free and still, and Fetch may be about it)
+  for (let k = 0; k < 30; k++) {
+    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-2', 'open') === true)) break;
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-2-lid' }));
+    await frames(page, 40);
+  }
   await rest('crate-2-card', 'the look at the press\'s card');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 300, 'the press on its tray');
   await frames(page, 30);
+  // (t-components' crate open again, its dial on its tray, should anything have shut it meanwhile)
+  const c3 = await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open') === true && (window as any).__bench.ws.world.mode('paint-dial') === 'machine');
+  if (!c3) {
+    console.log('[D2d] crate-3 was shut meanwhile: opened again, and back to the press\'s card');
+    for (let k = 0; k < 30; k++) {
+      if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open') === true)) break;
+      await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-3-lid' }));
+      await frames(page, 40);
+    }
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('paint-dial') === 'machine'), 300, 'the dial on its tray');
+    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-2' }));
+    await rest('crate-2-card', 'the look at the press\'s card again');
+  }
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'press-lever' }));
   await frames(page, 10);
   // before the flick (2.7 s on), the visitor asks for the dial: the camera goes to t-components' card
