@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gpuArgs } from '../../playwright.config.ts';
 import { startDevServer, type DevServer } from '../../scripts/capture.ts';
+import { glareSweep } from './press-sweep.ts';
 
 // P4 D3: the report press's lever by a real hand, on /dev/bench/ on the real GPU: by mouse at 1440×900 and by a finger
 // at 390×844, pulled where it is drawn, and a 44 px fingertip with the camera in on the press (the framing the
@@ -187,5 +188,37 @@ test('P4 D3 round three: a press at each point of the press on its open crate\'s
   expect(map.counts['crate-2-lid'] ?? 0, 'the latch takes nothing over the press').toBe(0);
   expect(map.counts['report-press'] ?? 0, 'the press takes the rest of itself').toBeGreaterThan(40);
   expect(map.lever.filter((x) => x !== 'press-lever'), 'every point along the lever is the lever\'s').toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * (P4 D3, the lead after the merge) No bloom on the press from anywhere near the look: a glossy face mirrors a bulb
+ * whole from some eye point, so the camera is swept across the press (at the look's zoom and a station's, the lamp at
+ * rest and at the two ends of its reach) and the near-white pixels in its screen box counted at each position. A crisp
+ * glint on an edge is a handful; the ball of light was 328 px. tests/browser/press-sweep.ts.
+ */
+test('P4 D3: no bloom ball on the press from anywhere in a sweep round the look, the lamp at rest and at both ends of its reach', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = await open(page);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-2' }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-2', 'open') === true), 600, 'open');
+  await until(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 900, 'the look at rest');
+  await frames(page, 30);
+  const zoom = await page.evaluate(() => (window as any).__bench.ws.stage.camera.zoom as number);
+  const worst: string[] = [];
+  for (const target of [null, [-12, 0, 2], [12, 0, -2]] as const) {
+    if (target) {
+      await page.evaluate((t) => {
+        const ws = (window as any).__bench.ws;
+        ws.dispatch({ type: 'drag', id: 'lamp', target: t });
+        ws.dispatch({ type: 'drag', id: 'lamp', target: t, end: true });
+      }, [...target]);
+      await frames(page, 90);
+    }
+    const cells = await glareSweep(page, { zooms: [zoom, 1], nx: 7, nz: 4, reach: 1.5 });
+    worst.push(`lamp ${target ? target[0] : 'rest'}: ${JSON.stringify(cells[0])}`);
+    expect(cells[0]!.white, `the worst position, the lamp ${target ? `at ${target[0]}` : 'at rest'}: ${JSON.stringify(cells.slice(0, 3))}`).toBeLessThanOrEqual(40);
+  }
+  console.log(`[D3] the glare sweep's worst:\n${worst.join('\n')}`);
   expect(errors).toEqual([]);
 });
