@@ -184,16 +184,32 @@ test('wide screen, the maker’s plate open beside the bench: the pointer turns 
   await page.screenshot({ path: info.outputPath('lever-a.png') });
 
   // UNDO, pulled by the pointer: the line goes within the plate's beat (250 ms) of the world taking it back
+  // The two moments, each taken where it happens and for the entry itself (not a count): the world's, in the frame
+  // after the step that took the dial's transaction off the stack (`onFrame`); the panel's, in the DOM mutation that
+  // struck its line (a MutationObserver). Both are read only once both are set: on 2026-11-22 a run under load read
+  // them while the old per-animation-frame watcher had not yet run since the line was struck, and got NaN.
   await page.evaluate(() => {
-    const w = (window as unknown as { __handoff: { workshop: { simWorld: { undoStack(): unknown[] } } } }).__handoff.workshop;
-    const t = window as unknown as { __undoneAt?: number; __logGoneAt?: number };
-    const n0 = w.simWorld.undoStack().length;
-    const tick = (): void => {
-      if (t.__undoneAt === undefined && w.simWorld.undoStack().length < n0) t.__undoneAt = performance.now();
-      if (t.__logGoneAt === undefined && document.querySelector('dialog#plate-panel .pn-log li.pn-gone')) t.__logGoneAt = performance.now();
-      if (t.__logGoneAt === undefined || t.__undoneAt === undefined) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    const W = window as any;
+    const w = W.__handoff.workshop;
+    W.__undoneAt = undefined;
+    W.__logGoneAt = undefined;
+    const top: string = w.simWorld.undoStack().at(-1).id;
+    W.__undoTxn = top;
+    const off = w.onFrame(() => {
+      if (W.__undoneAt === undefined && !w.simWorld.undoStack().some((x: { id: string }) => x.id === top)) {
+        W.__undoneAt = performance.now();
+        off();
+      }
+    });
+    const log = document.querySelector('dialog#plate-panel .pn-log')!;
+    const struck = (): boolean => !!log.querySelector('li.pn-gone') && !log.querySelector('li:not(.pn-gone)');
+    const mo = new MutationObserver(() => {
+      if (W.__logGoneAt === undefined && struck()) {
+        W.__logGoneAt = performance.now();
+        mo.disconnect();
+      }
+    });
+    mo.observe(log, { childList: true, subtree: true, characterData: true, attributes: true });
   });
   const undo = await onScreen(page, 'undo-lever');
   await page.mouse.move(undo.x, undo.y);
@@ -201,10 +217,28 @@ test('wide screen, the maker’s plate open beside the bench: the pointer turns 
   for (let k = 1; k <= 6; k++) await page.mouse.move(undo.x + 4, undo.y + (undo.h * 0.6 * k) / 6);
   await page.mouse.up();
   await expect(log.locator('li:not(.pn-gone)')).toHaveCount(0, { timeout: 20_000 });
+  await page.waitForFunction(() => (window as any).__undoneAt !== undefined && (window as any).__logGoneAt !== undefined, null, { timeout: 5_000 }).catch(() => undefined);
   const lag = await page.evaluate(() => {
     const t = window as unknown as { __undoneAt?: number; __logGoneAt?: number };
     return t.__logGoneAt! - t.__undoneAt!;
   });
+  if (Number.isNaN(lag)) {
+    const now = () =>
+      page.evaluate(() => {
+        const t = window as any;
+        return JSON.stringify({
+          at: performance.now(),
+          undoneAt: t.__undoneAt ?? 'UNSET',
+          logGoneAt: t.__logGoneAt ?? 'UNSET',
+          stack: t.__handoff.workshop.simWorld.undoStack().map((x: any) => `${x.id} ${x.kind} ${x.subject}`),
+          list: [...document.querySelectorAll('dialog#plate-panel .pn-log li')].map((l) => `${l.className}:${l.textContent}`),
+          events: t.__h1events?.slice(-12),
+        });
+      });
+    console.log(`NaN: at the read ${await now()}`);
+    await page.waitForTimeout(1000);
+    console.log(`NaN: a second later ${await now()}`);
+  }
   console.log(`UNDO pulled by the pointer: the log followed ${lag.toFixed(0)} ms after the world took it back`);
   expect(lag).toBeLessThanOrEqual(250 + 50);
   await page.screenshot({ path: info.outputPath('lever-b.png') });
