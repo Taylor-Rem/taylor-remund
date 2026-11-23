@@ -7,8 +7,8 @@
 // a tool. (On `rewrite` at c8726e6 the board and the tool are stranded; T2's wall brings its own tools back after 14 s
 // as a stopgap, which is why the tool here is a stand-in that is not the wall's.) A crate is not in it: a shipped crate is not
 // sent back as itself but waits behind the door as a spare (the dock's `shippedOrder`), so put back as shipped it is not lost.
-// Marked `test.fails` until the fix in sim/machines/dock.ts `restored` (proposed in T2 round two's report: drop
-// `from.at !== 'shipped'`, keep the press's homeward envelope out) lands: then both become plain tests.
+// Fixed in sim/machines/dock.ts `restored` (the lead, at T2's merge, by the diff T2's builder proposed: a tool restored
+// to `shipped` from anywhere gets a return, the press's homeward envelope excepted). These failed before that line.
 import { describe, expect, test } from 'vitest';
 import { benchWorld, tape, putOn, onBelt, BENCH } from './line-helpers.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
@@ -51,7 +51,7 @@ const LIMIT = steps(DOCK_TUNING.returnAfter.tool + 6);
 
 describe('the dock: a part on its way back, put back as shipped by an undo, still comes back', () => {
   for (const [what, id] of [['a tool', 'tool-standin']] as const) {
-    test.fails(what, async () => {
+    test(what, async () => {
       const c = await strandedCase(id);
       let back = false;
       for (let i = 0; i < LIMIT && !back; i++) {
@@ -64,7 +64,7 @@ describe('the dock: a part on its way back, put back as shipped by an undo, stil
     }, 120_000);
   }
 
-  test.fails('the ledger board', async () => {
+  test('the ledger board', async () => {
     const c = await strandedCase(LEDGER.board, (w, t) => {
       // out of its crate first (the crate on top of it set aside, the lid opened, the board taken off its tray)
       w.dispatch({ type: 'grab', id: 'crate-2', grip: w.motion('crate-2')!.pose.p });

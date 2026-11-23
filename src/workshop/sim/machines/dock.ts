@@ -771,7 +771,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         // P4 D1: a tool put back as shipped (its letting go undone before its return from the chute had come to rest, so
         // the location it had was still `shipped`) is behind the door with nobody bringing it back: it comes back up the
         // chute as any shipped tool does, as the system's (the undo that put it there is not the visitor's to charge)
-        if (to.at === 'shipped' && from.at !== 'shipped' && ctx.part(rs.target)?.kind === 'tool' && ctx.mode(rs.target) === 'gone' && !returns.some((r) => r.id === rs.target)) {
+        // (P4 T2, found by the tool wall's soak) and from wherever it was restored, `shipped` included: a tool in the air
+        // on its way home still has the location `shipped`, and an undo that takes back the action it flew through puts
+        // it behind the door "from shipped to shipped". Never the press's envelope: its own machine brings it home.
+        if (to.at === 'shipped' && ctx.part(rs.target)?.kind === 'tool' && !spec.homeward?.includes(rs.target) && ctx.mode(rs.target) === 'gone' && !returns.some((r) => r.id === rs.target)) {
           const id = rs.target;
           returns.push({ id, at: ctx.clock.step + steps(T.returnAfter.tool), job: ctx.history.work('system', spec.id, () => (returns = returns.filter((r) => r.id !== id))) });
         }
