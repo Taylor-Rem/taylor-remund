@@ -34,7 +34,7 @@ export const SEE_THROUGH = {
 /** (D2c) Seconds after this view's first frame before the ghosts' programs are built (the bench usable by then). */
 export const PREPARE_AFTER = 1.5;
 /**
- * (D2c) ...and only once the bench has been calm this long: nothing in a hand and no loose part flying or rolling. A
+ * (D2c) ...and only once the bench has been calm this long: nothing in a hand, the pointer still, no loose part flying or rolling. A
  * program links on the main thread where the GPU has no parallel compile (this laptop), long enough to jolt a hand
  * mid-throw (measured: the juggling tests drift 0.53 where they hold under 0.3).
  */
@@ -113,18 +113,30 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
     let firstAt: number | null = null;
     let busyAt = -Infinity;
     let preparing = false;
-    /** Something in a hand, or a loose part awake and free (thrown, falling, rolling): a hand may be at work. */
-    const busy = (w: Frame['world']): boolean => {
-      if (w.holding() !== null) return true;
+    /**
+     * A hand at work: something held, the pointer moved since the last frame, or a free loose part moving (thrown,
+     * falling, rolling: more than `MOVING` in its last step; not `awake`, which an open crate with a thing on its tray
+     * stays while lying still).
+     */
+    const MOVING = 0.001;
+    let lastPointer: [number, number, number] | null = null;
+    const busy = (frame: Frame): boolean => {
+      const w = frame.world;
+      const p0 = frame.pointer;
+      const moved = !!p0 !== !!lastPointer || (!!p0 && !!lastPointer && Math.abs(p0[0] - lastPointer[0]) + Math.abs(p0[1] - lastPointer[1]) + Math.abs(p0[2] - lastPointer[2]) > 1e-4);
+      lastPointer = p0 ? [p0[0], p0[1], p0[2]] : null;
+      if (moved || frame.held !== null || w.holding() !== null) return true;
       for (const p of w.parts()) {
         const m = w.motion(p.id);
-        if (m && m.awake && (m.mode === 'free' || m.held)) return true;
+        if (!m || (m.mode !== 'free' && m.mode !== 'held')) continue;
+        const d = m.pose.p, e = m.prev.p;
+        if (Math.abs(d[0] - e[0]) + Math.abs(d[1] - e[1]) + Math.abs(d[2] - e[2]) > MOVING) return true;
       }
       return false;
     };
-    const pump = (time: number, w: Frame['world']): void => {
+    const pump = (time: number, frame: Frame): void => {
+      if (busy(frame)) busyAt = time;
       if (preparing || queue.length === 0 || firstAt === null) return;
-      if (busy(w)) busyAt = time;
       if (time - firstAt < PREPARE_AFTER || time - busyAt < PREPARE_CALM) return;
       const b = queue.shift()!;
       const compile = ctx.stage.compileObject?.bind(ctx.stage);
@@ -160,7 +172,7 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
       update(frame: Frame) {
         if (m === 'off' || !ctx.materials.fade || !ctx.targetObject) return;
         firstAt ??= frame.time;
-        pump(frame.time, frame.world);
+        pump(frame.time, frame);
         const cam = ctx.stage.camera as CameraRig;
         const look = m === 'all' ? null : cam.look;
         const px = SEE_THROUGH.pad;
