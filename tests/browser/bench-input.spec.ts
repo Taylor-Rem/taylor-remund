@@ -1347,7 +1347,7 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
    * once, or after `pauseMs` of stillness. Returns where it was let go, the velocity sent, the event intervals
    * the page measured.
    */
-  const hand = async (dir: [number, number], d: number, ms: number, pauseMs = 0, dt = 10, who = id, retries = 2): Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }> => {
+  const hand = async (dir: [number, number], d: number, ms: number, pauseMs = 0, dt = 10, who = id, retries = 3): Promise<{ from: number[]; v: number[] | null; gaps: string; median: number }> => {
     if (who === id) await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
     // on a phone the crate may have gone out of the frame: a finger pans it back in, as a visitor's would
     if (kind === 'touch') await bringIntoView(page, fingerHand(cdp), who, 'touch');
@@ -1367,8 +1367,9 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
       await frames(page, 2);
       await mouse('mousePressed', s);
     } else await touch('touchStart', s);
-    if (who !== id) {
-      // a robot can roll out from under the point between the look and the press: let go and try again (twice)
+    {
+      // a robot can roll out from under the point between the look and the press, or roll in over the crate's (the
+      // press then takes the robot: seen with Fetch and with Revert, about one run in eight): let go and try again
       const got = await pollFrames(page, held, 30).toBe(who).then(() => true, () => false);
       if (!got) {
         const what = await page.evaluate(() => JSON.stringify((window as any).__bench.ws.world.holding()));
