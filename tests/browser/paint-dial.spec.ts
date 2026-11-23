@@ -149,21 +149,11 @@ test('P4 D2b: the knob is a 44 px fingertip at 390×844, at the framing a look a
   await ctx.close();
 });
 
-test('(D2d) look.back gives back only its own look: the press flicking while the visitor reads another crate leaves the camera there; the crate Fetch takes back from the open gives it back', async ({ page }) => {
+test('(D2d) look.back gives back only its own look: the press flicking while the visitor reads another crate leaves the camera there; the dial\'s turn gives its own back', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await open(page);
   const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
   const rest = (id: string, what: string) => until(page, async () => { const c = await cam(); return c.look && c.id === id && !c.easing; }, 400, what);
-  // the crate in Fetch's arms, double-clicked (its first tap takes it, its second asks for it): it opens, the camera
-  // comes in; Fetch takes it back, it claps shut, and the camera goes back out
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('crate-4') === 'crew'), 1500, 'crate-4 in Fetch\'s arms');
-  await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-4', grip: ws.world.motion('crate-4').pose.p }); });
-  await frames(page, 2);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-4' }));
-  await rest('crate-4-card', 'the look at crate-4\'s card');
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === false), 1500, 'Fetch takes it back');
-  await until(page, async () => !(await cam()).look, 200, 'the camera back out');
-  await page.waitForTimeout(500);
   // the press's crate opened (its latch: the camera comes in on its card), then a pull
   // (its latch, again until it opens: the crate must lie free and still, and Fetch may be about it)
   for (let k = 0; k < 30; k++) {
@@ -199,5 +189,23 @@ test('(D2d) look.back gives back only its own look: the press flicking while the
   // the dial's own turn gives its look back
   await page.evaluate((id) => (window as any).__bench.ws.dispatch({ type: 'press', id }), KNOB);
   await until(page, async () => !(await cam()).look, 200, 'the turn gives the look back');
+  expect(errors).toEqual([]);
+});
+
+test('(D2d) the crate Fetch takes back from the open gives the look back', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = await open(page);
+  const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
+  const rest = (id: string, what: string) => until(page, async () => { const c = await cam(); return c.look && c.id === id && !c.easing; }, 400, what);
+  // the crate in Fetch's arms, double-clicked (its first tap takes it, its second asks for it): it opens, the camera
+  // comes in; Fetch takes it back, it claps shut, and the camera goes back out
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('crate-4') === 'crew'), 1500, 'crate-4 in Fetch\'s arms');
+  await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-4', grip: ws.world.motion('crate-4').pose.p }); });
+  await frames(page, 2);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-4' }));
+  await rest('crate-4-card', 'the look at crate-4\'s card');
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === false), 1500, 'Fetch takes it back');
+  await until(page, async () => !(await cam()).look, 200, 'the camera back out');
+  await page.waitForTimeout(500);
   expect(errors).toEqual([]);
 });
