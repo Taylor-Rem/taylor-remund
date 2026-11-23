@@ -26,6 +26,7 @@ async function ready(page: Page, path: string, browserName: string): Promise<voi
   await live(page);
   // the list (and its Plates group) and the panels' code come once the bench is usable
   await page.waitForFunction(() => document.querySelectorAll('#controls button[data-panel]').length >= 3, null, { timeout: 30_000 });
+  await recordEvents(page);
 }
 
 /** A Plates button in the controls list, pressed by the keys: focus on it (the list shows itself round it), Enter. */
@@ -313,10 +314,7 @@ const same = (a: { focus: number[]; zoom: number }, b: { focus: number[]; zoom: 
 async function crateEntry(page: Page, title: string): Promise<{ crate: string; card: string; plate: string }> {
   const project = Object.entries(PROJECTS).find(([, p]) => p.resume === title)![0];
   const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; card: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
-  const at = await pointFor(page, c.crate);
-  await page.mouse.dblclick(at.x, at.y);
-  await page.waitForFunction((id) => (window as any).__handoff.workshop.world.setting(id, 'open') === true, c.crate, { timeout: 15_000 });
-  await page.waitForFunction(() => !!(window as any).__handoff.workshop.stage.camera.look, null, { timeout: 15_000 });
+  await openByPointer(page, c);
   await resting(page);
   const plate = await pointFor(page, c.plate);
   await page.mouse.click(plate.x, plate.y);
@@ -324,27 +322,111 @@ async function crateEntry(page: Page, title: string): Promise<{ crate: string; c
   return c;
 }
 
-/** A point a hand can press that is `id`'s own now (the input's own target under it), waiting while the crew stand in front. */
+/**
+ * Double-click crate `c` with a real pointer until it is the one that opened, and the camera holds a look on it.
+ * (Why a retry: in the first seconds the crew carry crates across the bench on attract mode's rounds. A crate in
+ * Fetch's arms can pass in front of the one aimed at between the aim and the press, and the double-click then opens
+ * the crate it lands on, as it should for a visitor. Seen in the traces of 2026-11-22: `part.grabbed crate-4`,
+ * `crate.opened`, `look crate-4-card`, the aim having been crate-3.) A wrong crate that opened is shut again by its
+ * latch and the camera sent home before the next try.
+ */
+async function openByPointer(page: Page, c: { crate: string; card: string }): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const at = await pointFor(page, c.crate);
+    const before = await page.evaluate(() => ((window as any).__h1events as string[]).length);
+    await page.mouse.dblclick(at.x, at.y);
+    const ok = await page
+      .waitForFunction((id) => (window as any).__handoff.workshop.world.setting(id, 'open') === true && !!(window as any).__handoff.workshop.stage.camera.look, c.crate, { timeout: 6_000 })
+      .then(() => true, () => false);
+    if (ok) return;
+    // which crate answered instead (from the events since the press), shut it, and go home
+    const other = await page.evaluate(
+      ([n, mine]) => {
+        const w = (window as any).__handoff.workshop;
+        const looks = ((window as any).__h1events as string[]).slice(n).map((l) => / look (\S+)-card$/.exec(l)?.[1]).filter((x): x is string => !!x && x !== mine);
+        const o = looks.at(-1) ?? null;
+        if (o && w.world.setting(o, 'open') === true) w.dispatch({ type: 'press', id: `${o}-lid` });
+        return o;
+      },
+      [before, c.crate] as const,
+    );
+    console.log(`the double-click on ${c.crate} opened ${other ?? 'nothing'} (attempt ${attempt + 1}); again`);
+    await page.keyboard.press('Escape');
+    await resting(page);
+  }
+  throw new Error(`${c.crate} never opened under a double-click\n${await dump(page, { crate: c.crate, plate: c.crate }, null)}`);
+}
+
+/**
+ * A point a hand can press that is `id`'s own: the input's own target under it, the same point for half a second
+ * running (nothing of the crew's crossing it), and a part lying still (not in the crew's hands, not moving).
+ */
 async function pointFor(page: Page, id: string): Promise<{ x: number; y: number }> {
+  await page.evaluate(() => ((window as any).__h1aim = null));
   const handle = await page.waitForFunction(
     (id) => {
-      const w = (window as any).__handoff.workshop;
-      // a part lying still where it is (not in the crew's hands on attract mode's rounds, not moving)
+      const W = window as any;
+      const w = W.__handoff.workshop;
+      const miss = (): null => ((W.__h1aim = null), null);
       const m = w.world.motion(id);
-      if (m && (m.mode !== 'free' || m.awake)) return null;
+      if (m && (m.mode !== 'free' || m.awake)) return miss();
       const t = w.surface.screen(id);
-      if (!t) return null;
+      if (!t) return miss();
       const c = w.stage.canvas.getBoundingClientRect();
+      let p: { x: number; y: number } | null = null;
       for (const [a, b] of [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3], [0.5, 0.2], [-0.5, 0.2]]) {
         const x = t.x + a! * t.r, y = t.y + b! * t.r;
-        if (w.surface.at(x, y, 'mouse', null).id === id) return { x: x + c.left, y: y + c.top };
+        if (w.surface.at(x, y, 'mouse', null).id === id) {
+          p = { x, y };
+          break;
+        }
       }
-      return null;
+      if (!p) return miss();
+      const last = W.__h1aim as { x: number; y: number; n: number } | null;
+      W.__h1aim = last && Math.hypot(last.x - p.x, last.y - p.y) < 3 ? { ...p, n: last.n + 1 } : { ...p, n: 1 };
+      return W.__h1aim.n >= 8 ? { x: p.x + c.left, y: p.y + c.top } : null;
     },
     id,
-    { timeout: 45_000, polling: 100 },
-  );
+    { timeout: 45_000, polling: 60 },
+  ).catch(async (e) => {
+    throw new Error(`${e}\n${await dump(page, { crate: id, plate: id }, null)}`);
+  });
   return (await handle.jsonValue()) as { x: number; y: number };
+}
+
+/** What the page is doing, for a failure: the crates, the crew, what the pointer would hit, the world's recent events. */
+async function dump(page: Page, c: { crate: string; plate: string }, at: { x: number; y: number } | null): Promise<string> {
+  return page.evaluate(
+    ([c, at]) => {
+      const w = (window as any).__handoff.workshop;
+      const t = w.surface.screen(c.plate);
+      const r: Record<string, unknown> = {
+        playMode: w.world.playMode,
+        step: w.world.step,
+        crate: { id: c.crate, motion: w.world.motion(c.crate) && { mode: w.world.motion(c.crate).mode, awake: w.world.motion(c.crate).awake }, open: w.world.setting(c.crate, 'open'), screen: w.surface.screen(c.crate) },
+        plate: { id: c.plate, screen: t, under: t ? w.surface.at(t.x, t.y, 'mouse', null) : null },
+        underClick: at ? w.surface.at(at.x - w.stage.canvas.getBoundingClientRect().left, at.y - w.stage.canvas.getBoundingClientRect().top, 'mouse', null) : null,
+        crew: ['fetch', 'revert', 'patch'].map((k) => ({ k, s: w.surface.screen(k), v: w.world.crewView(k)?.view?.state })),
+        look: !!w.stage.camera.look,
+        held: w.gestures.held,
+        events: (window as any).__h1events?.slice(-30),
+      };
+      return JSON.stringify(r);
+    },
+    [c, at] as const,
+  );
+}
+
+/** (for `dump`) The world's events about crates, hands and looks, from now on. */
+async function recordEvents(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = (window as any).__handoff.workshop;
+    const out: string[] = ((window as any).__h1events = []);
+    w.onFrame((f: { events: { type: string; id?: string; crate?: string; target?: string; part?: string }[] }) => {
+      for (const e of f.events) if (/crate|grab|releas|look|select|taken|picked|rested|crew\.state/.test(e.type)) out.push(`${w.world.step} ${e.type} ${e.id ?? e.crate ?? e.part ?? e.target ?? ''}`);
+      if (out.length > 200) out.splice(0, 100);
+    });
+  });
 }
 
 test.describe('round three: what a panel is about stays in view', () => {
@@ -381,10 +463,8 @@ test.describe('round three: what a panel is about stays in view', () => {
     await ready(page, '/', browserName);
     // the camera in on a crate's card (a look); its entry beside it moves the look aside, closing it brings it back
     const project = Object.entries(PROJECTS).find(([, p]) => p.resume === 't-components')![0];
-    const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
-    const at = await pointFor(page, c.crate);
-    await page.mouse.dblclick(at.x, at.y);
-    await page.waitForFunction(() => !!(window as any).__handoff.workshop.stage.camera.look, null, { timeout: 15_000 });
+    const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; card: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
+    await openByPointer(page, c);
     await resting(page);
     const looking = await view(page);
     const plate = await pointFor(page, c.plate);
