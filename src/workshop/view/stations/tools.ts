@@ -20,7 +20,7 @@
  * - **Targets.** Each tool's place (`peg-<kind>`: a mouth, for tap-then-tap and the keys) over its painted shadow,
  *   while a tool is in the hand; the pinned sheet; and the boxes a look asks for (the board, a tool out on the bench).
  */
-import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type Mesh } from 'three';
+import { Box3, Group, Matrix4, Object3D, Quaternion, Vector3, type BufferAttribute, type Intersection, type Mesh, type Raycaster } from 'three';
 import type { Id, ToolwallView, Vec3, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import type { Piece, PieceNode } from '../kit/types.ts';
@@ -39,8 +39,8 @@ export const TOOLS_FEEL = {
   period: 2.4,
   /** A hop: this long, this high (units: a crate 40 px tall is about 0.45, so a few pixels), shaking this far (degrees). */
   hop: 0.5,
-  hopLift: 0.075,
-  hopDeg: 6,
+  hopLift: 0.11,
+  hopDeg: 8,
 } as const;
 
 /** A tool's part id and kind. */
@@ -291,8 +291,8 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
     };
     /** Patchlamp's station answers in its own language: the phone buzzes on its stand, the storefront's sign swings, the platen's tray jumps. */
     const PATCHLAMP_NODES: ReadonlyArray<{ root: string; node: string; axis: readonly [number, number, number]; deg: number; lift: number; buzz: number }> = [
-      { root: 'phone', node: 'phone', axis: [0, 0, 1], deg: 5, lift: 0.02, buzz: 3 },
-      { root: 'storefront', node: 'opensign', axis: [0, 0, 1], deg: 16, lift: 0, buzz: 1 },
+      { root: 'phone', node: 'phone', axis: [0, 0, 1], deg: 9, lift: 0.04, buzz: 3 },
+      { root: 'storefront', node: 'opensign', axis: [0, 0, 1], deg: 24, lift: 0, buzz: 1 },
       { root: 'platen', node: 'tray', axis: [1, 0, 0], deg: 3, lift: 0.03, buzz: 1 },
     ];
     const plNodes = new Map<string, { o: Object3D; base: { p: Vector3; q: Quaternion } | null; applied: { p: Vector3; q: Quaternion } | null } | null>();
@@ -358,7 +358,25 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
           if (!tl.group || tl.group.parent === null) {
             tl.group = (ctx.scene.getObjectByName(`part:${tl.id}`) as Group | undefined) ?? null;
             // the parts view's own meshes for it are only its pick target's shape: hidden
-            if (tl.group) for (const c of tl.group.children) c.visible = false;
+            if (tl.group) {
+              const drawn: Mesh[] = [];
+              tl.group.traverse((c) => {
+                if ((c as Mesh).isMesh) drawn.push(c as Mesh);
+              });
+              for (const c of tl.group.children) c.visible = false;
+              // (round two) ...but what is drawn there is the rig's tool: a pick that asks whether the ray meets the
+              // drawn thing (the shell's test when two pick boxes overlap on the ray) must hear yes where the tool is.
+              // Hidden, the parts view's meshes said no everywhere, and a tap on a hanging tool went to its place behind
+              // it (a tap on PHP took PHP's peg), a tap on a lying tool to whatever box lay behind it.
+              const said = new Object3D();
+              said.name = 'tool:drawn';
+              said.raycast = (rc: Raycaster, out: Intersection[]): void => {
+                const n0 = out.length;
+                for (const m of drawn) m.raycast(rc, out);
+                for (let i = n0; i < out.length; i++) out[i]!.object = said;
+              };
+              tl.group.add(said);
+            }
           }
           const g = tl.group;
           const part = w.part(tl.id);

@@ -120,6 +120,25 @@ describe('the tool wall', () => {
     w.dispose();
   });
 
+  test('(round two, the phone fault) taken off its peg by a tap and placed at the next tool\'s place at once: it drops there, not back on its own peg', async () => {
+    const w = await benchWorld('tw-place-off-peg', { scene: BENCH });
+    const t = tape(w);
+    t.run(30);
+    // tap-taken: held where it was lifted, right in front of its own peg
+    take(w, t, VUE);
+    t.run(8);
+    w.dispatch({ type: 'place', at: pegOf(toolId('php')) });
+    t.run(2);
+    // (the step it is let go the units read where the hand had it: it was caught there, or toppled from there, before)
+    expect(onPeg(w, VUE)).toBe(false);
+    settle(w, t, VUE, 600);
+    expect(onPeg(w, VUE)).toBe(false);
+    expect(w.part(VUE)!.location.at).toBe('rest');
+    expect(t.of('toolwall.missed').map((x) => x.e.peg)).toContain(toolId('php'));
+    expect(onPeg(w, toolId('php'))).toBe(true);
+    w.dispose();
+  });
+
   test('thrown gently at its shadow it catches; thrown hard it bounces off the board and lies on the bench', async () => {
     const w = await benchWorld('tw-throw', { scene: BENCH });
     const t = tape(w);

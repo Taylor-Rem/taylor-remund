@@ -74,7 +74,7 @@ export const BOARD_B = VARIANT === 'b';
 export const BOARD = {
   /** The pegboard face (inside the frame it is a little smaller). */
   w: 5.2,
-  h: VARIANT === 'b' ? 4.75 : 5.35,
+  h: VARIANT === 'b' ? 4.85 : 5.35,
   /** Hole pitch: a peg can go in any hole. */
   pitch: 0.2,
   /** The board's bottom edge, its face off the wall. */
@@ -156,8 +156,8 @@ const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: numb
   'claude-code': { row: 2, x: 0.52, ox: 0.56, oy: 0 },
 };
 if (VARIANT === 'b') {
-  LAYOUT.flutter = { row: 2, x: -1.5, ox: -0.5, oy: -0.32 };
-  LAYOUT['claude-code'] = { row: 2, x: 1.1, ox: 0.56, oy: -0.08 };
+  LAYOUT.flutter = { row: 2, x: -1.5, ox: -0.5, oy: 0.1 };
+  LAYOUT['claude-code'] = { row: 2, x: 1.1, ox: 0.56, oy: 0.14 };
 }
 /** Tape centre heights (board frame, from y = 0) for the rows, and where the tools above them start (over the first strip, when a name takes two). */
 const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, VARIANT === 'b' ? { tape: 4.03, tools: 4.38 } : { tape: 4.59, tools: 4.95 }] as const;

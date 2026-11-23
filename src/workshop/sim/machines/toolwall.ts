@@ -135,6 +135,8 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
   let resetting = false;
   /** Tools shipped and still behind the dock's door: since when (step). */
   const stranded = new Map<Id, number>();
+  /** Tools that were free at the end of the last step (a tool let go this step is not caught yet: `post`). */
+  const freeBefore = new Set<Id>();
 
   const onWall = (id: Id): boolean => {
     const l = ctx.part(id)?.location;
@@ -342,13 +344,20 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
         }
         stranded.delete(t.id);
         if (m === 'held') {
+          freeBefore.delete(t.id);
           missed.delete(t.id);
           bounced.delete(t.id);
         }
         if (m === 'free') {
-          tryCatch(t);
-          if (!hung.has(t.id)) toppleIfStanding(t.id);
-        }
+          // (round two) not in the step it was let go: a `place` sets the body where it goes, but the pose the units
+          // read is still where the hand had it until the next step, and a tool tapped off its peg is held right in
+          // front of it (a tap on PHP's place put VUE back on its own peg: caught where the hand had it)
+          if (freeBefore.has(t.id)) {
+            tryCatch(t);
+            if (!hung.has(t.id)) toppleIfStanding(t.id);
+          }
+          freeBefore.add(t.id);
+        } else freeBefore.delete(t.id);
       }
     },
 
@@ -356,6 +365,7 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
       if (!byId.has(part)) return;
       const wasHung = hung.has(part);
       hung.delete(part);
+      freeBefore.delete(part);
       laying.get(part)?.job.done();
       laying.delete(part);
       easing.delete(part);
@@ -390,6 +400,7 @@ export function createToolwall(ctx: SimContext, spec: ToolwallSpec): ToolwallUni
       resetting = true;
       missed.clear();
       bounced.clear();
+      freeBefore.clear();
       stranded.clear();
       pending.clear();
       for (const l of laying.values()) l.job.done();
