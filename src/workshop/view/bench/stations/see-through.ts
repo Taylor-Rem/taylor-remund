@@ -4,8 +4,8 @@
  * and that box fades, the whole body at once, to a fine screen door (`EffectMaterials.fade`: the materials module
  * draws each mesh with its see-through twin, one uniform per body, and owns which material that is, with the paint
  * scheme's keep twins: D2c), and comes back when it is out of the way or the look is left. A twin's program is the
- * only one that carries the screen door; it is built ahead, in calm (`PREPARE_AFTER`, `PREPARE_CALM`), and a body (or
- * a carried load) fades only once its are ready.
+ * only one that carries the screen door; it is built while a look holds the camera (D2d: a hand is not throwing then,
+ * and the camera is easing), and a body (or a carried load) fades only once its are ready.
  *
  * - *Crew*: every member the world lists (`WorldView.crewViews()`), each by the body the page registered as its pick
  *   target (its body part's id, or its own); a new member needs nothing here.
@@ -32,15 +32,6 @@ export const SEE_THROUGH = {
   /** Screen overlap (NDC, a share of the frame's half height) a box is grown by before it counts as in the way. */
   pad: 0.01,
 } as const;
-
-/** (D2c) Seconds after this view's first frame before the ghosts' programs are built (the bench usable by then). */
-export const PREPARE_AFTER = 1.5;
-/**
- * (D2c) ...and only once the bench has been calm this long: nothing in a hand, the pointer still, no loose part flying or rolling. A
- * program links on the main thread where the GPU has no parallel compile (this laptop), long enough to jolt a hand
- * mid-throw (measured: the juggling tests drift 0.53 where they hold under 0.3).
- */
-export const PREPARE_CALM = 1.2;
 
 type Mode = 'on' | 'off' | 'all';
 const mode = (): Mode => {
@@ -107,39 +98,20 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
     const t = { x0: 0, x1: 0, y0: 0, y1: 0, near: 0, mid: 0 };
 
     /**
-     * (D2c) The ghosts' programs, built ahead (only a ghost's program carries the screen door). From `PREPARE_AFTER`
-     * seconds after this view's first frame (the bench is live and usable by then), one body at a time, each program
-     * linked in a task of its own; a body fades only once its are ready. Without the means (a stand-in), at once.
+     * (D2c, D2d) The ghosts' programs (only a ghost's program carries the screen door), built only while a look holds the
+     * camera, one body at a time, each program linked in a task of its own; a body fades only once its are ready.
+     * Where the GPU has no parallel compile (this laptop) a link stalls the main thread: at any moment a hand may be
+     * throwing that jolts the throw (D2c measured the juggling tests drifting 0.53 where they hold under 0.3; a firm
+     * flick fell short). A look is asked for by a double-click or a show, when no hand is throwing, and the camera is
+     * easing in anyway; a fade is only ever wanted during a look. Without the means (a stand-in), at once.
      */
     const queue: Body[] = [];
-    let firstAt: number | null = null;
-    let busyAt = -Infinity;
     let preparing = false;
-    /**
-     * A hand at work: something held, the pointer moved since the last frame, or a free loose part moving (thrown,
-     * falling, rolling: more than `MOVING` in its last step; not `awake`, which an open crate with a thing on its tray
-     * stays while lying still).
-     */
-    const MOVING = 0.001;
-    let lastPointer: [number, number, number] | null = null;
-    const busy = (frame: Frame): boolean => {
-      const w = frame.world;
-      const p0 = frame.pointer;
-      const moved = !!p0 !== !!lastPointer || (!!p0 && !!lastPointer && Math.abs(p0[0] - lastPointer[0]) + Math.abs(p0[1] - lastPointer[1]) + Math.abs(p0[2] - lastPointer[2]) > 1e-4);
-      lastPointer = p0 ? [p0[0], p0[1], p0[2]] : null;
-      if (moved || frame.held !== null || w.holding() !== null) return true;
-      for (const p of w.parts()) {
-        const m = w.motion(p.id);
-        if (!m || (m.mode !== 'free' && m.mode !== 'held')) continue;
-        const d = m.pose.p, e = m.prev.p;
-        if (Math.abs(d[0] - e[0]) + Math.abs(d[1] - e[1]) + Math.abs(d[2] - e[2]) > MOVING) return true;
-      }
-      return false;
-    };
-    const pump = (time: number, frame: Frame): void => {
-      if (busy(frame)) busyAt = time;
-      if (preparing || queue.length === 0 || firstAt === null) return;
-      if (time - firstAt < PREPARE_AFTER || time - busyAt < PREPARE_CALM) return;
+    /** How long each body's programs took, start to ready (ms, wall clock): measurements read it. */
+    const took: number[] = [];
+    root.userData.prepareMs = took;
+    const pump = (looking: boolean): void => {
+      if (preparing || queue.length === 0 || !looking) return;
       const b = queue.shift()!;
       const compile = ctx.stage.compileObject?.bind(ctx.stage);
       if (!ctx.materials.prepareFade || !compile) {
@@ -147,8 +119,10 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
         return;
       }
       preparing = true;
+      const t0 = performance.now();
       ctx.materials.prepareFade(b.obj, b.fade, compile).then(
         (n) => {
+          took.push(Math.round(performance.now() - t0));
           programs += n;
           b.ready = true;
           preparing = false;
@@ -173,9 +147,8 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
       root,
       update(frame: Frame) {
         if (m === 'off' || !ctx.materials.fade || !ctx.targetObject) return;
-        firstAt ??= frame.time;
-        pump(frame.time, frame);
         const cam = ctx.stage.camera as CameraRig;
+        pump(m === 'all' || cam.look !== null);
         const look = m === 'all' ? null : cam.look;
         // (round four) in the way by rays: lines from the camera to points of what must show (the look target's parts
         // `.face`, `.plate`, `.thing`; else the look box's middle and four points round it), and a body is in the way
