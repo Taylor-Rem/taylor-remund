@@ -113,6 +113,7 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
       station: spec.station,
       name: spec.knob.name,
       affordances: ['turn', 'press'],
+      on: spec.dial,
       tell: () => ctx.emit({ type: 'tell', id: spec.knob.id }),
       misfire: (level) => {
         beat.hit(level);

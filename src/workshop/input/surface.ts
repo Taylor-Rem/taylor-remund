@@ -28,7 +28,10 @@ export interface SurfaceDeps {
   screen?(id: Id): { x: number; y: number; r: number } | null;
   /** Ids that open something of the page's (the phone): a hand presses them like a handle. */
   panels?(): ReadonlySet<Id>;
-  /** Interactables a hand reaches through something else (the line, through the phone): left out of the controls list. */
+  /**
+   * Interactables a hand reaches through something else (the line, through the phone), or that are not there to use now
+   * (a control riding on a part that is out of the world): left out of the controls list and the Tab ring.
+   */
   hidden?(): ReadonlySet<Id>;
   /** The station a panel that is no interactable of its own stands with in the controls list (the phone: the line's). */
   panelStation?(id: Id): string | null;

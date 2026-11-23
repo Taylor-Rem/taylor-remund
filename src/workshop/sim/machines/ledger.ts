@@ -113,6 +113,7 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
       station: spec.station,
       name: h.name,
       affordances: ['press'],
+      on: spec.board,
       tell: () => ctx.emit({ type: 'tell', id: h.id }),
       misfire: (level) => {
         // one beat of its travel, without the verb: nothing is dealt or repaired

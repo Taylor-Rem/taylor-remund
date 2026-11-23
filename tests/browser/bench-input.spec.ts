@@ -785,9 +785,17 @@ test('the keyboard: Tab through the controls, Enter and arrows work them, U undo
   expect(await logCount(page, 'undone'), 'U typed in the phone is a letter, not an undo').toBe(before);
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
-  // Tab off the end leaves the stage
-  for (let i = 0; i < 40 && (await focused()) !== null; i++) await page.keyboard.press('Tab');
+  // Tab off the end leaves the stage; on the way nothing shut away in a crate takes the focus (a toy's crank, lever or
+  // knob rides on its part, `Interactable.on`: while the part is stowed it is not there to use)
+  // (the ring grew with the tool wall's eight tools and its sheet: the bound is generous, the point is that it ends)
+  const seen: string[] = [];
+  for (let i = 0; i < 80 && (await focused()) !== null; i++) {
+    seen.push(String(await focused()));
+    await page.keyboard.press('Tab');
+  }
   expect(await focused()).toBeNull();
+  console.log(`the Tab ring from the phone to the end: ${seen.length} stops`);
+  expect(seen.filter((id) => ['ledger-crank', 'ledger-plunger', 'press-lever', 'paint-dial-knob'].includes(id)), 'controls of toys shut in their crates, in the Tab ring').toEqual([]);
 });
 
 /**

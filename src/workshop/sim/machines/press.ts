@@ -159,6 +159,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     station: spec.station,
     name: spec.lever.name,
     affordances: ['press'],
+    on: spec.body,
     tell: () => ctx.emit({ type: 'tell', id: spec.lever.id }),
     misfire: (level) => {
       // a twitch of the lever, without the verb: nothing is printed

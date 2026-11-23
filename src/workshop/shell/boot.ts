@@ -445,9 +445,11 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
   const usable = (id: Id): boolean => {
     if (panelIds.has(id)) return true;
-    if (jackIds.has(id) || (world.interactable(id)?.affordances.length ?? 0) === 0) return false;
-    // a part down a chute or gone (Revert in its hatch, a shipped crate) is not there to take
-    const mode = world.mode(id);
+    const it = world.interactable(id);
+    if (jackIds.has(id) || (it?.affordances.length ?? 0) === 0) return false;
+    // a part down a chute or gone (Revert in its hatch, a shipped crate) is not there to take; nor is a control that
+    // rides on such a part (a toy stowed in its shut crate: its crank is not in the hand's reach, nor in the Tab ring)
+    const mode = world.mode(it?.on ?? id);
     return mode !== 'gone' && mode !== 'chute';
   };
   /** While something is held, where it may go is pickable too: mouths for a part or a unit, every jack for the plug (a capped one refuses). */
@@ -587,7 +589,18 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       return [d.x, d.y, d.z];
     },
     panels: () => panelIds,
-    hidden: () => (hasPhone ? lineSet : noIds),
+    hidden: () => {
+      // the line (reached through the phone), and any control that rides on a part that is out of the world now (a toy
+      // stowed in its shut crate, `Interactable.on`): not in the Tab ring, as it is not under the hand
+      const base = hasPhone ? lineSet : noIds;
+      let out: Set<Id> | null = null;
+      for (const it of world.interactables()) {
+        if (it.on === undefined) continue;
+        const m = world.mode(it.on);
+        if (m === 'gone' || m === 'chute') (out ??= new Set(base)).add(it.id);
+      }
+      return out ?? base;
+    },
     panelStation: (id) => (panelIds.has(id) ? (world.interactable(lineId)?.station ?? null) : null),
     ...(opts.carry ? { carry: opts.carry } : {}),
   });

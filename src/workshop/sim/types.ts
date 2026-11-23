@@ -182,6 +182,12 @@ export interface Interactable {
   /** Content id of the name a screen reader and the controls list use (text lives in src/content). */
   readonly name: string;
   readonly affordances: readonly Affordance[];
+  /**
+   * The loose part this control rides on (a toy's crank on its board, a lever on its press), if it rides on one: where
+   * that part is out of the world (stowed in its crate, shipped, in the chute) the control is not there to use, by hand
+   * or by the keys (shell/boot.ts `usable`).
+   */
+  readonly on?: Id;
   /** The idle hint. */
   tell(): void;
   /** What the Button makes it do; transient only, never an effect. */
