@@ -52,18 +52,29 @@ import { finish, MeshData } from '../../mesh.ts';
 import { sheet, stud } from '../../cheap.ts';
 import { rng } from '../../rng.ts';
 import { ATTR } from '../../types.ts';
-import { CANDIDATES, TOOL_KINDS, buildToolInto, shadowSheet, tool, toolShape } from './tools.ts';
+import { CANDIDATES, TOOL_KINDS, buildToolInto, devChoice, shadowSheet, tool, toolShape } from './tools.ts';
 import type { Candidate, ToolKind } from './tools.ts';
 import type { PieceBuilder } from '../../compose.ts';
 
 export { TOOL_KINDS, TOOL_PAINT, CANDIDATES, CHOSEN, tool, toolShape, buildToolInto } from './tools.ts';
 export type { Candidate, ToolKind, ToolShape } from './tools.ts';
 
+/**
+ * (T2 round two, for the owner's choice only) `?toolBoard=b` in development: the least-change alternative to the
+ * three rows. The third row is as short as it can be: CLAUDE CODE on one strip, both new tools lying over their
+ * tapes, and the pinned sheet off the board on the wall to its right. Built only as far as the picture needs (the
+ * bench draws the kit's own tools on it and hides the loose ones, which still hang at the three-row places). Never
+ * in a built page: `devChoice` is null outside development.
+ */
+const VARIANT = devChoice('toolBoard', ['b'] as const);
+/** True only under `?toolBoard=b` in development (see `VARIANT`). */
+export const BOARD_B = VARIANT === 'b';
+
 /** Dimensions shared with the tests and the view. */
 export const BOARD = {
   /** The pegboard face (inside the frame it is a little smaller). */
   w: 5.2,
-  h: 5.35,
+  h: VARIANT === 'b' ? 4.75 : 5.35,
   /** Hole pitch: a peg can go in any hole. */
   pitch: 0.2,
   /** The board's bottom edge, its face off the wall. */
@@ -99,7 +110,7 @@ export function toolName(kind: ToolKind): string {
 /** The strips a tool's name is taped on: one, or (CLAUDE CODE) one a word, top to bottom. */
 export function tapeLines(kind: ToolKind): string[] {
   const t = toolName(kind);
-  return kind === 'claude-code' ? t.split(' ') : [t];
+  return kind === 'claude-code' && VARIANT !== 'b' ? t.split(' ') : [t];
 }
 export const tapeKey = (kind: ToolKind, line: number): string => `${kind}#${line}`;
 
@@ -123,7 +134,7 @@ export function toolwallLabels(labels: Labels): { tapes: Record<string, TapeRef>
  * read (no words that are not published); pressed, it opens the panel with the full list. Board frame (x, y = its
  * middle), its size, and the heading's capital height.
  */
-export const SHEET = { x: 1.98, y: 4.92, w: 0.66, h: 0.86, cap: 0.045 } as const;
+export const SHEET = VARIANT === 'b' ? ({ x: 3.32, y: 3.05, w: 0.6, h: 0.78, cap: 0.045 } as const) : ({ x: 1.98, y: 4.92, w: 0.66, h: 0.86, cap: 0.045 } as const);
 
 /** A tape's size without the labels (clay, tests), within ~10% of the real one. */
 export function estimateTape(text: string): { w: number; h: number } {
@@ -144,8 +155,12 @@ const LAYOUT: Record<ToolKind, { row: 0 | 1 | 2; x: number; ox: number; oy: numb
   flutter: { row: 2, x: -1.42, ox: -0.53, oy: -0.3, ty: -0.42 },
   'claude-code': { row: 2, x: 0.52, ox: 0.56, oy: 0 },
 };
+if (VARIANT === 'b') {
+  LAYOUT.flutter = { row: 2, x: -1.5, ox: -0.5, oy: -0.32 };
+  LAYOUT['claude-code'] = { row: 2, x: 1.1, ox: 0.56, oy: -0.08 };
+}
 /** Tape centre heights (board frame, from y = 0) for the rows, and where the tools above them start (over the first strip, when a name takes two). */
-const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, { tape: 4.59, tools: 4.95 }] as const;
+const ROW = [{ tape: 0.5, tools: 0.82 }, { tape: 2.33, tools: 2.66 }, VARIANT === 'b' ? { tape: 4.03, tools: 4.38 } : { tape: 4.59, tools: 4.95 }] as const;
 /** A second strip of tape sits this far under the first. */
 const LINE_GAP = 0.42;
 /** How far each tool stands off the board face (its half thickness and a gap). */
@@ -363,7 +378,7 @@ export function toolwall(o: ToolwallOptions = {}): Piece {
   // two spare pegs, waiting
   for (const [i, j] of [[24, 17], [22, 17]] as const) pegs.push(transform(pegGeom(0.16), T(holeX(i), holeY(j), zF)));
   b.add(part('metal', mergeGeometries(pegs), 'steel', { seed: seed + 30, shade: 1.05 }));
-  pinnedSheet(b, o.sheetFace ?? null, zF, seed);
+  pinnedSheet(b, o.sheetFace ?? null, VARIANT === 'b' ? 0.005 : zF, seed);
   return b.build();
 }
 

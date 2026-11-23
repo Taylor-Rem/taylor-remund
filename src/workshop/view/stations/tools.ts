@@ -26,7 +26,7 @@ import type { Frame, StationView, ViewContext } from '../types.ts';
 import type { Piece, PieceNode } from '../kit/types.ts';
 import { piece as kitPiece, pieceBounds } from '../kit/compose.ts';
 import { linear, type Token } from '../palette.ts';
-import { buildToolInto, TOOL_PAINT, TOOL_KINDS, SHEET, BOARD, type ToolKind } from '../kit/pieces/toolwall/index.ts';
+import { buildToolInto, TOOL_PAINT, TOOL_KINDS, SHEET, BOARD, BOARD_B, type ToolKind } from '../kit/pieces/toolwall/index.ts';
 import { tool as toolPiece } from '../kit/pieces/toolwall/tools.ts';
 import { paintToken, partsHooks, partShows, unhook, type PartWork, type PartsOverlay } from './parts.ts';
 import { toolLights, PATCHLAMP } from '../../../content/tool-tags.ts';
@@ -116,6 +116,8 @@ export function createToolsView(o: ToolsViewOptions): (ctx: ViewContext) => Stat
     }
     const rig = ctx.realize(b.build(), { backend: 'skinned' });
     root.add(rig);
+    // (T2 round two, development only) the alternative board draws its own tools: the loose ones are not shown
+    if (BOARD_B) rig.visible = false;
     (ctx.materials as Partial<{ keepColours(root: Object3D): number }>).keepColours?.(rig);
     const tools: RigTool[] = TOOL_KINDS.map((kind) => {
       const bone = rig.getObjectByName(`tool.${kind}`)!;

@@ -13,6 +13,7 @@ import { OPENING } from '../../kit/pieces/revert-hatch/index.ts';
 import { ROOM, roomWall } from '../../kit/pieces/room/index.ts';
 import { signLabels } from '../../kit/pieces/sign/index.ts';
 import { STOOL_SEAT } from '../../kit/pieces/switchboard/index.ts';
+import { BOARD_B } from '../../kit/pieces/toolwall/index.ts';
 import { withShadow } from '../../kit/compose.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
@@ -37,7 +38,8 @@ export const station: BenchStation = {
     const stool: Entry | undefined = stoolE ? { ...stoolE, build: (opts = {}) => stoolE.build({ ...opts, seatY: STOOL_SEAT }) } : undefined;
     // P4 T2: the tool wall's board without its tools (they are loose parts: view/bench/stations/tools.ts draws them)
     const twE = E('toolwall');
-    const toolwall: Entry | undefined = twE ? { ...twE, build: (opts = {}) => twE.build({ ...opts, tools: false }) } : undefined;
+    // (T2 round two: under `?toolBoard=b` in development, the alternative board for the owner's choice, with its own tools drawn on it)
+    const toolwall: Entry | undefined = twE ? { ...twE, build: (opts = {}) => twE.build({ ...opts, tools: BOARD_B }) } : undefined;
     return createSetView({
       entries: { bench, wall, sign, toolwall, lamp: E('lamp'), phone: E('phone'), stool },
       tools: k.entries.filter((e) => e.name.startsWith('tool-')),

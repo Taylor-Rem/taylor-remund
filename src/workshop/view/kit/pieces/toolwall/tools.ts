@@ -645,7 +645,7 @@ export const CHOSEN: { flutter: (typeof CANDIDATES)['flutter'][number]; 'claude-
  * candidate on the wall. The simulation's bodies stay the chosen ones' (sim/scenes/bench.ts TOOLWALL): for looking at, not
  * for throwing about. Never in a build.
  */
-function devChoice<T extends string>(key: string, among: readonly T[]): T | null {
+export function devChoice<T extends string>(key: string, among: readonly T[]): T | null {
   if (!import.meta.env?.DEV) return null;
   try {
     const v = new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get(key);
@@ -654,24 +654,28 @@ function devChoice<T extends string>(key: string, among: readonly T[]): T | null
     return null;
   }
 }
-const CAND_BUILD: Record<Candidate, (n: NodeBuilder, seed: number) => void> = { brush, roller, drill, yankee };
-const CAND_SHAPE: Record<Candidate, () => ToolShape> = { brush: brushShape, roller: rollerShape, drill: drillShape, yankee: yankeeShape };
+// (T2 round two) the two candidates not proposed are in development only: a built page ships the brush and the drill
+// (`import.meta.env.DEV` is false in any build, so the others are never referenced there and are left out of it)
+const CAND_BUILD: Partial<Record<Candidate, (n: NodeBuilder, seed: number) => void>> = import.meta.env?.DEV ? { brush, roller, drill, yankee } : { brush, drill };
+const CAND_SHAPE: Partial<Record<Candidate, () => ToolShape>> = import.meta.env?.DEV ? { brush: brushShape, roller: rollerShape, drill: drillShape, yankee: yankeeShape } : { brush: brushShape, drill: drillShape };
+const candBuild = (c: Candidate): ((n: NodeBuilder, seed: number) => void) => CAND_BUILD[c] ?? CAND_BUILD[c === 'roller' ? 'brush' : 'drill']!;
+const candShape = (c: Candidate): (() => ToolShape) => CAND_SHAPE[c] ?? CAND_SHAPE[c === 'roller' ? 'brush' : 'drill']!;
 
 // ---- dispatch ------------------------------------------------------------------------
 
-const BUILD: Record<ToolKind, (n: NodeBuilder, seed: number) => void> = { laravel: wrench, vue: screwdriver, php: hammer, python: pliers, rust: file, sql: square, flutter: (n, s) => CAND_BUILD[CHOSEN.flutter](n, s), 'claude-code': (n, s) => CAND_BUILD[CHOSEN['claude-code']](n, s) };
-const SHAPE: Record<ToolKind, () => ToolShape> = { laravel: wrenchShape, vue: screwdriverShape, php: hammerShape, python: pliersShape, rust: fileShape, sql: squareShape, flutter: () => CAND_SHAPE[CHOSEN.flutter](), 'claude-code': () => CAND_SHAPE[CHOSEN['claude-code']]() };
+const BUILD: Record<ToolKind, (n: NodeBuilder, seed: number) => void> = { laravel: wrench, vue: screwdriver, php: hammer, python: pliers, rust: file, sql: square, flutter: (n, s) => candBuild(CHOSEN.flutter)(n, s), 'claude-code': (n, s) => candBuild(CHOSEN['claude-code'])(n, s) };
+const SHAPE: Record<ToolKind, () => ToolShape> = { laravel: wrenchShape, vue: screwdriverShape, php: hammerShape, python: pliersShape, rust: fileShape, sql: squareShape, flutter: () => candShape(CHOSEN.flutter)(), 'claude-code': () => candShape(CHOSEN['claude-code'])() };
 
 /** Add a tool's parts to a node (tool-local frame). `candidate`: one of the new tools' other shapes (the owner's review). */
 export function buildToolInto(kind: ToolKind, n: NodeBuilder, seed = 1, candidate?: Candidate): void {
   const s = seed * 101 + TOOL_KINDS.indexOf(kind) * 13;
-  if (candidate) CAND_BUILD[candidate](n, s);
+  if (candidate) candBuild(candidate)(n, s);
   else BUILD[kind](n, s);
 }
 
 /** The wall's facts about a tool (pegs, shadow), without building it. */
 export function toolShape(kind: ToolKind, candidate?: Candidate): ToolShape {
-  return candidate ? CAND_SHAPE[candidate]() : SHAPE[kind]();
+  return candidate ? candShape(candidate)() : SHAPE[kind]();
 }
 
 /** One tool as a Piece of its own (registry names `tool-<kind>`), with socket `peg`. */
