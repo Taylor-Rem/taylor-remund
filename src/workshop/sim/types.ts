@@ -397,8 +397,13 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
-  /** The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope): the page eases back to the view the look left, if the visitor has not moved the camera since. */
-  | { readonly type: 'look.back' }
+  /**
+   * The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope; the
+   * paint dial, turned; an open crate shut by anything but its latch): the page eases back to the view the look left, if
+   * that look (`target`: the id the emitter last asked to be looked at with `look`) still holds the camera and the
+   * visitor has not moved it since. A `look.back` for another look does nothing.
+   */
+  | { readonly type: 'look.back'; readonly target: Id }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }

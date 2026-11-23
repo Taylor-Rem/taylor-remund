@@ -14,8 +14,8 @@
  *   `doubleSteps` before it is done: if the visitor's double-tap asks for the dial (`select`) meanwhile, it was half of
  *   that and is dropped. So a double-tap turns the dial once (its first tap) and looks.
  * - (D2c) `select` (a double-click or double-tap on the dial or its knob): `look` at it (on its tray, its crate's card;
- *   out, the dial itself). A turn by hand (not the lever, not a reset) emits `look.back`: the camera goes back out to
- *   the room it repaints.
+ *   out, the dial itself). A turn by hand (not the lever, not a reset) emits `look.back` for that same target (D2d):
+ *   if that look still holds the camera, it goes back out to the room it repaints.
  * - In nobody's reach (in a hand, in the crew's, shipped, down the chute, in its shut crate): a turn is a misfire.
  * - Never saved: a visit is not remembered in another scheme (Taylor: "provided the original approved appearance
  *   returns on a new visit"). `World.saved()` lists nothing of it; "Reset the workshop" puts the first scheme back.
@@ -127,7 +127,7 @@ export function createPaintDial(ctx: SimContext, spec: PaintDialSpec): PaintDial
     rung = false;
     ctx.emit({ type: 'paint.turned', id: spec.id, dial: spec.dial, scheme: to, from, index: schemes.indexOf(to), of: schemes.length });
     // (D2c) the payoff is the whole room: whatever a look holds, the camera goes back out to see it
-    ctx.emit({ type: 'look.back' });
+    ctx.emit({ type: 'look.back', target: lookTarget() });
   }
 
   /** Turn to `to` under the hand's transaction (a drag): one effect, at once. */

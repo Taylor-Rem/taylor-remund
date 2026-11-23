@@ -291,13 +291,22 @@ describe('the paint dial', () => {
   test('(D2c) a turn by hand sends the camera back out (look.back), a press and a drag alike; the lever and a reset do not', async () => {
     const { w, t } = await opened('pd-back');
     press(w, K);
-    expect(t.run(PRESS).filter((e) => e.type === 'look.back')).toHaveLength(1);
+    // (D2d) the look it gives back is the one it asks for: on its tray, its crate's card
+    expect(t.run(PRESS).filter((e) => e.type === 'look.back')).toEqual([{ type: 'look.back', target: `${PAINT.crate}-card` }]);
     turn(w, at(3));
     expect(t.run(1).filter((e) => e.type === 'look.back')).toHaveLength(1);
     w.dispatch({ type: 'undo' });
     expect(t.run(3).filter((e) => e.type === 'look.back')).toHaveLength(0);
     w.dispatch({ type: 'reset' });
-    expect(t.run(3).filter((e) => e.type === 'look.back')).toHaveLength(0);
+    // (a reset shuts the crate as a consequence: that is the crate's look.back, for its card; the dial sends none)
+    expect(t.run(3).filter((e) => e.type === 'look.back' && e.target !== `${PAINT.crate}-card`)).toHaveLength(0);
+    // out on the bench: the dial itself
+    w.dispatch({ type: 'press', id: `${PAINT.crate}-lid` });
+    t.run(60);
+    putOn(w, t, D, [-0.4, 0, -1.0]);
+    t.run(HZ);
+    press(w, K);
+    expect(t.run(PRESS).filter((e) => e.type === 'look.back')).toEqual([{ type: 'look.back', target: D }]);
     w.dispose();
   });
 });

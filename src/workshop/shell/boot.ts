@@ -949,7 +949,7 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       // (D2c) what was looked at has something to show at the room's scale: if the look still holds the camera (the
       // visitor has not panned or zoomed since), back to the view it left (a cut under reduced motion: easeTo's own)
       if (e.type === 'look.back') {
-        if (stage.camera.look !== null && lookFrom) {
+        if (stage.camera.look !== null && stage.camera.lookId === e.target && lookFrom) {
           resting = lookFrom;
           stage.camera.easeTo(lookFrom);
           lookFrom = null;

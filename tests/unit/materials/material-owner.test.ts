@@ -91,6 +91,54 @@ describe('one owner of a mesh\'s material (paint scheme × see-through)', () => 
     expect(bad).toEqual([]);
   });
 
+  it('(D2d) a kept loose part that fades (a crate a crew member carries: wood, steel, paper) is right at every step of every order of up to four of fade, un-fade, B, C and home, and ends on its own instances', () => {
+    const bad: string[] = [];
+    let n = 0;
+    const run = (seq: Ev[]): void => {
+      n++;
+      const mats = createMaterials({ tier: 'high' });
+      const own = (['wood', 'steel', 'paper'] as const).map((c) => mats.of(c));
+      const body = new Group();
+      const meshes = own.map((m) => new Mesh(new BoxGeometry(), m));
+      body.add(...meshes);
+      mats.keepColours(body);
+      mats.paint.set('B');
+      const twin = meshes[1]!.material as Material;
+      mats.paint.set('A');
+      const fade = { value: 0.5 };
+      let faded = false;
+      let shown = false;
+      for (let i = 0; i < seq.length; i++) {
+        const e = seq[i]!;
+        if (e === 'fade' || e === 'unfade') {
+          faded = e === 'fade';
+          mats.fade(body, faded ? fade : null);
+        } else {
+          shown = e !== 'home';
+          mats.paint.set(e === 'home' ? 'A' : e);
+        }
+        const want = own.map((m, k) => {
+          const base = k === 1 && shown ? twin : m;
+          return faded ? mats.seeThrough(base, fade)! : base;
+        });
+        meshes.forEach((m, k) => {
+          if (m.material !== want[k]) bad.push(`${seq.slice(0, i + 1).join(' > ')}: ${own[k]!.name} on ${(m.material as Material).name}`);
+        });
+        if (meshes[1]!.renderOrder !== (shown ? -1 : 0)) bad.push(`${seq.slice(0, i + 1).join(' > ')}: the kept steel's renderOrder ${meshes[1]!.renderOrder}`);
+      }
+      mats.fade(body, null);
+      mats.paint.set('A');
+      if (meshes.some((m, k) => m.material !== own[k] || m.renderOrder !== 0)) bad.push(`${seq.join(' > ')} then un-fade, home: not its own instances`);
+    };
+    const all = (left: number, pre: Ev[]): void => {
+      if (pre.length) run(pre);
+      if (left > 0) for (const e of EVENTS) all(left - 1, [...pre, e]);
+    };
+    all(4, []);
+    expect(n).toBe(780);
+    expect(bad).toEqual([]);
+  });
+
   it('a kept loose part that never fades (the report press: enamel, brass, wood, paper) swaps with every order of up to four of B, C and home, and ends on its own instances', () => {
     // (the press's view calls keepColours on its piece; the piece itself needs the label atlas, a canvas, so it is
     // stood in for by its four classes)
