@@ -159,6 +159,8 @@ describe('the report press', () => {
     expect(ev.filter((e) => e.type === 'look').map((e) => (e as { target: string }).target)).toEqual([`${PRESS.crate}-card`]);
     expect(view(w).waiting).toBe(false);
     expect(until(w, t, () => t.events.some((x) => x.e.type === 'look.back'), 4 * HZ)).toBe(true);
+    // (D2d) it gives back the look it asked for: its crate's card
+    expect(t.of('look.back').map((x) => (x.e as { target: string }).target)).toEqual([`${PRESS.crate}-card`]);
     expect(t.of('press.printed')).toHaveLength(1);
     // no look on a pull
     const looks = t.of('look').length;

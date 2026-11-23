@@ -286,7 +286,7 @@ export function createPress(ctx: SimContext, spec: PressSpec): PressUnit {
     flight = f;
     ctx.emit({ type: 'press.flicked', id: spec.id, envelope: spec.envelope, from: from.p, to, flight: time });
     // the close view is done: the page eases back out to watch the lob, the ride and the bell
-    ctx.emit({ type: 'look.back' });
+    ctx.emit({ type: 'look.back', target: lookTarget() });
   }
 
   /** Reduced motion: no travel; the envelope is set down still on the belt where the lob would have landed it. */

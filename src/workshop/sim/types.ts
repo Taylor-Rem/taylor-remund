@@ -397,8 +397,13 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
-  /** The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope): the page eases back to the view the look left, if the visitor has not moved the camera since. */
-  | { readonly type: 'look.back' }
+  /**
+   * The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope; the
+   * paint dial, turned; an open crate shut by anything but its latch): the page eases back to the view the look left, if
+   * that look (`target`: the id the emitter last asked to be looked at with `look`) still holds the camera and the
+   * visitor has not moved it since. A `look.back` for another look does nothing.
+   */
+  | { readonly type: 'look.back'; readonly target: Id }
   // ── P4 T2: the tool wall (sim/machines/toolwall.ts) ──
   /** A tool came off its peg into the visitor's hand (the peg's click). `id` is the wall's unit. */
   | { readonly type: 'toolwall.taken'; readonly id: Id; readonly tool: Id }
@@ -417,6 +422,11 @@ export type SimEvent =
   | { readonly type: 'ledger.refused'; readonly id: Id; readonly board: Id }
   /** A beat of the board's show, in the step it falls due (for sound): `beat` as `LedgerBeatKind`, the token it moves and where to. */
   | { readonly type: 'ledger.beat'; readonly id: Id; readonly board: Id; readonly show: LedgerShow['kind']; readonly beat: LedgerBeatKind; readonly token: number | null; readonly to: string | null; readonly month: number | null; readonly on?: boolean }
+  // ── P4 D2b: the paint dial (sim/machines/paint-dial.ts) ──
+  /** A hand turned the dial's knob to another scheme: the dial's field is already `scheme`; the view wipes it across the room. `index` of `of` in dial order. */
+  | { readonly type: 'paint.turned'; readonly id: Id; readonly dial: Id; readonly scheme: string; readonly from: string; readonly index: number; readonly of: number }
+  /** The wipe of the last change (a turn, an undo, a reset) has crossed the room: the bell. */
+  | { readonly type: 'paint.wiped'; readonly id: Id; readonly dial: Id; readonly scheme: string }
   // ── P4 D3: the report press (sim/machines/press.ts) ──
   /** A pull printed: the report (`marks` shipments, 0 an honest empty report), a copy in the drawer, and the envelope out (`envelope`) or the bed's shrug. */
   | { readonly type: 'press.printed'; readonly id: Id; readonly body: Id; readonly marks: number; readonly envelope: boolean }
@@ -746,6 +756,26 @@ export interface LedgerView extends MachineViewBase {
 }
 
 /**
+ * P4 D2b: the paint dial (sim/machines/paint-dial.ts). `scheme` is its durable value, one of `schemes` (dial order; the
+ * first the approved look), `index` its place. `change` is the last change (a hand's turn, or the lever or a reset
+ * putting it back), `since` seconds ago, which the view wipes across the room over `wipe` seconds from where the dial
+ * is; null before any. `worked` seconds since a hand last worked the knob (Infinity before); `misfire` the knob's;
+ * `reachable` whether the knob can be turned now (the dial in the world and in nobody's hand).
+ */
+export interface PaintDialView extends MachineViewBase {
+  readonly kind: 'paint-dial';
+  readonly dial: Id;
+  readonly knob: Id;
+  readonly schemes: readonly string[];
+  readonly scheme: string;
+  readonly index: number;
+  readonly change: { readonly from: string; readonly to: string; readonly since: number; readonly by: 'hand' | 'restore' } | null;
+  readonly wipe: number;
+  readonly worked: number;
+  readonly reachable: boolean;
+}
+
+/**
  * P4 D3: the report press (sim/machines/press.ts). `report` and `drawer` are the press's durable fields (what its two
  * holders show: paint names oldest first, null when nothing has been printed; the copies in its drawer); `seal` the
  * envelope's. `envelopeIn`: the envelope is in the press, on the arm's bed. `show` is the pull being shown (`before`
@@ -797,7 +827,7 @@ export interface ToolwallView extends MachineViewBase {
   readonly sheet: Id;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PressView | ToolwallView;
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PaintDialView | PressView | ToolwallView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

@@ -116,12 +116,15 @@ describe('the steel material and the scheme', () => {
     mats.paint.set('A');
   });
 
-  it('keeps the colours of what is given to keepColours: a twin with the same program and class uniforms, switched off', () => {
+  it('keeps the colours of what is given to keepColours: on its own material at home, a twin (same program, same class uniforms, switched off) while a scheme repaints', () => {
     const g = new Group();
     const a = new Mesh(new BoxGeometry(), steel);
     const b = new Mesh(new BoxGeometry(), mats.of('brass'));
     g.add(a, b);
     expect(mats.keepColours(g)).toBe(1);
+    // at home: nothing changes (the draw order three sorts by material is the approved one)
+    expect(a.material).toBe(steel);
+    mats.paint.set('B');
     const twin = a.material as MeshPhysicalMaterial;
     expect(twin).not.toBe(steel);
     expect(b.material).toBe(mats.of('brass'));
@@ -131,12 +134,18 @@ describe('the steel material and the scheme', () => {
     expect(tu['s_on']!.value).toBe(0);
     expect(tu['u_roughness']).toBe(su['u_roughness']);
     expect(tu['s_active']).toBe(su['s_active']);
-    // the same twin for every mesh of that material; twice is harmless
+    // the same twin for every mesh of that material, kept while the scheme is shown; twice is harmless
     const c = new Mesh(new BoxGeometry(), steel);
     g.add(c);
     mats.keepColours(g);
     expect(c.material).toBe(twin);
     expect(a.material).toBe(twin);
     expect(mats.all()).toContain(twin);
+    // a wipe home: the twin stays while it runs, and its own material is back when it ends
+    mats.paint.set('A', { time: 0, origin: [0, 0, 0] });
+    expect(a.material).toBe(twin);
+    mats.paint.update(100);
+    expect(a.material).toBe(steel);
+    expect(c.material).toBe(steel);
   });
 });

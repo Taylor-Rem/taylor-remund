@@ -174,7 +174,11 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
     if (cause === 'crew') cause = 'system';
     let r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], cause);
     if (r.refused.length > 0) r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], 'system');
-    if (r.effects.length > 0) ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why });
+    if (r.effects.length > 0) {
+      ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why });
+      // (D2d) shut by anything but the visitor's own latch: a look at its card has nothing left to show
+      if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
+    }
   }
 
   /** Where a crate's thing sits on its tray: at the front of its mouth, a hair over the rim, turned with the crate. */

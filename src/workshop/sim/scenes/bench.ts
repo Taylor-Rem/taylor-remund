@@ -27,6 +27,7 @@ import { dock, DOCK_TUNING } from '../machines/dock.ts';
 import { chute } from '../machines/chute.ts';
 import { crates } from '../machines/crates.ts';
 import { ledger } from '../machines/ledger.ts';
+import { paintDial } from '../machines/paint-dial.ts';
 import { press } from '../machines/press.ts';
 import { toolwall } from '../machines/toolwall.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
@@ -237,6 +238,20 @@ export const LEDGER = {
 } as const;
 
 /**
+ * P4 D2b: the paint dial, t-components' thing (sim/machines/paint-dial.ts), in its crate (the small one in front of the
+ * console). A loose part with one durable field (the scheme the workshop wears) and a knob that rides on it. Its body:
+ * the fan of chips on its plate, the knob above it. `half` is the view's too (view/kit/pieces/paint-dial PAINT_DIAL).
+ */
+export const PAINT = {
+  unit: 'paint',
+  dial: 'paint-dial',
+  crate: 'crate-3',
+  knob: 'paint-dial-knob',
+  half: [0.155, 0.036, 0.1] as Vec3,
+  mass: 0.02,
+} as const;
+
+/**
  * P4 D3: the report press, the Report Generation Framework's thing (sim/machines/press.ts), in its crate (the middle one,
  * on top of the stack). A loose part with state (what its two holders show and the copies in its drawer are its own
  * durable fields, drawn) and one lever that rides on it; and its envelope, the one real loose part it makes, which starts
@@ -309,8 +324,8 @@ const TOOL_MOUTHS: readonly MouthSpec[] = Object.entries(TOOLWALL.tools).map(([k
   return { id: pegId(kind), machine: TOOLWALL.unit, station: 'tools' as const, c: [t.at[0], t.at[1], t.at[2] + 0.25] as Vec3, half: [w[0] + 0.08, w[1] + 0.08, 0.3] as Vec3, drop: [t.at[0], t.at[1] - t.half[1] - 0.01, t.at[2]] as Vec3 };
 });
 
-/** Each project crate's latch, its card's plate and its card (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
-export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body, thing: PRESS.thing } : {}) }));
+/** Each project crate's latch, its card's plate and its card (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press, t-components' its paint dial. */
+export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body, thing: PRESS.thing } : crate === PAINT.crate ? { holds: PAINT.dial } : {}) }));
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
@@ -799,6 +814,8 @@ export const bench: SceneDesc = {
     PATCH_BODY,
     // P4 D1: the ledger board, in its crate until the crate is opened
     { id: LEDGER.board, kind: 'tool', size: 'S', material: 'wood', colour: BARE, label: '', station: 'line', name: 'name.ledger.board', pose: pose([0, -4, 0]), half: LEDGER.half, mass: LEDGER.mass, stowedIn: LEDGER.crate },
+    // P4 D2b: the paint dial, in its crate until the crate is opened
+    { id: PAINT.dial, kind: 'tool', size: 'S', material: 'metal', colour: BARE, label: '', station: 'line', name: 'name.paint.dial', pose: pose([0, -4, 0]), half: PAINT.half, mass: PAINT.mass, stowedIn: PAINT.crate },
     // P4 D3: the report press, in its crate until the crate is opened; its envelope, in the press
     { id: PRESS.body, kind: 'tool', size: 'S', material: 'metal', colour: BARE, label: '', station: 'line', name: 'name.press.body', pose: pose([0, -4, 0]), half: PRESS.half, mass: PRESS.mass, stowedIn: PRESS.crate },
     { id: PRESS.envelope, kind: 'tool', size: 'S', material: 'paper', colour: BARE, label: '', station: 'line', name: 'name.press.envelope', pose: pose([0, -4, 0]), half: PRESS.envelopeHalf, mass: PRESS.envelopeMass, stowedIn: PRESS.body },
@@ -858,6 +875,8 @@ export const bench: SceneDesc = {
     crates({ id: 'crates', station: 'line' }),
     // P4 D1: the ledger board's crank and plunger (after the crates: its board is on its tray before it deals itself)
     ledger({ id: LEDGER.unit, station: 'line', board: LEDGER.board, crate: LEDGER.crate, crank: { id: LEDGER.crank, name: 'name.ledger.crank' }, plunger: { id: LEDGER.plunger, name: 'name.ledger.plunger' }, look: { card: `${LEDGER.crate}-card`, board: LEDGER.look } }),
+    // P4 D2b: the paint dial's knob (after the crates, as the ledger's controls)
+    paintDial({ id: PAINT.unit, station: 'line', dial: PAINT.dial, crate: PAINT.crate, knob: { id: PAINT.knob, name: 'name.paint.knob' } }),
     // P4 D3: the report press's lever, after the dock (it hears the dock's shipments on the bus) and the crates
     press({
       id: PRESS.unit,
@@ -897,7 +916,7 @@ export function withStandIn(scene: SceneDesc = bench): SceneDesc {
   return {
     ...scene,
     id: `${scene.id}+standin`,
-    parts: [...scene.parts, thing],
+    parts: [...scene.parts.filter((p) => p.id !== PAINT.dial), thing], // (D2b: the stand-in takes the paint dial's place)
     projects: (scene.projects ?? []).map((c) => (c.crate === 'crate-3' ? { ...c, holds: STAND_IN_THING } : c)),
   };
 }

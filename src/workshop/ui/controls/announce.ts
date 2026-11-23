@@ -190,6 +190,10 @@ export class Announcer {
         case 'ledger.refused':
           say('ledgerNothing');
           break;
+        // (P4 D2b) the paint dial turned to another scheme by a hand (the lever's and a reset's are said as theirs)
+        case 'paint.turned':
+          say('paintTurned');
+          break;
         // (P4 D3) the report press: what it printed, and whether the envelope went; the envelope home again
         case 'press.printed':
           if (e.marks === 0) say('pressPrintedNone');

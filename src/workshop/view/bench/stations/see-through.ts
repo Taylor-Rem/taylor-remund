@@ -1,8 +1,11 @@
 /**
  * P4 S5 round three: a crew member in the way of what is being looked at goes see-through. While a look holds the
  * camera (`CameraRig.look`: an opened crate's card, shell/boot.ts `lookAt`), any crew body standing between the camera
- * and that box fades, the whole body at once, to a fine screen door (`EffectMaterials.seeThrough`: its own materials'
- * twins, the same programs, one uniform per body), and comes back when it is out of the way or the look is left.
+ * and that box fades, the whole body at once, to a fine screen door (`EffectMaterials.fade`: the materials module
+ * draws each mesh with its see-through twin, one uniform per body, and owns which material that is, with the paint
+ * scheme's keep twins: D2c), and comes back when it is out of the way or the look is left. A twin's program is the
+ * only one that carries the screen door; it is built while a look holds the camera (D2d: a hand is not throwing then,
+ * and the camera is easing), and a body (or a carried load) fades only once its are ready.
  *
  * - *Crew*: every member the world lists (`WorldView.crewViews()`), each by the body the page registered as its pick
  *   target (its body part's id, or its own); a new member needs nothing here.
@@ -45,8 +48,10 @@ interface Body {
   readonly key: Id;
   readonly obj: Object3D;
   readonly fade: { value: number };
-  /** The meshes and the materials they had, while swapped. */
-  swapped: Map<Mesh, Material | Material[]> | null;
+  /** Whether it is faded now (the materials module holds what each mesh had: one owner, D2c). */
+  swapped: boolean;
+  /** (D2c) Its ghosts' programs are built and linked: until then it stays solid. */
+  ready: boolean;
   level: number;
 }
 
@@ -92,28 +97,58 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
     const a = { x0: 0, x1: 0, y0: 0, y1: 0, near: 0, mid: 0 };
     const t = { x0: 0, x1: 0, y0: 0, y1: 0, near: 0, mid: 0 };
 
-    const swap = (b: Body, on: boolean): void => {
-      if (on && !b.swapped) {
-        const was = new Map<Mesh, Material | Material[]>();
-        b.obj.traverse((o) => {
-          const mesh = o as Mesh;
-          if (!mesh.isMesh) return;
-          const twin = (x: Material): Material => ctx.materials.seeThrough?.(x, b.fade) ?? x;
-          was.set(mesh, mesh.material);
-          mesh.material = Array.isArray(mesh.material) ? mesh.material.map(twin) : twin(mesh.material);
-        });
-        b.swapped = was;
-      } else if (!on && b.swapped) {
-        for (const [mesh, mat] of b.swapped) mesh.material = mat;
-        b.swapped = null;
+    /**
+     * (D2c, D2d) The ghosts' programs (only a ghost's program carries the screen door), built only while a look holds the
+     * camera, one body at a time, each program linked in a task of its own; a body fades only once its are ready.
+     * Where the GPU has no parallel compile (this laptop) a link stalls the main thread: at any moment a hand may be
+     * throwing that jolts the throw (D2c measured the juggling tests drifting 0.53 where they hold under 0.3; a firm
+     * flick fell short). A look is asked for by a double-click or a show, when no hand is throwing, and the camera is
+     * easing in anyway; a fade is only ever wanted during a look. Without the means (a stand-in), at once.
+     */
+    const queue: Body[] = [];
+    let preparing = false;
+    /** How long each body's programs took, start to ready (ms, wall clock): measurements read it. */
+    const took: number[] = [];
+    root.userData.prepareMs = took;
+    const pump = (looking: boolean): void => {
+      if (preparing || queue.length === 0 || !looking) return;
+      const b = queue.shift()!;
+      const compile = ctx.stage.compileObject?.bind(ctx.stage);
+      if (!ctx.materials.prepareFade || !compile) {
+        b.ready = true;
+        return;
       }
+      preparing = true;
+      const t0 = performance.now();
+      ctx.materials.prepareFade(b.obj, b.fade, compile).then(
+        (n) => {
+          took.push(Math.round(performance.now() - t0));
+          programs += n;
+          b.ready = true;
+          preparing = false;
+        },
+        () => {
+          b.ready = true;
+          preparing = false;
+        },
+      );
+    };
+    let programs = 0;
+    root.userData.ghostPrograms = () => programs;
+
+    // (D2c) the materials module owns each mesh's material (this fade, the paint scheme's keep twins): ask it
+    const swap = (b: Body, on: boolean): void => {
+      if (on === b.swapped) return;
+      ctx.materials.fade?.(b.obj, on ? b.fade : null);
+      b.swapped = on;
     };
 
     return {
       root,
       update(frame: Frame) {
-        if (m === 'off' || !ctx.materials.seeThrough || !ctx.targetObject) return;
+        if (m === 'off' || !ctx.materials.fade || !ctx.targetObject) return;
         const cam = ctx.stage.camera as CameraRig;
+        pump(m === 'all' || cam.look !== null);
         const look = m === 'all' ? null : cam.look;
         // (round four) in the way by rays: lines from the camera to points of what must show (the look target's parts
         // `.face`, `.plate`, `.thing`; else the look box's middle and four points round it), and a body is in the way
@@ -197,12 +232,13 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
               }
             }
             if (!obj || key === null) continue;
-            b = { key, obj, fade: { value: 0 }, swapped: null, level: 0 };
+            b = { key, obj, fade: { value: 0 }, swapped: false, ready: false, level: 0 };
+            queue.push(b);
             bodies.set(cv.id, b);
           }
           const held = ids.includes(frame.held ?? '');
           let want = 0;
-          if (!held && (m === 'all' || look) && b.obj.visible) want = m === 'all' || inWay(b.obj, b.key) ? SEE_THROUGH.fade : 0;
+          if (b.ready && !held && (m === 'all' || look) && b.obj.visible) want = m === 'all' || inWay(b.obj, b.key) ? SEE_THROUGH.fade : 0;
           ease(b, want, cv.id);
           // its load: fades when the carrier does, or when it is in the way itself
           const load = cv.kind === 'fetch' ? cv.member.carrying : ((cv as { view?: { carrying?: Id | null } }).view?.carrying ?? null);
@@ -215,12 +251,13 @@ export function createSeeThroughView(): (ctx: ViewContext) => StationView {
                 c.level = 0;
                 swap(c, false);
               }
-              c = { key: load, obj, fade: { value: 0 }, swapped: null, level: 0 };
+              c = { key: load, obj, fade: { value: 0 }, swapped: false, ready: false, level: 0 };
+              queue.push(c);
               bodies.set(k, c);
             }
             if (c) {
               carriedNow.add(k);
-              const w2 = want > 0 || ((m === 'all' || look) && c.obj.visible && (m === 'all' || inWay(c.obj, load))) ? SEE_THROUGH.fade : 0;
+              const w2 = c.ready && (want > 0 || ((m === 'all' || look) && c.obj.visible && (m === 'all' || inWay(c.obj, load)))) ? SEE_THROUGH.fade : 0;
               ease(c, w2, k);
             }
           }

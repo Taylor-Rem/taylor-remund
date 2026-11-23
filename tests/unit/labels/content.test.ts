@@ -108,6 +108,9 @@ describe('contentById', () => {
     'name.project.ledger', 'name.project.reports', 'name.project.support-desk', 'name.project.clean-green', 'name.project.t-components', 'name.project.artificer', 'name.lid', 'name.plate', 'name.standin',
     // P4 D1: the ledger board and its two controls
     'name.ledger.board', 'name.ledger.crank', 'name.ledger.plunger',
+    // P4 D2b: the paint dial and its knob
+    'name.paint.dial', 'name.paint.knob',
+
     // P4 D3: the report press, its lever and its envelope
     'name.press.body', 'name.press.lever', 'name.press.envelope',
     // P4 T2: the tool wall's eight tools, its pinned sheet, and the wall (a tool's place)

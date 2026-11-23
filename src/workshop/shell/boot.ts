@@ -897,6 +897,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
       return keep(to);
     },
   };
+  /** (D2c) The view a look began from (not itself a look), for `look.back`; null when there is none to go back to. */
+  let lookFrom: View | null = null;
   /**
    * (P4 S5 round two) A thing asked to be looked at (`look`): from the view now, the least move that shows its box at
    * least `LOOK_AT.minPx` across in the clear area. Already that close and in the clear: the camera stays. Else it is
@@ -908,6 +910,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     if (!box) return;
     following = null;
     const cam = stage.camera;
+    // (D2c) a look begun from a view that is not itself a look: that view, for `look.back`
+    if (cam.look === null) lookFrom = cam.view();
     const c = clearOf(KEEP_CLEAR.pad);
     // (round three) close enough when the box is `minPx` across either way, or fills the clear area's width or height
     // (`fill`): each side judged against its own side of the area, so a tall box on an upright phone comes in until
@@ -942,6 +946,16 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   let pendingFrame: { id: Id; step: number; until: number } | null = null;
   const lookEvents = (frame: Frame): void => {
     for (const e of frame.events) {
+      // (D2c) what was looked at has something to show at the room's scale: if the look still holds the camera (the
+      // visitor has not panned or zoomed since), back to the view it left (a cut under reduced motion: easeTo's own)
+      if (e.type === 'look.back') {
+        if (stage.camera.look !== null && stage.camera.lookId === e.target && lookFrom) {
+          resting = lookFrom;
+          stage.camera.easeTo(lookFrom);
+          lookFrom = null;
+        }
+        continue;
+      }
       if (e.type !== 'look') continue;
       pendingFrame = null;
       lookAt(e.target);

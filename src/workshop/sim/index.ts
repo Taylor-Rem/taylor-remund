@@ -54,6 +54,9 @@ export { LEDGER } from './scenes/bench.ts';
 export { TOKENS_FIELD } from './machines/ledger.ts';
 export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
 export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';
+// P4 D2b: the paint dial (its scene ids, its field and its schemes, for the view)
+export { PAINT } from './scenes/bench.ts';
+export { SCHEME_FIELD, PAINT_TUNING } from './machines/paint-dial.ts';
 // P4 D3: the report press (its scene ids, its fields, its sequence, for the view)
 export { PRESS } from './scenes/bench.ts';
 export { REPORT_FIELD, DRAWER_FIELD, SEAL_FIELD } from './machines/press.ts';

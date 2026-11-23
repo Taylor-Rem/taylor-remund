@@ -16,6 +16,9 @@
 // P4 T2 (the tool wall: eight tools that start on their pegs, eight places, the board's body, its unit and its sheet): a world
 // with them and one without them were stepped side by side for the two minutes and every body but the tools, every durable
 // field but theirs, the crew, attract mode, the machines and the stack, and the events, were identical at every step.
+// Re-recorded at P4 D2d, the paint dial joined to the tool wall (the dial in crate-3: one more body, stowed, its `scheme`
+// field, its unit and its knob in the registry): with the dial, its knob, its unit and its field left out of the state,
+// the opening matched the tool wall's recording at the pictures' step and every checkpoint.
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';

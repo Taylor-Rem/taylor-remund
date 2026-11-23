@@ -22,6 +22,10 @@ export interface Materials {
   /** Advance anything time-driven (the belt's scroll, bulb flicker). `time` is simulation seconds. */
   update(time: number): void;
   dispose(): void;
+  /** (P4 D2b) The paint scheme the enamel wears, and the wipe to another (materials/scheme.ts). Absent on stand-ins. */
+  readonly paint?: import('./materials/scheme.ts').SchemeState;
+  /** (P4 D2b) What is under `root` keeps its own colours whatever the scheme (the crew, loose parts). Absent on stand-ins. */
+  keepColours?(root: import('three').Object3D): number;
 }
 
 /**
@@ -39,6 +43,18 @@ export interface EffectMaterials {
    * material and `fade` object. Null for a material that is not one of these (it is left as it is).
    */
   seeThrough?(material: import('three').Material, fade: { value: number }): import('three').Material | null;
+  /**
+   * (D2c) Fade `root`'s meshes to a screen door driven by `fade.value` (see-through twins of whatever each mesh is drawn
+   * with: its own material or its paint-scheme keep twin), or stop (null): the materials module sets `mesh.material`
+   * (one owner; the caller never does). Absent on stand-ins.
+   */
+  /**
+   * (D2c) Make ready the see-through twins `root`'s meshes will be drawn with when `fade` is asked for (of their own
+   * materials and of their paint-scheme keep twins): their programs are built by `compile` (`Stage.compileObject`) on
+   * the meshes themselves (skinned or not), and the meshes are given straight back what they had. Resolves when linked.
+   */
+  prepareFade?(root: import('three').Object3D, fade: { value: number }, compile: (o: import('three').Object3D) => Promise<number>): Promise<number>;
+  fade?(root: import('three').Object3D, fade: { value: number } | null): void;
 }
 
 /** Text drawn to textures from src/content at start-up (§ E3, § A "Text in the world"). */
@@ -120,7 +136,7 @@ export interface LabelPhoneMessage {
  * camera (`camera.focusOn`, `camera.shake`), and set or dip the lamp
  * (`lights.setLamp`, `lights.dip`, `lights.setBulb`). Never the renderer.
  */
-export type StageHandle = Pick<Stage, 'camera' | 'lights'>;
+export type StageHandle = Pick<Stage, 'camera' | 'lights'> & Partial<Pick<Stage, 'compileObject'>>;
 
 /** What every station view is built with. */
 export interface ViewContext {
