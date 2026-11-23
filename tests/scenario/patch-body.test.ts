@@ -592,10 +592,12 @@ describe('momentum: it travels as a thing thrown, and what it hits moves by cont
   }, 120_000);
 });
 
+// (P4 T2) The walls below are met at x -3.6, the back wall's bare boards: left of -4.6 the tool wall's board stands 0.11 in
+// front of it (a body since T2), and Patch splats on the pegboard there instead.
 describe('the gags are reactions to what the engine did', () => {
   test('a wall met square and fast: flat against it for the stick, then down it to the bench (a catch, named: the splat); it sits at its foot and goes home', async () => {
     const { w, t } = await world();
-    const from: Vec3 = [-5.5, 2.2, -1.2];
+    const from: Vec3 = [-3.6, 2.2, -1.2];
     lift(w, t, from);
     const mark = t.events.length;
     fling(w, t, from, [0, 0, -10], 16);
@@ -635,7 +637,7 @@ describe('the gags are reactions to what the engine did', () => {
   test('flicked level at the back wall from beside it, at a deliberate flick\'s speed: at the wall it goes, and splats; carried into it, brought to it slowly, or held against it, none', async () => {
     for (const [name, past, sticks, hold, n] of [['flicked into it', 1.2, true, 0, 12], ['flicked at it from a unit off', -1.0, true, 0, 4], ['carried into it briskly and let go', 1.2, false, 0, 24], ['brought to it slowly', -0.32, false, 0, 90], ['held against it', 1.2, false, 30, 12]] as const) {
       const { w, t } = await world();
-      const from: Vec3 = [-5.5, 1.6, -3.2];
+      const from: Vec3 = [-3.6, 1.6, -3.2];
       lift(w, t, from);
       // the hand goes on toward (and past) the wall's face; the body cannot follow it through
       const wall = bench.bench.minZ;
@@ -675,7 +677,7 @@ describe('the gags are reactions to what the engine did', () => {
     const rose: number[] = [];
     for (const z of [bench.bench.minZ + 0.6, -1.5]) {
       const { w, t } = await world();
-      const from: Vec3 = [-5.5, 1.8, z];
+      const from: Vec3 = [-3.6, 1.8, z];
       lift(w, t, from);
       const mark = t.events.length;
       fling(w, t, from, [0, 9, 0], 8);
@@ -730,7 +732,7 @@ describe('the gags are reactions to what the engine did', () => {
     let splats = 0;
     for (const y of [1.6, 4.0, 6.0]) {
       const { w, t } = await world();
-      const from: Vec3 = [-5.5, y, -1.2];
+      const from: Vec3 = [-3.6, y, -1.2];
       lift(w, t, from);
       fling(w, t, from, [0, 0, -12], 16);
       const watch = watcher(w, t);
@@ -747,7 +749,7 @@ describe('the gags are reactions to what the engine did', () => {
 
   test('a wall met slowly, or glancing, is only the engine\'s bounce: no stick', async () => {
     for (const [name, from, v] of [
-      ['slowly', [-5.5, 1.4, -3.4], [0, 0, -3.5]],
+      ['slowly', [-3.6, 1.4, -3.4], [0, 0, -3.5]],
       ['glancing', [-7.5, 1.6, -3.6], [11, 0, -3.5]],
     ] as const) {
       const { w, t } = await world();
@@ -1138,7 +1140,7 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     ['lying, just before it gets up', (s) => s.state === 'fly' && s.speed < 0.8 && s.mid[1] < 0.5, OPEN, [6, 0, 0]],
     ['getting up', (s, w) => s.state === 'land' && patch(w).stateTime > 0.1, OPEN, [9, 0, 0]],
     ['shaking its head', (s) => s.state === 'shake', OPEN, [10, 0, 0]],
-    ['stuck to the wall', (s) => s.state === 'wall', [-5.5, 2.2, -1.2], [0, 0, -10]],
+    ['stuck to the wall', (s) => s.state === 'wall', [-3.6, 2.2, -1.2], [0, 0, -10]],
     // (a stated velocity gets no loft: let go near enough the left end that it goes over it before it is down)
     ['hanging from the edge', (s, w) => s.state === 'ledge' && patch(w).stateTime > 0.5, [-8.5, 1.0, -1], [-3, 0, 0]],
     ['walking home', (s, w) => s.state === 'walk' && s.speed > 0.5 && patch(w).stateTime > 1, OPEN, [6, 0, 0]],

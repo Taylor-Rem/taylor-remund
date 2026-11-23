@@ -4,13 +4,15 @@
 // file holds structure only. Anchors that must keep working (§ 2): #about,
 // #skills, #projects, #patchlamp, #experience, #contact. A project entry is
 // src/components/paper/ProjectEntry.astro, the same component the workshop's
-// project cards are drawn with.
+// project cards are drawn with; the skill groups are SkillGroups.astro, the same
+// component the tool wall's pinned sheet opens (P4 T2).
 import Paper from '../layouts/Paper.astro';
 import { resume } from '../content/resume.ts';
 import { personJsonLd } from '../content/person.ts';
 import { renderInline } from '../components/paper/inline.ts';
 import { externalAttrs, mailAttrs, printAttrs } from '../components/paper/links.ts';
 import ProjectEntry from '../components/paper/ProjectEntry.astro';
+import SkillGroups from '../components/paper/SkillGroups.astro';
 
 const { page, nav, about, figures, skills, projects, experience, contact } = resume;
 const rich = (text: string): string => renderInline(text, { linkAttrs: printAttrs });
@@ -45,18 +47,7 @@ const pageNav = [nav.projects, nav.experience, nav.contact].map((l) => ({ text: 
   <section class="section" id="skills" aria-labelledby="skills-title">
     <p class="tape">{skills.eyebrow.text}</p>
     <h2 class="title" id="skills-title">{skills.heading.text}</h2>
-    <div class="skill-groups">
-      {skills.groups.map((g) => (
-        <div class="skill-group">
-          <h3 class="skill-group-title">{g.title.text}</h3>
-          <ul class="skills">
-            {g.items.map((s) => (
-              <li>{s.icon && <svg class="skill-icon" aria-hidden="true" focusable="false" width="16" height="16"><use href={`/assets/skill-icons.svg#${s.icon}`} /></svg>}{s.text}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
+    <SkillGroups groups={skills.groups} />
   </section>
 
   <section class="section" id="projects" aria-labelledby="projects-title">

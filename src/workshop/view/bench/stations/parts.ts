@@ -26,7 +26,8 @@ import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { CRATES_TUNING, LEDGER, PRESS } from '../../../sim/index.ts';
+import { CRATES_TUNING, LEDGER, PRESS, TOOLWALL } from '../../../sim/index.ts';
+import { toolBodyPiece } from '../../stations/tools.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
 export const LID_FEEL = {
@@ -155,6 +156,9 @@ export const station: BenchStation = {
           if (p.id === LEDGER.board && ledgerBoard) return buildEntry(ledgerBoard, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D1: the ledger board
           if (p.id === PRESS.body && reportPress) return buildEntry(reportPress, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D3: the report press
           if (p.id === PRESS.envelope && reportEnvelope) return buildEntry(reportEnvelope, null, { seed: hashSeed(p.id) }, ctx.labels); // and its envelope
+          // P4 T2: a tool off the wall; drawn by the tool wall's view (view/stations/tools.ts), this is its pick target's shape
+          const tl = p.kind === 'tool' ? k.entry(p.id) : undefined;
+          if (tl) return toolBodyPiece(buildEntry(tl, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels));
           if (things.has(p.id) && block) {
             // a crate's thing: the stand-in is the kit's test block, at the thing's size (its width across)
             return buildEntry(block, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels);
@@ -172,6 +176,8 @@ export const station: BenchStation = {
           }, ctx.labels);
         },
         decorate: projectCrates(projects, things),
+        // P4 T2: a tool hanging on the wall casts no contact shadow on the bench below it
+        blob: (p, w) => !(p.kind === 'tool' && (w.machine(TOOLWALL.unit) as { tools?: readonly { id: string; hung: boolean }[] } | undefined)?.tools?.some((t) => t.id === p.id && t.hung)),
       })(ctx);
     };
   },

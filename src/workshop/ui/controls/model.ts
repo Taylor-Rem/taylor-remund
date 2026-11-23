@@ -23,6 +23,7 @@
  */
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
 import { LEDGER, PRESS } from '../../sim/index.ts';
+import { TOOLWALL, pegId } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
@@ -88,7 +89,8 @@ export function plainName(w: WorldView, id: Id): string {
   if (it) return textOf(it.name) ?? id;
   const mouth = (w.scene.mouths ?? []).find((m) => m.id === id);
   if (mouth) {
-    const owner = w.interactable(mouth.id);
+    // (P4 T2) a mouth named for its machine: a tool's place on the wall is the wall's
+    const owner = w.interactable(mouth.id) ?? w.interactable(mouth.machine);
     if (owner) return textOf(owner.name) ?? id;
   }
   const jack = w.scene.cord.jacks.find((j) => j.id === id);
@@ -208,10 +210,20 @@ export function listModel(src: ControlsSource): ListModel {
       id: src.held.id,
       what: src.held.what,
       label: fill(LIST.holding, { thing }),
-      dests: numbered(src.destinations.map((d) => ({ id: d, label: plainName(w, d) }))),
+      dests: numbered(src.destinations.filter((d) => placeFor(w, d, src.held!.id)).map((d) => ({ id: d, label: plainName(w, d) }))),
     };
   }
   return { stations, hold, busy };
+}
+
+/**
+ * (P4 T2) Is `dest` a place for `held`? Every mouth is, but a tool's place on the wall (a mouth of the wall's), which is
+ * only for that tool: the others' places would read as eight times "Tool wall" for a crate.
+ */
+function placeFor(w: WorldView, dest: Id, held: Id): boolean {
+  const m = (w.scene.mouths ?? []).find((x) => x.id === dest);
+  if (!m || m.machine !== TOOLWALL.unit) return true;
+  return dest === pegId(held.replace(/^tool-/, ''));
 }
 
 /** Same-named entries told apart by a number, in order ("Reserved jack 1", "Reserved jack 2"). */

@@ -53,7 +53,7 @@ describe('the list', () => {
   test('grouped by station, the Button first; what is not on the bench is not a button', () => {
     const w = world();
     const m = listModel(source(w));
-    expect(m.stations.map((s) => s.id)).toEqual(['button', 'patchlamp', 'line', 'top']);
+    expect(m.stations.map((s) => s.id)).toEqual(['button', 'patchlamp', 'line', 'top', 'tools']);
     const ids = m.stations.flatMap((s) => s.items.map((i) => i.id));
     // shipped spares, Revert in its hatch: not on the bench
     for (const gone of ['crate-spare-1', 'crate-spare-2', 'revert']) expect(ids).not.toContain(gone);
@@ -96,6 +96,9 @@ describe('the list', () => {
     const part = listModel(source(w, { held: { id: 'crate-3', what: 'part' }, keys: true }));
     expect(part.hold?.label).toBe('Holding: t-components. Where should it go?');
     expect(part.hold?.dests.map((d) => d.label)).toEqual(['Belt', 'Dock', 'Platen']);
+    // (P4 T2) a tool held by the keys may also go back on the wall: its own place, named for the wall
+    const tool = listModel(source(w, { held: { id: 'tool-vue', what: 'part' }, keys: true }));
+    expect(tool.hold?.dests.map((d) => [d.id, d.label])).toEqual([['belt', 'Belt'], ['dock', 'Dock'], ['platen', 'Platen'], ['peg-vue', 'Tool wall']]);
     const plug = listModel(source(w, { held: { id: 'cord', what: 'plug' }, keys: true }));
     expect(plug.hold?.dests.map((d) => d.label)).toEqual(['Reserved jack 1', 'Reserved jack 2', 'Storefront jack', 'Platen jack', 'Belt jack', 'Lamp jack']);
     // held by the pointer (tap-then-tap), the list stays the list

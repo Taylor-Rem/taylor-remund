@@ -28,6 +28,7 @@ import { chute } from '../machines/chute.ts';
 import { crates } from '../machines/crates.ts';
 import { ledger } from '../machines/ledger.ts';
 import { press } from '../machines/press.ts';
+import { toolwall } from '../machines/toolwall.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -260,6 +261,54 @@ export const PRESS = {
   thing: { height: 0.68, depth: 0.5 },
 } as const;
 
+/**
+ * P4 T2: the tool wall (sim/machines/toolwall.ts). Eight tools, each a loose part (kind `tool`) that starts on its peg.
+ * Per tool: its body (`half`: the kit's tool bounds, view/kit/pieces/toolwall), where its middle hangs and how it is
+ * turned there (`at`, `q`: the board at view/bench.ts LAYOUT `toolwall`, the kit's `hangOf`; tests/unit/view/toolwall.test.ts
+ * holds them together), its weight, and its size and material (its note: § B1 property table).
+ *   laravel: open-ended spanner (rings)    vue: screwdriver          php: claw hammer (heavy, low)
+ *   python: pliers                          rust: flat file           sql: try-square
+ *   flutter: flat paint brush               claude-code: hand-cranked drill (the owner chooses between candidates)
+ * The board is a body (`board`): a thrown thing meets its face, not the wall behind it; from 1.4 up only (its lowest unit
+ * is left to the wall behind: under Revert's height a body there would keep Revert from the bench's back left corner).
+ */
+export const TOOLWALL = {
+  unit: 'toolwall',
+  sheet: 'toolwall-sheet',
+  look: 'toolwall-look',
+  board: { c: [-7.35, 3.705, -4.938], half: [2.76, 2.305, 0.05] } as Box,
+  tools: {
+    laravel: { half: [0.1696, 0.5645, 0.05], at: [-8.6436, 3.6235, -4.813], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.12 },
+    vue: { half: [0.0893, 0.575, 0.0948], at: [-6.95, 3.703, -4.768], q: [0, 0, 0, 1], size: 'S', material: 'wood', mass: 0.06 },
+    php: { half: [0.3515, 0.583, 0.0819], at: [-5.5805, 3.698, -4.788], q: [0, 0, 0, 1], size: 'L', material: 'metal', mass: 0.2 },
+    python: { half: [0.1815, 0.5211, 0.0703], at: [-8.6475, 1.7661, -4.803], q: [0, 0, 0, 1], size: 'M', material: 'metal', mass: 0.1 },
+    rust: { half: [0.078, 0.6, 0.078], at: [-7.01, 1.878, -4.788], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'metal', mass: 0.08 },
+    sql: { half: [0.28, 0.49, 0.054], at: [-5.472, 1.774, -4.809], q: [0, 0, 0, 1], size: 'M', material: 'wood', mass: 0.08 },
+    flutter: { half: [0.145, 0.5395, 0.058], at: [-8.7305, 5.068, -4.81], q: [0, 0, -Math.SQRT1_2, Math.SQRT1_2], size: 'S', material: 'wood', mass: 0.05 },
+    'claude-code': { half: [0.2136, 0.586, 0.1158], at: [-6.866, 5.4136, -4.7268], q: [0, 0, Math.SQRT1_2, Math.SQRT1_2], size: 'L', material: 'metal', mass: 0.18 },
+  } as Readonly<Record<string, { half: Vec3; at: Vec3; q: readonly [number, number, number, number]; size: 'S' | 'M' | 'L'; material: 'metal' | 'wood'; mass: number }>>,
+} as const;
+/** A tool's part id, its place (a mouth), and the box a look at it out on the bench asks for. */
+export const toolId = (kind: string): string => `tool-${kind}`;
+export const pegId = (kind: string): string => `peg-${kind}`;
+export const toolLook = (kind: string): string => `tool-${kind}-look`;
+/** The half extents along the world axes of a body of half extents `h` turned by `q` about Z only (the tools hang in the board's plane). */
+function zTurnedHalf(h: Vec3, q: readonly [number, number, number, number]): Vec3 {
+  const a = 2 * Math.atan2(q[2], q[3]);
+  const c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+  return [h[0] * c + h[1] * s, h[0] * s + h[1] * c, h[2]];
+}
+const TOOL_PARTS: readonly PartSpec[] = Object.entries(TOOLWALL.tools).map(([kind, t]) => ({ id: toolId(kind), kind: 'tool' as const, size: t.size, material: t.material, colour: 'bare', label: '', station: 'tools' as const, name: `name.tool.${kind}`, pose: { p: t.at, q: [...t.q] as [number, number, number, number] }, half: t.half, mass: t.mass, stowedIn: TOOLWALL.unit }));
+/**
+ * Each tool's place on the board, a mouth (tap-then-tap and the keys set a tool down at it: `drop` is where its middle
+ * hangs, less its half height, so a tool placed there is where it hangs): its body's box where it hangs, a little more
+ * all round, out from the board as far as the wall takes a tool back (`TOOLWALL_TUNING.catchDepth`).
+ */
+const TOOL_MOUTHS: readonly MouthSpec[] = Object.entries(TOOLWALL.tools).map(([kind, t]) => {
+  const w = zTurnedHalf(t.half, t.q);
+  return { id: pegId(kind), machine: TOOLWALL.unit, station: 'tools' as const, c: [t.at[0], t.at[1], t.at[2] + 0.25] as Vec3, half: [w[0] + 0.08, w[1] + 0.08, 0.3] as Vec3, drop: [t.at[0], t.at[1] - t.half[1] - 0.01, t.at[2]] as Vec3 };
+});
+
 /** Each project crate's latch, its card's plate and its card (sim/machines/crates.ts registers them); the ledger's crate holds its board, the framework's its press. */
 export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF).map(([crate, project]) => ({ crate, project, lid: `${crate}-lid`, plate: `${crate}-plate`, card: `${crate}-card`, ...(crate === LEDGER.crate ? { holds: LEDGER.board } : crate === PRESS.crate ? { holds: PRESS.body, thing: PRESS.thing } : {}) }));
 
@@ -274,7 +323,7 @@ const laneT = (x: number): number => lanePathOf().nearest(x, AT.lane.points[0][1
 const lanePoint = (t: number): [number, number] => lanePathOf().at(t * lanePathOf().length);
 
 /** Unpainted wood: a fresh crate's colour. */
-export const BARE = 'bare';
+export const BARE = 'bare'; // (TOOL_PARTS above spells it: they are made before this line)
 
 // ───────────── the line (S2): derived from AT, never a number of its own except where noted ─────────────
 
@@ -736,6 +785,8 @@ export const bench: SceneDesc = {
     ...AT.pallets.flatMap((p, i) => [box(`pallet-${'abcd'[i]}`, p), box(`pallet-${'abcd'[i]}-stack`, AT.stacks[i]!)]),
     box('mailbox', AT.mailbox),
     ...RAMP_STATICS,
+    // P4 T2: the tool wall's board (a thrown thing meets its face)
+    box('toolwall-board', TOOLWALL.board),
   ],
   parts: [
     { id: 'crate-1', kind: 'crate', size: 'L', material: 'wood', colour: BARE, label: '', station: 'line', name: `name.project.${PROJECT_OF['crate-1']}`, pose: pose([sx, e.L / 2, sz], 0.04) },
@@ -751,6 +802,8 @@ export const bench: SceneDesc = {
     // P4 D3: the report press, in its crate until the crate is opened; its envelope, in the press
     { id: PRESS.body, kind: 'tool', size: 'S', material: 'metal', colour: BARE, label: '', station: 'line', name: 'name.press.body', pose: pose([0, -4, 0]), half: PRESS.half, mass: PRESS.mass, stowedIn: PRESS.crate },
     { id: PRESS.envelope, kind: 'tool', size: 'S', material: 'paper', colour: BARE, label: '', station: 'line', name: 'name.press.envelope', pose: pose([0, -4, 0]), half: PRESS.envelopeHalf, mass: PRESS.envelopeMass, stowedIn: PRESS.body },
+    // P4 T2: the eight tools, each on its peg
+    ...TOOL_PARTS,
   ],
   fixtures: [],
   chute: { pose: pose(AT.chute.p), linvel: AT.chute.linvel, delay: 1.4 },
@@ -793,7 +846,7 @@ export const bench: SceneDesc = {
     { target: PRESS.body, field: 'report' },
     { target: PRESS.body, field: 'drawer' },
   ],
-  mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS],
+  mouths: [...MOUTHS, ...PATCHLAMP_MOUTHS, ...TOOL_MOUTHS],
   units: [
     belt({ id: 'belt', station: 'line', name: 'name.belt', mouth: 'belt', ...LINE.belt, dial: { id: 'belt-dial', name: 'name.belt.dial' }, lever: { id: 'belt-lever', name: 'name.belt.lever' }, keepClear: s6LaneBands() }),
     striker({ id: 'striker', station: 'line', name: 'name.striker', x: LINE.strikerX, mouth: 'belt' }),
@@ -818,6 +871,16 @@ export const bench: SceneDesc = {
       look: PRESS.look,
       card: `${PRESS.crate}-card`,
       ignore: ['bench', 'belt-bed'],
+    }),
+    // P4 T2: the tool wall: holds its tools on their pegs and takes them back; the pinned sheet
+    toolwall({
+      id: TOOLWALL.unit,
+      station: 'tools',
+      name: 'name.toolwall.wall',
+      tools: Object.entries(TOOLWALL.tools).map(([kind, t]) => ({ id: toolId(kind), peg: pegId(kind), hang: { p: t.at, q: [...t.q] as [number, number, number, number] }, look: toolLook(kind) })),
+      sheet: { id: TOOLWALL.sheet, name: 'name.toolwall.sheet' },
+      look: TOOLWALL.look,
+      sight: PATCHLAMP.patch.sight,
     }),
   ],
 };
