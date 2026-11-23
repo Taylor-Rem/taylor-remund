@@ -173,6 +173,8 @@ export interface PartsViewOptions {
    * The project crates' lids, cards and the pick targets of their latches and plates (view/bench/stations/parts.ts).
    */
   decorate?: (ctx: ViewContext) => PartDecorator;
+  /** P4 T2: a part that casts no contact shadow now (a tool hanging on the wall: there is no bench under it). Default: every part does. */
+  blob?(part: Part, world: WorldView): boolean;
 }
 
 /** What `PartsViewOptions.decorate` gives: view-only additions to parts (never a pose the simulation owns). */
@@ -485,7 +487,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
           partShows(hooks, part, frame, work);
           look(e, work, qa);
           // the contact shadow: on the surface under it, shrinking and fading as it rises
-          if (shadows) {
+          if (shadows && (opts.blob?.(part, w) ?? true)) {
             const bottom = pa.y - hy;
             const floor = staticFloor(w, pa.x, pa.z, bottom);
             const height = Math.max(0, bottom - floor);

@@ -32,7 +32,11 @@ export const world = {
     python: raw.tools.python.text,
     rust: raw.tools.rust.text,
     sql: raw.tools.sql.text,
+    flutter: raw.tools.flutter.text,
+    'claude-code': raw.tools['claude-code'].text,
   },
+  /** P4 T2: the pinned sheet's heading (the résumé's own for its skills: tests/unit/content/tool-tags.test.ts holds the two together). */
+  toolwallSheet: raw.names.toolwall.sheet.text,
   cards: { revertRung1: raw.cards.revertRung1.text },
   slips: { fetchOutOfLane: raw.slips.fetchOutOfLane.text },
   phone: {
@@ -123,6 +127,10 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.press.body': raw.names.press.body as Entry,
   'name.press.lever': raw.names.press.lever as Entry,
   'name.press.envelope': raw.names.press.envelope as Entry,
+  // P4 T2: the tool wall's eight tools, its pinned sheet, and the wall itself (where a tool held by the keys goes back to)
+  ...Object.fromEntries(Object.entries(raw.names.tool).map(([k, v]) => [`name.tool.${k}`, v as Entry])),
+  'name.toolwall.sheet': raw.names.toolwall.sheet as Entry,
+  'name.toolwall.wall': raw.names.toolwall.wall as Entry,
 };
 
 /** Every content id this module resolves. */

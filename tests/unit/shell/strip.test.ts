@@ -23,8 +23,8 @@ describe('readingFor', () => {
 
 describe('stationFor', () => {
   it('a station of § C that the bench has frames it', () => {
-    for (const id of ['top', 'patchlamp', 'button', 'line']) expect(stationFor(`#${id}`)).toBe(id);
-    expect([...STATION_ADDRESSES].sort()).toEqual(['button', 'line', 'patchlamp', 'top']);
+    for (const id of ['top', 'patchlamp', 'button', 'line', 'tools']) expect(stationFor(`#${id}`)).toBe(id);
+    expect([...STATION_ADDRESSES].sort()).toEqual(['button', 'line', 'patchlamp', 'tools', 'top']); // (P4 T2: /#tools, the tool wall)
   });
   it('anything else is no station', () => {
     for (const h of ['', '#', '#contact', '#about', '#Patchlamp', '#work', '#%']) expect(stationFor(h)).toBeNull();

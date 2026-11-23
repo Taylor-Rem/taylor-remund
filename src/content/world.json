@@ -41,13 +41,28 @@
       "body": { "text": "Report press", "kind": "ui", "provisional": true, "source": "P4 D3 brief (a table-top press in the Report Generation Framework crate; DEMO-CONCEPTS.md concept 3, approved 2026-11-21, and the lead's second refinement). The press's name in the controls list and the live region. New name, D3: for Taylor" },
       "lever": { "text": "Report press lever", "kind": "ui", "provisional": true, "source": "P4 D3 brief (one lever, the only control). New name, D3: for Taylor" },
       "envelope": { "text": "Envelope", "kind": "ui", "provisional": true, "source": "P4 D3 brief (the envelope the press folds and flicks onto the belt; /resume/ Report Generation Framework: \"async email delivery\"). New name, D3: for Taylor" }
+    },
+    "tool": {
+      "laravel": { "text": "Laravel", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "vue": { "text": "Vue", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "php": { "text": "PHP", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "python": { "text": "Python", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "rust": { "text": "Rust", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "sql": { "text": "SQL", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "flutter": { "text": "Flutter", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" },
+      "claude-code": { "text": "Claude Code", "kind": "ui", "provisional": true, "source": "P4 T2: a tool on the tool wall, by the skill its tape names (/resume/ #skills). Its name in the controls list and the live region. New name, T2: for Taylor" }
+    },
+    "toolwall": {
+      "sheet": { "text": "Skills & Tech Stack", "kind": "ui", "provisional": true, "source": "P4 T2: the sheet pinned to the tool wall, named by the heading it carries, /resume/ #skills's own (resume.json skills.heading). Its name in the controls list. For Taylor" },
+      "wall": { "text": "Tool wall", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the layout (TOOL WALL). P4 T2: where a tool held by the keys goes back to (its own peg), in the controls list. New name, for Taylor" }
     }
   },
   "stations": {
     "top": { "text": "The sign and the lamp", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#top: the sign and the lamp). P3 B2: a heading in the controls list, for Taylor" },
     "patchlamp": { "text": "Patchlamp", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#patchlamp). P3 B2: a heading in the controls list, for Taylor" },
     "button": { "text": "The Button", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#button: the Button). P3 B2: a heading in the controls list, for Taylor" },
-    "line": { "text": "The belt", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#line: the belt). P3 B2: a heading in the controls list, for Taylor" }
+    "line": { "text": "The belt", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#line: the belt). P3 B2: a heading in the controls list, for Taylor" },
+    "tools": { "text": "The tool wall", "kind": "ui", "provisional": true, "source": "REWRITE.md § C, the stations table (#tools: Tool wall). P4 T2: a heading in the controls list, for Taylor" }
   },
   "controls": {
     "title": { "text": "Controls", "kind": "ui", "provisional": true, "source": "REWRITE.md § B6 (the controls list), § E9. P3 B2: the list's heading, for Taylor" },
@@ -117,6 +132,7 @@
     "pressStillOut": { "text": "The envelope is still out.", "kind": "ui", "provisional": true, "source": "event press.printed without the envelope (P4 D3: while the envelope is out, a pull still prints and stores, and the arm's bed comes up empty). New words, D3: for Taylor" },
     "pressRefused": { "text": "Not yet: the envelope is in the air.", "kind": "ui", "provisional": true, "source": "event press.refused (P4 D3 round two: a pull while the envelope is in the air is refused politely; the lever gives and springs back). New words, D3: for Taylor" },
     "pressHome": { "text": "The envelope is back in the press.", "kind": "ui", "provisional": true, "source": "event press.home (P4 D3: the envelope, shipped, comes home to the press, never up the chute). New words, D3: for Taylor" },
+    "hung": { "text": "{thing} is back on the tool wall.", "kind": "ui", "provisional": true, "source": "event toolwall.hung, by the visitor's hand (P4 T2: a tool let go at its own painted shadow goes back on its peg). New words, T2: for Taylor" },
     "ledgerDealt": { "text": "Dealt.", "kind": "ui", "provisional": true, "source": "event ledger.dealt (P4 D1: the ledger board's crank, or the board dealing itself as its crate opens). New words, D1: for Taylor" },
     "ledgerBounced": { "text": "One payment bounced.", "kind": "ui", "provisional": true, "source": "event ledger.dealt (P4 D1: every deal has one bounced payment, the rubber token); case study: \"bounced payments\". New words, D1: for Taylor" },
     "ledgerRepaired": { "text": "Repaired: one charge unpaid, one payment bounced.", "kind": "ui", "provisional": true, "source": "event ledger.repaired (P4 D1: the plunger; case study: \"clears the allocations of a target month and re-processes its transactions in order, month by month, unwinding and re-applying bounced payments\"). New words, D1: for Taylor" },
@@ -129,7 +145,9 @@
     "php": { "text": "PHP", "kind": "fact", "source": "/resume/ #skills (PHP); REWRITE.md § D9" },
     "python": { "text": "PYTHON", "kind": "fact", "source": "/resume/ #skills (Python); REWRITE.md § D9" },
     "rust": { "text": "RUST", "kind": "fact", "source": "/resume/ #skills (Rust); REWRITE.md § D9" },
-    "sql": { "text": "SQL", "kind": "fact", "source": "/resume/ #skills (MySQL, PostgreSQL, SQLite: no pill reads \"SQL\" alone); REWRITE.md § D9" }
+    "sql": { "text": "SQL", "kind": "fact", "source": "/resume/ #skills (MySQL, PostgreSQL, SQLite: no pill reads \"SQL\" alone); REWRITE.md § D9" },
+    "flutter": { "text": "FLUTTER", "kind": "fact", "source": "/resume/ #skills (Flutter); REWRITE.md § D9. P4 T2" },
+    "claude-code": { "text": "CLAUDE CODE", "kind": "fact", "source": "/resume/ #skills (Claude Code); REWRITE.md § D9. P4 T2: two strips of tape, one word each (one strip would not fit the board)" }
   },
   "cards": {
     "revertRung1": { "text": "WELL, THAT WAS UNNECESSARY.", "kind": "voice", "source": "REWRITE.md § B4, rung 1" }

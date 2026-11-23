@@ -51,6 +51,9 @@ const FROM_PAPERWORK: Readonly<Record<string, { section: string; extra?: string 
   contact: { section: 'contact', extra: 'pn-address' },
 };
 
+/** (P4 T2) A panel drawn whole into a template of its own (src/components/paper/Panels.astro). */
+const FROM_TEMPLATE: Readonly<Record<string, string>> = { skills: 'pn-skills' };
+
 /** At or below this width the panel is a modal sheet from the bottom (panel.css says the same). */
 const SHEET_QUERY = '(max-width: 640px)';
 
@@ -91,6 +94,14 @@ export function createPanels(o: PanelsOptions = {}): Panels | null {
       const card = t?.content.querySelector(`[data-panel="${id}"]`);
       if (!card) return null;
       frag.append(card.cloneNode(true));
+      return frag;
+    }
+    // (P4 T2) the tool wall's sheet: the skills list, from its template (/resume/'s own component drew it)
+    const tpl = FROM_TEMPLATE[id];
+    if (tpl) {
+      const t = doc.getElementById(tpl) as HTMLTemplateElement | null;
+      if (!t) return null;
+      frag.append(t.content.cloneNode(true));
       return frag;
     }
     const from = FROM_PAPERWORK[id];

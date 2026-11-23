@@ -9,6 +9,8 @@
 //                  read as the page's text, cloned when a crate's plate is pressed
 //   #pn-live       what only a running bench has, under the maker's plate (MakerPlate.astro, in the paperwork)
 //   #pn-address    the address to select or copy, under the paperwork's #contact when the mailbox opens it
+//   #pn-skills     (P4 T2) the full skills list the tool wall's pinned sheet opens: /resume/ #skills's own heading and
+//                  groups, drawn by the same component (SkillGroups.astro), and a link to its place there
 //   #pn-index      the controls list's Plates group (ui/controls/list.ts draws it): one button per panel
 //   #pn-words      the live lines' words (hatches.json `maker.live.log`), for the script
 //
@@ -16,6 +18,8 @@
 // page for anyone without the stage; the panel clones them (one copy). The script is asked for only once the
 // bench is usable, so the Still tier never fetches it.
 import ProjectEntry from './ProjectEntry.astro';
+import SkillGroups from './SkillGroups.astro';
+import { resume } from '../../content/resume.ts';
 import { hatches, liveWords } from '../../content/hatches.ts';
 import { home } from '../../content/home.ts';
 import { site } from '../../content/site.ts';
@@ -51,6 +55,13 @@ const words = JSON.stringify(liveWords()).replace(/</g, '\\u003c');
       <ul class="pw-links"><li><a href={`/resume/#${c.anchor}`}>{resumeWord}</a></li></ul>
     </div>
   ))}
+</template>
+<template id="pn-skills">
+  <section class="pn-skills" aria-labelledby="pn-skills-title">
+    <h2 class="pw-title" id="pn-skills-title">{resume.skills.heading.text}</h2>
+    <SkillGroups groups={resume.skills.groups} />
+    <ul class="pw-links"><li><a href="/resume/#skills">{resumeWord}</a></li></ul>
+  </section>
 </template>
 <template id="pn-live">
   <section class="pn-live" aria-labelledby="pn-live-title">

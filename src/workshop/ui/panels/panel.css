@@ -224,3 +224,21 @@
   .pn[open] .pn-sheet { animation: none; }
 }
 html.motion-reduced .pn[open] .pn-sheet { animation: none; }
+
+/* ── (P4 T2) the skills list the tool wall's pinned sheet opens: /resume/ #skills's groups, set as paper.css sets them there ── */
+.pn .pn-skills .skill-group { border-top: 1px solid var(--rule); padding-top: 0.75rem; }
+.pn .pn-skills .skill-group + .skill-group { margin-top: 1.25rem; }
+.pn .pn-skills .skill-group-title {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.pn .pn-skills .skills { list-style: none; margin: 0.5rem 0 0; padding: 0; columns: 2; column-gap: 1.25rem; }
+.pn .pn-skills .skills li { display: flex; align-items: baseline; gap: 0.5rem; break-inside: avoid; padding: 0.2rem 0; line-height: 1.35; }
+.pn .pn-skills .skill-icon { flex: none; width: 0.95rem; height: 0.95rem; position: relative; top: 0.12rem; }
+.pn .pn-skills .pw-links { margin-top: 1.25rem; }
