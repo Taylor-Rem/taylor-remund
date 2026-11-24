@@ -281,4 +281,19 @@ describe('the opening stand (at c)', () => {
     expect(Math.abs(p[0] - top('c')[0]) > 0.52 || Math.abs(p[2] - top('c')[2]) > 0.48, `beside it, at ${p.map((x) => x.toFixed(2)).join(', ')}`).toBe(true);
     w.dispose();
   }, 60_000);
+
+  // (round two, the runs beside a second browser) the large crate let go turned forty-five degrees: its corners overhang
+  // the deck; squared to the nearest quarter turn, it opens (as it lay, it was caught again and again and never opened)
+  test('the large crate let go turned forty-five degrees opens, squared to the nearest quarter turn', async () => {
+    const c1 = scene.parts.find((x) => x.id === 'crate-1')!;
+    const s45 = Math.sin(Math.PI / 8), c45 = Math.cos(Math.PI / 8);
+    const turned = { ...scene, parts: scene.parts.map((x) => (x.id === 'crate-2' ? { ...x, pose: { p: [2.0, 0.4, 2.7] as Vec3, q: [0, 0, 0, 1] as const } } : x.id === 'crate-1' ? { ...c1, pose: { p: c1.pose.p, q: [0, s45, 0, c45] as const } } : x)) };
+    const w = await benchWorld('st-45', { scene: turned as typeof scene });
+    const t = tape(w);
+    settle(t, 60);
+    letGo(w, t, 'crate-1', 0, 0, 0.12);
+    settle(t, 300);
+    expect(isOpen(w, 'crate-1')).toBe(true);
+    w.dispose();
+  }, 60_000);
 });

@@ -70,6 +70,8 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   let catching: { crate: Id; cause: Cause } | null = null;
   /** Shut project crates lying still in the mouth: since when (step). */
   const shutSince = new Map<Id, number>();
+  /** Crates squared up once for this placing: the next rest opens them whatever (never caught twice in a row). */
+  const caught = new Set<Id>();
   /** The deck's local frame: a point's offset from the mouth's middle, along the mouth's own x and z. */
   const local = (p: Vec3): [number, number] => {
     const yaw = ((mouth.yaw ?? 0) * Math.PI) / 180;
@@ -88,7 +90,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     const ex = h[0] * c + h[2] * sn, ez = h[0] * sn + h[2] * c;
     return Math.abs(lx) + ex <= mouth.half[0] + T.overhang && Math.abs(lz) + ez <= mouth.half[2] + T.overhang;
   };
-  /** The pose it is squared up to: the middle of the deck, standing, turned only by the nearer quarter of its yaw. */
+  /** The pose it is squared up to: the middle of the deck, standing, turned to the nearest quarter of its heading. */
   const squared = (id: Id): { p: Vec3; q: [number, number, number, number] } | null => {
     const pose = ctx.pose(id);
     const h = ctx.halfExtents(id);
@@ -97,7 +99,9 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     const ax = rotate(pose.q, [1, 0, 0]);
     const az = rotate(pose.q, [0, 0, 1]);
     const a = Math.abs(ax[1]) < Math.abs(az[1]) ? Math.atan2(-ax[2], ax[0]) : Math.atan2(az[0], az[2]);
-    const yaw = a; // its heading as it lay
+    // (the nearest quarter turn of its heading: turned forty-five degrees a large crate's corners overhang the deck, and
+    // squared as it lay it would be caught again and again: the spec's runs beside a second browser found that)
+    const yaw = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
     return { p: [mouth.c[0], mouth.drop[1] + h[1] + 0.01, mouth.c[2]], q: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)] };
   };
 
@@ -174,10 +178,12 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         }
       }
       // (round two) leaning, or over the deck's edge: it rests shut now; next step the stand squares it up (and it opens)
-      if (!square(c.crate)) {
+      if (!square(c.crate) && !caught.has(c.crate)) {
         catching = { crate: c.crate, cause };
+        caught.add(c.crate);
         return OK;
       }
+      caught.delete(c.crate);
       const r = ctx.commit([{ target: c.crate, field: 'open', after: true }], cause);
       if (r.effects.length > 0) {
         openedAt = ctx.clock.step;
@@ -223,6 +229,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       // a crate handed off is the stand's to open again once a hand has had it, or once it lies outside the mouth
       for (const id of [...handedOff]) if (ctx.mode(id) === 'held' || (ctx.mode(id) === 'free' && ctx.settled(id) && !inMouth(id))) handedOff.delete(id);
       if (falling && (ctx.mode(falling.crate) === 'held' || !inMouth(falling.crate))) falling = null;
+      for (const id of [...caught]) if (ctx.mode(id) === 'held' || !inMouth(id)) caught.delete(id);
     },
 
     restored(restores: readonly Restore[]) {
@@ -234,6 +241,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       falling = null;
       catching = null;
       shutSince.clear();
+      caught.clear();
       beat.reset();
     },
     heard(events: readonly SimEvent[]) {
