@@ -16,6 +16,7 @@ import { hexBolt } from '../../details.ts';
 import { aim, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import { transform } from '../../deform.ts';
+import { standStation } from './station.ts';
 
 export interface OpeningStandOptions extends KitOptions {
   /** Height of the deck's top over the floor (default 0.22). */
@@ -93,4 +94,13 @@ export const catalogue: CatalogueEntry[] = [
     camera: { distance: 3.2 },
     note: 'P4 S6 prototype (?open=stand): the low table a project crate is set down on to open it; the lifter lies flat on the deck and stands up behind an open crate.',
   },
+  ...([1, 2] as const).map(
+    (look): CatalogueEntry => ({
+      name: `opening-stand-${look}`,
+      build: (opts = {}) => standStation({ look, ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.detail ? { detail: opts.detail } : {}) }),
+      variants: { high: { detail: 'high' }, low: { detail: 'low' } },
+      camera: { distance: 3.6 },
+      note: look === 1 ? 'P4 S6 round two candidate 1 (?standLook=1): a pedestal with a crate painted on its deck, brass corner stops, a lifter arm waiting over it.' : 'P4 S6 round two candidate 2 (?standLook=2): a pedestal with a crate painted on its deck, brass corner stops, an inspection lamp on a jointed arm.',
+    }),
+  ),
 ];

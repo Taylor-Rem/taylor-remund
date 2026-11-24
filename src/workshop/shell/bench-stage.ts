@@ -30,7 +30,7 @@ import { LOOK } from '../view/stage/index.ts';
 import type { StageOptions } from '../view/stage/index.ts';
 import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
-import { bench as BENCH, OPENING_STAND_ON, withOpeningStand, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { bench as BENCH, OPENING_STAND_ON, STAND_STATION_SIZE, withOpeningStand, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
 /** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
@@ -204,7 +204,10 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S6, a prototype: `?open=stand` and `?stand=a|b|c`, `?things=loose`; or the scene's OPENING_STAND_ON)
       const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
       const place = dq?.get('stand');
-      const scene0 = standOn ? withOpeningStand(scene00, place === 'b' || place === 'c' || place === 'd' ? place : 'a', dq?.get('things') === 'loose' ? 'loose' : 'fixed') : scene00;
+      // (round two) `?standLook=1|2`: the station candidates, a larger stand (view/bench/stations/opening-stand.ts draws them)
+      const look = dq?.get('standLook');
+      const size = look === '1' || look === '2' ? STAND_STATION_SIZE : undefined;
+      const scene0 = standOn ? withOpeningStand(scene00, place === 'b' || place === 'c' ? place : 'a', dq?.get('things') === 'loose' ? 'loose' : 'fixed', size) : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },

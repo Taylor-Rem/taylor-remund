@@ -953,7 +953,7 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
  * or `loose` (as before).
  */
 export const OPENING_STAND_ON = false;
-export type StandPlace = 'a' | 'b' | 'c' | 'd';
+export type StandPlace = 'a' | 'b' | 'c';
 export const OPENING_STAND = {
   unit: 'opening-stand',
   mouth: 'opening-stand',
@@ -963,17 +963,25 @@ export const OPENING_STAND = {
     a: { at: [-1.2, 0, 1.78] as Vec3, h: 0.16, aside: [-1, 0] as const },
     b: { at: [-6.55, 0, -3.95] as Vec3, h: 0.22, aside: [1, 0] as const },
     c: { at: [4.15, 0, 2.0] as Vec3, h: 0.22, aside: [-1, 0] as const },
-    // (round two) d: whole in a phone's opening view and a laptop's: on the bench in front of the console, right of a
-    // (whose middle is at x = 33 px of a phone's 390), its right edge a hand's breadth from the phone; Fetch's lane
-    // passes in front (z 2.78) and its last run is at x 1.16; the chute's pad is far left (-3.9). (Behind the striker,
-    // right of the crates Fetch stacks, the striker's crank hid it from the front: tried, pictures in shots/s5.)
-    d: { at: [-0.56, 0, 1.8] as Vec3, h: 0.16, aside: [-1, 0] as const },
   } satisfies Record<StandPlace, { at: Vec3; h: number; aside: readonly [number, number] }>,
 } as const;
 
-export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = 'c', things: 'fixed' | 'loose' = 'fixed'): SceneDesc {
-  const S = OPENING_STAND;
-  const pl = S.places[place];
+/**
+ * (round two) A stand of another size (the station candidates, `?standLook=1|2`: about one and a half times the table's
+ * footprint and with height): its top's half extents and its height. At `a` its middle moves forward so its back clears
+ * the console (it then reaches toward Fetch's lane: a picture place, not a layout).
+ */
+export interface StandSize {
+  readonly half: readonly [number, number];
+  readonly h: number;
+}
+export const STAND_STATION_SIZE: StandSize = { half: [0.78, 0.72], h: 0.5 };
+
+export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = 'c', things: 'fixed' | 'loose' = 'fixed', size?: StandSize): SceneDesc {
+  const S0 = OPENING_STAND;
+  const S = { ...S0, half: size?.half ?? S0.half };
+  const pl0 = S0.places[place];
+  const pl = size ? { ...pl0, h: size.h, at: (place === 'a' ? [pl0.at[0], pl0.at[1], 1.26 + size.half[1] + 0.03] : pl0.at) as Vec3 } : pl0;
   const top = pl.at[1] + pl.h;
   const body: StaticSpec = { id: S.unit, shape: { type: 'box', half: [S.half[0], pl.h / 2, S.half[1]] }, pose: pose([pl.at[0], pl.at[1] + pl.h / 2, pl.at[2]]) };
   // the mouth: where a crate's middle lies when it rests on the top (the small crate's 0.225 up to the large one's 0.4)
@@ -981,13 +989,12 @@ export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = '
   const mouth: MouthSpec = { id: S.mouth, machine: S.unit, station: 'line', c: [pl.at[0], top + 0.6, pl.at[2]], half: [S.half[0], 0.55, S.half[1]], drop: [pl.at[0], top, pl.at[2]] };
   return {
     ...scene,
-    id: `${scene.id}+stand-${place}${things === 'loose' ? '-loose' : ''}`,
+    id: `${scene.id}+stand-${place}${things === 'loose' ? '-loose' : ''}${size ? `-${size.half[0]}x${size.half[1]}x${size.h}` : ''}`,
     statics: [...scene.statics, body],
     mouths: [...(scene.mouths ?? []), mouth],
     units: [...(scene.units ?? []), openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] })],
     openingStand: { unit: S.unit, mouth: S.mouth, things },
     // (at a, the stand takes t-components' crate's starting place: the crate starts beside it, in front of the UNDO lever)
-    // (and at d, whose hand-off spot is there: the crate starts in front of the UNDO lever)
-    ...(place === 'a' || place === 'd' ? { parts: scene.parts.map((p) => (p.id === 'crate-3' ? { ...p, pose: pose([-2.25, CRATE_EDGE.S / 2, 1.6], 0.13) } : p)) } : {}),
+    ...(place === 'a' ? { parts: scene.parts.map((p) => (p.id === 'crate-3' ? { ...p, pose: pose([-2.25, CRATE_EDGE.S / 2, 1.6], 0.13) } : p)) } : {}),
   };
 }

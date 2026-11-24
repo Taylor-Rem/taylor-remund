@@ -18,7 +18,7 @@ const settle = (t: Tape, n = 120): SimEvent[] => t.run(n);
 /** A crate lifted off a pile or wherever it is to a clear spot on the open bench (front left), and let go. */
 const aside = (w: World, t: Tape, id: Id): void => putOn(w, t, id, [-5.6, 0, 1.6]);
 
-describe.each(['a', 'b', 'c', 'd'] as const)('the opening stand at %s', (place) => {
+describe.each(['a', 'b', 'c'] as const)('the opening stand at %s', (place) => {
   test('a crate set down on it opens, under the placing (the lever puts it back where it was, shut); the page is asked to look', async () => {
     const w = await benchWorld(`st-open-${place}`, { scene: withOpeningStand(BENCH, place) });
     const t = tape(w);
