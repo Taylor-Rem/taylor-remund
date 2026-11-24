@@ -945,8 +945,9 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
 /**
  * P4 S6, a prototype behind one switch (`?open=stand`; the shipped bench has none: `OPENING_STAND_ON`): the opening stand
  * (sim/machines/opening-stand.ts). A low steel table with one mouth; a project crate the visitor sets down on it opens
- * there and nowhere else. Three places to show the owner (`?stand=a|b|c`): `a` on the console's top, left of the Button
- * (his suggestion); `b` on the RESERVED: INSPECTION bay at the back left (his word, already there); `c` on the open bench
+ * there and nowhere else. Three places to show the owner (`?stand=a|b|c`): `a` on the bench in front of the console, left of the
+ * Button, where t-components' crate starts (his suggestion: the console's own top there is the counter's; the crate starts
+ * beside the stand instead); `b` on the RESERVED: INSPECTION bay at the back left (his word, already there); `c` on the open bench
  * between the platen and the dock, where the machines are, clear of Fetch's lane and its drops (in front of the UNDO
  * lever, Fetch's crates knocked it; its lane's last run crosses the bench between the console and the platen). `things`: `fixed` (a crate's thing stays on its tray)
  * or `loose` (as before).
@@ -959,9 +960,9 @@ export const OPENING_STAND = {
   /** The table's top (half extents x, z); it fits the large crate (0.8 x 0.74) with room. */
   half: [0.52, 0.48] as const,
   places: {
-    a: { at: [-1.13, 1.04, 0.45] as Vec3, h: 0.08, aside: [0, 1] as const },
+    a: { at: [-1.2, 0, 1.78] as Vec3, h: 0.16, aside: [-1, 0] as const },
     b: { at: [-6.55, 0, -3.95] as Vec3, h: 0.22, aside: [1, 0] as const },
-    c: { at: [5.85, 0, 1.95] as Vec3, h: 0.22, aside: [-1, 0] as const },
+    c: { at: [4.15, 0, 2.0] as Vec3, h: 0.22, aside: [-1, 0] as const },
   } satisfies Record<StandPlace, { at: Vec3; h: number; aside: readonly [number, number] }>,
 } as const;
 
@@ -978,7 +979,9 @@ export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = '
     id: `${scene.id}+stand-${place}${things === 'loose' ? '-loose' : ''}`,
     statics: [...scene.statics, body],
     mouths: [...(scene.mouths ?? []), mouth],
-    units: [...(scene.units ?? []), openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: place === 'a' ? 0 : pl.at[1] })],
+    units: [...(scene.units ?? []), openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] })],
     openingStand: { unit: S.unit, mouth: S.mouth, things },
+    // (at a, the stand takes t-components' crate's starting place: the crate starts beside it, in front of the UNDO lever)
+    ...(place === 'a' ? { parts: scene.parts.map((p) => (p.id === 'crate-3' ? { ...p, pose: pose([-2.25, CRATE_EDGE.S / 2, 1.6], 0.13) } : p)) } : {}),
   };
 }
