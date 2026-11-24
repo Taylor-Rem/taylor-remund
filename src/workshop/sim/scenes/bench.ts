@@ -953,7 +953,7 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
  * or `loose` (as before).
  */
 export const OPENING_STAND_ON = false;
-export type StandPlace = 'a' | 'b' | 'c';
+export type StandPlace = 'a' | 'b' | 'c' | 'd';
 export const OPENING_STAND = {
   unit: 'opening-stand',
   mouth: 'opening-stand',
@@ -963,6 +963,11 @@ export const OPENING_STAND = {
     a: { at: [-1.2, 0, 1.78] as Vec3, h: 0.16, aside: [-1, 0] as const },
     b: { at: [-6.55, 0, -3.95] as Vec3, h: 0.22, aside: [1, 0] as const },
     c: { at: [4.15, 0, 2.0] as Vec3, h: 0.22, aside: [-1, 0] as const },
+    // (round two) d: whole in a phone's opening view and a laptop's: on the bench in front of the console, right of a
+    // (whose middle is at x = 33 px of a phone's 390), its right edge a hand's breadth from the phone; Fetch's lane
+    // passes in front (z 2.78) and its last run is at x 1.16; the chute's pad is far left (-3.9). (Behind the striker,
+    // right of the crates Fetch stacks, the striker's crank hid it from the front: tried, pictures in shots/s5.)
+    d: { at: [-0.56, 0, 1.8] as Vec3, h: 0.16, aside: [-1, 0] as const },
   } satisfies Record<StandPlace, { at: Vec3; h: number; aside: readonly [number, number] }>,
 } as const;
 
@@ -982,6 +987,7 @@ export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = '
     units: [...(scene.units ?? []), openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] })],
     openingStand: { unit: S.unit, mouth: S.mouth, things },
     // (at a, the stand takes t-components' crate's starting place: the crate starts beside it, in front of the UNDO lever)
-    ...(place === 'a' ? { parts: scene.parts.map((p) => (p.id === 'crate-3' ? { ...p, pose: pose([-2.25, CRATE_EDGE.S / 2, 1.6], 0.13) } : p)) } : {}),
+    // (and at d, whose hand-off spot is there: the crate starts in front of the UNDO lever)
+    ...(place === 'a' || place === 'd' ? { parts: scene.parts.map((p) => (p.id === 'crate-3' ? { ...p, pose: pose([-2.25, CRATE_EDGE.S / 2, 1.6], 0.13) } : p)) } : {}),
   };
 }

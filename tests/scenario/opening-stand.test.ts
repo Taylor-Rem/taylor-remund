@@ -18,7 +18,7 @@ const settle = (t: Tape, n = 120): SimEvent[] => t.run(n);
 /** A crate lifted off a pile or wherever it is to a clear spot on the open bench (front left), and let go. */
 const aside = (w: World, t: Tape, id: Id): void => putOn(w, t, id, [-5.6, 0, 1.6]);
 
-describe.each(['a', 'b', 'c'] as const)('the opening stand at %s', (place) => {
+describe.each(['a', 'b', 'c', 'd'] as const)('the opening stand at %s', (place) => {
   test('a crate set down on it opens, under the placing (the lever puts it back where it was, shut); the page is asked to look', async () => {
     const w = await benchWorld(`st-open-${place}`, { scene: withOpeningStand(BENCH, place) });
     const t = tape(w);
@@ -168,4 +168,73 @@ describe('the opening stand (at c)', () => {
     expect(w.machine(OPENING_STAND.unit)).toMatchObject({ crate: 'crate-4' });
     w.dispose();
   }, 180_000);
+
+  /** (round two) Throws from 1.5 left of the stand: [vx, vy, lands on it]. */
+  const THROWS: readonly (readonly [number, number, boolean])[] = (process.env['THROWS'] ? process.env['THROWS'].split(';').map((x) => [...x.split(',').map(Number), true] as const) : [[2.5, 1, true], [3, 1, true], [2, 2, true], [4, 1, false], [2, 1, false]]) as never;
+  /** Carried over the stand at an offset, `h` above the deck, hanging as it hangs in the hand, and let go. */
+  const letGo = (w: World, t: Tape, id: Id, dx: number, dz: number, h: number): void => {
+    const m = w.motion(id)!;
+    const hh = w.halfExtents(id)![1];
+    w.dispatch({ type: 'grab', id, grip: m.pose.p });
+    const to: Vec3 = [top('c')[0] + dx, top('c')[1] + hh + h, top('c')[2] + dz];
+    for (let i = 0; i < 120; i++) {
+      w.dispatch({ type: 'carry', target: [to[0], to[1] + (i < 90 ? 1.2 * (1 - i / 90) : 0), to[2]] });
+      t.run(1);
+    }
+    t.run(30);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+  };
+
+  // (round two) the lead's failure: a crate let go over the stand that did not open. Let go off-centre (over the
+  // deck's edge), from higher, or hanging crooked in the hand (crate-3 lands on its side), it is squared up in the
+  // middle of the deck and opens there; the lever puts it back where it was, shut
+  test.each(['crate-1', 'crate-2', 'crate-3'])('%s let go anywhere over the deck, square or crooked, opens on it; one pull of the lever undoes it', async (id) => {
+    for (const [dx, dz, h] of [[0.3, 0, 0.12], [-0.3, -0.25, 0.12], [0.35, 0.3, 0.6], [0.45, 0.4, 0.3]] as const) {
+      const w = await benchWorld(`st-catch-${id}-${dx}-${dz}`, { scene });
+      const t = tape(w);
+      t.run(30);
+      if (id === 'crate-1') putOn(w, t, 'crate-2', [2.0, 0, 2.6]);
+      t.run(60);
+      const was = w.motion(id)!.pose.p;
+      letGo(w, t, id, dx, dz, h);
+      settle(t, 240);
+      expect(isOpen(w, id), `${id} let go at ${dx}, ${dz}, ${h}`).toBe(true);
+      expect(w.machine(OPENING_STAND.unit)).toMatchObject({ crate: id });
+      w.dispatch({ type: 'undo' });
+      settle(t, 90);
+      expect(isOpen(w, id)).toBe(false);
+      const now = w.motion(id)!.pose.p;
+      expect(Math.hypot(now[0] - was[0], now[2] - was[2]), 'back where it was').toBeLessThan(0.08);
+      w.dispose();
+    }
+  }, 300_000);
+
+  // (round two) a trick shot: a crate thrown by the visitor that comes to rest on the stand opens there (it is set
+  // down by their hand, at one remove); one that bounces off and rests elsewhere does not
+  test('a crate thrown onto the stand opens when it comes to rest there; thrown past it, it stays shut', async () => {
+    for (const [vx, vy, onIt] of THROWS) {
+      const w = await benchWorld(`st-throw-${vx}`, { scene });
+      const t = tape(w);
+      t.run(30);
+      const m = w.motion('crate-2')!;
+      w.dispatch({ type: 'grab', id: 'crate-2', grip: m.pose.p });
+      const from: Vec3 = [top('c')[0] - 1.5, 1.4, top('c')[2]];
+      for (let i = 0; i < 120; i++) {
+        w.dispatch({ type: 'carry', target: from });
+        t.run(1);
+      }
+      w.dispatch({ type: 'release', velocity: [vx, vy, 0] });
+      settle(t, 300);
+      const p = w.motion('crate-2')!.pose.p;
+      const on = Math.abs(p[0] - top('c')[0]) < 0.52 && Math.abs(p[2] - top('c')[2]) < 0.48;
+      if (process.env['THROWS']) console.log(vx, vy, p.map((x) => x.toFixed(2)).join(', '), isOpen(w, 'crate-2'));
+      if (process.env['THROWS']) {
+        w.dispose();
+        continue;
+      }
+      expect(on, `thrown at ${vx}, ${vy}: rested at ${p.map((x) => x.toFixed(2)).join(', ')}`).toBe(onIt);
+      expect(isOpen(w, 'crate-2')).toBe(onIt);
+      w.dispose();
+    }
+  }, 120_000);
 });

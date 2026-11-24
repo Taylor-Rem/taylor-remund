@@ -20,11 +20,19 @@ import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { Beat, OK } from '../machine.ts';
 import { HZ } from '../clock.ts';
+import { rotate } from '../math.ts';
 
 /** Tune here. Units per second. */
 export const OPENING_STAND_TUNING = {
   /** How far clear of the stand's edge a crate handed off is set down. */
   gap: 0.12,
+  /**
+   * (round two) The catch: a project crate the visitor lets go that comes to rest in the mouth leaning (its up more than
+   * this far from the world's, as the crates unit's `upright` sees a crate knocked over) or hanging over the deck's edge
+   * by more than `overhang` is squared up and set down in the middle of the deck, then opens there.
+   */
+  lean: Math.cos((12 * Math.PI) / 180),
+  overhang: 0.02,
 } as const;
 
 export interface OpeningStandSpec {
@@ -56,6 +64,38 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   const handedOff = new Set<Id>();
   /** A crate set down on top of the one it handed off: it falls onto the stand and opens there, under its placing. */
   let falling: { crate: Id; cause: Cause } | null = null;
+  /** (round two) A crate come to rest leaning or over the edge: the stand squares it up next step, under its placing. */
+  let catching: { crate: Id; cause: Cause } | null = null;
+  /** The deck's local frame: a point's offset from the mouth's middle, along the mouth's own x and z. */
+  const local = (p: Vec3): [number, number] => {
+    const yaw = ((mouth.yaw ?? 0) * Math.PI) / 180;
+    const dx = p[0] - mouth.c[0], dz = p[2] - mouth.c[2];
+    return [dx * Math.cos(yaw) - dz * Math.sin(yaw), dx * Math.sin(yaw) + dz * Math.cos(yaw)];
+  };
+  /** Square on the deck: upright, and its footprint within the deck (the crate's own half extents, turned by its yaw). */
+  const square = (id: Id): boolean => {
+    const pose = ctx.pose(id);
+    const h = ctx.halfExtents(id);
+    if (!pose || !h) return true;
+    if (rotate(pose.q, [0, 1, 0])[1] < T.lean) return false;
+    const [lx, lz] = local(pose.p);
+    const ax = rotate(pose.q, [1, 0, 0]);
+    const c = Math.abs(ax[0]), sn = Math.abs(ax[2]);
+    const ex = h[0] * c + h[2] * sn, ez = h[0] * sn + h[2] * c;
+    return Math.abs(lx) + ex <= mouth.half[0] + T.overhang && Math.abs(lz) + ez <= mouth.half[2] + T.overhang;
+  };
+  /** The pose it is squared up to: the middle of the deck, standing, turned only by the nearer quarter of its yaw. */
+  const squared = (id: Id): { p: Vec3; q: [number, number, number, number] } | null => {
+    const pose = ctx.pose(id);
+    const h = ctx.halfExtents(id);
+    if (!pose || !h) return null;
+    // its heading: whichever of its own x or z lies flatter, projected on the bench
+    const ax = rotate(pose.q, [1, 0, 0]);
+    const az = rotate(pose.q, [0, 0, 1]);
+    const a = Math.abs(ax[1]) < Math.abs(az[1]) ? Math.atan2(-ax[2], ax[0]) : Math.atan2(az[0], az[2]);
+    const yaw = a; // its heading as it lay
+    return { p: [mouth.c[0], mouth.drop[1] + h[1] + 0.01, mouth.c[2]], q: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)] };
+  };
 
   const inMouth = (id: Id): boolean => {
     const pose = ctx.pose(id);
@@ -114,6 +154,11 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
           return OK;
         }
       }
+      // (round two) leaning, or over the deck's edge: it rests shut now; next step the stand squares it up (and it opens)
+      if (!square(c.crate)) {
+        catching = { crate: c.crate, cause };
+        return OK;
+      }
       const r = ctx.commit([{ target: c.crate, field: 'open', after: true }], cause);
       if (r.effects.length > 0) {
         openedAt = ctx.clock.step;
@@ -126,6 +171,17 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     abort() {},
 
     pre() {
+      if (catching) {
+        const k = catching;
+        catching = null;
+        const to = squared(k.crate);
+        if (to && ctx.mode(k.crate) === 'free' && inMouth(k.crate) && ctx.take(k.crate, spec.id)) {
+          ctx.drive(k.crate, to, true);
+          ctx.release(k.crate, [0, 0, 0], [0, 0, 0], k.cause);
+          // it rests again where it was put: then it is square, and the placing opens it (`falling` carries the cause)
+          falling = { crate: k.crate, cause: k.cause };
+        }
+      }
       // a crate handed off is the stand's to open again once a hand has had it, or once it lies outside the mouth
       for (const id of [...handedOff]) if (ctx.mode(id) === 'held' || (ctx.mode(id) === 'free' && ctx.settled(id) && !inMouth(id))) handedOff.delete(id);
       if (falling && (ctx.mode(falling.crate) === 'held' || !inMouth(falling.crate))) falling = null;
@@ -138,6 +194,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       openedAt = -Infinity;
       handedOff.clear();
       falling = null;
+      catching = null;
       beat.reset();
     },
     heard(events: readonly SimEvent[]) {

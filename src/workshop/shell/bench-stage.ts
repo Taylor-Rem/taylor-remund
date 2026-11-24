@@ -204,7 +204,7 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S6, a prototype: `?open=stand` and `?stand=a|b|c`, `?things=loose`; or the scene's OPENING_STAND_ON)
       const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
       const place = dq?.get('stand');
-      const scene0 = standOn ? withOpeningStand(scene00, place === 'b' || place === 'c' ? place : 'a', dq?.get('things') === 'loose' ? 'loose' : 'fixed') : scene00;
+      const scene0 = standOn ? withOpeningStand(scene00, place === 'b' || place === 'c' || place === 'd' ? place : 'a', dq?.get('things') === 'loose' ? 'loose' : 'fixed') : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },

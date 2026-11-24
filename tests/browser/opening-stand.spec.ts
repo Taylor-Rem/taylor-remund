@@ -84,6 +84,21 @@ async function setUp(browser: Browser, kind: 'mouse' | 'touch', w: number, h: nu
         return { x: r.left + ((s.x + 1) / 2) * r.width, y: r.top + ((1 - s.y) / 2) * r.height };
       },
     };
+    // the trace (round two): every crate, look and hand event with the step, the crate's pose, who holds what; and,
+    // for a crate named in __watch, its pose every frame with the robots' (the last 600 lines)
+    const T: string[] = ((window as any).__trace = []);
+    const f3 = (v: number[] | undefined) => (v ? v.map((x) => x.toFixed(3)).join(',') : '-');
+    ws.onFrame((f: { events: { type: string; id?: string; crate?: string; part?: string; target?: string; cause?: unknown; why?: string }[] }) => {
+      const w = ws.world;
+      for (const e of f.events) {
+        if (!/crate|look|grab|releas|rest|taken|caught|thrown|select|press|hit/.test(e.type)) continue;
+        const id = e.crate ?? e.part ?? e.id ?? e.target ?? '';
+        T.push(`${w.step} ${e.type} ${id}${e.why ? ` why=${e.why}` : ''} at ${f3(w.motion(id)?.pose.p)} mode ${w.mode(id) ?? '-'} held ${w.holding()?.id ?? '-'} look ${ws.stage.camera.lookId ?? '-'}`);
+      }
+      const wid = (window as any).__watch;
+      if (wid) T.push(`${w.step} . ${wid} ${f3(w.motion(wid)?.pose.p)} q ${f3(w.motion(wid)?.pose.q)} ${w.mode(wid)} open ${w.setting(wid, 'open')} | fetch ${f3(w.motion('fetch')?.pose.p)} revert ${f3(w.motion('revert')?.pose.p)}`);
+      if (T.length > 600) T.splice(0, T.length - 600);
+    });
   });
   const hand = kind === 'mouse' ? mouseHand(page) : fingerHand(await ctx.newCDPSession(page));
   return { page, hand, close: () => ctx.close() };
@@ -99,6 +114,7 @@ const look = (page: Page): Promise<{ look: unknown; easing: boolean }> =>
     const c = (window as any).__bench.ws.stage.camera;
     return { look: c.lookId ?? null, easing: c.easing };
   });
+const trace = (page: Page): Promise<string[]> => page.evaluate(() => (window as any).__trace as string[]);
 const standTop = (page: Page): Promise<number[]> => page.evaluate(() => (window as any).__bench.ws.world.scene.mouths.find((x: any) => x.id === 'opening-stand').drop as number[]);
 /** The stand and `id` both in view, at a station's distance (as a visitor brings them, by panning). */
 const frameWith = async (page: Page, id: string, zoom: number): Promise<void> => {
@@ -158,8 +174,10 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     console.log(`[S6] ${kind}: crate-2 off the stack: ${await carry(p, hand, 'crate-2', [top[0]! - 1.0, 0, top[2]! - 1.0])}`);
     await frames(p, 60);
     const C = 'crate-1';
+    await p.evaluate((C) => ((window as any).__watch = C), C);
     console.log(`[S6] ${kind}: onto the stand: ${await carry(p, hand, C, [top[0]!, top[1]!, top[2]!])}`);
     await until(p, () => isOpen(p, C), 300, 'the crate open on the stand').catch(async (e) => {
+      console.log(`[S6] TRACE ${kind}:\n${(await trace(p)).join('\n')}`);
       throw new Error(`${String(e)} ${JSON.stringify({ at: await where(p, C), held: await held(p) })}`);
     });
     await until(p, async () => { const c = await look(p); return !c.easing && c.look !== null; }, 900, 'the camera in on the card');
@@ -244,6 +262,7 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     }
     await frames(p, 150);
     const r = await p.evaluate(() => (window as any).__s6);
+    if (r.opened || r.looks) console.log(`[S6] TRACE ${kind} juggle:\n${(await trace(p)).filter((l) => !/ \. /.test(l)).join('\n')}`);
     console.log(`[S6] ${kind}: juggled, ${caught} of 20 caught; ${JSON.stringify(r)}\n${trail.join('\n')}`);
     expect(caught, 'it was caught most times').toBeGreaterThanOrEqual(12);
     expect(r, `${kind}: never opened, never a look`).toEqual({ opened: 0, looks: 0 });
