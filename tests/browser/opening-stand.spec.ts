@@ -64,13 +64,13 @@ async function until(page: Page, fn: () => Promise<boolean>, limit = 600, what =
     await page.waitForTimeout(40);
   }
 }
-async function setUp(browser: Browser, kind: 'mouse' | 'touch', w: number, h: number): Promise<{ page: Page; hand: Hand; close: () => Promise<void> }> {
+async function setUp(browser: Browser, kind: 'mouse' | 'touch', w: number, h: number, query = 'stand=c'): Promise<{ page: Page; hand: Hand; close: () => Promise<void> }> {
   // S6_FILM=<dir>: a film of each page (for the owner)
   const film = process.env['S6_FILM'];
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(kind === 'touch' ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}), ...(film ? { recordVideo: { dir: film, size: { width: w, height: h } } } : {}) });
   const page = await ctx.newPage();
   // the stage page itself (its panels are there); in development it reads the prototype's switches from the address
-  await page.goto(`${origin}/?open=stand&stand=c`);
+  await page.goto(`${origin}/?open=stand&${query}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && !!(window as any).__handoff.workshop, null, { timeout: 0, polling: 100 });
   await page.waitForFunction(() => document.querySelectorAll('#controls button[data-panel]').length >= 3, null, { timeout: 60_000 });
   // the dev bench's two helpers, on the stage page: the workshop, and a world point on screen (CSS px)
@@ -171,7 +171,9 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     // the ledger's crate, at the foot of the stack Fetch has made by the platen: crate-2 off it first (by hand)
     await frameWith(p, 'crate-1', kind === 'touch' ? 0.25 : 0.35);
     const top = await standTop(p);
-    console.log(`[S6] ${kind}: crate-2 off the stack: ${await carry(p, hand, 'crate-2', [top[0]! - 1.0, 0, top[2]! - 1.0])}`);
+    // (round two) to the open bench left of the stack, clear of the platen's plinth (round one aimed it at the plinth's
+    // edge: it slid down onto the stand, and crate-1 let go onto it rolled off the stand's front: the lead's failure)
+    console.log(`[S6] ${kind}: crate-2 off the stack: ${await carry(p, hand, 'crate-2', [2.0, 0, 2.6])}`);
     await frames(p, 60);
     const C = 'crate-1';
     await p.evaluate((C) => ((window as any).__watch = C), C);
@@ -221,8 +223,11 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     await close();
   });
 
+  // (round two) juggled away from the stand (it stands at b, on the bay at the back left): a crate that comes to rest on
+  // the stand opens, a trick shot with a test of its own (tests/scenario/opening-stand.test.ts); twenty catches counted
+  // (the tries it took are said: how many presses miss a crate in flight measures the machine's load, not the bench)
   test(`P4 S6 (${kind}, ${w}×${h}): a crate caught and thrown and caught again, twenty times, fast: never opened, the camera never came in`, async ({ browser }) => {
-    const { page: p, hand, close } = await setUp(browser, kind, w, h);
+    const { page: p, hand, close } = await setUp(browser, kind, w, h, 'stand=b');
     const C = 'crate-2';
     await frameWith(p, C, kind === 'touch' ? 0.2 : 0.3);
     await p.evaluate(() => {
@@ -234,8 +239,10 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
       }, 20);
     });
     let caught = 0;
+    let tries = 0;
     const trail: string[] = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; caught < 20 && i < 60; i++) {
+      tries++;
       // the camera kept on it (a visitor's eye follows what they throw)
       await p.evaluate((C) => {
         const ws = (window as any).__bench.ws, q = ws.world.motion(C).pose.p;
@@ -263,8 +270,8 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     await frames(p, 150);
     const r = await p.evaluate(() => (window as any).__s6);
     if (r.opened || r.looks) console.log(`[S6] TRACE ${kind} juggle:\n${(await trace(p)).filter((l) => !/ \. /.test(l)).join('\n')}`);
-    console.log(`[S6] ${kind}: juggled, ${caught} of 20 caught; ${JSON.stringify(r)}\n${trail.join('\n')}`);
-    expect(caught, 'it was caught most times').toBeGreaterThanOrEqual(12);
+    console.log(`[S6] ${kind}: juggled, ${caught} caught in ${tries} tries; ${JSON.stringify(r)}\n${trail.join('\n')}`);
+    expect(caught, 'caught and thrown twenty times').toBe(20);
     expect(r, `${kind}: never opened, never a look`).toEqual({ opened: 0, looks: 0 });
     await close();
   });
@@ -352,3 +359,79 @@ test('P4 S6: by the keys: a held crate is offered the stand as a place; set ther
   expect(after.filter((id) => id.endsWith('-lid')), 'no latch in the list').toEqual([]);
   await close();
 });
+
+// (round two) while the camera is in on an open crate, only that crate, its plate, its thing and its thing's controls
+// take a press. At d (in front of the console, Fetch's lane passing in front), the ledger's big crate set down in front
+// of the stand: over t-components' crate, what a press takes with the look's rule and without it (the look let go for
+// the moment of asking); nothing else takes a press; the dial's knob turns the dial; where something else stood in
+// front, a press on the crate's body lifts it
+for (const things of ['fixed', 'loose'] as const) {
+  test(`P4 S6 round two (things ${things}): in the close view only the open crate, its plate, its thing and its controls take a press`, async ({ browser }) => {
+    const { page: p, hand, close } = await setUp(browser, 'mouse', 1440, 900, `stand=d${things === 'loose' ? '&things=loose' : ''}`);
+    // crate-2 off the stack, then crate-1 (the big one) in front of the stand and the other two piled on it, a stack as
+    // tall as Fetch carrying a crate (by intents: the hand is tested above)
+    for (const [id, at] of [['crate-2', [2.0, 0, 2.6]], ['crate-1', [-0.56, 0, 2.5]], ['crate-2', [-0.56, 0.8, 2.5]], ['crate-4', [-0.56, 1.3, 2.5]]] as const) {
+      await p.evaluate(([id]) => {
+        const ws = (window as any).__bench.ws, w = ws.world;
+        ws.dispatch({ type: 'grab', id, grip: w.motion(id).pose.p });
+      }, [id] as const);
+      await frames(p, 6);
+      await p.evaluate(([at]) => (window as any).__bench.ws.dispatch({ type: 'place', at }), [at] as const);
+      await frames(p, 120);
+    }
+    const C = 'crate-3';
+    await frameWith(p, C, 0.35);
+    const top = await standTop(p);
+    console.log(`[S6] lock (${things}): crate-1 at ${JSON.stringify(await where(p, 'crate-1'))}; onto the stand: ${await carry(p, hand, C, [top[0]!, top[1]!, top[2]!])}`);
+    await until(p, () => isOpen(p, C), 300, 'open on the stand');
+    await until(p, async () => { const c = await look(p); return !c.easing && c.look !== null; }, 900, 'the camera in');
+    await frames(p, 30);
+    await p.screenshot({ path: `shots/s5/s6-lock-${things}-1440.png` });
+    const knob = (await screen(p, 'paint-dial-knob'))!;
+    const box = (await screen(p, C))!;
+    const grid = await p.evaluate(([b]) => {
+      const ws = (window as any).__bench.ws, cam = ws.stage.camera;
+      const out: { x: number; y: number; with: string; without: string }[] = [];
+      for (let j = 0; j <= 10; j++) for (let i = 0; i <= 10; i++) {
+        const x = b.x - b.r + (2 * b.r * i) / 10, y = b.y - b.r + (2 * b.r * j) / 10;
+        const w1: string = ws.surface.at(x, y, 'mouse', null)?.id ?? '-';
+        const lk = cam.look;
+        cam.look = null;
+        const w0: string = ws.surface.at(x, y, 'mouse', null)?.id ?? '-';
+        cam.look = lk;
+        out.push({ x, y, with: w1, without: w0 });
+      }
+      return out;
+    }, [box] as const);
+    const tally = (k: 'with' | 'without') => grid.reduce<Record<string, number>>((a, g) => ((a[g[k]] = (a[g[k]] ?? 0) + 1), a), {});
+    console.log(`[S6] lock (${things}): over t-components, with the rule ${JSON.stringify(tally('with'))}; without ${JSON.stringify(tally('without'))}`);
+    const mine = new Set([C, `${C}-plate`, `${C}-card`, 'paint-dial', 'paint-dial-knob', '-']);
+    expect(grid.filter((g) => !mine.has(g.with)).map((g) => g.with), 'nothing else takes a press').toEqual([]);
+    // where something else stood in front (without the rule it took the press): a press there lifts t-components
+    const through = grid.find((g) => g.with === C && g.without !== C) ?? null;
+    console.log(`[S6] lock (${things}): a point where something else stood in front: ${JSON.stringify(through)}`);
+    if (through) {
+      await hand.down(through);
+      await hand.move({ x: through.x, y: through.y - 40 });
+      await frames(p, 6);
+      const h = await held(p);
+      await hand.up({ x: through.x, y: through.y - 40 });
+      expect(h, 'a press on its body through what stands in front lifts t-components').toBe(C);
+      // lifted, it shut; set back on the stand it opens again (the hand's own way back in)
+      console.log(`[S6] lock (${things}): back onto the stand: ${await carry(p, hand, C, [top[0]!, top[1]!, top[2]!])}`);
+      await until(p, () => isOpen(p, C), 300, 'open on the stand again');
+      await until(p, async () => { const c = await look(p); return !c.easing && c.look !== null; }, 900, 'the camera in again');
+    }
+    expect(through, 'something stood in front of the crate (the test means something)').not.toBeNull();
+    const knob1 = (await screen(p, 'paint-dial-knob'))!;
+    // the knob: the dial turns
+    const d0 = await p.evaluate(() => JSON.stringify((window as any).__bench.ws.world.machine('paint')));
+    await hand.down(knob1);
+    await frames(p, 2);
+    await hand.up(knob1);
+    await frames(p, 40);
+    const d1 = await p.evaluate(() => JSON.stringify((window as any).__bench.ws.world.machine('paint')));
+    expect(d1, 'the knob turned the dial').not.toBe(d0);
+    await close();
+  });
+}
