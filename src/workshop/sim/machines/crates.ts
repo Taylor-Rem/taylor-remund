@@ -103,6 +103,22 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
    * yet (the double-tap's first tap had lifted it; it is settling): it opens once it lies still, within `selectWait`.
    */
   const selected = new Map<Id, number>();
+  /**
+   * (P4 S6) The opening stand's switch: with it, a crate opens only in the stand's mouth (its unit does that), never by
+   * its latch or a double-click; one open off the stand shuts; with `things: 'fixed'` its thing stays on its tray.
+   */
+  const stand = ctx.scene.openingStand ?? null;
+  const standMouth = stand ? (ctx.scene.mouths ?? []).find((m) => m.id === stand.mouth) ?? null : null;
+  /** Is this crate's middle in the stand's mouth? */
+  const inStand = (crate: Id): boolean => {
+    if (!standMouth) return false;
+    const pose = ctx.pose(crate);
+    if (!pose) return false;
+    const yaw = ((standMouth.yaw ?? 0) * Math.PI) / 180;
+    const dx = pose.p[0] - standMouth.c[0], dz = pose.p[2] - standMouth.c[2];
+    const lx = dx * Math.cos(yaw) - dz * Math.sin(yaw), lz = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+    return Math.abs(lx) <= standMouth.half[0] && Math.abs(pose.p[1] - standMouth.c[1]) <= standMouth.half[1] && Math.abs(lz) <= standMouth.half[2];
+  };
 
   for (const c of list) {
     // (the world's parts are not readable while units are made: the scene's specs say the same)
@@ -267,6 +283,9 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
 
     intent(intent: Intent): boolean {
       if (ctx.bracketed) return false;
+      // (P4 S6) with the stand, neither the latch nor a double-click opens a crate (the stand does): a double-click frames
+      // the station as before round two
+      if (stand && (intent.type === 'select' || (intent.type === 'press' && byLid.has(intent.id)))) return false;
       if (intent.type === 'select') {
         // (round two) a double-click or double-tap on a project crate: it opens (now, or once it lies still), and asks to
         // be looked at; an open one asks to be looked at again
@@ -308,7 +327,9 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       for (const c of list) {
         if (isOpen(c.crate)) {
           const m = ctx.mode(c.crate);
-          if (m === 'held') wasHeld.add(c.crate);
+          // (P4 S6) with the stand, lifting it off shuts it under the grab
+          if (m === 'held' && stand) clapShut(c, 'grab');
+          else if (m === 'held') wasHeld.add(c.crate);
           else if (m === 'free') {
             if (wasHeld.delete(c.crate)) {
               // let go: a pick-up undone on the spot (set back exactly, at rest at once) never happened; anything else shuts it
@@ -319,7 +340,10 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
               const moving = !!v && (Math.hypot(...v.linvel) > T.knocked || Math.hypot(...v.angvel) > T.spun);
               const tipped = !!pose && rotate(pose.q, UP)[1] < T.upright;
               if (moving || tipped) clapShut(c, 'moved');
-              else if (ctx.settled(c.crate) && burdened(c)) clapShut(c, 'burden');
+              // (P4 S6: on the stand, a crate set down on top is the stand's to answer: it hands this one off)
+              else if (ctx.settled(c.crate) && burdened(c) && !(stand && inStand(c.crate))) clapShut(c, 'burden');
+              // (P4 S6) open only in the stand's mouth
+              else if (stand && ctx.settled(c.crate) && !inStand(c.crate)) clapShut(c, 'moved');
             }
           } else {
             wasHeld.delete(c.crate);
@@ -329,6 +353,13 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
         catchThing(c);
         placeThing(c, false);
       }
+    },
+
+    /** (P4 S6) With the stand and `things: 'fixed'`, a crate's thing on its tray is not a hand's: its controls work, it stays. */
+    keeps(part: Id): boolean {
+      if (!stand || stand.things !== 'fixed') return false;
+      const c = list.find((x) => x.holds === part);
+      return !!c && stowed(c);
     },
 
     lost(part) {

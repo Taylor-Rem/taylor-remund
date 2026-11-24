@@ -297,4 +297,10 @@ export interface SceneDesc {
    * holders and its drawer. Remembered only where they differ from how the visit began; "Reset the workshop" forgets them.
    */
   readonly keep?: readonly { readonly target: Id; readonly field: string }[];
+  /**
+   * P4 S6, a prototype behind one switch (`?open=stand`; absent: the bench as before): project crates open only by being
+   * set down in the opening stand's mouth (sim/machines/opening-stand.ts), never by their latch or a double-click.
+   * `things`: `fixed` (a crate's thing stays on its tray: no hand takes it) or `loose` (as before: a loose part).
+   */
+  readonly openingStand?: { readonly unit: Id; readonly mouth: Id; readonly things: 'fixed' | 'loose' };
 }

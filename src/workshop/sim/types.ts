@@ -833,7 +833,16 @@ export interface ToolwallView extends MachineViewBase {
   readonly sheet: Id;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PaintDialView | PressView | ToolwallView;
+/** P4 S6: the opening stand (sim/machines/opening-stand.ts): which project crate lies open on it, if any. */
+export interface OpeningStandView extends MachineViewBase {
+  readonly kind: 'opening-stand';
+  /** The project crate open in its mouth, or null. */
+  readonly crate: Id | null;
+  /** Seconds since a crate last opened on it (its lifter's beat), Infinity before. */
+  readonly opened: number;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PaintDialView | PressView | ToolwallView | OpeningStandView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 
