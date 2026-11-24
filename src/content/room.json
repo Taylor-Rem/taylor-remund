@@ -10,5 +10,10 @@
       "kind": "voice",
       "source": "V brief (P2): the second bay reads plain RESERVED until Taylor names what is coming; REWRITE.md § C, the reserved bays"
     }
+  },
+  "stand": {
+    "text": "INSPECTION",
+    "kind": "voice",
+    "source": "P4 S6 brief: the opening stand shown with a strip of label tape reading INSPECTION, a word already on the bench (the bay's RESERVED: INSPECTION); for Taylor to choose, bare or taped (development pictures only, ?standTape=1)"
   }
 }
