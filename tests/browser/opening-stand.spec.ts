@@ -65,7 +65,9 @@ async function until(page: Page, fn: () => Promise<boolean>, limit = 600, what =
   }
 }
 async function setUp(browser: Browser, kind: 'mouse' | 'touch', w: number, h: number): Promise<{ page: Page; hand: Hand; close: () => Promise<void> }> {
-  const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(kind === 'touch' ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}) });
+  // S6_FILM=<dir>: a film of each page (for the owner)
+  const film = process.env['S6_FILM'];
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(kind === 'touch' ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}), ...(film ? { recordVideo: { dir: film, size: { width: w, height: h } } } : {}) });
   const page = await ctx.newPage();
   // the stage page itself (its panels are there); in development it reads the prototype's switches from the address
   await page.goto(`${origin}/?open=stand&stand=c`);
