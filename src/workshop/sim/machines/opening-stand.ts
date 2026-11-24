@@ -32,6 +32,8 @@ export const OPENING_STAND_TUNING = {
    * by more than `overhang` is squared up and set down in the middle of the deck, then opens there.
    */
   lean: Math.cos((12 * Math.PI) / 180),
+  /** A shut project crate lying still on the deck this long (s) is set down beside it (the deck kept clear). */
+  clear: 0.75,
   overhang: 0.02,
 } as const;
 
@@ -66,6 +68,8 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   let falling: { crate: Id; cause: Cause } | null = null;
   /** (round two) A crate come to rest leaning or over the edge: the stand squares it up next step, under its placing. */
   let catching: { crate: Id; cause: Cause } | null = null;
+  /** Shut project crates lying still in the mouth: since when (step). */
+  const shutSince = new Map<Id, number>();
   /** The deck's local frame: a point's offset from the mouth's middle, along the mouth's own x and z. */
   const local = (p: Vec3): [number, number] => {
     const yaw = ((mouth.yaw ?? 0) * Math.PI) / 180;
@@ -108,6 +112,17 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   /** The project crate lying open in the mouth, if any. */
   const openOn = (): Id | null => projects.find((c) => ctx.setting(c.crate, 'open') === true && ctx.mode(c.crate) === 'free' && inMouth(c.crate))?.crate ?? null;
 
+  /** Lift `id` out and set it down beside the stand (taken, put there, let go: its fall and rest are `cause`'s). */
+  const aside = (id: Id, cause: Cause): void => {
+    const op = ctx.pose(id);
+    const oh = ctx.halfExtents(id);
+    if (!op || !oh || !ctx.take(id, spec.id)) return;
+    const reach = Math.max(mouth.half[0], mouth.half[2]) + Math.max(oh[0], oh[2]) + T.gap;
+    const at: Vec3 = [mouth.c[0] + spec.aside[0] * reach, spec.floor + oh[1] + 0.04, mouth.c[2] + spec.aside[1] * reach];
+    ctx.drive(id, { p: at, q: op.q }, true);
+    ctx.release(id, [0, -0.3, 0], [0, 0, 0], cause);
+  };
+
   const unit: MachineUnit = {
     id: spec.id,
     station: spec.station,
@@ -125,8 +140,19 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       const c = projects.find((x) => x.crate === part.id);
       const cause: Cause = falling?.crate === part.id ? falling.cause : given;
       if (falling?.crate === part.id) falling = null;
-      // not a project crate, or not the visitor's doing (Fetch's, the start's, a reset's): it rests here, shut
-      if (!c || cause === 'crew' || cause === 'system' || ctx.bracketed) return OK;
+      // not a project crate: it rests here
+      if (!c || ctx.bracketed) return OK;
+      // (round two) a project crate come to rest here by nobody's placing (Fetch's, a knock off the platen): the stand keeps
+      // its deck clear, so a crate the visitor brings has somewhere to land; it sets it down beside itself, shut. (Round
+      // two's failures: a crate knocked off the platen lay shut at the back of the deck, the visitor's crate landed half
+      // on it and slid off the front.)
+      if (cause === 'crew' || cause === 'system') {
+        if (ctx.setting(c.crate, 'open') !== true && !handedOff.has(c.crate)) {
+          handedOff.add(c.crate);
+          aside(c.crate, 'system');
+        }
+        return OK;
+      }
       if (ctx.setting(c.crate, 'open') === true || handedOff.has(c.crate)) return OK;
       // one at a time: the one open here is shut and handed off to the side, all under this placing
       const other = openOn();
@@ -138,14 +164,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         if (oc.card !== undefined) ctx.emit({ type: 'look.back', target: oc.card });
         handedOff.add(other);
         // lifted out and set down beside the stand (taken, put there, let go: its fall and rest are this placing's)
-        const op = ctx.pose(other);
-        const oh = ctx.halfExtents(other);
-        if (op && oh && ctx.take(other, spec.id)) {
-          const reach = Math.max(mouth.half[0], mouth.half[2]) + Math.max(oh[0], oh[2]) + T.gap;
-          const at: Vec3 = [mouth.c[0] + spec.aside[0] * reach, spec.floor + oh[1] + 0.04, mouth.c[2] + spec.aside[1] * reach];
-          ctx.drive(other, { p: at, q: op.q }, true);
-          ctx.release(other, [0, -0.3, 0], [0, 0, 0], cause);
-        }
+        aside(other, cause);
         // the new one is on top of the old: it falls onto the stand now, and opens when it rests there
         const ph = ctx.halfExtents(c.crate);
         const pp = ctx.pose(c.crate);
@@ -171,6 +190,25 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     abort() {},
 
     pre() {
+      // (round two) the deck kept clear: a shut project crate lying still on it (one that came by no placing of the
+      // visitor's, or rests there shut for any reason) is set down beside it after a moment, as the system's doing
+      if (!ctx.bracketed) {
+        for (const c of projects) {
+          const id = c.crate;
+          const lying = ctx.mode(id) === 'free' && ctx.settled(id) && inMouth(id) && ctx.setting(id, 'open') !== true && falling?.crate !== id && catching?.crate !== id;
+          if (!lying) {
+            shutSince.delete(id);
+            continue;
+          }
+          const since = shutSince.get(id) ?? ctx.clock.step;
+          shutSince.set(id, since);
+          if (ctx.clock.step - since >= T.clear * HZ) {
+            shutSince.delete(id);
+            handedOff.add(id);
+            aside(id, 'system');
+          }
+        }
+      }
       if (catching) {
         const k = catching;
         catching = null;
@@ -195,6 +233,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       handedOff.clear();
       falling = null;
       catching = null;
+      shutSince.clear();
       beat.reset();
     },
     heard(events: readonly SimEvent[]) {

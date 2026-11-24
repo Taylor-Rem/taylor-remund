@@ -17,7 +17,7 @@ const CRATES = scene.projects ?? [];
 const pl = OPENING_STAND.places[PLACE];
 const TOP: Vec3 = [pl.at[0], pl.at[1] + pl.h, pl.at[2]];
 const SPOTS: Vec3[] = [[-5.6, 0, 1.6], [-3.4, 0, 1.2], [0.9, 0, 1.4], TOP];
-const SEEN = { set: 0, opened: 0, lifted: 0, second: 0, thrown: 0, undone: 0, resets: 0, sessions: 0 };
+const SEEN = { set: 0, opened: 0, lifted: 0, liftUndone: 0, second: 0, thrown: 0, undone: 0, resets: 0, sessions: 0 };
 
 describe('the opening stand under a random hand', () => {
   test(`${SESSIONS} sessions at ${PLACE}: never open off the stand, never a thing out of its crate`, async () => {
@@ -57,8 +57,31 @@ describe('the opening stand under a random hand', () => {
             if (CRATES.some((o) => w.setting(o.crate, 'open') === true)) SEEN.second++;
             SEEN.set++;
           } else SEEN.lifted++;
+          const wasOpen = onStand && w.setting(c.crate, 'open') === true;
+          const was = w.motion(c.crate)!.pose.p;
           putOn(w, t, c.crate, onStand ? r.pick(SPOTS.slice(0, 3)) : TOP);
           check();
+          // (round two) half the time, a lift-off of an open crate taken back at once: on the stand again, open, looked at
+          if (wasOpen && r.next() < 0.5) {
+            run(steps(1.5));
+            w.dispatch({ type: 'press', id: 'undo-lever' });
+            let undone = false;
+            let looked = false;
+            for (let i = 0; i < 90; i++) {
+              for (const e of t.run(1)) {
+                if (e.type === 'undone') undone = true;
+                if (e.type === 'look' && e.target === c.card) looked = true;
+              }
+              check();
+            }
+            if (undone) {
+              SEEN.liftUndone++;
+              const p = w.motion(c.crate)!.pose.p;
+              expect(w.setting(c.crate, 'open'), `session ${s}: an undo of ${c.crate}'s lift-off restores it open`).toBe(true);
+              expect(Math.hypot(p[0] - was[0], p[2] - was[2]), `session ${s}: on the stand where it was`).toBeLessThan(0.08);
+              expect(looked, `session ${s}: looked at again`).toBe(true);
+            }
+          }
         } else if (k < 60 && free.length) {
           const c = r.pick(free);
           w.dispatch({ type: 'grab', id: c.crate, grip: w.motion(c.crate)!.pose.p });

@@ -52,7 +52,7 @@ describe('the opening stand (at c)', () => {
     const p = w.motion('crate-3')!.pose.p;
     w.dispatch({ type: 'grab', id: 'crate-3', grip: p });
     const ev = t.run(3);
-    expect(isOpen(w, 'crate-3')).toBe(false);
+    // shut to the eye and the ear at once (written when it is let go: round two, so one pull of the lever undoes a lift-off)
     expect(ev).toContainEqual(expect.objectContaining({ type: 'crate.shut', crate: 'crate-3', why: 'grab' }));
     expect(ev).toContainEqual({ type: 'look.back', target: 'crate-3-card' });
     w.dispatch({ type: 'release', velocity: [0, 0, 0] });
@@ -237,4 +237,48 @@ describe('the opening stand (at c)', () => {
       w.dispose();
     }
   }, 120_000);
+
+  // (round two, the layout builder's play runs) lifted off and set down elsewhere, then one pull of the lever: back on the
+  // stand, open, looked at, as it was before the lift; a second pull takes back the setting-on (back where it started, shut)
+  test('one pull of the lever after a lift-off puts the crate back on the stand open, with the look', async () => {
+    const w = await benchWorld('st-undo-lift', { scene });
+    const t = tape(w);
+    t.run(30);
+    const start = w.motion('crate-3')!.pose.p;
+    putOn(w, t, 'crate-3', top('c'));
+    settle(t);
+    expect(isOpen(w, 'crate-3')).toBe(true);
+    const onStand = w.motion('crate-3')!.pose.p;
+    aside(w, t, 'crate-3');
+    settle(t);
+    expect(isOpen(w, 'crate-3')).toBe(false);
+    w.dispatch({ type: 'undo' });
+    const ev = settle(t, 90);
+    expect(isOpen(w, 'crate-3'), 'open again').toBe(true);
+    const p = w.motion('crate-3')!.pose.p;
+    expect(Math.hypot(p[0] - onStand[0], p[2] - onStand[2]), 'on the stand where it was').toBeLessThan(0.05);
+    expect(ev).toContainEqual({ type: 'look', target: 'crate-3-card' });
+    expect(w.machine(OPENING_STAND.unit)).toMatchObject({ crate: 'crate-3' });
+    w.dispatch({ type: 'undo' });
+    settle(t, 90);
+    expect(isOpen(w, 'crate-3')).toBe(false);
+    const q = w.motion('crate-3')!.pose.p;
+    expect(Math.hypot(q[0] - start[0], q[2] - start[2]), 'back where it started').toBeLessThan(0.08);
+    w.dispose();
+  }, 60_000);
+
+  // (round two) a project crate that comes to rest on the stand by no placing of the visitor's (here: it starts there, as
+  // after a reset; on the bench, knocked off the platen or set there by Fetch) is set down beside it, shut: the deck
+  // stays clear for the visitor's crate
+  test('a crate on the stand by no placing of the visitor is set down beside it, shut', async () => {
+    const crate3 = scene.parts.find((x) => x.id === 'crate-3')!;
+    const onIt = { ...scene, parts: scene.parts.map((x) => (x.id === 'crate-3' ? { ...crate3, pose: { p: [top('c')[0], top('c')[1] + 0.35, top('c')[2]] as Vec3, q: [0, 0, 0, 1] as const } } : x)) };
+    const w = await benchWorld('st-clear', { scene: onIt as typeof scene });
+    const t = tape(w);
+    settle(t, 240);
+    expect(isOpen(w, 'crate-3')).toBe(false);
+    const p = w.motion('crate-3')!.pose.p;
+    expect(Math.abs(p[0] - top('c')[0]) > 0.52 || Math.abs(p[2] - top('c')[2]) > 0.48, `beside it, at ${p.map((x) => x.toFixed(2)).join(', ')}`).toBe(true);
+    w.dispose();
+  }, 60_000);
 });
