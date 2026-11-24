@@ -361,16 +361,16 @@ test('P4 S6: by the keys: a held crate is offered the stand as a place; set ther
 });
 
 // (round two) while the camera is in on an open crate, only that crate, its plate, its thing and its thing's controls
-// take a press. At d (in front of the console, Fetch's lane passing in front), the ledger's big crate set down in front
+// take a press. At a (in front of the console, left of the Button; Fetch's lane passing in front: the lead's case), the ledger's big crate set down in front
 // of the stand: over t-components' crate, what a press takes with the look's rule and without it (the look let go for
 // the moment of asking); nothing else takes a press; the dial's knob turns the dial; where something else stood in
 // front, a press on the crate's body lifts it
 for (const things of ['fixed', 'loose'] as const) {
   test(`P4 S6 round two (things ${things}): in the close view only the open crate, its plate, its thing and its controls take a press`, async ({ browser }) => {
-    const { page: p, hand, close } = await setUp(browser, 'mouse', 1440, 900, `stand=d${things === 'loose' ? '&things=loose' : ''}`);
+    const { page: p, hand, close } = await setUp(browser, 'mouse', 1440, 900, `stand=a${things === 'loose' ? '&things=loose' : ''}`);
     // crate-2 off the stack, then crate-1 (the big one) in front of the stand and the other two piled on it, a stack as
     // tall as Fetch carrying a crate (by intents: the hand is tested above)
-    for (const [id, at] of [['crate-2', [2.0, 0, 2.6]], ['crate-1', [-0.56, 0, 2.5]], ['crate-2', [-0.56, 0.8, 2.5]], ['crate-4', [-0.56, 1.3, 2.5]]] as const) {
+    for (const [id, at] of [['crate-2', [2.0, 0, 2.6]], ['crate-1', [-1.2, 0, 2.5]], ['crate-2', [-1.2, 0.8, 2.5]], ['crate-4', [-1.2, 1.3, 2.5]]] as const) {
       await p.evaluate(([id]) => {
         const ws = (window as any).__bench.ws, w = ws.world;
         ws.dispatch({ type: 'grab', id, grip: w.motion(id).pose.p });
@@ -434,4 +434,33 @@ for (const things of ['fixed', 'loose'] as const) {
     expect(d1, 'the knob turned the dial').not.toBe(d0);
     await close();
   });
+}
+
+// (round two, the station candidates) a film of each answering a carried crate and opening one (only with S6_FILM: the
+// owner's pictures, not a check)
+for (const look of [1, 2] as const) {
+  for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const) {
+    test(`P4 S6 round two film: candidate ${look} at ${w}×${h}`, async ({ browser }) => {
+      test.skip(!process.env['S6_FILM'], 'films only on request');
+      const { page: p, hand, close } = await setUp(browser, kind, w, h, `stand=c&standLook=${look}`);
+      await frameWith(p, 'crate-2', kind === 'touch' ? 0.3 : 0.45);
+      await frames(p, 150); // idle a while: its beat
+      const top = await standTop(p);
+      // carried slowly toward it from the stack (it answers), held near a moment, set down on it
+      const from = (await screen(p, 'crate-2'))!;
+      await hand.down(from);
+      const mid = await project(p, [top[0]! - 1.4, 1.2, top[2]! + 0.2]);
+      for (let i = 1; i <= 40; i++) {
+        await hand.move({ x: from.x + ((mid.x - from.x) * i) / 40, y: from.y + ((mid.y - from.y) * i) / 40 });
+        await frames(p, 2);
+      }
+      await frames(p, 60);
+      await hand.up(mid);
+      await frames(p, 30);
+      console.log(`[S6] film ${look} ${w}: onto the stand: ${await carry(p, hand, 'crate-2', [top[0]!, top[1]!, top[2]!])}`);
+      await until(p, () => isOpen(p, 'crate-2'), 600, 'open');
+      await frames(p, 240);
+      await close();
+    });
+  }
 }
