@@ -301,3 +301,33 @@ test('P4 S6: a press at each point over the open crate on the stand takes its co
   expect(b).toEqual({ mode: 'machine', held: null });
   await close();
 });
+
+test('P4 S6: by the keys: a held crate is offered the stand as a place; set there it opens, and its plate and its thing’s controls join the list', async ({ browser }) => {
+  const { page, close } = await setUp(browser, 'mouse', 1440, 900);
+  const C = 'crate-3';
+  await page.keyboard.press('?');
+  await expect(page.locator('#controls')).toHaveClass(/open/);
+  // the list's things: buttons, and (a project crate's plate) links
+  const ids = () => page.locator('#controls .controls-stations [data-id], #controls .controls-stations [data-link]').evaluateAll((bs) => bs.map((b) => (b as HTMLElement).dataset['id'] ?? (b as HTMLElement).dataset['link']!));
+  const before = await ids();
+  await page.locator(`#controls button[data-id="${C}"]`).focus();
+  await frames(page, 30);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.controls-hold-label')).toBeVisible();
+  const dests = await page.locator('.controls-dests button').evaluateAll((bs) => bs.map((b) => ({ id: (b as HTMLElement).dataset['id'] ?? null, text: (b.textContent ?? '').trim() })));
+  console.log(`[S6] the places offered a held crate: ${JSON.stringify(dests)}`);
+  const stand = page.locator('.controls-dests button', { hasText: 'Opening stand' });
+  await expect(stand).toHaveCount(1);
+  await stand.focus();
+  await frames(page, 20);
+  await page.keyboard.press('Enter');
+  await until(page, () => isOpen(page, C), 600, 'open on the stand, by the keys');
+  await frames(page, 120);
+  const after = await ids();
+  const gained = after.filter((id) => !before.includes(id));
+  console.log(`[S6] the list gained, with ${C} open on the stand: ${JSON.stringify(gained)}; it lost: ${JSON.stringify(before.filter((id) => !after.includes(id)))}`);
+  expect(after).toContain(`${C}-plate`);
+  expect(gained.length, 'its thing’s controls').toBeGreaterThan(1);
+  expect(after.filter((id) => id.endsWith('-lid')), 'no latch in the list').toEqual([]);
+  await close();
+});
