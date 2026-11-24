@@ -96,6 +96,8 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
   const byPlate = new Map(list.map((c) => [c.plate, c]));
   /** Crates that were in the visitor's hand while open: they clap shut when let go (under the letting go). */
   const wasHeld = new Set<Id>();
+  /** "Reset the workshop" has begun (`reset`); its `restored` follows in the same step and places every crate's thing. */
+  let resetting = false;
   /**
    * (round two) A crate the visitor asked for by itself (`select`: a double-click or double-tap on it) that could not open
    * yet (the double-tap's first tap had lifted it; it is settling): it opens once it lies still, within `selectWait`.
@@ -172,7 +174,11 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
     if (cause === 'crew') cause = 'system';
     let r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], cause);
     if (r.refused.length > 0) r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], 'system');
-    if (r.effects.length > 0) ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why });
+    if (r.effects.length > 0) {
+      ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why });
+      // (D2d) shut by anything but the visitor's own latch: a look at its card has nothing left to show
+      if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
+    }
   }
 
   /** Where a crate's thing sits on its tray: at the front of its mouth, a hair over the rim, turned with the crate. */
@@ -212,7 +218,9 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       } else if (m === 'machine') ctx.drive(id, at, teleport);
       return;
     }
-    if (m === 'machine' || (teleport && m === 'free')) ctx.stow(id, at ?? (ctx.pose(id) as Pose));
+    // (D1 part five) put back in its shut crate by an undo or a reset from wherever it was: free, still waiting in the
+    // chute, or in a crew member's hands (the world leaves those where they are): out of the world, for any crate's thing
+    if (m === 'machine' || (teleport && (m === 'free' || m === 'chute' || m === 'crew'))) ctx.stow(id, at ?? (ctx.pose(id) as Pose));
   }
 
   /** A crate's thing set down on its open crate's tray: stowed again, charged to whoever set it down. */
@@ -331,12 +339,18 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
     restored(restores: readonly Restore[]) {
       // an undo or a reset moved a crate, opened or shut one, or put a thing back in its crate: everything where its crate says
       const touched = new Set(restores.map((r) => r.target));
-      for (const c of list) if (touched.has(c.crate) || (c.holds !== undefined && touched.has(c.holds))) placeThing(c, true);
+      // (D1 part five) after "Reset the workshop" every crate's thing, changed or not: a thing whose location never left
+      // its crate (taken off the tray and thrown off the bench before it rested: its location is still `in` its crate)
+      // is in the chute or the world's hands, and nothing in the reset's list names it
+      const all = resetting;
+      resetting = false;
+      for (const c of list) if (all || touched.has(c.crate) || (c.holds !== undefined && touched.has(c.holds))) placeThing(c, true);
     },
 
     reset() {
       wasHeld.clear();
       selected.clear();
+      resetting = true;
     },
 
     heard(events: readonly SimEvent[]) {

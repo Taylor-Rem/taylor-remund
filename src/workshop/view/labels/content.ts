@@ -32,7 +32,11 @@ export const world = {
     python: raw.tools.python.text,
     rust: raw.tools.rust.text,
     sql: raw.tools.sql.text,
+    flutter: raw.tools.flutter.text,
+    'claude-code': raw.tools['claude-code'].text,
   },
+  /** P4 T2: the pinned sheet's heading (the résumé's own for its skills: tests/unit/content/tool-tags.test.ts holds the two together). */
+  toolwallSheet: raw.names.toolwall.sheet.text,
   cards: { revertRung1: raw.cards.revertRung1.text },
   slips: { fetchOutOfLane: raw.slips.fetchOutOfLane.text },
   phone: {
@@ -118,6 +122,17 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.ledger.board': raw.names.ledger.board as Entry,
   'name.ledger.crank': raw.names.ledger.crank as Entry,
   'name.ledger.plunger': raw.names.ledger.plunger as Entry,
+  // P4 D2b: the paint dial and its knob
+  'name.paint.dial': raw.names.paint.dial as Entry,
+  'name.paint.knob': raw.names.paint.knob as Entry,
+  // P4 D3: the report press, its lever, its envelope
+  'name.press.body': raw.names.press.body as Entry,
+  'name.press.lever': raw.names.press.lever as Entry,
+  'name.press.envelope': raw.names.press.envelope as Entry,
+  // P4 T2: the tool wall's eight tools, its pinned sheet, and the wall itself (where a tool held by the keys goes back to)
+  ...Object.fromEntries(Object.entries(raw.names.tool).map(([k, v]) => [`name.tool.${k}`, v as Entry])),
+  'name.toolwall.sheet': raw.names.toolwall.sheet as Entry,
+  'name.toolwall.wall': raw.names.toolwall.wall as Entry,
 };
 
 /** Every content id this module resolves. */

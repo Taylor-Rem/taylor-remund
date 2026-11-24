@@ -20,6 +20,7 @@
 import type { ProjectCrate, SceneDesc } from './scene.ts';
 import type { Jack, RefusalReason, Reply } from './instruct/types.ts';
 import type { LedgerBeat, LedgerBeatKind } from './machines/shared/ledger-board.ts';
+import type { PressBeat, PressBeatKind } from './machines/shared/report-press.ts';
 
 export type { ProjectCrate, SceneDesc };
 
@@ -181,6 +182,12 @@ export interface Interactable {
   /** Content id of the name a screen reader and the controls list use (text lives in src/content). */
   readonly name: string;
   readonly affordances: readonly Affordance[];
+  /**
+   * The loose part this control rides on (a toy's crank on its board, a lever on its press), if it rides on one: where
+   * that part is out of the world (stowed in its crate, shipped, in the chute) the control is not there to use, by hand
+   * or by the keys (shell/boot.ts `usable`).
+   */
+  readonly on?: Id;
   /** The idle hint. */
   tell(): void;
   /** What the Button makes it do; transient only, never an effect. */
@@ -396,6 +403,22 @@ export type SimEvent =
    * the least move that does it). The shell knows only that a thing asked to be looked at.
    */
   | { readonly type: 'look'; readonly target: Id }
+  /**
+   * The thing that asked to be looked at is done with the close view (the report press, as it flicks its envelope; the
+   * paint dial, turned; an open crate shut by anything but its latch): the page eases back to the view the look left, if
+   * that look (`target`: the id the emitter last asked to be looked at with `look`) still holds the camera and the
+   * visitor has not moved it since. A `look.back` for another look does nothing.
+   */
+  | { readonly type: 'look.back'; readonly target: Id }
+  // ── P4 T2: the tool wall (sim/machines/toolwall.ts) ──
+  /** A tool came off its peg into the visitor's hand (the peg's click). `id` is the wall's unit. */
+  | { readonly type: 'toolwall.taken'; readonly id: Id; readonly tool: Id }
+  /** A tool is back on its peg: let go near its painted shadow (`hand`), or put back by an undo or "Reset the workshop". */
+  | { readonly type: 'toolwall.hung'; readonly id: Id; readonly tool: Id; readonly how: 'hand' | 'undo' | 'reset' }
+  /** A tool was let go at another tool's place (`peg`, that tool's id): not its place; it drops to the bench. */
+  | { readonly type: 'toolwall.missed'; readonly id: Id; readonly tool: Id; readonly peg: Id }
+  /** The pinned sheet was pressed: the page opens the full skills list. */
+  | { readonly type: 'toolwall.sheet'; readonly id: Id; readonly sheet: Id }
   // ── P4 D1: the ledger board (sim/machines/ledger.ts) ──
   /** The crank dealt the board (or it dealt itself out of its crate): its state is already `dealt(bounce)`; the show follows. `id` is the unit. */
   | { readonly type: 'ledger.dealt'; readonly id: Id; readonly board: Id; readonly bounce: number }
@@ -405,6 +428,22 @@ export type SimEvent =
   | { readonly type: 'ledger.refused'; readonly id: Id; readonly board: Id }
   /** A beat of the board's show, in the step it falls due (for sound): `beat` as `LedgerBeatKind`, the token it moves and where to. */
   | { readonly type: 'ledger.beat'; readonly id: Id; readonly board: Id; readonly show: LedgerShow['kind']; readonly beat: LedgerBeatKind; readonly token: number | null; readonly to: string | null; readonly month: number | null; readonly on?: boolean }
+  // ── P4 D2b: the paint dial (sim/machines/paint-dial.ts) ──
+  /** A hand turned the dial's knob to another scheme: the dial's field is already `scheme`; the view wipes it across the room. `index` of `of` in dial order. */
+  | { readonly type: 'paint.turned'; readonly id: Id; readonly dial: Id; readonly scheme: string; readonly from: string; readonly index: number; readonly of: number }
+  /** The wipe of the last change (a turn, an undo, a reset) has crossed the room: the bell. */
+  | { readonly type: 'paint.wiped'; readonly id: Id; readonly dial: Id; readonly scheme: string }
+  // ── P4 D3: the report press (sim/machines/press.ts) ──
+  /** A pull printed: the report (`marks` shipments, 0 an honest empty report), a copy in the drawer, and the envelope out (`envelope`) or the bed's shrug. */
+  | { readonly type: 'press.printed'; readonly id: Id; readonly body: Id; readonly marks: number; readonly envelope: boolean }
+  /** A beat of a pull's sequence, in the step it falls due (for sound): `beat` as `PressBeatKind`, `n` which click or fold. */
+  | { readonly type: 'press.beat'; readonly id: Id; readonly body: Id; readonly beat: PressBeatKind; readonly n: number }
+  /** The spring arm flicked the envelope: from the bed toward the belt, `flight` seconds in the air (0: set down at once, reduced motion). */
+  | { readonly type: 'press.flicked'; readonly id: Id; readonly envelope: Id; readonly from: Vec3; readonly to: Vec3; readonly flight: number }
+  /** A pull refused politely: the envelope is in the air (the lever gives and springs back; nothing is printed). */
+  | { readonly type: 'press.refused'; readonly id: Id; readonly body: Id }
+  /** The envelope, shipped, is back in the press (folded flat). */
+  | { readonly type: 'press.home'; readonly id: Id; readonly envelope: Id }
   // ── S4: the Button's ladder, Revert, the UNDO lever ──
   /**
    * A beat of the rung playing (`RungBeat`), in the step it falls due: `ids` are the stations it
@@ -722,7 +761,79 @@ export interface LedgerView extends MachineViewBase {
   readonly crankMisfire: { readonly level: 1 | 2; readonly since: number } | null;
 }
 
-export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView;
+/**
+ * P4 D2b: the paint dial (sim/machines/paint-dial.ts). `scheme` is its durable value, one of `schemes` (dial order; the
+ * first the approved look), `index` its place. `change` is the last change (a hand's turn, or the lever or a reset
+ * putting it back), `since` seconds ago, which the view wipes across the room over `wipe` seconds from where the dial
+ * is; null before any. `worked` seconds since a hand last worked the knob (Infinity before); `misfire` the knob's;
+ * `reachable` whether the knob can be turned now (the dial in the world and in nobody's hand).
+ */
+export interface PaintDialView extends MachineViewBase {
+  readonly kind: 'paint-dial';
+  readonly dial: Id;
+  readonly knob: Id;
+  readonly schemes: readonly string[];
+  readonly scheme: string;
+  readonly index: number;
+  readonly change: { readonly from: string; readonly to: string; readonly since: number; readonly by: 'hand' | 'restore' } | null;
+  readonly wipe: number;
+  readonly worked: number;
+  readonly reachable: boolean;
+}
+
+/**
+ * P4 D3: the report press (sim/machines/press.ts). `report` and `drawer` are the press's durable fields (what its two
+ * holders show: paint names oldest first, null when nothing has been printed; the copies in its drawer); `seal` the
+ * envelope's. `envelopeIn`: the envelope is in the press, on the arm's bed. `show` is the pull being shown (`before`
+ * the report its holders showed, `after` the new one, `drawer` the count before, `envelope` whether it is folded and
+ * flicked), `since` seconds in; null when the press is drawn as its state says. `shrug` seconds since the bed last
+ * came up empty (Infinity before). `shipments` how many the press has on its record (the next report's size, up to
+ * twelve). `misfire` is the lever's.
+ */
+export interface PressShow {
+  readonly since: number;
+  readonly before: readonly string[] | null;
+  readonly after: readonly string[] | null;
+  readonly drawer: number;
+  readonly envelope: boolean;
+  readonly beats: readonly PressBeat[];
+  readonly length: number;
+}
+export interface PressView extends MachineViewBase {
+  readonly kind: 'press';
+  readonly body: Id;
+  readonly envelope: Id;
+  readonly lever: Id;
+  readonly report: readonly string[] | null;
+  readonly drawer: number;
+  readonly seal: string | null;
+  readonly envelopeIn: boolean;
+  readonly show: PressShow | null;
+  readonly waiting: boolean;
+  readonly shrug: number;
+  /** Seconds since a pull was refused because the envelope was in the air (Infinity before). */
+  readonly refused: number;
+  readonly shipments: number;
+}
+
+/**
+ * P4 T2: the tool wall (sim/machines/toolwall.ts). Each tool: `hung` while the wall holds it on its peg; `since` seconds
+ * since it last came off the wall or went back on (Infinity before either); `easing` while it glides onto its peg (0..1).
+ * `sheet` is the pinned sheet's id.
+ */
+export interface ToolwallTool {
+  readonly id: Id;
+  readonly hung: boolean;
+  readonly since: number;
+  readonly easing: number | null;
+}
+export interface ToolwallView extends MachineViewBase {
+  readonly kind: 'toolwall';
+  readonly tools: readonly ToolwallTool[];
+  readonly sheet: Id;
+}
+
+export type MachineView = BeltView | StrikerView | DockView | ChuteView | RevertView | UndoLeverView | LineView | PatchView | PlatenView | StorefrontView | LampView | LedgerView | PaintDialView | PressView | ToolwallView;
 
 // ── the Patchlamp station (S3: § B2 X1, § D 3, 4 and 14, § B5 Patch, § F3) ──
 

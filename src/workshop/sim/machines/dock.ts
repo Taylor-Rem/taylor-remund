@@ -130,6 +130,11 @@ export interface DockSpec {
      */
     readonly home?: readonly (readonly [number, number])[];
   };
+  /**
+   * P4 D3: parts that, shipped, do not come back up the chute: the dock queues no return for them (no RETURN TO
+   * SENDER, no chute) and the machine they belong to brings them home itself (the report press's envelope).
+   */
+  readonly homeward?: readonly Id[];
 }
 
 export interface DockUnit extends MachineUnit {
@@ -317,6 +322,7 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
       restocks.push({ at: ctx.clock.step + steps(T.restockAfter), size: part.size });
       return;
     }
+    if (spec.homeward?.includes(s.id)) return; // (P4 D3) its own machine brings it home
     const at = ctx.clock.step + steps(part.kind === 'robot' && spec.pad?.home ? T.refuseAfter : T.returnAfter[part.kind]);
     if (part.kind === 'robot') returns.push({ id: s.id, at, job: null });
     else returns.push({ id: s.id, at, job: ctx.history.work(ctx.history.chargeMachine(s.id), spec.id, () => (returns = returns.filter((r) => r.id !== s.id))) });
@@ -765,7 +771,10 @@ export function createDock(ctx: SimContext, spec: DockSpec): DockUnit {
         // P4 D1: a tool put back as shipped (its letting go undone before its return from the chute had come to rest, so
         // the location it had was still `shipped`) is behind the door with nobody bringing it back: it comes back up the
         // chute as any shipped tool does, as the system's (the undo that put it there is not the visitor's to charge)
-        if (to.at === 'shipped' && from.at !== 'shipped' && ctx.part(rs.target)?.kind === 'tool' && ctx.mode(rs.target) === 'gone' && !returns.some((r) => r.id === rs.target)) {
+        // (P4 T2, found by the tool wall's soak) and from wherever it was restored, `shipped` included: a tool in the air
+        // on its way home still has the location `shipped`, and an undo that takes back the action it flew through puts
+        // it behind the door "from shipped to shipped". Never the press's envelope: its own machine brings it home.
+        if (to.at === 'shipped' && ctx.part(rs.target)?.kind === 'tool' && !spec.homeward?.includes(rs.target) && ctx.mode(rs.target) === 'gone' && !returns.some((r) => r.id === rs.target)) {
           const id = rs.target;
           returns.push({ id, at: ctx.clock.step + steps(T.returnAfter.tool), job: ctx.history.work('system', spec.id, () => (returns = returns.filter((r) => r.id !== id))) });
         }

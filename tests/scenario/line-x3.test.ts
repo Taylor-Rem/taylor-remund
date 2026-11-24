@@ -14,10 +14,10 @@ import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { BeltView, Location, Restore, SimEvent } from '../../src/workshop/sim/types.ts';
 
 const TOOL_HALF = defaultHalfExtents('tool', 'M');
-/** The bench with one tool lying loose (tools stay P4 on the wall; a tool is a part like any other). */
+/** The bench with one tool lying loose (a loose stand-in: the wall's own tools are P4 T2's, tests/scenario/toolwall.test.ts; a tool is a part like any other). */
 const WITH_TOOL: SceneDesc = {
   ...BENCH,
-  parts: [...BENCH.parts, { id: 'tool-rust', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'tools', name: 'name.crate', pose: { p: [1.5, TOOL_HALF[1], -0.6], q: qyaw(0.3) } }], // clear bench between the console and the phone (L1 round 3: Revert now stands at (-3.2, 0.35))
+  parts: [...BENCH.parts, { id: 'tool-loose', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'tools', name: 'name.crate', pose: { p: [1.5, TOOL_HALF[1], -0.6], q: qyaw(0.3) } }], // clear bench between the console and the phone (L1 round 3: Revert now stands at (-3.2, 0.35))
 };
 const undoneOf = (ev: readonly SimEvent[]) => ev.filter((e): e is Extract<SimEvent, { type: 'undone' }> => e.type === 'undone');
 const near = (a: readonly number[], b: readonly number[], d = 0.6): boolean => Math.hypot(a[0]! - b[0]!, a[2]! - b[2]!) < d;
@@ -28,33 +28,33 @@ describe('the dock and the chute', () => {
     const w = await benchWorld(1, { scene: WITH_TOOL });
     const t = tape(w);
     t.run(30);
-    const peg = w.part('tool-rust')!.location;
-    putOn(w, t, 'tool-rust', onBelt(0.5));
-    expect(t.until((e) => e.type === 'struck' && e.part === 'tool-rust', 10 * HZ)?.e).toMatchObject({ size: 'M', material: 'metal', note: 4, octave: 1 });
-    expect(t.until((e) => e.type === 'shipped' && e.part === 'tool-rust', 10 * HZ)).not.toBeNull();
+    const peg = w.part('tool-loose')!.location;
+    putOn(w, t, 'tool-loose', onBelt(0.5));
+    expect(t.until((e) => e.type === 'struck' && e.part === 'tool-loose', 10 * HZ)?.e).toMatchObject({ size: 'M', material: 'metal', note: 4, octave: 1 });
+    expect(t.until((e) => e.type === 'shipped' && e.part === 'tool-loose', 10 * HZ)).not.toBeNull();
     // its location was written three times by the one action, and is one entry: before = where it lay
-    const entry = w.undoStack().flatMap((x) => x.entries).filter((e) => e.target === 'tool-rust' && e.field === 'location');
+    const entry = w.undoStack().flatMap((x) => x.entries).filter((e) => e.target === 'tool-loose' && e.field === 'location');
     expect(entry.length).toBe(1);
     expect(entry[0]!.before).toEqual(peg);
     w.dispatch({ type: 'undo' });
     const ev = t.run(1);
     const u = undoneOf(ev)[0]!;
-    const restores = u.restores.filter((r: Restore) => r.target === 'tool-rust');
+    const restores = u.restores.filter((r: Restore) => r.target === 'tool-loose');
     expect(restores.map((r) => r.field).sort()).toEqual(['location', 'marks']);
     const loc = restores.find((r) => r.field === 'location')!;
     expect(loc.from).toEqual({ at: 'shipped' });
     expect(loc.to).toEqual(peg);
     expect(near(loc.pose!.p, LINE.door.sill, 0.01)).toBe(true); // the hop starts at the door
-    expect(ev.find((e) => e.type === 'returned')).toMatchObject({ part: 'tool-rust', how: 'door' });
+    expect(ev.find((e) => e.type === 'returned')).toMatchObject({ part: 'tool-loose', how: 'door' });
     // in one hop: it is exactly where it lay, at once, and it does not come back up the chute later
-    expect(w.part('tool-rust')!.location).toEqual(peg);
+    expect(w.part('tool-loose')!.location).toEqual(peg);
     const pegPose = (peg as Extract<Location, { at: 'rest' }>).pose;
-    expect(Math.hypot(...w.motion('tool-rust')!.pose.p.map((v, i) => v - pegPose.p[i]!))).toBeLessThan(0.01); // physics may settle it a hair
+    expect(Math.hypot(...w.motion('tool-loose')!.pose.p.map((v, i) => v - pegPose.p[i]!))).toBeLessThan(0.01); // physics may settle it a hair
     const mark = t.events.length;
     t.run(12 * HZ);
-    if (process.env.LINE_TRACE) for (const x of t.events.slice(mark)) if (JSON.stringify(x.e).includes('tool-rust')) console.log(x.step, JSON.stringify(x.e).slice(0, 300));
-    expect(t.of('part.returned').filter((x) => x.e.id === 'tool-rust')).toEqual([]);
-    expect(w.part('tool-rust')!.location).toEqual(peg);
+    if (process.env.LINE_TRACE) for (const x of t.events.slice(mark)) if (JSON.stringify(x.e).includes('tool-loose')) console.log(x.step, JSON.stringify(x.e).slice(0, 300));
+    expect(t.of('part.returned').filter((x) => x.e.id === 'tool-loose')).toEqual([]);
+    expect(w.part('tool-loose')!.location).toEqual(peg);
     w.dispose();
   }, 60_000);
 
@@ -62,22 +62,22 @@ describe('the dock and the chute', () => {
     const w = await benchWorld(1, { scene: WITH_TOOL });
     const t = tape(w);
     t.run(30);
-    const peg = w.part('tool-rust')!.location;
-    putOn(w, t, 'tool-rust', onBelt(0.5));
-    t.until((e) => e.type === 'shipped' && e.part === 'tool-rust', 10 * HZ);
-    expect(t.until((e) => e.type === 'returned' && e.part === 'tool-rust', 8 * HZ)?.e).toMatchObject({ how: 'chute' });
-    expect(t.until((e) => e.type === 'flap', 4 * HZ)?.e).toMatchObject({ id: 'chute', part: 'tool-rust' });
-    expect(t.until((e) => e.type === 'part.rested' && e.id === 'tool-rust', 6 * HZ)).not.toBeNull();
-    const p = w.part('tool-rust')!;
+    const peg = w.part('tool-loose')!.location;
+    putOn(w, t, 'tool-loose', onBelt(0.5));
+    t.until((e) => e.type === 'shipped' && e.part === 'tool-loose', 10 * HZ);
+    expect(t.until((e) => e.type === 'returned' && e.part === 'tool-loose', 8 * HZ)?.e).toMatchObject({ how: 'chute' });
+    expect(t.until((e) => e.type === 'flap', 4 * HZ)?.e).toMatchObject({ id: 'chute', part: 'tool-loose' });
+    expect(t.until((e) => e.type === 'part.rested' && e.id === 'tool-loose', 6 * HZ)).not.toBeNull();
+    const p = w.part('tool-loose')!;
     expect(p.marks).toEqual(['mark.shipped', 'mark.return']);
-    expect(near(w.motion('tool-rust')!.pose.p, [AT.pad[0], 0, AT.pad[1]], 2.4)).toBe(true); // (R4) thrown back up the chute onto the pad, or beside it
-    const shipper = w.writer('tool-rust', 'location');
+    expect(near(w.motion('tool-loose')!.pose.p, [AT.pad[0], 0, AT.pad[1]], 2.4)).toBe(true); // (R4) thrown back up the chute onto the pad, or beside it
+    const shipper = w.writer('tool-loose', 'location');
     expect(shipper).toMatch(/^t\d+$/);
-    expect(w.writer('tool-rust', 'marks')).toBe(shipper);
+    expect(w.writer('tool-loose', 'marks')).toBe(shipper);
     w.dispatch({ type: 'undo' });
     t.run(1);
-    expect(w.part('tool-rust')!.location).toEqual(peg);
-    expect(w.part('tool-rust')!.marks).toEqual([]);
+    expect(w.part('tool-loose')!.location).toEqual(peg);
+    expect(w.part('tool-loose')!.marks).toEqual([]);
     w.dispose();
   }, 60_000);
 

@@ -4,7 +4,8 @@
 // board is a loose part like any other (grabbed, thrown, shipped, its crate shut while it is out, reset) and never
 // loses a token.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape, putOn, waitFor, onBelt, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, tape, putOn, waitFor, onBelt, BENCH, FULL_BENCH, type Tape } from './line-helpers.ts';
+import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import { plug, textAndWait, traySpot } from './patchlamp-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { LEDGER } from '../../src/workshop/sim/scenes/bench.ts';
@@ -21,8 +22,8 @@ const press = (w: World, id: string): void => w.dispatch({ type: 'press', id });
 const SHOW = steps(4);
 
 /** The bench with the ledger's crate free (the crate on top of it set down beside the stack) and opened. */
-async function opened(seed: string): Promise<{ w: World; t: Tape }> {
-  const w = await benchWorld(seed, { scene: BENCH });
+async function opened(seed: string, scene: SceneDesc = BENCH): Promise<{ w: World; t: Tape }> {
+  const w = await benchWorld(seed, { scene });
   const t = tape(w);
   t.run(30);
   putOn(w, t, 'crate-2', [-1.4, 0, 0.9]);
@@ -228,4 +229,162 @@ describe('the ledger board', () => {
     expect(tokens(w)).toEqual(repaired(2));
     w.dispose();
   }, 120_000);
+});
+
+describe('"Reset the workshop" while the board is on its way back from the dock', () => {
+  // (D1 part five) wherever it is on the way (behind the door, in the chute, in the air onto the pad, landed and not yet
+  // at rest), a reset stows it in its crate, as from anywhere else
+  for (const [bench, scene] of [['quiet bench', BENCH], ['whole bench', FULL_BENCH]] as const) for (const phase of ['belt', 'dock', 'gone', 'chute', 'machine', 'free', 'edge'] as const) {
+    test(`${bench}: a reset with the board ${phase === 'edge' ? 'fallen off the bench, in the chute' : phase === 'belt' ? 'riding the belt' : phase === 'dock' ? 'rolling to the dock door' : phase === 'gone' ? 'shipped, its return not yet due' : phase === 'chute' ? 'in the chute' : phase === 'machine' ? 'in the air onto the pad' : 'just landed'}: stowed in its crate, in the hopper`, async () => {
+      const { w, t } = await opened(`lb-reset-${phase}`, scene);
+      t.run(SHOW);
+      w.dispatch({ type: 'turn', id: 'belt-dial', value: 1 });
+      t.run(2);
+      if (phase === 'edge') {
+        const m0 = w.motion(B)!;
+        w.dispatch({ type: 'grab', id: B, grip: m0.pose.p });
+        t.run(5);
+        for (let k = 1; k <= 20; k++) {
+          w.dispatch({ type: 'carry', target: [m0.pose.p[0] + 0.5 * k, 1.5, m0.pose.p[2] + 0.3 * k] });
+          t.run(1);
+        }
+        w.dispatch({ type: 'release', velocity: [12, 3, 6] });
+      } else putOn(w, t, B, onBelt(0.6), 60);
+      const inMouth = (m: string) => { const l = w.part(B)!.location; return l.at === 'in' && l.mouth === m; };
+      if (phase !== 'belt' && phase !== 'dock' && phase !== 'edge') expect(waitFor(w, t, B, 'shipped', 60 * HZ)).toBe(true);
+      let seen = false;
+      for (let i = 0; i < 20 * HZ && !seen; i++) {
+        t.run(1);
+        const m = w.mode(B);
+        seen = phase === 'edge' ? m === 'chute' : phase === 'belt' ? inMouth('belt') && m === 'machine' : phase === 'dock' ? inMouth('dock') && m === 'machine' : phase === 'gone' ? m === 'gone' : phase === 'free' ? m === 'free' && w.part(B)!.location.at === 'shipped' : m === phase;
+      }
+      expect(seen, `the board seen ${phase} on its way back`).toBe(true);
+      w.dispatch({ type: 'reset' });
+      t.run(1);
+      for (let i = 0; i < 15 * HZ; i++) {
+        t.run(1);
+        expect(w.mode(B), `step ${i} after the reset`).toBe('gone');
+      }
+      expect(w.part(B)!.location).toMatchObject({ at: 'in', mouth: LEDGER.crate });
+      expect(tokens(w)).toEqual(fresh(2));
+      w.dispose();
+    }, 120_000);
+  }
+});
+
+test('"Reset the workshop" with the board thrown off the bench from its tray before it ever rested (its location still in its crate): stowed', async () => {
+  // (D1 part five: the case the soak found; nothing in the reset's list names the board, its location never changed)
+  const { w, t } = await opened('lb-reset-thrown-from-tray');
+  t.run(SHOW);
+  const m0 = w.motion(B)!;
+  w.dispatch({ type: 'grab', id: B, grip: m0.pose.p });
+  t.run(5);
+  for (let k = 1; k <= 20; k++) {
+    w.dispatch({ type: 'carry', target: [m0.pose.p[0] + 0.5 * k, 1.8, m0.pose.p[2] + 0.3 * k] });
+    t.run(1);
+  }
+  w.dispatch({ type: 'release', velocity: [12, 3, 6] });
+  let chute = false;
+  for (let i = 0; i < 10 * HZ && !chute; i++) {
+    t.run(1);
+    chute = w.mode(B) === 'chute';
+  }
+  expect(chute).toBe(true);
+  expect(w.part(B)!.location).toMatchObject({ at: 'in', mouth: LEDGER.crate });
+  // its crate shut meanwhile: the reset then changes nothing of the crate's either
+  press(w, `${LEDGER.crate}-lid`);
+  t.run(2);
+  expect(w.setting(LEDGER.crate, OPEN)).toBe(false);
+  w.dispatch({ type: 'reset' });
+  for (let i = 0; i < 15 * HZ; i++) {
+    t.run(1);
+    expect(w.mode(B), `step ${i} after the reset`).toBe('gone');
+  }
+  w.dispose();
+}, 120_000);
+
+test('"Reset the workshop" with the board in its shut crate and nothing of it changed: it stays in its crate (it fell out through the chute)', async () => {
+  // (D1 part five: what the soak found. The world puts every loose part back where its location says; a crate's thing
+  // `in` its crate is not in any mouth the world knows, so its body was released where it waited, under the bench: it
+  // fell, came up the chute and lay on the bench, its location still saying it was in its crate. Nothing in the reset's
+  // list named it, so its crate never stowed it again.)
+  const w = await benchWorld('lb-reset-untouched', { scene: BENCH });
+  const t = tape(w);
+  t.run(30);
+  w.dispatch({ type: 'reset' });
+  for (let i = 0; i < 15 * HZ; i++) {
+    t.run(1);
+    expect(w.mode(B), `step ${i} after the reset`).toBe('gone');
+  }
+  expect(w.part(B)!.location).toMatchObject({ at: 'in', mouth: LEDGER.crate });
+  w.dispose();
+}, 120_000);
+
+describe('the board asks to be looked at', () => {
+  const looks = (t: Tape) => t.of('look').map((x) => x.e.target);
+  test('a select on its tray asks for its crate\'s card; out on the bench for its own box; never in a hand or stowed', async () => {
+    const { w, t } = await opened('lb-look');
+    // the crate's opening asked for its card; the board's deal asked for the same
+    expect(looks(t)).toContain(`${LEDGER.crate}-card`);
+    t.run(SHOW);
+    const n = looks(t).length;
+    w.dispatch({ type: 'select', id: LEDGER.crank });
+    t.run(1);
+    expect(looks(t).slice(n)).toEqual([`${LEDGER.crate}-card`]);
+    putOn(w, t, B, [-0.4, 0, -1.0]);
+    t.run(HZ);
+    w.dispatch({ type: 'select', id: B });
+    t.run(1);
+    expect(looks(t).at(-1)).toBe(LEDGER.look);
+    // a deal and a repair each ask once as they begin
+    const m = looks(t).length;
+    press(w, LEDGER.crank);
+    t.run(SHOW);
+    press(w, LEDGER.plunger);
+    t.run(SHOW);
+    expect(looks(t).slice(m)).toEqual([LEDGER.look, LEDGER.look]);
+    // in a hand: no look
+    const p = w.motion(B)!.pose.p;
+    w.dispatch({ type: 'grab', id: B, grip: p });
+    t.run(3);
+    const k = looks(t).length;
+    w.dispatch({ type: 'select', id: LEDGER.plunger });
+    t.run(1);
+    expect(looks(t).length).toBe(k);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    t.run(HZ);
+    // stowed: no look
+    w.dispatch({ type: 'reset' });
+    t.run(2);
+    const j = looks(t).length;
+    w.dispatch({ type: 'select', id: B });
+    t.run(1);
+    expect(looks(t).length).toBe(j);
+    w.dispose();
+  });
+
+  test('a double-tap on the crank deals once and asks for the camera: its second press is half of the double-tap', async () => {
+    const { w, t } = await opened('lb-double');
+    t.run(SHOW);
+    press(w, LEDGER.plunger);
+    t.run(SHOW);
+    const deals = () => t.of('ledger.dealt').length;
+    const d0 = deals();
+    // the input's double-tap: press, press (a moment later), then select (in the same frame as the second press)
+    press(w, LEDGER.crank);
+    t.run(12);
+    press(w, LEDGER.crank);
+    w.dispatch({ type: 'select', id: LEDGER.crank });
+    t.run(SHOW + 60);
+    expect(deals() - d0).toBe(1);
+    expect((w.machine(LEDGER.unit) as LedgerView).waiting).toBeNull();
+    // the same two presses with no select: two deals (the second waits its turn, a moment late)
+    const d1 = deals();
+    press(w, LEDGER.crank);
+    t.run(12);
+    press(w, LEDGER.crank);
+    t.run(2 * SHOW);
+    expect(deals() - d1).toBe(2);
+    w.dispose();
+  });
 });

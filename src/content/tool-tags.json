@@ -1,0 +1,20 @@
+{
+  "about": {
+    "note": "P4 T2: what each tool on the tool wall stands for, as the published tags it is (resume.json projects.entries[].tags, the pills on /resume/ #projects). A tool's things are computed, never listed: every project crate whose published entry carries one of its tags, and Patchlamp's station if Patchlamp's entry does (src/content/tool-tags.ts; tests/unit/content/tool-tags.test.ts fails on a tag that is not in resume.json, or on anything that would light for a tool its entry does not name). Nothing here is shown: the tool's own words are its label tape (world.json tools)."
+  },
+  "truth": {
+    "toy": "A tool lifted off the wall makes everything on the bench built with it glow in the tool's colour: each project crate whose card names it, and the Patchlamp station if Patchlamp's does. A tool is also a part like any other (carried, thrown, painted, shipped): that claims nothing.",
+    "real": "Each project's entry on /resume/ #projects lists, as its tags, the technologies it was built with; each tool stands for the tags of one technology from /resume/ #skills (SQL for MySQL, PostgreSQL and SQLite; Laravel and Vue with or without their version).",
+    "source": "/resume/ #projects (each entry's tags) and #skills; src/content/tool-tags.json (the table, tested against resume.json: tests/unit/content/tool-tags.test.ts)"
+  },
+  "tools": {
+    "laravel": { "tags": ["Laravel", "Laravel 13"], "source": "/resume/ #skills (Laravel); #projects tags \"Laravel\" and \"Laravel 13\" (the same framework, the second with its version)" },
+    "vue": { "tags": ["Vue.js", "Vue 3"], "source": "/resume/ #skills (Vue.js); #projects tags \"Vue.js\" and \"Vue 3\" (the same framework, the second with its version)" },
+    "php": { "tags": ["PHP"], "source": "/resume/ #skills (PHP); #projects tag \"PHP\"" },
+    "python": { "tags": ["Python"], "source": "/resume/ #skills (Python); #projects tag \"Python\"" },
+    "rust": { "tags": ["Rust"], "source": "/resume/ #skills (Rust); #projects tag \"Rust\"" },
+    "sql": { "tags": ["MySQL", "PostgreSQL", "SQLite"], "source": "/resume/ #skills (MySQL, PostgreSQL, SQLite: no pill reads \"SQL\" alone; each is a SQL database); #projects tags of the same names. Not SQLAlchemy (an ORM for Python, not a database)" },
+    "flutter": { "tags": ["Flutter"], "source": "/resume/ #skills (Flutter); #projects tag \"Flutter\"" },
+    "claude-code": { "tags": ["Claude Code"], "source": "/resume/ #skills (Claude Code); #projects tag \"Claude Code\"" }
+  }
+}

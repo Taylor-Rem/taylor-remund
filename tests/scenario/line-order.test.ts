@@ -12,7 +12,8 @@ import type { World } from '../../src/workshop/sim/world.ts';
 
 /** Pairs of parts in a machine's hands whose footprints (their boxes turned by yaw) overlap by more than `slack` (2-D separating axes). */
 function overlaps(w: World, slack = 0.02): string[] {
-  const held = [...w.parts()].filter((p) => w.mode(p.id) === 'machine').map((p) => {
+  // (P4 T2: not the tools the wall holds on its pegs, one above another)
+  const held = [...w.parts()].filter((p) => w.mode(p.id) === 'machine' && !(p.location.at === 'in' && p.location.mouth === 'toolwall')).map((p) => {
     const m = w.motion(p.id)!;
     const h = w.halfExtents(p.id)!;
     const y = yawOf(m.pose.q);

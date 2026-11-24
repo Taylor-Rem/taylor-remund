@@ -31,7 +31,7 @@ describe('src/content/world.json', () => {
     expect(world.sign).toBe('TAYLOR');
     expect(world.tape.doNotTouch).toBe('DO NOT TOUCH');
     expect(world.jacks).toEqual({ storefront: 'STOREFRONT', lamp: 'LAMP', platen: 'PLATEN' });
-    expect(Object.values(world.tools)).toEqual(['LARAVEL', 'VUE', 'PHP', 'PYTHON', 'RUST', 'SQL']);
+    expect(Object.values(world.tools)).toEqual(['LARAVEL', 'VUE', 'PHP', 'PYTHON', 'RUST', 'SQL', 'FLUTTER', 'CLAUDE CODE']);
     expect(world.cards.revertRung1).toBe('WELL, THAT WAS UNNECESSARY.');
     expect(world.slips.fetchOutOfLane).toBe('OUT OF MY LANE.');
     expect(world.phone.attract).toEqual([{ from: 'owner', text: 'Make it blue.' }]);
@@ -107,7 +107,14 @@ describe('contentById', () => {
     // P4 S5: the project crates (each called by its project's published title), their latches and plates, the stand-in
     'name.project.ledger', 'name.project.reports', 'name.project.support-desk', 'name.project.clean-green', 'name.project.t-components', 'name.project.artificer', 'name.lid', 'name.plate', 'name.standin',
     // P4 D1: the ledger board and its two controls
-    'name.ledger.board', 'name.ledger.crank', 'name.ledger.plunger'];
+    'name.ledger.board', 'name.ledger.crank', 'name.ledger.plunger',
+    // P4 D2b: the paint dial and its knob
+    'name.paint.dial', 'name.paint.knob',
+
+    // P4 D3: the report press, its lever and its envelope
+    'name.press.body', 'name.press.lever', 'name.press.envelope',
+    // P4 T2: the tool wall's eight tools, its pinned sheet, and the wall (a tool's place)
+    ...['laravel', 'vue', 'php', 'python', 'rust', 'sql', 'flutter', 'claude-code'].map((k) => `name.tool.${k}`), 'name.toolwall.sheet', 'name.toolwall.wall'];
 
   it('resolves every id the simulation speaks in, to the right entry', () => {
     for (const id of ids) expect(contentById(id).text, id).toBeTruthy();

@@ -121,6 +121,8 @@ describe('the latch', () => {
     t.run(HZ);
     expect(isOpen(w, 'crate-3')).toBe(false);
     expect(t.of('crate.shut').map((x) => x.e.why)).toEqual(['grab']);
+    // (D2d) shut by anything but its latch: it gives back the look at its card
+    expect(t.of('look.back').map((x) => (x.e as { target: string }).target)).toEqual(['crate-3-card']);
     const top = w.undoStack().at(-1)!;
     expect(top.entries.map((e) => e.field).sort()).toEqual(['location', OPEN]);
     w.dispatch({ type: 'undo' });
@@ -143,6 +145,7 @@ describe('the latch', () => {
     t.run(2 * HZ);
     expect(isOpen(w, 'crate-3')).toBe(false);
     expect(t.of('crate.shut').map((x) => x.e.why)).toContain('burden');
+    expect(t.of('look.back').map((x) => (x.e as { target: string }).target)).toContain('crate-3-card');
     // every step of a busy minute on the whole bench: no crate is open unless it lies free
     const w2 = await benchWorld('pc-machine', { scene: FULL_BENCH });
     const t2 = tape(w2);
@@ -302,13 +305,43 @@ describe('round two: asked for by itself (a double-click or double-tap), a crate
     press(w, 'crate-3-lid');
     ev = t.run(1);
     expect(isOpen(w, 'crate-3')).toBe(false);
-    expect(ev.some((e) => e.type === 'look')).toBe(false);
+    expect(ev.some((e) => e.type === 'look' || e.type === 'look.back')).toBe(false); // (D2d) the latch: the camera stays
     w.dispatch({ type: 'select', id: 'fetch' });
     ev = t.run(1);
     expect(ev.some((e) => e.type === 'look' || e.type === 'crate.opened')).toBe(false);
-    // the latch opens it too, and asks to be looked at
+    // the latch opens it too, and asks to be looked at. (D2d) First it lies still again: a crate with a thing on its tray
+    // (t-components' paint dial) dips as it opens and takes about thirty steps to settle, and a crate that is not lying
+    // still is not opened. No visitor presses twice in a few steps; the page is right, the test waits.
+    for (let i = 0; i < 120 && w.motion('crate-3')!.awake; i++) t.run(1);
     press(w, 'crate-3-lid');
     expect(t.run(1)).toContainEqual({ type: 'look', target: 'crate-3-card' });
+    w.dispose();
+  });
+
+  test('(D2d) the crate in Fetch\'s arms, asked for: it opens and asks to be looked at; Fetch takes it back, it claps shut and gives the look back', async () => {
+    const w = await benchWorld('pc-fetch-back', { scene: BENCH });
+    const t = tape(w);
+    t.run(30);
+    expect(w.mode('crate-4')).toBe('crew');
+    // the double-click as the page sends it: its first tap takes the crate from Fetch's arms, its second asks for it
+    w.dispatch({ type: 'grab', id: 'crate-4', grip: w.motion('crate-4')!.pose.p });
+    t.run(2);
+    w.dispatch({ type: 'select', id: 'crate-4' });
+    let opened = false;
+    for (let i = 0; i < 4 * HZ && !opened; i++) {
+      t.run(1);
+      opened = isOpen(w, 'crate-4');
+    }
+    expect(opened).toBe(true);
+    expect(t.of('look').map((x) => (x.e as { target: string }).target)).toContain('crate-4-card');
+    let back = false;
+    for (let i = 0; i < 20 * HZ && !back; i++) {
+      t.run(1);
+      back = t.of('look.back').some((x) => (x.e as { target: string }).target === 'crate-4-card');
+    }
+    expect(isOpen(w, 'crate-4')).toBe(false);
+    expect(t.of('crate.shut').map((x) => x.e.why)).not.toContain('press');
+    expect(back).toBe(true);
     w.dispose();
   });
 

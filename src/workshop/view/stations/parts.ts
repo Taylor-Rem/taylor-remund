@@ -173,6 +173,8 @@ export interface PartsViewOptions {
    * The project crates' lids, cards and the pick targets of their latches and plates (view/bench/stations/parts.ts).
    */
   decorate?: (ctx: ViewContext) => PartDecorator;
+  /** P4 T2: a part that casts no contact shadow now (a tool hanging on the wall: there is no bench under it). Default: every part does. */
+  blob?(part: Part, world: WorldView): boolean;
 }
 
 /** What `PartsViewOptions.decorate` gives: view-only additions to parts (never a pose the simulation owns). */
@@ -297,6 +299,8 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
       const region = opts.tapes && part.kind === 'crate' ? (regions.get(part.id) ?? crateTapeRegion(ctx.labels, part.id, part.size)) : null;
       const pc = (opts.piece ?? standInPiece)(part, half, region ? { tape: region.key } : {});
       const obj: Object3D = ctx.realize(pc);
+      // (P4 D2b) a loose part's colours are its own, whatever paint scheme the workshop wears
+      ctx.materials.keepColours?.(obj);
       // the piece rests on y = 0 at its origin; the body's pose is its centre
       obj.position.y = -half[1];
       const g = new Group();
@@ -442,8 +446,11 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
             qb.set(P.q[0], P.q[1], P.q[2], P.q[3]);
             qa.slerp(qb, frame.alpha);
           }
-          // hover: a hair, eased; never while held (the simulation lifts it then)
-          const goal = frame.hovered === part.id && !m.held && !w.bracketed ? F.hoverLift : 0;
+          // hover: a hair, eased; never while held (the simulation lifts it then). (D2d) Nor a part a machine holds (a
+          // thing on its crate's tray rides it), nor an open crate: lifting either slid the other in and out under a
+          // still pointer, and the two took the hover in turn, the card bobbing (t-components' crate and its dial)
+          const rides = m.mode === 'machine' || w.setting(part.id, 'open') === true;
+          const goal = frame.hovered === part.id && !m.held && !w.bracketed && !rides ? F.hoverLift : 0;
           e.lift += (goal - e.lift) * hoverK;
           // squash: a damped spring, integrated in small steps
           let left = dt;
@@ -483,7 +490,7 @@ export function createPartsView(opts: PartsViewOptions): (ctx: ViewContext) => P
           partShows(hooks, part, frame, work);
           look(e, work, qa);
           // the contact shadow: on the surface under it, shrinking and fading as it rises
-          if (shadows) {
+          if (shadows && (opts.blob?.(part, w) ?? true)) {
             const bottom = pa.y - hy;
             const floor = staticFloor(w, pa.x, pa.z, bottom);
             const height = Math.max(0, bottom - floor);

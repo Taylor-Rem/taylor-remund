@@ -33,6 +33,16 @@ import type { PhysicsPort, Vec3 } from '../sim/index.ts';
 import { bench as BENCH, withProjectRow, withStandIn, withPitch, PITCH_BODY } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
+/** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
+const lookSizeQuery = (): number | null => {
+  try {
+    const q = Number(new URLSearchParams(globalThis.location?.search ?? '').get('lookSize'));
+    return q > 0 ? q : null;
+  } catch {
+    return null;
+  }
+};
+
 export type BenchBootOptions = Omit<BootOptions, 'manual' | 'onProgress'>;
 
 export interface BenchGlueOptions {
@@ -74,6 +84,8 @@ export const STATION_BOXES = {
   line: { min: [-7.8, 0, 0.6], max: [7.4, 2.2, 5.0] },
   /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
   top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
+  /** (P4 T2) The tool wall: the board, its eight tools and the pinned sheet, and the bench in front of it (where a tool is set down). */
+  tools: { min: [-10.1, 0, -5.0], max: [-4.6, 6.1, -2.4] },
 } as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 /**
  * A phone held upright: the camera never zooms out past its home (the centre cluster, about 5.6 units across),
@@ -89,6 +101,8 @@ export const STATION_BOXES_PORTRAIT = {
   line: { min: [-2.0, 0, 0.6], max: [3.8, 2.0, 5.0] },
   /** The sign's middle and the lamp. */
   top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
+  /** (P4 T2) The board's middle: its tools. */
+  tools: { min: [-9.4, 0.4, -5.0], max: [-5.3, 5.9, -3.0] },
 } as const satisfies Record<keyof typeof STATION_BOXES, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 export type BenchStation = keyof typeof STATION_BOXES;
 export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
@@ -164,6 +178,7 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
     patchlamp: () => stationBox('patchlamp'),
     button: () => stationBox('button'),
     line: () => stationBox('line'),
+    tools: () => stationBox('tools'),
     fetch: () => {
       const b = loaded();
       const m = b.world()?.motion('fetch');
@@ -225,8 +240,9 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
           const edge = homeEdge(aspect, scene.bench);
           stage.camera.stationSize = 1.9;
           // (P4 S5) only a look comes closer than a station (shell/boot.ts `lookAt`; the visitor's own zoom stops at a
-          // station's): 1.3 across on a laptop, 0.62 on an upright phone, so an opened crate's card reads
-          stage.camera.lookSize = portrait() ? 0.62 : 1.3;
+          // station's): 1.7 across on a laptop (1.3 at first: too close, the bench was gone), 0.62 on an upright phone, so
+          // an opened crate's card reads
+          stage.camera.lookSize = portrait() ? 0.62 : lookSizeQuery() ?? 1.7;
           stage.camera.setSubject(homeBox(aspect), { edge, bounds: new Box3(new Vector3(...FRAMING.bounds.min), new Vector3(...FRAMING.bounds.max)) });
           stage.camera.focusOn({ x: FRAMING.focus[0], y: FRAMING.focus[1], z: FRAMING.focus[2] });
           Object.assign(LOOK.focus, FRAMING.blur);

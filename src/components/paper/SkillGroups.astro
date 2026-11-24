@@ -1,0 +1,23 @@
+---
+// The skill groups as /resume/ #skills draws them (every word src/content/resume.json `skills.groups`). One
+// component, so the tool wall's pinned sheet (P4 T2: the panel it opens, src/components/paper/Panels.astro) shows the
+// list the résumé publishes, drawn by the same code, never a second copy.
+import type { Resume } from '../../content/resume.ts';
+
+interface Props {
+  groups: Resume['skills']['groups'];
+}
+const { groups } = Astro.props;
+---
+<div class="skill-groups">
+      {groups.map((g) => (
+        <div class="skill-group">
+          <h3 class="skill-group-title">{g.title.text}</h3>
+          <ul class="skills">
+            {g.items.map((s) => (
+              <li>{s.icon && <svg class="skill-icon" aria-hidden="true" focusable="false" width="16" height="16"><use href={`/assets/skill-icons.svg#${s.icon}`} /></svg>}{s.text}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>

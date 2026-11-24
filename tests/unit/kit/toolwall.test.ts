@@ -4,12 +4,15 @@ import type { Material } from 'three';
 import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import type { PieceNode } from '../../../src/workshop/view/kit/types.ts';
-import { toolwall, tool, toolShape, hangOf, catalogue, estimateTape, toolName, BOARD, TOOL_KINDS, TOOL_PAINT } from '../../../src/workshop/view/kit/pieces/toolwall/index.ts';
+import { toolwall, tool, toolShape, hangOf, catalogue, estimateTape, toolName, tapeLines, BOARD, SHEET, TOOL_KINDS, TOOL_PAINT } from '../../../src/workshop/view/kit/pieces/toolwall/index.ts';
 import { world } from '../../../src/workshop/view/labels/content.ts';
 import { checkGeometry } from './helpers.ts';
 
-const WALL_BUDGET = 8400; // census cap 10,000 with eight tools: two more of about 900 each (tool, pegs, shadow, tape) must still fit
-const TOOL_BUDGET = 1200; // a tool about 800; the pliers run to ~1,100
+// P4 T2: eight tools and a board a row taller (5.8 high, a third more holes), and the pinned sheet: 11,456 measured. On the
+// bench the board is in the set (built without its tools, `tools: false`: 4,795) and the eight tools are one rig.
+const WALL_BUDGET = 12000;
+const BOARD_BUDGET = 5000;
+const TOOL_BUDGET = 1200; // a tool about 800; the pliers run to ~1,100, the cranked drill ~1,150
 
 const stub: Materials = { of: (): Material => new MeshBasicMaterial(), textured: (): Material => new MeshBasicMaterial(), update() {}, dispose() {} };
 
@@ -30,9 +33,11 @@ describe('the tool wall', () => {
     expect(toolwall({ seed: 2 }).triangles).toBe(toolwall({ seed: 2 }).triangles);
   });
 
-  it('stays inside its budget with all six tools, and each tool inside its own', () => {
+  it('stays inside its budget with all eight tools, and without them, and each tool inside its own', () => {
     const b = K.budget(p, WALL_BUDGET);
     expect(b.fits, b.text).toBe(true);
+    const bare = K.budget(toolwall({ tools: false }), BOARD_BUDGET);
+    expect(bare.fits, bare.text).toBe(true);
     for (const k of TOOL_KINDS) {
       const t = K.budget(tool(k), TOOL_BUDGET);
       expect(t.fits, t.text).toBe(true);
@@ -72,11 +77,12 @@ describe('the tool wall', () => {
   });
 
   it('takes its names from the content, at the tape default size', () => {
-    expect(TOOL_KINDS.map(toolName)).toEqual([world.tools.laravel, world.tools.vue, world.tools.php, world.tools.python, world.tools.rust, world.tools.sql]);
-    // the board carries the widest row of tapes
-    const rowW = (ks: readonly string[]): number => ks.reduce((s, k) => s + estimateTape(toolName(k as never)).w, 0);
+    expect(TOOL_KINDS.map(toolName)).toEqual([world.tools.laravel, world.tools.vue, world.tools.php, world.tools.python, world.tools.rust, world.tools.sql, world.tools.flutter, world.tools['claude-code']]);
+    // the board carries the widest row of tapes (CLAUDE CODE on two strips, one word each, and the sheet beside them)
+    const rowW = (ks: readonly string[]): number => ks.reduce((s, k) => s + Math.max(...tapeLines(k as never).map((l) => estimateTape(l).w)), 0);
     expect(rowW(['laravel', 'vue', 'php'])).toBeLessThan(BOARD.w);
     expect(rowW(['python', 'rust', 'sql'])).toBeLessThan(BOARD.w);
+    expect(rowW(['flutter', 'claude-code']) + SHEET.w).toBeLessThan(BOARD.w);
   });
 
   it('every geometry holds the kit invariants', () => {

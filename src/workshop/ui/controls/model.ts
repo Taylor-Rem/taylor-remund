@@ -22,7 +22,8 @@
  * one says why (`said.busy`).
  */
 import type { Id, LedgerView, WorldView } from '../../sim/types.ts';
-import { LEDGER } from '../../sim/index.ts';
+import { LEDGER, PAINT, PRESS } from '../../sim/index.ts';
+import { TOOLWALL, pegId } from '../../sim/index.ts';
 import type { HandleReading, HeldKind, Role } from '../../input/gesture.ts';
 import { LIST, STATION_NAMES, fill, paintName, textOf } from './words.ts';
 import { BENCH_PROJECTS } from '../../../content/bench-projects.ts';
@@ -88,7 +89,8 @@ export function plainName(w: WorldView, id: Id): string {
   if (it) return textOf(it.name) ?? id;
   const mouth = (w.scene.mouths ?? []).find((m) => m.id === id);
   if (mouth) {
-    const owner = w.interactable(mouth.id);
+    // (P4 T2) a mouth named for its machine: a tool's place on the wall is the wall's
+    const owner = w.interactable(mouth.id) ?? w.interactable(mouth.machine);
     if (owner) return textOf(owner.name) ?? id;
   }
   const jack = w.scene.cord.jacks.find((j) => j.id === id);
@@ -153,10 +155,21 @@ function leftOut(w: WorldView, id: Id): boolean {
     if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
     if (pr.as === 'plate' && (w.setting(pr.crate.crate, 'open') !== true || mode !== 'free')) return true;
   }
+  // (P4 D2b) the paint dial's knob while the dial is not on the bench (in its crate, shipped, down the chute)
+  const pv = w.machine(PAINT.unit);
+  if (pv?.kind === 'paint-dial' && id === pv.knob) {
+    const mode = w.motion(pv.dial)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
+  }
   // (P4 D1) the ledger board's crank and plunger while the board is not on the bench (in its crate, shipped, down the chute)
   const lv = ledgerOf(w, id);
   if (lv && id !== lv.board) {
     const mode = w.motion(lv.board)?.mode;
+    if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
+  }
+  // (P4 D3) the report press's lever while the press is not on the bench (in its crate, shipped, down the chute)
+  if (id === PRESS.lever) {
+    const mode = w.motion(PRESS.body)?.mode;
     if (mode === undefined || mode === 'gone' || mode === 'chute') return true;
   }
   return false;
@@ -203,10 +216,20 @@ export function listModel(src: ControlsSource): ListModel {
       id: src.held.id,
       what: src.held.what,
       label: fill(LIST.holding, { thing }),
-      dests: numbered(src.destinations.map((d) => ({ id: d, label: plainName(w, d) }))),
+      dests: numbered(src.destinations.filter((d) => placeFor(w, d, src.held!.id)).map((d) => ({ id: d, label: plainName(w, d) }))),
     };
   }
   return { stations, hold, busy };
+}
+
+/**
+ * (P4 T2) Is `dest` a place for `held`? Every mouth is, but a tool's place on the wall (a mouth of the wall's), which is
+ * only for that tool: the others' places would read as eight times "Tool wall" for a crate.
+ */
+function placeFor(w: WorldView, dest: Id, held: Id): boolean {
+  const m = (w.scene.mouths ?? []).find((x) => x.id === dest);
+  if (!m || m.machine !== TOOLWALL.unit) return true;
+  return dest === pegId(held.replace(/^tool-/, ''));
 }
 
 /** Same-named entries told apart by a number, in order ("Reserved jack 1", "Reserved jack 2"). */

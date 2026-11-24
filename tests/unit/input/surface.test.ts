@@ -70,7 +70,8 @@ describe('surface: roles from affordances', () => {
 
   it('destinations: mouths for a part, every jack (capped too) for the plug', () => {
     const s = surface();
-    expect(s.destinations!('part')).toEqual(['belt', 'dock', 'platen']);
+    // (P4 T2: and each tool's place on the wall; the controls list offers a tool only its own: tests/unit/ui/controls-model.test.ts)
+    expect(s.destinations!('part')).toEqual(['belt', 'dock', 'platen', ...['laravel', 'vue', 'php', 'python', 'rust', 'sql', 'flutter', 'claude-code'].map((k) => `peg-${k}`)]);
     expect(s.destinations!('plug')).toEqual(bench.cord.jacks.map((j) => j.id));
     expect(s.where!('jack-lamp')).toEqual(bench.cord.jacks.find((j) => j.id === 'jack-lamp')!.at);
   });

@@ -26,7 +26,9 @@ import { PICTO, type PictoName } from '../../labels/draw.ts';
 import { paintProjectCard, projectCard, projectCardRegion, projectCardSize, projectPlateSize, type CapBand } from '../../kit/pieces/crate/card.ts';
 import { HIDDEN } from '../../kit/pieces/crate/paint.ts';
 import { BENCH_PROJECTS, CARD_PLATE } from '../../../../content/bench-projects.ts';
-import { CRATES_TUNING, LEDGER } from '../../../sim/index.ts';
+import { CRATES_TUNING, LEDGER, PAINT, PRESS, TOOLWALL } from '../../../sim/index.ts';
+import { DIAL_STYLE } from '../../kit/pieces/paint-dial/index.ts';
+import { toolBodyPiece } from '../../stations/tools.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
 export const LID_FEEL = {
@@ -129,6 +131,9 @@ export const station: BenchStation = {
     const crate = k.entry('crate');
     const block = k.entry('test-block');
     const ledgerBoard = k.entry('ledger-board');
+    const paintDialEntry = k.entry('paint-dial');
+    const reportPress = k.entry('report-press');
+    const reportEnvelope = k.entry('report-envelope');
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     const things = new Set((k.scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [c.holds] : [])));
     const both = legendBoth();
@@ -151,6 +156,12 @@ export const station: BenchStation = {
         known: k.scene.parts,
         piece: (p, half, extras) => {
           if (p.id === LEDGER.board && ledgerBoard) return buildEntry(ledgerBoard, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D1: the ledger board
+          if (p.id === PAINT.dial && paintDialEntry) return buildEntry(paintDialEntry, null, { seed: hashSeed(p.id), style: DIAL_STYLE }, ctx.labels); // P4 D2b: the paint dial
+          if (p.id === PRESS.body && reportPress) return buildEntry(reportPress, null, { seed: hashSeed(p.id) }, ctx.labels); // P4 D3: the report press
+          if (p.id === PRESS.envelope && reportEnvelope) return buildEntry(reportEnvelope, null, { seed: hashSeed(p.id) }, ctx.labels); // and its envelope
+          // P4 T2: a tool off the wall; drawn by the tool wall's view (view/stations/tools.ts), this is its pick target's shape
+          const tl = p.kind === 'tool' ? k.entry(p.id) : undefined;
+          if (tl) return toolBodyPiece(buildEntry(tl, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels));
           if (things.has(p.id) && block) {
             // a crate's thing: the stand-in is the kit's test block, at the thing's size (its width across)
             return buildEntry(block, null, { seed: hashSeed(p.id), detail: 'low' }, ctx.labels);
@@ -168,6 +179,8 @@ export const station: BenchStation = {
           }, ctx.labels);
         },
         decorate: projectCrates(projects, things),
+        // P4 T2: a tool hanging on the wall casts no contact shadow on the bench below it
+        blob: (p, w) => !(p.kind === 'tool' && (w.machine(TOOLWALL.unit) as { tools?: readonly { id: string; hung: boolean }[] } | undefined)?.tools?.some((t) => t.id === p.id && t.hung)),
       })(ctx);
     };
   },
@@ -189,7 +202,13 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
     let world: WorldView | null = null;
     return {
       make(part: Part, obj: Object3D, group: Group, half: Vec3) {
-        if (things.has(part.id) && part.id !== LEDGER.board) {
+        if (things.has(part.id)) {
+          // (round four) what a look at its crate must show of it: the thing itself, by its drawn bounds (never pressed;
+          // view/bench/stations/see-through.ts asks for `${look}.thing`)
+          const of = [...projects.values()].find((x) => x.holds === part.id);
+          if (of?.card !== undefined) ctx.pickable(`${of.card}.thing`, obj, { pad: 0, active: () => false });
+        }
+        if (things.has(part.id) && part.id !== LEDGER.board && part.id !== PAINT.dial && part.id !== PRESS.body) {
           // the stand-in thing: the test block is a unit across; scaled to the thing's body
           const s = (half[0] * 2) / 1.16;
           obj.scale.setScalar(s);
@@ -219,7 +238,8 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         const trayZ = half[2] * CRATES_TUNING.trayForward; // (where the world sets a thing down: sim/machines/crates.ts trayPose)
         const cardZ = -m.d / 2 + 0.035;
         const holds = pc.holds !== undefined;
-        const lift = holds ? Math.max(0, trayY + 0.012 + THING.height - (trayZ - THING.depth / 2 - cardZ) * TAN_PITCH + 0.02) : 0;
+        const allows = pc.thing ?? THING; // (P4 D3 round three) what this tray allows its thing
+        const lift = holds ? Math.max(0, trayY + 0.012 + allows.height - (trayZ - allows.depth / 2 - cardZ) * TAN_PITCH + 0.02) : 0;
         const piece = projectCard({ size, seed: hashSeed(part.id), ...(face ? { face } : {}), plate: { key: plate, ...plateSize, cap: PLATE_CAP }, trayY, trayZ, lift });
         const cardRoot = ctx.realize(piece);
         cardRoot.position.set(0, rim, 0);
@@ -256,7 +276,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           const cs = projectCardSize(size);
           // (round three) and a thing on the tray, whole: as wide as the mouth, as deep as the tray allows
           const hw2 = Math.max(cs.w / 2, holds ? m.w / 2 : 0) + 0.02;
-          const front = holds ? Math.max(m.d * 0.36, trayZ + THING.depth / 2) : m.d * 0.36;
+          const front = holds ? Math.max(m.d * 0.36, trayZ + allows.depth / 2) : m.d * 0.36;
           ctx.pickable(pc.card, lookAt, { box: new Box3(new Vector3(-hw2, rim - 0.04, -m.d / 2), new Vector3(hw2, rim + lift + 0.03 + P.lift + cs.h, front)), pad: 0, active: () => false });
         }
         // the latch's pick target (a bone has no meshes: a box of its own): the front of the lid, from above, where a hand
@@ -289,12 +309,18 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         plateTarget.position.set(0, P.h / 2 + 0.002, 0.006);
         const st = lids.get(part.id)!;
         ctx.pickable(pc.plate, plateTarget, { box: new Box3(new Vector3(-P.w / 2, -P.h / 2, -0.006), new Vector3(P.w / 2, P.h / 2, 0.006)), pad: 0.002, active: () => group.visible && st.still && st.rise > 0.9 });
+        // (the lead, after round three) the plate stands in front of the open lid, and at the camera's pitch the ray to it
+        // passes through the crate's box first. The shell then asks whether that ray misses the crate as drawn, and it
+        // does not: it goes on into a plank of the lid behind the plate. So about a third of the presses on the word
+        // took hold of the crate instead (the lid clapped shut). Wherever a ray passes through the plate, it is the plate's.
+        const underPlate = [pc.crate] as const;
+        ctx.pickOver?.(pc.plate, () => underPlate);
         // (round three) where the type is, for measuring it on screen (never pressed): the capitals of the card's title and
         // of its line, and of the plate's word, each a flat box on the card
         if (pc.card !== undefined) {
           const cs = projectCardSize(size);
           const onCard = (b: CapBand): Box3 => new Box3(new Vector3(-cs.w / 2 + b.x0 * cs.w, P.lift + cs.h * (1 - b.y1), 0), new Vector3(-cs.w / 2 + b.x1 * cs.w, P.lift + cs.h * (1 - b.y0), 0.004));
-          const bands: [string, Box3][] = [[`${pc.card}.face`, new Box3(new Vector3(-cs.w / 2, P.lift, 0), new Vector3(cs.w / 2, P.lift + cs.h, 0.004))], [`${pc.card}.plate-caps`, new Box3(new Vector3(-P.face.w * 0.4, P.h / 2 + 0.002 - P.cap / 2, 0), new Vector3(P.face.w * 0.4, P.h / 2 + 0.002 + P.cap / 2, 0.004))]];
+          const bands: [string, Box3][] = [[`${pc.card}.plate`, new Box3(new Vector3(-P.w / 2, 0.002, 0), new Vector3(P.w / 2, P.h + 0.002, 0.006))], [`${pc.card}.face`, new Box3(new Vector3(-cs.w / 2, P.lift, 0), new Vector3(cs.w / 2, P.lift + cs.h, 0.004))], [`${pc.card}.plate-caps`, new Box3(new Vector3(-P.face.w * 0.4, P.h / 2 + 0.002 - P.cap / 2, 0), new Vector3(P.face.w * 0.4, P.h / 2 + 0.002 + P.cap / 2, 0.004))]];
           if (typed) bands.push([`${pc.card}.title-caps`, onCard(typed.bands.title)], [`${pc.card}.line-caps`, onCard(typed.bands.line)]);
           for (const [id, box] of bands) {
             const o = new Object3D();

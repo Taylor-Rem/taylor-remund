@@ -19,7 +19,7 @@
 import { Color } from 'three';
 import type { MaterialClass } from '../kit/types.ts';
 import { linear, type Token } from '../palette.ts';
-import { SCHEME_GLSL } from './scheme.ts';
+import { SCHEME_CHIP_DECL, SCHEME_CHIP_GLSL, SCHEME_GLSL } from './scheme.ts';
 
 export interface Param {
   value: number;
@@ -160,6 +160,7 @@ float steelChipField(vec3 q, float base) {
 }
 `,
     glsl: /* glsl */ `
+${SCHEME_CHIP_DECL}
 ${SCHEME_GLSL}
 float fin = pFinish;
 vec4 T = pNoise4(pP * u_toneScale);            // r tone, g tone2, b fleck gate, a dust
@@ -223,6 +224,7 @@ float rustM = smoothstep(0.55, 0.9, F.b * 0.8 + pCav * 0.3 + (1.0 - pWear) * 0.2
 bare = mix(bare, c_rust * (0.6 + 0.8 * D.b), rustM);
 float edgeIn = chip * (1.0 - smoothstep(u_chipThreshold, u_chipThreshold + u_rustEdgeWidth, field));
 bare = mix(bare, c_rustEdge * (0.7 + 0.6 * F.g), edgeIn * u_rustEdge);
+${SCHEME_CHIP_GLSL}
 vec3 edgeCol = mix(paint * u_rimLighten, c_primer, 0.25);
 paint = mix(paint, edgeCol, rim * 0.7);
 

@@ -190,6 +190,29 @@ export class Announcer {
         case 'ledger.refused':
           say('ledgerNothing');
           break;
+        // (P4 D2b) the paint dial turned to another scheme by a hand (the lever's and a reset's are said as theirs)
+        case 'paint.turned':
+          say('paintTurned');
+          break;
+        // (P4 D3) the report press: what it printed, and whether the envelope went; the envelope home again
+        case 'press.printed':
+          if (e.marks === 0) say('pressPrintedNone');
+          else if (e.marks === 1) say('pressPrintedOne');
+          else say('pressPrinted', { count: e.marks });
+          if (!e.envelope) say('pressStillOut');
+          break;
+        case 'press.home':
+          say('pressHome');
+          break;
+        case 'press.refused':
+          say('pressRefused');
+          break;
+        // (P4 T2) a tool let go at its own place on the wall is back on its peg (it never rests anywhere: said here)
+        case 'toolwall.hung':
+          if (e.how !== 'hand') break;
+          this.pending.delete(e.tool);
+          say('hung', { thing: name(e.tool) });
+          break;
         case 'reset':
           this.pending.clear();
           say('reset');

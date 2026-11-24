@@ -56,6 +56,17 @@ export { PITCH_AT, PITCH_BODY } from './scenes/bench.ts';
 export { TOKENS_FIELD } from './machines/ledger.ts';
 export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
 export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';
+// P4 D2b: the paint dial (its scene ids, its field and its schemes, for the view)
+export { PAINT } from './scenes/bench.ts';
+export { SCHEME_FIELD, PAINT_TUNING } from './machines/paint-dial.ts';
+// P4 D3: the report press (its scene ids, its fields, its sequence, for the view)
+export { PRESS } from './scenes/bench.ts';
+export { REPORT_FIELD, DRAWER_FIELD, SEAL_FIELD } from './machines/press.ts';
+export { REPORT_MAX, PRESS_SHOW, beatAt } from './machines/shared/report-press.ts';
+// P4 T2: the tool wall (its unit, its tools' table, each tool's place and look ids), its tuning
+export { TOOLWALL, toolId, pegId, toolLook } from './scenes/bench.ts';
+export { TOOLWALL_TUNING } from './machines/toolwall.ts';
+export type { Report, PressBeat, PressBeatKind, PressScript } from './machines/shared/report-press.ts';
 
 /** Load Rapier (its wasm arrives now, not with the page) and make the physics port. */
 export async function createRapierPhysics(): Promise<import('./physics/port.ts').PhysicsPort> {

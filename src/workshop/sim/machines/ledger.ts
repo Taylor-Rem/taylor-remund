@@ -41,6 +41,14 @@ export const TOKENS_FIELD = 'tokens';
 
 /** Tune here. */
 export const LEDGER_TUNING = {
+  /**
+   * A second press on the same control this soon after the first is held a moment (`doubleSteps`) before it is done:
+   * if the visitor's double-tap asks for the board (`select`) meanwhile, it was half of that, and only the look happens.
+   */
+  doubleSeconds: 0.36,
+  doubleSteps: 3,
+  /** Ask for the camera as a deal or a repair begins (the show is always seen); false: only on `select`. */
+  lookOnShow: true,
   /** The first time the board comes out of its crate it deals itself (false: it waits for the crank). */
   autoDeal: true,
   /** Where the rubber payment sits in a fresh board's deal (the first deal of a visit: in month one, so the repair is seen crossing from one row to the next). */
@@ -57,6 +65,12 @@ export interface LedgerSpec {
   readonly crate: Id;
   readonly crank: { readonly id: Id; readonly name: string };
   readonly plunger: { readonly id: Id; readonly name: string };
+  /**
+   * What the camera is asked to look at (`look`, crates.ts "Asking for the camera"): on its crate's tray, the crate's
+   * card (what the crate itself asks for, so the card stays in the picture); out on the bench, the board's own box (a
+   * pick target the view registers that is never pressed).
+   */
+  readonly look: { readonly card: Id; readonly board: Id };
 }
 
 export interface LedgerUnit extends MachineUnit {
@@ -99,6 +113,7 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
       station: spec.station,
       name: h.name,
       affordances: ['press'],
+      on: spec.board,
       tell: () => ctx.emit({ type: 'tell', id: h.id }),
       misfire: (level) => {
         // one beat of its travel, without the verb: nothing is dealt or repaired
@@ -119,6 +134,33 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
   function begin(kind: LedgerShow['kind'], before: Tokens, after: Tokens): void {
     const script = kind === 'deal' ? dealScript(before, after) : kind === 'repair' ? repairScript(before, after) : rewindScript(before, after);
     show = { kind, start: ctx.clock.step, before, after, script, said: 0 };
+    if (kind !== 'rewind' && T.lookOnShow) look();
+  }
+
+  /** On its open crate's tray (the crate's thing, shown there)? */
+  const onTray = (): boolean => {
+    const l = ctx.part(spec.board)?.location;
+    return !!l && l.at === 'in' && l.mouth === spec.crate && ctx.mode(spec.board) === 'machine';
+  };
+  /** Ask the camera to look at the board (crates.ts "Asking for the camera"): never while it is in a hand, the chute, shipped or stowed. */
+  function look(): boolean {
+    if (!reachable()) return false;
+    ctx.emit({ type: 'look', target: onTray() ? spec.look.card : spec.look.board });
+    return true;
+  }
+
+  /** The last press on each control (its step), and a second press held a moment in case it is half of a double-tap. */
+  const lastPress = new Map<Id, number>();
+  let held: { kind: Kind; id: Id; g: ReturnType<typeof gesture>; step: number } | null = null;
+  function pressOrHold(kind: Kind, id: Id, g: ReturnType<typeof gesture>): boolean {
+    if (ctx.bracketed || !reachable()) return false;
+    const last = lastPress.get(id);
+    lastPress.set(id, ctx.clock.step);
+    if (last !== undefined && ctx.clock.step - last <= steps(T.doubleSeconds)) {
+      held = { kind, id, g, step: ctx.clock.step };
+      return true;
+    }
+    return press(kind, id, g);
   }
 
   /** The deal's value: a new month, its rubber payment somewhere other than last time. */
@@ -205,14 +247,28 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
     },
 
     intent(intent: Intent): boolean {
+      if (intent.type === 'select') {
+        // a double-click or double-tap on the board or a control: it asks to be looked at; the double-tap's second
+        // press (held a moment, above) was half of it and is dropped
+        if (intent.id !== spec.board && intent.id !== spec.crank.id && intent.id !== spec.plunger.id) return false;
+        if (ctx.bracketed) return false;
+        held = null;
+        return look();
+      }
       if (intent.type !== 'press') return false;
-      if (intent.id === spec.crank.id) return press('deal', spec.crank.id, crankGesture);
-      if (intent.id === spec.plunger.id) return press('repair', spec.plunger.id, plungerGesture);
+      if (intent.id === spec.crank.id) return pressOrHold('deal', spec.crank.id, crankGesture);
+      if (intent.id === spec.plunger.id) return pressOrHold('repair', spec.plunger.id, plungerGesture);
       return false;
     },
 
     pre() {
       if (ctx.bracketed) return;
+      // a second press no double-tap claimed: done now (a moment late: three steps)
+      if (held && ctx.clock.step - held.step >= T.doubleSteps) {
+        const h = held;
+        held = null;
+        press(h.kind, h.id, h.g);
+      }
       if (show && !reachable()) {
         // out of reach or out of sight: drawn as its state says, at once; a press waiting is done now
         show = null;
@@ -251,6 +307,8 @@ export function createLedger(ctx: SimContext, spec: LedgerSpec): LedgerUnit {
     },
 
     reset() {
+      held = null;
+      lastPress.clear();
       show = null;
       waiting = null;
       refusedAt = -1;

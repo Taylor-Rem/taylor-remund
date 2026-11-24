@@ -1531,6 +1531,8 @@ export function createFetchView(opts: FetchViewOptions = {}): StationViewFactory
     root.add(body);
     const piece = fetchPorter({ seed, detail: ctx.tier === 'low' ? 'low' : 'high', nameTape: fetchNameTape(ctx.labels) });
     const obj = ctx.realize(piece);
+    // (P4 D2b) the crew's colours are their own, whatever paint scheme the workshop wears
+    ctx.materials.keepColours?.(obj);
     body.add(obj);
     const nodes = new Map<string, Object3D>();
     obj.traverse((o) => {

@@ -12,6 +12,7 @@
  * everywhere. Tested in Node on the real bench (tests/unit/ui/panels-log.test.ts).
  */
 import type { Id, TransactionView, Value, WorldView } from '../../sim/index.ts';
+import { PAINT_TUNING, PRESS, REPORT_FIELD, SEAL_FIELD } from '../../sim/index.ts';
 import textsJson from '../../../content/texts.json';
 import { plainName } from '../controls/model.ts';
 import { fill, paintName } from '../controls/words.ts';
@@ -22,6 +23,9 @@ export interface LogWords {
   moved: string;
   changed: string;
   byText: string;
+  /** (P4 D3) A pull of the report press's lever, as one line; and with the envelope sent along the belt. */
+  pulled?: string;
+  pulledSent?: string;
   fields: Readonly<Record<string, string>>;
   values: Readonly<Record<string, string>>;
   places: Readonly<Record<string, string>>;
@@ -100,6 +104,14 @@ export function entryLine(w: WorldView, e: { target: Id; field: string; before: 
     case 'speed':
     case 'level':
       return fieldOf(e.field, String(e.before), String(e.after));
+    case 'scheme': {
+      // (P4 D2b) the paint dial: a scheme by its place on the dial (the schemes have working letters only, never a name)
+      const at = (v: Value): string => {
+        const i = PAINT_TUNING.schemes.indexOf(String(v));
+        return i < 0 ? String(v) : String(i + 1);
+      };
+      return fieldOf('scheme', at(e.before), at(e.after));
+    }
     case 'running':
       return stateOf(e.before ? (V['running'] ?? '') : (V['stopped'] ?? ''), e.after ? (V['running'] ?? '') : (V['stopped'] ?? ''));
     case 'direction':
@@ -121,7 +133,16 @@ export function historyLines(w: WorldView, stack: readonly TransactionView[], wo
   for (let i = stack.length - 1; i >= 0 && out.length < max; i--) {
     const t = stack[i]!;
     const seen = new Set<string>();
-    const entries = [...t.entries].sort((a, b) => b.seq - a.seq);
+    let entries = [...t.entries].sort((a, b) => b.seq - a.seq);
+    // (P4 D3) a pull of the report press's lever is one line: what it printed, its stored copy and the envelope's
+    // going are one thing the lever takes back together, not four field changes
+    const pull = words.pulled !== undefined && entries.find((e) => e.target === PRESS.body && e.field === REPORT_FIELD);
+    if (pull && out.length < max) {
+      const sent = entries.some((e) => e.target === PRESS.envelope && e.field === SEAL_FIELD);
+      const thing = thingName(w, PRESS.body);
+      out.push({ key: `${t.id}\u0000${PRESS.body}\u0000pull`, text: fill(sent ? (words.pulledSent ?? words.pulled!) : words.pulled!, { thing }), txn: t.id, next: i === stack.length - 1 });
+      entries = entries.filter((e) => e.target !== PRESS.body && e.target !== PRESS.envelope);
+    }
     for (const e of entries) {
       if (out.length >= max) break;
       let line = entryLine(w, e, words);

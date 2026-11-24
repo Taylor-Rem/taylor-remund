@@ -295,8 +295,46 @@ export class Score {
             return;
         }
       }
+      // P4 D3: the report press's beats, each its own sound from the existing notes: the thunk of the lever coming
+      // down, four ratchet clicks as the printed sheet comes up, the paper slip of the gridded sheet flipping over and
+      // of each fold, the whoosh and snap of the arm's flick (a dry puff for the shrug of an empty bed), the drawer's
+      // slide, the copy's slip into it and the latch of it shutting. The bell is the dock's, later, when the envelope ships.
+      case 'press.beat': {
+        const at = this.posOf(w, e.body);
+        switch (e.beat) {
+          case 'thunk':
+            return this.play('undo.thunk', now, { gain: 0.75 }, at);
+          case 'ratchet':
+            return this.play('revert.ratchet', now, { gain: 0.45, rate: 1.05 + 0.04 * e.n }, at);
+          case 'flip':
+            return this.play('card.slip', now, { gain: 0.6 }, at);
+          case 'fold':
+            return this.play('card.slip', now, { gain: 0.32, rate: 1.15 + 0.08 * e.n }, at);
+          case 'wind':
+            return this.play('revert.ratchet', now, { gain: 0.3, rate: 0.7 }, at);
+          case 'flick':
+            this.play('throw.whoosh', now, { gain: 0.45 }, at);
+            return this.play('cover.snap', now, { gain: 0.35 }, at);
+          case 'shrug':
+            return this.play('striker.air', now, { gain: 0.45 }, at);
+          case 'drawer':
+            return this.play('handle.dial', now, { gain: 0.4, rate: 0.85 }, at);
+          case 'copy':
+            return this.play('card.slip', now, { gain: 0.25, rate: 0.9 }, at);
+          case 'click':
+            return this.play('undo.latch', now, { gain: 0.55 }, at);
+          default:
+            return;
+        }
+      }
+      case 'press.refused':
+        // the lever gives and springs back: a dry puff, as the ledger's refusal
+        return this.play('striker.air', now, { gain: 0.5, rate: 1.2 }, this.posOf(w, e.body));
       case 'ledger.refused':
         return this.play('striker.air', now, { gain: 0.6 }, this.posOf(w, e.board));
+      // P4 D2b: the paint dial's wipe has crossed the room: the bell (§ B1: verb done). Its detents click as any dial's.
+      case 'paint.wiped':
+        return this.play('dock.bell', now, { gain: 0.5 }, this.posOf(w, e.dial));
       case 'cover':
         // fitted by Revert: the cover snaps shut (a visitor's lift and shut is the `handle.worked` above)
         if (e.state === 'shut' && this.lastPlayed.get('cover.snap') !== now) this.play('cover.snap', now, { gain: 0.8 }, this.posOf(w, w.button().id));

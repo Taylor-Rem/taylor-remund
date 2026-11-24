@@ -46,6 +46,8 @@ export interface PartSpec {
   /**
    * P4 S5: a thing a project crate holds (sim/machines/crates.ts): it starts in that crate (its location `in` the crate
    * whose id this is: out of the world while the crate is shut, on its tray while it is open). Never a crate.
+   * (P4 D3) Or a part another loose part holds (the report press's envelope, `in` the press): out of the world until
+   * the unit that owns it brings it out (sim/machines/press.ts).
    */
   readonly stowedIn?: Id;
 }
@@ -63,6 +65,11 @@ export interface ProjectCrate {
   /** P4 S5 round two: the pick target the view gives its card (and tray): what an opening asks the page to look at. */
   readonly card?: Id;
   readonly holds?: Id;
+  /**
+   * P4 D3 round three: what this crate's tray allows its thing (world units over the tray's floor, and front to back),
+   * where it is not the default (view/bench/stations/parts.ts `THING`): the card stands clear of a thing this tall.
+   */
+  readonly thing?: { readonly height: number; readonly depth: number };
 }
 
 export interface StaticSpec {
@@ -285,4 +292,9 @@ export interface SceneDesc {
   readonly units?: readonly UnitFactory[];
   /** P4 S5: the crates that are projects (with a latch, a card and room for a thing); read by the crates unit, the view and the controls list. */
   readonly projects?: readonly ProjectCrate[];
+  /**
+   * P4 D3: durable fields a visit remembers (sim/saved.ts `kept`), each a field a unit defines: the report press's
+   * holders and its drawer. Remembered only where they differ from how the visit began; "Reset the workshop" forgets them.
+   */
+  readonly keep?: readonly { readonly target: Id; readonly field: string }[];
 }

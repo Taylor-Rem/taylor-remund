@@ -26,11 +26,12 @@
  *   maker            the maker's plate (how the site was built, the bench's own workings live)
  *   contact          the mailbox
  *   resume           the clipboard: not a panel; the page goes to /resume/
+ *   skills           (P4 T2) the tool wall's pinned sheet: the full skills list as /resume/ #skills publishes it
  *
  * The development flag: `/?panel=<id>` opens that panel once the bench is usable.
  */
 
-export type PanelId = `project:${string}` | 'patchlamp' | 'maker' | 'contact' | 'resume';
+export type PanelId = `project:${string}` | 'patchlamp' | 'maker' | 'contact' | 'resume' | 'skills';
 
 /** The DOM event's name. */
 export const PANEL_EVENT = 'workshop:panel';
@@ -40,7 +41,7 @@ export const PLATE_PRESSED = 'plate.pressed';
 /** A panel id as the panels know it, or null for anything else. `project:p-<slug>` (a résumé anchor) is read as `project:<slug>`. */
 export function panelId(v: unknown): PanelId | null {
   if (typeof v !== 'string') return null;
-  if (v === 'patchlamp' || v === 'maker' || v === 'contact' || v === 'resume') return v;
+  if (v === 'patchlamp' || v === 'maker' || v === 'contact' || v === 'resume' || v === 'skills') return v;
   const m = /^project:(?:p-)?([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(v);
   return m ? `project:${m[1]!}` : null;
 }

@@ -46,7 +46,7 @@ import { vignette } from './scenes/vignette.ts';
 import { createTells } from './tells.ts';
 import type { TellsUnit } from './tells.ts';
 import { SAVED_VERSION, parseSaved, savedText } from './saved.ts';
-import type { WorldSaved } from './saved.ts';
+import type { KeptValue, WorldSaved } from './saved.ts';
 
 /** How loose parts feel. Tune here (§ E0: "polish time goes to feel"). */
 /** How much of the light crates' throw a part of this mass gets (1 for a small or middle crate, less for a heavy part). */
@@ -1598,8 +1598,17 @@ export function createWorld(opts: WorldOptions): World {
     const b = button.saved();
     // (P4 S5) the project crates the visitor left open: only when there are any (a snapshot from before has none)
     const open = (scene.projects ?? []).filter((c) => store.has(c.crate, 'open') && store.get(c.crate, 'open') === true).map((c) => c.crate);
-    return { v: SAVED_VERSION, button: { rung: b.rung, reached: b.reached, presses: b.presses, cover: b.cover, deck: { left: [...b.deck.left], last: b.deck.last } }, used: [...button.used().list()], ...(open.length > 0 ? { open } : {}) };
+    // (P4 D3) the fields the scene keeps, where they differ from how the visit began
+    const kept: Record<string, KeptValue> = {};
+    for (const k of scene.keep ?? []) {
+      if (!store.has(k.target, k.field)) continue;
+      const v = store.get(k.target, k.field) as KeptValue;
+      if (JSON.stringify(v) !== keptStart.get(`${k.target}.${k.field}`)) kept[`${k.target}.${k.field}`] = Array.isArray(v) ? [...(v as string[])] : v;
+    }
+    return { v: SAVED_VERSION, button: { rung: b.rung, reached: b.reached, presses: b.presses, cover: b.cover, deck: { left: [...b.deck.left], last: b.deck.last } }, used: [...button.used().list()], ...(open.length > 0 ? { open } : {}), ...(Object.keys(kept).length > 0 ? { kept } : {}) };
   };
+  /** (P4 D3) How each kept field began (as text): a field back at its start is not remembered. */
+  const keptStart = new Map<string, string>((scene.keep ?? []).filter((k) => store.has(k.target, k.field)).map((k) => [`${k.target}.${k.field}`, JSON.stringify(store.get(k.target, k.field))]));
   let savedKey = savedText(savedNow());
 
   // ── P3: reduced motion in the world (§ B10) ──
@@ -1623,6 +1632,15 @@ export function createWorld(opts: WorldOptions): World {
     const top = l.pose.p[1] + l.half[1];
     const under = [...loose.values()].some((o) => o.id !== id && o.mode !== 'gone' && o.mode !== 'chute' && Math.abs(o.pose.p[1] - o.half[1] - top) < 0.12 && Math.abs(o.pose.p[0] - l.pose.p[0]) < l.half[0] && Math.abs(o.pose.p[2] - l.pose.p[2]) < l.half[2]);
     if (!under) store.write(id, 'open', true, 'settled');
+  }
+  // (P4 D3) the fields the scene keeps, as the last visit left them (settled: not the lever's); only a field this scene
+  // keeps, and only a value that field accepts
+  for (const [key, v] of Object.entries(restored?.kept ?? {})) {
+    const k = (scene.keep ?? []).find((x) => `${x.target}.${x.field}` === key);
+    if (!k || !store.has(k.target, k.field)) continue;
+    const ok = validators.get(vkey(k.target, k.field));
+    if (ok && !ok(v as Value)) continue;
+    store.write(k.target, k.field, v as Value, 'settled');
   }
 
   /** "Reset the workshop": cancel every pending job, empty the stack, every durable field back to its start (writer settled). */
