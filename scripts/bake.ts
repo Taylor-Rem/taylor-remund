@@ -33,6 +33,7 @@ import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isMain, REPO_ROOT } from './lib/cli.ts';
 import { PAPER_ONLY_CONTENT } from './lib/paper-content.ts';
+import { isLateUnitFile } from './lib/late-units.ts';
 
 export const TABLE_BIN = 'src/workshop/view/kit/bake-table.bin';
 export const TABLE_JSON = 'src/workshop/view/kit/bake-table.json';
@@ -88,7 +89,8 @@ export function inputsHash(root = REPO_ROOT): string {
   }
   // (the table itself; and the content only the paper pages read, which shapes no piece)
   const skip = new Set([TABLE_BIN, TABLE_JSON, ...PAPER_ONLY_CONTENT].map((f) => join(root, f)));
-  return hashFiles(root, files.filter((f) => !skip.has(f)));
+  // (E1) nor a late unit's own files: none of his pieces is in the table (they bake live as he arrives: scripts/lib/late-units.ts)
+  return hashFiles(root, files.filter((f) => !skip.has(f) && !isLateUnitFile(relative(root, f))));
 }
 
 export function readInfo(root = REPO_ROOT): TableInfo | null {

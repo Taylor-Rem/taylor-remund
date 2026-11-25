@@ -23,7 +23,7 @@
  */
 import type { Cause, CrewView, Effect, Id, Intent, Interactable, Lens, Location, MachineView, Part, PartKind, PartMaterial, PartMotion, Pose, Restore, SimEvent, Value, Vec3, WorldView, CrewMember } from './types.ts';
 import type { PhysicsPort, PhysicsSnapshot } from './physics/port.ts';
-import type { MouthSpec, SceneDesc } from './scene.ts';
+import type { LateArrival, MouthSpec, PartSpec, SceneDesc } from './scene.ts';
 import type { BodyMode, CommitResult, CrewHandle, Holding, LostReason, MachineUnit, SimContext, Unit } from './context.ts';
 import { isMachine } from './context.ts';
 import type { Change, HistoryHooks, Recorded, TransactionView, UndoOutcome, UndoRequest } from './history.ts';
@@ -270,6 +270,13 @@ export const LOOSE_TUNING = {
 export interface World extends WorldView {
   /** The only way input reaches the world. Handled at the start of the next step, in order. */
   dispatch(intent: Intent): void;
+  /**
+   * (E1) A late unit joins: like an intent, it is taken at the start of the next step (the next one outside a Button
+   * rung), deterministically; asking twice is asking once. Its arrival is not the visitor's doing (nothing recorded).
+   */
+  join(arrival: LateArrival): void;
+  /** (E1) Has this late unit joined? */
+  has(arrival: string): boolean;
   /** Advance exactly one fixed step (1/60 s). `WorldView.step` is the counter. */
   advance(): void;
   /** Events since the last drain, in order. */
@@ -469,7 +476,9 @@ export function createWorld(opts: WorldOptions): World {
   const fixed = new Set<Id>(scene.statics.map((s) => s.id));
 
   // ── parts: durable fields, bodies, registry entries ──
-  for (const spec of scene.parts) {
+  for (const spec of scene.parts) definePart(spec);
+  /** One part: its durable fields (but its location, defined once it has settled), its body, its registry entry. */
+  function definePart(spec: PartSpec): void {
     const half = spec.half ?? defaultHalfExtents(spec.kind, spec.size);
     const mass = spec.mass ?? massOf(half, spec.material);
     const m = MATERIAL[spec.material];
@@ -499,7 +508,7 @@ export function createWorld(opts: WorldOptions): World {
     feelOf.set(spec.id, feel);
     loose.set(spec.id, { id: spec.id, half, mass, material: spec.material, crew: spec.crewBody === true, mode: out ? 'gone' : 'free', pose: pose0, prev: pose0, awake: false, unsettled: false, calm: 0, chargeTo: null, crewBy: null, holder: null, exit: null, returnCause: null, anchor: null, chuteAt: 0, grip: [0, 0, 0], grabYaw: 0, grabStep: 0, target: pose0.p, contacts: new Map(), boost: null });
     // (a crew member's own body is not something a hand takes: the hand takes the member)
-    if (spec.crewBody) continue;
+    if (spec.crewBody) return;
     registry.add({
       id: spec.id,
       station: spec.station,
@@ -529,7 +538,8 @@ export function createWorld(opts: WorldOptions): World {
     l.target = p.p;
     store.define(l.id, 'location', { at: 'rest', pose: p });
   }
-  const partIds: readonly Id[] = [...loose.keys()];
+  /** Every part's id, in order (a late unit's join adds its own at the end: `join`). */
+  let partIds: readonly Id[] = [...loose.keys()];
   const mouths: readonly MouthSpec[] = scene.mouths ?? [];
   const mouthById = new Map(mouths.map((m) => [m.id, m]));
 
@@ -844,7 +854,7 @@ export function createWorld(opts: WorldOptions): World {
     if (!l) return;
     const st = physics.state(l.id);
     const level = qyaw(yawOf(st.pose.q));
-    const centreTarget = sub(clampTarget(l, l.target), rotate(level, l.grip));
+    const centreTarget = sub(clampTarget(l, crewHandles.get(l.id)?.heldAt?.(l.target) ?? l.target), rotate(level, l.grip));
     const gap = sub(centreTarget, st.pose.p);
     const light = Math.min(1, T.carryMassRef / Math.max(l.mass, 1e-3));
     // against something (it met it last step) the hand pushes, it does not ram: no faster than `carryPush` and
@@ -1522,7 +1532,7 @@ export function createWorld(opts: WorldOptions): World {
     }
   }
   /** S6: the one roster of the crew, in step order: every unit that says it is crew (`Unit.crewView`). */
-  const crewUnits = units.filter((u) => typeof u.crewView === 'function');
+  let crewUnits = units.filter((u) => typeof u.crewView === 'function');
   function crewView(id: Id): CrewView | undefined {
     for (const u of crewUnits) {
       const v = u.crewView?.();
@@ -1554,7 +1564,7 @@ export function createWorld(opts: WorldOptions): World {
   const tells: TellsUnit = createTells(ctx, {
     stations: tellStations,
     used: button.used(),
-    home: scene.button.at,
+    home: scene.button.tellsFrom ?? scene.button.at,
     busy: () => held !== null || bracket !== null || button.view().phase !== 'idle' || lineBusy(),
   });
   units.push(tells);
@@ -1620,15 +1630,61 @@ export function createWorld(opts: WorldOptions): World {
     for (const u of units) u.still?.(on);
     emit({ type: 'still', on });
   }
-  /** How the visit began: what "Reset the workshop" goes back to. */
-  const initial = store.snapshot();
+  /** How the visit began: what "Reset the workshop" goes back to (a late unit's fields as it joined: `join`). */
+  let initial = store.snapshot();
+
+  // ── (E1) late units: a member of the crew who joins the running world ──
+  /** Asked for and not yet taken (a Button rung holds them back: its bracket snapshots the world as it was). */
+  let arrivals: LateArrival[] = [];
+  const joined = new Set<string>();
+  /**
+   * One late unit, now, at the start of a step: its parts defined as at creation (each out of the world: nothing
+   * settles, nothing moves), its units made with the same context and run after every unit already here and before
+   * the tells. Nothing is committed (no transaction, no writer but `settled`): the lever cannot take him back and
+   * "Reset the workshop" keeps him, as he arrived.
+   */
+  function joinNow(a: LateArrival): void {
+    if (joined.has(a.id)) return;
+    joined.add(a.id);
+    for (const spec of a.parts) {
+      if (loose.has(spec.id)) throw new Error(`world: a late unit's part "${spec.id}" is already here`);
+      if (!(spec.crewBody === true || spec.shipped === true || spec.stowedIn !== undefined)) throw new Error(`world: a late unit's part "${spec.id}" must start out of the world`);
+    }
+    for (const spec of a.parts) {
+      definePart(spec);
+      validators.set(vkey(spec.id, 'location'), PART_VALIDATORS.location);
+      store.define(spec.id, 'location', spec.stowedIn !== undefined ? { at: 'in', station: spec.station, mouth: spec.stowedIn } : { at: 'shipped' });
+    }
+    partIds = [...loose.keys()];
+    const made: Unit[] = [];
+    for (const make of a.units) {
+      const u = make(ctx);
+      if (unitById.has(u.id)) throw new Error(`world: two units are called "${u.id}"`);
+      unitById.set(u.id, u);
+      made.push(u);
+      if (isMachine(u)) {
+        registry.add(u);
+        machines.set(u.id, u);
+      }
+    }
+    // (the tells stay last: they read what every other unit did this step)
+    units.splice(units.indexOf(tells), 0, ...made);
+    crewUnits = units.filter((u) => typeof u.crewView === 'function');
+    if (still) for (const u of made) u.still?.(true);
+    initial = store.extend(initial);
+    emit({ type: 'joined', id: a.id });
+  }
   // (P4 S5) the project crates the last visit left open open again, as how this visit is (settled: not the lever's), where
   // each can be: on the bench, free, nothing on it (a crate that starts in Fetch's hands, behind the door or under
   // another stays shut). "Reset the workshop" still shuts them: it goes back to `initial`, above.
+  // (I2) With the opening stand a crate is open only in its mouth, and none starts there (a visit's crates start where
+  // the scene puts them): none opens again (else it opened and clapped shut at once, "moved", as the page came up).
+  const standMouth = scene.openingStand ? mouthById.get(scene.openingStand.mouth) ?? null : null;
   for (const id of restored?.open ?? []) {
     const c = (scene.projects ?? []).find((x) => x.crate === id);
     const l = loose.get(id);
     if (!c || !l || l.mode !== 'free' || !store.has(id, 'open')) continue;
+    if (scene.openingStand && !(standMouth && inMouth(standMouth, l.pose.p))) continue;
     const top = l.pose.p[1] + l.half[1];
     const under = [...loose.values()].some((o) => o.id !== id && o.mode !== 'gone' && o.mode !== 'chute' && Math.abs(o.pose.p[1] - o.half[1] - top) < 0.12 && Math.abs(o.pose.p[0] - l.pose.p[0]) < l.half[0] && Math.abs(o.pose.p[2] - l.pose.p[2]) < l.half[2]);
     if (!under) store.write(id, 'open', true, 'settled');
@@ -1798,11 +1854,18 @@ export function createWorld(opts: WorldOptions): World {
       if (intent.type !== 'motion') lastInput = clock.step;
     },
 
+    join(a) {
+      if (!joined.has(a.id) && !arrivals.some((x) => x.id === a.id)) arrivals.push(a);
+    },
+    has: (id) => joined.has(id),
+
     advance() {
       const from = events.length;
       clock.tick();
       const pending = queue;
       queue = [];
+      // (E1) late units join at the step's start, before its intents (never inside a Button rung: they wait for its end)
+      if (arrivals.length > 0 && !bracket) for (const a of arrivals.splice(0)) joinNow(a);
       // R2: in lenient mode each unit's part of the step is guarded (see WorldOptions.onFault); strict, as before
       const skip = new Set<Id>();
       const guard = (unit: Id, phase: StepFault['phase'], f: () => void, intent?: Intent): void => {

@@ -15,7 +15,7 @@ describe("Revert's sweep", () => {
     const t = tape(w);
     t.run(30);
     // four strays; the one nearest Revert's hatch is set down first
-    const spots: [string, Vec3][] = [['crate-3', [-6.5, 0, -1.5]], ['crate-1', [4.5, 0, -1.8]], ['crate-2', [-1.5, 0, -3.3]], ['crate-4', [0.5, 0, 3.0]]];
+    const spots: [string, Vec3][] = [['crate-3', [-3.4, 0, -1.2]] /* (L2: -6.5, -1.5 is the Button's console now) */, ['crate-1', [4.5, 0, -1.8]], ['crate-2', [-1.5, 0, -3.3]], ['crate-4', [0.5, 0, 3.0]]];
     for (const [id, at] of spots) putOn(w, t, id, at);
     const sweeps: { part: string; from: Vec3; revert: RevertView }[] = [];
     const dropped = new Set<string>();

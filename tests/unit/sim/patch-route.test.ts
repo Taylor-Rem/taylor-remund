@@ -22,7 +22,7 @@ describe("Patch's way back", () => {
   });
 
   test('a set-down point inside a body (the belt, the console) moves to the nearest clear point; a clear one stays', () => {
-    for (const p of [[-1, 4.0], [-1, 4.6], [-0.6, 0.5], [4.4, 0.4]] as Pt[]) {
+    for (const p of [[-1, 4.0], [-1, 4.6], [AT.console.c[0], AT.console.c[2]], [4.4, 0.4]] as Pt[]) {
       const c = clearPoint(p, R, BODIES, B)!;
       expect(clear(c)).toBe(true);
       expect(Math.hypot(c[0] - p[0], c[1] - p[1])).toBeLessThan(1.6);
@@ -52,8 +52,9 @@ describe("Patch's way back", () => {
     expect(w.length).toBeGreaterThan(12);
   });
 
+  // (L2: from the bench's left end, beside the Button's console in the corner; it stood at the centre, and the way started at -2.1, 0.5)
   test('behind the belt the way is on the ground, round the console', () => {
-    const w = planWay([-2.1, 0.5], FOOT, R, BODIES, B, BELT, 0)!;
+    const w = planWay([AT.console.c[0] - AT.console.half[0] - R - 0.05, AT.console.c[2]], FOOT, R, BODIES, B, BELT, 0)!;
     expect(w.cross).toBeNull();
     expect(w.points.length).toBeGreaterThan(1);
   });

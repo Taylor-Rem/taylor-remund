@@ -293,6 +293,11 @@ export interface Workshop {
   faults(): FaultCounts;
   /** Dispatch an intent as if input had (tests, the controls list). */
   dispatch(intent: Intent, t?: number): void;
+  /**
+   * (E1) More station views on the running stage (a late unit's): each made in a task of its own, hidden, its programs
+   * built and linked a task at a time, and only then drawn and updated with the rest. Resolves with the views.
+   */
+  addViews(stations: readonly BootStation[]): Promise<StationView[]>;
   dispose(): void;
 }
 
@@ -442,8 +447,42 @@ export async function bootWorkshop(canvas: HTMLCanvasElement, opts: BootOptions)
   const noIds: ReadonlySet<Id> = new Set();
   const mouthIds: ReadonlySet<Id> = new Set((scene.mouths ?? []).map((m) => m.id));
   const jackIds: ReadonlySet<Id> = new Set(scene.cord.jacks.map((j) => j.id));
+  /**
+   * (P4 S6 round two, only with the opening stand) While the camera is in on an open project crate (a look holds on its
+   * card), only that crate, its plate, its thing and its thing's controls take a press: the rest of the bench is no pick
+   * target for that while (a press on it falls through to what is behind, or to the bare bench, which gives the view back).
+   */
+  let lockKey = '';
+  let lockSet: ReadonlySet<Id> | null = null;
+  const lookLock = (): ReadonlySet<Id> | null => {
+    if (!scene.openingStand || stage.camera.look === null || stage.camera.lookId === null) return null;
+    const key = `${world.step} ${stage.camera.lookId}`;
+    if (key === lockKey) return lockSet;
+    lockKey = key;
+    lockSet = lockOf(stage.camera.lookId);
+    return lockSet;
+  };
+  const lockOf = (card: Id): ReadonlySet<Id> | null => {
+    if (stage.camera.lookId === null) return null;
+    const c = (scene.projects ?? []).find((x) => x.card === card);
+    if (!c || world.setting(c.crate, 'open') !== true) return null;
+    const out = new Set<Id>([c.crate, c.plate]);
+    if (c.card !== undefined) out.add(c.card);
+    if (c.holds !== undefined) {
+      out.add(c.holds);
+      for (const it of world.interactables()) if (it.on === c.holds) out.add(it.id);
+    }
+    return out;
+  };
+  /** (P4 S6 round two) With things fixed, a press on a crate's thing (its body, not its controls) is a press on its crate. */
+  const thingToCrate: ReadonlyMap<Id, Id> = new Map(
+    scene.openingStand?.things === 'fixed' ? (scene.projects ?? []).flatMap((c) => (c.holds !== undefined ? [[c.holds, c.crate] as const] : [])) : [],
+  );
   /** What a hand can use now: a jack only matters while the plug is in the hand (else it would steal the plug's own area). */
   const usable = (id: Id): boolean => {
+    const lock = lookLock();
+    if (lock && !lock.has(id)) return false;
+    if (thingToCrate.has(id) && world.setting(thingToCrate.get(id)!, 'open') === true) return true;
     if (panelIds.has(id)) return true;
     const it = world.interactable(id);
     if (jackIds.has(id) || (it?.affordances.length ?? 0) === 0) return false;
@@ -556,8 +595,13 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   const surface = createSurface({
     world: () => world,
     ray: toRay,
+    // (I2) while the camera is in on an open crate (round two's lock), a press or tap on nothing gives the view back
+    emptyTapBacks: () => lookLock() !== null,
     pick(r, kind: PointerKind, exclude, holding = null) {
-      const chosen = pickAt(r, kind, exclude, holding);
+      const chosen0 = pickAt(r, kind, exclude, holding);
+      // (P4 S6 round two) a fixed thing's body stands for its crate
+      const toCrate = chosen0 ? thingToCrate.get(chosen0.id) : undefined;
+      const chosen = chosen0 && toCrate !== undefined ? { id: toCrate, point: chosen0.point } : chosen0;
       // a thing in the air is taken when it is in front of what was picked along the ray (a juggled crate before the
       // lamp's shade, Patch flying past the switchboard): pressed on as it passes, it is what the hand meant
       const filter = filters[holding ?? 'none'];
@@ -1117,6 +1161,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   canvas.addEventListener('webglcontextlost', onContextLost);
   // R2: what a script on the built page can read (nothing leaves the browser)
   if (typeof window !== 'undefined') (window as unknown as { __workshopFaults?: () => FaultCounts }).__workshopFaults = () => guard.faults();
+  /** (E1) Disposed: a late view still being made is let go, not added. */
+  let disposed = false;
   const workshop: Workshop = {
     world,
     simWorld: world,
@@ -1148,7 +1194,30 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     advance: (n) => loop.advance(n),
     faults: () => guard.faults(),
     dispatch,
+    async addViews(stations) {
+      const made: StationView[] = [];
+      for (const s of stations) {
+        await yieldToBrowser();
+        if (disposed) break;
+        const tv = now();
+        const view = s(ctx);
+        measure(`late view ${view.root.name || s.name || 'station'}`, tv);
+        // not drawn until its programs are linked (renderer.compile walks only what is visible: shown for the call)
+        view.root.visible = true;
+        const linking = stage.compileObject(view.root);
+        view.root.visible = false;
+        await linking;
+        made.push(view);
+      }
+      if (disposed) {
+        for (const v of made) v.dispose();
+        return [];
+      }
+      views.push(...made);
+      return made;
+    },
     dispose() {
+      disposed = true;
       removeEventListener('resize', onResize);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       frameListeners.clear();

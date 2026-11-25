@@ -8,7 +8,7 @@
 // phone (390×844):
 // 1. Capitals at least 12 px tall on screens 1440 wide and up (the rule's
 //    own width; 1280×720 is reported): the sign (TAYLOR REMUND),
-//    the DO NOT TOUCH tape, the reserved bays' labels and the station plates (the jacks' and the tools'
+//    the DO NOT TOUCH tape and the station plates (the jacks' and the tools'
 //    tapes), measured exactly as check-vignette does (each label quad
 //    through the real camera; medians per label).
 // 2. Fetch at least 80 px tall at the 1440×900 home (ART-P2 § 2), measured
@@ -28,7 +28,6 @@ import { openPage, resolveTarget, isSoftware } from './capture.ts';
 import { isMain } from './lib/cli.ts';
 import { BUDGET, MIN_CAP_PX, gated as gatedVignette } from './check-vignette.ts';
 import site from '../src/content/site.json' with { type: 'json' };
-import room from '../src/content/room.json' with { type: 'json' };
 
 /** At 1440×900 (view/bench.ts FRAME_PX, repeated: this script runs in Node without Vite). */
 const FRAME_PX = { corners: 30, under: [60, 115] as const };
@@ -37,21 +36,14 @@ export const MIN_FETCH_PX = 80;
 
 /** The sign's words on the bench: the name from the site's content (as view/bench.ts makes them). */
 const NAME_WORDS = new Set((site as unknown as { strip: { name: { text: string } } }).strip.name.text.toUpperCase().split(/\s+/));
-/** The reserved bays' label tape (flat on the bench; the room's words), as strips or whole. */
-const BAY_WORDS = new Set(Object.values((room as unknown as { bays: Record<string, { text: string }> }).bays).flatMap((b) => [b.text, ...b.text.split(' ')]));
-/**
- * The bays' tape is made at their capital height (room/bay.ts BAY_CAP, repeated: Node runs this without
- * Vite); the whole switchboard also carries a small RESERVED strip over its capped jacks, which is not a
- * bay's label and not gated. Labels are told apart by their texture key (`tape:black@0.34/|RESERVED`).
- */
-const BAY_KEY = '@0.34/';
-export function gated(register: string, text: string, key = ''): boolean {
+/** (L2, 2026-11-24: the reserved bays and their label tape are gone; the switchboard's small RESERVED strip over its capped jacks was never gated.) */
+export function gated(register: string, text: string, _key = ''): boolean {
   if (register === 'sign' && text.split(' ').every((w) => NAME_WORDS.has(w))) return true;
-  if (register === 'tape' && BAY_WORDS.has(text)) return !key || key.includes(BAY_KEY);
   return gatedVignette(register, text);
 }
 
-const CLUSTER = ['button', 'phone', 'stool'];
+// (L2: the Button's console is a find in the back left corner, not in the phone's first view; the opening stand takes its place when it is on)
+const CLUSTER = ['phone', 'stool'];
 
 interface LabelCap {
   key: string;

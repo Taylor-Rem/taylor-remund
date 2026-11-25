@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from './helpers.ts';
 import type { StubPhysics } from '../../../src/workshop/sim/physics/stub.ts';
 import type { World } from '../../../src/workshop/sim/world.ts';
-import { bench, LINE, CREW_SCALE } from '../../../src/workshop/sim/scenes/bench.ts';
+import { bench, LINE, CREW_SCALE, withoutOpeningStand } from '../../../src/workshop/sim/scenes/bench.ts';
 import { BELT_TUNING } from '../../../src/workshop/sim/machines/belt.ts';
 import { DOCK_TUNING, MARK_RETURN, MARK_SHIPPED } from '../../../src/workshop/sim/machines/dock.ts';
 import { NOTE, OCTAVE } from '../../../src/workshop/sim/machines/striker.ts';
@@ -418,11 +418,13 @@ describe('the chute', () => {
 
 describe('law 2: a machine that wants something else says so', () => {
   test('the world prints the slip it names, and the part rests where it is', () => {
+    // (I2) the bench without the opening stand: its mouths are replaced by the one fussy machine's, and the stand's unit needs its own
+    const bare = withoutOpeningStand(bench);
     const wanting = {
-      ...bench,
+      ...bare,
       mouths: [{ id: 'fussy', machine: 'fussy', station: 'line' as const, c: [0, 1, -1] as Vec3, half: [1, 1, 1] as Vec3, drop: [0, 0, -1] as Vec3 }],
       units: [
-        ...bench.units!,
+        ...bare.units!,
         () => ({ id: 'fussy', station: 'line' as const, name: 'name.belt', affordances: [], tell() {}, misfire() {}, accept: () => ({ ok: false as const, wanted: 'slip.wants-blue' }), abort() {}, view: () => ({ kind: 'chute' as const, id: 'fussy', station: 'line' as const, lamp: 'dark' as const, misfire: null, flap: Infinity, waiting: 0 }) }),
       ],
     };

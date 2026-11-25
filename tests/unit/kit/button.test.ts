@@ -58,7 +58,8 @@ describe('the Button', () => {
   it('has its moving nodes', () => {
     const n = nodes(p);
     for (const name of ['cap', 'guard', 'digit0', 'digit1', 'digit2', 'digit3']) expect(n.has(name), name).toBe(true);
-    expect(n.get('cap')!.parts.some((q) => q.material === 'steel')).toBe(true);
+    // (I2: the cap is lit from inside, the owner's choice: its enamel is the bulb class in button-red)
+    expect(n.get('cap')!.parts.some((q) => q.material === 'bulb' && q.variant === 'button')).toBe(true);
   });
 
   it('stays inside its triangle budget at both details', () => {
@@ -106,7 +107,7 @@ describe('the Button', () => {
 
   it('the cap is the only button-red, glossy enamel', () => {
     const cap = nodes(p).get('cap')!;
-    const red = cap.parts.find((q) => q.material === 'steel')!;
+    const red = cap.parts.find((q) => q.material === 'bulb')!; // (I2: lit from inside)
     const s = red.geometry.getAttribute('surf');
     for (let i = 0; i < s.count; i += 13) expect(s.getZ(i)).toBe(1);
   });

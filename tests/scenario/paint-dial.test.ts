@@ -3,8 +3,13 @@
 // gesture, one transaction. The scheme is the dial's and stays with it whatever is done to it (carried, thrown, on the
 // belt and shipped and back up the chute, painted on the platen, stowed again); out of reach a turn is a misfire.
 // Never saved: a visit left in another scheme opens in the first, its crate's lid as it was. Reset puts it back.
+// (I2) The crate opens the one way the bench has: set down on the opening stand (`openOnStand`). The knob, the lever,
+// the bell, the look, never-saved and reset run on the shipped bench (the dial stays on its tray: `things: 'fixed'`);
+// the dial's life as a loose part (carried, thrown, shipped, painted on the platen, set back) runs on LOOSE_BENCH, the
+// stand's other way (`?things=loose`), where it can leave its tray at all.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape, putOn, waitFor, onBelt, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, tape, putOn, waitFor, onBelt, openOnStand, BENCH, LOOSE_BENCH, type Tape } from './line-helpers.ts';
+import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import { plug, textAndWait, traySpot } from './patchlamp-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { PAINT } from '../../src/workshop/sim/scenes/bench.ts';
@@ -25,15 +30,17 @@ const at = (i: number): number => i / (S.length - 1);
 /** Past the double-tap window (`doubleSeconds`), and a step: the next press is done at once, not held. */
 const PRESS = steps(PAINT_TUNING.doubleSeconds) + 2;
 
-/** The bench with t-components' crate opened: the dial on its tray. */
-async function opened(seed: string): Promise<{ w: World; t: Tape }> {
-  const w = await benchWorld(seed, { scene: BENCH });
+/** The bench with t-components' crate opened on the stand: the dial on its tray. */
+async function opened(seed: string, scene: SceneDesc = BENCH): Promise<{ w: World; t: Tape }> {
+  const w = await benchWorld(seed, { scene });
   const t = tape(w);
   t.run(30);
-  press(w, `${PAINT.crate}-lid`);
+  openOnStand(w, t, PAINT.crate);
   t.run(2);
   return { w, t };
 }
+/** A clear spot on the open bench, away from the stand (where the old tests set the dial: [-0.4, 0, -1.0], beside it now). */
+const CLEAR: [number, number, number] = [-5.6, 0, 1.6];
 
 describe('the paint dial', () => {
   test('stowed in its crate in the first scheme, its knob a misfire there; on the open crate\'s tray it turns', async () => {
@@ -117,12 +124,13 @@ describe('the paint dial', () => {
     w.dispose();
   });
 
-  test('"Reset the workshop": the first scheme, the dial stowed in its shut crate', async () => {
-    const { w, t } = await opened('pd-reset');
+  test.each(['loose', 'fixed'] as const)('"Reset the workshop": the first scheme, the dial stowed in its shut crate (things %s)', async (things) => {
+    // (I2) loose: the dial out on the bench, as before; fixed: the dial on its tray on the stand (the shipped bench)
+    const { w, t } = await opened(`pd-reset-${things}`, things === 'loose' ? LOOSE_BENCH : BENCH);
     press(w, K);
     press(w, K);
     t.run(PRESS);
-    putOn(w, t, D, [-0.4, 0, -1.0]);
+    if (things === 'loose') putOn(w, t, D, CLEAR);
     t.run(HZ);
     expect(scheme(w)).not.toBe(S[0]);
     w.dispatch({ type: 'reset' });
@@ -150,14 +158,21 @@ describe('the paint dial', () => {
     const t2 = tape(w2);
     t2.run(2);
     expect(scheme(w2)).toBe(S[0]);
-    expect(w2.setting(PAINT.crate, OPEN)).toBe(true);
+    // (I2) with the stand a crate is open only on it, and every visit's crates start where the scene puts them: the
+    // crate the last visit left open starts shut (world.ts), its dial stowed; set on the stand, the dial is in the first scheme
+    expect(w2.setting(PAINT.crate, OPEN)).toBe(false);
+    expect(w2.mode(D)).toBe('gone');
+    t2.run(28);
+    openOnStand(w2, t2, PAINT.crate);
+    t2.run(2);
     expect(w2.mode(D)).toBe('machine');
+    expect(scheme(w2)).toBe(S[0]);
     expect(view(w2).change).toBeNull();
     w2.dispose();
   });
 
   test('carried, its knob is a misfire and the scheme stays; thrown, it keeps its scheme and turns where it lands', async () => {
-    const { w, t } = await opened('pd-carry');
+    const { w, t } = await opened('pd-carry', LOOSE_BENCH); // (I2: the dial carried and thrown: a loose part)
     press(w, K);
     t.run(PRESS);
     const m = w.motion(D)!;
@@ -181,7 +196,7 @@ describe('the paint dial', () => {
   });
 
   test('set on the platen and painted by a text, it is painted; its scheme is as it was; it turns there', async () => {
-    const { w, t } = await opened('pd-paint');
+    const { w, t } = await opened('pd-paint', LOOSE_BENCH); // (I2: the dial carried to the platen: a loose part)
     press(w, K);
     t.run(PRESS);
     putOn(w, t, D, traySpot(), 120);
@@ -200,7 +215,7 @@ describe('the paint dial', () => {
   }, 120_000);
 
   test('shipped off the belt it is out of reach (a misfire); it comes back up the chute in its scheme, and stows again on its crate', async () => {
-    const { w, t } = await opened('pd-ship');
+    const { w, t } = await opened('pd-ship', LOOSE_BENCH); // (I2: the dial shipped and back: a loose part)
     press(w, K);
     t.run(PRESS);
     w.dispatch({ type: 'turn', id: 'belt-dial', value: 1 });
@@ -226,9 +241,14 @@ describe('the paint dial', () => {
     press(w, K);
     t.run(PRESS);
     expect(scheme(w)).toBe(S[2]);
-    // shut with it inside: out of reach
-    press(w, `${PAINT.crate}-lid`);
-    t.run(2);
+    // shut with it inside: out of reach (I2: there is no latch; the crate shuts as it is lifted off the stand)
+    const cp = w.motion(PAINT.crate)!.pose.p;
+    w.dispatch({ type: 'grab', id: PAINT.crate, grip: cp });
+    t.run(3);
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    putOn(w, t, PAINT.crate, CLEAR);
+    t.run(HZ);
+    expect(w.setting(PAINT.crate, OPEN)).toBe(false);
     expect(w.mode(D)).toBe('gone');
     press(w, K);
     expect(t.run(1)).toContainEqual({ type: 'misfire', id: K, level: 1 });
@@ -237,10 +257,10 @@ describe('the paint dial', () => {
   }, 120_000);
 
   test('the lever after the dial was carried away: the scheme comes back, whatever has happened to the dial since', async () => {
-    const { w, t } = await opened('pd-undo-away');
+    const { w, t } = await opened('pd-undo-away', LOOSE_BENCH); // (I2: the dial carried away: a loose part)
     press(w, K);
     t.run(PRESS);
-    putOn(w, t, D, [-0.4, 0, -1.0]);
+    putOn(w, t, D, CLEAR);
     t.run(HZ);
     w.dispatch({ type: 'undo' }); // the move
     t.run(2);
@@ -280,12 +300,14 @@ describe('the paint dial', () => {
     }
     t.run(PRESS);
     expect(scheme(w)).toBe(S[(3 + 3) % S.length]);
-    // out on the bench: a select on the dial itself looks at the dial
-    putOn(w, t, D, [-0.4, 0, -1.0]);
-    t.run(HZ);
-    w.dispatch({ type: 'select', id: D });
-    expect(t.run(1)).toContainEqual({ type: 'look', target: D });
     w.dispose();
+    // out on the bench: a select on the dial itself looks at the dial (I2: only where it can be out, LOOSE_BENCH)
+    const { w: w2, t: t2 } = await opened('pd-select-out', LOOSE_BENCH);
+    putOn(w2, t2, D, CLEAR);
+    t2.run(HZ);
+    w2.dispatch({ type: 'select', id: D });
+    expect(t2.run(1)).toContainEqual({ type: 'look', target: D });
+    w2.dispose();
   });
 
   test('(D2c) a turn by hand sends the camera back out (look.back), a press and a drag alike; the lever and a reset do not', async () => {
@@ -300,13 +322,13 @@ describe('the paint dial', () => {
     w.dispatch({ type: 'reset' });
     // (a reset shuts the crate as a consequence: that is the crate's look.back, for its card; the dial sends none)
     expect(t.run(3).filter((e) => e.type === 'look.back' && e.target !== `${PAINT.crate}-card`)).toHaveLength(0);
-    // out on the bench: the dial itself
-    w.dispatch({ type: 'press', id: `${PAINT.crate}-lid` });
-    t.run(60);
-    putOn(w, t, D, [-0.4, 0, -1.0]);
-    t.run(HZ);
-    press(w, K);
-    expect(t.run(PRESS).filter((e) => e.type === 'look.back')).toEqual([{ type: 'look.back', target: D }]);
     w.dispose();
+    // out on the bench: the dial itself (I2: only where it can be out, LOOSE_BENCH; opened there on the stand)
+    const { w: w2, t: t2 } = await opened('pd-back-out', LOOSE_BENCH);
+    putOn(w2, t2, D, CLEAR);
+    t2.run(HZ);
+    press(w2, K);
+    expect(t2.run(PRESS).filter((e) => e.type === 'look.back')).toEqual([{ type: 'look.back', target: D }]);
+    w2.dispose();
   });
 });

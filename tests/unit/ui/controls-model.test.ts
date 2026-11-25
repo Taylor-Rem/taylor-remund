@@ -3,6 +3,7 @@
 // exactly this (ui/controls/list.ts).
 import { describe, expect, test } from 'vitest';
 import { stubWorld, run } from '../sim/helpers.ts';
+import { rapierWorld } from '../../scenario/helpers.ts';
 import { bench } from '../../../src/workshop/sim/scenes/bench.ts';
 import { listModel, itemLabel, plainName, type ControlsSource } from '../../../src/workshop/ui/controls/model.ts';
 import { textOf, STATION_NAMES } from '../../../src/workshop/ui/controls/words.ts';
@@ -50,10 +51,12 @@ describe('names (§ E4 invariant 1: every interactable has a name a screen reade
 });
 
 describe('the list', () => {
-  test('grouped by station, the Button first; what is not on the bench is not a button', () => {
+  test('grouped by station, the line first (I2: the project crates and the stand; the Button is a find in the corner now); what is not on the bench is not a button', () => {
     const w = world();
     const m = listModel(source(w));
-    expect(m.stations.map((s) => s.id)).toEqual(['button', 'patchlamp', 'line', 'top', 'tools']);
+    expect(m.stations.map((s) => s.id)).toEqual(['line', 'patchlamp', 'tools', 'button', 'top']);
+    // (I2) the project crates lead the line
+    expect(m.stations[0]!.items.slice(0, 3).map((i) => i.id)).toEqual(['crate-1', 'crate-2', 'crate-3']);
     const ids = m.stations.flatMap((s) => s.items.map((i) => i.id));
     // shipped spares, Revert in its hatch: not on the bench
     for (const gone of ['crate-spare-1', 'crate-spare-2', 'revert']) expect(ids).not.toContain(gone);
@@ -95,7 +98,8 @@ describe('the list', () => {
     const w = world();
     const part = listModel(source(w, { held: { id: 'crate-3', what: 'part' }, keys: true }));
     expect(part.hold?.label).toBe('Holding: t-components. Where should it go?');
-    expect(part.hold?.dests.map((d) => d.label)).toEqual(['Belt', 'Dock', 'Platen']);
+    // (I2) and a project crate the opening stand (only a project crate: the tool below is not offered it)
+    expect(part.hold?.dests.map((d) => d.label)).toEqual(['Belt', 'Dock', 'Platen', 'Opening stand']);
     // (P4 T2) a tool held by the keys may also go back on the wall: its own place, named for the wall
     const tool = listModel(source(w, { held: { id: 'tool-vue', what: 'part' }, keys: true }));
     expect(tool.hold?.dests.map((d) => [d.id, d.label])).toEqual([['belt', 'Belt'], ['dock', 'Dock'], ['platen', 'Platen'], ['peg-vue', 'Tool wall']]);
@@ -107,20 +111,25 @@ describe('the list', () => {
 });
 
 describe('P4 S5: the project crates in the list', () => {
-  test('each crate by its project, its lid open or shut; its plate a link to its entry while it is open; none of a crate not on the bench', () => {
-    const w = world();
+  test('each crate by its project (I2: no latch in the list: the stand opens it); its plate a link to its entry while it is open; none of a crate not on the bench', async () => {
+    // (I2: under Rapier, so the crate comes to rest on the stand's deck)
+    const w = await rapierWorld(1, { scene: bench });
     run(w, 30);
     const items = (): Map<Id, { id: Id; label: string; href?: string }> => new Map(listModel(source(w)).stations.flatMap((s) => s.items.map((i) => [i.id, i] as const)));
     let m = items();
     expect(m.get('crate-3')?.label).toBe('t-components');
-    expect(m.get('crate-3-lid')?.label).toBe('t-components lid, shut');
+    expect(m.has('crate-3-lid')).toBe(false);
     expect(m.has('crate-3-plate')).toBe(false);
     // the two behind the dock door: neither they nor their latches
     for (const id of ['crate-spare-1', 'crate-spare-1-lid', 'crate-spare-2-lid', 'crate-spare-2-plate']) expect(m.has(id), id).toBe(false);
-    w.dispatch({ type: 'press', id: 'crate-3-lid' });
+    // (I2) set on the stand by the keys' place
+    w.dispatch({ type: 'grab', id: 'crate-3', grip: w.motion('crate-3')!.pose.p });
     run(w, 2);
+    w.dispatch({ type: 'place', at: 'opening-stand' });
+    run(w, 240);
+    expect(w.setting('crate-3', 'open')).toBe(true);
     m = items();
-    expect(m.get('crate-3-lid')?.label).toBe('t-components lid, open');
+    expect(m.has('crate-3-lid')).toBe(false);
     expect(m.get('crate-3-plate')).toEqual({ id: 'crate-3-plate', label: 't-components: full entry on the résumé', href: '/resume/#p-t-components' });
-  });
+  }, 60_000);
 });

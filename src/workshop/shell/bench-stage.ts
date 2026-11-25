@@ -30,7 +30,8 @@ import { LOOK } from '../view/stage/index.ts';
 import type { StageOptions } from '../view/stage/index.ts';
 import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
-import { bench as BENCH, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { bench as BENCH, OPENING_STAND_ON, STAND_STATION_SIZE, TABLE_SIZE, withOpeningStand, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { arriveLate, lateOn, type LateLoader } from './late.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
 /** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
@@ -71,21 +72,23 @@ export const PLAN_BOX = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.
 
 /**
  * The bench's stations as § C names them, each with the box its framing shows whole (P3 B2: judged in pictures at
- * 1440×900 and 390×844; § B6 "zooms between the whole bench and one station"). In the controls list's order:
- * the Button first (§ B3: the most obvious thing on the bench), then the centre, the front, the wall. A loose part
- * is framed with the station whose box holds it now (the belt's before the Button's: the crate stack is the belt's).
+ * 1440×900 and 390×844; § B6 "zooms between the whole bench and one station"). In the controls list's order (I2:
+ * the Button is a find in the corner now, under the tool wall, so it no longer comes first): the line first (the
+ * project crates, which the keys carry to the opening stand, then Fetch and the belt's handles), then Patchlamp, the
+ * tool wall, the Button with the UNDO lever by it, the sign's lamp. A loose part is framed with the station whose box
+ * holds it now (the belt's before the Button's: the crate stack is the belt's).
  */
 export const STATION_BOXES = {
-  /** The Button on its console, the UNDO lever, Revert's hatch. */
-  button: { min: [-6.0, 0, -0.6], max: [0.8, 2.0, 1.45] },
-  /** Patch at the board, the stool, the platen, the storefront, the phone. */
-  patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
   /** The belt from the chute to the dock: the stack, Fetch's lane, the striker. */
   line: { min: [-7.8, 0, 0.6], max: [7.4, 2.2, 5.0] },
-  /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
-  top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
+  /** Patch at the board, the stool, the platen, the storefront, the phone. */
+  patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
   /** (P4 T2) The tool wall: the board, its eight tools and the pinned sheet, and the bench in front of it (where a tool is set down). */
   tools: { min: [-10.1, 0, -5.0], max: [-4.6, 6.1, -2.4] },
+  /** The Button on its console (L2: in the back left corner, under the tool wall), Revert's hatch, the UNDO lever. */
+  button: { min: [-8.7, 0, -2.6], max: [-1.6, 2.0, 1.3] },
+  /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
+  top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
 } as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 /**
  * A phone held upright: the camera never zooms out past its home (the centre cluster, about 5.6 units across),
@@ -93,16 +96,16 @@ export const STATION_BOXES = {
  * a control outside that is brought into view when focus reaches it (`Framings.thing`).
  */
 export const STATION_BOXES_PORTRAIT = {
-  /** The Button on its console and the UNDO lever (Revert's hatch is off to the left). */
-  button: { min: [-3.4, 0, -0.4], max: [0.8, 1.7, 1.45] },
-  /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
-  patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
   /** The middle of the belt: the stack, the striker, Fetch's lane. */
   line: { min: [-2.0, 0, 0.6], max: [3.8, 2.0, 5.0] },
-  /** The sign's middle and the lamp. */
-  top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
+  /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
+  patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
   /** (P4 T2) The board's middle: its tools. */
   tools: { min: [-9.4, 0.4, -5.0], max: [-5.3, 5.9, -3.0] },
+  /** The Button on its console (L2: in the corner; the UNDO lever, 5 units to its right, is brought into view when focus reaches it). */
+  button: { min: [-8.6, 0, -2.4], max: [-6.5, 1.8, -0.8] },
+  /** The sign's middle and the lamp. */
+  top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
 } as const satisfies Record<keyof typeof STATION_BOXES, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 export type BenchStation = keyof typeof STATION_BOXES;
 export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
@@ -200,7 +203,14 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S5, development only: `?standin=1` puts the kit's test block in t-components' crate, to prove a crate's tray)
       // (and `?crates=row`: the six project crates in a row behind the console, for pictures of all six at once)
       const dq = import.meta.env.DEV && typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-      const scene0 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
+      // (P4 P1a; E1) Pitch is never in the scene the page boots: he arrives after the bench is live (shell/late.ts)
+      const scene00 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
+      // (P4 S6, a prototype: `?open=stand`, `?things=loose`; or the scene's OPENING_STAND_ON. L2: one place, the centre)
+      const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
+      // (L2) at the station size at the centre, its place and the default; `?stand=c`: by the platen as S6 built it, at the
+      // table's size (for comparison, and for the close view's press test there; I2: drawn as the one pedestal, lower)
+      const atC = dq?.get('stand') === 'c';
+      const scene0 = standOn ? withOpeningStand(scene00, atC ? 'c' : 'centre', dq?.get('things') === 'loose' ? 'loose' : 'fixed', atC ? TABLE_SIZE : STAND_STATION_SIZE) : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },
@@ -331,6 +341,8 @@ export interface StartBenchOptions {
   onGiveUp?(): void;
   /** P3 B3: the bench has stepped to its picture's state; its first live step is next (shell/loader.ts). */
   beforeLive?(ws: Workshop): void;
+  /** (E1) Bring the late crew once the bench is live (default true; the picture-first path only). */
+  late?: boolean;
 }
 
 /**
@@ -347,7 +359,10 @@ export async function startBench(o: StartBenchOptions): Promise<Workshop | null>
   const info = posterInfo();
   const set = info.manifest;
   const band = o.band ?? null;
-  return loadStage({
+  // (E1) the late crew: asked for once the bench is live, never on the way to usable; a stage built again gets their views again
+  let late: LateLoader | null = null;
+  const bringLate = (o.late ?? true) && band === null && !o.hold && lateOn();
+  const ws = await loadStage({
     root,
     canvas,
     img: root.querySelector('img.poster'),
@@ -361,9 +376,14 @@ export async function startBench(o: StartBenchOptions): Promise<Workshop | null>
       progress(1);
       return { ...glue.bootOptions(), ...(o.onGiveUp ? { onGiveUp: o.onGiveUp } : {}) };
     },
-    ...(o.onRebuilt ? { onRebuilt: o.onRebuilt } : {}),
+    onRebuilt(ws: Workshop) {
+      late?.again(ws);
+      o.onRebuilt?.(ws);
+    },
     ...(o.beforeLive ? { beforeLive: o.beforeLive } : {}),
   });
+  if (ws && bringLate) late = arriveLate({ workshop: () => handoff()?.workshop ?? null, crewScale: glue.bench.crewScale, tier: () => handoff()?.workshop?.stage.tier ?? 'high' });
+  return ws;
 }
 
 /** The loader's state (`window.__handoff`), once a picture-first load has started. */

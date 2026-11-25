@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gpuArgs } from '../../playwright.config.ts';
 import { startDevServer, type DevServer } from '../../scripts/capture.ts';
+import { openOnStand } from './stand.ts';
 import { glareSweep } from './press-sweep.ts';
 
 // P4 D3: the report press's lever by a real hand, on /dev/bench/ on the real GPU: by mouse at 1440×900 and by a finger
@@ -38,25 +39,13 @@ async function until(page: Page, fn: () => Promise<boolean>, limit = 600, what =
   }
 }
 
-async function open(page: Page): Promise<string[]> {
+async function open(page: Page, query = ''): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${origin}/dev/bench/`);
+  await page.goto(`${origin}/dev/bench/${query}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
-  // the press's crate off the stack, onto the open bench left of the lever's console, and opened: the press on its tray
-  await page.evaluate(() => {
-    const ws = (window as any).__bench.ws;
-    ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p });
-  });
-  await frames(page, 3);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [-4.0, 0, 1.6] }));
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2').location.at === 'rest' && (window as any).__bench.ws.world.holding() === null), 600, 'crate-2 set down');
-  await frames(page, 30);
-  for (let k = 0; k < 12; k++) {
-    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-2', 'open') === true)) break;
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-2-lid' }));
-    await frames(page, 40);
-  }
+  // (I2) the press's crate off the stack's top and onto the opening stand, where it opens: the press on its tray
+  await openOnStand(page, 'crate-2');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 600, 'the press on its tray');
   await frames(page, 40);
   return errors;
@@ -144,9 +133,12 @@ test('P4 D3: the press\'s lever by a finger at 390×844, the camera in on it: a 
 });
 
 /** The press on its open crate's tray, the camera at the look's framing: what a mouse press takes at each point of a grid over the press's top. */
-test('P4 D3 round three: a press at each point of the press on its open crate\'s tray: what takes it', async ({ page }) => {
+// (I2) on the stand's two ways for a thing: `loose` (`?things=loose`), where the press is a part of its own and takes the
+// rest of itself (the rule this test was written for); and the shipped `fixed`, where S6 round two made a press on a
+// toy's body a press on its crate (lifting it off by its toy, as a hand would try): there the body is the crate's
+for (const things of ['loose', 'fixed'] as const) test(`P4 D3 round three: a press at each point of the press on its open crate\'s tray: what takes it (things ${things})`, async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const errors = await open(page);
+  const errors = await open(page, things === 'loose' ? '?things=loose' : '');
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-2' }));
   await until(page, () => page.evaluate(() => !(window as any).__bench.ws.stage.camera.easing), 900, 'the look at rest');
   await frames(page, 30);
@@ -184,9 +176,14 @@ test('P4 D3 round three: a press at each point of the press on its open crate\'s
     return { counts, rows, lever };
   });
   console.log(`[D3] a press over the press on its tray (r press, L lever, l latch, C crate, p plate; back row first):\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}\nalong the lever: ${map.lever.join(' ')}`);
-  expect(map.counts['crate-2'] ?? 0, 'the crate takes nothing over the press').toBe(0);
   expect(map.counts['crate-2-lid'] ?? 0, 'the latch takes nothing over the press').toBe(0);
-  expect(map.counts['report-press'] ?? 0, 'the press takes the rest of itself').toBeGreaterThan(40);
+  if (things === 'loose') {
+    expect(map.counts['crate-2'] ?? 0, 'the crate takes nothing over the press').toBe(0);
+    expect(map.counts['report-press'] ?? 0, 'the press takes the rest of itself').toBeGreaterThan(40);
+  } else {
+    expect(map.counts['report-press'] ?? 0, 'fixed: the press\'s body is no target of its own').toBe(0);
+    expect(map.counts['crate-2'] ?? 0, 'fixed: the press\'s body stands for its crate').toBeGreaterThan(40);
+  }
   expect(map.lever.filter((x) => x !== 'press-lever'), 'every point along the lever is the lever\'s').toEqual([]);
   expect(errors).toEqual([]);
 });

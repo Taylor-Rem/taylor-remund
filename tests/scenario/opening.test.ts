@@ -19,6 +19,10 @@
 // Re-recorded at P4 D2d, the paint dial joined to the tool wall (the dial in crate-3: one more body, stowed, its `scheme`
 // field, its unit and its knob in the registry): with the dial, its knob, its unit and its field left out of the state,
 // the opening matched the tool wall's recording at the pictures' step and every checkpoint.
+// Re-recorded at I2 (the opening stand switched on: its body, its mouth and its unit in the bench; the six latches no
+// longer in the registry): a world on the bench without the stand and one with it were stepped side by side for the two
+// minutes, and every body, every durable field, the crew, attract mode, the machines but the stand (and the latches),
+// the holding, the stack and the events were identical at every step (shots/i2/opening-compare.test.ts.txt).
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { fingerprint, openingWorld } from './opening-helpers.ts';

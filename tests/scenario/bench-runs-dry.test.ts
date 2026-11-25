@@ -182,7 +182,7 @@ describe('R3: can the visitor leave the bench with nothing for Fetch to carry?',
     const t = tape(w);
     // (2026-11-20) one crate thrown to a corner: Revert comes for it a few seconds later
     const thrown = CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;
-    putOn(w, t, thrown, CORNERS[0]!);
+    putOn(w, t, thrown, [-5.4, 0, -4.3]); // (L2: it was CORNERS[0], the back left corner, which is behind the Button's console now, where Revert has no stand: against the back wall instead)
     // wait for a tidy
     let tidied: Id | null = null;
     for (let i = 0; i < steps(WAIT) && !tidied; i++) for (const e of t.run(1)) if (e.type === 'revert.sweep' && e.to.at === 'rest') tidied = e.part;

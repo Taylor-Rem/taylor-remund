@@ -23,8 +23,8 @@ const vel = (w: World, id: Id): Vec3 => {
   return [(m.pose.p[0] - m.prev.p[0]) * HZ, (m.pose.p[1] - m.prev.p[1]) * HZ, (m.pose.p[2] - m.prev.p[2]) * HZ];
 };
 
-/** The open lane at the back-left of the bench: clear of every fixed body from x -8.5 to 6.5 at z -2. */
-const START: Vec3 = [-6.5, 0.9, -2];
+/** The open lane at the back-left of the bench: clear of every fixed body from x -8.5 to 6.5 at z -2.7 (L2: at z -2 it was, until the Button's console came to the corner). */
+const START: Vec3 = [-6.5, 0.9, -2.7];
 
 /** Take `id` and carry it to `at`, held still there. */
 async function inHand(id: Id, at: Vec3 = START): Promise<{ w: World; t: Tape }> {
@@ -86,8 +86,8 @@ describe('in the hand: it keeps up', () => {
   // Weight: a heavy thing may change its velocity less each step (`carryAccel` by mass), so it takes longer to get
   // going and trails further on the way; once going it keeps up as a crate does.
   test('Fetch is heavier in the hand: it trails more getting going, but under two units, and reaches the hand\'s speed', async () => {
-    const { w, t } = await inHand('fetch', [-6.5, 1.3, -2]);
-    const r = sweep(w, t, 'fetch', [1, 0], 30, () => 16, [-6.5, 1.3, -2]);
+    const { w, t } = await inHand('fetch', [-6.5, 1.3, -2.7]);
+    const r = sweep(w, t, 'fetch', [1, 0], 30, () => 16, [-6.5, 1.3, -2.7]);
     expect(r.trail).toBeLessThan(2);
     expect(r.trail).toBeGreaterThan(0.4);
     expect(level(r.last)).toBeGreaterThan(14.5);

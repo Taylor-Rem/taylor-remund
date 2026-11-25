@@ -8,7 +8,11 @@ import type { World } from '../../src/workshop/sim/world.ts';
 import type { Id, RevertView, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const CRATES = ['crate-1', 'crate-2', 'crate-3', 'crate-4', 'crate-spare-1', 'crate-spare-2'];
-const BACK_LEFT: Vec3 = [-8.2, 0, -4.2];
+// (L2: at -8.2, -4.2 it stood in the corner, which is now behind the Button's console, where Revert has no stand: the strays
+// there go home by the chute, tests/scenario/heal-unreachable.test.ts)
+const BACK_LEFT: Vec3 = [-5.4, 0, -4.3];
+/** (L2) The tower's place: in front of the Button's console at the bench's left end (it stood at -6.6, -1.6, where the console is now). */
+const TX = -8.2, TZ = -0.2;
 const rv = (w: World): RevertView => w.machine('revert-crew') as RevertView;
 const loose = (w: World): Id => CRATES.find((x) => w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;
 
@@ -76,9 +80,9 @@ describe('R3, 2026-11-20: Revert comes out quickly for a crate Fetch may not car
   test('a tower the visitor builds (a crate on a crate) is left alone while it is fresh; once it has stood still a while it is taken from the top', async () => {
     const { w, t } = await bench('quick-3');
     const a = loose(w);
-    putOn(w, t, a, [-6.6, 0, -1.6]);
+    putOn(w, t, a, [TX, 0, TZ]); // (L2: at -6.6, -1.6 until the Button's console stood there)
     const b = CRATES.find((x) => x !== a && w.mode(x) === 'free' && w.part(x)!.location.at === 'rest')!;
-    putOn(w, t, b, [-6.6, 2 * w.halfExtents(a)![1], -1.6]);
+    putOn(w, t, b, [TX, 2 * w.halfExtents(a)![1], TZ]);
     t.run(steps(1));
     const top = w.motion(b)!.pose.p[1] > w.motion(a)!.pose.p[1] + 0.2 ? b : a;
     const bottom = top === a ? b : a;

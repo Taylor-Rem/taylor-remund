@@ -20,7 +20,12 @@ import { findImports, tokenize } from './lib/jstok.ts';
 /** Budgets, decimal units (1 KB = 1,000 bytes). */
 export const BUDGETS = {
   firstPaint: 200_000,
+  /** The "stage transfer" row: every script and wasm file in dist/_astro/ (a coarse ceiling, from before P3). */
   stage: 2_200_000,
+  /** A stage page, to usable: everything it fetches up to the moment the bench takes input (the owner, 2026-11-25). */
+  toUsable: 2_200_000,
+  /** A stage page, to usable plus after: with what it goes on to fetch by itself (the late crew). The lead's number; the owner may move it. */
+  afterTotal: 2_600_000,
   sound: 400_000,
   conventionalJs: 5_000,
 };
@@ -167,21 +172,32 @@ export const STAGE_PAGES: readonly string[] = ['/', '/dev/bench/', '/dev/handoff
 const ASSET_STRING = /["'`]([^"'`\s]{1,200}\.(?:wasm|bin|woff2|m?js))["'`]/g;
 
 /**
- * What a stage page fetches, read from the build: the page, its stylesheets
- * and their fonts, its scripts and every script they import (statically or by
- * a literal dynamic import), and every file a script names in a string (the
- * physics wasm, the bake table, worker scripts and what they import, the
- * label fonts, which the labels load by file name under /fonts/). Each counted
- * once, at what the wire carries (`transferSize`: gzip -9 for text and wasm,
- * raw for the bake table, which is compressed in itself, and for fonts).
+ * What a stage page fetches, read from the build, in two parts (the owner's ruling, 2026-11-25: the budget is for
+ * what loads before the bench is usable, with a looser cap on what the page fetches by itself afterwards).
+ *
+ * Everything: the page, its stylesheets and their fonts, its scripts and every script they import (statically or
+ * by a literal dynamic import), and every file a script names in a string (the physics wasm, the bake table, worker
+ * scripts and what they import, the label fonts, which the labels load by file name under /fonts/; the build's
+ * preload lists name the chunks a dynamic import needs). Each counted once, at what the wire carries
+ * (`transferSize`: gzip -9 for text and wasm, raw for the bake table, which is compressed in itself, and for fonts).
+ *
+ * After (`after`): what is reached only through a late chunk, a chunk named `late-*` (astro.config's late groups:
+ * a crew member who arrives after the bench is live, shell/late.ts). A dynamic import, or a file named in a string,
+ * whose static imports reach a late chunk is a way into the "after" part; so is the late chunk named in a string.
+ * Everything else is "to usable" (`items`): conservatively, every other dynamic import too (the sound's code, which
+ * is fetched in idle time after the bench starts, is counted there as it always was).
+ *
+ * `eagerLate`: late chunks a page reaches by static imports alone (or names in a modulepreload): the build has
+ * folded a late unit back into what the page loads first. The budget fails on any.
  */
-export function stageClosure(dist: string, page: string, cache: Map<string, number> = new Map()): { total: number; items: [string, number][]; unresolved: string[] } {
+export function stageClosure(dist: string, page: string, cache: Map<string, number> = new Map()): { total: number; items: [string, number][]; unresolved: string[]; after: [string, number][]; afterTotal: number; eagerLate: string[] } {
   const abs = resolveToFile(dist, page);
-  if (!abs) return { total: 0, items: [], unresolved: [`${page}: not in the build`] };
+  if (!abs) return { total: 0, items: [], unresolved: [`${page}: not in the build`], after: [], afterTotal: 0, eagerLate: [] };
   const files = new Set<string>([abs]);
   const unresolved: string[] = [];
   const html = readFileSync(abs, 'utf8');
   const entries: string[] = [];
+  const eagerLate = new Set<string>();
   for (const ref of htmlRefs(html)) {
     if (!ref.resource) continue;
     const c = classify(ref.url, page);
@@ -209,40 +225,122 @@ export function stageClosure(dist: string, page: string, cache: Map<string, numb
     const b = f.replace(/^.*\//, '');
     byName.set(b, [...(byName.get(b) ?? []), join(dist, f)]);
   }
-  const queue = [...entries];
-  const seenJs = new Set<string>();
-  while (queue.length) {
-    const closure = jsClosure(dist, queue.splice(0));
-    for (const f of closure.files) {
-      files.add(f);
-      if (seenJs.has(f) || !/\.m?js$/.test(f)) continue;
-      seenJs.add(f);
-      const base = fileUrl(dist, f);
-      for (const m of readFileSync(f, 'utf8').matchAll(ASSET_STRING)) {
-        const s = m[1]!;
-        if (/^(https?:)?\/\//.test(s)) continue;
-        let t: string | null = null;
-        if (s.startsWith('/') || s.startsWith('.')) {
-          const c = classify(s, base);
-          t = c.kind === 'internal' ? resolveToFile(dist, c.path) : null;
-        } else {
-          // a bare file name (the labels' fonts): the one file of that name in the build
-          const hits = byName.get(s) ?? [];
-          if (hits.length === 1) t = hits[0]!;
-        }
-        if (!t) {
-          if (!/\.m?js$/.test(s)) unresolved.push(`${rel(dist, f)} names ${s}`);
-          continue;
-        }
-        if (!files.has(t) && /\.m?js$/.test(t)) queue.push(t);
-        files.add(t);
+
+  // each script's edges, read once: static imports, dynamic imports, and files named in strings
+  type Edges = { stat: string[]; dyn: string[]; named: string[] };
+  const edges = new Map<string, Edges>();
+  const edgesOf = (f: string): Edges => {
+    const hit = edges.get(f);
+    if (hit) return hit;
+    const e: Edges = { stat: [], dyn: [], named: [] };
+    edges.set(f, e);
+    if (!/\.(m?js|cjs)$/i.test(f)) return e;
+    const src = readFileSync(f, 'utf8');
+    const base = fileUrl(dist, f);
+    for (const imp of findImports(tokenize(src))) {
+      if (!imp.specifier || !/^(\.|\/)/.test(imp.specifier)) continue;
+      const c = classify(imp.specifier, base);
+      const t = c.kind === 'internal' ? resolveToFile(dist, c.path) : null;
+      if (!t) continue;
+      (imp.kind === 'dynamic' ? e.dyn : e.stat).push(t);
+    }
+    for (const m of src.matchAll(ASSET_STRING)) {
+      const s = m[1]!;
+      if (/^(https?:)?\/\//.test(s)) continue;
+      let t: string | null = null;
+      if (s.startsWith('/') || s.startsWith('.')) {
+        const c = classify(s, base);
+        t = c.kind === 'internal' ? resolveToFile(dist, c.path) : null;
+      } else {
+        // a bare file name (the labels' fonts), or a chunk in the build's preload lists (`_astro/x.js`)
+        const hits = byName.get(s.replace(/^.*\//, '')) ?? [];
+        if (hits.length === 1) t = hits[0]!;
       }
+      if (!t) {
+        if (!/\.m?js$/.test(s)) unresolved.push(`${rel(dist, f)} names ${s}`);
+        continue;
+      }
+      e.named.push(t);
+    }
+    return e;
+  };
+  /** Its static imports reach a late chunk (or it is one): a way into the "after" part. */
+  const lateMemo = new Map<string, boolean>();
+  const reachesLate = (f: string): boolean => {
+    const hit = lateMemo.get(f);
+    if (hit !== undefined) return hit;
+    const seen = new Set<string>();
+    const stack = [f];
+    let found = false;
+    while (stack.length && !found) {
+      const g = stack.pop()!;
+      if (seen.has(g)) continue;
+      seen.add(g);
+      if (isLate(g)) found = true;
+      else stack.push(...edgesOf(g).stat);
+    }
+    lateMemo.set(f, found);
+    return found;
+  };
+
+  // the page's static closure: a late chunk in it is one the page cannot load without
+  {
+    const seen = new Set<string>();
+    const stack = [...entries];
+    while (stack.length) {
+      const g = stack.pop()!;
+      if (seen.has(g)) continue;
+      seen.add(g);
+      if (isLate(g)) eagerLate.add(rel(dist, g));
+      stack.push(...edgesOf(g).stat);
     }
   }
-  const items: [string, number][] = [...files].map((f) => [rel(dist, f), transferSize(f, cache)]);
-  items.sort((a, b) => b[1] - a[1]);
-  return { total: items.reduce((s, [, n]) => s + n, 0), items, unresolved: [...new Set(unresolved)] };
+  // to usable: the entries, their static imports, and every way on that does not lead into a late chunk
+  const usable = new Set<string>(files);
+  const lateRoots = new Set<string>();
+  const queue = [...entries];
+  const done = new Set<string>();
+  while (queue.length) {
+    const f = queue.pop()!;
+    if (done.has(f)) continue;
+    done.add(f);
+    usable.add(f);
+    const e = edgesOf(f);
+    for (const t of e.stat) queue.push(t);
+    for (const t of [...e.dyn, ...e.named]) {
+      if (/\.(m?js|cjs)$/i.test(t) && reachesLate(t) && !eagerLate.has(rel(dist, t))) lateRoots.add(t);
+      else queue.push(t);
+    }
+  }
+  // after: everything reached from those ways in that the page has not already fetched
+  const later = new Set<string>();
+  const q2 = [...lateRoots];
+  while (q2.length) {
+    const f = q2.pop()!;
+    if (later.has(f) || usable.has(f)) continue;
+    later.add(f);
+    const e = edgesOf(f);
+    q2.push(...e.stat, ...e.dyn, ...e.named);
+  }
+  const sized = (set: Set<string>): [string, number][] => [...set].map((f): [string, number] => [rel(dist, f), transferSize(f, cache)]).sort((a, b) => b[1] - a[1]);
+  const items = sized(usable);
+  const after = sized(later);
+  return {
+    total: items.reduce((s, [, n]) => s + n, 0),
+    items,
+    unresolved: [...new Set(unresolved)],
+    after,
+    afterTotal: after.reduce((s, [, n]) => s + n, 0),
+    eagerLate: [...eagerLate],
+  };
 }
+
+/** A late chunk: what a late unit's group is named in the build (astro.config: `late-*`). */
+export function isLate(abs: string): boolean {
+  return /^late-[^/]*\.m?js$/i.test(abs.replace(/^.*\//, ''));
+}
+
+const exact = (n: number): string => n.toLocaleString('en-US');
 
 function row(r: Report, label: string, measured: number, budget: number, note = ''): void {
   const text = `${label}: ${formatBytes(measured)} of ${formatBytes(budget)}${note ? ` (${note})` : ''}`;
@@ -383,7 +481,10 @@ export function checkBudget(opts: BudgetOptions): Report {
       for (const [f, n] of sc.items.slice(0, 8)) r.info(`         ${formatBytes(n).padStart(9)}  ${f}`);
       r.info(`         ${formatBytes(sc.items.slice(8).reduce((s, [, n]) => s + n, 0)).padStart(9)}  ${sc.items.length - 8} more files`);
       for (const u of sc.unresolved) r.note(`${page}: ${u} (not found in the build: not counted)`);
-      row(r, `stage page ${page}: everything it fetches (${sc.items.length} files: page, CSS, fonts, scripts, wasm, workers, bake table; at what the wire carries)`, sc.total, BUDGETS.stage);
+      row(r, `stage page ${page}: to usable, everything it fetches up to the bench taking input (${sc.items.length} files: page, CSS, fonts, scripts, wasm, workers, bake table; at what the wire carries; ${exact(sc.total)} B)`, sc.total, BUDGETS.toUsable);
+      for (const [f, n] of sc.after) r.info(`         ${formatBytes(n).padStart(9)}  ${f} (after)`);
+      row(r, `stage page ${page}: to usable + after, with what it fetches by itself once the bench is live (${sc.after.length} late file${sc.after.length === 1 ? '' : 's'}, ${exact(sc.afterTotal)} B; ${exact(sc.total + sc.afterTotal)} B in all)`, sc.total + sc.afterTotal, BUDGETS.afterTotal);
+      for (const f of sc.eagerLate) r.fail(`stage page ${page}: ${f} is a late chunk, but the page reaches it eagerly (a static import or a modulepreload): a late unit was folded back into what loads first`);
     }
   }
 
@@ -415,6 +516,6 @@ export function checkBudget(opts: BudgetOptions): Report {
 
 runCli(import.meta.url, {
   name: 'budget',
-  summary: 'The static rows of REWRITE.md § E7: first paint of / ≤ 200 KB, stage scripts ≤ 2.2 MB, sound ≤ 400 KB, conventional pages ≤ 5 KB JS, no third-party request anywhere.',
+  summary: 'The static rows of REWRITE.md § E7: first paint of / ≤ 200 KB, stage scripts ≤ 2.2 MB, a stage page to usable ≤ 2.2 MB and with what it fetches after ≤ 2.6 MB (no late chunk reached eagerly), sound ≤ 400 KB, conventional pages ≤ 5 KB JS, no third-party request anywhere.',
   usesDist: true,
 }, (o) => checkBudget({ dist: o.dist }));

@@ -178,7 +178,7 @@ export const station: BenchStation = {
             ...(words && pc && markText(pc.project, words.title, mark) ? { badge: markText(pc.project, words.title, mark)! } : {}),
           }, ctx.labels);
         },
-        decorate: projectCrates(projects, things),
+        decorate: projectCrates(projects, things, k.scene.openingStand !== undefined),
         // P4 T2: a tool hanging on the wall casts no contact shadow on the bench below it
         blob: (p, w) => !(p.kind === 'tool' && (w.machine(TOOLWALL.unit) as { tools?: readonly { id: string; hung: boolean }[] } | undefined)?.tools?.some((t) => t.id === p.id && t.hung)),
       })(ctx);
@@ -187,7 +187,7 @@ export const station: BenchStation = {
 };
 
 /** The project crates' lids, cards, trays and pick targets (and the stand-in thing scaled to its body). */
-function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: ReadonlySet<Id>): (ctx: ViewContext) => PartDecorator {
+function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: ReadonlySet<Id>, stand = false): (ctx: ViewContext) => PartDecorator {
   return (ctx) => {
     const F = LID_FEEL;
     const lids = new Map<Id, Lid>();
@@ -293,7 +293,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         // the box about the latch object: over the lid's front, from above (the object at its middle)
         const lz = (S.d / 2 - 0.13 + S.d / 2 + 0.012) / 2, ldz = (0.13 + 0.012) / 2;
         latch.position.set(0, S.h + 0.04, lz);
-        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, -0.02, -ldz), new Vector3(hw, 0.02, ldz)), pad: 0.004, active: () => group.visible && lidState()?.still === true });
+        ctx.pickable(pc.lid, latch, { box: new Box3(new Vector3(-hw, -0.02, -ldz), new Vector3(hw, 0.02, ldz)), pad: 0.004, active: () => !stand && group.visible && lidState()?.still === true }); // (P4 S6: with the opening stand, no latch)
         // (round three) with a thing on its tray every ray over the lid's front runs on into the thing (which wins it):
         // the latch is pressed on the crate's front instead, over the hasp (its box turned upright against the front rail)
         if (holds) {

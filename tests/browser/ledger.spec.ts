@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gpuArgs } from '../../playwright.config.ts';
 import { startDevServer, type DevServer } from '../../scripts/capture.ts';
+import { openOnStand, liftOff } from './stand.ts';
 
 // P4 D1: the ledger board's two controls by a real hand, on /dev/bench/ on the real GPU: the crank and the plunger
 // by mouse at 1440×900 and by a finger at 390×844, each pressed where it is drawn, and each a 44 px fingertip at the
@@ -37,25 +38,15 @@ async function until(page: Page, fn: () => Promise<boolean>, limit = 600, what =
   }
 }
 
-/**
- * The ledger's crate opened by its latch. The latch answers only a crate lying still, upright, in nobody's hands, with
- * nothing on it: pressed when it is, and again until it opens, as a visitor would (the crate may have been knocked by
- * the one set aside, or be in Fetch's hands for a moment).
- */
-async function openLedgerCrate(page: Page): Promise<void> {
-  const still = () => page.evaluate(() => { const w = (window as any).__bench.ws.world; const m = w.motion('crate-1'); return m.mode === 'free' && !m.awake; });
-  for (let k = 0; k < 20; k++) {
-    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open') === true)) return;
-    await until(page, still, 900, 'crate-1 lying still');
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-1-lid' }));
-    await frames(page, 10);
-  }
-}
+/** (I2) The ledger's crate opened the one way the bench has: set on the opening stand (tests/browser/stand.ts). */
+const openLedgerCrate = (page: Page): Promise<void> => openOnStand(page, 'crate-1');
 
 async function open(page: Page): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${origin}/dev/bench/`);
+  // (I2) the board is carried off its tray onto the bench: the stand's other way for a crate's thing (`?things=loose`);
+  // on the shipped bench it stays on its tray (the tray tests below)
+  await page.goto(`${origin}/dev/bench/?things=loose`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
   // every intent the world is given, kept for a failure's report
   await page.evaluate(() => {
@@ -214,7 +205,8 @@ test('P4 D1: each control a 44 px fingertip at the framing the board\'s look giv
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   // on its open crate's tray: the look takes in the crate's card, the board on the tray before it
-  await page.goto(`${origin}/dev/bench/`);
+  // (I2: its second half carries the board off its tray, the stand's other way for a thing: `?things=loose`)
+  await page.goto(`${origin}/dev/bench/?things=loose`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
   await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p }); });
   await frames(page, 3);
@@ -246,10 +238,10 @@ test('P4 D1: each control a 44 px fingertip at the framing the board\'s look giv
 });
 
 /** The board on its open crate's tray, the camera in on it: what a mouse press takes at each point of a 15 × 9 grid over its top. */
-async function boardPressMap(page: Page): Promise<{ counts: Record<string, number>; rows: string[] }> {
+async function boardPressMap(page: Page, query = ''): Promise<{ counts: Record<string, number>; rows: string[] }> {
   await page.setViewportSize({ width: 1440, height: 900 });
   // the board stays on its tray: the crate freed and opened, the board left where it comes out
-  await page.goto(`${origin}/dev/bench/`);
+  await page.goto(`${origin}/dev/bench/${query}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
   await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p }); });
   await frames(page, 3);
@@ -295,8 +287,10 @@ async function boardPressMap(page: Page): Promise<{ counts: Record<string, numbe
   return map;
 }
 
+// (I2) these two on `?things=loose`, the way a thing is a part of its own (the rule they were written for); the shipped
+// `fixed` way after them, where S6 round two made a press on a toy's body a press on its crate
 test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray: what takes it', async ({ page }) => {
-  const map = await boardPressMap(page);
+  const map = await boardPressMap(page, '?things=loose');
   console.log(`[D1] a press over the board's top on its tray (b board, K crank, P plunger, L the crate's latch, C the crate, p its plate; back row first):\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}`);
   // What holds today (rewrite 8839671): the crank and the plunger take the presses over them, the latch none, the board
   // the middle and the front. NOT RIGHT YET: the crate's body takes the board's back (about two rows of nine): the open
@@ -312,8 +306,18 @@ test('P4 D1: a press at each point of the board\'s top on its open crate\'s tray
   expect(map.rows.slice(3).join('').includes('C') ? map.rows.slice(3).join('').replace(/[^C]/g, '').length : 0, 'the crate takes nothing over the board\'s front six rows but the folded flag\'s end').toBeLessThanOrEqual(6);
 });
 
-test('P4 D1 / S5 round three: the crate\'s body takes no press on the board on its tray (a thing on the tray wins over the crate, its lid and its latch: view/picking.ts prefer)', async ({ page }) => {
+test('(I2) things fixed: a press on the board\'s body on its tray is its crate\'s; its crank and plunger keep theirs; no latch', async ({ page }) => {
   const map = await boardPressMap(page);
+  console.log(`[I2] a press over the board's top on its tray, things fixed:\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}`);
+  expect(map.counts['crate-1-lid'] ?? 0, 'the latch').toBe(0);
+  expect(map.counts['ledger-board'] ?? 0, 'the board\'s body is no target of its own').toBe(0);
+  expect(map.counts['crate-1'] ?? 0, 'the board\'s body stands for its crate').toBeGreaterThan(50);
+  expect(map.counts['ledger-crank'] ?? 0).toBeGreaterThan(10);
+  expect(map.counts['ledger-plunger'] ?? 0).toBeGreaterThan(5);
+});
+
+test('P4 D1 / S5 round three: the crate\'s body takes no press on the board on its tray (a thing on the tray wins over the crate, its lid and its latch: view/picking.ts prefer)', async ({ page }) => {
+  const map = await boardPressMap(page, '?things=loose');
   console.log(`[S5] a press over the board's top on its tray, the crate's body yielding:\n${map.rows.join('\n')}\n${JSON.stringify(map.counts)}`);
   expect(map.counts['crate-1-lid'] ?? 0, 'the latch').toBe(0);
   expect(map.counts['crate-1'] ?? 0, 'the crate\'s body').toBe(0);
@@ -322,7 +326,7 @@ test('P4 D1 / S5 round three: the crate\'s body takes no press on the board on i
 });
 
 for (const [w, h] of [[1440, 900], [390, 844]] as const) {
-  test(`P4 D1: the board on its tray at the look's framing, ${w}×${h}: through a deal and a repair the card and its plate stay clear (pictures); the plate and the latch take their presses; the latch shuts the crate`, async ({ browser }) => {
+  test(`P4 D1: the board on its tray at the look's framing, ${w}×${h}: through a deal and a repair the card and its plate stay clear (pictures); the plate and the crate take their presses; lifted off, the crate shuts (I2: no latch)`, async ({ browser }) => {
     const touch = w < 600;
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(touch ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}) });
     const page = await ctx.newPage();
@@ -354,13 +358,15 @@ for (const [w, h] of [[1440, 900], [390, 844]] as const) {
     // the plate takes a press (asked of the input; not clicked: it opens the project's entry)
     const plate = await pickAt('crate-1-plate');
     expect(plate?.got, 'the plate takes a press at its middle').toBe('crate-1-plate');
-    // the latch takes a press, and shuts the crate (the board goes in with it)
+    // (I2) no latch (the stand opens a crate): nothing on screen is one; the crate's body takes a press at its middle, and
+    // lifted off the stand it shuts (the board goes in with it), as the latch once shut it
     const latch = await pickAt('crate-1-lid');
-    console.log(`[D1] ${w}×${h} on the tray at the look: plate ${JSON.stringify(plate)} latch ${JSON.stringify(latch)}`);
-    expect(latch?.got, 'the latch takes a press at its middle').toBe('crate-1-lid');
-    if (touch) await page.touchscreen.tap(latch!.s.x, latch!.s.y);
-    else await page.mouse.click(latch!.s.x, latch!.s.y);
-    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open') === false && (window as any).__bench.ws.world.mode('ledger-board') === 'gone'), 300, 'the latch shut the crate, the board in it');
+    const body = await pickAt('crate-1');
+    console.log(`[D1] ${w}×${h} on the tray at the look: plate ${JSON.stringify(plate)} latch ${JSON.stringify(latch)} crate ${JSON.stringify(body)}`);
+    expect(latch?.got ?? null, 'no latch takes a press').not.toBe('crate-1-lid');
+    expect(body?.got, 'the crate takes a press at its middle').toBe('crate-1');
+    await liftOff(page, 'crate-1');
+    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-1', 'open') === false && (window as any).__bench.ws.world.mode('ledger-board') === 'gone'), 300, 'lifted off, the crate shut, the board in it');
     await ctx.close();
   });
 }

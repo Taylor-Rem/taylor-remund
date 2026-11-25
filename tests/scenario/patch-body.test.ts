@@ -32,8 +32,8 @@ const T = PATCH_TUNING;
 const B = PATCH_BODY_TUNING;
 const G = -bench.gravity;
 const HALF = PATCH_BODY.half as Vec3;
-/** The open lane at the back-left of the bench (clear of every fixed body from x -8.5 to 6.5 at z -2). */
-const OPEN: Vec3 = [-6.5, 1.6, -2];
+/** The open lane at the back-left of the bench (clear of every fixed body from x -6.2 to 6.5 at z -2; L2: from x -8.5 until the Button's console came to the corner). */
+const OPEN: Vec3 = [-6.2, 1.6, -2];
 const angle = (a: Vec3, b: Vec3): number => Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (len(a) * len(b) || 1)))) * (180 / Math.PI);
 /** The body's velocity over the last step. */
 const vel = (w: World): Vec3 => {
@@ -184,7 +184,7 @@ describe('let go: it goes on as it was going', () => {
 
   test('a hand that has stopped has thrown nothing: let go a tenth of a second after a sweep it falls where it is, and says nothing of a throw', async () => {
     const { w, t } = await world();
-    const at: Vec3 = [-6.5, 0.9, -2];
+    const at: Vec3 = [-6.2, 0.9, -2];
     lift(w, t, at, 30);
     let hand = at;
     for (let i = 0; i < 8; i++) {
@@ -866,7 +866,7 @@ describe('recovery: the script takes over from where and how it lies', () => {
       return true;
     };
     // behind the board's panel, and behind the storefront: set down there, out of sight
-    for (const [x, z, near] of [[-4, -3.5, true], [3, -4.3, true], [-1.5, -3.1, false]] as const) {
+    for (const [x, z, near] of [[-4, -3.5, true], [3, -4.3, true], [-7.6, -2.75, false]] /* (L2: the last was behind the console at the centre, -1.5, -3.1; now behind it in the corner) */ as const) {
       const { w, t } = await world();
       lift(w, t, OPEN, 5);
       const at: Vec3 = [x, bench.bench.top, z];
@@ -1053,10 +1053,10 @@ describe('recovery: the script takes over from where and how it lies', () => {
   // The scripted Patch held 2.9 to 4.5 s after every landing before its first step. Here the whole bit, its tumble
   // under the engine included, is scaled by how hard it came down. Printed for the hand-in.
   test('the beats before its first step home are scaled by how hard it came down: a set-down almost none, a throw a shake of the head, a big fall the full bit', async () => {
-    const set = await bit([-6.5, 0.72, -2], null);
+    const set = await bit([-6.2, 0.72, -2], null);
     const toss = await bit(OPEN, [5, 0, 0]);
     const thrown = await bit(OPEN, [10, 0, 0]);
-    const fall = await bit([-6.5, 6.5, -2], null);
+    const fall = await bit([-6.2, 6.5, -2], null);
     console.log(
       [['set down', set], ['tossed at 5', toss], ['thrown at 10', thrown], ['dropped from 6', fall]]
         .map(([n, r]) => `${n}: ${(r as typeof set).toStep.toFixed(1)} s from touching down to its first step (how hard ${(r as typeof set).hard.toFixed(2)}): ${(r as typeof set).states.join(' ')}`)
@@ -1142,7 +1142,7 @@ describe('it can be taken hold of again at any moment, and the grab is continuou
     ['shaking its head', (s) => s.state === 'shake', OPEN, [10, 0, 0]],
     ['stuck to the wall', (s) => s.state === 'wall', [-3.6, 2.2, -1.2], [0, 0, -10]],
     // (a stated velocity gets no loft: let go near enough the left end that it goes over it before it is down)
-    ['hanging from the edge', (s, w) => s.state === 'ledge' && patch(w).stateTime > 0.5, [-8.5, 1.0, -1], [-3, 0, 0]],
+    ['hanging from the edge', (s, w) => s.state === 'ledge' && patch(w).stateTime > 0.5, [-8.5, 1.0, -0.2], [-3, 0, 0]] /* (L2: at z -1 the Button's console stood beside it) */,
     ['walking home', (s, w) => s.state === 'walk' && s.speed > 0.5 && patch(w).stateTime > 1, OPEN, [6, 0, 0]],
     ['climbing its stool', (s, w) => s.state === 'climb' && patch(w).stateTime > 0.3, [2.6, 1.0, -2.2], [0, 0, 0]],
   ];

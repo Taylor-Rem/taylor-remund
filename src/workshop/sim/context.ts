@@ -28,6 +28,12 @@ export interface CrewHandle {
   /** S5 round 2: while the visitor holds the crew member itself, the yaw it turns to (eased by the hand's levelling), or null for the yaw it was picked up with. */
   heldYaw?(): number | null;
   /**
+   * P4 P1a: while the visitor holds the crew member itself, where its grip is carried to, given where the hand is (the
+   * world carries the body there as it carries any held thing; Pitch trails the hand like a balloon on a string).
+   * Absent: the hand itself.
+   */
+  heldAt?(hand: Vec3): Vec3;
+  /**
    * The crew member's own body as its unit describes it, where one box will not do (Patch: its trunk and its head):
    * boxes fixed together, each `at` a point of the body's own frame (the first is the trunk, at its origin), and
    * how it feels. Given once, as the unit is made, while the body is still out of the world. The part's own `half`

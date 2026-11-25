@@ -99,9 +99,9 @@ describe('fonts', () => {
 });
 
 describe('contentById', () => {
-  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp', 'name.dock.bell', 'name.belt.dial', 'name.belt.lever', 'name.striker', 'name.dock', 'name.chute', 'mark.shipped', 'mark.return',
+  const ids = ['card.rung1', 'slip.out-of-lane', 'name.crate', 'name.fetch', 'name.pitch', 'name.lamp', 'name.belt', 'name.button', 'name.cord', 'name.jack.storefront', 'name.jack.lamp', 'name.dock.bell', 'name.belt.dial', 'name.belt.lever', 'name.striker', 'name.dock', 'name.chute', 'mark.shipped', 'mark.return',
     // S4
-    'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing', 'name.revert', 'name.undo-lever', 'name.button.cover',
+    'card.rung2', 'card.rung3', 'card.rung4', 'card.deck.1', 'card.deck.2', 'card.deck.3', 'card.deck.4', 'card.deck.5', 'card.deck.6', 'card.revert.kept', 'card.revert.nothing', 'name.revert', 'name.stand', 'name.undo-lever', 'name.button.cover',
     // the Patchlamp station (S3)
     'name.line', 'name.patch', 'name.platen', 'name.storefront', 'name.jack.platen', 'name.jack.belt', 'name.jack.reserved', 'slip.reserved', 'slip.platen-full',
     // P4 S5: the project crates (each called by its project's published title), their latches and plates, the stand-in

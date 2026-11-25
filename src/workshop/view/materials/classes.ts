@@ -684,6 +684,10 @@ pEmit = hot * level * mix(u_flicker, 1.0, pSteady) * mix(u_edge, 1.0, core);
 // the lamp's own glow takes the lamp's colour at its own luminance (materials/lamp-glow.ts)
 pEmit = mix(pEmit, dot(pEmit, vec3(0.2126, 0.7152, 0.0722)) * c_lampGlow, u_lampGlowMix);
 #endif
+#ifdef BUTTON_GLOW
+// (L2) the Button's lit cap breathes (materials/button-glow.ts)
+pEmit *= u_buttonGlow;
+#endif
 pRough = 0.12;
 `,
   },

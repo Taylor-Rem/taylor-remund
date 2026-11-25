@@ -51,6 +51,8 @@ export { STOREFRONT_START } from './machines/storefront.ts';
 export { PATCHLAMP_BEAT_SECONDS, STOREFRONT_FIELDS, LAMP_FIELDS, WINDOW_PICTURES } from './machines/shared/patchlamp.ts';
 // P4 D1: the ledger board (its scene ids, its arithmetic and its show, for the view)
 export { LEDGER } from './scenes/bench.ts';
+// (P4 P1a; E1) Pitch is a late unit: nothing of him is exported here (this file is in what the page loads first). His
+// scene module (scenes/bench-pitch.ts) arrives in his own chunk; the shell hands his views what they need.
 export { TOKENS_FIELD } from './machines/ledger.ts';
 export { TIER, TOKENS, CUPS, MONTH, isRubber, placeOf, cupIndex, rubberOf, balanced, tokensAt, starAt, LEDGER_SHOW } from './machines/shared/ledger-board.ts';
 export type { Place, Tokens, TokenAt, LedgerScript } from './machines/shared/ledger-board.ts';

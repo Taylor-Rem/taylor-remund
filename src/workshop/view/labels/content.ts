@@ -71,6 +71,8 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'slip.out-of-lane': raw.slips.fetchOutOfLane as Entry,
   'name.crate': raw.names.crate as Entry,
   'name.fetch': raw.names.fetch as Entry,
+  /** P4 P1a: Pitch (a draft for Taylor). */
+  'name.pitch': raw.names.pitch as Entry,
   'name.lamp': raw.names.lamp as Entry,
   'name.belt': raw.names.belt as Entry,
   'name.button': raw.names.button as Entry,
@@ -116,6 +118,7 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'name.lid': raw.names.lid as Entry,
   'name.plate': raw.names.plate as Entry,
   'name.standin': raw.names.standin as Entry,
+  'name.stand': raw.names.stand as Entry, // P4 S6: the opening stand (a prototype behind ?open=stand)
   // P4 D1: the ledger board and its two controls
   'name.ledger.board': raw.names.ledger.board as Entry,
   'name.ledger.crank': raw.names.ledger.crank as Entry,

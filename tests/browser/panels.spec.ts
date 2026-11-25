@@ -83,8 +83,11 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
     const crates = await ws(page, (x) => (x.world.scene.projects ?? []).map((c: { crate: string; lid: string; plate: string; project: string }) => c));
     let opened: { crate: string; project: string } | null = null;
     for (const c of crates) {
-      await ws(page, (x, id) => x.dispatch({ type: 'press', id }), c.lid);
-      await steps(page, 30);
+      // (I2) opened the one way the bench has: taken and set on the opening stand (the keys' intents)
+      await ws(page, (x, id) => x.dispatch({ type: 'grab', id, grip: x.world.motion(id).pose.p }), c.crate);
+      await steps(page, 3);
+      await ws(page, (x) => x.dispatch({ type: 'place', at: 'opening-stand' }));
+      await steps(page, 240);
       await ws(page, (x, id) => x.dispatch({ type: 'press', id }), c.plate);
       await steps(page, 3);
       if (await dialog(page).isVisible()) {
@@ -344,7 +347,7 @@ const view = (page: Page): Promise<{ focus: number[]; zoom: number }> => ws(page
 const resting = (page: Page): Promise<unknown> => page.waitForFunction(() => !(window as any).__handoff.workshop.stage.camera.easing, null, { timeout: 10_000 });
 const same = (a: { focus: number[]; zoom: number }, b: { focus: number[]; zoom: number }): boolean => Math.abs(a.zoom - b.zoom) < 1e-3 && a.focus.every((f, k) => Math.abs(f - b.focus[k]!) < 1e-3);
 
-/** Open a project crate with a real pointer (a double-click), then press its card's FULL ENTRY plate: the panel opens over the look. */
+/** Open a project crate with a real pointer (I2: carried onto the opening stand), then press its card's FULL ENTRY plate: the panel opens over the look. */
 async function crateEntry(page: Page, title: string): Promise<{ crate: string; card: string; plate: string }> {
   const project = Object.entries(PROJECTS).find(([, p]) => p.resume === title)![0];
   const c = await ws(page, (w, project) => (w.world.scene.projects as { crate: string; card: string; plate: string; project: string }[]).find((x) => x.project === project)!, project);
@@ -357,38 +360,49 @@ async function crateEntry(page: Page, title: string): Promise<{ crate: string; c
 }
 
 /**
- * Double-click crate `c` with a real pointer until it is the one that opened, and the camera holds a look on it.
- * (Why a retry: in the first seconds the crew carry crates across the bench on attract mode's rounds. A crate in
- * Fetch's arms can pass in front of the one aimed at between the aim and the press, and the double-click then opens
- * the crate it lands on, as it should for a visitor. Seen in the traces of 2026-11-22: `part.grabbed crate-4`,
- * `crate.opened`, `look crate-4-card`, the aim having been crate-3.) A wrong crate that opened is shut again by its
- * latch and the camera sent home before the next try.
+ * (I2) Carry crate `c` with a real pointer onto the opening stand and let go, until it is open there and the camera
+ * holds a look on it (the one way the bench opens a crate; until I2, a double-click). A press on the crate where only
+ * it takes the press (`pointFor`), a drag toward the stand's place on screen, small corrections while it is held (the
+ * hand carries it at a height, so the point under the cursor is not the point it hangs over), still a moment, then up.
+ * (Why a retry: in the first seconds the crew carry crates across the bench on attract mode's rounds, and one in
+ * Fetch's arms can pass in front of the one aimed at.)
  */
 async function openByPointer(page: Page, c: { crate: string; card: string }): Promise<void> {
+  const W = (fn: string, arg?: unknown) => page.evaluate(([fn, arg]) => (new Function('w', 'arg', `return (${fn})(w, arg)`))((window as any).__handoff.workshop, arg), [fn, arg] as const);
+  const screenOf = (p: number[]) =>
+    W(`(w, p) => { const cv = w.stage.canvas.getBoundingClientRect(), s = w.stage.camera.worldToScreen({ x: p[0], y: p[1], z: p[2] }); return { x: cv.left + ((s.x + 1) / 2) * cv.width, y: cv.top + ((1 - s.y) / 2) * cv.height }; }`, p) as Promise<{ x: number; y: number }>;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const at = await pointFor(page, c.crate);
-    const before = await page.evaluate(() => ((window as any).__h1events as string[]).length);
-    await page.mouse.dblclick(at.x, at.y);
+    const to = (await W(`(w) => w.world.scene.mouths.find((m) => m.id === 'opening-stand').drop`)) as number[];
+    const from = await pointFor(page, c.crate);
+    let cur = { ...from };
+    await page.mouse.move(cur.x, cur.y);
+    await page.mouse.down();
+    const goal = await screenOf(to);
+    for (let i = 1; i <= 16; i++) {
+      cur = { x: from.x + ((goal.x - from.x) * i) / 16, y: from.y + ((goal.y - from.y) * i) / 16 };
+      await page.mouse.move(cur.x, cur.y);
+      await page.waitForTimeout(16);
+    }
+    for (let k = 0; k < 16; k++) {
+      await page.waitForTimeout(160);
+      const q = (await W(`(w, id) => w.world.motion(id).pose.p`, c.crate)) as number[];
+      if (Math.hypot(q[0]! - to[0]!, q[2]! - to[2]!) < 0.05) break;
+      const qa = await screenOf(q);
+      const qb = await screenOf([to[0]!, q[1]!, to[2]!]);
+      cur = { x: cur.x + (qb.x - qa.x) * 0.8, y: cur.y + (qb.y - qa.y) * 0.8 };
+      await page.mouse.move(cur.x, cur.y);
+    }
+    await page.waitForTimeout(500);
+    await page.mouse.up();
     const ok = await page
-      .waitForFunction((id) => (window as any).__handoff.workshop.world.setting(id, 'open') === true && !!(window as any).__handoff.workshop.stage.camera.look, c.crate, { timeout: 6_000 })
+      .waitForFunction((id) => (window as any).__handoff.workshop.world.setting(id, 'open') === true && !!(window as any).__handoff.workshop.stage.camera.look, c.crate, { timeout: 8_000 })
       .then(() => true, () => false);
     if (ok) return;
-    // which crate answered instead (from the events since the press), shut it, and go home
-    const other = await page.evaluate(
-      ([n, mine]) => {
-        const w = (window as any).__handoff.workshop;
-        const looks = ((window as any).__h1events as string[]).slice(n).map((l) => / look (\S+)-card$/.exec(l)?.[1]).filter((x): x is string => !!x && x !== mine);
-        const o = looks.at(-1) ?? null;
-        if (o && w.world.setting(o, 'open') === true) w.dispatch({ type: 'press', id: `${o}-lid` });
-        return o;
-      },
-      [before, c.crate] as const,
-    );
-    console.log(`the double-click on ${c.crate} opened ${other ?? 'nothing'} (attempt ${attempt + 1}); again`);
+    console.log(`${c.crate} carried to the stand did not open (attempt ${attempt + 1}); again`);
     await page.keyboard.press('Escape');
     await resting(page);
   }
-  throw new Error(`${c.crate} never opened under a double-click\n${await dump(page, { crate: c.crate, plate: c.crate }, null)}`);
+  throw new Error(`${c.crate} never opened on the stand\n${await dump(page, { crate: c.crate, plate: c.crate }, null)}`);
 }
 
 /**

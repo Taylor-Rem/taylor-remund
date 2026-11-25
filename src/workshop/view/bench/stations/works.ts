@@ -3,7 +3,7 @@
  * where each used station would spark (view/stations/works.ts). The anchors come from the layout:
  * the striker's hammer, the belt's motor, the dock's door motor, the lever's hub, the lamp's shade.
  */
-import { LAYOUT, origin } from '../../bench.ts';
+import { CONSOLE_SCALE, LAYOUT, origin } from '../../bench.ts';
 import { createWorksView } from '../../stations/works.ts';
 import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';
@@ -25,6 +25,6 @@ export const station: BenchStation = {
       dock: [dx, 2.15, dz],
     };
     if (k.bulb) anchors['lamp'] = [k.bulb.at[0], k.bulb.at[1] - 0.15, k.bulb.at[2]];
-    return timed('works', createWorksView({ anchors, seed: k.seed }));
+    return timed('works', createWorksView({ anchors, seed: k.seed, consoleScale: CONSOLE_SCALE }));
   },
 };

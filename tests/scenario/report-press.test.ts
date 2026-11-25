@@ -3,8 +3,11 @@
 // folded and flicked onto the belt, where it queues behind whatever is riding, ships at the dock with the bell, and
 // comes home to the press (never up the chute). One effect group under the pull, undone exactly by the lever wherever
 // the envelope had got to.
+// I2: the crate opens on the opening stand (pressOut), the press on its tray there; the tests of the press's own life as
+// a loose part (in a hand, set down out on the bench, shipped, thrown off) run on the stand's loose-things bench
+// (LOOSE_BENCH), since on the shipped bench (`things: 'fixed'`) it never leaves its tray.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, putOn, waitFor, onBelt, tape, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, putOn, waitFor, onBelt, tape, BENCH, LOOSE_BENCH, type Tape } from './line-helpers.ts';
 import { loc, pressOut, until } from './press-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { PRESS } from '../../src/workshop/sim/scenes/bench.ts';
@@ -105,7 +108,9 @@ describe('the report press', () => {
   }, 60_000);
 
   test('a pull while one is showing (before the flick) waits its turn, and runs once the envelope has landed; with the press in a hand, the lever misfires and nothing prints', async () => {
-    const { w, t } = await pressOut('rp-wait');
+    // (I2) the waiting pull on both benches; the press in a hand only where a hand can take it (loose)
+    for (const scene of [BENCH, LOOSE_BENCH]) {
+    const { w, t } = await pressOut(`rp-wait-${scene.openingStand!.things}`, { scene });
     pull(w);
     t.run(steps(0.5)); // (past a double-tap's window: a second press sooner is held a moment)
     pull(w);
@@ -115,16 +120,19 @@ describe('the report press', () => {
     expect(until(w, t, () => drawer(w) === 2, 8 * HZ), "the waiting pull runs once the envelope has landed").toBe(true);
     expect(drawer(w)).toBe(2);
     expect(view(w).waiting).toBe(false);
-    w.dispatch({ type: 'grab', id: P, grip: w.motion(P)!.pose.p });
-    t.run(5);
-    pull(w);
-    const ev = t.run(1);
-    expect(ev.some((e) => e.type === 'misfire' && e.id === PRESS.lever)).toBe(true);
-    expect(drawer(w)).toBe(2);
-    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
-    t.run(HZ);
+    if (scene === LOOSE_BENCH) {
+      w.dispatch({ type: 'grab', id: P, grip: w.motion(P)!.pose.p });
+      t.run(5);
+      pull(w);
+      const ev = t.run(1);
+      expect(ev.some((e) => e.type === 'misfire' && e.id === PRESS.lever)).toBe(true);
+      expect(drawer(w)).toBe(2);
+      w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+      t.run(HZ);
+    }
     w.dispose();
-  }, 60_000);
+    }
+  }, 120_000);
 
   test('a pull while the envelope is in the air is refused politely: nothing prints, nothing joins the first pull', async () => {
     const { w, t } = await pressOut('rp-refuse');
@@ -149,7 +157,9 @@ describe('the report press', () => {
   }, 60_000);
 
   test('it asks for the camera: on its tray its crate\'s card, on the bench its own box; never on a pull; the flick sends the camera back', async () => {
-    const { w, t } = await pressOut('rp-look');
+    // (I2) on its tray on both benches; set down out on the bench only where a hand can take it off the tray (loose)
+    for (const scene of [BENCH, LOOSE_BENCH]) {
+    const { w, t } = await pressOut(`rp-look-${scene.openingStand!.things}`, { scene });
     // a double-tap on the lever: its first tap pulls, its second tap's pull is dropped, and it asks to be looked at
     pull(w);
     t.run(2);
@@ -169,10 +179,13 @@ describe('the report press', () => {
     t.run(5);
     expect(t.of('look').length).toBe(looks);
     // set down on the bench: it asks for its own box once it has come to rest
-    putOn(w, t, P, [-4.0, 0, 0.6], 60);
-    expect(until(w, t, () => t.events.some((x) => x.e.type === 'look' && (x.e as { target: string }).target === PRESS.look), 3 * HZ)).toBe(true);
+    if (scene === LOOSE_BENCH) {
+      putOn(w, t, P, [-4.0, 0, 0.6], 60);
+      expect(until(w, t, () => t.events.some((x) => x.e.type === 'look' && (x.e as { target: string }).target === PRESS.look), 3 * HZ)).toBe(true);
+    }
     w.dispose();
-  }, 60_000);
+    }
+  }, 120_000);
 
   test('the flick is a slow high lob: over a second in the air, its top well over the press', async () => {
     const { w, t } = await pressOut('rp-lob');
@@ -231,12 +244,14 @@ describe('the report press', () => {
   }, 120_000);
 
   test('the flick lands it on the belt from wherever the press stands (the way clear)', async () => {
-    const spots: [number, number, number][] = [[-1.4, 0, 0.9], [-4.0, 0, 1.6], [5.6, 0, 1.4], [0.4, 0, -1.8], [-6.6, 0, -0.8], [7.2, 0, 0.9]];
+    // (I2) from the stand, on its tray (the shipped bench: the one place it stands), then set down out on the bench at each
+    // spot (loose); -1.4, 0.9 was the open bench's first spot and is the stand's left edge now: the stand is that case
+    const spots: ([number, number, number] | null)[] = [null, [-4.0, 0, 1.6], [5.6, 0, 1.4], [0.4, 0, -1.8], [-8.2, 0, -0.2], [7.2, 0, 0.9]] /* (L2: -6.6, -0.8 is against the Button's console now) */;
     for (const at of spots) {
-      const { w, t } = await pressOut(`rp-from-${at[0]}`, { at });
-      expect(w.setting(PRESS.crate, OPEN), `${at}: open`).toBe(true);
+      const { w, t } = at ? await pressOut(`rp-from-${at[0]}`, { at }) : await pressOut('rp-from-stand');
+      expect(w.setting(PRESS.crate, OPEN), `${at ?? 'the stand'}: open`).toBe(true);
       pull(w);
-      expect(until(w, t, () => loc(w, E) === 'in:belt', 6 * HZ), `from ${at}: on the belt`).toBe(true);
+      expect(until(w, t, () => loc(w, E) === 'in:belt', 6 * HZ), `from ${at ?? 'the stand'}: on the belt`).toBe(true);
       w.dispose();
     }
   }, 180_000);
@@ -342,7 +357,7 @@ describe('the report press', () => {
   }, 60_000);
 
   test('shipped itself, the press comes back up the chute with its holders and its drawer as they were; it prints again', async () => {
-    const { w, t } = await pressOut('rp-ship-press');
+    const { w, t } = await pressOut('rp-ship-press', { scene: LOOSE_BENCH }); // (I2: the press carried to the belt: loose)
     pull(w);
     t.run(PRESS_SHOW_STEPS);
     const was = { r: report(w), d: drawer(w) };
@@ -385,7 +400,7 @@ describe('"Reset the workshop" stows the press and brings its envelope home from
   };
 
   test('the press thrown off the bench from its tray before it ever rested (in the chute, its location still in its crate)', async () => {
-    const { w, t } = await pressOut('rp-reset-chute');
+    const { w, t } = await pressOut('rp-reset-chute', { scene: LOOSE_BENCH }); // (I2: thrown off its tray: loose)
     pull(w);
     t.run(PRESS_SHOW_STEPS + 10);
     throwOff(w, t, P);
@@ -396,7 +411,7 @@ describe('"Reset the workshop" stows the press and brings its envelope home from
   }, 120_000);
 
   test('the envelope in the air, then shipped and not yet home; the press out on the bench', async () => {
-    const { w, t } = await pressOut('rp-reset-flight');
+    const { w, t } = await pressOut('rp-reset-flight', { scene: LOOSE_BENCH }); // (I2: set down out on the bench: loose)
     putOn(w, t, P, [-4.0, 0, 0.6], 60);
     pull(w);
     expect(until(w, t, () => w.mode(E) === 'machine' && loc(w, E) !== `in:${PRESS.body}`, 6 * HZ)).toBe(true);

@@ -22,9 +22,9 @@ import type { KitOptions, KitPart, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import { extrude, lathe, profiledBox, roundedBox, slab, taperBox } from '../../solids.ts';
 import { profile } from '../../profile.ts';
-import { sweep, polylinePath } from '../../sweep.ts';
+import { sweep, polylinePath, arcPath } from '../../sweep.ts';
 import { domeRivet } from '../../details.ts';
-import { aim, chain, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
+import { aim, chain, mat, part, piece, place, texturedPart, T, withVariant } from '../../compose.ts';
 import { askew, rng } from '../../rng.ts';
 import { deform, transform } from '../../deform.ts';
 import { setFinish, grain } from '../../space.ts';
@@ -66,6 +66,13 @@ export interface ButtonOptions extends KitOptions {
   /** Build already posed (a name from NAMED_POSES, or a pose). The rest pose is the default. */
   pose?: string | ButtonPose;
 }
+
+/**
+ * (L2; the owner chose it 2026-11-25) The cap is an illuminated push button: its enamel the `bulb` class in its 'button'
+ * variant (it glows red from inside; the view breathes it, materials/button-glow.ts). How deep a cut of `button-red`
+ * its glow is (the bulb class's indicator level times this).
+ */
+export const LIT_CAP = { shade: 0.42 } as const;
 
 /**
  * The hatch's screws, on the console's left side (seen only from far to the left, a few pixels
@@ -205,7 +212,8 @@ export function button(o: ButtonOptions = {}): Piece {
       { detail, segs: hi ? 28 : 18, caps: false },
     );
     // thick wet enamel: a deeper cut of the token, so its lit side stays red under the gloss
-    cap.add(setFinish(part('steel', g, 'button-red', { seed: seed + 8, shade: 0.8 }), 1));
+    // (L2) lit from inside
+    cap.add(...withVariant(setFinish(part('bulb', g, 'button-red', { seed: seed + 8, shade: LIT_CAP.shade }), 1), 'button'));
   }
 
   // ======================================================================

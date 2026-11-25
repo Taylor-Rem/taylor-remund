@@ -1,0 +1,192 @@
+---
+// /dev/entrances/ (E1 Part D): STORYBOARDS for the crew arriving after the bench is usable, as stills on the real
+// bench under its real light. Nothing here is built into the crew: the page boots the bench as it is, hides the crew
+// member a board is about, and stands his kit piece (posed by the catalogue's own poses) where each beat of his
+// entrance would have him. It does not import or drive any unit. Dev-only; never shipped. No visible words.
+//
+//   ?board=fetch|fetch-jet|revert|patch   whose entrance (fetch: by the return chute; fetch-jet: the owner's, flying in)
+//   ?frame=1..n                 which beat (each board says how many)
+//   ?view=phone|wide            the framing (default: by the window's shape)
+//   ?shot=home                  the home framing instead of the board's own close one
+// Hooks: window.__ready after a settled frame; window.__entrances { boards }.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>Entrances</title>
+    <style is:global>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12292c; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="stage-root"><canvas id="stage"></canvas></div>
+    <script>
+      import { Box3, Euler, Group, Quaternion, Vector3, type Object3D } from 'three';
+      import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
+      import { CREW_SCALE } from '../workshop/view/bench.ts';
+      import { NEUTRAL as FETCH_NEUTRAL, EXPRESSIONS as FETCH_FACES } from '../workshop/view/kit/pieces/fetch-porter/rig.ts';
+      /** Fetch's pose with his jetpack lit (its own pose fields: the jets, the puff), over one of his faces. */
+      const jetting = (face: keyof typeof FETCH_FACES, jet: number, puff: number): Record<string, unknown> => ({ ...FETCH_NEUTRAL, ...FETCH_FACES[face], jet: [jet, jet], puff });
+
+      const q = new URLSearchParams(location.search);
+      const canvas = document.getElementById('stage') as HTMLCanvasElement;
+      const S = CREW_SCALE;
+      const D = Math.PI / 180;
+
+      /** One thing to stand on the bench for a beat: a catalogue piece, its options, where (x, y, z), its turn and tilt (degrees), its scale. */
+      interface Prop {
+        piece: string;
+        opts?: Record<string, unknown>;
+        at: [number, number, number];
+        yaw?: number;
+        pitch?: number;
+        roll?: number;
+        scale?: number;
+      }
+      interface Beat {
+        props: Prop[];
+      }
+      interface Board {
+        /** The crew view to hide while the board is shown (its root's name in the scene). */
+        hide: string[];
+        /** The board's own framing (world box). */
+        box: [[number, number, number], [number, number, number]];
+        beats: Beat[];
+      }
+
+      // where things are on the bench (sim/scenes/bench.ts AT, read off the scene: the chute's mouth, the dock's pad,
+      // Fetch's start on his lane, Revert's hatch, Patch's stool)
+      const CHUTE: [number, number, number] = [-7.03, 1.23, 2.93];
+      const PAD: [number, number, number] = [-3.91, 0, 2.68];
+      const FETCH_START: [number, number, number] = [-1.82, 0, 2.78];
+      const HATCH: [number, number] = [-4.85, 0.3];
+      const SEAT: [number, number, number] = [3.02, 0.69, -3.46];
+
+      const BOARDS: Record<string, Board> = {
+        // Fetch, returned to the bench by the bench's own way of returning lost things: up the return chute, out of its
+        // mouth like a parcel, onto the dock's pad; he shakes himself straight and trundles to his lane for his crate
+        fetch: {
+          hide: ['fetch', 'part:crate-4', 'project-crate:crate-4'],
+          box: [[-8.2, 0, 0.8], [-0.6, 2.6, 4.6]],
+          beats: [
+            { props: [{ piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'oops', seed: 1 }, at: [CHUTE[0] + 0.55, CHUTE[1] + 0.25, CHUTE[2] - 0.05], yaw: 80, pitch: 35, roll: -20, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'oops', seed: 1 }, at: [PAD[0] - 0.4, 0.05, PAD[2]], yaw: 110, pitch: -10, roll: 14, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'deadpan', seed: 1 }, at: [PAD[0] + 0.1, 0, PAD[2]], yaw: 20, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'eager', seed: 1 }, at: FETCH_START, yaw: 10, scale: S }] },
+          ],
+        },
+        // The owner's take: Fetch flies in, on the jetpack he already has (S5: Taylor's "a little jetpack to fly back
+        // on"), from beyond the bench's left end, high; down over his lane, a bounce on his spring, and his crate
+        'fetch-jet': {
+          hide: ['fetch', 'part:crate-4', 'project-crate:crate-4'],
+          box: [[-8.6, 0, 0.6], [0.4, 3.4, 4.6]],
+          beats: [
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('eager', 1, 0.4), seed: 1 }, at: [-8.0, 2.6, 2.2], yaw: 70, pitch: 12, roll: -8, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('curious', 1, 0.2), seed: 1 }, at: [-4.6, 1.7, 2.6], yaw: 85, pitch: 6, roll: 6, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('oops', 0.3, 1.8), seed: 1 }, at: [FETCH_START[0] - 0.6, 0.02, FETCH_START[2]], yaw: 40, pitch: -6, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'eager', seed: 1 }, at: FETCH_START, yaw: 10, scale: S }] },
+          ],
+        },
+        // Revert comes up through his hatch, as he always does (the doors kick open, the lift brings him up), and trundles
+        // off to his park. With him late, the hatch stays in the opening picture, shut: nothing pops
+        revert: {
+          hide: ['revert-station'],
+          box: [[-7.2, 0, -1.2], [-2.6, 2.4, 2.0]],
+          beats: [
+            { props: [{ piece: 'revert-hatch', opts: { pose: 'shut', seed: 1 }, at: [HATCH[0], 0, HATCH[1]], scale: S }] },
+            { props: [{ piece: 'revert-hatch', opts: { pose: 'opening', seed: 1 }, at: [HATCH[0], 0, HATCH[1]], scale: S }] },
+            { props: [{ piece: 'revert-hatch', opts: { pose: 'rising', seed: 1 }, at: [HATCH[0], 0, HATCH[1]], scale: S }, { piece: 'revert', opts: { pose: 'glare', seed: 1 }, at: [HATCH[0], -0.75, HATCH[1]], scale: S }] },
+            { props: [{ piece: 'revert-hatch', opts: { pose: 'open', seed: 1 }, at: [HATCH[0], 0, HATCH[1]], scale: S }, { piece: 'revert', opts: { pose: 'deadpan', seed: 1 }, at: [HATCH[0], 0.3 * S * 0.2, HATCH[1]], scale: S }] },
+          ],
+        },
+        // Patch, the felt puppet, let down onto its stool from the dark above the board like a puppet on its strings,
+        // lands, gives the visitor the look, and turns to the board to work
+        patch: {
+          hide: ['patch'],
+          box: [[0.6, 0, -4.8], [5.2, 3.4, -1.8]],
+          beats: [
+            { props: [] },
+            { props: [{ piece: 'patch-felt', opts: { pose: 'checking', standIn: false, turn: 0, seed: 1 }, at: [SEAT[0], SEAT[1] + 1.6, SEAT[2]], scale: S, roll: 6 }] },
+            { props: [{ piece: 'patch-felt', opts: { pose: 'unimpressed', standIn: false, turn: 0, seed: 1 }, at: [SEAT[0], SEAT[1] + 0.12, SEAT[2]], scale: S }] },
+            { props: [{ piece: 'patch-felt', opts: { pose: 'the-look', standIn: false, turn: 0, seed: 1 }, at: SEAT, scale: S }] },
+            { props: [{ piece: 'patch-felt', opts: { pose: 'working', standIn: false, seed: 1 }, at: SEAT, scale: S }] },
+          ],
+        },
+      };
+
+      async function main(): Promise<void> {
+        const name = q.get('board') ?? 'fetch';
+        const board = BOARDS[name];
+        if (!board) throw new Error(`entrances: no board "${name}" (${Object.keys(BOARDS).join(', ')})`);
+        const n = Math.max(1, Math.min(board.beats.length, Number(q.get('frame') ?? 1)));
+        const beat = board.beats[n - 1]!;
+        const { benchGlue, startBench } = await import('../workshop/shell/bench-stage.ts');
+        const { earlyPhysics } = await import('../workshop/shell/early.ts');
+        const root = new Group();
+        root.name = 'entrances';
+        const station = (ctx: import('../workshop/shell/boot.ts').BootViewContext) => {
+          ctx.scene.add(root);
+          let built = false;
+          return {
+            root,
+            update() {
+              // the crew member this board is about: not drawn (his unit runs on, unseen; nothing here drives it)
+              for (const h of board.hide) ctx.scene.traverse((o) => {
+                if (o.name === h) o.visible = false;
+              });
+              if (built) return;
+              built = true;
+              // (Patch's board is placed about the stool's seat as the bench has fitted it; SEAT above is its rough value)
+              const fitted = glue.bench.fit.stool.seat;
+              const shift: [number, number, number] = name === 'patch' ? [fitted[0] - SEAT[0], fitted[1] - SEAT[1], fitted[2] - SEAT[2]] : [0, 0, 0];
+              void (async () => {
+                for (const p of beat.props) {
+                  const e = await findPiece(p.piece);
+                  if (!e) continue;
+                  const obj: Object3D = ctx.realize(buildEntry(e, null, { ...(p.opts ?? {}) }, ctx.labels));
+                  obj.scale.setScalar(p.scale ?? 1);
+                  obj.position.set(p.at[0] + shift[0], p.at[1] + shift[1], p.at[2] + shift[2]);
+                  obj.quaternion.copy(new Quaternion().setFromEuler(new Euler((p.pitch ?? 0) * D, (p.yaw ?? 0) * D, (p.roll ?? 0) * D, 'YXZ')));
+                  root.add(obj);
+                }
+              })();
+            },
+            dispose() {
+              root.removeFromParent();
+            },
+          };
+        };
+        const glue = benchGlue({
+          canvas,
+          tier: 'high',
+          reducedMotion: true,
+          seed: 1,
+          physics: earlyPhysics,
+          room: true,
+          plan: false,
+          view: q.get('view') === 'phone' ? 'phone' : q.get('view') === 'wide' ? 'wide' : null,
+          extraStations: [station],
+        });
+        const ws = await startBench({ glue, root: document.getElementById('stage-root')!, canvas, reducedMotion: true, direct: true, manual: true });
+        if (!ws) throw new Error('entrances: the bench did not start');
+        if (q.get('shot') !== 'home') {
+          const [a, b] = board.box;
+          ws.stage.camera.cutTo(ws.stage.camera.frame(new Box3(new Vector3(...a), new Vector3(...b))));
+        }
+        ws.advance(12);
+        for (let i = 0; i < 4; i++) ws.advance(0);
+        await ws.labels.ready();
+        await new Promise((r) => setTimeout(r, 500));
+        for (let i = 0; i < 8; i++) ws.advance(0);
+        (window as unknown as { __entrances: unknown }).__entrances = { boards: Object.fromEntries(Object.entries(BOARDS).map(([k, b]) => [k, b.beats.length])) };
+        (window as unknown as { __ready: boolean }).__ready = true;
+      }
+      void main();
+    </script>
+  </body>
+</html>

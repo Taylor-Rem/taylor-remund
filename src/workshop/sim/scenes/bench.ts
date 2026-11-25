@@ -17,7 +17,7 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { FetchRounds, MouthSpec, PartSpec, ProjectCrate, SceneDesc, StaticSpec } from '../scene.ts';
+import type { FetchRounds, MouthSpec, PartSpec, ProjectCrate, SceneDesc, StaticSpec, UnitFactory } from '../scene.ts';
 import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
@@ -30,6 +30,7 @@ import { ledger } from '../machines/ledger.ts';
 import { paintDial } from '../machines/paint-dial.ts';
 import { press } from '../machines/press.ts';
 import { toolwall } from '../machines/toolwall.ts';
+import { openingStand } from '../machines/opening-stand.ts';
 import { rampAt, rampDoor, rampLength } from '../ramp.ts';
 import type { RampSpec } from '../ramp.ts';
 import { undoLever } from '../machines/undo-lever.ts';
@@ -51,6 +52,18 @@ interface Box {
 }
 
 const DEG = Math.PI / 180;
+
+/**
+ * L2 (the owner's layout, 2026-11-24: "I like this one"; and "the button can be a little smaller. I don't think it was ever
+ * meant to take center stage"): the Button's console is a find in the back left corner, under the tool wall, at this share
+ * of the size it was built at (the whole piece: body, cover, counter, cap, tape). Its middle on the bench (x, z): as near
+ * the corner as it stands with no tool or tool label on the wall behind it hidden from the home view (cover raised), and
+ * with room behind it for Revert to stand and turn facing the visitor (`REVERT_BEHIND`).
+ */
+const CONSOLE_SCALE = 0.85;
+const CONSOLE_AT = [-7.6, -1.65] as const;
+/** L2: the bench's centre at the front, in the lamp's pool, where the Button stood: the opening stand's place (`OPENING_STAND`) and where the tells start from. */
+const CENTRE: Vec3 = [-0.6, 0, 0.5];
 
 /** The layout table. Tune here (and in the view's LAYOUT: the test holds them together). */
 export const AT = {
@@ -117,11 +130,13 @@ export const AT = {
   /** Revert risen on its lift (real piece at the crew's 1.5, origin (-4.85, 0.3)). Its hatch's doors stand open either side, low. */
   revert: { c: [-4.832, 0.672, 0.372], half: [1.026, 0.672, 0.768] } as Box,
 
-  // ── the Button's row ──
-  /** The Button's console (the body only). Deck top at y 1.04. */
-  console: { c: [-0.6, 0.52, 0.5], half: [1.05, 0.52, 0.76] } as Box,
-  /** The Button's cap on the console deck. */
-  buttonCap: [-0.28, 1.25, 0.3] as Vec3,
+  // ── the Button's corner (L2: at the back left, under the tool wall) ──
+  /** The console's size against the piece as built (the view draws it so: view/bench.ts LAYOUT `button`). */
+  consoleScale: CONSOLE_SCALE,
+  /** The Button's console (the body only). Deck top at y 1.04 × the scale. */
+  console: { c: [CONSOLE_AT[0], 0.52 * CONSOLE_SCALE, CONSOLE_AT[1]], half: [1.05 * CONSOLE_SCALE, 0.52 * CONSOLE_SCALE, 0.76 * CONSOLE_SCALE] } as Box,
+  /** The Button's cap on the console deck (the piece's CONSOLE.capX, capZ and the cap's top, 1.25, × the scale). */
+  buttonCap: [CONSOLE_AT[0] + 0.32 * CONSOLE_SCALE, 1.25 * CONSOLE_SCALE, CONSOLE_AT[1] - 0.2 * CONSOLE_SCALE] as Vec3,
 
   // ── the front: the lane, the belt and its ends ──
   /**
@@ -329,7 +344,7 @@ export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
-const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
+export const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
 const box = (id: string, b: Box, extra: Partial<StaticSpec> = {}): StaticSpec => ({ id, shape: { type: 'box', half: b.half }, pose: pose(b.c, (b.yaw ?? 0) * DEG), ...extra });
 /** Fetch's lane as the path it rides (S5 round 2: runs of tape, corners rounded): fractions along it, and points on it. */
 const lanePathOf = () => lanePath(AT.lane.points, FETCH_TUNING.cornerRadius * CREW_SCALE);
@@ -346,7 +361,7 @@ export const BARE = 'bare'; // (TOOL_PARTS above spells it: they are made before
 export const CREW_SCALE = 1.5;
 const FETCH_HALF = defaultHalfExtents('robot', 'M').map((h) => h * CREW_SCALE) as unknown as Vec3;
 
-const beltTop = AT.belt.c[1] + AT.belt.half[1];
+export const beltTop = AT.belt.c[1] + AT.belt.half[1];
 const beltEnd = AT.belt.c[0] + AT.belt.half[0];
 
 /**
@@ -447,12 +462,14 @@ const SPARES = ([1, 2] as const).map((n) => ({ id: `crate-spare-${n}`, kind: 'cr
 
 /**
  * Revert's places on the bench (x, z, heading; 0 faces the visitor) and its track between them. Home is
- * its hatch (`AT.revert`); `button` (A1 round 7) is BEHIND the console, facing the visitor over it, its arm
- * (front left, screen left) toward the guard parked open behind the cap (`REVERT_BEHIND_CONSOLE`); `park` is right of centre,
- * behind the phone and the platen, where the window's light falls across the bench. The track runs from the
- * hatch back to `REVERT_BEHIND`, along behind the lever and the console, to the Button spot (a corner of the
- * track: it cannot back up, so it stands where it can turn on the spot to leave), and on to the park. Its 2.05 x 1.54 body sweeps a circle of radius 1.28 as it turns on the spot:
- * at every corner of the track that circle clears the console, the lever, Fetch's runs, the platen and
+ * its hatch (`AT.revert`); `button` (A1 round 7; L2: the console in the back left corner) is BEHIND the console,
+ * facing the visitor over it, its arm (front left, screen left) toward the guard parked open behind the cap
+ * (`REVERT_BEHIND_CONSOLE`), between the console and the wall; `park` is right of centre, behind the phone and the
+ * platen, where the window's light falls across the bench. The track (L2) runs from the hatch straight back to
+ * `REVERT_BEHIND`, left along behind the console to the Button spot (a corner of the track: it cannot back up, so it
+ * stands where it can turn on the spot to leave), back right to the same corner, forward again clear of the switchboard's
+ * runner, and right across behind the lever to the park. Its 2.05 x 1.54 body sweeps a circle of radius 1.28 as it turns on the spot:
+ * at every corner of the track that circle clears the console, the wall, the lever, Fetch's runs, the platen and
  * Patch's runner (tests/unit/sim/revert-stand.test.ts).
  */
 const REVERT_TURN = Math.hypot(AT.revert.half[0], AT.revert.half[2]);
@@ -464,15 +481,18 @@ const REVERT_BEHIND = AT.console.c[2] - AT.console.half[2] - REVERT_TURN - 0.04;
  */
 const REVERT_BEHIND_CONSOLE = { x: AT.buttonCap[0] + 0.64, z: REVERT_BEHIND } as const;
 const REVERT_PARK = { x: 1.9, z: -1.8 } as const;
+/** L2: where the track turns at the back, straight behind the hatch: its way to the Button and back. */
+const REVERT_BACK = [AT.revert.c[0], REVERT_BEHIND] as const;
 export const REVERT = {
   home: { x: AT.revert.c[0], z: AT.revert.c[2], heading: 0 },
   button: { x: REVERT_BEHIND_CONSOLE.x, z: REVERT_BEHIND_CONSOLE.z, heading: 0 },
   park: { x: REVERT_PARK.x, z: REVERT_PARK.z, heading: -0.35 },
   path: [
     [AT.revert.c[0], AT.revert.c[2]],
-    [AT.revert.c[0], REVERT_BEHIND],
-    [-2.5, REVERT_BEHIND],
+    REVERT_BACK,
     [REVERT_BEHIND_CONSOLE.x, REVERT_BEHIND_CONSOLE.z], // the Button spot, a corner of the track
+    REVERT_BACK,
+    [AT.revert.c[0], REVERT_PARK.z],
     [REVERT_PARK.x, REVERT_PARK.z],
   ] as readonly (readonly [number, number])[],
   /** S7: where the visitor is (Fetch's `outward`): it sweeps a part from its far side, facing them. */
@@ -769,11 +789,22 @@ function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; wo
   return { tray: PATCHLAMP.platenMouth.id, phone: AT.phone.c, jack: 'jack-platen', say: 'attract.text.make-it-blue', words: 'blue' };
 }
 
+// ───────────── P4 P1a: Pitch (sim/crew/pitch.ts), a late unit (E1: scenes/bench-pitch.ts), behind one flag ─────────────
+
+/**
+ * THE switch: Pitch on the bench. He is never in the scene the page boots (E1): he arrives after the bench is usable,
+ * in a chunk of his own, by the late loader (shell/late.ts), and only when this is on (or, on a development page or a
+ * build with the development pages, `?pitch=1`). Off, nothing of him is fetched. `withPitch` (scenes/bench-pitch.ts)
+ * puts him in a scene from the first step, for the tests.
+ */
+export const PITCH_ON = false;
+
 /**
  * THE bench: the scene every page and test gets by default. (Until 2026-11-21 its Patch could also be the scripted one,
  * whose flight was hand-written, as the scene `benchScript`; Taylor played the body Patch on 2026-11-20 and kept it.)
+ * Pitch is never in it: he joins later (E1, `PITCH_ON`).
  */
-export const bench: SceneDesc = {
+const BENCH_BASE: SceneDesc = {
   id: 'bench',
   gravity: -16,
   bench: { ...AT.bench, top: 0, ceiling: 8 },
@@ -832,6 +863,8 @@ export const bench: SceneDesc = {
     flinch: ['lamp', 'belt'],
     shove: [0.6, 0, 1.6],
     cardBy: 'revert',
+    // L2: the tells start from the bench's centre, where the Button stood (the stand's place), not from its corner
+    tellsFrom: [CENTRE[0], 1.0, CENTRE[2]],
     ladder: { ...S4_LADDER, stations: [...S4_LADDER.stations, ...S6_LADDER.stations], line: S6_LADDER.line },
   },
   cord: {
@@ -905,6 +938,12 @@ export const bench: SceneDesc = {
 };
 
 /**
+ * THE bench: the scene every page and test gets by default (`BENCH_BASE` with the opening stand at its place when
+ * `OPENING_STAND_ON`, I2: the stand is how a crate opens). Defined after the stand's section, below.
+ */
+export let bench: SceneDesc;
+
+/**
  * P4 S5, development only (`?standin=1` on the bench's dev pages): the bench with a stand-in thing in one crate, the
  * kit's test block in t-components' crate (crate-3), to prove a crate's tray: shut, the block is not in the world; open,
  * it sits on the tray; taken off it is a loose part; set back on the open crate it is stowed. The shipped bench has every
@@ -940,3 +979,83 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
     runner: { ...scene.runner, carrying: null },
   };
 }
+
+/**
+ * P4 S6, behind one switch (`OPENING_STAND_ON`, on since I2 on 2026-11-25: the shipped bench has it; `?open=stand` was its development switch): the opening stand
+ * (sim/machines/opening-stand.ts). A stand with one mouth; a project crate the visitor sets down on it opens there and
+ * nowhere else. L2 (the owner's layout, 2026-11-24): its place is `centre`, the Button console's old place at the front
+ * of the centre in the lamp's pool, at the station size (S6 round two's `STAND_STATION_SIZE`, 1.5 times the table's
+ * footprint). There it clears the UNDO lever by 0.33 (its left edge to the lever's body), Fetch's lane by 0.38 beyond
+ * Fetch's footprint (its right edge to the jog) and 0.97 (its front to the front run), and the phone by 0.53. A crate it
+ * sets aside (a second one brought while one is open, a shut one left lying on it) goes BEHIND it, toward where the
+ * console stood: left is the lever, right is Fetch's jog, in front the phone and the lane. `c` (S6's place on the open
+ * bench between the platen and the dock) stays for comparison. `things`: `fixed` (a crate's thing stays on its tray) or
+ * `loose` (as before).
+ */
+export const OPENING_STAND_ON = true;
+export type StandPlace = 'centre' | 'c';
+export const OPENING_STAND = {
+  unit: 'opening-stand',
+  mouth: 'opening-stand',
+  /** The table's top (half extents x, z); it fits the large crate (0.8 x 0.74) with room. */
+  half: [0.52, 0.48] as const,
+  places: {
+    centre: { at: CENTRE, h: 0.22, aside: [0, -1] as const },
+    c: { at: [4.15, 0, 2.0] as Vec3, h: 0.22, aside: [-1, 0] as const },
+  } satisfies Record<StandPlace, { at: Vec3; h: number; aside: readonly [number, number] }>,
+} as const;
+
+/**
+ * (round two) A stand of another size (the station's: about one and a half times the table's footprint and with height;
+ * I2: the pedestal that ships, view/kit/pieces/opening-stand/): its top's half extents and its height. L2: the stand's size wherever it stands (the
+ * default); the bare table's own size only when asked for (`TABLE_SIZE`).
+ */
+export interface StandSize {
+  readonly half: readonly [number, number];
+  readonly h: number;
+}
+export const STAND_STATION_SIZE: StandSize = { half: [0.78, 0.72], h: 0.5 };
+/** (L2) The prototype's table as S6 built it first (round one's size). */
+export const TABLE_SIZE: StandSize = { half: OPENING_STAND.half, h: 0.22 };
+
+export function withOpeningStand(scene0: SceneDesc = BENCH_BASE, place: StandPlace = 'centre', things: 'fixed' | 'loose' = 'fixed', size: StandSize = STAND_STATION_SIZE): SceneDesc {
+  // (I2) a scene that has the stand already (the bench itself, with `OPENING_STAND_ON`) has it put where asked instead
+  const scene = withoutOpeningStand(scene0);
+  const S0 = OPENING_STAND;
+  const S = { ...S0, half: size.half };
+  const pl = { ...S0.places[place], h: size.h };
+  const top = pl.at[1] + pl.h;
+  const body: StaticSpec = { id: S.unit, shape: { type: 'box', half: [S.half[0], pl.h / 2, S.half[1]] }, pose: pose([pl.at[0], pl.at[1] + pl.h / 2, pl.at[2]]) };
+  // the mouth: where a crate's middle lies when it rests on the top (the small crate's 0.225 up to the large one's 0.4)
+  // (and as high again: a crate set down on top of the open one rests in it too, and the stand hands the first one off)
+  const mouth: MouthSpec = { id: S.mouth, machine: S.unit, station: 'line', c: [pl.at[0], top + 0.6, pl.at[2]], half: [S.half[0], 0.55, S.half[1]], drop: [pl.at[0], top, pl.at[2]] };
+  return {
+    ...scene,
+    id: `${scene.id}+stand-${place}${things === 'loose' ? '-loose' : ''}-${size.half[0]}x${size.half[1]}x${size.h}`,
+    statics: [...scene.statics, body],
+    mouths: [...(scene.mouths ?? []), mouth],
+    units: [...(scene.units ?? []), standUnit(openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] }))],
+    openingStand: { unit: S.unit, mouth: S.mouth, things },
+  };
+}
+
+/** (I2) The stand's unit factories, so a scene's stand can be taken out again (the factories themselves are opaque). */
+const STAND_UNITS = new WeakSet<UnitFactory>();
+function standUnit(f: UnitFactory): UnitFactory {
+  STAND_UNITS.add(f);
+  return f;
+}
+/** (I2) `scene` without its opening stand (its body, its mouth, its unit, its rule); a scene without one, as it is. */
+export function withoutOpeningStand(scene: SceneDesc): SceneDesc {
+  if (scene.openingStand === undefined) return scene;
+  const { openingStand: os, ...rest } = scene;
+  return {
+    ...rest,
+    statics: scene.statics.filter((s) => s.id !== os.unit),
+    mouths: (scene.mouths ?? []).filter((m) => m.id !== os.mouth),
+    units: (scene.units ?? []).filter((u) => !STAND_UNITS.has(u)),
+  };
+}
+
+// (its id stays `bench`: the shipped bench has one stand, at one place)
+bench = OPENING_STAND_ON ? { ...withOpeningStand(BENCH_BASE), id: BENCH_BASE.id } : BENCH_BASE;

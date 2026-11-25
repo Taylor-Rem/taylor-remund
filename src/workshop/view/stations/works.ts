@@ -48,6 +48,8 @@ export interface WorksViewOptions {
   /** Where each station sparks (world), by station id. Stations not listed spark at their ladder point. */
   anchors?: Readonly<Record<Id, Vec3>>;
   seed?: number;
+  /** (L2) The Button's console is drawn at this share of its size as built: the beacon on it with it (default 1). */
+  consoleScale?: number;
 }
 
 interface Burst {
@@ -91,11 +93,12 @@ export function createWorksView(opts: WorksViewOptions = {}): (ctx: ViewContext)
       const top = w.scene.bench.top;
       const q = s ? new Quaternion(s.pose.q[0], s.pose.q[1], s.pose.q[2], s.pose.q[3]) : new Quaternion();
       const deck = s ? s.pose.p[1] + (s.shape.type === 'box' ? s.shape.half[1] : 0.52) : top + 1.04;
-      const p = new Vector3(F.beaconAt[0], 0, F.beaconAt[2]).applyQuaternion(q);
+      const cs = opts.consoleScale ?? 1;
+      const p = new Vector3(F.beaconAt[0] * cs, 0, F.beaconAt[2] * cs).applyQuaternion(q);
       beaconObj.position.set((s?.pose.p[0] ?? 0) + p.x, deck, (s?.pose.p[2] ?? 0) + p.z);
       beaconObj.quaternion.copy(q);
-      beaconObj.scale.setScalar(F.beaconScale);
-      tmp.set(0, (BEACON.pivot + BEACON.domeH * 0.55) * F.beaconScale, 0).applyQuaternion(q).add(beaconObj.position);
+      beaconObj.scale.setScalar(F.beaconScale * cs);
+      tmp.set(0, (BEACON.pivot + BEACON.domeH * 0.55) * F.beaconScale * cs, 0).applyQuaternion(q).add(beaconObj.position);
       lightAt[0] = tmp.x;
       lightAt[1] = tmp.y;
       lightAt[2] = tmp.z;

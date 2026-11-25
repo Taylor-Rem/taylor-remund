@@ -54,10 +54,10 @@ describe('the report press, for someone who cannot see it', () => {
     r.step(30);
     let m = r.items();
     for (const id of [PRESS.body, PRESS.lever, PRESS.envelope]) expect(m.has(id), id).toBe(false);
+    // (I2) opened the one way a crate opens: taken and placed on the opening stand by its id (the keyboard's place), not by its latch
     r.act({ type: 'grab', id: PRESS.crate, grip: r.w.motion(PRESS.crate)!.pose.p }, 2);
-    r.act({ type: 'place', at: [-4.0, 0, 1.6] }, 90);
-    let opened: string[] = [];
-    for (let k = 0; k < 4 && r.w.setting(PRESS.crate, 'open') !== true; k++) opened = r.act({ type: 'press', id: `${PRESS.crate}-lid` }, 30);
+    let opened = r.act({ type: 'place', at: 'opening-stand' }, 90);
+    for (let k = 0; k < 4 && r.w.setting(PRESS.crate, 'open') !== true; k++) opened = [...opened, ...r.step(30)];
     expect(opened).toContain('Report Generation Framework opened.');
     m = r.items();
     expect(m.get(PRESS.body)).toBe('Report press');

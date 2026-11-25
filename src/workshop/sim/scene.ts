@@ -110,6 +110,20 @@ export interface MouthSpec {
 export type UnitFactory = (ctx: SimContext) => Unit;
 
 /**
+ * (E1) A late unit: a member of the crew who joins a running world (`World.join`) instead of being in the scene
+ * from the first step. An input at a step boundary, like an intent: the world takes it at the start of the next
+ * step it is not in a Button rung, defines its parts and makes its units then, and records nothing (it is not the
+ * visitor's doing: the lever cannot take it back, and "Reset the workshop" keeps it, as it arrived).
+ */
+export interface LateArrival {
+  readonly id: string;
+  /** His parts: each must start out of the world (a `crewBody`, `shipped`, or stowed), so nothing settles or moves as he joins. */
+  readonly parts: readonly PartSpec[];
+  /** His units, run after every unit already in the world (and before the tells, which stay last). */
+  readonly units: readonly UnitFactory[];
+}
+
+/**
  * Fetch's lane of tape (S5 round 2): a path of straight runs through two or more ground points (x, z),
  * ridden end to end. At each corner the robot leans round an arc (`FETCH_TUNING.cornerRadius` × crewScale,
  * less where a run is too short for it), slowing to `cornerSpeed` (`sim/path.ts`). A layout's rules: a
@@ -232,6 +246,11 @@ export interface ButtonSpec {
   readonly cardBy: Id;
   /** Rungs 2 to 4 (S4, `machines/button.ts`). Without it, the stations are `flinch` and the stack is `stack`. */
   readonly ladder?: LadderSpec;
+  /**
+   * (L2) Where the tells (§ B3) measure "nearest" from before the visitor has done anything: the bench's centre, when
+   * the Button is not there. Without it, the Button's cap.
+   */
+  readonly tellsFrom?: Vec3;
 }
 
 /** What the Button's ladder needs from the scene (§ B4): the stations it can misfire, where they are, the stack, the cover. */
@@ -297,4 +316,10 @@ export interface SceneDesc {
    * holders and its drawer. Remembered only where they differ from how the visit began; "Reset the workshop" forgets them.
    */
   readonly keep?: readonly { readonly target: Id; readonly field: string }[];
+  /**
+   * P4 S6, a prototype behind one switch (`?open=stand`; absent: the bench as before): project crates open only by being
+   * set down in the opening stand's mouth (sim/machines/opening-stand.ts), never by their latch or a double-click.
+   * `things`: `fixed` (a crate's thing stays on its tray: no hand takes it) or `loose` (as before: a loose part).
+   */
+  readonly openingStand?: { readonly unit: Id; readonly mouth: Id; readonly things: 'fixed' | 'loose' };
 }
