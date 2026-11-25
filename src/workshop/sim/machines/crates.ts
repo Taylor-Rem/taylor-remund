@@ -67,6 +67,10 @@ export const CRATES_TUNING = {
   spun: 3,
   /** Tipped further than this from upright (cosine of the angle between its up and the world's), it claps shut. */
   upright: Math.cos((25 * Math.PI) / 180),
+  /** (P4 S6 round four) A lifted crate let go faster than this (units a second) is thrown: the view back at once. */
+  thrownBack: 1.5,
+  /** (P4 S6 round four) Let go over the deck: the view back if it is not open on the stand again within this (s). */
+  backWait: 1,
   /** Something whose bottom is within this of the crate's top, over its footprint, is resting on it. */
   onTop: 0.12,
   /** The tray: how far forward of the crate's middle its thing sits (a share of the crate's half depth), and a hair over the rim. */
@@ -103,6 +107,18 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
    * had set it on the stand, and the lever put it back shut.)
    */
   const lifted = new Set<Id>();
+  /**
+   * (P4 S6 round four) The camera stays in while a crate lifted off the stand is in the hand (`look.back` is not sent at
+   * the lift) and goes out when it leaves the hand: at once, unless it was let go over the deck; then once it is clear it
+   * will not be open on the stand again (it rests off the deck, a machine or the crew has it, or a second passes): the
+   * step it was let go.
+   */
+  const backPending = new Map<Id, number>();
+  /** Ask the page to give the view back from `c`'s card. */
+  const lookBack = (c: ProjectCrate): void => {
+    backPending.delete(c.crate);
+    if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
+  };
   /** "Reset the workshop" has begun (`reset`); its `restored` follows in the same step and places every crate's thing. */
   let resetting = false;
   /**
@@ -342,14 +358,23 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
             lifted.add(c.crate);
             wasHeld.add(c.crate);
             ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why: 'grab' });
-            if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
+            backPending.delete(c.crate);
           } else if (m === 'held') wasHeld.add(c.crate);
           else if (m === 'free') {
             if (wasHeld.delete(c.crate)) {
               const said = lifted.delete(c.crate);
               // let go: a pick-up undone on the spot (set back exactly, at rest at once) never happened; anything else shuts it
-              if (!ctx.settled(c.crate) || (stand && !inStand(c.crate))) clapShut(c, 'grab', said);
-              else if (said) look(c); // (set back on the spot, on the stand: open as it was, looked at again)
+              if (!ctx.settled(c.crate) || (stand && !inStand(c.crate))) {
+                clapShut(c, 'grab', said);
+                // (round four) out of the hand: the view back now, or (let go over the deck) once it will not reopen there
+                if (said) {
+                  const v = ctx.velocity(c.crate);
+                  const thrown = !!v && Math.hypot(...v.linvel) > T.thrownBack;
+                  if (inStand(c.crate) && !thrown) backPending.set(c.crate, ctx.clock.step);
+                  else lookBack(c);
+                }
+              }
+              // (set back on the spot, on the stand: open as it was; the camera never left it)
             } else {
               const v = ctx.velocity(c.crate);
               const pose = ctx.pose(c.crate);
@@ -363,11 +388,23 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
             }
           } else {
             wasHeld.delete(c.crate);
-            clapShut(c, m === 'machine' || m === 'crew' ? 'machine' : 'away', lifted.delete(c.crate));
+            const said = lifted.delete(c.crate);
+            clapShut(c, m === 'machine' || m === 'crew' ? 'machine' : 'away', said);
+            if (said) lookBack(c); // (round four) taken from the hand by a machine or the crew: the view back
           }
         } else {
           wasHeld.delete(c.crate);
-          lifted.delete(c.crate);
+          // (round four) a lifted crate shut by other means while held or as it left the hand (an undo, a reset): the view back
+          if (ctx.mode(c.crate) !== 'held' && lifted.delete(c.crate)) lookBack(c);
+        }
+        // (round four) let go over the deck: open on the stand again (the camera never moved), or the view back once it
+        // is clear it will not be (it rests off the deck, it is taken, or a second has passed)
+        const since = backPending.get(c.crate);
+        if (since !== undefined) {
+          const m = ctx.mode(c.crate);
+          if (m === 'held') backPending.delete(c.crate);
+          else if (isOpen(c.crate) && inStand(c.crate)) backPending.delete(c.crate);
+          else if (m !== 'free' || (ctx.settled(c.crate) && !inStand(c.crate)) || ctx.clock.step - since > steps(T.backWait)) lookBack(c);
         }
         catchThing(c);
         placeThing(c, false);
@@ -395,6 +432,11 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       const all = resetting;
       resetting = false;
       for (const c of list) if (all || touched.has(c.crate) || (c.holds !== undefined && touched.has(c.holds))) placeThing(c, true);
+      // (round four) a reset while a lifted crate is in the hand or just let go: the view back
+      if (all) for (const c of list) if (lifted.has(c.crate) || backPending.has(c.crate)) {
+        lifted.delete(c.crate);
+        lookBack(c);
+      }
       // (P4 S6 round two) an undo that opens a crate on the stand again (a lift-off taken back): looked at again, as it was
       if (stand && !all) for (const r of restores) if (r.field === OPEN && r.to === true) {
         const c = list.find((x) => x.crate === r.target);
@@ -404,7 +446,6 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
 
     reset() {
       wasHeld.clear();
-      lifted.clear();
       selected.clear();
       resetting = true;
     },

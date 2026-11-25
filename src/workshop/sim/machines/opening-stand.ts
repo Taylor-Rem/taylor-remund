@@ -133,9 +133,12 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     if (r.effects.length > 0) {
       openedAt = ctx.clock.step;
       ctx.emit({ type: 'crate.opened', id: spec.id, crate: c.crate, project: c.project });
-      if (c.card !== undefined) ctx.emit({ type: 'look', target: c.card });
+      // (round four) not when the page still looks at it (lifted and put back: the camera never left; it stays still)
+      if (c.card !== undefined && !looking.has(c.card)) ctx.emit({ type: 'look', target: c.card });
     }
   };
+  /** The cards the page has been asked to look at and not yet to look back from (heard). */
+  const looking = new Set<Id>();
 
   const unit: MachineUnit = {
     id: spec.id,
@@ -251,11 +254,19 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       falling = null;
       catching = null;
       shutSince.clear();
+      looking.clear();
       caught.clear();
       beat.reset();
     },
     heard(events: readonly SimEvent[]) {
-      void events;
+      for (const e of events) {
+        // (the page looks at one thing at a time: a look at anything else ends the look at a card)
+        if (e.type === 'look') {
+          looking.clear();
+          looking.add(e.target);
+        }
+        else if (e.type === 'look.back') looking.delete(e.target);
+      }
     },
 
     view(): OpeningStandView {

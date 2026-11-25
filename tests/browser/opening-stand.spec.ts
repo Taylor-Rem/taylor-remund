@@ -473,3 +473,69 @@ for (const look of [1, 2] as const) {
     });
   }
 }
+
+// (round four) the camera stays in while a crate lifted off the stand is in the hand: lifted, carried round inside the
+// view and put back, three times, by a real hand: it opens again each time and the camera does not move at all
+for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const) {
+  test(`P4 S6 round four (${kind}, ${w}×${h}): lifted, carried round in the close view and put back three times: open again each time, the camera still`, async ({ browser }) => {
+    const { page: p, hand, close } = await setUp(browser, kind, w, h);
+    const C = 'crate-2';
+    await frameWith(p, C, kind === 'touch' ? 0.25 : 0.35);
+    const top = await standTop(p);
+    console.log(`[S6] r4 ${kind}: onto the stand: ${await carry(p, hand, C, [top[0]!, top[1]!, top[2]!])}`);
+    await until(p, () => isOpen(p, C), 300, 'open');
+    await until(p, async () => { const c = await look(p); return !c.easing && c.look !== null; }, 900, 'the camera in');
+    await frames(p, 30);
+    // the camera's view, every frame from here
+    await p.evaluate(() => {
+      const W = window as any, cam = W.__bench.ws.stage.camera;
+      const v0 = cam.view();
+      W.__cam = { moved: 0, v0 };
+      W.__bench.ws.onFrame(() => {
+        const v = cam.view();
+        const d = Math.hypot(v.focus[0] - v0.focus[0], v.focus[1] - v0.focus[1], v.focus[2] - v0.focus[2]) + Math.abs(v.zoom - v0.zoom);
+        W.__cam.moved = Math.max(W.__cam.moved, d);
+      });
+    });
+    const seen: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      const c = (await screen(p, C))!;
+      // (round to the left, up the screen: at c the dock's mouth is a hand's breadth to the stand's right, and a round that
+      // way once carried the crate into it)
+      const r = kind === 'touch' ? 40 : 70;
+      await hand.down(c);
+      for (let i = 1; i <= 16; i++) {
+        const a = (i / 16) * 2 * Math.PI;
+        await hand.move({ x: c.x - r * Math.sin(a), y: c.y - r * 0.6 * (1 - Math.cos(a)) });
+        await frames(p, 2);
+        if (i === 8) {
+          expect(await held(p), `lifted (${k + 1})`).toBe(C);
+          seen.push(`${k + 1}: held, open ${String(await isOpen(p, C))}`);
+        }
+      }
+      // back over where it lay, by eye (held at its carrying height, the point under the finger is not where it hangs)
+      let cur = { x: c.x, y: c.y };
+      for (let n = 0; n < 16; n++) {
+        await frames(p, 8);
+        const q = await where(p, C);
+        if (Math.hypot(q[0]! - top[0]!, q[2]! - top[2]!) < 0.05) break;
+        const a0 = await project(p, q), b0 = await project(p, [top[0]!, q[1]!, top[2]!]);
+        cur = { x: cur.x + (b0.x - a0.x) * 0.8, y: cur.y + (b0.y - a0.y) * 0.8 };
+        await hand.move(cur);
+      }
+      await frames(p, 30);
+      await hand.up(cur);
+      await until(p, () => isOpen(p, C), 300, `open again (${k + 1})`).catch(async (e) => {
+        const tr = (await trace(p)).filter((l) => !/ \. /.test(l)).slice(-25);
+        throw new Error(`${String(e)} ${seen.join('; ')} at ${JSON.stringify(await where(p, C))} mode ${await p.evaluate((C) => (window as any).__bench.ws.world.mode(C), C)}\n${tr.join('\n')}`);
+      });
+      await frames(p, 60);
+    }
+    const r = await p.evaluate(() => (window as any).__cam.moved as number);
+    console.log(`[S6] r4 ${kind}: the camera moved at most ${r.toFixed(4)} while the crate was lifted and put back three times (${seen.join('; ')})`);
+    if (r >= 0.01) console.log(`[S6] r4 ${kind} TRACE:\n${(await trace(p)).filter((l) => !/ \. /.test(l) && !/hit/.test(l)).slice(-40).join('\n')}`);
+    expect(r, 'the camera still').toBeLessThan(0.01);
+    expect((await look(p)).look).not.toBeNull();
+    await close();
+  });
+}
