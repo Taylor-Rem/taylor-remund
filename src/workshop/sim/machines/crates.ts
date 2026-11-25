@@ -96,6 +96,13 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
   const byPlate = new Map(list.map((c) => [c.plate, c]));
   /** Crates that were in the visitor's hand while open: they clap shut when let go (under the letting go). */
   const wasHeld = new Set<Id>();
+  /**
+   * (P4 S6 round two) Lifted off the stand open: shut at once to the eye and the ear (`crate.shut`, `look.back`), but the
+   * setting is written when the hand lets go, under the transaction that letting-go opens: so one pull of the lever puts
+   * it back on the stand open, as it was before it was lifted. (Written under the grab it was charged to the placing that
+   * had set it on the stand, and the lever put it back shut.)
+   */
+  const lifted = new Set<Id>();
   /** "Reset the workshop" has begun (`reset`); its `restored` follows in the same step and places every crate's thing. */
   let resetting = false;
   /**
@@ -186,12 +193,12 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
    * while on the stack, or the system), never the crew's (the crew may not write a part the visitor touched); if that
    * transaction is older than the one that opened it (rule 7), the system's.
    */
-  function clapShut(c: ProjectCrate, why: 'grab' | 'machine' | 'moved' | 'away' | 'burden'): void {
+  function clapShut(c: ProjectCrate, why: 'grab' | 'machine' | 'moved' | 'away' | 'burden', quiet = false): void {
     let cause: Cause = ctx.history.chargeMachine(c.crate);
     if (cause === 'crew') cause = 'system';
     let r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], cause);
     if (r.refused.length > 0) r = ctx.commit([{ target: c.crate, field: OPEN, after: false }], 'system');
-    if (r.effects.length > 0) {
+    if (r.effects.length > 0 && !quiet) {
       ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why });
       // (D2d) shut by anything but the visitor's own latch: a look at its card has nothing left to show
       if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
@@ -328,13 +335,19 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       for (const c of list) {
         if (isOpen(c.crate)) {
           const m = ctx.mode(c.crate);
-          // (P4 S6) with the stand, lifting it off shuts it under the grab
-          if (m === 'held' && stand) clapShut(c, 'grab');
-          else if (m === 'held') wasHeld.add(c.crate);
+          // (P4 S6) with the stand, lifting it off shuts it: said now, written when it is let go (`lifted`)
+          if (m === 'held' && stand && !lifted.has(c.crate)) {
+            lifted.add(c.crate);
+            wasHeld.add(c.crate);
+            ctx.emit({ type: 'crate.shut', id: spec.id, crate: c.crate, project: c.project, why: 'grab' });
+            if (c.card !== undefined) ctx.emit({ type: 'look.back', target: c.card });
+          } else if (m === 'held') wasHeld.add(c.crate);
           else if (m === 'free') {
             if (wasHeld.delete(c.crate)) {
+              const said = lifted.delete(c.crate);
               // let go: a pick-up undone on the spot (set back exactly, at rest at once) never happened; anything else shuts it
-              if (!ctx.settled(c.crate)) clapShut(c, 'grab');
+              if (!ctx.settled(c.crate) || (stand && !inStand(c.crate))) clapShut(c, 'grab', said);
+              else if (said) look(c); // (set back on the spot, on the stand: open as it was, looked at again)
             } else {
               const v = ctx.velocity(c.crate);
               const pose = ctx.pose(c.crate);
@@ -348,9 +361,12 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
             }
           } else {
             wasHeld.delete(c.crate);
-            clapShut(c, m === 'machine' || m === 'crew' ? 'machine' : 'away');
+            clapShut(c, m === 'machine' || m === 'crew' ? 'machine' : 'away', lifted.delete(c.crate));
           }
-        } else wasHeld.delete(c.crate);
+        } else {
+          wasHeld.delete(c.crate);
+          lifted.delete(c.crate);
+        }
         catchThing(c);
         placeThing(c, false);
       }
@@ -377,10 +393,16 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       const all = resetting;
       resetting = false;
       for (const c of list) if (all || touched.has(c.crate) || (c.holds !== undefined && touched.has(c.holds))) placeThing(c, true);
+      // (P4 S6 round two) an undo that opens a crate on the stand again (a lift-off taken back): looked at again, as it was
+      if (stand && !all) for (const r of restores) if (r.field === OPEN && r.to === true) {
+        const c = list.find((x) => x.crate === r.target);
+        if (c && inStand(c.crate)) look(c);
+      }
     },
 
     reset() {
       wasHeld.clear();
+      lifted.clear();
       selected.clear();
       resetting = true;
     },

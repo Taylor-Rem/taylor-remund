@@ -20,11 +20,21 @@ import type { MachineUnit, SimContext } from '../context.ts';
 import type { UnitFactory } from '../scene.ts';
 import { Beat, OK } from '../machine.ts';
 import { HZ } from '../clock.ts';
+import { rotate } from '../math.ts';
 
 /** Tune here. Units per second. */
 export const OPENING_STAND_TUNING = {
   /** How far clear of the stand's edge a crate handed off is set down. */
   gap: 0.12,
+  /**
+   * (round two) The catch: a project crate the visitor lets go that comes to rest in the mouth leaning (its up more than
+   * this far from the world's, as the crates unit's `upright` sees a crate knocked over) or hanging over the deck's edge
+   * by more than `overhang` is squared up and set down in the middle of the deck, then opens there.
+   */
+  lean: Math.cos((12 * Math.PI) / 180),
+  /** A shut project crate lying still on the deck this long (s) is set down beside it (the deck kept clear). */
+  clear: 0.75,
+  overhang: 0.02,
 } as const;
 
 export interface OpeningStandSpec {
@@ -56,6 +66,44 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   const handedOff = new Set<Id>();
   /** A crate set down on top of the one it handed off: it falls onto the stand and opens there, under its placing. */
   let falling: { crate: Id; cause: Cause } | null = null;
+  /** (round two) A crate come to rest leaning or over the edge: the stand squares it up next step, under its placing. */
+  let catching: { crate: Id; cause: Cause } | null = null;
+  /** Shut project crates lying still in the mouth: since when (step). */
+  const shutSince = new Map<Id, number>();
+  /** Crates squared up once for this placing: the next rest opens them whatever (never caught twice in a row). */
+  const caught = new Set<Id>();
+  /** The deck's local frame: a point's offset from the mouth's middle, along the mouth's own x and z. */
+  const local = (p: Vec3): [number, number] => {
+    const yaw = ((mouth.yaw ?? 0) * Math.PI) / 180;
+    const dx = p[0] - mouth.c[0], dz = p[2] - mouth.c[2];
+    return [dx * Math.cos(yaw) - dz * Math.sin(yaw), dx * Math.sin(yaw) + dz * Math.cos(yaw)];
+  };
+  /** Square on the deck: upright, and its footprint within the deck (the crate's own half extents, turned by its yaw). */
+  const square = (id: Id): boolean => {
+    const pose = ctx.pose(id);
+    const h = ctx.halfExtents(id);
+    if (!pose || !h) return true;
+    if (rotate(pose.q, [0, 1, 0])[1] < T.lean) return false;
+    const [lx, lz] = local(pose.p);
+    const ax = rotate(pose.q, [1, 0, 0]);
+    const c = Math.abs(ax[0]), sn = Math.abs(ax[2]);
+    const ex = h[0] * c + h[2] * sn, ez = h[0] * sn + h[2] * c;
+    return Math.abs(lx) + ex <= mouth.half[0] + T.overhang && Math.abs(lz) + ez <= mouth.half[2] + T.overhang;
+  };
+  /** The pose it is squared up to: the middle of the deck, standing, turned to the nearest quarter of its heading. */
+  const squared = (id: Id): { p: Vec3; q: [number, number, number, number] } | null => {
+    const pose = ctx.pose(id);
+    const h = ctx.halfExtents(id);
+    if (!pose || !h) return null;
+    // its heading: whichever of its own x or z lies flatter, projected on the bench
+    const ax = rotate(pose.q, [1, 0, 0]);
+    const az = rotate(pose.q, [0, 0, 1]);
+    const a = Math.abs(ax[1]) < Math.abs(az[1]) ? Math.atan2(-ax[2], ax[0]) : Math.atan2(az[0], az[2]);
+    // (the nearest quarter turn of its heading: turned forty-five degrees a large crate's corners overhang the deck, and
+    // squared as it lay it would be caught again and again: the spec's runs beside a second browser found that)
+    const yaw = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    return { p: [mouth.c[0], mouth.drop[1] + h[1] + 0.01, mouth.c[2]], q: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)] };
+  };
 
   const inMouth = (id: Id): boolean => {
     const pose = ctx.pose(id);
@@ -67,6 +115,17 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   };
   /** The project crate lying open in the mouth, if any. */
   const openOn = (): Id | null => projects.find((c) => ctx.setting(c.crate, 'open') === true && ctx.mode(c.crate) === 'free' && inMouth(c.crate))?.crate ?? null;
+
+  /** Lift `id` out and set it down beside the stand (taken, put there, let go: its fall and rest are `cause`'s). */
+  const aside = (id: Id, cause: Cause): void => {
+    const op = ctx.pose(id);
+    const oh = ctx.halfExtents(id);
+    if (!op || !oh || !ctx.take(id, spec.id)) return;
+    const reach = Math.max(mouth.half[0], mouth.half[2]) + Math.max(oh[0], oh[2]) + T.gap;
+    const at: Vec3 = [mouth.c[0] + spec.aside[0] * reach, spec.floor + oh[1] + 0.04, mouth.c[2] + spec.aside[1] * reach];
+    ctx.drive(id, { p: at, q: op.q }, true);
+    ctx.release(id, [0, -0.3, 0], [0, 0, 0], cause);
+  };
 
   const unit: MachineUnit = {
     id: spec.id,
@@ -85,8 +144,19 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       const c = projects.find((x) => x.crate === part.id);
       const cause: Cause = falling?.crate === part.id ? falling.cause : given;
       if (falling?.crate === part.id) falling = null;
-      // not a project crate, or not the visitor's doing (Fetch's, the start's, a reset's): it rests here, shut
-      if (!c || cause === 'crew' || cause === 'system' || ctx.bracketed) return OK;
+      // not a project crate: it rests here
+      if (!c || ctx.bracketed) return OK;
+      // (round two) a project crate come to rest here by nobody's placing (Fetch's, a knock off the platen): the stand keeps
+      // its deck clear, so a crate the visitor brings has somewhere to land; it sets it down beside itself, shut. (Round
+      // two's failures: a crate knocked off the platen lay shut at the back of the deck, the visitor's crate landed half
+      // on it and slid off the front.)
+      if (cause === 'crew' || cause === 'system') {
+        if (ctx.setting(c.crate, 'open') !== true && !handedOff.has(c.crate)) {
+          handedOff.add(c.crate);
+          aside(c.crate, 'system');
+        }
+        return OK;
+      }
       if (ctx.setting(c.crate, 'open') === true || handedOff.has(c.crate)) return OK;
       // one at a time: the one open here is shut and handed off to the side, all under this placing
       const other = openOn();
@@ -98,14 +168,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         if (oc.card !== undefined) ctx.emit({ type: 'look.back', target: oc.card });
         handedOff.add(other);
         // lifted out and set down beside the stand (taken, put there, let go: its fall and rest are this placing's)
-        const op = ctx.pose(other);
-        const oh = ctx.halfExtents(other);
-        if (op && oh && ctx.take(other, spec.id)) {
-          const reach = Math.max(mouth.half[0], mouth.half[2]) + Math.max(oh[0], oh[2]) + T.gap;
-          const at: Vec3 = [mouth.c[0] + spec.aside[0] * reach, spec.floor + oh[1] + 0.04, mouth.c[2] + spec.aside[1] * reach];
-          ctx.drive(other, { p: at, q: op.q }, true);
-          ctx.release(other, [0, -0.3, 0], [0, 0, 0], cause);
-        }
+        aside(other, cause);
         // the new one is on top of the old: it falls onto the stand now, and opens when it rests there
         const ph = ctx.halfExtents(c.crate);
         const pp = ctx.pose(c.crate);
@@ -114,6 +177,13 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
           return OK;
         }
       }
+      // (round two) leaning, or over the deck's edge: it rests shut now; next step the stand squares it up (and it opens)
+      if (!square(c.crate) && !caught.has(c.crate)) {
+        catching = { crate: c.crate, cause };
+        caught.add(c.crate);
+        return OK;
+      }
+      caught.delete(c.crate);
       const r = ctx.commit([{ target: c.crate, field: 'open', after: true }], cause);
       if (r.effects.length > 0) {
         openedAt = ctx.clock.step;
@@ -126,9 +196,40 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     abort() {},
 
     pre() {
+      // (round two) the deck kept clear: a shut project crate lying still on it (one that came by no placing of the
+      // visitor's, or rests there shut for any reason) is set down beside it after a moment, as the system's doing
+      if (!ctx.bracketed) {
+        for (const c of projects) {
+          const id = c.crate;
+          const lying = ctx.mode(id) === 'free' && ctx.settled(id) && inMouth(id) && ctx.setting(id, 'open') !== true && falling?.crate !== id && catching?.crate !== id;
+          if (!lying) {
+            shutSince.delete(id);
+            continue;
+          }
+          const since = shutSince.get(id) ?? ctx.clock.step;
+          shutSince.set(id, since);
+          if (ctx.clock.step - since >= T.clear * HZ) {
+            shutSince.delete(id);
+            handedOff.add(id);
+            aside(id, 'system');
+          }
+        }
+      }
+      if (catching) {
+        const k = catching;
+        catching = null;
+        const to = squared(k.crate);
+        if (to && ctx.mode(k.crate) === 'free' && inMouth(k.crate) && ctx.take(k.crate, spec.id)) {
+          ctx.drive(k.crate, to, true);
+          ctx.release(k.crate, [0, 0, 0], [0, 0, 0], k.cause);
+          // it rests again where it was put: then it is square, and the placing opens it (`falling` carries the cause)
+          falling = { crate: k.crate, cause: k.cause };
+        }
+      }
       // a crate handed off is the stand's to open again once a hand has had it, or once it lies outside the mouth
       for (const id of [...handedOff]) if (ctx.mode(id) === 'held' || (ctx.mode(id) === 'free' && ctx.settled(id) && !inMouth(id))) handedOff.delete(id);
       if (falling && (ctx.mode(falling.crate) === 'held' || !inMouth(falling.crate))) falling = null;
+      for (const id of [...caught]) if (ctx.mode(id) === 'held' || !inMouth(id)) caught.delete(id);
     },
 
     restored(restores: readonly Restore[]) {
@@ -138,6 +239,9 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
       openedAt = -Infinity;
       handedOff.clear();
       falling = null;
+      catching = null;
+      shutSince.clear();
+      caught.clear();
       beat.reset();
     },
     heard(events: readonly SimEvent[]) {

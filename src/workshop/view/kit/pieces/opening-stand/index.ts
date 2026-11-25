@@ -1,29 +1,27 @@
 /**
  * P4 S6, a prototype behind one switch: the opening stand (sim/machines/opening-stand.ts). A low steel table in the
  * bench's family: a painted steel skirt, a deck of three oak boards a crate is set down on, brass corner
- * stops, a brass lifter folded flat along the back edge on a hinge (node `lifter`: it swings up about its local X as a
+ * stops, a brass lifter lying flat on the deck from a hinge at its back edge (node `lifter`: it swings up about its local X as a
  * crate on the stand opens, the lid riding on it), bolts along the skirt. `h` is its height (the deck's top, the
- * collider's top): 0.22 on the bench, lower on the console. Socket `label`: the middle of the front skirt (a strip of
- * label tape, when it has a word).
+ * collider's top): 0.22 on the bench, lower on the console. Socket `label`: the middle of the front skirt.
  *
  * Every colour a palette token; every mesh from the kit.
  */
 import type { KitOptions, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import { taperBox } from '../../solids.ts';
-import { bevelBox, sheet } from '../../cheap.ts';
+import { bevelBox } from '../../cheap.ts';
 import { hexBolt } from '../../details.ts';
-import { aim, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
+import { aim, mat, part, piece, place, T } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import { transform } from '../../deform.ts';
+import { standStation } from './station.ts';
 
 export interface OpeningStandOptions extends KitOptions {
   /** Height of the deck's top over the floor (default 0.22). */
   h?: number;
   /** Half extents of the deck (default 0.52 × 0.48: the large crate with room). */
   half?: readonly [number, number];
-  /** A strip of label tape on the front skirt (a labels key and its size), or none. */
-  tape?: { key: string; w: number; h: number };
 }
 
 /** The lifter's arm, from its hinge to its pad (world units). */
@@ -62,19 +60,11 @@ export function openingStand(o: OpeningStandOptions = {}): Piece {
   for (const sx of [-1, 1]) b.add(part('brass', bevelBox({ min: [sx * 0.04 - 0.01, H, -hz + 0.015], max: [sx * 0.04 + 0.01, H + 0.035, -hz + 0.045], c: 0.004, omit: ['ny'] }), 'brass', { seed: seed + 23, shade: 0.8 }));
   const lifter = b.node('lifter', T(0, H + 0.016, -hz + 0.03));
   lifter.add(part('brass', bevelBox({ min: [-0.03, -0.011, -0.011], max: [0.03, 0.011, 0.011], c: 0.005 }), 'brass', { seed: seed + 24 }));
-  // the arm: a brass bar lying flat out behind the stand on a post, its rubber pad at the tip; as a crate opens it swings
-  // up (about the hinge's X) and the lid comes to rest against its pad
-  lifter.add(part('brass', bevelBox({ min: [-0.025, -0.009, -ARM], max: [0.025, 0.009, -0.02], c: 0.005 }), 'brass', { seed: seed + 21 }));
-  lifter.add(part('brass', bevelBox({ min: [-0.045, -0.012, -ARM - 0.03], max: [0.045, 0.014, -ARM + 0.02], c: 0.006 }), 'brass', { seed: seed + 22, shade: 0.7 }));
-  // the post it rests on, at rest
-  const pz = -hz + 0.03 - ARM + 0.005;
-  b.add(part('steel', bevelBox({ min: [-0.018, 0, pz - 0.018], max: [0.018, H + 0.005, pz + 0.018], c: 0.004, omit: ['ny'] }), 'teal-panel', { seed: seed + 25 }));
-  if (o.tape) {
-    // a strip of label tape on the front skirt (the word given; scaled to the skirt)
-    const th = Math.min(o.tape.h, skirtH * 0.8);
-    const tw = (o.tape.w * th) / o.tape.h;
-    b.add(texturedPart('tape', transform(sheet({ w: tw, h: th, t: 0.001, nx: 1, ny: 1 }), T(R.spread(0.03), foot + skirtH * 0.5, hz - 0.006)), o.tape.key));
-  }
+  // the arm: a brass bar lying flat on the deck from the back edge toward the front, its rubber pad at the tip (round
+  // two: it lay out behind the stand, through the console at a and d); as a crate opens it swings up and back (about
+  // the hinge's X, negative) and stands behind the crate's lid
+  lifter.add(part('brass', bevelBox({ min: [-0.025, -0.009, 0.02], max: [0.025, 0.009, ARM], c: 0.005 }), 'brass', { seed: seed + 21 }));
+  lifter.add(part('rubber', bevelBox({ min: [-0.045, -0.012, ARM - 0.02], max: [0.045, 0.014, ARM + 0.03], c: 0.006 }), 'ink', { seed: seed + 22 }));
 
   // ---- small: bolts along the skirt's front ----
   if (skirtH > 0.06) {
@@ -93,6 +83,15 @@ export const catalogue: CatalogueEntry[] = [
     build: (opts = {}) => openingStand({ ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.detail ? { detail: opts.detail } : {}) }),
     variants: { high: { detail: 'high' }, low: { detail: 'low' } },
     camera: { distance: 3.2 },
-    note: 'P4 S6 prototype (?open=stand): the low table a project crate is set down on to open it; the lifter folds flat at the back.',
+    note: 'P4 S6 prototype (?open=stand): the low table a project crate is set down on to open it; the lifter lies flat on the deck and stands up behind an open crate.',
   },
+  ...([1, 2] as const).map(
+    (look): CatalogueEntry => ({
+      name: `opening-stand-${look}`,
+      build: (opts = {}) => standStation({ look, ...(opts.seed !== undefined ? { seed: opts.seed } : {}), ...(opts.detail ? { detail: opts.detail } : {}) }),
+      variants: { high: { detail: 'high' }, low: { detail: 'low' } },
+      camera: { distance: 3.6 },
+      note: look === 1 ? 'P4 S6 round two candidate 1 (?standLook=1): a pedestal with a crate painted on its deck, brass corner stops, a lifter arm waiting over it.' : 'P4 S6 round two candidate 2 (?standLook=2): a pedestal with a crate painted on its deck, brass corner stops, an inspection lamp on a jointed arm.',
+    }),
+  ),
 ];

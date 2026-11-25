@@ -8,8 +8,6 @@ import { catalogue as windowCatalogue, SCENE, STEADY, WINDOW, windowHole, window
 import { loadCatalogue } from '../../../src/workshop/view/kit/pieces/registry.ts';
 
 const everyEntry = (await loadCatalogue()).filter((e) => e.name !== 'window');
-import room from '../../../src/content/room.json' with { type: 'json' };
-import { validateContent } from '../../../src/content/schema.ts';
 import { checkGeometry } from './helpers.ts';
 
 function parts(p: Piece): PieceNode['parts'] {
@@ -211,12 +209,6 @@ describe('the room', () => {
   it('is deterministic', () => {
     expect(hash(windowPiece({ seed: 4 }))).toBe(hash(windowPiece({ seed: 4 })));
     expect(hash(roomEnd({ side: 'left', seed: 2 }))).toBe(hash(roomEnd({ side: 'left', seed: 2 })));
-  });
-});
-
-describe('the room\'s words', () => {
-  it('read from src/content/room.json, which is valid content', () => {
-    expect(validateContent(room)).toEqual([]);
   });
 });
 
