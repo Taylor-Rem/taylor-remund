@@ -350,6 +350,8 @@ export type SimEvent =
   | { readonly type: 'put-away'; readonly id: Id }
   /** "Reset the workshop": every field that differed from the start, put back in this step (same shape as an undo's restores). */
   | { readonly type: 'reset'; readonly restores: readonly Restore[] }
+  /** (E1) A late unit joined the running world this step (`World.join`): its parts and units are here from now on. */
+  | { readonly type: 'joined'; readonly id: string }
   // ── the line (§ B1 machines table, § B2 X2, § D 5-7) ──
   /**
    * Law 2: a part that came to rest in a mouth was taken in by its machine (`id`). The verb starts now:
@@ -1249,9 +1251,11 @@ export type CrewKind = 'fetch' | 'patch' | 'revert' | 'pitch';
  * (his round, or home: `PitchView.leg` says which); `pause` over a machine on his round, looking down at it; `moor`
  * the last of the way in, nose into the cup; `held` in the visitor's hand; `sail` loose (let go, thrown or bumped:
  * his body is the engine's); `poked` turned to the visitor, his tie; `tray` on the platen's tray; `door` drifting
- * back out of the dock's door.
+ * back out of the dock's door. (E1) `arrive` his entrance: in from beyond the bench, high, nose up, his mast slung
+ * under him, to over the mast's place and down; `plant` there, the mast lowered and set on its foot, before he backs
+ * off and moors. Caught before the mast stands, he comes back to plant it whatever else happens (`mastCarried`).
  */
-export type PitchState = 'moored' | 'castoff' | 'fly' | 'pause' | 'moor' | 'held' | 'sail' | 'poked' | 'tray' | 'door';
+export type PitchState = 'moored' | 'castoff' | 'fly' | 'pause' | 'moor' | 'held' | 'sail' | 'poked' | 'tray' | 'door' | 'arrive' | 'plant';
 
 /** P4 P1a: Pitch as the view reads it. Transient, never recorded (his paint is his body's, a part's durable field). */
 export interface PitchView {
@@ -1272,7 +1276,7 @@ export interface PitchView {
   /** In `fly`: the round (unasked) or the way home (after the hand, a bump, the tray, the door). */
   readonly leg: 'round' | 'home' | null;
   /** How the last loose spell began, while it and its aftermath last (`sail`, then the first seconds home: he straightens his hat); null otherwise. */
-  readonly ruffled: { readonly how: 'thrown' | 'let-go' | 'bumped'; readonly since: number } | null;
+  readonly ruffled: { readonly how: 'thrown' | 'let-go' | 'bumped' | 'arrived'; readonly since: number } | null;
   /** In `held`: seconds since the hand took him (affront, then composure). */
   readonly heldFor: number;
   /** The mast's cup (world) and the way his nose points moored. */
@@ -1280,6 +1284,10 @@ export interface PitchView {
   readonly mastHeading: number;
   /** His body (a crew body: in the world only while held, loose or on the tray). */
   readonly body: Id;
+  /** (E1) He has his mast with him, not yet set on its foot (he arrived late and it is not planted yet). */
+  readonly mastCarried: boolean;
+  /** (E1) In `plant`: how far the mast is lowered, 0 (slung) to 1 (standing on its foot, let go). */
+  readonly planted: number;
 }
 
 /**

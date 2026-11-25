@@ -116,6 +116,15 @@ export const PITCH_TUNING = {
   roadmap: [0.9, 0.8] as const,
   roadmapReach: 1.3,
   roadmapLink: 3.5,
+  // ── (E1) the entrance: a late arrival ──
+  /** In from beyond the bench at this speed, and over the mast's place at this height above the bench (his middle). */
+  arrive: 2.4,
+  arriveHigh: 5.8,
+  /** Over the place: the mast lowered and let go after `plantLet` (s), and he stays till `plant`, then backs off and moors. */
+  plantLet: 0.9,
+  plant: 1.5,
+  /** His middle above the mast's head while it hangs under him, as it is set down (his car hangs below his middle). */
+  plantOver: 1.2,
 } as const;
 
 export interface PitchSpec {
@@ -153,14 +162,24 @@ export interface PitchSpec {
   readonly door: { readonly at: Vec3; readonly out: Vec3 };
   /** Where the visitor is (he turns to them). */
   readonly visitor: Vec3;
+  /** (E1) The mast's foot (world, on the bench) and its height (world units): where he plants it when he arrives late. */
+  readonly mastFoot: Vec3;
+  readonly mastHeight: number;
+  /** (E1) Where a late arrival comes in from: beyond the bench, high (his middle). */
+  readonly entry: Vec3;
+}
+
+/** (E1) How he begins: at his mast (in the scene from the first step), or arriving (a late unit: `World.join`). */
+export interface PitchStart {
+  readonly arrive?: boolean;
 }
 
 export interface PitchUnit extends Unit {
   crewView(): { readonly kind: 'pitch'; readonly id: Id; readonly body: Id; readonly view: PitchView };
 }
 
-export function pitch(spec: PitchSpec): UnitFactory {
-  return (ctx) => createPitch(ctx, spec);
+export function pitch(spec: PitchSpec, start: PitchStart = {}): UnitFactory {
+  return (ctx) => createPitch(ctx, spec, start);
 }
 
 interface Leg {
@@ -201,7 +220,7 @@ function boxesOf(statics: readonly StaticSpec[]): Box[] {
   return out;
 }
 
-export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
+export function createPitch(ctx: SimContext, spec: PitchSpec, start: PitchStart = {}): PitchUnit {
   const T = PITCH_TUNING;
   const id = spec.id;
   const body = spec.body;
@@ -223,6 +242,12 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
   ];
   const L = spec.lamp;
   const B = spec.bounds;
+  /** (E1) Over the mast's place: high (where the entrance comes to), and low (the mast's foot on the bench). */
+  const foot = spec.mastFoot;
+  const OVER_HIGH: Vec3 = [foot[0], top + T.arriveHigh, foot[2]];
+  const PLANT_AT: Vec3 = [foot[0], foot[1] + spec.mastHeight + T.plantOver, foot[2]];
+  /** ...and backed off it, at that height, behind the start of the way in. */
+  const BACKED: Vec3 = [APPROACH[0], PLANT_AT[1], APPROACH[2]];
 
   // ── the scripted point ──
   let at: Vec3 = MOORED;
@@ -238,14 +263,17 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
   /** The stop of the round under way (it pauses there), and the one before (not twice running). */
   let stop: number | null = null;
   let lastStop = -1;
-  let ruffled: { how: 'thrown' | 'let-go' | 'bumped'; at: number } | null = null;
+  let ruffled: { how: 'thrown' | 'let-go' | 'bumped' | 'arrived'; at: number } | null = null;
   /** Rounds: the idle needed for the next, and not before this step. */
   let roundIdle = steps(rng.range(T.roundIdle[0], T.roundIdle[1]));
   let roundNotBefore = 0;
   let lastHover: Id | null = null;
-  let idleWas = 0;
-  /** Steps since the visitor's last input, a Button rung's not counted (the crew is frozen through it). */
-  let quiet = 0;
+  let idleWas = ctx.idleSteps();
+  /**
+   * Steps since the visitor's last input, a Button rung's not counted (the crew is frozen through it). (E1) A late
+   * arrival starts from the world's own count, so his rounds keep the time they would have kept had he been here.
+   */
+  let quiet = ctx.idleSteps();
   /** The visitor has acted since the script last looked (read in every step, a rung's included). */
   let actedSince = false;
   // ── the hand ──
@@ -262,6 +290,11 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
   let sailSteps = 0;
   /** After a poke: what he goes back to. */
   let after: { state: PitchState; legs: Leg[]; leg: 'round' | 'home' | null; stop: number | null } | null = null;
+  // ── (E1) the entrance ──
+  /** His mast stands on its foot (false only while a late arrival has not yet planted it). */
+  let planted = true;
+  /** On his entrance, till he first moors (he straightens up then). */
+  let arriving = false;
 
   const inWorld = (): boolean => {
     const m = ctx.mode(body);
@@ -433,9 +466,37 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
 
   /** Home from wherever he is: a way to the start of the way in, then nose into the cup. */
   function goHome(): void {
+    if (!planted) return goPlant();
     legs = [...legsOf(at, plan(at, APPROACH), true), { to: MOORED, speed: T.moor, stop: true, face: spec.heading }];
     leg = 'home';
     stop = null;
+    lookAt = null;
+    enter('fly');
+  }
+
+  /**
+   * (E1) His entrance, or back to it: up to the height he came in at (clear of everything, his mast slung under him),
+   * across to over the mast's place, turning to face the way he will moor, and down until its foot is on the bench.
+   */
+  function goPlant(): void {
+    const high: Vec3 = inside([at[0], OVER_HIGH[1], at[2]]);
+    const up = Math.abs(at[1] - high[1]) > 0.05 ? legsOf(at, plan(at, high), true).map((l) => ({ ...l, stop: false })) : [];
+    legs = [...up, { to: OVER_HIGH, speed: T.arrive }, { to: PLANT_AT, speed: T.climb, stop: true, face: spec.heading }];
+    leg = 'home';
+    stop = null;
+    lookAt = null;
+    arriving = true;
+    enter('arrive');
+  }
+  /** (E1) The mast set on its foot: he backs off it at that height, comes down behind the cup, and noses in. */
+  function afterPlant(): void {
+    planted = true;
+    legs = [
+      { to: BACKED, speed: T.backSpeed * 2, face: spec.heading },
+      { to: APPROACH, speed: T.climb, face: spec.heading },
+      { to: MOORED, speed: T.moor, stop: true, face: spec.heading },
+    ];
+    leg = 'home';
     lookAt = null;
     enter('fly');
   }
@@ -605,8 +666,10 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
     }
     goHome();
   }
-  /** Reduced motion: put back at the mast with a cut. */
+  /** Reduced motion: put back at the mast with a cut (his mast standing: a late arrival is at it when he arrives). */
   function cutHome(): void {
+    planted = true;
+    arriving = false;
     if (inWorld() && ctx.mode(body) !== 'held') ctx.stow(body, ctx.pose(body) ?? { p: at, q: qyaw(heading) });
     outOfWorld();
     jump(MOORED);
@@ -698,6 +761,21 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
         if (legs.length === 0) goHome();
         else if (legs[0]!.face === undefined) enter('fly');
         return;
+      case 'arrive':
+        // (E1) in, high and stately; down over the place: the mast is lowered there
+        steer();
+        if (legs.length === 0) {
+          vel = [0, 0, 0];
+          lookAt = [foot[0], foot[1], foot[2]];
+          enter('plant');
+        }
+        return;
+      case 'plant':
+        prevAt = at;
+        turnTo(spec.heading);
+        if (!planted && since >= T.plantLet) planted = true;
+        if (since >= T.plant) afterPlant();
+        return;
       case 'fly':
       case 'door':
       case 'moor':
@@ -721,7 +799,9 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
         }
         leg = null;
         lookAt = null;
-        ruffled = null;
+        // (E1) moored at the end of his entrance: he straightens his hat and tie (the view's), once
+        ruffled = arriving ? { how: 'arrived', at: ctx.clock.step } : null;
+        arriving = false;
         enter('moored');
         return;
       case 'pause':
@@ -756,6 +836,24 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
       default:
         return;
     }
+  }
+
+  // (E1) a late arrival begins on his entrance: beyond the bench, high, already under way, his mast slung under him.
+  // With reduced motion there is no entrance: he is at his mast when he arrives.
+  if (start.arrive && !ctx.reducedMotion) {
+    const d = sub(OVER_HIGH, spec.entry);
+    const dl = Math.max(1e-6, length(d));
+    jump(spec.entry);
+    heading = Math.atan2(d[0], d[2]);
+    vel = scale(d, T.arrive / dl);
+    planted = false;
+    arriving = true;
+    legs = [
+      { to: OVER_HIGH, speed: T.arrive },
+      { to: PLANT_AT, speed: T.climb, stop: true, face: spec.heading },
+    ];
+    leg = 'home';
+    enter('arrive');
   }
 
   const unit: PitchUnit = {
@@ -946,6 +1044,9 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
 
     reset() {
       if (ctx.mode(body) !== 'gone' && ctx.mode(body) !== 'held') ctx.stow(body, ctx.pose(body) ?? { p: at, q: qyaw(heading) });
+      // (E1) a reset does not replay his entrance: he is at his mast, his mast standing
+      planted = true;
+      arriving = false;
       grabbedFrom = null;
       pending = null;
       after = null;
@@ -986,6 +1087,8 @@ export function createPitch(ctx: SimContext, spec: PitchSpec): PitchUnit {
           mast: spec.mast,
           mastHeading: spec.heading,
           body,
+          mastCarried: !planted,
+          planted: state === 'plant' ? Math.min(1, since / T.plantLet) : planted ? 1 : 0,
         },
       };
     },

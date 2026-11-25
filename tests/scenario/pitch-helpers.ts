@@ -2,7 +2,8 @@
 // carries and lets go as the page does, and what the tests read: his view, and whether he is home.
 import { benchWorld, tape } from './line-helpers.ts';
 import type { Tape } from './line-helpers.ts';
-import { bench, withPitch, PITCH_SPEC, PITCH_BODY } from '../../src/workshop/sim/scenes/bench.ts';
+import { bench } from '../../src/workshop/sim/scenes/bench.ts';
+import { withPitch, PITCH_SPEC, PITCH_BODY } from '../../src/workshop/sim/scenes/bench-pitch.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';

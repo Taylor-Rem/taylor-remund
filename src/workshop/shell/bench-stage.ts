@@ -30,7 +30,8 @@ import { LOOK } from '../view/stage/index.ts';
 import type { StageOptions } from '../view/stage/index.ts';
 import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
-import { bench as BENCH, withProjectRow, withStandIn, withPitch, PITCH_BODY } from '../sim/scenes/bench.ts';
+import { bench as BENCH, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { arriveLate, lateOn, type LateLoader } from './late.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
 /** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
@@ -200,9 +201,8 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S5, development only: `?standin=1` puts the kit's test block in t-components' crate, to prove a crate's tray)
       // (and `?crates=row`: the six project crates in a row behind the console, for pictures of all six at once)
       const dq = import.meta.env.DEV && typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-      // (P4 P1a, development only: `?pitch=1` puts Pitch on the bench before the owner has approved him; `PITCH_ON` later)
-      const scene00 = dq?.get('pitch') === '1' && !BENCH.parts.some((p) => p.id === PITCH_BODY.id) ? withPitch(BENCH) : BENCH;
-      const scene0 = dq?.get('crates') === 'row' ? withProjectRow(scene00) : scene00;
+      // (P4 P1a; E1) Pitch is never in the scene the page boots: he arrives after the bench is live (shell/late.ts)
+      const scene0 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },
@@ -333,6 +333,8 @@ export interface StartBenchOptions {
   onGiveUp?(): void;
   /** P3 B3: the bench has stepped to its picture's state; its first live step is next (shell/loader.ts). */
   beforeLive?(ws: Workshop): void;
+  /** (E1) Bring the late crew once the bench is live (default true; the picture-first path only). */
+  late?: boolean;
 }
 
 /**
@@ -349,7 +351,10 @@ export async function startBench(o: StartBenchOptions): Promise<Workshop | null>
   const info = posterInfo();
   const set = info.manifest;
   const band = o.band ?? null;
-  return loadStage({
+  // (E1) the late crew: asked for once the bench is live, never on the way to usable; a stage built again gets their views again
+  let late: LateLoader | null = null;
+  const bringLate = (o.late ?? true) && band === null && !o.hold && lateOn();
+  const ws = await loadStage({
     root,
     canvas,
     img: root.querySelector('img.poster'),
@@ -363,9 +368,14 @@ export async function startBench(o: StartBenchOptions): Promise<Workshop | null>
       progress(1);
       return { ...glue.bootOptions(), ...(o.onGiveUp ? { onGiveUp: o.onGiveUp } : {}) };
     },
-    ...(o.onRebuilt ? { onRebuilt: o.onRebuilt } : {}),
+    onRebuilt(ws: Workshop) {
+      late?.again(ws);
+      o.onRebuilt?.(ws);
+    },
     ...(o.beforeLive ? { beforeLive: o.beforeLive } : {}),
   });
+  if (ws && bringLate) late = arriveLate({ workshop: () => handoff()?.workshop ?? null, crewScale: glue.bench.crewScale, tier: () => handoff()?.workshop?.stage.tier ?? 'high' });
+  return ws;
 }
 
 /** The loader's state (`window.__handoff`), once a picture-first load has started. */

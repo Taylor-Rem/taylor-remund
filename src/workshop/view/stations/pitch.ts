@@ -14,15 +14,19 @@
  *   light     his two running lamps and his eye glow through the tells' halo mesh (`userData.halos`: tells.ts);
  *   shadow    he casts none of the key light's (he flies: it would land far off on the wall); a soft blob under him
  *             on whatever is below says how high he is.
+ *   his mast  (E1) drawn here, not merged with the set: he arrives late with it tucked along his flank like a rolled
+ *             umbrella, swings it down under him over its place, sets it on its foot and lets go (a wobble); from
+ *             then on it stands where the scene moors him, and casts its shadow.
  */
-import { Box3, Group, Vector3, type PerspectiveCamera } from 'three';
+import { Box3, Group, Matrix4, Quaternion, Vector3, type Mesh, type Object3D, type PerspectiveCamera } from 'three';
 import type { Id, PitchView, Vec3, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, StationViewFactory, ViewContext } from '../types.ts';
-import { pitch as pitchPiece, pivotsOf, posePitch, NEUTRAL, RIG, type PitchPose } from '../kit/pieces/pitch/index.ts';
+import { pitch as pitchPiece, pitchMast, pivotsOf, posePitch, BODY, NEUTRAL, RIG, type PitchPose } from '../kit/pieces/pitch/index.ts';
 import { paintPitch } from '../kit/pieces/pitch/paint.ts';
 import { BlobShadows } from '../effects/blob-shadows.ts';
 import { partsHooks, partShows, paintToken, type PartWork } from './parts.ts';
 import type { Token } from '../palette.ts';
+import type { Piece } from '../kit/types.ts';
 
 /** Tune here: degrees, units, seconds. */
 export const PITCH_LOOK = {
@@ -56,6 +60,9 @@ export const PITCH_LOOK = {
 } as const;
 
 const DEG = 180 / Math.PI;
+/** (E1) The sim's planting figures (sim/crew/pitch.ts PITCH_TUNING: `plantOver`, `plantLet`), for drawing the mast hung and let go. */
+const PLANT_OVER = 1.2;
+const PLANT_LET = 0.9;
 const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
 const smooth = (a: number, b: number, x: number): number => {
   const k = clamp((x - a) / (b - a), 0, 1);
@@ -67,7 +74,20 @@ export interface PitchViewOptions {
   /** The crew's drawing scale (the kit's units are Fetch's body height). */
   readonly scale: number;
   readonly seed?: number;
+  /** (E1) His mast: its foot on the bench (x, z), the way his nose points moored, its height in the kit's units (the scene's `PITCH_AT`). */
+  readonly mast?: { readonly at: readonly [number, number]; readonly heading: number; readonly height: number };
+  /** (E1) His pieces built already (the late loader builds each in a task of its own), else built here. */
+  readonly built?: { readonly body: Piece; readonly mast: Piece | null };
 }
+
+/** (E1) How he is built for the bench: one place, read by this view and by the late loader that builds him ahead. */
+export const PITCH_LOOKS = {
+  piece: { take: 'C', cloth: 'charcoal', hook: 'cane', moustache: 'handlebar', seed: 3 } as const,
+  mastSeed: 9,
+} as const;
+
+/** (E1) How he carries his mast: along his flank this far out from the hull (units), this far down, nose a little low. */
+const CARRY = { out: 0.06, down: 0.14, droop: 0.08 } as const;
 
 function pitchOf(w: WorldView): PitchView | null {
   for (const c of w.crewViews()) if (c.kind === 'pitch') return c.view;
@@ -80,7 +100,7 @@ export function createPitchView(o: PitchViewOptions): StationViewFactory {
     const L = PITCH_LOOK;
     const root = new Group();
     root.name = 'pitch';
-    const piece = pitchPiece({ take: 'C', cloth: 'charcoal', hook: 'cane', moustache: 'handlebar', seed: o.seed ?? 3, detail: ctx.tier === 'low' ? 'low' : 'high' });
+    const piece = o.built?.body ?? pitchPiece({ ...PITCH_LOOKS.piece, seed: o.seed ?? PITCH_LOOKS.piece.seed, detail: ctx.tier === 'low' ? 'low' : 'high' });
     const obj = ctx.realize(piece, { castShadow: false });
     obj.scale.setScalar(S);
     root.add(obj);
@@ -92,6 +112,26 @@ export function createPitchView(o: PitchViewOptions): StationViewFactory {
     const f0 = NEUTRAL.float;
     ctx.pickable('pitch', obj, { box: new Box3(new Vector3(-0.36, f0 - 0.5, -0.66), new Vector3(0.36, f0 + 0.42, 0.42)) });
     const shadows = new BlobShadows(ctx.materials.decal(), 1, 0.55).addTo(root);
+    // (E1) his mast: its own object (he may arrive with it), standing where the scene moors him once planted
+    const M = o.mast;
+    const mastObj: Object3D | null = M ? ctx.realize(o.built?.mast ?? pitchMast({ height: M.height, seed: PITCH_LOOKS.mastSeed, detail: ctx.tier === 'low' ? 'low' : 'high' })) : null;
+    const mastCasters: Mesh[] = [];
+    if (mastObj) {
+      mastObj.name = 'pitch-mast';
+      mastObj.matrixAutoUpdate = false;
+      mastObj.traverse((c) => {
+        if ((c as Mesh).isMesh && c.castShadow) mastCasters.push(c as Mesh);
+      });
+      root.add(mastObj);
+    }
+    const mastYaw = M ? Math.atan2(Math.cos(M.heading), -Math.sin(M.heading)) : 0;
+    const mastH = M ? M.height * S : 0;
+    const qStand = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), mastYaw);
+    const pStand = M ? new Vector3(M.at[0], 0, M.at[1]) : new Vector3();
+    const qa = new Quaternion(), qb = new Quaternion(), qw = new Quaternion(), qTmp = new Quaternion();
+    const pa = new Vector3(), pb = new Vector3(), pTmp = new Vector3(), up = new Vector3(0, 1, 0), axis = new Vector3();
+    const sc = new Vector3(S, S, S);
+    let mastCasting = true;
     const camera = (ctx.stage.camera as unknown as { camera: PerspectiveCamera }).camera;
     const cam = new Vector3();
     const v3 = new Vector3();
@@ -277,6 +317,17 @@ export function createPitchView(o: PitchViewOptions): StationViewFactory {
             lid = 0.7;
             pose.pitch += 4;
             break;
+          case 'arrive':
+            // (E1) his entrance: nose up, lids lowered, every inch the chairman arriving at his own building
+            lid = 0.42;
+            pose.pitch += 7;
+            look = [clamp(look[0], -10, 10), 4];
+            break;
+          case 'plant':
+            // (E1) setting his mast down: eye on its foot, careful
+            lid = 0.3;
+            pose.pitch -= 2 * smooth(0, 0.5, since);
+            break;
           case 'poked': {
             // he turns to the visitor and adjusts his tie: a tug, a settle
             lid = 0.4 + 0.25 * smooth(0.8, 1.4, since);
@@ -329,6 +380,48 @@ export function createPitchView(o: PitchViewOptions): StationViewFactory {
         obj.rotation.set(0, heading, 0);
         posePitch(obj, pose, pv);
         if (floatNode && floats) floatNode.scale.multiplyScalar(1 + Math.sin(t * L.breatheRate) * L.breathe);
+
+        // ── (E1) his mast: carried, swung down and set on its foot, or standing ──
+        if (mastObj && M) {
+          const carried = v.mastCarried || v.state === 'plant';
+          if (!carried) {
+            pa.copy(pStand);
+            qa.copy(qStand);
+          } else {
+            // tucked along his port flank like a rolled umbrella, centred on the hull, its head forward and a little low
+            const fx2 = Math.sin(heading), fz2 = Math.cos(heading);
+            const side = BODY.r * S + CARRY.out;
+            const mid = ((BODY.nose - BODY.tail) / 2) * S;
+            axis.set(fx2, -CARRY.droop, fz2).normalize();
+            qa.setFromUnitVectors(up, axis);
+            pa.set(x + fz2 * side + fx2 * mid, y - CARRY.down, z - fx2 * side + fz2 * mid).addScaledVector(axis, -mastH / 2);
+            if (v.state === 'plant') {
+              // swung down to hang under him (its head under his car), then set down on its place and let go
+              const k = v.planted;
+              const a1 = smooth(0, 0.5, k), b1 = smooth(0.5, 1, k);
+              qb.copy(qStand);
+              pb.set(x, y - (PLANT_OVER + mastH), z);
+              pTmp.copy(pa).lerp(pb, a1);
+              qTmp.copy(qa).slerp(qb, a1);
+              pa.copy(pTmp).lerp(pStand, b1);
+              qa.copy(qTmp).slerp(qStand, b1);
+              // let go: a wobble on its foot, dying away
+              const after = v.since - PLANT_LET;
+              if (after > 0 && !reduced) {
+                qw.setFromAxisAngle(axis.set(Math.cos(mastYaw), 0, -Math.sin(mastYaw)), (2.5 * Math.PI) / 180 * Math.sin(after * 22) * Math.exp(-after * 5));
+                qa.premultiply(qw);
+              }
+            }
+          }
+          mastObj.matrix.compose(pa, qa, sc);
+          mastObj.matrixWorldNeedsUpdate = true;
+          // it casts once it stands (carried, its shadow would land far off on the wall, as his would)
+          const cast = !carried;
+          if (cast !== mastCasting) {
+            mastCasting = cast;
+            for (const m of mastCasters) m.castShadow = cast;
+          }
+        }
 
         // ── paint: the platen's wipe while it works on him, his field at rest ──
         const self = w.part(v.body);

@@ -110,6 +110,20 @@ export interface MouthSpec {
 export type UnitFactory = (ctx: SimContext) => Unit;
 
 /**
+ * (E1) A late unit: a member of the crew who joins a running world (`World.join`) instead of being in the scene
+ * from the first step. An input at a step boundary, like an intent: the world takes it at the start of the next
+ * step it is not in a Button rung, defines its parts and makes its units then, and records nothing (it is not the
+ * visitor's doing: the lever cannot take it back, and "Reset the workshop" keeps it, as it arrived).
+ */
+export interface LateArrival {
+  readonly id: string;
+  /** His parts: each must start out of the world (a `crewBody`, `shipped`, or stowed), so nothing settles or moves as he joins. */
+  readonly parts: readonly PartSpec[];
+  /** His units, run after every unit already in the world (and before the tells, which stay last). */
+  readonly units: readonly UnitFactory[];
+}
+
+/**
  * Fetch's lane of tape (S5 round 2): a path of straight runs through two or more ground points (x, z),
  * ridden end to end. At each corner the robot leans round an arc (`FETCH_TUNING.cornerRadius` × crewScale,
  * less where a run is too short for it), slowing to `cornerSpeed` (`sim/path.ts`). A layout's rules: a

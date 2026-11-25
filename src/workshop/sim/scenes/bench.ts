@@ -40,8 +40,6 @@ import { storefront } from '../machines/storefront.ts';
 import { lamp } from '../machines/lamp.ts';
 import { patch } from '../crew/patch.ts';
 import type { PatchSpec } from '../crew/patch.ts';
-import { pitch } from '../crew/pitch.ts';
-import type { PitchSpec } from '../crew/pitch.ts';
 import { FETCH_TUNING } from '../crew/fetch.ts';
 import { lanePath } from '../path.ts';
 
@@ -331,7 +329,7 @@ export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
-const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
+export const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
 const box = (id: string, b: Box, extra: Partial<StaticSpec> = {}): StaticSpec => ({ id, shape: { type: 'box', half: b.half }, pose: pose(b.c, (b.yaw ?? 0) * DEG), ...extra });
 /** Fetch's lane as the path it rides (S5 round 2: runs of tape, corners rounded): fractions along it, and points on it. */
 const lanePathOf = () => lanePath(AT.lane.points, FETCH_TUNING.cornerRadius * CREW_SCALE);
@@ -348,7 +346,7 @@ export const BARE = 'bare'; // (TOOL_PARTS above spells it: they are made before
 export const CREW_SCALE = 1.5;
 const FETCH_HALF = defaultHalfExtents('robot', 'M').map((h) => h * CREW_SCALE) as unknown as Vec3;
 
-const beltTop = AT.belt.c[1] + AT.belt.half[1];
+export const beltTop = AT.belt.c[1] + AT.belt.half[1];
 const beltEnd = AT.belt.c[0] + AT.belt.half[0];
 
 /**
@@ -771,112 +769,20 @@ function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; wo
   return { tray: PATCHLAMP.platenMouth.id, phone: AT.phone.c, jack: 'jack-platen', say: 'attract.text.make-it-blue', words: 'blue' };
 }
 
-// ───────────── P4 P1a: Pitch (sim/crew/pitch.ts), behind one flag until the owner has seen his look on the bench ─────────────
+// ───────────── P4 P1a: Pitch (sim/crew/pitch.ts), a late unit (E1: scenes/bench-pitch.ts), behind one flag ─────────────
 
 /**
- * THE switch: Pitch on the bench. Off, the bench is exactly what it was before him (the same parts, units and bodies:
- * `withPitch` is not applied). The development pages also take `?pitch=1` (shell/bench-stage.ts).
+ * THE switch: Pitch on the bench. He is never in the scene the page boots (E1): he arrives after the bench is usable,
+ * in a chunk of his own, by the late loader (shell/late.ts), and only when this is on (or, on a development page or a
+ * build with the development pages, `?pitch=1`). Off, nothing of him is fetched. `withPitch` (scenes/bench-pitch.ts)
+ * puts him in a scene from the first step, for the tests.
  */
 export const PITCH_ON = false;
 
 /**
- * Where he moors (P1a): the mast's foot on the bench (x, z), the way his nose points moored (radians about +Y; 0 faces
- * the visitor), and the mast's height in the kit's units (the view's `pitchMast`; drawn at the crew's scale). Behind
- * the platen and right of Revert's park, on the right of the bench where the lamp's arm never reaches, in the home
- * picture at 1440×900 and at the right edge of a phone's centre cluster. ONE place to move him: everything below is
- * read from it.
- */
-export const PITCH_AT = { mast: [5.6, -0.7] as const, heading: -0.85, mastHeight: 1.4 } as const;
-
-/** The mast's cup as the kit piece has it (pitch/index.ts `pitchMast`: the head's cup 0.1 out along its +X, 0.02 under its top), kit units. */
-const MAST_CUP = { out: 0.1, below: 0.02 } as const;
-/** His hull's nose ahead of his middle (pitch/index.ts `BODY.nose`, kit units), and a hair of the cup's lip. */
-const PITCH_NOSE = 0.34 * CREW_SCALE + 0.015;
-
-/**
- * Pitch's own body (`PartSpec.crewBody`; sim/crew/pitch.ts): out of the world while his script has him; in it while
- * he is held, loose, or on the platen's tray. A balloon: almost no weight (0.12: a small crate is 0.06, a middle one
- * 0.14), no gravity (his unit takes it away), heavy drag (1.6 a second: a throw at 14 units/s is down to his slow in
- * under two seconds and about nine units), a soft bounce, little grip. Its box is his envelope round its middle and the
- * briefcase under it, nearly as tall as it is wide and deep and rounded as far as the engine allows, so its turning
- * (which is never drawn) hardly changes what it meets. Kind `robot`: the platen paints him as it paints Fetch.
- */
-export const PITCH_BODY: PartSpec = {
-  id: 'pitch-body',
-  kind: 'robot',
-  size: 'M',
-  material: 'paper',
-  colour: BARE,
-  label: '',
-  station: 'patchlamp',
-  name: 'name.pitch',
-  pose: pose([0, -4, 0]),
-  crewBody: true,
-  half: [0.56, 0.5, 0.56],
-  round: 0.25,
-  mass: 0.12,
-  feel: { friction: 0.2, restitution: 0.35, linearDamping: 1.6, angularDamping: 6 },
-};
-
-/** Pitch's spec, every number from `PITCH_AT` and the bench's own tables. */
-export const PITCH_SPEC: PitchSpec = (() => {
-  const h = PITCH_AT.heading;
-  const fwd: Vec3 = [Math.sin(h), 0, Math.cos(h)];
-  const [mx, mz] = PITCH_AT.mast;
-  const cup: Vec3 = [mx - fwd[0] * MAST_CUP.out * CREW_SCALE, (PITCH_AT.mastHeight - MAST_CUP.below) * CREW_SCALE, mz - fwd[2] * MAST_CUP.out * CREW_SCALE];
-  const hammer: Vec3 = [LINE.strikerX, LINE.belt.top, LINE.belt.z];
-  return {
-    id: 'pitch',
-    body: PITCH_BODY.id,
-    station: 'patchlamp',
-    name: 'name.pitch',
-    mast: cup,
-    heading: h,
-    nose: PITCH_NOSE,
-    // his middle on his way: his keel (0.62 under it) over everything that stands on the bench (the board's panel 3.21,
-    // the storefront 2.83, the striker's arm at the top of its swing, a stack at its tallest), under the frame's top
-    cruise: 4.2,
-    stops: [
-      { over: [hammer[0] + 0.1, 3.7, hammer[2] - 0.4], look: hammer },
-      { over: [LINE.door.origin[0] + 0.2, 3.7, LINE.door.origin[2] - 0.4], look: [LINE.door.origin[0], 0.6, LINE.door.origin[2]] },
-      { over: [PATCHLAMP.seat[0] - 0.1, 3.75, PATCHLAMP.seat[2] + 0.3], look: [PATCHLAMP.seat[0], PATCHLAMP.seat[1] + 0.1, PATCHLAMP.seat[2]] },
-      { over: [AT.storefront.c[0], 3.7, AT.storefront.c[2] + 0.6], look: [AT.storefront.c[0], 1.6, AT.storefront.c[2] + 0.5] },
-      { over: [0.6, 3.7, AT.belt.c[2] - 0.1], look: [0.0, beltTop, AT.belt.c[2]] },
-    ],
-    // the lamp's arm: everywhere it can be is left of x 2.8 and behind z 2.6, never lower than 2.6 (measured over its
-    // whole reach, view/kit/pieces/lamp/aim.ts: shots/p4/pitch/lampreach.ts); his top is 0.5 over his middle
-    lamp: { maxX: 2.8, maxZ: 2.6, under: 2.1 },
-    keepOut: [
-      // Patch on its stool, anywhere along its runner (it sits about 1.6 tall on a 0.69 seat)
-      { min: [AT.boardRunner.c[0] - AT.boardRunner.half[0] - 0.3, 0, AT.stool.c[2] - 0.5], max: [AT.stool.c[0] + 0.7, 2.45, AT.stool.c[2] + 0.5] },
-      // Revert up out of its hatch, along its track behind the console to the Button (1.34 tall), and in its park
-      { min: [AT.revert.c[0] - AT.revert.half[0] - 0.05, 0, REVERT.park.z - 1.1], max: [REVERT.button.x + 1.05, 1.36, AT.revert.c[2] + AT.revert.half[2] + 0.05] },
-      { min: [REVERT.park.x - 1.3, 0, REVERT.park.z - 1.1], max: [REVERT.park.x + 1.25, 1.36, REVERT.park.z + 1.1] },
-      // Fetch on its lane (1.5 tall, its aerial and a crate held up over it)
-      { min: [AT.lane.points[0][0] - 0.8, 0, AT.lane.points[2][1] - 0.7], max: [AT.lane.points[3][0] + 0.75, 1.8, AT.lane.points[0][1] + 0.75] },
-      // the striker's arm at the top of its swing, and the dock's lamp over its portal (view/bench.ts BOUNDS)
-      { min: [2.975 - 0.52, 0, 3.072 - 0.31], max: [2.975 + 0.72, 2.6, 3.072 + 1.19] },
-      { min: [LINE.door.origin[0] - 1.7, 0, LINE.door.origin[2] - 1.35], max: [LINE.door.origin[0] + 1.38, 2.4, LINE.door.origin[2] + 1.2] },
-      // the return chute's riser and mouth (no body: view/bench.ts BOUNDS.chute at (-7.8, 5))
-      { min: [-7.8 - 0.57, 0, 5 - 2.69], max: [-7.8 + 1.16, 1.8, 5] },
-    ],
-    bounds: { minX: AT.bench.minX + 0.6, maxX: AT.bench.maxX - 0.6, minZ: AT.backWall.c[2] + AT.backWall.half[2] + 0.9, maxZ: AT.bench.maxZ - 0.4, maxY: 6.5 },
-    tray: PATCHLAMP.platenMouth.id,
-    dock: 'dock',
-    door: { at: LINE.door.origin, out: [-LINE.door.inward[0], 0, -LINE.door.inward[2]] },
-    visitor: PATCHLAMP.patch.visitor,
-  };
-})();
-
-/** The bench with Pitch on it: his body the last of its parts, his unit the last of its units (nothing before them moves in the order). */
-export function withPitch(scene: SceneDesc): SceneDesc {
-  return { ...scene, parts: [...scene.parts, PITCH_BODY], units: [...(scene.units ?? []), pitch(PITCH_SPEC)] };
-}
-
-/**
  * THE bench: the scene every page and test gets by default. (Until 2026-11-21 its Patch could also be the scripted one,
  * whose flight was hand-written, as the scene `benchScript`; Taylor played the body Patch on 2026-11-20 and kept it.)
- * With `PITCH_ON`, Pitch is on it (`withPitch`).
+ * Pitch is never in it: he joins later (E1, `PITCH_ON`).
  */
 const BENCH_BASE: SceneDesc = {
   id: 'bench',
@@ -1009,7 +915,7 @@ const BENCH_BASE: SceneDesc = {
   ],
 };
 
-export const bench: SceneDesc = PITCH_ON ? withPitch(BENCH_BASE) : BENCH_BASE;
+export const bench: SceneDesc = BENCH_BASE;
 
 /**
  * P4 S5, development only (`?standin=1` on the bench's dev pages): the bench with a stand-in thing in one crate, the

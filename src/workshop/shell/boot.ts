@@ -293,6 +293,11 @@ export interface Workshop {
   faults(): FaultCounts;
   /** Dispatch an intent as if input had (tests, the controls list). */
   dispatch(intent: Intent, t?: number): void;
+  /**
+   * (E1) More station views on the running stage (a late unit's): each made in a task of its own, hidden, its programs
+   * built and linked a task at a time, and only then drawn and updated with the rest. Resolves with the views.
+   */
+  addViews(stations: readonly BootStation[]): Promise<StationView[]>;
   dispose(): void;
 }
 
@@ -1117,6 +1122,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   canvas.addEventListener('webglcontextlost', onContextLost);
   // R2: what a script on the built page can read (nothing leaves the browser)
   if (typeof window !== 'undefined') (window as unknown as { __workshopFaults?: () => FaultCounts }).__workshopFaults = () => guard.faults();
+  /** (E1) Disposed: a late view still being made is let go, not added. */
+  let disposed = false;
   const workshop: Workshop = {
     world,
     simWorld: world,
@@ -1148,7 +1155,30 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
     advance: (n) => loop.advance(n),
     faults: () => guard.faults(),
     dispatch,
+    async addViews(stations) {
+      const made: StationView[] = [];
+      for (const s of stations) {
+        await yieldToBrowser();
+        if (disposed) break;
+        const tv = now();
+        const view = s(ctx);
+        measure(`late view ${view.root.name || s.name || 'station'}`, tv);
+        // not drawn until its programs are linked (renderer.compile walks only what is visible: shown for the call)
+        view.root.visible = true;
+        const linking = stage.compileObject(view.root);
+        view.root.visible = false;
+        await linking;
+        made.push(view);
+      }
+      if (disposed) {
+        for (const v of made) v.dispose();
+        return [];
+      }
+      views.push(...made);
+      return made;
+    },
     dispose() {
+      disposed = true;
       removeEventListener('resize', onResize);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       frameListeners.clear();
