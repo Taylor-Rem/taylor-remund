@@ -42,7 +42,7 @@ describe.each(['a', 'b', 'c'] as const)('the opening stand at %s', (place) => {
 describe('the opening stand (at c)', () => {
   const scene = withOpeningStand(BENCH, 'c');
 
-  test('lifting the crate off shuts it (the page is told to look back); set down elsewhere it stays shut', async () => {
+  test('lifting the crate off shuts it; the page is told to look back when it leaves the hand off the stand; set down elsewhere it stays shut', async () => {
     const w = await benchWorld('st-lift', { scene });
     const t = tape(w);
     t.run(30);
@@ -54,10 +54,21 @@ describe('the opening stand (at c)', () => {
     const ev = t.run(3);
     // shut to the eye and the ear at once (written when it is let go: round two, so one pull of the lever undoes a lift-off)
     expect(ev).toContainEqual(expect.objectContaining({ type: 'crate.shut', crate: 'crate-3', why: 'grab' }));
-    expect(ev).toContainEqual({ type: 'look.back', target: 'crate-3-card' });
+    // (round four) the camera stays in while it is in the hand
+    expect(ev).not.toContainEqual({ type: 'look.back', target: 'crate-3-card' });
     w.dispatch({ type: 'release', velocity: [0, 0, 0] });
     settle(t);
-    aside(w, t, 'crate-3');
+    const ev2: SimEvent[] = [];
+    const m0 = w.motion('crate-3')!.pose.p;
+    w.dispatch({ type: 'grab', id: 'crate-3', grip: m0 });
+    for (let i = 0; i < 40; i++) {
+      w.dispatch({ type: 'carry', target: [-5.6, 1.2, 1.6] });
+      ev2.push(...t.run(1));
+    }
+    expect(ev2, 'none while carried off').not.toContainEqual({ type: 'look.back', target: 'crate-3-card' });
+    w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+    ev2.push(...t.run(3));
+    expect(ev2, 'at the letting-go off the stand').toContainEqual({ type: 'look.back', target: 'crate-3-card' });
     settle(t);
     expect(isOpen(w, 'crate-3')).toBe(false);
     w.dispose();
