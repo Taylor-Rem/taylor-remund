@@ -51,7 +51,7 @@ export default defineConfig({
               // Below every other group: a group takes what its modules import as well, unless a group before it has
               // (so everything he shares with the bench stays in the bench's chunks, and only his own modules are here).
               // Chunks named `late-*` are what scripts/budget.ts counts in the "after" row; it fails if one is reached eagerly.
-              { name: 'late-pitch', test: /\/src\/workshop\/(view\/kit\/pieces\/pitch\/|view\/stations\/pitch\.ts|view\/late\/pitch\.ts|sim\/crew\/pitch\.ts|sim\/scenes\/bench-pitch\.ts)/, priority: 0 },
+              { name: 'late-pitch', test: /\/src\/workshop\/(view\/kit\/pieces\/pitch\/|view\/stations\/pitch\.ts|view\/late\/pitch(-worker)?\.ts|sim\/crew\/pitch\.ts|sim\/scenes\/bench-pitch\.ts)/, priority: 0 },
             ],
           },
         },

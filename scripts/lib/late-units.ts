@@ -8,7 +8,7 @@
 export const LATE_UNIT_FILES: readonly RegExp[] = [
   /^src\/workshop\/view\/kit\/pieces\/pitch\//,
   /^src\/workshop\/view\/stations\/pitch\.ts$/,
-  /^src\/workshop\/view\/late\/pitch\.ts$/,
+  /^src\/workshop\/view\/late\/pitch(-worker)?\.ts$/,
   /^src\/workshop\/sim\/crew\/pitch\.ts$/,
   /^src\/workshop\/sim\/scenes\/bench-pitch\.ts$/,
 ];

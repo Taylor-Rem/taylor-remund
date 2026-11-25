@@ -63,13 +63,19 @@ async function benchWorks(page: Page): Promise<void> {
   const s = await screenOf(page, crate!.p);
   await page.mouse.move(s.x, s.y);
   await page.mouse.down();
-  await expect.poll(() => page.evaluate(() => (window as any).__handoff.workshop.world.holding()?.id ?? null), { timeout: 5_000 }).toBe(crate!.id);
+  // (the crate under the pointer, or the one beside it that the pick prefers: a crate in the hand either way)
+  await expect.poll(() => page.evaluate(() => (window as any).__handoff.workshop.world.holding()?.id ?? ''), { timeout: 5_000 }).toMatch(/^crate-/);
+  const held = await page.evaluate(() => (window as any).__handoff.workshop.world.holding().id as string);
+  const from = await page.evaluate((id) => (window as any).__handoff.workshop.world.motion(id).pose.p as number[], held);
   for (let i = 1; i <= 20; i++) {
     await page.mouse.move(s.x + i * 6, s.y + i * 2);
     await page.waitForTimeout(20);
   }
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => (window as any).__handoff.workshop.world.holding()), { timeout: 5_000 }).toBeNull();
+  // carried: it is somewhere else now
+  const to = await page.evaluate((id) => (window as any).__handoff.workshop.world.motion(id).pose.p as number[], held);
+  expect(Math.hypot(to[0]! - from[0]!, to[2]! - from[2]!)).toBeGreaterThan(0.3);
 }
 
 test('the build has late files, and the static rows agree with what the page names', () => {

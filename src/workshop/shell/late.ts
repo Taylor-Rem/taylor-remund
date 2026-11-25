@@ -74,6 +74,14 @@ const PITCH: LateUnit | null =
 /** The late crew: Pitch is the only one so far. */
 export const LATE_UNITS: readonly LateUnit[] = PITCH ? [PITCH] : [];
 
+/**
+ * (E1) Tune here. A late unit's chunk is fetched in the first idle time after live (bytes only: the network, and the
+ * parsing off the main thread), but he is built no sooner than `settle` ms after live, each piece in an idle time of
+ * its own: the bench's first moments are the visitor's (the swap's fade, the first frames, a first grab), and the
+ * first measurement had his building land in them (one frame of 67 ms a quarter of a second after usable).
+ */
+export const LATE_TUNING = { settle: 1500 } as const;
+
 /** Is any late unit on for this visit? (A page that has none fetches nothing.) */
 export function lateOn(): boolean {
   return LATE_UNITS.some((u) => u.on());
@@ -100,6 +108,7 @@ export interface LateLoader {
 export function arriveLate(o: { workshop: () => Workshop | null; crewScale: number; tier: () => Tier }): LateLoader {
   const state: LateState = { units: {}, times: {} };
   (globalThis as { __late?: LateState }).__late = state;
+  const liveAt = performance.now();
   /** The views each arrived unit was made with, for a stage built again. */
   const made = new Map<string, () => Promise<BootStation[]>>();
   const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
@@ -116,10 +125,15 @@ export function arriveLate(o: { workshop: () => Workshop | null; crewScale: numb
       t.fetched = performance.now();
       await addPieces(v.pieces);
       const stations = async (): Promise<BootStation[]> => (await v.prepare(s.viewOptions(o.crewScale, o.tier()) as never)) as BootStation[];
+      // built once the bench has settled, in idle time (his pieces each in an idle time of their own: view/late/pitch.ts)
+      const wait = liveAt + LATE_TUNING.settle - performance.now();
+      if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+      await new Promise<void>((r) => idle(r));
+      const ready = await stations();
       const ws = o.workshop();
       if (!ws) throw new Error('no stage');
       await new Promise<void>((r) => idle(r));
-      const views: StationView[] = await ws.addViews(await stations());
+      const views: StationView[] = await ws.addViews(ready);
       if (views.length === 0) throw new Error('the stage went away');
       made.set(u.id, stations);
       state.units[u.id] = 'made';
