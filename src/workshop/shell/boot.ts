@@ -595,6 +595,8 @@ const pickAt = (r: RayLike, kind: PointerKind, exclude: Id | null, holding: Held
   const surface = createSurface({
     world: () => world,
     ray: toRay,
+    // (I2) while the camera is in on an open crate (round two's lock), a press or tap on nothing gives the view back
+    emptyTapBacks: () => lookLock() !== null,
     pick(r, kind: PointerKind, exclude, holding = null) {
       const chosen0 = pickAt(r, kind, exclude, holding);
       // (P4 S6 round two) a fixed thing's body stands for its crate

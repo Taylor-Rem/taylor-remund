@@ -112,6 +112,8 @@ export interface GestureWorld {
   lens?(): Lens | null;
   /** The grip a grab names (default: the point the hand took it at; an arm that aims is taken where it points). */
   gripFor?(id: Id, what: HeldKind, point: Vec3): Vec3;
+  /** (I2) Does a press or tap on nothing give the view back now? (The shell's to say: while a close look holds.) */
+  emptyTapBacks?(): boolean;
 }
 
 export type Cursor = 'default' | 'grab' | 'grabbing' | 'pointer';
@@ -490,6 +492,8 @@ export class Gestures {
         this.active = null;
         if (!a.moved) {
           if (this.holding) this.place(s.x, s.y, s.kind, s.t);
+          // (I2) a press or tap that took nothing, while the shell says so (a close look on an open crate): the view back
+          else if (a.target.role === 'none' && !this.world.bracketed && this.world.emptyTapBacks?.()) this.out.push({ type: 'back' });
           this.noteTap(s, a.target.id);
         }
         return;

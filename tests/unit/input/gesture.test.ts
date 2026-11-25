@@ -155,6 +155,34 @@ describe('gestures: carrying', () => {
   });
 });
 
+describe('(I2) a press or tap on nothing while the shell says so (a close look on an open crate) gives the view back', () => {
+  for (const kind of ['mouse', 'touch'] as const) {
+    it(`${kind}: a tap on nothing gives the view back; a drag still pans; a tap on a part or a handle does not; nothing when the shell does not say so`, () => {
+      const { world, g, s } = setup();
+      let says = true;
+      (world as GestureWorld).emptyTapBacks = () => says;
+      const backs = (): number => g.drain().filter((c) => c.type === 'back').length;
+      g.down(s(800, 500, { kind }));
+      g.up(s(801, 500, { kind }));
+      expect(backs(), 'a tap on nothing').toBe(1);
+      g.down(s(800, 500, { kind, dt: 900 }));
+      g.move(s(840, 510, { kind }));
+      g.up(s(840, 510, { kind }));
+      expect(backs(), 'a drag pans').toBe(0);
+      g.down(s(320, 120, { kind, dt: 900 }));
+      g.up(s(320, 120, { kind }));
+      expect(backs(), 'a handle').toBe(0);
+      g.down(s(130, 130, { kind, dt: 900 }));
+      g.up(s(130, 130, { kind }));
+      expect(backs(), 'a part').toBe(0);
+      says = false;
+      g.down(s(800, 500, { kind, dt: 900 }));
+      g.up(s(801, 500, { kind }));
+      expect(backs(), 'the shell does not say so').toBe(0);
+    });
+  }
+});
+
 describe('gestures: pan, pinch, handles, plug', () => {
   it('drag on empty bench pans (from the press point), never carries', () => {
     const { g, s, intents } = setup();

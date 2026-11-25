@@ -506,3 +506,62 @@ for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const)
     await close();
   });
 }
+
+// (I2) In the close view on a crate open on the stand, a tap or press that takes nothing (the pedestal's deck) gives the
+// view back and leaves the crate open on the stand; a tap on its thing's control works it and the view stays (the ledger's plunger: the paint dial's own turn gives the
+// view back by design, D2c, to show its wipe across the room).
+for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const) {
+  test(`I2 (${kind}, ${w}×${h}): in the close view a tap on the ledger's plunger works it and the view stays; a tap on the stand's deck gives the view back, the crate still open`, async ({ browser }) => {
+    const { page: p, hand, close } = await setUp(browser, kind, w, h);
+    const C = 'crate-1';
+    // (crate-2 off the stack's top first)
+    await p.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p }); });
+    await frames(p, 3);
+    await p.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [3.15, 0, 2.05] }));
+    await until(p, async () => (await held(p)) === null, 600, 'crate-2 set aside');
+    await frames(p, 30);
+    await p.evaluate((id) => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id, grip: ws.world.motion(id).pose.p }); }, C);
+    await frames(p, 3);
+    await p.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: 'opening-stand' }));
+    await until(p, () => isOpen(p, C), 600, 'open on the stand');
+    await until(p, async () => { const c = await look(p); return !c.easing && c.look !== null; }, 900, 'the camera in on the card');
+    await until(p, () => p.evaluate(() => (window as any).__bench.ws.world.machine('ledger').show === null && (window as any).__bench.ws.world.mode('ledger-board') === 'machine'), 1800, 'the board on its tray, its show over');
+    await frames(p, 30);
+    // the plunger: the board repairs, the view stays
+    const d0 = await p.evaluate(() => JSON.stringify((window as any).__bench.ws.world.setting('ledger-board', 'tokens')));
+    const k = (await screen(p, 'ledger-plunger'))!;
+    expect(k, 'the plunger a target').not.toBeNull();
+    await hand.down(k);
+    await frames(p, 2);
+    await hand.up(k);
+    await frames(p, 60);
+    expect(await p.evaluate(() => JSON.stringify((window as any).__bench.ws.world.setting('ledger-board', 'tokens'))), 'the plunger worked the board').not.toBe(d0);
+    expect((await look(p)).look, 'the view stays').not.toBeNull();
+    // a point of the stand's deck on screen that the input takes nothing at: beside the crate, on the deck
+    const pt = await p.evaluate(() => {
+      const B = (window as any).__bench, ws = B.ws;
+      const s = ws.world.scene.statics.find((x: any) => x.id === 'opening-stand');
+      const top = s.pose.p[1] + s.shape.half[1];
+      const c = ws.world.motion('crate-1').pose.p;
+      const cv = ws.stage.canvas.getBoundingClientRect();
+      const [hx, , hz] = s.shape.half;
+      const grid: [number, number][] = [];
+      for (let i = -7; i <= 7; i++) for (let j = 7; j >= -7; j--) grid.push([(i / 7.5) * hx, (j / 7.5) * hz]);
+      for (const [dx, dz] of grid) {
+        const x = s.pose.p[0] + dx, z = s.pose.p[2] + dz;
+        if (Math.abs(x - c[0]) < 0.5 && Math.abs(z - c[2]) < 0.45) continue;
+        const q = B.project([x, top, z]);
+        if (q.x < cv.left + 4 || q.x > cv.right - 4 || q.y < cv.top + 4 || q.y > cv.bottom - 4) continue;
+        if (ws.surface.at(q.x, q.y, 'touch', null).id === null && ws.surface.at(q.x, q.y, 'mouse', null).id === null) return q;
+      }
+      return null;
+    });
+    expect(pt, 'a point of the deck that takes nothing, on screen').not.toBeNull();
+    await hand.down(pt!);
+    await frames(p, 2);
+    await hand.up(pt!);
+    await until(p, async () => (await look(p)).look === null, 300, 'the view back');
+    expect(await isOpen(p, C), 'the crate still open on the stand').toBe(true);
+    await close();
+  });
+}

@@ -45,6 +45,8 @@ export interface SurfaceDeps {
   reading?(id: Id): HandleReading | null;
   carry?: Partial<CarryTuning>;
   aim?: Partial<AimTuning>;
+  /** (I2) A press or tap on nothing gives the view back now (GestureWorld.emptyTapBacks). */
+  emptyTapBacks?(): boolean;
 }
 
 export interface Surface extends GestureWorld {
@@ -246,6 +248,7 @@ export function createSurface(deps: SurfaceDeps): Surface {
     },
     role,
     obstacles,
+    emptyTapBacks: () => deps.emptyTapBacks?.() ?? false,
 
     at(x, y, kind, exclude, holding = null): Target {
       const ray = deps.ray(x, y);
