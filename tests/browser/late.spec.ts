@@ -91,9 +91,12 @@ test('held back, nothing late before live; the bench plays without him; released
   page.on('request', (r) => fetched.push(new URL(r.url()).pathname));
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
+  let released = false;
   await page.route((url) => isAfter(url.href), async (route) => {
     const phase = await page.evaluate(() => (window as any).__handoff?.phase ?? 'none').catch(() => 'gone');
     held.push({ url: new URL(route.request().url()).pathname, phase, route });
+    // (once released, what he asks for next, his worker's script, goes straight through)
+    if (released) await route.continue().catch(() => {});
   });
   await page.goto('/');
   await live(page);
@@ -111,8 +114,8 @@ test('held back, nothing late before live; the bench plays without him; released
   expect(uncounted, 'fetched before live, not in the static "to usable" row').toEqual([]);
   expect(before.filter((p) => AFTER.has(p))).toEqual([]);
   // released: he comes in, and moors
-  for (const h of held.splice(0)) await h.route.continue();
-  await page.unroute((url) => isAfter(url.href));
+  released = true;
+  for (const h of held.slice()) await h.route.continue().catch(() => {});
   await expect.poll(async () => (await pitch(page))?.state ?? null, { timeout: 30_000 }).not.toBeNull();
   const first = await pitch(page);
   expect(['arrive', 'plant']).toContain(first!.state);
