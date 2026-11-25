@@ -51,11 +51,14 @@ async function benchWorks(page: Page): Promise<void> {
   await expect.poll(presses, { timeout: 10_000 }).toBeGreaterThan(before);
   // wait for the rung to play out, then carry the loose crate (crate-4, or any crate at rest) a little way
   await page.waitForFunction(() => !(window as any).__handoff.workshop.world.bracketed, null, { timeout: 30_000, polling: 100 });
+  // (I2: one whose middle is the crate's to press, nothing of the crew in front of it: with the owner's layout Fetch can
+  // stand between the camera and crate-3 at this moment, and the press then takes him)
   const crate = await page.evaluate(() => {
-    const w = (window as any).__handoff.workshop.world;
+    const ws = (window as any).__handoff.workshop, w = ws.world;
     for (const id of ['crate-3', 'crate-4', 'crate-1', 'crate-2']) {
       const m = w.motion(id);
-      if (m && m.mode === 'free' && !m.awake) return { id, p: m.pose.p as number[] };
+      const t = ws.surface.screen(id);
+      if (m && m.mode === 'free' && !m.awake && t && ws.surface.at(t.x, t.y, 'mouse', null).id === id) return { id, p: m.pose.p as number[] };
     }
     return null;
   });
