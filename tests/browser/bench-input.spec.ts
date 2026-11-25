@@ -938,8 +938,13 @@ test('R1: the glove cursor over the stage (four poses as CSS images), and the be
  */
 async function dragOff(page: Page, hand: Hand, crate: string, kind: 'mouse' | 'touch'): Promise<void> {
   const at = await waitClear(page, crate, kind);
+  // (to the screen's lower left corner: in the close view the stand fills much of the screen, and a crate let go back
+  // over its deck opens again, as it should)
+  const vp = page.viewportSize() ?? { width: 1440, height: 900 };
+  const to: XY = { x: 24, y: vp.height - 24 };
   const pts: XY[] = [at];
-  for (let i = 1; i <= 12; i++) pts.push({ x: at.x - i * 14, y: at.y + i * 4 });
+  for (let i = 1; i <= 20; i++) pts.push({ x: at.x + ((to.x - at.x) * i) / 20, y: at.y + ((to.y - at.y) * i) / 20 });
+  for (let i = 0; i < 8; i++) pts.push(to);
   await stroke(page, hand, pts);
   await frames(page, 30);
 }
