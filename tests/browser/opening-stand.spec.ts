@@ -441,39 +441,6 @@ for (const things of ['fixed', 'loose'] as const) {
   });
 }
 
-// (round two, the station candidates) a film of each answering a carried crate and opening one (only with S6_FILM: the
-// owner's pictures, not a check)
-for (const look of [1, 2] as const) {
-  for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const) {
-    test(`P4 S6 round two film: candidate ${look} at ${w}×${h}`, async ({ browser }) => {
-      test.skip(!process.env['S6_FILM'], 'films only on request');
-      const { page: p, hand, close } = await setUp(browser, kind, w, h, `stand=centre&standLook=${look}`);
-      await frameWith(p, 'crate-2', kind === 'touch' ? 0.3 : 0.45);
-      await frames(p, 150); // idle a while: its beat
-      const top = await standTop(p);
-      // carried slowly toward it from the stack (it answers), held near a moment, set down on it
-      const from = (await screen(p, 'crate-2'))!;
-      await hand.down(from);
-      // (L2: at the centre the UNDO lever stands to its left: it is brought in from the front right, over Fetch's jog)
-      const mid = await project(p, [top[0]! + 0.6, 1.2, top[2]! + 1.3]);
-      for (let i = 1; i <= 40; i++) {
-        await hand.move({ x: from.x + ((mid.x - from.x) * i) / 40, y: from.y + ((mid.y - from.y) * i) / 40 });
-        await frames(p, 2);
-      }
-      await frames(p, 60);
-      await hand.up(mid);
-      await frames(p, 30);
-      console.log(`[S6] film ${look} ${w}: onto the stand: ${await carry(p, hand, 'crate-2', [top[0]!, top[1]!, top[2]!])}`);
-      await until(p, () => isOpen(p, 'crate-2'), 600, 'open');
-      await frames(p, 240);
-      // (L2) and lifted off again, set down on the open bench behind the lever: it shuts, the camera goes out
-      console.log(`[S6] film ${look} ${w}: lifted off: ${await carry(p, hand, 'crate-2', [-3.4, 0.3, -1.2])}`);
-      await frames(p, 180);
-      await close();
-    });
-  }
-}
-
 // (round four) the camera stays in while a crate lifted off the stand is in the hand: lifted, carried round inside the
 // view and put back, three times, by a real hand: it opens again each time and the camera does not move at all
 for (const [kind, w, h] of [['mouse', 1440, 900], ['touch', 390, 844]] as const) {

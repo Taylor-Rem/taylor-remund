@@ -65,23 +65,14 @@ export interface ButtonOptions extends KitOptions {
   labels?: ButtonLabelRefs;
   /** Build already posed (a name from NAMED_POSES, or a pose). The rest pose is the default. */
   pose?: string | ButtonPose;
-  /**
-   * (L2, a candidate behind `?corner=1`) The cap is an illuminated push button: its enamel the `bulb` class in its
-   * 'button' variant (it glows red from inside; the view breathes it, materials/button-glow.ts).
-   */
-  lit?: boolean;
-  /**
-   * (L2, a candidate behind `?corner=2`) A small caged work lamp of its own: a brass clamp on the deck's back left
-   * corner, a gooseneck, a steel shade with a wire guard over its mouth, aimed down across the cap. Socket
-   * `worklamp`: the bulb's middle (where the view hangs the lamp's light).
-   */
-  workLamp?: boolean;
 }
 
-/** (L2) The cap lit: how deep a cut of `button-red` its glow is (the bulb class's indicator level times this). */
+/**
+ * (L2; the owner chose it 2026-11-25) The cap is an illuminated push button: its enamel the `bulb` class in its 'button'
+ * variant (it glows red from inside; the view breathes it, materials/button-glow.ts). How deep a cut of `button-red`
+ * its glow is (the bulb class's indicator level times this).
+ */
 export const LIT_CAP = { shade: 0.42 } as const;
-/** (L2) The work lamp: its foot on the deck (console space), and the bulb's glow (a cut of `amber-glow`). */
-export const WORK_LAMP = { foot: [-0.86, -0.6] as const, bulb: 0.55 } as const;
 
 /**
  * The hatch's screws, on the console's left side (seen only from far to the left, a few pixels
@@ -221,8 +212,8 @@ export function button(o: ButtonOptions = {}): Piece {
       { detail, segs: hi ? 28 : 18, caps: false },
     );
     // thick wet enamel: a deeper cut of the token, so its lit side stays red under the gloss
-    if (o.lit) cap.add(...withVariant(setFinish(part('bulb', g, 'button-red', { seed: seed + 8, shade: LIT_CAP.shade }), 1), 'button'));
-    else cap.add(setFinish(part('steel', g, 'button-red', { seed: seed + 8, shade: 0.8 }), 1));
+    // (L2) lit from inside
+    cap.add(...withVariant(setFinish(part('bulb', g, 'button-red', { seed: seed + 8, shade: LIT_CAP.shade }), 1), 'button'));
   }
 
   // ======================================================================
@@ -422,70 +413,6 @@ export function button(o: ButtonOptions = {}): Piece {
     });
   }
 
-  // ======================================================================
-  // (L2, `?corner=2`) THE WORK LAMP: clamp, gooseneck, shade, guard, bulb
-  // ======================================================================
-  if (o.workLamp) {
-    const L = R;
-    const [fx, fz] = WORK_LAMP.foot;
-    // large: the clamp block on the deck's corner and the neck rising out of it, bent over toward the cap
-    b.add(part('brass', bevelBox({ min: [fx - 0.085, yTop - 0.004, fz - 0.075], max: [fx + 0.085, yTop + 0.075, fz + 0.075], c: 0.014, omit: ['ny'] }), 'brass', { seed: seed + 80, shade: 0.8, warm: 0.03 }));
-    // the clamp's jaw down the console's back and its knurled thumbscrew
-    b.add(part('brass', bevelBox({ min: [fx - 0.07, yTop - 0.16, zBack - 0.05], max: [fx + 0.07, yTop + 0.02, zBack - 0.005], c: 0.01 }), 'brass', { seed: seed + 81, shade: 0.75 }));
-    b.add(part('brass', transform(ridgedBand(0.028, 0.04, 10, 0.004), chain(T(fx, yTop - 0.11, zBack - 0.07), aim([0, 0, 0], [0, 0, -1]))), 'brass', { seed: seed + 82 }));
-    const lean = L.spread(0.03);
-    const neck: Array<[number, number, number]> = [
-      [fx, yTop + 0.07, fz],
-      [fx + lean, yTop + 0.55, fz - 0.03],
-      [fx + 0.03 + lean, yTop + 1.0, fz + 0.08],
-      [fx + 0.16, yTop + 1.25, fz + 0.3],
-      [fx + 0.34, yTop + 1.27, fz + 0.48],
-    ];
-    const neckPath = polylinePath(neck, 0.16, 4);
-    b.add(part('metal', sweep(neckPath, { radius: 0.021, detail, segs: 8, ends: 'flat' }), 'steel', { seed: seed + 83, shade: 0.6 }));
-    // mid: the flexible neck's ridges, a collar at its foot and at its head
-    for (let i = 0; i + 1 < neck.length; i++) {
-      const a = neck[i]!, c = neck[i + 1]!;
-      const d: [number, number, number] = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      const len = Math.hypot(...d);
-      const n = Math.max(1, Math.round(len / 0.05));
-      for (let k = 1; k < n; k++) {
-        const t = k / n;
-        b.small(() => [part('metal', transform(lathe(profile(0.0255, 0).to(0.0255, 0.012, { fillet: 0.005, segs: 1 }).to(0, 0.012), { segs: 8, detail: 'low', caps: false, band: 0, support: false }), aim([a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t], d)), 'steel', { seed: seed + 84, shade: 0.75 })]);
-      }
-    }
-    b.add(part('metal', transform(lathe(profile(0.042, 0).to(0.042, 0.05, { fillet: 0.01, segs: 1 }).to(0.026, 0.06).to(0, 0.06), { segs: 12, detail, band: 0 }), T(fx, yTop + 0.07, fz)), 'steel', { seed: seed + 85, shade: 0.85 }));
-    // the shade: its mouth aimed down across the cap
-    const head = neck[neck.length - 1]!;
-    const capAt: [number, number, number] = [CONSOLE.capX, yTop + 0.2, CONSOLE.capZ];
-    const dir: [number, number, number] = [capAt[0] - head[0], capAt[1] - head[1], capAt[2] - head[2]];
-    const at = chain(aim(head, dir, L.range(0, 360)), new Matrix4().makeScale(1.3, 1.3, 1.3));
-    const shadeG = lathe(
-      profile(0, -0.035).to(0.035, -0.035, { fillet: 0.01, segs: 1 }).to(0.045, 0.03, { fillet: 0.02, segs: 2 }).to(0.068, 0.07, { fillet: 0.03, segs: 2 }).to(0.15, 0.2, { fillet: 0.02, segs: 1 }).to(0.158, 0.215, { fillet: 0.006, segs: 1 }).to(0.142, 0.21).to(0.06, 0.08),
-      { segs: 20, detail, caps: false },
-    );
-    // a knock in the shade's rim (it has been dropped)
-    dentKeep(shadeG, [0.15, 0.2, 0], [1, 0.3, 0], 0.05, 0.01);
-    b.add(part('steel', transform(shadeG, at), 'teal-panel', { seed: seed + 86, shade: 0.95, jitter: 0.04 }));
-    // its switch, a little brass knob on the shade's back
-    b.add(part('brass', transform(lathe(profile(0.014, 0).to(0.014, 0.03, { fillet: 0.005, segs: 1 }).to(0, 0.03), { segs: 8, detail: 'low', band: 0 }), chain(at, T(0.05, 0.05, 0), new Matrix4().makeRotationZ(-1.1))), 'brass', { seed: seed + 87 }));
-    // the bulb, inside the mouth
-    const bulbG = lathe(profile(0, 0.06).to(0.03, 0.07, { smooth: true }).to(0.05, 0.12, { smooth: true }).to(0.04, 0.16, { smooth: true }).to(0, 0.172), { segs: 12, detail, caps: false });
-    b.add(part('bulb', transform(bulbG, at), 'amber-glow', { seed: seed + 88, shade: WORK_LAMP.bulb }));
-    // small: the wire guard over the mouth: a ring at the rim and four wires domed over it
-    b.add(part('metal', transform(sweep(arcPath([0, 0, 0], 0.15, 0, Math.PI * 2, 16, [1, 0, 0], [0, 0, 1]), { radius: 0.007, detail: 'low', segs: 5, ends: 'flat' }), chain(at, T(0, 0.212, 0))), 'steel', { seed: seed + 89 }));
-    for (let k = 0; k < 2; k++) {
-      const a0 = (k / 2) * (Math.PI / 2) + 0.3;
-      const p0: [number, number, number] = [Math.cos(a0) * 0.15, 0.212, Math.sin(a0) * 0.15];
-      const p1: [number, number, number] = [-p0[0], 0.212, -p0[2]];
-      const g = sweep(polylinePath([p0, [p0[0] * 0.5, 0.262, p0[2] * 0.5], [0, 0.275, 0], [p1[0] * 0.5, 0.262, p1[2] * 0.5], p1], 0.04, 2), { radius: 0.006, detail: 'low', segs: 4, ends: 'flat' });
-      b.add(part('metal', transform(g, at), 'steel', { seed: seed + 90 + k, shade: 0.9 }));
-    }
-    // two screws in the clamp block
-    for (const x of [-0.045, 0.045]) b.small(() => place(domeRivet({ d: 0.028, detail: 'low', cheap: true, material: 'metal', token: 'steel', seed: seed + 92 }), T(fx + x, yTop + 0.075, fz + 0.03)));
-    b.socket('worklamp', chain(at, T(0, 0.12, 0)));
-  }
-
   b.socket('tape', front(0, (yC0 + yTop) / 2, 0.01));
   b.socket('cap', chain(deck, T(0, plateT + ringH + capGap + capH, 0)));
   const built = b.build();
@@ -506,10 +433,8 @@ export const catalogue: CatalogueEntry[] = [
         ...(opts.detail ? { detail: opts.detail } : {}),
         ...(opts['labels'] ? { labels: opts['labels'] as ButtonLabelRefs } : {}),
         ...(typeof opts['pose'] === 'string' ? { pose: opts['pose'] } : {}),
-        ...(opts['lit'] === true ? { lit: true } : {}),
-        ...(opts['workLamp'] === true ? { workLamp: true } : {}),
       }),
-    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 }, 'lit cap (L2)': { lit: true }, 'work lamp (L2)': { workLamp: true } },
+    variants: { high: { detail: 'high' }, low: { detail: 'low' }, 'seed 2': { seed: 2 } },
     poses: Object.keys(NAMED_POSES),
     labels: (labels) => ({ labels: buttonLabels(labels) }),
     camera: { distance: 5 },

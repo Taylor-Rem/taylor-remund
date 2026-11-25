@@ -65,7 +65,7 @@ export type ClassUniforms = Record<string, { value: number | Color }>;
  * bench top): fewer layers, no scratch pass. Only `wood` has one today; other
  * classes return their normal material.
  * 'lamp': the lamp's own lit parts, tinted with the lamp's colour (lamp-glow.ts). Only `bulb`.
- * 'button' (L2, `?corner=1`): the Button's lit cap, its glow breathing (button-glow.ts). Only `bulb`.
+ * 'button' (L2): the Button's lit cap, its glow breathing (button-glow.ts). Only `bulb`.
  */
 export type MaterialVariant = 'large' | 'lamp' | 'button';
 
@@ -102,7 +102,7 @@ export interface WorkshopMaterials extends Materials {
    * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
    */
   halo(): MeshBasicMaterial;
-  /** (L2, `?corner=1`) The same glow in `button-red`: the Button's lit cap on its deck and its cover's bars. */
+  /** (L2) The same glow in `button-red`: the Button's lit cap on its deck and its cover's bars. */
   buttonHalo(): MeshBasicMaterial;
   /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
   seeThrough(material: Material, fade: { value: number }): Material | null;

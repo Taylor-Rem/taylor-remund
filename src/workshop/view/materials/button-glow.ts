@@ -1,5 +1,5 @@
 /**
- * L2, a candidate behind `?corner=1` (development): the Button's cap as an illuminated push button. Its cap is the
+ * L2 (the owner chose it 2026-11-25 over the work lamp): the Button's cap as an illuminated push button. Its cap is the
  * `bulb` class in its 'button' variant (kit/types.ts MaterialVariant), whose shader multiplies its glow by this
  * uniform; the Button's view (view/stations/button.ts) writes it each frame as the cap breathes. Every other bulb
  * ignores it.

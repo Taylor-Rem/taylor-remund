@@ -115,12 +115,6 @@ export interface ButtonViewOptions {
   detail?: 'high' | 'low';
   /** The whole console drawn at this share of its size as built (L2: the bench's is smaller; default 1). */
   scale?: number;
-  /**
-   * (L2, development candidates for the Button in its dim corner) `lit`: the cap glows red from inside and breathes
-   * slowly, its glow on the deck and the cover's bars (`?corner=1`); `lamp`: a small caged work lamp of its own on a
-   * gooseneck from the console, its light a point light (`?corner=2`). Default: neither.
-   */
-  corner?: 'lit' | 'lamp';
   /** Where the console stands (x, z; the scene's `console` body), for what is placed before the first frame. */
   consoleAt?: readonly [number, number];
 }
@@ -163,10 +157,10 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const body = new Group(); // the console, which shudders
     root.add(body);
     const refs = opts.labels === false ? undefined : buttonLabels(ctx.labels);
-    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high'), ...(opts.corner === 'lit' ? { lit: true } : {}), ...(opts.corner === 'lamp' ? { workLamp: true } : {}) });
-    // (L2, `?corner=1`) the lit cap's glow on what is round it
-    const halos = opts.corner === 'lit' ? new LampHalos({ halo: () => (ctx.materials as unknown as { buttonHalo: () => Material }).buttonHalo() }, 1) : null;
-    if (halos) ctx.scene.add(halos.mesh);
+    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high'), });
+    // (L2) the lit cap's glow on what is round it (the cap is lit from inside: the owner's choice, 2026-11-25)
+    const halos = new LampHalos({ halo: () => (ctx.materials as unknown as { buttonHalo: () => Material }).buttonHalo() }, 1);
+    ctx.scene.add(halos.mesh);
     const camera = (ctx.stage.camera as unknown as { camera: PerspectiveCamera }).camera;
     const capAt = new Vector3();
     const obj = ctx.realize(built);
@@ -210,15 +204,6 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
       if (coverProxy) ctx.pickable(b.coverId, coverProxy);
       count.x = countTo = b.presses;
     };
-    // (L2, `?corner=2`) the work lamp's light, where its bulb is, made with the station (before the first frame
-    // compiles anything: the light count never changes after); high tier only
-    const sock = built.sockets?.['worklamp'];
-    if (sock && opts.consoleAt && ctx.tier === 'high') {
-      const s = opts.scale ?? 1;
-      const m = new Matrix4().makeTranslation(opts.consoleAt[0], 0, opts.consoleAt[1]).multiply(new Matrix4().makeScale(s, s, s)).multiply(sock);
-      const at = new Vector3().setFromMatrixPosition(m);
-      ctx.stage.lights.addPractical([at.x, at.y, at.z]);
-    }
 
     const view: ButtonView = {
       root,
@@ -371,7 +356,7 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         body.position.set(shud[0], shud[1], shud[2]);
         poseButton(obj, { press: state.press, guard: state.guard, count: state.count });
         if (halos) {
-          // (L2, `?corner=1`) the cap breathes; its glow falls on the deck and the cover round it
+          // (L2) the cap breathes; its glow falls on the deck and the cover round it
           const L = LIT_FEEL;
           const glow = reduced ? L.still : L.low + (1 - L.low) * (0.5 - 0.5 * Math.cos((2 * Math.PI * now) / L.period));
           BUTTON_GLOW.u_buttonGlow.value = glow;

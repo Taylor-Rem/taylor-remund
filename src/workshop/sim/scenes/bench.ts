@@ -1006,8 +1006,8 @@ export const OPENING_STAND = {
 } as const;
 
 /**
- * (round two) A stand of another size (the station candidates, `?standLook=1|2`: about one and a half times the table's
- * footprint and with height): its top's half extents and its height. L2: the stand's size wherever it stands (the
+ * (round two) A stand of another size (the station's: about one and a half times the table's footprint and with height;
+ * I2: the pedestal that ships, view/kit/pieces/opening-stand/): its top's half extents and its height. L2: the stand's size wherever it stands (the
  * default); the bare table's own size only when asked for (`TABLE_SIZE`).
  */
 export interface StandSize {

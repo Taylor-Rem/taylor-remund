@@ -205,9 +205,8 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       const scene00 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
       // (P4 S6, a prototype: `?open=stand`, `?things=loose`; or the scene's OPENING_STAND_ON. L2: one place, the centre)
       const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
-      // (round two) `?standLook=1|2`: the station candidates (view/bench/stations/opening-stand.ts draws them); L2: at the
-      // station size at the centre, its place and the default; `?stand=c`: by the platen as S6 built it, at the table's size
-      // (for comparison, and for the close view's press test there)
+      // (L2) at the station size at the centre, its place and the default; `?stand=c`: by the platen as S6 built it, at the
+      // table's size (for comparison, and for the close view's press test there; I2: drawn as the one pedestal, lower)
       const atC = dq?.get('stand') === 'c';
       const scene0 = standOn ? withOpeningStand(scene00, atC ? 'c' : 'centre', dq?.get('things') === 'loose' ? 'loose' : 'fixed', atC ? TABLE_SIZE : STAND_STATION_SIZE) : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });

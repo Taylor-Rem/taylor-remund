@@ -31,14 +31,6 @@ import { DIAL_STYLE } from '../../kit/pieces/paint-dial/index.ts';
 import { toolBodyPiece } from '../../stations/tools.ts';
 
 /** Tune here: how the lid moves (view only; simulation seconds). */
-/**
- * (P4 S6 round two) The stand's arm and the lids: how open each project crate's lid is drawn now (0 shut .. 1 open, a
- * little over while it overshoots), for the arm to ride; and a time (scene seconds) before which a lid the world has
- * opened waits shut, for the arm to come under it. View only.
- */
-export const LID_NOW = new Map<Id, number>();
-export const LID_HOLD = new Map<Id, number>();
-
 export const LID_FEEL = {
   /** The hasp swings off (or onto) its staple at this rate (share of its travel a second). */
   hasp: 9,
@@ -353,8 +345,7 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
         st.still = shown && mo?.mode === 'free' && !mo.held && (!mo.awake || (st.latch?.onTray() ?? false));
         const w = frame.world;
         const m = w.motion(part.id);
-        const waits = (LID_HOLD.get(part.id) ?? -Infinity) > frame.time;
-        const want = shown && w.setting(part.id, 'open') === true && !m?.held && m?.mode === 'free' && !waits ? 1 : 0;
+        const want = shown && w.setting(part.id, 'open') === true && !m?.held && m?.mode === 'free' ? 1 : 0;
         // (on the simulation's clock: a capture that steps the world a second between frames sees the lid a second on)
         const dt = Math.max(0, Math.min(2, frame.time - st.t));
         st.t = frame.time;
@@ -392,7 +383,6 @@ function projectCrates(projects: ReadonlyMap<Id, ProjectCrate>, things: Readonly
           st.rise += Math.sign(riseGoal - st.rise) * Math.min(Math.abs(riseGoal - st.rise), F.cardRate * dt * (riseGoal ? 1 : 1.6));
         }
         crateLid(obj, st.lid, st.hasp);
-        LID_NOW.set(part.id, st.lid);
         if (st.latch) {
           const front = st.latch.onTray();
           const at = front ? st.latch.front : st.latch.top;

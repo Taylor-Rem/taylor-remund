@@ -90,11 +90,6 @@ export const RIG = {
    * all when the beacon is off (the bounce is put back).
    */
   beacon: { intensity: 60, reach: 2.6, drop: 0.1 },
-  /**
-   * (L2, a candidate behind `?corner=2`) A practical: the Button's own small work lamp, warm, no shadow, high tier only;
-   * its light reaches `distance` and no further (decay 2). It does not dip with the lamp: it is on its own switch.
-   */
-  practical: { intensity: 7, distance: 3.6, decay: 2 },
 };
 
 const toColor = (c: RGB, out = new Color()): Color => out.fromArray(c);
@@ -290,19 +285,6 @@ export class LightRig {
     this.bounce.position.set(b.at[0] + Math.sin(b.angle) * B.reach, b.at[1] - B.drop, b.at[2] + Math.cos(b.angle) * B.reach);
     this.bounce.color.copy(this.beaconColour);
     this.bounce.intensity = B.intensity * this.beacon.strength;
-  }
-
-  /**
-   * (L2, `?corner=2`) A practical lamp's light at `at` (world): one more point light, warm, no shadow. Made once, as
-   * the stations are made (before the first frame compiles the shaders, so the light count never changes after).
-   */
-  addPractical(at: readonly [number, number, number]): PointLight {
-    const P = RIG.practical;
-    const l = new PointLight(toColor(lampColourFrom('amber')), P.intensity, P.distance, P.decay);
-    l.name = 'practical';
-    l.position.set(at[0], at[1], at[2]);
-    this.root.add(l);
-    return l;
   }
 
   /** A momentary dip of the lamp (the Button): drops fast, stutters once, recovers. */

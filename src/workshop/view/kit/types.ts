@@ -64,7 +64,7 @@ export const ATTR = { color: 'color', surf: 'surf', lpos: 'lpos' } as const;
  *  - 'lamp': the `bulb` class on the lamp's own lit parts, which take the lamp's colour
  *    (materials/lamp-glow.ts; any other class ignores it).
  */
-/** (L2, `?corner=1`) 'button': the Button's lit cap, its glow breathing (materials/button-glow.ts). Only `bulb`. */
+/** (L2) 'button': the Button's lit cap, its glow breathing (materials/button-glow.ts). Only `bulb`. */
 export type MaterialVariant = 'large' | 'lamp' | 'button';
 
 /** A lump of one material. */

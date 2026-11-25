@@ -5,7 +5,7 @@
  * materials.
  */
 import { describe, expect, it } from 'vitest';
-import { MeshBasicMaterial, Scene, Vector3 } from 'three';
+import { MeshBasicMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
 import type { Material, Texture } from 'three';
 import { realize } from '../../../src/workshop/view/kit/realize.ts';
 import type { Frame, Labels, ViewContext } from '../../../src/workshop/view/types.ts';
@@ -76,8 +76,8 @@ function rig(reducedMotion = false): Rig {
   };
   const ctx: ViewContext = {
     scene,
-    stage: { camera: { shake: (a: number) => shakes.push(a) }, lights } as unknown as ViewContext['stage'],
-    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial(), focusMark: () => new MeshBasicMaterial() },
+    stage: { camera: { shake: (a: number) => shakes.push(a), camera: new PerspectiveCamera() }, lights } as unknown as ViewContext['stage'],
+    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial(), focusMark: () => new MeshBasicMaterial(), buttonHalo: () => new MeshBasicMaterial() },
     labels: stubLabels(),
     tier: 'high',
     reducedMotion,
