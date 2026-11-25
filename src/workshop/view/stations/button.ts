@@ -176,7 +176,11 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     const coverProxy = guardBone ? proxyOn(guardBone, nodeBounds(built, 'guard'), 'cover:proxy', 0.05) : null;
     // the Button's own target is its cap and the ring round it, riding down with the cap (not the whole console)
     const capBone = obj.getObjectByName('cap');
-    const capProxy = capBone ? proxyOn(capBone, nodeBounds(built, 'cap'), 'cap:proxy', 0.09) : null;
+    // (L2: drawn smaller, its target keeps the size it had at full size: no harder to hit, on a phone above all)
+    const capBox = nodeBounds(built, 'cap');
+    const capW = capBox.max.x - capBox.min.x;
+    const capPad = ((capW + 2 * 0.09) / (opts.scale ?? 1) - capW) / 2;
+    const capProxy = capBone ? proxyOn(capBone, capBox, 'cap:proxy', capPad) : null;
     let coverHover = 0;
 
     let id: Id | null = null;
