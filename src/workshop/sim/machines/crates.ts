@@ -442,6 +442,12 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
         const c = list.find((x) => x.crate === r.target);
         if (c && inStand(c.crate)) look(c);
       }
+      // (I2) and an undo that shuts a crate open on the stand (its setting down taken back): the view back, as when it
+      // is lifted off (until then the camera stayed in on a shut crate gone from the stand)
+      if (stand && !all) for (const r of restores) if (r.field === OPEN && r.to === false) {
+        const c = list.find((x) => x.crate === r.target);
+        if (c && !lifted.has(c.crate)) lookBack(c);
+      }
     },
 
     reset() {

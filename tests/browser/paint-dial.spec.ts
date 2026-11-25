@@ -64,7 +64,10 @@ const fingertip = (page: Page, id: string): Promise<string> =>
     for (const [dx, dy] of [[-15, -15], [0, -21], [15, -15], [-21, 0], [21, 0], [-15, 15], [0, 21], [15, 15], [0, 0]]) {
       const got = ws.surface.at(s.x + dx!, s.y + dy!, 'touch', null).id;
       if (got === id) continue;
-      const g = got ? ws.surface.screen(got) : null;
+      // (I2) with things fixed a press on the toy's body is reported as its crate's (S6 round two): judged by the body's
+      // own middle, as it was when the body was a target of its own
+      const body = got === 'crate-3' && ws.world.mode('paint-dial') === 'machine' ? 'paint-dial' : got;
+      const g = body ? ws.surface.screen(body) ?? ws.surface.screen(got) : null;
       const fair = g && Math.hypot(g.x - s.x - dx!, g.y - s.y - dy!) < Math.hypot(dx!, dy!);
       if (!fair) misses.push(`${dx},${dy}→${got}`);
     }
@@ -153,7 +156,7 @@ test('(D2d) look.back gives back only its own look: the press flicking while the
   // stand's other way for a thing, `?things=loose`), while the press's crate is open on the stand
   const errors = await open(page, '?things=loose');
   const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
-  const rest = (id: string | null, what: string) => until(page, async () => { const c = await cam(); return c.look && (id === null || c.id === id) && !c.easing; }, 400, what);
+  const rest = (id: string | null, what: string, not: string | null = null) => until(page, async () => { const c = await cam(); return c.look && (id === null || c.id === id) && (not === null || c.id !== not) && !c.easing; }, 400, what);
   // the dial off its tray, onto the open bench by the platen (clear of the stand and of Fetch's lane)
   await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'paint-dial', grip: ws.world.motion('paint-dial').pose.p }); });
   await frames(page, 3);
@@ -168,7 +171,7 @@ test('(D2d) look.back gives back only its own look: the press flicking while the
   await frames(page, 10);
   // before the flick (2.7 s on), the visitor asks for the dial: the camera goes to it
   await page.evaluate((id) => (window as any).__bench.ws.dispatch({ type: 'select', id }), KNOB);
-  await rest(null, 'the look at the dial');
+  await rest(null, 'the look at the dial', 'crate-2-card');
   const dialLook = (await cam()).id;
   expect(dialLook, 'a look other than the press\'s card').not.toBe('crate-2-card');
   // the flick comes and goes (its look.back is for crate-2's card): the camera stays on the dial's

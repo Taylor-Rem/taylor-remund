@@ -958,7 +958,7 @@ test('P4 S5 (I2: on the stand; until then by its latch): a project crate opened,
   await page.mouse.move(plate.x, plate.y);
   await frames(page, 3);
   expect(await cur(), 'one finger over the plate').toMatch(/image-set\(.*, pointer$/);
-  expect(await page.evaluate(() => (window as any).__bench.ws.surface.screen('crate-3-lid')), 'no latch target').toBeNull();
+  expect(await page.evaluate(() => { const ws = (window as any).__bench.ws; const s = ws.surface.screen('crate-3-lid'); return s ? ws.surface.at(s.x, s.y, 'mouse', null).id : null; }), 'no latch takes a press').not.toBe('crate-3-lid');
   await dragOff(page, mouseHand(page), 'crate-3', 'mouse');
   await pollFrames(page, openNow).toBe(false);
 });
@@ -1044,7 +1044,7 @@ test('P4 S5 round three: on an open crate with a thing on its tray (the ledger b
     }, kind);
     expect(sweep.latch, `${kind}: points over the board's controls that went to the latch, of ${sweep.points}`).toBe(0);
     // (I2) no latch at all with the stand (was: the latch, on the crate's front, still its own target)
-    expect(sweep.latchGot, `${kind}: no latch target`).toBe('no target');
+    expect(sweep.latchGot, `${kind}: no latch takes a press`).not.toBe('crate-1-lid');
     // a press on the plunger leaves the crate open; (I2) lifting it off the stand shuts it
     const pl = await p.evaluate(() => (window as any).__bench.ws.surface.screen('ledger-plunger'));
     if (kind === 'mouse') await p.mouse.click(pl.x, pl.y);

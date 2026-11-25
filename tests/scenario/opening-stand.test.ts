@@ -129,6 +129,21 @@ describe('the opening stand (at the centre)', () => {
     w.dispose();
   }, 90_000);
 
+  test('(I2) the lever takes a setting down back: the crate shuts where it was, and the page is told to look back', async () => {
+    const w = await benchWorld('st-undo-look', { scene });
+    const t = tape(w);
+    t.run(30);
+    putOn(w, t, 'crate-3', top('centre'));
+    settle(t);
+    expect(isOpen(w, 'crate-3')).toBe(true);
+    const n = t.events.length;
+    w.dispatch({ type: 'undo' });
+    settle(t);
+    expect(isOpen(w, 'crate-3')).toBe(false);
+    expect(t.events.slice(n).map((x) => x.e)).toContainEqual({ type: 'look.back', target: 'crate-3-card' });
+    w.dispose();
+  }, 60_000);
+
   test('a part that is not a project crate set there just rests', async () => {
     const w = await benchWorld('st-other', { scene });
     const t = tape(w);
