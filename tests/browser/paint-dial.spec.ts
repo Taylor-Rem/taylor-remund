@@ -74,11 +74,12 @@ const fingertip = (page: Page, id: string): Promise<string> =>
     return misses.length ? `misses ${misses.join(' ')}` : 'ok';
   }, id);
 
-async function open(page: Page, query = ''): Promise<string[]> {
+async function open(page: Page, query = '', dial = true): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`${origin}/dev/bench/${query}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
+  if (!dial) return errors;
   // (I2) t-components' crate opened the one way the bench has: set on the opening stand (tests/browser/stand.ts)
   await openOnStand(page, 'crate-3');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('paint-dial') === 'machine'), 300, 'the dial on its tray');
@@ -186,7 +187,9 @@ test('(D2d) look.back gives back only its own look: the press flicking while the
 
 test('(D2d, I2) the crate taken from Fetch\'s arms and set on the stand opens and the camera comes in; shut by anything but a hand (the lever), it gives the look back', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const errors = await open(page);
+  // (I2) nothing else on the stand: a crate set down on top of another hands it off, and the lever then brings that one back,
+  // open, with its own look
+  const errors = await open(page, '', false);
   const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
   const rest = (id: string, what: string) => until(page, async () => { const c = await cam(); return c.look && c.id === id && !c.easing; }, 400, what);
   // (I2) the crate in Fetch's arms, double-clicked: nothing opens (the stand is the one way); taken from his arms and
@@ -202,6 +205,7 @@ test('(D2d, I2) the crate taken from Fetch\'s arms and set on the stand opens an
   await rest('crate-4-card', 'the look at crate-4\'s card');
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'undo' }));
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === false), 600, 'the lever shuts it');
+
   await until(page, async () => !(await cam()).look, 200, 'the camera back out');
   await page.waitForTimeout(500);
   expect(errors).toEqual([]);

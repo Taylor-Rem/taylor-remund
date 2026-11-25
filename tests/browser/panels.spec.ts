@@ -83,8 +83,11 @@ test.describe('the panels over the stage', { tag: ENGINES }, () => {
     const crates = await ws(page, (x) => (x.world.scene.projects ?? []).map((c: { crate: string; lid: string; plate: string; project: string }) => c));
     let opened: { crate: string; project: string } | null = null;
     for (const c of crates) {
-      await ws(page, (x, id) => x.dispatch({ type: 'press', id }), c.lid);
-      await steps(page, 30);
+      // (I2) opened the one way the bench has: taken and set on the opening stand (the keys' intents)
+      await ws(page, (x, id) => x.dispatch({ type: 'grab', id, grip: x.world.motion(id).pose.p }), c.crate);
+      await steps(page, 3);
+      await ws(page, (x) => x.dispatch({ type: 'place', at: 'opening-stand' }));
+      await steps(page, 240);
       await ws(page, (x, id) => x.dispatch({ type: 'press', id }), c.plate);
       await steps(page, 3);
       if (await dialog(page).isVisible()) {
