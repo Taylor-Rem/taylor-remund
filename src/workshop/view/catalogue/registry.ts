@@ -19,12 +19,14 @@ export type Entry = CatalogueEntry;
 
 interface KitRegistry {
   loadCatalogue(): Promise<Entry[]>;
+  findEntry(name: string): Promise<Entry | undefined>;
 }
 
 // eager (B1 round 2): the registry, and through it every piece, is in the bundle the page loads; a lazy
 // glob cost a stub chunk and a round trip before the first piece could be found
 const registry = import.meta.glob<KitRegistry>('../kit/pieces/registry.ts', { eager: true });
-const folders = import.meta.glob<{ catalogue?: Entry[] }>('../kit/pieces/*/index.ts');
+// (E1: never a late unit's folder: its pieces are fetched by the late loader, or by the kit registry on a development page)
+const folders = import.meta.glob<{ catalogue?: Entry[] }>(['../kit/pieces/*/index.ts', '!../kit/pieces/pitch/index.ts']);
 const legacy = import.meta.glob<{ testBlock?: (o?: KitOptions) => Piece }>('../kit/pieces/test-block.ts');
 
 /** Where the list came from (shown on the index page, so nobody wonders). */
@@ -70,15 +72,28 @@ async function discover(): Promise<{ entries: Entry[]; source: Source }> {
   return { entries, source };
 }
 
-/** Every registered piece, sorted by name. */
+/** Every registered piece the page loads first, sorted by name (and a late unit's, once it has arrived: `addPieces`). */
 export async function listPieces(): Promise<{ entries: Entry[]; source: Source }> {
   cached ??= discover();
   return cached;
 }
 
-/** One piece by name, or undefined while it is not registered yet. */
+/**
+ * (E1) A late unit's pieces, now that its chunk has arrived: added to the list every lookup reads (the bake table's
+ * measurements, the bench kit's `entry`). A name already listed is an error, as in `discover`.
+ */
+export async function addPieces(entries: readonly Entry[]): Promise<void> {
+  const now = await listPieces();
+  const fresh = entries.filter((e) => !now.entries.includes(e));
+  for (const e of fresh) if (now.entries.some((x) => x.name === e.name)) throw new Error(`catalogue: two pieces are called '${e.name}'`);
+  if (fresh.length === 0) return;
+  const next = { entries: [...now.entries, ...fresh].sort((a, b) => a.name.localeCompare(b.name)), source: now.source };
+  cached = Promise.resolve(next);
+}
+
+/** One piece by name, or undefined while it is not registered yet (a late unit's is fetched: the catalogue's pages). */
 export async function findPiece(name: string): Promise<Entry | undefined> {
-  return (await listPieces()).entries.find((e) => e.name === name);
+  return (await listPieces()).entries.find((e) => e.name === name) ?? (await registry['../kit/pieces/registry.ts']?.findEntry(name));
 }
 
 /**

@@ -344,7 +344,7 @@ export const PROJECT_CRATES: readonly ProjectCrate[] = Object.entries(PROJECT_OF
 
 const e = CRATE_EDGE;
 const [sx, sz] = AT.stack;
-const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
+export const pose = (p: Vec3, yaw = 0): Pose => ({ p, q: qyaw(yaw) });
 const box = (id: string, b: Box, extra: Partial<StaticSpec> = {}): StaticSpec => ({ id, shape: { type: 'box', half: b.half }, pose: pose(b.c, (b.yaw ?? 0) * DEG), ...extra });
 /** Fetch's lane as the path it rides (S5 round 2: runs of tape, corners rounded): fractions along it, and points on it. */
 const lanePathOf = () => lanePath(AT.lane.points, FETCH_TUNING.cornerRadius * CREW_SCALE);
@@ -361,7 +361,7 @@ export const BARE = 'bare'; // (TOOL_PARTS above spells it: they are made before
 export const CREW_SCALE = 1.5;
 const FETCH_HALF = defaultHalfExtents('robot', 'M').map((h) => h * CREW_SCALE) as unknown as Vec3;
 
-const beltTop = AT.belt.c[1] + AT.belt.half[1];
+export const beltTop = AT.belt.c[1] + AT.belt.half[1];
 const beltEnd = AT.belt.c[0] + AT.belt.half[0];
 
 /**
@@ -789,11 +789,22 @@ function s6Attract(): { tray: string; phone: Vec3; jack: string; say: string; wo
   return { tray: PATCHLAMP.platenMouth.id, phone: AT.phone.c, jack: 'jack-platen', say: 'attract.text.make-it-blue', words: 'blue' };
 }
 
+// ───────────── P4 P1a: Pitch (sim/crew/pitch.ts), a late unit (E1: scenes/bench-pitch.ts), behind one flag ─────────────
+
+/**
+ * THE switch: Pitch on the bench. He is never in the scene the page boots (E1): he arrives after the bench is usable,
+ * in a chunk of his own, by the late loader (shell/late.ts), and only when this is on (or, on a development page or a
+ * build with the development pages, `?pitch=1`). Off, nothing of him is fetched. `withPitch` (scenes/bench-pitch.ts)
+ * puts him in a scene from the first step, for the tests.
+ */
+export const PITCH_ON = false;
+
 /**
  * THE bench: the scene every page and test gets by default. (Until 2026-11-21 its Patch could also be the scripted one,
  * whose flight was hand-written, as the scene `benchScript`; Taylor played the body Patch on 2026-11-20 and kept it.)
+ * Pitch is never in it: he joins later (E1, `PITCH_ON`).
  */
-export const bench: SceneDesc = {
+const BENCH_BASE: SceneDesc = {
   id: 'bench',
   gravity: -16,
   bench: { ...AT.bench, top: 0, ceiling: 8 },
@@ -925,6 +936,8 @@ export const bench: SceneDesc = {
     }),
   ],
 };
+
+export const bench: SceneDesc = BENCH_BASE;
 
 /**
  * P4 S5, development only (`?standin=1` on the bench's dev pages): the bench with a stand-in thing in one crate, the

@@ -36,6 +36,7 @@ import { parseArgs } from 'node:util';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { isMain, REPO_ROOT } from './lib/cli.ts';
 import { PAPER_ONLY_CONTENT } from './lib/paper-content.ts';
+import { isLateUnitFile } from './lib/late-units.ts';
 import { ffmpegPath, GPU_ARGS, isSoftware } from './capture.ts';
 import { buildWithDevPages, serveDist, tempBuildDir } from './loadtime.ts';
 import type { PosterFile, PosterSet, PosterView } from '../src/workshop/shell/poster.ts';
@@ -72,7 +73,8 @@ export function inputsHash(root: string, set: PosterSet, page: string): string {
   const files: string[] = [];
   for (const t of INPUT_TREES) walk(join(root, t), files);
   const paperOnly = new Set(PAPER_ONLY_CONTENT.map((f) => join(root, f)));
-  const drawn = files.filter((f) => !paperOnly.has(f));
+  // (E1) nor a late unit's own files: he is never in a loading picture (scripts/lib/late-units.ts)
+  const drawn = files.filter((f) => !paperOnly.has(f) && !isLateUnitFile(relative(root, f)));
   drawn.push(join(root, page));
   for (const f of drawn.sort()) {
     h.update(relative(root, f));

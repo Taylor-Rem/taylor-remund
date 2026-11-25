@@ -59,7 +59,7 @@ export class Store {
   #fields = new Map<string, Slot>();
   #targets = new Map<Id, Set<string>>();
 
-  /** Declare a field with its starting value (writer `settled`). Only at world construction. */
+  /** Declare a field with its starting value (writer `settled`). Only at world construction, or as a late unit joins (`World.join`). */
   define(target: Id, field: string, value: Value): void {
     const k = key(target, field);
     if (this.#fields.has(k)) throw new Error(`store: ${target}.${field} is already defined`);
@@ -115,6 +115,16 @@ export class Store {
   /** Values are frozen, so a shallow copy of the map is an exact snapshot. */
   snapshot(): StoreSnapshot {
     return { fields: new Map(this.#fields) };
+  }
+
+  /**
+   * (E1) A snapshot taken before some fields were defined, with those fields added as they stand now: a late unit
+   * joins a running world, and "how the visit began" then includes it as it arrived (`World.join`).
+   */
+  extend(s: StoreSnapshot): StoreSnapshot {
+    const out = new Map(s.fields);
+    for (const [k, v] of this.#fields) if (!out.has(k)) out.set(k, v);
+    return { fields: out };
   }
 
   restore(s: StoreSnapshot): void {

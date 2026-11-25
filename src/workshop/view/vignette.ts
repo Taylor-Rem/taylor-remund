@@ -112,8 +112,9 @@ export interface Slot {
 
 type Module = Record<string, unknown>;
 // eager (B1 round 2): no stub chunk and round trip per piece or view; the code is in the bundle anyway
-const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts', { eager: true });
-const stationModules = import.meta.glob<Module>('./stations/*.ts', { eager: true });
+// (E1) never a late unit's piece or view (Pitch's arrive in a chunk of their own: shell/late.ts)
+const pieceModules = import.meta.glob<Module>(['./kit/pieces/*/index.ts', '!./kit/pieces/pitch/index.ts'], { eager: true });
+const stationModules = import.meta.glob<Module>(['./stations/*.ts', '!./stations/pitch.ts'], { eager: true });
 
 async function pieceModule(folder: string): Promise<Module | null> {
   return pieceModules[`./kit/pieces/${folder}/index.ts`] ?? null;

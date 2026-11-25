@@ -71,6 +71,8 @@ const BY_ID: Readonly<Record<string, Entry>> = {
   'slip.out-of-lane': raw.slips.fetchOutOfLane as Entry,
   'name.crate': raw.names.crate as Entry,
   'name.fetch': raw.names.fetch as Entry,
+  /** P4 P1a: Pitch (a draft for Taylor). */
+  'name.pitch': raw.names.pitch as Entry,
   'name.lamp': raw.names.lamp as Entry,
   'name.belt': raw.names.belt as Entry,
   'name.button': raw.names.button as Entry,

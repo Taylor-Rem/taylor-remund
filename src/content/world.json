@@ -13,6 +13,7 @@
   "names": {
     "crate": { "text": "Crate", "kind": "ui", "source": "REWRITE.md § C, the layout (crate stack; pallets of stencilled crates)" },
     "fetch": { "text": "Fetch", "kind": "ui", "source": "REWRITE.md § B5, the crew; a working name (§ Decisions, G4)" },
+    "pitch": { "text": "Pitch", "kind": "ui", "provisional": true, "source": "REWRITE.md § G, P4 as Taylor amended it (2026-11-21): \"Pitch, a fourth member of the crew\"; P1a: his name in the controls list, a draft for Taylor" },
     "lamp": { "text": "Lamp", "kind": "ui", "source": "REWRITE.md § C, the layout (the LAMP, clamped here)" },
     "belt": { "text": "Belt", "kind": "ui", "source": "REWRITE.md § C, the layout (The belt, #line)" },
     "button": { "text": "Big Red Button", "kind": "ui", "source": "REWRITE.md § B4, The Big Red Button" },

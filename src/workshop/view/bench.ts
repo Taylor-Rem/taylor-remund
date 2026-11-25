@@ -381,7 +381,8 @@ export interface Bench {
 type Module = Record<string, unknown>;
 // eager (B1 round 2): lazy globs made a stub chunk per piece and per station, each fetched in turn
 // (51 round trips before the physics engine could start on Fast 4G); their code is in the bundle anyway
-const pieceModules = import.meta.glob<Module>('./kit/pieces/*/index.ts', { eager: true });
+// (E1) never a late unit's piece: Pitch's arrive in a chunk of their own after the bench is usable (view/late.ts)
+const pieceModules = import.meta.glob<Module>(['./kit/pieces/*/index.ts', '!./kit/pieces/pitch/index.ts'], { eager: true });
 const stationModules = import.meta.glob<{ station?: BenchStation }>('./bench/stations/*.ts', { eager: true });
 async function pieceModule(folder: string): Promise<Module | null> {
   return pieceModules[`./kit/pieces/${folder}/index.ts`] ?? null;

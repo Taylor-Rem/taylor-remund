@@ -350,6 +350,8 @@ export type SimEvent =
   | { readonly type: 'put-away'; readonly id: Id }
   /** "Reset the workshop": every field that differed from the start, put back in this step (same shape as an undo's restores). */
   | { readonly type: 'reset'; readonly restores: readonly Restore[] }
+  /** (E1) A late unit joined the running world this step (`World.join`): its parts and units are here from now on. */
+  | { readonly type: 'joined'; readonly id: string }
   // ── the line (§ B1 machines table, § B2 X2, § D 5-7) ──
   /**
    * Law 2: a part that came to rest in a mouth was taken in by its machine (`id`). The verb starts now:
@@ -1251,7 +1253,51 @@ export interface CrewMember {
 // ── S6: one crew (every member listed in one place, each as the view object it already had) ──
 
 /** Which crew member a `CrewView` is. */
-export type CrewKind = 'fetch' | 'patch' | 'revert';
+export type CrewKind = 'fetch' | 'patch' | 'revert' | 'pitch';
+
+/**
+ * P4 P1a: what Pitch is doing (sim/crew/pitch.ts). `moored` at his mast; `castoff` backing off it; `fly` on his way
+ * (his round, or home: `PitchView.leg` says which); `pause` over a machine on his round, looking down at it; `moor`
+ * the last of the way in, nose into the cup; `held` in the visitor's hand; `sail` loose (let go, thrown or bumped:
+ * his body is the engine's); `poked` turned to the visitor, his tie; `tray` on the platen's tray; `door` drifting
+ * back out of the dock's door. (E1) `arrive` his entrance: in from beyond the bench, high, nose up, his mast slung
+ * under him, to over the mast's place and down; `plant` there, the mast lowered and set on its foot, before he backs
+ * off and moors. Caught before the mast stands, he comes back to plant it whatever else happens (`mastCarried`).
+ */
+export type PitchState = 'moored' | 'castoff' | 'fly' | 'pause' | 'moor' | 'held' | 'sail' | 'poked' | 'tray' | 'door' | 'arrive' | 'plant';
+
+/** P4 P1a: Pitch as the view reads it. Transient, never recorded (his paint is his body's, a part's durable field). */
+export interface PitchView {
+  readonly kind: 'pitch';
+  readonly id: Id;
+  readonly state: PitchState;
+  /** Seconds in `state`. */
+  readonly since: number;
+  /** His middle (the hull's centre), world; and where it was a step ago, the very same array when there is nothing to draw between (a cut). */
+  readonly at: Vec3;
+  readonly prevAt: Vec3;
+  readonly velocity: Vec3;
+  /** Which way his nose points, radians about +Y (0: toward the visitor); how fast that is turning (rad/s). */
+  readonly heading: number;
+  readonly turn: number;
+  /** What his eye is on (a machine below him, the visitor, the mast's cup), or null. */
+  readonly lookAt: Vec3 | null;
+  /** In `fly`: the round (unasked) or the way home (after the hand, a bump, the tray, the door). */
+  readonly leg: 'round' | 'home' | null;
+  /** How the last loose spell began, while it and its aftermath last (`sail`, then the first seconds home: he straightens his hat); null otherwise. */
+  readonly ruffled: { readonly how: 'thrown' | 'let-go' | 'bumped' | 'arrived'; readonly since: number } | null;
+  /** In `held`: seconds since the hand took him (affront, then composure). */
+  readonly heldFor: number;
+  /** The mast's cup (world) and the way his nose points moored. */
+  readonly mast: Vec3;
+  readonly mastHeading: number;
+  /** His body (a crew body: in the world only while held, loose or on the tray). */
+  readonly body: Id;
+  /** (E1) He has his mast with him, not yet set on its foot (he arrived late and it is not planted yet). */
+  readonly mastCarried: boolean;
+  /** (E1) In `plant`: how far the mast is lowered, 0 (slung) to 1 (standing on its foot, let go). */
+  readonly planted: number;
+}
 
 /**
  * One crew member as the view reads it (`WorldView.crewViews()`, `WorldView.crewView(id)`): the same
@@ -1261,7 +1307,8 @@ export type CrewKind = 'fetch' | 'patch' | 'revert';
 export type CrewView =
   | { readonly kind: 'fetch'; readonly id: Id; readonly body: Id; readonly member: CrewMember }
   | { readonly kind: 'patch'; readonly id: Id; readonly body: null; readonly view: PatchView }
-  | { readonly kind: 'revert'; readonly id: Id; readonly body: Id; readonly view: RevertView };
+  | { readonly kind: 'revert'; readonly id: Id; readonly body: Id; readonly view: RevertView }
+  | { readonly kind: 'pitch'; readonly id: Id; readonly body: Id; readonly view: PitchView };
 
 /**
  * S6: attract mode's lap (§ B3), beat by beat: Fetch takes a crate off the stack (`fetch-crate`) to the
