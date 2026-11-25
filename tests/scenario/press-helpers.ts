@@ -1,8 +1,7 @@
 // Helpers for the report press's scenarios (P4 D3).
-import { benchWorld, tape, putOn, BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, tape, putOn, openOnStand, BENCH, LOOSE_BENCH, type Tape } from './line-helpers.ts';
 import { HZ } from '../../src/workshop/sim/clock.ts';
 import { PRESS } from '../../src/workshop/sim/scenes/bench.ts';
-import { OPEN } from '../../src/workshop/sim/machines/crates.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 
@@ -22,16 +21,24 @@ export function until(w: World, t: Tape, ok: () => boolean, max: number): boolea
   return ok();
 }
 
-/** The bench with the press's crate set down on the open bench (at `at`) and opened: the press on its tray. */
+/**
+ * The bench with the press's crate set down on the opening stand and opened there (I2: the one way a crate opens; it was
+ * set down on the open bench and opened by its latch): the press on its tray, on the stand. With `at` the press is then
+ * carried off its tray and set down there, out on the bench, which only the stand's loose-things way allows
+ * (`LOOSE_BENCH`, the default scene when `at` is given): on the shipped bench (`things: 'fixed'`) it never leaves its tray.
+ */
 export async function pressOut(seed: string, opts: { at?: [number, number, number]; scene?: SceneDesc } = {}): Promise<{ w: World; t: Tape }> {
-  const w = await benchWorld(seed, { scene: opts.scene ?? BENCH });
+  const scene = opts.scene ?? (opts.at ? LOOSE_BENCH : BENCH);
+  if (opts.at && scene.openingStand?.things !== 'loose') throw new Error('pressOut: a press set down out on the bench needs the loose-things stand');
+  const w = await benchWorld(seed, { scene });
   const t = tape(w);
   t.run(30);
-  putOn(w, t, PRESS.crate, opts.at ?? [-1.4, 0, 0.9]);
-  t.run(HZ);
-  for (let i = 0; i < 4 && w.setting(PRESS.crate, OPEN) !== true; i++) {
-    w.dispatch({ type: 'press', id: `${PRESS.crate}-lid` });
-    t.run(30);
+  openOnStand(w, t, PRESS.crate);
+  t.run(30);
+  if (opts.at) {
+    putOn(w, t, PRESS.body, opts.at, 60);
+    t.run(HZ);
+    if (w.mode(PRESS.body) !== 'free' && w.mode(PRESS.body) !== 'machine') throw new Error(`pressOut: the press is ${w.mode(PRESS.body)} at ${opts.at}`);
   }
   return { w, t };
 }

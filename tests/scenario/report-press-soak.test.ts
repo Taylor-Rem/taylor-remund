@@ -9,9 +9,15 @@
 // twelve), and what the holders show is always something a pull printed. Left alone at the end, the envelope is in the
 // press or on the bench, and the press is in its crate or on the bench.
 //
+// I2: the crate opens on the opening stand (placed on it by its id, the keyboard's place), and "its crate shut and
+// opened" is the crate lifted off the stand and set back on it; the bench is the stand's loose-things bench
+// (LOOSE_FULL_BENCH), since the soak carries and throws the press, which the shipped bench (`things: 'fixed'`) never
+// lets off its tray. With the stand on and the latch dead the soak had passed printing nothing: it now also holds that
+// something was printed.
+//
 // In verify: PRESS_SOAK sessions (default 6). Bigger: PRESS_SOAK=200 npx vitest run tests/scenario/report-press-soak.test.ts
 import { expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH, onBelt } from './line-helpers.ts';
+import { benchWorld, LOOSE_FULL_BENCH as FULL_BENCH, onBelt } from './line-helpers.ts';
 import { checker } from './standins/replay.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
@@ -102,13 +108,13 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
   };
   try {
     run(30);
-    // the middle crate off the stack, onto the open bench, and opened: the press on its tray
+    // the middle crate off the stack, onto the opening stand, and opened there: the press on its tray
     const c2 = w.motion(PRESS.crate)!;
     w.dispatch({ type: 'grab', id: PRESS.crate, grip: c2.pose.p });
     run(2);
-    w.dispatch({ type: 'place', at: [-1.2, 0, 2.0] });
+    w.dispatch({ type: 'place', at: 'opening-stand' });
     run(90);
-    w.dispatch({ type: 'press', id: `${PRESS.crate}-lid` });
+    if (w.setting(PRESS.crate, 'open') !== true) throw new Error('the press\'s crate did not open on the stand');
     run(5);
     for (let a = 0; a < 30; a++) {
       const k = r.int(20);
@@ -144,7 +150,17 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
         SEEN.envelope!++;
         log.push('envelope');
       } else if (k < 16) {
-        w.dispatch({ type: 'press', id: `${PRESS.crate}-lid` });
+        // (I2) its crate shut and opened: lifted off the stand to a clear spot, or set back on it
+        const cm = w.motion(PRESS.crate);
+        if (cm && (cm.mode === 'free' || cm.mode === 'machine')) {
+          const open = w.setting(PRESS.crate, 'open') === true;
+          w.dispatch({ type: 'grab', id: PRESS.crate, grip: cm.pose.p });
+          run(2);
+          if (w.holding()?.id === PRESS.crate) {
+            w.dispatch({ type: 'place', at: open ? [-5.6, 0, 1.6] : 'opening-stand' });
+            run(1);
+          }
+        }
         SEEN.lid!++;
         log.push('lid');
       } else if (k < 18) {
@@ -198,4 +214,7 @@ test(`the report press soak: ${SESSIONS} sessions never lose the envelope and ne
   }
   process.stderr.write(`\npress soak: ${JSON.stringify(SEEN)}\n`);
   expect(bad).toEqual([]);
+  // (I2) it exercised the press: pulls printed and the envelope flew (with a dead latch it had printed nothing)
+  expect(SEEN.printed).toBeGreaterThan(0);
+  expect(SEEN.flicked).toBeGreaterThan(0);
 }, Math.max(300_000, SESSIONS * 30_000));
