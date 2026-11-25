@@ -1,7 +1,7 @@
 ---
 // /dev/room/ (V, the room; ART-P2 § 5): the bench at its full size (18 × 10,
 // back wall at z = -5) with its body, the wall running on, the window, the
-// floor, the dim things past each end and the two reserved bays, composed
+// floor and the dim things past each end (L2: the two reserved bays are gone), composed
 // with the P1 pieces stood at their places in the P2 plan (ART-P2 § 3), under
 // the real stage. Static: nothing moves. Dev-only; never shipped.
 //
@@ -130,7 +130,6 @@
           await add('window', {}, { ...ROOM.window });
           await add('room-left', { floor: ROOM.floorY }, { ...ROOM.ends.left });
           await add('room-right', { floor: ROOM.floorY }, { ...ROOM.ends.right });
-          for (const [i, bay] of ROOM.bays.entries()) await add('reserved-bay', { which: bay.which, w: bay.w, d: bay.d, seed: 3 + i }, { x: bay.x, z: bay.z }, `bay.${bay.which}`);
         } else {
           await add('back-wall', { width: 21, height: 9 }, { z: wallZ }, 'wall');
         }
@@ -223,7 +222,6 @@
             apron: { focus: [-4.2, -1.5, 4.7], zoom: 0.62 },
             bay: { focus: [7.1, 0, -0.1], zoom: 0.8 },
             edge: { focus: [-1.2, -0.1, 4.6], zoom: 0.88 },
-            bays: { focus: [-6.6, 0, -1.4], zoom: 0.72 },
             hatch: { focus: [-3.6, 0.3, 0.35], zoom: 0.8 },
             endleft: { focus: [-10.5, 0.0, -1.5], zoom: 0.45 },
             endright: { focus: [10.5, 0.0, -1.5], zoom: 0.45 },

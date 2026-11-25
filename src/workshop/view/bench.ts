@@ -84,6 +84,9 @@ const real = (ox: number, oz: number, b: { x: readonly [number, number]; z: read
  */
 export const CREW_SCALE = 1.5;
 
+/** L2: the Button's console is drawn at this share of its size as built (the simulation's `AT.consoleScale`). */
+export const CONSOLE_SCALE: number = BENCH_LAYOUT.consoleScale;
+
 /** Revert and its hatch were built at the crew's 1.25×: drawn at CREW_SCALE / 1.25. */
 export const REVERT_SCALE = CREW_SCALE / 1.25;
 
@@ -165,9 +168,6 @@ export const LAYOUT = {
     stool: spot(3.02, -3.46, 0.632, 0.64, 0.625, { y: 0.052, fill: 'piece' }),
     /** The storefront (real; its jack box and conduit run off its left side). */
     storefront: real(7.6, -3.6, BOUNDS.storefront),
-    /** The reserved bays (the room's pieces, their labels flat on the bench), at the back left under the tool wall: INSPECTION at the corner, the plain one right of it. Nothing tall stands in front of either label. */
-    bayInspection: spot(-7.25, -3.6, 3.3, 1.9, 0, { fill: 'piece' }),
-    bayNext: spot(-4.18, -3.55, 2.72, 1.6, 0, { fill: 'piece' }),
     // ── the middle row ──
     /** The reshaped platen (real): its turntable on a round plinth at the front left, open on the left and the front; its left stand (PLATEN.stand.left, 0.99 from the seat) is the end of Fetch's path, so Fetch works it side-on. */
     platen: real(3.14, 0.8, BOUNDS.platen),
@@ -178,9 +178,13 @@ export const LAYOUT = {
     hatch: real(-4.85, 0.3, BOUNDS.hatch),
     /** Revert, risen on its lift (real, idle, at REVERT_SCALE). */
     revert: real(-4.85, 0.3, BOUNDS.revert),
-    /** The UNDO lever (real): beside the Button on its left, in the lamp's pool, clear of the lamp's arm, between Revert's hatch and the console. */
+    /** The UNDO lever (real): in the lamp's pool, clear of the lamp's arm, right of Revert's hatch (L2: left of the opening stand, where the Button stood). */
     undo: real(-2.5, 0.3, BOUNDS.undo),
-    button: spot(-0.6, 0.5, 2.1, 1.52, 1.98, { fill: 'piece' }),
+    /**
+     * L2 (the owner's layout, 2026-11-24): the Big Red Button on its console, a find in the back left corner under the
+     * tool wall, drawn at `CONSOLE_SCALE` of the piece as built (sim/scenes/bench.ts AT `console`, `consoleScale`).
+     */
+    button: spot(BENCH_LAYOUT.console.c[0], BENCH_LAYOUT.console.c[2], 2.1 * BENCH_LAYOUT.consoleScale, 1.52 * BENCH_LAYOUT.consoleScale, 1.98 * BENCH_LAYOUT.consoleScale, { fill: 'piece' }),
     /** The phone on its easel: in front of the console's right end, beside Fetch's jog; Fetch taps it side-on from the jog. */
     phone: spot(0.2, 1.9, 0.42, 0.3, 0.72, { yaw: -16, fill: 'piece' }),
     // ── the front ──

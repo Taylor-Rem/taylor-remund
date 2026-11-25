@@ -76,8 +76,8 @@ export const PLAN_BOX = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.
  * is framed with the station whose box holds it now (the belt's before the Button's: the crate stack is the belt's).
  */
 export const STATION_BOXES = {
-  /** The Button on its console, the UNDO lever, Revert's hatch. */
-  button: { min: [-6.0, 0, -0.6], max: [0.8, 2.0, 1.45] },
+  /** The Button on its console (L2: in the back left corner, under the tool wall), Revert's hatch, the UNDO lever. */
+  button: { min: [-8.7, 0, -2.6], max: [-1.6, 2.0, 1.3] },
   /** Patch at the board, the stool, the platen, the storefront, the phone. */
   patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
   /** The belt from the chute to the dock: the stack, Fetch's lane, the striker. */
@@ -93,8 +93,8 @@ export const STATION_BOXES = {
  * a control outside that is brought into view when focus reaches it (`Framings.thing`).
  */
 export const STATION_BOXES_PORTRAIT = {
-  /** The Button on its console and the UNDO lever (Revert's hatch is off to the left). */
-  button: { min: [-3.4, 0, -0.4], max: [0.8, 1.7, 1.45] },
+  /** The Button on its console (L2: in the corner; the UNDO lever, 5 units to its right, is brought into view when focus reaches it). */
+  button: { min: [-8.6, 0, -2.4], max: [-6.5, 1.8, -0.8] },
   /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
   patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
   /** The middle of the belt: the stack, the striker, Fetch's lane. */
@@ -201,10 +201,9 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (and `?crates=row`: the six project crates in a row behind the console, for pictures of all six at once)
       const dq = import.meta.env.DEV && typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
       const scene00 = dq?.get('crates') === 'row' ? withProjectRow(BENCH) : BENCH;
-      // (P4 S6, a prototype: `?open=stand` and `?stand=a|b|c`, `?things=loose`; or the scene's OPENING_STAND_ON)
+      // (P4 S6, a prototype: `?open=stand`, `?things=loose`; or the scene's OPENING_STAND_ON. L2: one place, the centre)
       const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
-      const place = dq?.get('stand');
-      const scene0 = standOn ? withOpeningStand(scene00, place === 'b' || place === 'c' ? place : 'a', dq?.get('things') === 'loose' ? 'loose' : 'fixed') : scene00;
+      const scene0 = standOn ? withOpeningStand(scene00, 'centre', dq?.get('things') === 'loose' ? 'loose' : 'fixed') : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },

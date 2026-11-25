@@ -20,7 +20,7 @@ import * as K from '../../../src/workshop/view/kit/index.ts';
 import type { Materials } from '../../../src/workshop/view/types.ts';
 import { patchFelt, posePatch, SIDE_ON } from '../../../src/workshop/view/kit/pieces/patch-felt/index.ts';
 import { fitPieces, staticBox } from '../../../src/workshop/view/vignette.ts';
-import { bench as scene, AT } from '../../../src/workshop/sim/scenes/bench.ts';
+import { bench as scene, AT, OPENING_STAND } from '../../../src/workshop/sim/scenes/bench.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../../../src/workshop/sim/parts.ts';
 import { FETCH_TUNING } from '../../../src/workshop/sim/crew/fetch.ts';
 import { pieceFolders } from '../../../src/workshop/view/kit/pieces/registry.ts';
@@ -47,16 +47,22 @@ const fit = fitPieces(scene, { board: switchboard({ detail: 'low', jacks: JACKS 
 
 /** Where the fumbled crate comes to rest: tossed ahead and back off the front run, just past its left end, in front of the UNDO lever (about; the simulation decides: (-3.11, 2.80) in the attract test's first lap). */
 const REST: Vec3 = [AT.lane.points[0]![0] - 0.5, 0.225, AT.lane.points[0]![1]];
-/** The loose crate at the start: the first thing to pick up, in front of the Button's console. */
+/** The loose crate at the start: the first thing to pick up, in front of the opening stand's place (L2; the Button's console stood there). */
 const FIRST: Vec3 = AT.firstCrate;
 /** Patch, drawn at the crew's scale on its seat: its seated box. */
 const patchBox = (): Box3 => {
   const s = fit.stool.seat;
   return new Box3(new Vector3(s[0] - 0.35 * CREW_SCALE, s[1], s[2] - 0.3 * CREW_SCALE), new Vector3(s[0] + 0.35 * CREW_SCALE, s[1] + 1.1 * CREW_SCALE, s[2] + 0.3 * CREW_SCALE));
 };
+/** L2: the opening stand's place at the front of the centre (where the Button stood; the Button is a find in the back left corner). */
+const standBox = (): Box3 => {
+  const pl = OPENING_STAND.places.centre;
+  const [hx, hz] = OPENING_STAND.half;
+  return new Box3(new Vector3(pl.at[0] - hx, 0, pl.at[2] - hz), new Vector3(pl.at[0] + hx, pl.h + 0.45, pl.at[2] + hz));
+};
 function cluster(): Record<string, Box3> {
   return {
-    button: body('console').expandByVector(new Vector3(0, 0.45, 0)),
+    stand: standBox(),
     crate: new Box3(new Vector3(FIRST[0] - 0.25, 0, FIRST[2] - 0.25), new Vector3(FIRST[0] + 0.25, 0.45, FIRST[2] + 0.25)),
     phone: body('phone'),
     patch: patchBox(),
@@ -170,7 +176,7 @@ describe('the footprints', () => {
       }
   });
 
-  it('keep the centre cluster (Button, loose crate, phone, Patch) inside the middle 40% of the bench', () => {
+  it('keep the centre cluster (the stand\'s place, loose crate, phone, Patch) inside the middle 40% of the bench', () => {
     const span = (scene.bench.maxX - scene.bench.minX) * 0.4;
     for (const [name, b] of Object.entries(cluster())) {
       expect(b.min.x, name).toBeGreaterThanOrEqual(-span / 2);
@@ -338,8 +344,6 @@ describe('the camera homes', () => {
       'revert top': top('revert', 1),
       'return chute': top('chute', 0.9),
       "revert's hatch": [S.hatch.x, 0.05, S.hatch.z],
-      'RESERVED label': [S.bayNext.x, 0.01, S.bayNext.z + S.bayNext.d / 2 - 0.4],
-      'INSPECTION label': [S.bayInspection.x, 0.01, S.bayInspection.z + S.bayInspection.d / 2 - 0.4],
     };
     // every shipped crate's front: its middle and a hand's breadth above its foot
     shippedCrateFronts().forEach((f, i) => {

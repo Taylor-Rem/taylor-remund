@@ -153,8 +153,9 @@ describe('Revert stands where the work is seen', () => {
   test('it sweeps a stray from the stray\'s far side, facing the visitor across it, then goes home and down', () => {
     const { world, physics } = benchStub();
     run(world, 5);
-    // a stray out in the open
-    setDown(world, physics, 'crate-3', -6.6, -1.6);
+    // a stray out in the open (L2: it stood at -6.6, -1.6, where the Button's console now stands; behind the hatch the
+    // console and the wall leave no room for the way in from behind, so it lies right of the hatch, behind the lever)
+    setDown(world, physics, 'crate-3', -3.4, -1.2);
     const ev: SimEvent[] = [];
     let at: RevertView | null = null;
     for (let i = 0; i < steps(110) && !ev.some((e) => e.type === 'revert.sweep'); i++) {

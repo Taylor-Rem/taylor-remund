@@ -232,6 +232,11 @@ export interface ButtonSpec {
   readonly cardBy: Id;
   /** Rungs 2 to 4 (S4, `machines/button.ts`). Without it, the stations are `flinch` and the stack is `stack`. */
   readonly ladder?: LadderSpec;
+  /**
+   * (L2) Where the tells (§ B3) measure "nearest" from before the visitor has done anything: the bench's centre, when
+   * the Button is not there. Without it, the Button's cap.
+   */
+  readonly tellsFrom?: Vec3;
 }
 
 /** What the Button's ladder needs from the scene (§ B4): the stations it can misfire, where they are, the stack, the cover. */

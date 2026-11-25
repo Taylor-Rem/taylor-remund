@@ -70,7 +70,7 @@ async function setUp(browser: Browser, kind: 'mouse' | 'touch', w: number, h: nu
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(kind === 'touch' ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}), ...(film ? { recordVideo: { dir: film, size: { width: w, height: h } } } : {}) });
   const page = await ctx.newPage();
   // the stage page itself (its panels are there); in development it reads the prototype's switches from the address
-  await page.goto(`${origin}/?open=stand&stand=c`);
+  await page.goto(`${origin}/?open=stand`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && !!(window as any).__handoff.workshop, null, { timeout: 0, polling: 100 });
   await page.waitForFunction(() => document.querySelectorAll('#controls button[data-panel]').length >= 3, null, { timeout: 60_000 });
   // the dev bench's two helpers, on the stage page: the workshop, and a world point on screen (CSS px)

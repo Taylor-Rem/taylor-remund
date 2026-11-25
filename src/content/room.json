@@ -1,16 +1,4 @@
 {
-  "bays": {
-    "inspection": {
-      "text": "RESERVED: INSPECTION",
-      "kind": "fact",
-      "source": "REWRITE.md § A, text in the world (label tape \"RESERVED: INSPECTION\"); § C, the reserved bays (label tape naming what is coming); § G, arrivals 1 (the inspector)"
-    },
-    "next": {
-      "text": "RESERVED",
-      "kind": "voice",
-      "source": "V brief (P2): the second bay reads plain RESERVED until Taylor names what is coming; REWRITE.md § C, the reserved bays"
-    }
-  },
   "stand": {
     "text": "INSPECTION",
     "kind": "voice",

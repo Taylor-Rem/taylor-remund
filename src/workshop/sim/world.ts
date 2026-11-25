@@ -1554,7 +1554,7 @@ export function createWorld(opts: WorldOptions): World {
   const tells: TellsUnit = createTells(ctx, {
     stations: tellStations,
     used: button.used(),
-    home: scene.button.at,
+    home: scene.button.tellsFrom ?? scene.button.at,
     busy: () => held !== null || bracket !== null || button.view().phase !== 'idle' || lineBusy(),
   });
   units.push(tells);

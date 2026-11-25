@@ -18,7 +18,7 @@ const settle = (t: Tape, n = 120): SimEvent[] => t.run(n);
 /** A crate lifted off a pile or wherever it is to a clear spot on the open bench (front left), and let go. */
 const aside = (w: World, t: Tape, id: Id): void => putOn(w, t, id, [-5.6, 0, 1.6]);
 
-describe.each(['a', 'b', 'c'] as const)('the opening stand at %s', (place) => {
+describe.each(['centre'] as const)('the opening stand at %s', (place) => {
   test('a crate set down on it opens, under the placing (the lever puts it back where it was, shut); the page is asked to look', async () => {
     const w = await benchWorld(`st-open-${place}`, { scene: withOpeningStand(BENCH, place) });
     const t = tape(w);
@@ -39,14 +39,14 @@ describe.each(['a', 'b', 'c'] as const)('the opening stand at %s', (place) => {
   }, 60_000);
 });
 
-describe('the opening stand (at c)', () => {
-  const scene = withOpeningStand(BENCH, 'c');
+describe('the opening stand (at the centre)', () => {
+  const scene = withOpeningStand(BENCH, 'centre');
 
   test('lifting the crate off shuts it (the page is told to look back); set down elsewhere it stays shut', async () => {
     const w = await benchWorld('st-lift', { scene });
     const t = tape(w);
     t.run(30);
-    putOn(w, t, 'crate-3', top('c'));
+    putOn(w, t, 'crate-3', top('centre'));
     settle(t);
     expect(isOpen(w, 'crate-3')).toBe(true);
     const p = w.motion('crate-3')!.pose.p;
@@ -98,10 +98,10 @@ describe('the opening stand (at c)', () => {
     const w = await benchWorld('st-two', { scene });
     const t = tape(w);
     t.run(30);
-    putOn(w, t, 'crate-3', top('c'));
+    putOn(w, t, 'crate-3', top('centre'));
     settle(t);
     expect(isOpen(w, 'crate-3')).toBe(true);
-    putOn(w, t, 'crate-4', top('c'));
+    putOn(w, t, 'crate-4', top('centre'));
     settle(t, 180);
     expect(isOpen(w, 'crate-4')).toBe(true);
     expect(isOpen(w, 'crate-3')).toBe(false);
@@ -121,7 +121,7 @@ describe('the opening stand (at c)', () => {
     t.run(30);
     const before = w.drainEvents().length;
     void before;
-    putOn(w, t, 'fetch', top('c'));
+    putOn(w, t, 'fetch', top('centre'));
     const ev = settle(t);
     expect(ev.some((e) => e.type === 'crate.opened' || e.type === 'card')).toBe(false);
     w.dispose();
@@ -129,12 +129,12 @@ describe('the opening stand (at c)', () => {
 
   test('things fixed: the ledger board on its open crate\'s tray is not a hand\'s; its crank works; loose: it is taken as before', async () => {
     for (const things of ['fixed', 'loose'] as const) {
-      const w = await benchWorld(`st-things-${things}`, { scene: withOpeningStand(BENCH, 'c', things) });
+      const w = await benchWorld(`st-things-${things}`, { scene: withOpeningStand(BENCH, 'centre', things) });
       const t = tape(w);
       t.run(30);
       aside(w, t, 'crate-2'); // off the ledger's crate
       settle(t);
-      putOn(w, t, 'crate-1', top('c'));
+      putOn(w, t, 'crate-1', top('centre'));
       settle(t, 600);
       expect(isOpen(w, 'crate-1')).toBe(true);
       expect(w.mode(LEDGER.board)).toBe('machine');
@@ -157,10 +157,10 @@ describe('the opening stand (at c)', () => {
 
   test('Fetch does not take a crate the visitor set on the stand (its rounds run a minute beside it)', async () => {
     const { bench: FULL } = await import('../../src/workshop/sim/scenes/bench.ts');
-    const w = await benchWorld('st-fetch', { scene: withOpeningStand(FULL, 'c') });
+    const w = await benchWorld('st-fetch', { scene: withOpeningStand(FULL, 'centre') });
     const t = tape(w);
     t.run(30);
-    putOn(w, t, 'crate-4', top('c'));
+    putOn(w, t, 'crate-4', top('centre'));
     settle(t);
     expect(isOpen(w, 'crate-4')).toBe(true);
     settle(t, 60 * 60);

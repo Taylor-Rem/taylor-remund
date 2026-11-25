@@ -11,7 +11,7 @@ import { steps } from '../../src/workshop/sim/clock.ts';
 import type { Id, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const SESSIONS = Number(process.env.STAND_SOAK ?? 12);
-const PLACE = (process.env.STAND_PLACE ?? 'c') as StandPlace;
+const PLACE = (process.env.STAND_PLACE ?? 'centre') as StandPlace;
 const scene = withOpeningStand(FULL_BENCH, PLACE, 'fixed');
 const CRATES = scene.projects ?? [];
 const pl = OPENING_STAND.places[PLACE];
