@@ -271,9 +271,11 @@ export function createPitch(ctx: SimContext, spec: PitchSpec, start: PitchStart 
   let idleWas = ctx.idleSteps();
   /**
    * Steps since the visitor's last input, a Button rung's not counted (the crew is frozen through it). (E1) A late
-   * arrival starts from the world's own count, so his rounds keep the time they would have kept had he been here.
+   * arrival starts from the world's own count, so his rounds keep the time they would have kept had he been here
+   * (the count is one less than the world's idle steps at every step after an input, and this step's `pre` adds one;
+   * a Button rung before he joined is not taken off, as it would have been had he been here).
    */
-  let quiet = ctx.idleSteps();
+  let quiet = Math.max(0, ctx.idleSteps() - 2);
   /** The visitor has acted since the script last looked (read in every step, a rung's included). */
   let actedSince = false;
   // ── the hand ──
@@ -792,6 +794,8 @@ export function createPitch(ctx: SimContext, spec: PitchSpec, start: PitchStart 
         jump(MOORED);
         prevAt = at;
         heading = spec.heading;
+        // (E1) moored is one state, however he came to it: no turning left over (a late arrival agrees with the start)
+        turn = 0;
         vel = [0, 0, 0];
         if (leg === 'round') {
           roundNotBefore = ctx.clock.step + steps(rng.range(T.roundGap[0], T.roundGap[1]));

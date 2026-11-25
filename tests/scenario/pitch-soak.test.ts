@@ -4,7 +4,9 @@
 // (any way, any strength to past the world's cap, lobbed, down, straight up, let go still), juggles him (caught in the
 // air and thrown again), pokes him, sets him on the platen's tray (and paints him there by text, through the PLATEN
 // jack), at the dock's door or on the belt from the keys, throws a crate at him wherever he is, pulls the lever, resets
-// the workshop, presses the Button while he is loose. Then nothing at all.
+// the workshop, presses the Button while he is loose. Then nothing at all. (E1) In half the sessions he is not on the
+// bench at the start: he joins the running world as a late unit (`World.join`) and makes his entrance, and whatever
+// the session does may catch him on his way in, his mast still with him.
 //
 // Must hold:
 //   - at every step: his middle a number; his heading a number; his body in the world exactly when his state says it
@@ -20,6 +22,8 @@
 // One seed: PITCH_SEED=<n> (with PITCH_TRACE=1 for his states).
 import { expect, test } from 'vitest';
 import { PITCHED, BODY, home, pitchOf, fmt, LENS } from './pitch-helpers.ts';
+import { bench } from '../../src/workshop/sim/scenes/bench.ts';
+import { pitchArrival } from '../../src/workshop/sim/scenes/bench-pitch.ts';
 import { benchWorld, tape } from './line-helpers.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import type { Rng } from '../../src/workshop/sim/rng.ts';
@@ -67,6 +71,7 @@ interface Ctx {
 function take(c: Ctx, to: Vec3, hold = 30): boolean {
   const { w } = c;
   const v = pitchOf(w);
+  if (v.state === 'arrive' || v.state === 'plant') cover(`caught on his way in (${v.state}${v.mastCarried ? ', his mast with him' : ''})`);
   const m = w.motion(BODY);
   const at = m && m.mode !== 'gone' ? m.pose.p : v.at;
   w.dispatch({ type: 'grab', id: 'pitch', grip: [at[0], at[1] + 0.25, at[2]] });
@@ -230,7 +235,13 @@ const NAMES = Object.keys(ACTIONS);
 
 async function session(seed: number): Promise<{ fails: string[]; homeAfter: number | null; label: string }> {
   const r = rng(`pitch-soak-${seed}`);
-  const w = await benchWorld(`pitch-soak-${seed}`, { scene: PITCHED });
+  // (E1) late in half the sessions (a draw of its own: the sessions' own draws are as they were)
+  const late = rng(`pitch-soak-late-${seed}`).int(2) === 0;
+  const w = await benchWorld(`pitch-soak-${seed}`, { scene: late ? bench : PITCHED });
+  if (late) {
+    w.join(pitchArrival());
+    cover('arrived late');
+  }
   const t = tape(w);
   const fails: string[] = [];
   let lastInput = 0;
@@ -272,6 +283,7 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
   };
   const plan: string[] = [];
   try {
+    if (late) c.run(1); // (he joins at the start of the first step)
     c.run(steps(r.range(0.5, 30)));
     const n = 1 + r.int(5);
     for (let i = 0; i < n; i++) {
@@ -279,6 +291,7 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
       plan.push(a);
       ACTIONS[a]!(c);
       c.run(steps(r.range(0, 3)));
+      if (late && pitchOf(w).mastCarried) cover('his mast still with him after an action');
     }
     // a Button rung must be over before the quiet starts counting for the world (it plays on its own)
     while (w.bracketed) c.run(1);
@@ -298,6 +311,7 @@ async function session(seed: number): Promise<{ fails: string[]; homeAfter: numb
       }
       if (homeAt !== null && !home(w) && pitchOf(w).leg !== 'round') homeAt = null;
     }
+    if (pitchOf(w).mastCarried) fails.push(`his mast never planted: ${pitchOf(w).state}`);
     if (!home(w)) fails.push(`not at his mast ${AFTER} s after the last input: ${pitchOf(w).state} at ${fmt(pitchOf(w).at)}, body ${w.mode(BODY)}`);
     if (w.holding() !== null) fails.push('something still in the hand');
     const after = homeAt === null ? null : (homeAt - lastInput - frozenBefore) / HZ;
