@@ -19,6 +19,7 @@ import type { Labels, Materials, Tier } from '../types.ts';
 import { CLASSES, CLASS_NAMES, tok, type ClassDef, type Param } from './classes.ts';
 import { createNoiseTexture, NOISE_PERIOD } from './noise.ts';
 import { LAMP_GLOW } from './lamp-glow.ts';
+import { BUTTON_GLOW } from './button-glow.ts';
 import { SchemeState, schemeUniforms, type SchemeUniforms } from './scheme.ts';
 import {
   DEBUG_PARS,
@@ -64,8 +65,9 @@ export type ClassUniforms = Record<string, { value: number | Color }>;
  * bench top): fewer layers, no scratch pass. Only `wood` has one today; other
  * classes return their normal material.
  * 'lamp': the lamp's own lit parts, tinted with the lamp's colour (lamp-glow.ts). Only `bulb`.
+ * 'button' (L2, `?corner=1`): the Button's lit cap, its glow breathing (button-glow.ts). Only `bulb`.
  */
-export type MaterialVariant = 'large' | 'lamp';
+export type MaterialVariant = 'large' | 'lamp' | 'button';
 
 export interface WorkshopMaterials extends Materials {
   readonly tier: Tier;
@@ -100,6 +102,8 @@ export interface WorkshopMaterials extends Materials {
    * Never above the bloom threshold on its own: the lamp's bulb blooms; this is its light on what is beside it.
    */
   halo(): MeshBasicMaterial;
+  /** (L2, `?corner=1`) The same glow in `button-red`: the Button's lit cap on its deck and its cover's bars. */
+  buttonHalo(): MeshBasicMaterial;
   /** (P4 S5 round three) A see-through twin of a material made here: see `EffectMaterials.seeThrough` (view/types.ts). */
   seeThrough(material: Material, fade: { value: number }): Material | null;
   /**
@@ -156,6 +160,8 @@ interface Variant {
   large?: boolean;
   /** The lamp's own lit parts: the bulb class reads LAMP_GLOW (materials/lamp-glow.ts). */
   lampGlow?: boolean;
+  /** (L2) The Button's lit cap: the bulb class reads BUTTON_GLOW (materials/button-glow.ts). */
+  buttonGlow?: boolean;
   /** Never takes the paint scheme (a `keepColours` twin): same program, `s_on` 0. */
   keep?: boolean;
 }
@@ -260,6 +266,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   if (variant.alpha === 'spray') defines.LABEL_SPRAY = '';
   if (variant.large) defines.LARGE = '';
   if (variant.lampGlow) defines.LAMP_GLOW = '';
+  if (variant.buttonGlow) defines.BUTTON_GLOW = '';
   if (debug) {
     defines.DEBUG_VIEW = '';
     defines[`DEBUG_${debug.toUpperCase()}`] = '';
@@ -271,7 +278,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   if (ghost) mat.defines = { ...mat.defines, SEE_THROUGH: '' };
   const key = [
     'workshop', cls, tier,
-    variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '', variant.lampGlow ? 'lamp' : '',
+    variant.map ? 'map' : '', variant.normalMap ? 'n' : '', variant.roughnessMap ? 'r' : '', variant.alpha ?? '', variant.large ? 'large' : '', variant.lampGlow ? 'lamp' : '', variant.buttonGlow ? 'button' : '',
     debug ?? '', ghost ? 'ghost' : '',
   ].join(':');
   mat.customProgramCacheKey = () => key;
@@ -279,7 +286,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
   // the paint scheme: shared uniforms, and this material's own switch (a twin's is 0); never in the key
   const scheme: SchemeUniforms | null = SCHEMED.has(cls) ? { ...sh.scheme, s_on: { value: variant.keep ? 0 : 1 } } : null;
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, ghost ? { u_fade: fade } : {}, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, scheme ?? {});
+    Object.assign(shader.uniforms, uniforms, { uNoiseTex: noise }, ghost ? { u_fade: fade } : {}, debug ? sh.debugUniforms : {}, variant.lampGlow ? LAMP_GLOW : {}, variant.buttonGlow ? BUTTON_GLOW : {}, scheme ?? {});
     let vs = shader.vertexShader;
     vs = inject(vs, 'common', VERTEX_PARS, 'after');
     vs = inject(vs, 'begin_vertex', VERTEX_MAIN, 'after');
@@ -291,7 +298,7 @@ function build(cls: MaterialClass, def: ClassDef, sh: Shared, uniforms: ClassUni
 
     let fs = shader.fragmentShader;
     if (ghost) fs = inject(fs, 'clipping_planes_fragment', SCREEN_DOOR, 'after');
-    fs = inject(fs, 'common', `${ghost ? 'uniform float u_fade;\n' : ''}${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
+    fs = inject(fs, 'common', `${ghost ? 'uniform float u_fade;\n' : ''}${FRAGMENT_PARS}\n${DEBUG_PARS}\n${uniformDecls(uniforms)}\n${variant.lampGlow ? uniformDecls(LAMP_GLOW as unknown as ClassUniforms) : ''}\n${variant.buttonGlow ? uniformDecls(BUTTON_GLOW as unknown as ClassUniforms) : ''}\n${scheme ? uniformDecls(scheme as unknown as ClassUniforms) : ''}\n${def.pars ?? ''}`, 'after');
     fs = inject(fs, 'color_fragment', `${FRAGMENT_OPEN}\n{\n${def.glsl}\n}\n${FRAGMENT_CLOSE}`, 'replace');
     fs = inject(fs, 'roughnessmap_fragment', FRAGMENT_ROUGHNESS, 'after');
     fs = inject(fs, 'metalnessmap_fragment', FRAGMENT_METALNESS, 'after');
@@ -356,10 +363,10 @@ function buildFocusMark(): MeshBasicMaterial {
 }
 
 /** A lit station lamp's glow: see WorkshopMaterials.halo. */
-function buildHalo(): MeshBasicMaterial {
+function buildHalo(token: 'amber-glow' | 'button-red' = 'amber-glow'): MeshBasicMaterial {
   const m = new MeshBasicMaterial();
-  m.name = 'workshop/halo';
-  m.color.copy(tok('amber-glow'));
+  m.name = token === 'amber-glow' ? 'workshop/halo' : `workshop/halo/${token}`;
+  m.color.copy(tok(token));
   m.vertexColors = true;
   m.transparent = true;
   m.blending = AdditiveBlending;
@@ -368,7 +375,7 @@ function buildHalo(): MeshBasicMaterial {
   m.fog = false;
   m.toneMapped = true;
   m.defines = { USE_UV: '' };
-  m.customProgramCacheKey = () => 'workshop:halo';
+  m.customProgramCacheKey = () => 'workshop:halo'; // (the colour is a uniform: one program for both)
   m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.fragmentShader = inject(
       shader.fragmentShader,
@@ -495,6 +502,7 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   let decal: MeshBasicMaterial | undefined;
   let focusMark: MeshBasicMaterial | undefined;
   let halo: MeshBasicMaterial | undefined;
+  let buttonHalo: MeshBasicMaterial | undefined;
   let labels: Labels | undefined = opts.labels;
   const uniformsBy = new Map<MaterialClass, ClassUniforms>();
   const shared = new Map<string, Pbr>();
@@ -515,13 +523,15 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
   const of = (cls: MaterialClass, variant?: MaterialVariant): Pbr => {
     const large = variant === 'large' && HAS_LARGE.has(cls);
     const lampGlow = variant === 'lamp' && cls === 'bulb';
-    const k = large ? `${cls}:large` : lampGlow ? `${cls}:lamp` : cls;
+    const buttonGlow = variant === 'button' && cls === 'bulb';
+    const k = large ? `${cls}:large` : lampGlow ? `${cls}:lamp` : buttonGlow ? `${cls}:button` : cls;
     let m = shared.get(k);
     if (!m) {
       const def = CLASSES[cls];
       if (!def) throw new Error(`materials: unknown class ${String(cls)}`);
-      const made = build(cls, def, sh, uniformsOf(cls), { large, lampGlow });
+      const made = build(cls, def, sh, uniformsOf(cls), { large, lampGlow, buttonGlow });
       if (lampGlow) made.name = `workshop/${cls}/lamp`;
+      if (buttonGlow) made.name = `workshop/${cls}/button`;
       if (SCHEMED.has(cls)) twinOf.set(made, () => named(build(cls, def, sh, uniformsOf(cls), { large, lampGlow, keep: true }), made));
       shared.set(k, made);
       m = made;
@@ -544,6 +554,10 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
     halo() {
       halo ??= buildHalo();
       return halo;
+    },
+    buttonHalo() {
+      buttonHalo ??= buildHalo('button-red');
+      return buttonHalo;
     },
     seeThrough(material, fade) {
       // (a shared material, a textured one or a keepColours twin alike: each knows how it was built)
@@ -676,6 +690,8 @@ export function createMaterials(opts: MaterialsOptions): WorkshopMaterials {
       focusMark = undefined;
       halo?.dispose();
       halo = undefined;
+      buttonHalo?.dispose();
+      buttonHalo = undefined;
     },
   };
   return api;

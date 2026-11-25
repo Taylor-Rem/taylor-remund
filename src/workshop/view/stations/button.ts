@@ -19,11 +19,13 @@
  * Reduced motion: the cap and the wheels still answer; nothing shudders,
  * rattles, shakes or runs backwards. Everything runs on `frame.time`/`dt`.
  */
-import { Group, Quaternion, Vector3 } from 'three';
+import { Group, Matrix4, Quaternion, Vector3, type Material, type PerspectiveCamera } from 'three';
 import type { CoverState, Id, WorldView } from '../../sim/types.ts';
 import type { Frame, StationView, ViewContext } from '../types.ts';
 import { nodeBounds, proxyOn, proxyOnOff } from './proxy.ts';
 import { button as buttonPiece, buttonLabels, poseButton, POSE } from '../kit/pieces/button/index.ts';
+import { BUTTON_GLOW } from '../materials/button-glow.ts';
+import { LampHalos } from '../effects/lamp-halos.ts';
 
 /** Tune here. Rates in rad/s, times in seconds, travel as fractions of the cap's travel. */
 export const BUTTON_FEEL = {
@@ -111,7 +113,23 @@ export interface ButtonViewOptions {
   /** Labels on the tape and plate (default true; tests pass false). */
   labels?: boolean;
   detail?: 'high' | 'low';
+  /** The whole console drawn at this share of its size as built (L2: the bench's is smaller; default 1). */
+  scale?: number;
+  /**
+   * (L2, development candidates for the Button in its dim corner) `lit`: the cap glows red from inside and breathes
+   * slowly, its glow on the deck and the cover's bars (`?corner=1`); `lamp`: a small caged work lamp of its own on a
+   * gooseneck from the console, its light a point light (`?corner=2`). Default: neither.
+   */
+  corner?: 'lit' | 'lamp';
+  /** Where the console stands (x, z; the scene's `console` body), for what is placed before the first frame. */
+  consoleAt?: readonly [number, number];
 }
+
+/**
+ * (L2) The lit cap's breath: its glow swells from `low` to 1 and back over `period` seconds (reduced motion: steady at
+ * `still`); its glow on what is round it is a red halo of `halo` units (and at least `haloPx` CSS px) at `gain` × the glow.
+ */
+export const LIT_FEEL = { period: 3.6, low: 0.55, still: 0.85, halo: 0.75, haloPx: 30, gain: 0.32, rise: 0.12 } as const;
 
 /** What the view shows now, for tests and dev pages. */
 export interface ButtonViewState {
@@ -140,11 +158,17 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
     let reduced = ctx.reducedMotion;
     const root = new Group();
     root.name = 'button-station';
+    root.scale.setScalar(opts.scale ?? 1);
     ctx.scene.add(root);
     const body = new Group(); // the console, which shudders
     root.add(body);
     const refs = opts.labels === false ? undefined : buttonLabels(ctx.labels);
-    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high') });
+    const built = buttonPiece({ ...(refs ? { labels: refs } : {}), detail: opts.detail ?? (ctx.tier === 'low' ? 'low' : 'high'), ...(opts.corner === 'lit' ? { lit: true } : {}), ...(opts.corner === 'lamp' ? { workLamp: true } : {}) });
+    // (L2, `?corner=1`) the lit cap's glow on what is round it
+    const halos = opts.corner === 'lit' ? new LampHalos({ halo: () => (ctx.materials as unknown as { buttonHalo: () => Material }).buttonHalo() }, 1) : null;
+    if (halos) ctx.scene.add(halos.mesh);
+    const camera = (ctx.stage.camera as unknown as { camera: PerspectiveCamera }).camera;
+    const capAt = new Vector3();
     const obj = ctx.realize(built);
     body.add(obj);
     // the cover's pick target rides on the guard's hinge (W3 hover: what can be touched must look it)
@@ -182,6 +206,15 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
       if (coverProxy) ctx.pickable(b.coverId, coverProxy);
       count.x = countTo = b.presses;
     };
+    // (L2, `?corner=2`) the work lamp's light, where its bulb is, made with the station (before the first frame
+    // compiles anything: the light count never changes after); high tier only
+    const sock = built.sockets?.['worklamp'];
+    if (sock && opts.consoleAt && ctx.tier === 'high') {
+      const s = opts.scale ?? 1;
+      const m = new Matrix4().makeTranslation(opts.consoleAt[0], 0, opts.consoleAt[1]).multiply(new Matrix4().makeScale(s, s, s)).multiply(sock);
+      const at = new Vector3().setFromMatrixPosition(m);
+      ctx.stage.lights.addPractical([at.x, at.y, at.z]);
+    }
 
     const view: ButtonView = {
       root,
@@ -333,9 +366,26 @@ export function createButtonView(opts: ButtonViewOptions = {}): (ctx: ViewContex
         if (coverProxy) proxyOnOff(coverProxy, b.cover !== 'none');
         body.position.set(shud[0], shud[1], shud[2]);
         poseButton(obj, { press: state.press, guard: state.guard, count: state.count });
+        if (halos) {
+          // (L2, `?corner=1`) the cap breathes; its glow falls on the deck and the cover round it
+          const L = LIT_FEEL;
+          const glow = reduced ? L.still : L.low + (1 - L.low) * (0.5 - 0.5 * Math.cos((2 * Math.PI * now) / L.period));
+          BUTTON_GLOW.u_buttonGlow.value = glow;
+          capBone?.updateWorldMatrix(true, false);
+          if (capBone) capAt.setFromMatrixPosition(capBone.matrixWorld);
+          capAt.y += L.rise * root.scale.y;
+          camera.updateMatrixWorld();
+          halos.begin(camera, Math.max(1, (globalThis as { innerHeight?: number }).innerHeight ?? 900));
+          halos.add(capAt, L.halo * root.scale.y, L.haloPx, glow * L.gain);
+          halos.end();
+        }
       },
       dispose() {
         root.removeFromParent();
+        if (halos) {
+          halos.mesh.removeFromParent();
+          halos.dispose();
+        }
       },
     };
     return view;
