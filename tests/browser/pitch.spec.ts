@@ -32,6 +32,17 @@ const live = async (page: Page): Promise<void> => {
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live', null, { timeout: 120_000, polling: 100 });
   await page.waitForFunction(() => document.querySelectorAll('#controls button').length > 4, null, { timeout: 30_000 });
 };
+/** (E1) He arrives after the bench is live, with an entrance: wait till he is at his mast, his mast planted. */
+const arrived = async (page: Page): Promise<void> => {
+  await page.waitForFunction(
+    () => {
+      const c = (window as any).__handoff?.workshop?.world.crewView('pitch');
+      return !!c && c.view.state === 'moored' && !c.view.mastCarried;
+    },
+    null,
+    { timeout: 60_000, polling: 100 },
+  );
+};
 const pitch = (page: Page): Promise<PitchState | null> =>
   page.evaluate(() => {
     const c = (window as any).__handoff.workshop.world.crewView('pitch');
@@ -58,6 +69,7 @@ test('in the list by his name; by the keys onto the platen, and home by himself'
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/?pitch=1`);
   await live(page);
+  await arrived(page);
   expect((await pitch(page))?.state).toBe('moored');
   const b = page.locator('#controls button[data-id="pitch"]');
   await expect(b).toHaveCount(1);
@@ -77,6 +89,7 @@ test('flung across the bench by a real mouse, he sails, slows, and is home withi
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/?pitch=1`);
   await live(page);
+  await arrived(page);
   const v = (await pitch(page))!;
   const from = await screenOf(page, v.at);
   const mid = await screenOf(page, [2.0, 2.0, 1.5]);

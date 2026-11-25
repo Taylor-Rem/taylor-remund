@@ -67,7 +67,7 @@
         // Fetch, returned to the bench by the bench's own way of returning lost things: up the return chute, out of its
         // mouth like a parcel, onto the dock's pad; he shakes himself straight and trundles to his lane for his crate
         fetch: {
-          hide: ['fetch'],
+          hide: ['fetch', 'part:crate-4', 'project-crate:crate-4'],
           box: [[-8.2, 0, 0.8], [-0.6, 2.6, 4.6]],
           beats: [
             { props: [{ piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
@@ -126,13 +126,16 @@
               });
               if (built) return;
               built = true;
+              // (Patch's board is placed about the stool's seat as the bench has fitted it; SEAT above is its rough value)
+              const fitted = glue.bench.fit.stool.seat;
+              const shift: [number, number, number] = name === 'patch' ? [fitted[0] - SEAT[0], fitted[1] - SEAT[1], fitted[2] - SEAT[2]] : [0, 0, 0];
               void (async () => {
                 for (const p of beat.props) {
                   const e = await findPiece(p.piece);
                   if (!e) continue;
                   const obj: Object3D = ctx.realize(buildEntry(e, null, { ...(p.opts ?? {}) }, ctx.labels));
                   obj.scale.setScalar(p.scale ?? 1);
-                  obj.position.set(...p.at);
+                  obj.position.set(p.at[0] + shift[0], p.at[1] + shift[1], p.at[2] + shift[2]);
                   obj.quaternion.copy(new Quaternion().setFromEuler(new Euler((p.pitch ?? 0) * D, (p.yaw ?? 0) * D, (p.roll ?? 0) * D, 'YXZ')));
                   root.add(obj);
                 }
