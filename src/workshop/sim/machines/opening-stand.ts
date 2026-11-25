@@ -65,7 +65,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
   /** Crates it handed off: not opened again by it until a hand has taken them (or they rest outside its mouth). */
   const handedOff = new Set<Id>();
   /** A crate set down on top of the one it handed off: it falls onto the stand and opens there, under its placing. */
-  let falling: { crate: Id; cause: Cause } | null = null;
+  let falling: { crate: Id; cause: Cause; since: number } | null = null;
   /** (round two) A crate come to rest leaning or over the edge: the stand squares it up next step, under its placing. */
   let catching: { crate: Id; cause: Cause } | null = null;
   /** Shut project crates lying still in the mouth: since when (step). */
@@ -127,6 +127,16 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
     ctx.release(id, [0, -0.3, 0], [0, 0, 0], cause);
   };
 
+  /** Open `c` here under `cause`, and ask the page to look at it. */
+  const openHere = (c: (typeof projects)[number], cause: Cause): void => {
+    const r = ctx.commit([{ target: c.crate, field: 'open', after: true }], cause);
+    if (r.effects.length > 0) {
+      openedAt = ctx.clock.step;
+      ctx.emit({ type: 'crate.opened', id: spec.id, crate: c.crate, project: c.project });
+      if (c.card !== undefined) ctx.emit({ type: 'look', target: c.card });
+    }
+  };
+
   const unit: MachineUnit = {
     id: spec.id,
     station: spec.station,
@@ -173,7 +183,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         const ph = ctx.halfExtents(c.crate);
         const pp = ctx.pose(c.crate);
         if (ph && pp && pp.p[1] - ph[1] > mouth.drop[1] + 0.05) {
-          falling = { crate: c.crate, cause };
+          falling = { crate: c.crate, cause, since: ctx.clock.step };
           return OK;
         }
       }
@@ -184,12 +194,7 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         return OK;
       }
       caught.delete(c.crate);
-      const r = ctx.commit([{ target: c.crate, field: 'open', after: true }], cause);
-      if (r.effects.length > 0) {
-        openedAt = ctx.clock.step;
-        ctx.emit({ type: 'crate.opened', id: spec.id, crate: c.crate, project: c.project });
-        if (c.card !== undefined) ctx.emit({ type: 'look', target: c.card });
-      }
+      openHere(c, cause);
       // it rests where it is (no custody): the world commits its rest under the same transaction
       return OK;
     },
@@ -222,13 +227,18 @@ export function createOpeningStand(ctx: SimContext, spec: OpeningStandSpec): Mac
         if (to && ctx.mode(k.crate) === 'free' && inMouth(k.crate) && ctx.take(k.crate, spec.id)) {
           ctx.drive(k.crate, to, true);
           ctx.release(k.crate, [0, 0, 0], [0, 0, 0], k.cause);
-          // it rests again where it was put: then it is square, and the placing opens it (`falling` carries the cause)
-          falling = { crate: k.crate, cause: k.cause };
+          // (round three) and it opens now, under its placing: set down a hair over the deck, square, its next rest may
+          // never be reported (the lead's run: squared, then shut on the deck for good, the deck-clearing held off by a
+          // `falling` that never came down)
+          const c = projects.find((x) => x.crate === k.crate);
+          if (c && ctx.setting(c.crate, 'open') !== true) openHere(c, k.cause);
+          caught.delete(k.crate);
         }
       }
       // a crate handed off is the stand's to open again once a hand has had it, or once it lies outside the mouth
       for (const id of [...handedOff]) if (ctx.mode(id) === 'held' || (ctx.mode(id) === 'free' && ctx.settled(id) && !inMouth(id))) handedOff.delete(id);
-      if (falling && (ctx.mode(falling.crate) === 'held' || !inMouth(falling.crate))) falling = null;
+      // (round three) and a fall that never comes to rest within three seconds is forgotten (the deck-clearing then sees it)
+      if (falling && (ctx.mode(falling.crate) === 'held' || !inMouth(falling.crate) || ctx.clock.step - falling.since > 3 * HZ)) falling = null;
       for (const id of [...caught]) if (ctx.mode(id) === 'held' || !inMouth(id)) caught.delete(id);
     },
 

@@ -25,8 +25,17 @@ describe('the opening stand under a random hand', () => {
       const w = await benchWorld(`stand-soak-${s}`, { scene });
       const t = tape(w);
       const r = rng(`stand-soak-${s}`);
+      // (round three) no shut project crate is at rest on the deck for more than a second, whatever put it there
+      const lyingShut = new Map<string, number>();
       const check = (): void => {
         for (const c of CRATES) {
+          const mm = w.motion(c.crate)!;
+          const onDeck = Math.abs(mm.pose.p[0] - TOP[0]) < OPENING_STAND.half[0] && Math.abs(mm.pose.p[2] - TOP[2]) < OPENING_STAND.half[1] && mm.pose.p[1] > TOP[1];
+          if (onDeck && mm.mode === 'free' && !mm.awake && w.setting(c.crate, 'open') !== true && !w.bracketed) {
+            const n = (lyingShut.get(c.crate) ?? 0) + 1;
+            lyingShut.set(c.crate, n);
+            if (n > 60) throw new Error(`session ${s} step ${w.step}: ${c.crate} shut at rest on the deck for more than a second`);
+          } else lyingShut.delete(c.crate);
           if (w.setting(c.crate, 'open') === true) {
             const m = w.motion(c.crate)!;
             if (m.mode !== 'free' && m.mode !== 'held') throw new Error(`session ${s} step ${w.step}: ${c.crate} open while ${m.mode}`);
