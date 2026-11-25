@@ -135,8 +135,9 @@ export const station: BenchStation = {
               if (look === 2 && lid > 0.95) {
                 // then it lets the lid be and leans in to look into the crate
                 const c = local(m.pose.p);
-                goal = [c[0] + 0.05, c[1] + hf[1] + 0.32, c[2] + hf[2] + 0.12];
-                goalPitch = -1.15;
+                // (round four: from beside, high: over the middle its shade hid the card and the dial in the close view)
+                goal = [c[0] + hf[0] + 0.28, c[1] + hf[1] + 0.5, c[2] + 0.05];
+                goalPitch = -0.9;
                 rate = ARM_FEEL.follow;
                 glow = 1;
               }
