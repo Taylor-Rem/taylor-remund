@@ -1,9 +1,10 @@
-# taylorremund.com — Operating Manual (branch `rewrite`)
+# taylorremund.com — Operating Manual (the workshop: `main` of `Taylor-Rem/taylor-remund`)
 
 **This branch is the rewrite: the workshop.** An interactive miniature
-factory on a workbench that happens to contain Taylor's résumé. `main` is
-still the live plain-HTML site and stays untouched until the cutover; its
-manual is `main`'s `CLAUDE.md`. `REWRITE.md` is the specification and the
+factory on a workbench that happens to contain Taylor's résumé. The live
+plain-HTML site is another repository (`Taylor-Rem/rem-portfolio`, the
+remote `live` here) and stays untouched until the cutover; its manual is
+that repository's `CLAUDE.md`. `REWRITE.md` is the specification and the
 plan this branch executes: read it before doing anything here. Where this
 file and `REWRITE.md` disagree, `REWRITE.md` wins and this file gets fixed
 in the same commit.
@@ -18,13 +19,23 @@ in the same commit.
 
 ## Branch and deploy rules
 
-- Branch `rewrite`, **local only. Never push it.** Small commits, plain
-  messages. `git pull --ff-only` on `main` at the start of a session and
-  bring `rewrite` up to it; the career workspace lands résumé changes on
-  `main` without notice, and they arrive here as changes under `legacy/`.
-- `main` deploys to production on push (GitHub Pages, legacy build from the
-  branch root). Nothing on this branch changes production. The cutover is
-  one merge after gate G6, by the list in `REWRITE.md` § Cutover.
+- **Where this work lives (since 2026-11-25, Taylor's doing).** Branch
+  `main` of `Taylor-Rem/taylor-remund`, the remote `origin`, a public
+  repository. Until that day the branch was called `rewrite` and was never
+  pushed; notes, briefs and `REWRITE.md` that say `rewrite` mean this
+  branch. Small commits, plain messages. Push to `origin` when Taylor asks.
+- **Production is a different repository:** `Taylor-Rem/rem-portfolio`,
+  branch `main`, the remote `live` here. It deploys on push (GitHub Pages,
+  legacy build from the branch root). **Never push to `live`:** its push
+  address is disabled in this checkout on purpose
+  (`git remote get-url --push live`). Nothing on this branch changes
+  production.
+- `git fetch live` at the start of a session and merge `live/main` into
+  this branch; the career workspace lands résumé changes there without
+  notice, and they arrive here as changes under `legacy/`.
+- The cutover is after gate G6, by the list in `REWRITE.md` § Cutover.
+  That list was written when there was one repository; how it changes is
+  Taylor's to decide.
 - `CNAME` stays at the repo root, never edited or deleted. The build copies
   it into the output.
 
@@ -70,7 +81,8 @@ everything that needs no graphics card (`--only a,b`, `--skip a,b`,
 - `compressHTML` is off on purpose: the compliance pages carry their text
   of record byte for byte.
 - Agent worktrees live in `.claude/worktrees/` (git-ignored). A new
-  worktree starts from `main`; reset it onto `rewrite` before working.
+  worktree starts from this branch; reset it onto the commit its brief
+  names before working.
 
 ## File map
 
@@ -146,7 +158,7 @@ holds the list.
 - **The compliance pages change by nothing but an approved edit.** Each
   page's `.legal` wrapper in the built output equals `legal-reference/`
   byte for byte, and every `legal-callout` block equals the copy frozen
-  from `main` at `fa99b13` (`scripts/check-legal.ts`, two independent
+  from the live site's `main` at `fa99b13` (`scripts/check-legal.ts`, two independent
   checks). A wording change is made by editing `legal-reference/` in a
   commit of its own that names Taylor's approval and its date. A callout
   never changes at all.
@@ -199,7 +211,7 @@ holds the list.
 
 Any arrival. Any server. Any analytics. Editing a `legal-callout`. Editing
 the rest of a legal wrapper without the approved-edit commit. Editing
-`CNAME`. Pushing the branch. Changing a price. Writing a personal detail
+`CNAME`. Pushing to `live`. Changing a price. Writing a personal detail
 about Taylor that he has not supplied.
 
 ## The products behind the pages
