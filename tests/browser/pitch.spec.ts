@@ -70,6 +70,16 @@ test('in the list by his name; by the keys onto the platen, and home by himself'
   await page.goto(`${origin}/?pitch=1`);
   await live(page);
   await arrived(page);
+  // (E1) he arrives some seconds in, while attract mode's lap may have a crate on the platen's tray (from about 5 s
+  // to 18 s): the tray takes one thing, so wait until it is clear, as a visitor would find it
+  await page.waitForFunction(
+    () => {
+      const w = (window as any).__handoff.workshop.world;
+      return [...w.parts()].every((p: any) => !(p.location.at === 'in' && p.location.mouth === 'platen'));
+    },
+    null,
+    { timeout: 60_000, polling: 250 },
+  );
   expect((await pitch(page))?.state).toBe('moored');
   const b = page.locator('#controls button[data-id="pitch"]');
   await expect(b).toHaveCount(1);
