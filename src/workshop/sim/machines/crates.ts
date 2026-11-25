@@ -70,7 +70,7 @@ export const CRATES_TUNING = {
   /** (P4 S6 round four) A lifted crate let go faster than this (units a second) is thrown: the view back at once. */
   thrownBack: 1.5,
   /** (P4 S6 round four) Let go over the deck: the view back if it is not open on the stand again within this (s). */
-  backWait: 0.75,
+  backWait: 1,
   /** Something whose bottom is within this of the crate's top, over its footprint, is resting on it. */
   onTop: 0.12,
   /** The tray: how far forward of the crate's middle its thing sits (a share of the crate's half depth), and a hair over the rim. */
