@@ -11,8 +11,8 @@ import { OPEN } from '../../src/workshop/sim/machines/crates.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 import type { Vec3 } from '../../src/workshop/sim/types.ts';
 
-// the station size at a (the owner's layout puts it at the front of centre, the same size: its numbers are L2's)
-const scene = withOpeningStand(BENCH, 'a', 'fixed', STAND_STATION_SIZE);
+// the station size at the centre (the owner's layout, L2; round three was written against place a, which L2 replaced)
+const scene = withOpeningStand(BENCH, 'centre', 'fixed', STAND_STATION_SIZE);
 const S = scene.statics.find((s) => s.id === 'opening-stand')!;
 const half = (S.shape as { half: Vec3 }).half;
 const TOP: Vec3 = [S.pose.p[0], S.pose.p[1] + half[1], S.pose.p[2]];

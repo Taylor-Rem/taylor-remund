@@ -30,7 +30,7 @@ describe('the opening stand under a random hand', () => {
       const check = (): void => {
         for (const c of CRATES) {
           const mm = w.motion(c.crate)!;
-          const onDeck = Math.abs(mm.pose.p[0] - TOP[0]) < OPENING_STAND.half[0] && Math.abs(mm.pose.p[2] - TOP[2]) < OPENING_STAND.half[1] && mm.pose.p[1] > TOP[1];
+          const onDeck = Math.abs(mm.pose.p[0] - TOP[0]) < STAND_STATION_SIZE.half[0] && Math.abs(mm.pose.p[2] - TOP[2]) < STAND_STATION_SIZE.half[1] && mm.pose.p[1] > TOP[1];
           if (onDeck && mm.mode === 'free' && !mm.awake && w.setting(c.crate, 'open') !== true && !w.bracketed) {
             const n = (lyingShut.get(c.crate) ?? 0) + 1;
             lyingShut.set(c.crate, n);
