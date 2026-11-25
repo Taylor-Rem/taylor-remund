@@ -3,9 +3,9 @@
   "step": 12,
   "settle": 2,
   "narrowest": 0.42,
-  "hash": "3aba2785850b75f34e4c",
+  "hash": "0f626198d40638f4f5c4",
   "renderer": "ANGLE (AMD, Vulkan 1.4.305 (AMD Radeon Graphics (RADV RENOIR) (0x00001638)), radv)",
-  "rendered": "2026-11-23",
+  "rendered": "2026-11-25",
   "fallback": "band11-2400@1x.jpg",
   "posters": [
     {
@@ -31,7 +31,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 24414
+          "bytes": 24276
         },
         {
           "file": "band00-475@2x.avif",
@@ -39,7 +39,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 58015
+          "bytes": 57855
         }
       ]
     },
@@ -66,7 +66,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 27447
+          "bytes": 27311
         },
         {
           "file": "band01-538@2x.avif",
@@ -74,7 +74,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 65686
+          "bytes": 65835
         }
       ]
     },
@@ -101,7 +101,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 31415
+          "bytes": 31303
         },
         {
           "file": "band02-609@2x.avif",
@@ -109,7 +109,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 74631
+          "bytes": 74611
         }
       ]
     },
@@ -136,7 +136,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 34786
+          "bytes": 34659
         },
         {
           "file": "band03-690@2x.avif",
@@ -144,7 +144,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 81537
+          "bytes": 81611
         }
       ]
     },
@@ -171,7 +171,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 36263
+          "bytes": 36253
         },
         {
           "file": "band04-780@2x.avif",
@@ -179,7 +179,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 82732
+          "bytes": 82546
         }
       ]
     },
@@ -206,7 +206,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 36322
+          "bytes": 36298
         },
         {
           "file": "band05-883@2x.avif",
@@ -214,7 +214,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 80253
+          "bytes": 79763
         }
       ]
     },
@@ -241,7 +241,7 @@
           "height": 900,
           "density": 1,
           "type": "image/avif",
-          "bytes": 36051
+          "bytes": 36032
         },
         {
           "file": "band06-999@2x.avif",
@@ -249,7 +249,7 @@
           "height": 1800,
           "density": 2,
           "type": "image/avif",
-          "bytes": 78050
+          "bytes": 78200
         }
       ]
     },
@@ -275,7 +275,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/avif",
-          "bytes": 52210
+          "bytes": 52182
         }
       ]
     },
@@ -301,7 +301,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/avif",
-          "bytes": 58284
+          "bytes": 58161
         }
       ]
     },
@@ -327,7 +327,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/avif",
-          "bytes": 63710
+          "bytes": 63764
         }
       ]
     },
@@ -353,7 +353,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/avif",
-          "bytes": 70337
+          "bytes": 70222
         }
       ]
     },
@@ -379,7 +379,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/avif",
-          "bytes": 72017
+          "bytes": 71911
         },
         {
           "file": "band11-2400@1x.jpg",
@@ -387,7 +387,7 @@
           "height": 1080,
           "density": 1,
           "type": "image/jpeg",
-          "bytes": 292695
+          "bytes": 292772
         }
       ]
     }
