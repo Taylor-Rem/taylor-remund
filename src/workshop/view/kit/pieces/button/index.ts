@@ -436,10 +436,10 @@ export function button(o: ButtonOptions = {}): Piece {
     const lean = L.spread(0.03);
     const neck: Array<[number, number, number]> = [
       [fx, yTop + 0.07, fz],
-      [fx + lean, yTop + 0.42, fz - 0.03],
-      [fx + 0.03 + lean, yTop + 0.72, fz + 0.1],
-      [fx + 0.16, yTop + 0.9, fz + 0.3],
-      [fx + 0.3, yTop + 0.9, fz + 0.44],
+      [fx + lean, yTop + 0.55, fz - 0.03],
+      [fx + 0.03 + lean, yTop + 1.0, fz + 0.08],
+      [fx + 0.16, yTop + 1.25, fz + 0.3],
+      [fx + 0.34, yTop + 1.27, fz + 0.48],
     ];
     const neckPath = polylinePath(neck, 0.16, 4);
     b.add(part('metal', sweep(neckPath, { radius: 0.021, detail, segs: 8, ends: 'flat' }), 'steel', { seed: seed + 83, shade: 0.6 }));
@@ -459,7 +459,7 @@ export function button(o: ButtonOptions = {}): Piece {
     const head = neck[neck.length - 1]!;
     const capAt: [number, number, number] = [CONSOLE.capX, yTop + 0.2, CONSOLE.capZ];
     const dir: [number, number, number] = [capAt[0] - head[0], capAt[1] - head[1], capAt[2] - head[2]];
-    const at = aim(head, dir, L.range(0, 360));
+    const at = chain(aim(head, dir, L.range(0, 360)), new Matrix4().makeScale(1.3, 1.3, 1.3));
     const shadeG = lathe(
       profile(0, -0.035).to(0.035, -0.035, { fillet: 0.01, segs: 1 }).to(0.045, 0.03, { fillet: 0.02, segs: 2 }).to(0.068, 0.07, { fillet: 0.03, segs: 2 }).to(0.15, 0.2, { fillet: 0.02, segs: 1 }).to(0.158, 0.215, { fillet: 0.006, segs: 1 }).to(0.142, 0.21).to(0.06, 0.08),
       { segs: 20, detail, caps: false },

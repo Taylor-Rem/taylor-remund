@@ -94,7 +94,7 @@ export const RIG = {
    * (L2, a candidate behind `?corner=2`) A practical: the Button's own small work lamp, warm, no shadow, high tier only;
    * its light reaches `distance` and no further (decay 2). It does not dip with the lamp: it is on its own switch.
    */
-  practical: { intensity: 2.6, distance: 3.2, decay: 2 },
+  practical: { intensity: 7, distance: 3.6, decay: 2 },
 };
 
 const toColor = (c: RGB, out = new Color()): Color => out.fromArray(c);
