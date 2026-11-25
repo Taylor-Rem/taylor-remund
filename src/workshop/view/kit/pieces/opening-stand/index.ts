@@ -3,17 +3,16 @@
  * bench's family: a painted steel skirt, a deck of three oak boards a crate is set down on, brass corner
  * stops, a brass lifter lying flat on the deck from a hinge at its back edge (node `lifter`: it swings up about its local X as a
  * crate on the stand opens, the lid riding on it), bolts along the skirt. `h` is its height (the deck's top, the
- * collider's top): 0.22 on the bench, lower on the console. Socket `label`: the middle of the front skirt (a strip of
- * label tape, when it has a word).
+ * collider's top): 0.22 on the bench, lower on the console. Socket `label`: the middle of the front skirt.
  *
  * Every colour a palette token; every mesh from the kit.
  */
 import type { KitOptions, Piece } from '../../types.ts';
 import type { CatalogueEntry } from '../../catalogue.ts';
 import { taperBox } from '../../solids.ts';
-import { bevelBox, sheet } from '../../cheap.ts';
+import { bevelBox } from '../../cheap.ts';
 import { hexBolt } from '../../details.ts';
-import { aim, mat, part, piece, place, texturedPart, T } from '../../compose.ts';
+import { aim, mat, part, piece, place, T } from '../../compose.ts';
 import { rng } from '../../rng.ts';
 import { transform } from '../../deform.ts';
 import { standStation } from './station.ts';
@@ -23,8 +22,6 @@ export interface OpeningStandOptions extends KitOptions {
   h?: number;
   /** Half extents of the deck (default 0.52 × 0.48: the large crate with room). */
   half?: readonly [number, number];
-  /** A strip of label tape on the front skirt (a labels key and its size), or none. */
-  tape?: { key: string; w: number; h: number };
 }
 
 /** The lifter's arm, from its hinge to its pad (world units). */
@@ -68,12 +65,6 @@ export function openingStand(o: OpeningStandOptions = {}): Piece {
   // the hinge's X, negative) and stands behind the crate's lid
   lifter.add(part('brass', bevelBox({ min: [-0.025, -0.009, 0.02], max: [0.025, 0.009, ARM], c: 0.005 }), 'brass', { seed: seed + 21 }));
   lifter.add(part('rubber', bevelBox({ min: [-0.045, -0.012, ARM - 0.02], max: [0.045, 0.014, ARM + 0.03], c: 0.006 }), 'ink', { seed: seed + 22 }));
-  if (o.tape) {
-    // a strip of label tape on the front skirt (the word given; scaled to the skirt)
-    const th = Math.min(o.tape.h, skirtH * 0.8);
-    const tw = (o.tape.w * th) / o.tape.h;
-    b.add(texturedPart('tape', transform(sheet({ w: tw, h: th, t: 0.001, nx: 1, ny: 1 }), T(R.spread(0.03), foot + skirtH * 0.5, hz - 0.006)), o.tape.key));
-  }
 
   // ---- small: bolts along the skirt's front ----
   if (skirtH > 0.06) {

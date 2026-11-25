@@ -8,7 +8,7 @@
  *    inspection lamp. The arm answers a carried project crate, beats now and then when idle (and on the registry's
  *    tell), and lifts the lid of a crate opening on it (the lid waits for it: parts.ts `LID_HOLD`). Its moves:
  *    view/bench/stand-arm.ts.
- * Reduced motion: cuts. `?standTape=1`: with a strip of label tape on its front (src/content/room.json `stand`).
+ * Reduced motion: cuts.
  */
 import { Group, type Object3D } from 'three';
 import type { Id, OpeningStandView } from '../../../sim/types.ts';
@@ -16,7 +16,6 @@ import type { Frame } from '../../types.ts';
 import { openingStand } from '../../kit/pieces/opening-stand/index.ts';
 import { standStation, STAND_ARM } from '../../kit/pieces/opening-stand/station.ts';
 import { LID_OPEN } from '../../kit/pieces/crate/index.ts';
-import { room } from '../../kit/pieces/room/words.ts';
 import { ORDER, at, type BenchStation } from '../station.ts';
 import { splitStatic } from '../../stations/set.ts';
 import { ARM_FEEL, ease, lidEdge, pose, type ArmBones, type ArmSpec, type V3 } from '../stand-arm.ts';
@@ -50,14 +49,12 @@ export const station: BenchStation = {
     const [x, y, z] = body.pose.p;
     const base = y - h / 2;
     const origin: V3 = [x, base, z];
-    const taped = query('standTape') === '1';
     const look = standLook();
     const projects = new Map((k.scene.projects ?? []).map((c) => [c.crate, c]));
     return (ctx) => {
-      const key = taped && look === 0 ? ctx.labels.tape(room.stand, 'black') : null;
       const piece =
         look === 0
-          ? openingStand({ h, seed: k.seed, half: [half[0], half[2]], ...(key ? { tape: { key, ...ctx.labels.size(key) } } : {}) })
+          ? openingStand({ h, seed: k.seed, half: [half[0], half[2]] })
           : standStation({ look, h, seed: k.seed, half: [half[0], half[2]] });
       // the body into the set's pool; what moves (and the bare nodes above it) realized on its own, its bones driven
       const moving = splitStatic(piece, at(x, base, z), (n) => n === 'lifter' || n === 'yaw', k.pool);

@@ -12,6 +12,4 @@ export const room = {
     inspection: raw.bays.inspection.text,
     next: raw.bays.next.text,
   },
-  /** (P4 S6) The opening stand's label tape, when it wears one. */
-  stand: raw.stand.text,
 } as const;
