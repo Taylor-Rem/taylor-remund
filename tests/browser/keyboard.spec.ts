@@ -209,7 +209,8 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   await expect(page.locator('.controls-hold-label')).toBeVisible();
   await expect(page.locator('.controls-hold-label')).toContainText('Where should it go?');
   const dests = await page.locator('.controls-dests button').allInnerTexts();
-  expect(dests).toEqual(['Belt', 'Dock', 'Platen']);
+  // (I2) and the opening stand: a project crate's own place
+  expect(dests).toEqual(['Belt', 'Dock', 'Platen', 'Opening stand']);
   expect((await stop(page)).text).toBe('Belt');
   await expect.poll(() => said(page)).toContain('picked up. Choose where it goes.');
   await page.keyboard.press('Enter');
@@ -220,21 +221,41 @@ test('a crate, by the keyboard alone: picked up, a destination chosen, Enter, an
   expect((await stop(page)).id).toBe(crate);
 });
 
-test('P4 S5: a project crate opened from the list: Enter on its lid opens it and it is said; its plate is a real link to its entry; Enter again shuts it', async ({ page }) => {
+test('P4 S5 (I2: by the opening stand): a keyboard user carries a project crate to the stand, it opens and it is said; its thing\'s control is in the Tab ring and works; its plate is a real link to its entry; taken off again it shuts', async ({ page }) => {
   await page.setViewportSize(VIEW);
   await page.goto('/');
   await live(page);
-  await tabTo(page, 't-components lid, shut');
+  // shut, its toy's control is not in the list (Tab skips the controls of a toy shut in its crate)
+  await expect(page.locator('#controls button[data-id="paint-dial-knob"]')).toHaveCount(0);
+  // no latch: the crate is what the list offers
+  await expect(page.locator('#controls button[data-id="crate-3-lid"]')).toHaveCount(0);
+  await tabTo(page, /^t-components$/);
   await page.keyboard.press('Enter');
-  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open'))).toBe(true);
-  await expect.poll(() => said(page)).toContain(SAID['opened']!.text.replace('{thing}', 't-components'));
-  // focus stays on the lid's own button, which now says it is open
-  await expect.poll(async () => (await stop(page)).text).toBe('t-components lid, open');
+  await expect(page.locator('.controls-hold-label')).toContainText('Where should it go?');
+  // the stand is among where it may go: Tab to it, Enter
+  await tabTo(page, 'Opening stand', 10);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open')), { timeout: 20_000 }).toBe(true);
+  await expect.poll(() => said(page), { timeout: 20_000 }).toContain(SAID['opened']!.text.replace('{thing}', 't-components'));
+  // its plate: a real link to its entry
   const plate = page.locator('#controls a.controls-link', { hasText: 't-components: full entry' });
   await expect(plate).toHaveAttribute('href', '/resume/#p-t-components');
+  // its thing's control: in the Tab ring now, and Enter works it (the paint dial turns one on)
+  await expect(page.locator('#controls button[data-id="paint-dial-knob"]')).toHaveCount(1);
+  const before = await page.evaluate(() => JSON.stringify((window.__handoff!.workshop.world as unknown as { machine(id: string): { scheme?: unknown } }).machine('paint')));
+  await tabTo(page, /^Paint dial knob/, 60);
+  expect((await stop(page)).id).toBe('paint-dial-knob');
   await page.keyboard.press('Enter');
-  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open'))).toBe(false);
+  await expect.poll(() => page.evaluate(() => JSON.stringify((window.__handoff!.workshop.world as unknown as { machine(id: string): unknown }).machine('paint'))), { timeout: 10_000 }).not.toBe(before);
+  // taken off again (the ordinary take: Enter on the crate, a place): it shuts, the plate and the control go
+  await page.locator('#controls button[data-id="crate-3"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.controls-hold-label')).toBeVisible();
+  await tabTo(page, 'Platen', 10);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (window.__handoff!.workshop.world as unknown as { setting(t: string, f: string): unknown }).setting('crate-3', 'open')), { timeout: 20_000 }).toBe(false);
   await expect(plate).toHaveCount(0);
+  await expect(page.locator('#controls button[data-id="paint-dial-knob"]')).toHaveCount(0);
 });
 
 test('? opens the list and puts focus in it; Esc closes it and focus returns to where it was', async ({ page }) => {

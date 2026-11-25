@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gpuArgs } from '../../playwright.config.ts';
 import { startDevServer, type DevServer } from '../../scripts/capture.ts';
+import { openOnStand } from './stand.ts';
 import { glareSweep } from './press-sweep.ts';
 
 // P4 D3: the report press's lever by a real hand, on /dev/bench/ on the real GPU: by mouse at 1440×900 and by a finger
@@ -43,20 +44,8 @@ async function open(page: Page): Promise<string[]> {
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`${origin}/dev/bench/`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
-  // the press's crate off the stack, onto the open bench left of the lever's console, and opened: the press on its tray
-  await page.evaluate(() => {
-    const ws = (window as any).__bench.ws;
-    ws.dispatch({ type: 'grab', id: 'crate-2', grip: ws.world.motion('crate-2').pose.p });
-  });
-  await frames(page, 3);
-  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [-4.0, 0, 1.6] }));
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('crate-2').location.at === 'rest' && (window as any).__bench.ws.world.holding() === null), 600, 'crate-2 set down');
-  await frames(page, 30);
-  for (let k = 0; k < 12; k++) {
-    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-2', 'open') === true)) break;
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-2-lid' }));
-    await frames(page, 40);
-  }
+  // (I2) the press's crate off the stack's top and onto the opening stand, where it opens: the press on its tray
+  await openOnStand(page, 'crate-2');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 600, 'the press on its tray');
   await frames(page, 40);
   return errors;

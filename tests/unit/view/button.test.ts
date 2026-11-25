@@ -77,7 +77,7 @@ function rig(reducedMotion = false): Rig {
   const ctx: ViewContext = {
     scene,
     stage: { camera: { shake: (a: number) => shakes.push(a), camera: new PerspectiveCamera() }, lights } as unknown as ViewContext['stage'],
-    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial(), focusMark: () => new MeshBasicMaterial(), buttonHalo: () => new MeshBasicMaterial() },
+    materials: { of: mat, textured: mat, update() {}, dispose() {}, decal: () => new MeshBasicMaterial(), focusMark: () => new MeshBasicMaterial(), buttonHalo: () => new MeshBasicMaterial() } as unknown as ViewContext['materials'],
     labels: stubLabels(),
     tier: 'high',
     reducedMotion,

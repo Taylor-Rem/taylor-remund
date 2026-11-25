@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gpuArgs } from '../../playwright.config.ts';
 import { startDevServer, type DevServer } from '../../scripts/capture.ts';
+import { openOnStand } from './stand.ts';
 
 // P4 D2b: the paint dial by a real hand, on /dev/bench/ on the real GPU: its knob turned by a mouse drag and clicked one
 // detent on at 1440×900, tapped one detent on by a finger at 390×844, each where it is drawn; the workshop's enamel
@@ -70,16 +71,13 @@ const fingertip = (page: Page, id: string): Promise<string> =>
     return misses.length ? `misses ${misses.join(' ')}` : 'ok';
   }, id);
 
-async function open(page: Page): Promise<string[]> {
+async function open(page: Page, query = ''): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${origin}/dev/bench/`);
+  await page.goto(`${origin}/dev/bench/${query}`);
   await page.waitForFunction(() => (window as any).__handoff?.phase === 'live' && (window as any).__ready === true, null, { timeout: 0, polling: 100 });
-  for (let k = 0; k < 12; k++) {
-    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open') === true)) break;
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-3-lid' }));
-    await frames(page, 40);
-  }
+  // (I2) t-components' crate opened the one way the bench has: set on the opening stand (tests/browser/stand.ts)
+  await openOnStand(page, 'crate-3');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('paint-dial') === 'machine'), 300, 'the dial on its tray');
   return errors;
 }
@@ -149,62 +147,58 @@ test('P4 D2b: the knob is a 44 px fingertip at 390×844, at the framing a look a
   await ctx.close();
 });
 
-test('(D2d) look.back gives back only its own look: the press flicking while the visitor reads another crate leaves the camera there; the dial\'s turn gives its own back', async ({ page }) => {
+test('(D2d) look.back gives back only its own look: the press flicking while the visitor reads another look leaves the camera there; the dial\'s turn gives its own back', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const errors = await open(page);
+  // (I2) one crate at a time on the stand: the other look the visitor reads is the dial's own, out on the bench (the
+  // stand's other way for a thing, `?things=loose`), while the press's crate is open on the stand
+  const errors = await open(page, '?things=loose');
   const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
-  const rest = (id: string, what: string) => until(page, async () => { const c = await cam(); return c.look && c.id === id && !c.easing; }, 400, what);
-  // the press's crate opened (its latch: the camera comes in on its card), then a pull
-  // (its latch, again until it opens: the crate must lie free and still, and Fetch may be about it)
-  for (let k = 0; k < 30; k++) {
-    if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-2', 'open') === true)) break;
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-2-lid' }));
-    await frames(page, 40);
-  }
+  const rest = (id: string | null, what: string) => until(page, async () => { const c = await cam(); return c.look && (id === null || c.id === id) && !c.easing; }, 400, what);
+  // the dial off its tray, onto the open bench by the platen (clear of the stand and of Fetch's lane)
+  await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'paint-dial', grip: ws.world.motion('paint-dial').pose.p }); });
+  await frames(page, 3);
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'place', at: [4.3, 0, 1.75] }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.part('paint-dial').location.at === 'rest' && (window as any).__bench.ws.world.holding() === null), 900, 'the dial on the bench');
+  // the press's crate onto the stand (the camera comes in on its card), then a pull
+  await openOnStand(page, 'crate-2');
   await rest('crate-2-card', 'the look at the press\'s card');
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('report-press') === 'machine'), 300, 'the press on its tray');
   await frames(page, 30);
-  // (t-components' crate open again, its dial on its tray, should anything have shut it meanwhile)
-  const c3 = await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open') === true && (window as any).__bench.ws.world.mode('paint-dial') === 'machine');
-  if (!c3) {
-    console.log('[D2d] crate-3 was shut meanwhile: opened again, and back to the press\'s card');
-    for (let k = 0; k < 30; k++) {
-      if (await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-3', 'open') === true)) break;
-      await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'crate-3-lid' }));
-      await frames(page, 40);
-    }
-    await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('paint-dial') === 'machine'), 300, 'the dial on its tray');
-    await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-2' }));
-    await rest('crate-2-card', 'the look at the press\'s card again');
-  }
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'press', id: 'press-lever' }));
   await frames(page, 10);
-  // before the flick (2.7 s on), the visitor asks for the dial: the camera goes to t-components' card
+  // before the flick (2.7 s on), the visitor asks for the dial: the camera goes to it
   await page.evaluate((id) => (window as any).__bench.ws.dispatch({ type: 'select', id }), KNOB);
-  await rest('crate-3-card', 'the look at the dial\'s card');
+  await rest(null, 'the look at the dial');
+  const dialLook = (await cam()).id;
+  expect(dialLook, 'a look other than the press\'s card').not.toBe('crate-2-card');
   // the flick comes and goes (its look.back is for crate-2's card): the camera stays on the dial's
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.machine('press').envelopeIn === false), 400, 'the flick');
   await frames(page, 60);
-  expect(await cam()).toEqual({ look: true, id: 'crate-3-card', easing: false });
+  expect(await cam()).toEqual({ look: true, id: dialLook, easing: false });
   // the dial's own turn gives its look back
   await page.evaluate((id) => (window as any).__bench.ws.dispatch({ type: 'press', id }), KNOB);
   await until(page, async () => !(await cam()).look, 200, 'the turn gives the look back');
   expect(errors).toEqual([]);
 });
 
-test('(D2d) the crate Fetch takes back from the open gives the look back', async ({ page }) => {
+test('(D2d, I2) the crate taken from Fetch\'s arms and set on the stand opens and the camera comes in; shut by anything but a hand (the lever), it gives the look back', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await open(page);
   const cam = () => page.evaluate(() => { const c = (window as any).__bench.ws.stage.camera; return { look: c.look !== null, id: c.lookId as string | null, easing: c.easing as boolean }; });
   const rest = (id: string, what: string) => until(page, async () => { const c = await cam(); return c.look && c.id === id && !c.easing; }, 400, what);
-  // the crate in Fetch's arms, double-clicked (its first tap takes it, its second asks for it): it opens, the camera
-  // comes in; Fetch takes it back, it claps shut, and the camera goes back out
+  // (I2) the crate in Fetch's arms, double-clicked: nothing opens (the stand is the one way); taken from his arms and
+  // set on the stand, it opens and the camera comes in; the lever takes the setting down back: it shuts (not by a
+  // hand), and the camera goes back out
   await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.mode('crate-4') === 'crew'), 1500, 'crate-4 in Fetch\'s arms');
   await page.evaluate(() => { const ws = (window as any).__bench.ws; ws.dispatch({ type: 'grab', id: 'crate-4', grip: ws.world.motion('crate-4').pose.p }); });
   await frames(page, 2);
   await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'select', id: 'crate-4' }));
+  await frames(page, 60);
+  expect(await page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === true), 'a double-click opens nothing').toBe(false);
+  await openOnStand(page, 'crate-4');
   await rest('crate-4-card', 'the look at crate-4\'s card');
-  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === false), 1500, 'Fetch takes it back');
+  await page.evaluate(() => (window as any).__bench.ws.dispatch({ type: 'undo' }));
+  await until(page, () => page.evaluate(() => (window as any).__bench.ws.world.setting('crate-4', 'open') === false), 600, 'the lever shuts it');
   await until(page, async () => !(await cam()).look, 200, 'the camera back out');
   await page.waitForTimeout(500);
   expect(errors).toEqual([]);
