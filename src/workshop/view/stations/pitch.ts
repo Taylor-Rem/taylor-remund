@@ -62,7 +62,7 @@ export const PITCH_LOOK = {
 const DEG = 180 / Math.PI;
 /** (E1) The sim's planting figures (sim/crew/pitch.ts PITCH_TUNING: `plantOver`, `plantLet`), for drawing the mast hung and let go. */
 const PLANT_OVER = 1.2;
-const PLANT_LET = 0.9;
+const PLANT_LET = 0.8;
 const clamp = (x: number, a: number, b: number): number => Math.min(b, Math.max(a, x));
 const smooth = (a: number, b: number, x: number): number => {
   const k = clamp((x - a) / (b - a), 0, 1);

@@ -99,7 +99,7 @@ export const PITCH_SPEC: PitchSpec = (() => {
     // window's side), high, a little in front of the mast's line
     mastFoot: [mx, 0, mz],
     mastHeight: PITCH_AT.mastHeight * CREW_SCALE,
-    entry: [AT.bench.maxX + 4.5, 6.4, mz + 0.4],
+    entry: [AT.bench.maxX + 3.2, 6.3, mz + 0.4],
   };
 })();
 

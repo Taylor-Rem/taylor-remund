@@ -118,11 +118,11 @@ export const PITCH_TUNING = {
   roadmapLink: 3.5,
   // ── (E1) the entrance: a late arrival ──
   /** In from beyond the bench at this speed, and over the mast's place at this height above the bench (his middle). */
-  arrive: 2.4,
+  arrive: 3.0,
   arriveHigh: 5.8,
   /** Over the place: the mast lowered and let go after `plantLet` (s), and he stays till `plant`, then backs off and moors. */
-  plantLet: 0.9,
-  plant: 1.5,
+  plantLet: 0.8,
+  plant: 1.3,
   /** His middle above the mast's head while it hangs under him, as it is set down (his car hangs below his middle). */
   plantOver: 1.2,
 } as const;
@@ -477,13 +477,13 @@ export function createPitch(ctx: SimContext, spec: PitchSpec, start: PitchStart 
   }
 
   /**
-   * (E1) His entrance, or back to it: up to the height he came in at (clear of everything, his mast slung under him),
-   * across to over the mast's place, turning to face the way he will moor, and down until its foot is on the bench.
+   * (E1) Back to his entrance after the hand, a bump, the tray or the door took him off it: his mast still slung
+   * along his flank, a way at his height to over the mast's place (as on his way home), turning to face the way he
+   * will moor, and down until its foot is on the bench.
    */
   function goPlant(): void {
-    const high: Vec3 = inside([at[0], OVER_HIGH[1], at[2]]);
-    const up = Math.abs(at[1] - high[1]) > 0.05 ? legsOf(at, plan(at, high), true).map((l) => ({ ...l, stop: false })) : [];
-    legs = [...up, { to: OVER_HIGH, speed: T.arrive }, { to: PLANT_AT, speed: T.climb, stop: true, face: spec.heading }];
+    const over: Vec3 = [foot[0], Math.max(spec.cruise, PLANT_AT[1]), foot[2]];
+    legs = [...legsOf(at, plan(at, over), true).map((l) => ({ ...l, stop: false })), { to: PLANT_AT, speed: T.climb, stop: true, face: spec.heading }];
     leg = 'home';
     stop = null;
     lookAt = null;
@@ -494,7 +494,7 @@ export function createPitch(ctx: SimContext, spec: PitchSpec, start: PitchStart 
   function afterPlant(): void {
     planted = true;
     legs = [
-      { to: BACKED, speed: T.backSpeed * 2, face: spec.heading },
+      { to: BACKED, speed: T.cruise, face: spec.heading },
       { to: APPROACH, speed: T.climb, face: spec.heading },
       { to: MOORED, speed: T.moor, stop: true, face: spec.heading },
     ];
