@@ -2224,7 +2224,9 @@ function stays(id: string, say: string[]): void {
 for (const [label, id, start, flickPx] of [
   // (juggled on the open left of the bench, clear of the stations and of where the crew go about their work)
   ['a crate', 'crate-2', [-5.8, -1.2], 60],
-  ['Fetch', 'fetch', [-5.8, -1.2], 60],
+  // (I2) Fetch from x -5.0: from -5.8 the Button's console (back left since L2) comes within the carry's reach as he is
+  // carried back, the hand lifts him over it, lets go early, and he drifts back (0.66 measured); see the no-follow test
+  ['Fetch', 'fetch', [-5.0, -1.2], 60],
   ['Patch', 'patch', [-5.8, -1.2], 60],
 ] as const) {
   test(`R5: juggling ${label} by mouse: flicked up, caught in the air, up again, three catches without touching the bench`, async ({ page }) => {
