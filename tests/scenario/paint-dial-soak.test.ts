@@ -7,8 +7,13 @@
 //
 // In verify: PAINT_SOAK sessions (default 6). Bigger: PAINT_SOAK=200 npx vitest run tests/scenario/paint-dial-soak.test.ts
 // (PAINT_SOAK_FROM=n starts at seed n, to run one session again).
+// (I2) The crate opens the one way the bench has: set down on the opening stand; "its crate shut and opened" is the
+// crate lifted off the stand (it shuts) and set on it again (it opens). Each seed runs twice: on LOOSE_FULL_BENCH (the
+// stand's `things: 'loose'`, where the dial can be carried, thrown, shipped and sent off the edge, as before) and on
+// the shipped bench (`things: 'fixed'`: the dial stays on its tray, every attempt to take it is refused).
 import { expect, test } from 'vitest';
-import { benchWorld, FULL_BENCH, onBelt } from './line-helpers.ts';
+import { benchWorld, FULL_BENCH, LOOSE_FULL_BENCH, onBelt, openOnStand, putOn, standTop, type Tape } from './line-helpers.ts';
+import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import { checker } from './standins/replay.ts';
 import { rng } from '../../src/workshop/sim/rng.ts';
 import { steps } from '../../src/workshop/sim/clock.ts';
@@ -24,9 +29,9 @@ const JACKS = FULL_BENCH.cord.jacks.map((j) => j.id);
 const S = PAINT_TUNING.schemes;
 const SEEN: Record<string, number> = { press: 0, drag: 0, misfire: 0, turned: 0, wiped: 0, undo: 0, grab: 0, throw: 0, belt: 0, shipped: 0, edge: 0, lid: 0, crank: 0, reset: 0 };
 
-async function session(seed: number): Promise<{ ok: boolean; log: string[]; error?: string }> {
+async function session(seed: number, scene: SceneDesc): Promise<{ ok: boolean; log: string[]; error?: string }> {
   const r = rng(`paint-soak-${seed}`);
-  const w: World = await benchWorld(`paint-soak-${seed}`, { scene: FULL_BENCH });
+  const w: World = await benchWorld(`paint-soak-${seed}`, { scene });
   const log: string[] = [];
   const chk = checker(w, { jacks: JACKS, parts: PARTS });
   const D = PAINT.dial;
@@ -51,6 +56,8 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
       chk.step(ev, w.step);
     }
   };
+  /** (I2) `run` as a tape, for the helpers that carry a crate (every step still checked). */
+  const t = { run: (n: number) => (run(n), []) } as unknown as Tape;
   /** A turn out of reach changes nothing. */
   const knob = (intent: { type: 'press' } | { type: 'turn'; value: number }): void => {
     const reach = (w.machine(PAINT.unit) as PaintDialView).reachable;
@@ -63,7 +70,12 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
     if (!m || m.mode === 'gone' || m.mode === 'chute') return;
     w.dispatch({ type: 'grab', id: D, grip: m.pose.p });
     run(2);
-    if (w.holding()?.id !== D) return;
+    if (w.holding()?.id !== D) {
+      // (I2: on the shipped bench the dial on its tray is not a hand's; whatever the hand took instead, it lets go)
+      if (w.holding()) w.dispatch({ type: 'release', velocity: [0, 0, 0] });
+      run(1);
+      return;
+    }
     // now and then a turn while it is in the hand: a misfire
     if (r.chance(0.3)) knob({ type: 'press' });
     for (let k = 1; k <= 12; k++) {
@@ -75,7 +87,7 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
   };
   try {
     run(30);
-    w.dispatch({ type: 'press', id: `${PAINT.crate}-lid` });
+    openOnStand(w, t, PAINT.crate);
     run(5);
     for (let a = 0; a < 28; a++) {
       const k = r.int(16);
@@ -115,9 +127,13 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
         SEEN.edge!++;
         log.push('off the edge');
       } else if (k < 13) {
-        w.dispatch({ type: 'press', id: `${PAINT.crate}-lid` });
-        SEEN.lid!++;
-        log.push('lid');
+        // (I2) the crate shut and opened: lifted off the stand to a clear spot, or set on it again
+        if (w.mode(PAINT.crate) === 'free' && !w.holding()) {
+          const open = w.setting(PAINT.crate, 'open') === true;
+          putOn(w, t, PAINT.crate, open ? [-5.6, 0, 1.6] : standTop(w));
+          SEEN.lid!++;
+          log.push(open ? 'crate off the stand' : 'crate on the stand');
+        }
       } else if (k < 14) {
         w.dispatch({ type: 'press', id: LEDGER.crank });
         SEEN.crank!++;
@@ -149,10 +165,12 @@ async function session(seed: number): Promise<{ ok: boolean; log: string[]; erro
 test(`the paint dial soak: ${SESSIONS} sessions keep the dial's scheme one of its own, the view true to it, and the history replayable`, async () => {
   const bad: string[] = [];
   for (let s = FROM; s < FROM + SESSIONS; s++) {
-    const o = await session(s);
-    if (!o.ok) bad.push(`seed ${s}: ${o.error}\n  after: ${o.log.join(', ')}`);
+    for (const [name, scene] of [['loose', LOOSE_FULL_BENCH], ['fixed', FULL_BENCH]] as const) {
+      const o = await session(s, scene);
+      if (!o.ok) bad.push(`seed ${s} (things ${name}): ${o.error}\n  after: ${o.log.join(', ')}`);
+    }
   }
   process.stderr.write(`\npaint dial soak: ${JSON.stringify(SEEN)}\n`);
   expect(bad).toEqual([]);
   expect(SEEN.turned).toBeGreaterThan(0);
-}, Math.max(300_000, SESSIONS * 20_000));
+}, Math.max(300_000, SESSIONS * 40_000));

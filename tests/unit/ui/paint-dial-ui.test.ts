@@ -4,6 +4,7 @@
 // (not the belt dial's, which shares its station).
 import { describe, expect, test } from 'vitest';
 import { rapierWorld } from '../../scenario/helpers.ts';
+import { openOnStand, type Tape } from '../../scenario/line-helpers.ts';
 import { bench, PAINT } from '../../../src/workshop/sim/scenes/bench.ts';
 import { PAINT_TUNING } from '../../../src/workshop/sim/machines/paint-dial.ts';
 import { Announcer, type HearContext } from '../../../src/workshop/ui/controls/announce.ts';
@@ -43,7 +44,7 @@ function logWords(): LogWords {
   return { field: t('field'), state: t('state'), moved: t('moved'), changed: t('changed'), byText: t('byText'), fields: flat(L['fields'] as Record<string, T>), values: flat(L['values'] as Record<string, T>), places: flat(L['places'] as Record<string, T>) };
 }
 
-async function rig(): Promise<{ w: World; step(n: number): string[]; act(i: Intent, n?: number): string[]; items(): Map<Id, string> }> {
+async function rig(): Promise<{ w: World; step(n: number): string[]; act(i: Intent, n?: number): string[]; items(): Map<Id, string>; open(): void }> {
   const w = await rapierWorld(1, { scene: bench });
   const a = new Announcer();
   const step = (n: number): string[] => {
@@ -56,7 +57,13 @@ async function rig(): Promise<{ w: World; step(n: number): string[]; act(i: Inte
   };
   const act = (i: Intent, n = 1): string[] => (w.dispatch(i), step(n));
   const items = (): Map<Id, string> => new Map(listModel(source(w)).stations.flatMap((s) => s.items.map((it) => [it.id, it.label] as const)));
-  return { w, step, act, items };
+  // (I2) the crate opens the one way the bench has: set down on the opening stand (the announcer hears every step of it)
+  const open = (): void => {
+    const t = { run: (n: number) => (step(n), []) } as unknown as Tape;
+    openOnStand(w, t, PAINT.crate);
+    step(3);
+  };
+  return { w, step, act, items, open };
 }
 
 describe('the paint dial, for someone who cannot see it', () => {
@@ -66,7 +73,7 @@ describe('the paint dial, for someone who cannot see it', () => {
     let m = r.items();
     expect(m.has(PAINT.dial)).toBe(false);
     expect(m.has(PAINT.knob)).toBe(false);
-    r.act({ type: 'press', id: `${PAINT.crate}-lid` }, 3);
+    r.open(); // (I2: on the stand, not by its latch)
     m = r.items();
     expect(m.get(PAINT.dial)).toBe('Paint dial');
     expect(m.get(PAINT.knob)).toBe(`Paint dial knob, 1 of ${N}`);
@@ -85,7 +92,7 @@ describe('the paint dial, for someone who cannot see it', () => {
   test('the input reads the knob from the dial, not from the belt that shares its station; a drag steps through its detents', async () => {
     const r = await rig();
     r.step(30);
-    r.act({ type: 'press', id: `${PAINT.crate}-lid` }, 3);
+    r.open(); // (I2: on the stand, not by its latch)
     expect(readingFromWorld(r.w, PAINT.knob)).toEqual({ value: 0, detents: N });
     r.act({ type: 'turn', id: PAINT.knob, value: 2 / (N - 1) }, 2);
     expect(readingFromWorld(r.w, PAINT.knob)).toEqual({ value: 2 / (N - 1), detents: N });

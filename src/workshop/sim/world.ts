@@ -1677,10 +1677,14 @@ export function createWorld(opts: WorldOptions): World {
   // (P4 S5) the project crates the last visit left open open again, as how this visit is (settled: not the lever's), where
   // each can be: on the bench, free, nothing on it (a crate that starts in Fetch's hands, behind the door or under
   // another stays shut). "Reset the workshop" still shuts them: it goes back to `initial`, above.
+  // (I2) With the opening stand a crate is open only in its mouth, and none starts there (a visit's crates start where
+  // the scene puts them): none opens again (else it opened and clapped shut at once, "moved", as the page came up).
+  const standMouth = scene.openingStand ? mouthById.get(scene.openingStand.mouth) ?? null : null;
   for (const id of restored?.open ?? []) {
     const c = (scene.projects ?? []).find((x) => x.crate === id);
     const l = loose.get(id);
     if (!c || !l || l.mode !== 'free' || !store.has(id, 'open')) continue;
+    if (scene.openingStand && !(standMouth && inMouth(standMouth, l.pose.p))) continue;
     const top = l.pose.p[1] + l.half[1];
     const under = [...loose.values()].some((o) => o.id !== id && o.mode !== 'gone' && o.mode !== 'chute' && Math.abs(o.pose.p[1] - o.half[1] - top) < 0.12 && Math.abs(o.pose.p[0] - l.pose.p[0]) < l.half[0] && Math.abs(o.pose.p[2] - l.pose.p[2]) < l.half[2]);
     if (!under) store.write(id, 'open', true, 'settled');

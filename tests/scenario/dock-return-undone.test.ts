@@ -10,7 +10,7 @@
 // Fixed in sim/machines/dock.ts `restored` (the lead, at T2's merge, by the diff T2's builder proposed: a tool restored
 // to `shipped` from anywhere gets a return, the press's homeward envelope excepted). These failed before that line.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape, putOn, onBelt, BENCH } from './line-helpers.ts';
+import { benchWorld, tape, putOn, onBelt, openOnStand, LOOSE_BENCH } from './line-helpers.ts';
 import { DOCK_TUNING } from '../../src/workshop/sim/machines/dock.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
 import { qyaw } from '../../src/workshop/sim/math.ts';
@@ -20,9 +20,10 @@ import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { World } from '../../src/workshop/sim/world.ts';
 
 const H = defaultHalfExtents('tool', 'M');
+// (I2) the stand's loose-things bench: the ledger board below is shipped, which a board fixed on its tray never is
 const WITH_TOOL: SceneDesc = {
-  ...BENCH,
-  parts: [...BENCH.parts, { id: 'tool-standin', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'line', name: 'name.crate', pose: { p: [1.5, H[1], -0.6], q: qyaw(0.3) } }],
+  ...LOOSE_BENCH,
+  parts: [...LOOSE_BENCH.parts, { id: 'tool-standin', kind: 'tool', size: 'M', material: 'metal', colour: 'paint-orange', label: '', station: 'line', name: 'name.crate', pose: { p: [1.5, H[1], -0.6], q: qyaw(0.3) } }],
 };
 
 /** Ship `id` from where it lies, let the dock send it back, and turn the dial while it flies home; then pull the lever. */
@@ -66,12 +67,13 @@ describe('the dock: a part on its way back, put back as shipped by an undo, stil
 
   test('the ledger board', async () => {
     const c = await strandedCase(LEDGER.board, (w, t) => {
-      // out of its crate first (the crate on top of it set aside, the lid opened, the board taken off its tray)
+      // out of its crate first (the crate on top of it set aside, the crate opened on the stand (I2: it was its latch), the
+      // board taken off its tray)
       w.dispatch({ type: 'grab', id: 'crate-2', grip: w.motion('crate-2')!.pose.p });
       t.run(2);
       w.dispatch({ type: 'place', at: [1.15, 0, 2.6] });
       t.run(90);
-      w.dispatch({ type: 'press', id: `${LEDGER.crate}-lid` });
+      openOnStand(w, t, LEDGER.crate);
       t.run(4 * HZ);
     });
     let back = false;

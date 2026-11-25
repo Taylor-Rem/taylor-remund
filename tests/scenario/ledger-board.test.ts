@@ -4,7 +4,7 @@
 // board is a loose part like any other (grabbed, thrown, shipped, its crate shut while it is out, reset) and never
 // loses a token.
 import { describe, expect, test } from 'vitest';
-import { benchWorld, tape, putOn, waitFor, onBelt, BENCH, FULL_BENCH, type Tape } from './line-helpers.ts';
+import { benchWorld, tape, putOn, waitFor, onBelt, openOnStand, BENCH, LOOSE_BENCH, LOOSE_FULL_BENCH, type Tape } from './line-helpers.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import { plug, textAndWait, traySpot } from './patchlamp-helpers.ts';
 import { HZ, steps } from '../../src/workshop/sim/clock.ts';
@@ -21,16 +21,27 @@ const view = (w: World): LedgerView => w.machine(LEDGER.unit) as LedgerView;
 const press = (w: World, id: string): void => w.dispatch({ type: 'press', id });
 const SHOW = steps(4);
 
-/** The bench with the ledger's crate free (the crate on top of it set down beside the stack) and opened. */
+/** A clear spot on the open bench (front left), away from the opening stand. */
+const ASIDE: [number, number, number] = [-5.6, 0, 1.6];
+/**
+ * The bench with the ledger's crate free (the crate on top of it set down clear of the stand) and opened: (I2) set down
+ * on the opening stand, the one way a crate opens (it was its latch). `LOOSE_BENCH` for the tests of the board's life
+ * as a loose part: on the shipped bench (`things: 'fixed'`) it never leaves its tray.
+ */
 async function opened(seed: string, scene: SceneDesc = BENCH): Promise<{ w: World; t: Tape }> {
   const w = await benchWorld(seed, { scene });
   const t = tape(w);
   t.run(30);
-  putOn(w, t, 'crate-2', [-1.4, 0, 0.9]);
+  putOn(w, t, 'crate-2', ASIDE);
   t.run(HZ);
-  press(w, `${LEDGER.crate}-lid`);
+  openOnStand(w, t, LEDGER.crate);
   t.run(2);
   return { w, t };
+}
+/** (I2) Shut the ledger's crate the way the stand has: lift it off and set it down clear of the stand (it was its latch). */
+function shutOff(w: World, t: Tape): void {
+  putOn(w, t, LEDGER.crate, [-4.4, 0, 1.6]);
+  t.run(HZ);
 }
 
 describe('the ledger board', () => {
@@ -55,7 +66,8 @@ describe('the ledger board', () => {
     expect(view(w2).show?.kind).toBe('deal');
     // the deal is charged to the opening: one pull shuts the crate and puts the tokens back in the hopper
     const top = w2.undoStack().at(-1)!;
-    expect(top.entries.map((e) => `${e.target}.${e.field}`).sort()).toEqual([`${LEDGER.crate}.${OPEN}`, `${B}.${TOKENS_FIELD}`].sort());
+    // (I2: the opening is the placing's on the stand, so the same pull also puts the crate back where it was carried from)
+    expect(top.entries.map((e) => `${e.target}.${e.field}`).sort()).toEqual([`${LEDGER.crate}.location`, `${LEDGER.crate}.${OPEN}`, `${B}.${TOKENS_FIELD}`].sort());
     t2.run(SHOW);
     expect(view(w2).show).toBeNull();
     w2.dispatch({ type: 'undo' });
@@ -147,7 +159,7 @@ describe('the ledger board', () => {
   });
 
   test('picked up mid-show it is drawn as its state at once; carried, thrown, its crate shut behind it: nothing is lost, the star stays true', async () => {
-    const { w, t } = await opened('lb-grab');
+    const { w, t } = await opened('lb-grab', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
     press(w, LEDGER.plunger); // waits for the deal
     t.run(10);
     putOn(w, t, B, [-0.4, 0, -1.0]);
@@ -155,8 +167,7 @@ describe('the ledger board', () => {
     expect(w.part(B)!.location.at).toBe('rest');
     expect(view(w).show === null || view(w).show!.kind !== 'deal').toBe(true);
     expect(tokens(w)).toEqual(repaired(2));
-    press(w, `${LEDGER.crate}-lid`);
-    t.run(2);
+    shutOff(w, t); // (I2: lifted off the stand, it shuts: the latch no longer does)
     expect(w.setting(LEDGER.crate, OPEN)).toBe(false);
     expect(w.mode(B)).toBe('free');
     press(w, LEDGER.crank);
@@ -174,7 +185,7 @@ describe('the ledger board', () => {
   });
 
   test('"Reset the workshop": stowed in its crate, the tokens in the hopper as a new visit has them', async () => {
-    const { w, t } = await opened('lb-reset');
+    const { w, t } = await opened('lb-reset', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
     t.run(SHOW);
     putOn(w, t, B, [-0.4, 0, -1.0]);
     t.run(HZ);
@@ -190,7 +201,7 @@ describe('the ledger board', () => {
   });
 
   test('set on the platen and painted by a text, it is painted; its tokens and its star are as they were; it works there', async () => {
-    const { w, t } = await opened('lb-paint');
+    const { w, t } = await opened('lb-paint', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
     t.run(SHOW);
     putOn(w, t, B, traySpot(), 120);
     t.run(HZ);
@@ -209,7 +220,7 @@ describe('the ledger board', () => {
   }, 120_000);
 
   test('shipped off the belt, it comes back up the chute with its tokens as they were', async () => {
-    const { w, t } = await opened('lb-ship');
+    const { w, t } = await opened('lb-ship', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
     t.run(SHOW);
     const was = tokens(w);
     w.dispatch({ type: 'turn', id: 'belt-dial', value: 1 });
@@ -234,7 +245,8 @@ describe('the ledger board', () => {
 describe('"Reset the workshop" while the board is on its way back from the dock', () => {
   // (D1 part five) wherever it is on the way (behind the door, in the chute, in the air onto the pad, landed and not yet
   // at rest), a reset stows it in its crate, as from anywhere else
-  for (const [bench, scene] of [['quiet bench', BENCH], ['whole bench', FULL_BENCH]] as const) for (const phase of ['belt', 'dock', 'gone', 'chute', 'machine', 'free', 'edge'] as const) {
+  // (I2) the board out of its crate and on its way: the stand's loose-things bench (on the shipped one it never leaves its tray)
+  for (const [bench, scene] of [['quiet bench', LOOSE_BENCH], ['whole bench', LOOSE_FULL_BENCH]] as const) for (const phase of ['belt', 'dock', 'gone', 'chute', 'machine', 'free', 'edge'] as const) {
     test(`${bench}: a reset with the board ${phase === 'edge' ? 'fallen off the bench, in the chute' : phase === 'belt' ? 'riding the belt' : phase === 'dock' ? 'rolling to the dock door' : phase === 'gone' ? 'shipped, its return not yet due' : phase === 'chute' ? 'in the chute' : phase === 'machine' ? 'in the air onto the pad' : 'just landed'}: stowed in its crate, in the hopper`, async () => {
       const { w, t } = await opened(`lb-reset-${phase}`, scene);
       t.run(SHOW);
@@ -274,7 +286,7 @@ describe('"Reset the workshop" while the board is on its way back from the dock'
 
 test('"Reset the workshop" with the board thrown off the bench from its tray before it ever rested (its location still in its crate): stowed', async () => {
   // (D1 part five: the case the soak found; nothing in the reset's list names the board, its location never changed)
-  const { w, t } = await opened('lb-reset-thrown-from-tray');
+  const { w, t } = await opened('lb-reset-thrown-from-tray', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
   t.run(SHOW);
   const m0 = w.motion(B)!;
   w.dispatch({ type: 'grab', id: B, grip: m0.pose.p });
@@ -292,8 +304,7 @@ test('"Reset the workshop" with the board thrown off the bench from its tray bef
   expect(chute).toBe(true);
   expect(w.part(B)!.location).toMatchObject({ at: 'in', mouth: LEDGER.crate });
   // its crate shut meanwhile: the reset then changes nothing of the crate's either
-  press(w, `${LEDGER.crate}-lid`);
-  t.run(2);
+  shutOff(w, t); // (I2: lifted off the stand, it shuts: the latch no longer does)
   expect(w.setting(LEDGER.crate, OPEN)).toBe(false);
   w.dispatch({ type: 'reset' });
   for (let i = 0; i < 15 * HZ; i++) {
@@ -323,7 +334,7 @@ test('"Reset the workshop" with the board in its shut crate and nothing of it ch
 describe('the board asks to be looked at', () => {
   const looks = (t: Tape) => t.of('look').map((x) => x.e.target);
   test('a select on its tray asks for its crate\'s card; out on the bench for its own box; never in a hand or stowed', async () => {
-    const { w, t } = await opened('lb-look');
+    const { w, t } = await opened('lb-look', LOOSE_BENCH); // (I2) the board taken off its tray: the loose-things stand
     // the crate's opening asked for its card; the board's deal asked for the same
     expect(looks(t)).toContain(`${LEDGER.crate}-card`);
     t.run(SHOW);
@@ -360,6 +371,17 @@ describe('the board asks to be looked at', () => {
     w.dispatch({ type: 'select', id: B });
     t.run(1);
     expect(looks(t).length).toBe(j);
+    w.dispose();
+  });
+
+  test('(I2) on the shipped bench (its thing fixed on the tray): a select on its tray asks for its crate\'s card', async () => {
+    const { w, t } = await opened('lb-look-fixed');
+    expect(looks(t)).toContain(`${LEDGER.crate}-card`);
+    t.run(SHOW);
+    const n = looks(t).length;
+    w.dispatch({ type: 'select', id: LEDGER.crank });
+    t.run(1);
+    expect(looks(t).slice(n)).toEqual([`${LEDGER.crate}-card`]);
     w.dispose();
   });
 

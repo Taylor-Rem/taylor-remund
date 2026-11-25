@@ -53,8 +53,11 @@ describe('the ledger board, for someone who cannot see it', () => {
     // the crate on it set aside, the crate opened: the board out, and it deals itself
     r.act({ type: 'grab', id: 'crate-2', grip: r.w.motion('crate-2')!.pose.p }, 2);
     r.act({ type: 'place', at: [1.15, 0, 2.6] }, 90);
-    const said = r.act({ type: 'press', id: `${LEDGER.crate}-lid` }, 3);
-    expect(said).toEqual(['Ledger Management System opened.', 'Dealt.', 'One payment bounced.']);
+    // (I2) opened the one way the bench has: taken and set on the opening stand by its mouth (the keys' place), not its latch
+    r.act({ type: 'grab', id: LEDGER.crate, grip: r.w.motion(LEDGER.crate)!.pose.p }, 2);
+    const said = r.act({ type: 'place', at: 'opening-stand' }, 240);
+    // (I2: what the latch's press said, with the setting down said too, as any place is)
+    expect(said).toEqual(['Ledger Management System opened.', 'Ledger Management System put down.', 'Dealt.', 'One payment bounced.']);
     m = r.items();
     expect(m.get(LEDGER.board)).toBe('Ledger board, red star lit');
     expect(m.get(LEDGER.crank)).toBe('Ledger board crank');
