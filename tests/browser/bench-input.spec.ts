@@ -2251,7 +2251,11 @@ for (const [label, id] of [
     test.setTimeout(5 * 60_000);
     await open(page, 1440, 900);
     const cdp = await page.context().newCDPSession(page);
-    const say = await juggleIt(page, cdp, 'mouse', id, [-5.8, -1.2], 60, { follow: false });
+    // (I2) Fetch at x -5.0, not -5.8: since L2 the Button's console stands at x -8.5..-6.7, z -2.3..-1.0, and Fetch (0.45 a
+    // side) carried back from -5.8 came within the carry's reach of its top: the hand lifted him over it (y 0.65 → 0.95)
+    // instead of carrying him back, let him go early, and he drifted back 0.58 to 1.44 in the air. At -5.0 the console
+    // is 1.26 clear of his side (measured on db22965, before the layout: 0.20)
+    const say = await juggleIt(page, cdp, 'mouse', id, id === 'fetch' ? [-5.0, -1.2] : [-5.8, -1.2], 60, { follow: false });
     console.log(`[I1] R5 juggle (no follow) ${id} by mouse: ${say.join(' | ')}`);
     expect(say.filter((s) => s.includes(': held,')).length, say.join('\n')).toBe(3);
     stays(id, say);
