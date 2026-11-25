@@ -1444,7 +1444,9 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
     await pollFrames(page, async () => (await where(id)) === 'rest', 2400, 'the crate at rest').toBe(true);
     return pose();
   };
-  // a firm flick along a clear back lane: carried to (-7, -2.2) first, then flicked +x. The lane at z -2.2 is clear of
+  // (L2: from x -6.2 and, for the hard flick, along z -0.4: the Button's console stands in the back left corner, x
+  // -8.5..-6.7, z -2.3..-1.0)
+  // a firm flick along a clear back lane: carried to (-6.2, -2.2) first, then flicked +x. The lane at z -2.2 is clear of
   // fixed bodies from the left edge to the pallets at x 6.9 (about 13.9 units ahead of it), so the distance measures
   // the throw, not the scenery (toward -x from the crate's own spot about four units are clear before the chute's
   // deflector row). Aimed at z -2.2 because the set-down lands within 0.6 of the spot and the lift pulls the crate
@@ -1453,7 +1455,7 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
   // (Only believed when the page received the hand's samples at a person's rate: coarser than 25 ms is a hand nobody
   // has, reported as not measured after one retry.)
   for (let attempt = 0; attempt < 2; attempt++) {
-    const start = await bring([-7, -2.2]);
+    const start = await bring([-6.2, -2.2]);
     const r = await hand([1, 0], 1.2, 100);
     await pollFrames(page, async () => (await where(id)) !== 'held', 120).toBe(true);
     await frames(page, 240);
@@ -1467,7 +1469,7 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
     expect(d, 'a firm flick carries it at least 4 units').toBeGreaterThanOrEqual(4);
     break;
   }
-  // a hard flick off the left end along the same lane: carried to (-6.5, -2.2), flicked -x at about 28 u/s by the
+  // a hard flick off the left end in front of the console: carried to (-6.3, -0.4), flicked -x at about 28 u/s by the
   // hand, 14 by the world cap; nothing fixed between it and the edge at x -9. (Not along the front: the belt motor's
   // housing, x -7.3..-6.0, z 3.3..4.9, 1.26 high, stops a crate thrown at it, as it should.) It leaves the bench and
   // comes back
@@ -1475,13 +1477,13 @@ async function throwTests(page: Page, kind: 'mouse' | 'touch', cdp: CDPSession, 
   {
     const returned = () => page.evaluate((id) => (window as any).__bench.log.filter((l: any) => l.e.type === 'part.returned' && l.e.id === id).length, id);
     let before = await returned();
-    await bring([-6.5, -2.2]);
+    await bring([-6.3, -0.4]);
     let r = await hand(away, 2, 70);
     let left = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
         before = await returned();
-        await bring([-6.5, -2.2]);
+        await bring([-6.3, -0.4]);
         r = await hand(away, 2, 70);
       }
       left = await pollFrames(page, async () => (await pose())[1]! < -0.2, 600, 'off the bench')
