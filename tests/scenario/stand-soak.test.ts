@@ -11,6 +11,8 @@ import { steps } from '../../src/workshop/sim/clock.ts';
 import type { Id, Vec3 } from '../../src/workshop/sim/types.ts';
 
 const SESSIONS = Number(process.env.STAND_SOAK ?? 12);
+// (I2) another stretch of seeds: STAND_SOAK_FROM=<first> (default 1), to run one session again
+const FROM = Number(process.env.STAND_SOAK_FROM ?? 1);
 const PLACE = (process.env.STAND_PLACE ?? 'centre') as StandPlace;
 const scene = withOpeningStand(FULL_BENCH, PLACE, 'fixed');
 const CRATES = scene.projects ?? [];
@@ -21,7 +23,7 @@ const SEEN = { set: 0, opened: 0, lifted: 0, liftUndone: 0, second: 0, thrown: 0
 
 describe('the opening stand under a random hand', () => {
   test(`${SESSIONS} sessions at ${PLACE}: never open off the stand, never a thing out of its crate`, async () => {
-    for (let s = 1; s <= SESSIONS; s++) {
+    for (let s = FROM; s < FROM + SESSIONS; s++) {
       const w = await benchWorld(`stand-soak-${s}`, { scene });
       const t = tape(w);
       const r = rng(`stand-soak-${s}`);
@@ -67,7 +69,11 @@ describe('the opening stand under a random hand', () => {
             SEEN.set++;
           } else SEEN.lifted++;
           const wasOpen = onStand && w.setting(c.crate, 'open') === true;
-          const was = w.motion(c.crate)!.pose.p;
+          // (I2) where it was: where it last lay at rest (what the lever restores), not its pose this step: lifted while it
+          // still fell onto the deck (session 72: let go on top of the open crate, which was handed off under it) it hung
+          // 0.4 over the deck, 0.11 off square
+          const loc0 = w.part(c.crate)!.location;
+          const was = loc0.at === 'rest' ? loc0.pose.p : w.motion(c.crate)!.pose.p;
           putOn(w, t, c.crate, onStand ? r.pick(SPOTS.slice(0, 3)) : TOP);
           check();
           // (round two) half the time, a lift-off of an open crate taken back at once: on the stand again, open, looked at
