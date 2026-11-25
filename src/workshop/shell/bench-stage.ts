@@ -30,7 +30,7 @@ import { LOOK } from '../view/stage/index.ts';
 import type { StageOptions } from '../view/stage/index.ts';
 import type { Tier } from '../view/types.ts';
 import type { PhysicsPort, Vec3 } from '../sim/index.ts';
-import { bench as BENCH, OPENING_STAND_ON, STAND_STATION_SIZE, withOpeningStand, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
+import { bench as BENCH, OPENING_STAND_ON, STAND_STATION_SIZE, TABLE_SIZE, withOpeningStand, withProjectRow, withStandIn } from '../sim/scenes/bench.ts';
 import { loadBench, homeBox, homeEdge, FRAMING, type Bench } from '../view/bench.ts';
 
 /** (P4 S5 round four) `?lookSize=1.6`: how close a look may come on a laptop, for one visit (the lead's comparison). */
@@ -204,8 +204,10 @@ export function benchGlue(o: BenchGlueOptions): BenchGlue {
       // (P4 S6, a prototype: `?open=stand`, `?things=loose`; or the scene's OPENING_STAND_ON. L2: one place, the centre)
       const standOn = OPENING_STAND_ON || dq?.get('open') === 'stand';
       // (round two) `?standLook=1|2`: the station candidates (view/bench/stations/opening-stand.ts draws them); L2: at the
-      // station size wherever it stands, the centre by default (`?stand=c`: by the platen, for comparison)
-      const scene0 = standOn ? withOpeningStand(scene00, dq?.get('stand') === 'c' ? 'c' : 'centre', dq?.get('things') === 'loose' ? 'loose' : 'fixed', STAND_STATION_SIZE) : scene00;
+      // station size at the centre, its place and the default; `?stand=c`: by the platen as S6 built it, at the table's size
+      // (for comparison, and for the close view's press test there)
+      const atC = dq?.get('stand') === 'c';
+      const scene0 = standOn ? withOpeningStand(scene00, atC ? 'c' : 'centre', dq?.get('things') === 'loose' ? 'loose' : 'fixed', atC ? TABLE_SIZE : STAND_STATION_SIZE) : scene00;
       bench = await loadBench({ scene: dq?.get('standin') === '1' ? withStandIn(scene0) : scene0, seed: o.seed, room: withRoom, ...(o.crewScale ? { crewScale: o.crewScale } : {}), ...(o.seat !== undefined ? { seat: o.seat } : {}) });
       return bench;
     },
