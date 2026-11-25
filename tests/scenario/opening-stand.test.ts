@@ -173,7 +173,7 @@ describe('the opening stand (at the centre)', () => {
   }, 180_000);
 
   /** (round two) Throws from 1.5 in front of the stand (L2: at the centre the UNDO lever stands to its left), toward the wall: [speed, vy, lands on it]. */
-  const THROWS: readonly (readonly [number, number, boolean])[] = (process.env['THROWS'] ? process.env['THROWS'].split(';').map((x) => [...x.split(',').map(Number), true] as const) : [[2.5, 1, true], [3, 1, true], [2, 2, true], [4, 1, false], [2, 1, false]]) as never;
+  const THROWS: readonly (readonly [number, number, boolean])[] = (process.env['THROWS'] ? process.env['THROWS'].split(';').map((x) => [...x.split(',').map(Number), true] as const) : [[2.5, 1, true], [3, 1, true], [3, 2, true], [4, 1, false], [1.5, 1, false]]) as never;
   /** Carried over the stand at an offset, `h` above the deck, hanging as it hangs in the hand, and let go. */
   const letGo = (w: World, t: Tape, id: Id, dx: number, dz: number, h: number): void => {
     const m = w.motion(id)!;

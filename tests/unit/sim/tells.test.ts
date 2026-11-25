@@ -14,6 +14,8 @@ import type { Id, SimEvent, Vec3 } from '../../../src/workshop/sim/types.ts';
 
 const EVERY = steps(TELL_TUNING.every);
 const STATIONS = bench.button.ladder!.stations;
+/** Where the tells start from before the visitor has done anything (L2: the bench's centre, where the Button stood; it is in the corner now). */
+const HOME: Vec3 = bench.button.tellsFrom ?? bench.button.at;
 const world = (opts: Partial<WorldOptions> = {}): World => stubWorld(1, { scene: bench, ...opts }).world;
 const flat = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[2] - b[2]);
 /** Untouched stations by distance from `p` (ties in ladder order). */
@@ -146,7 +148,7 @@ describe('tells: each word of the rule', () => {
     expect(told[0]!.step).toBe(hoverAt + EVERY);
   });
 
-  test('nearest to where the visitor last acted: the plug put into the LAMP jack, the lamp is told first (from the Button it would be the phone)', () => {
+  test('nearest to where the visitor last acted: the plug put into the LAMP jack, the lamp is told first (from the centre it would be the phone)', () => {
     const w = world();
     run(w, 30);
     w.dispatch({ type: 'unplug', cord: 'cord' });
@@ -160,7 +162,7 @@ describe('tells: each word of the rule', () => {
     const told = tellsOver(w, EVERY + 5);
     expect(told.map((t) => t.id)).toEqual([byDistance(jackAt, ['cord'])[0]]);
     expect(told[0]!.id).toBe('lamp');
-    expect(byDistance(bench.button.at, ['cord'])[0]).toBe('line');
+    expect(byDistance(HOME, ['cord'])[0]).toBe('line');
   });
 
   test('untouched: a station the visitor has used is never told', () => {
@@ -257,7 +259,7 @@ describe('tells: each word of the rule', () => {
     expect(tellsOver(w, EVERY * 2 + 2).length).toBe(2);
     w.dispatch({ type: 'reset' });
     run(w, 1);
-    expect(w.tells()).toMatchObject({ armed: false, last: null, told: {}, from: bench.button.at });
+    expect(w.tells()).toMatchObject({ armed: false, last: null, told: {}, from: HOME });
     expect(tellsOver(w, EVERY * 2)).toEqual([]);
     pressThrough(w);
     expect(tellsOver(w, EVERY + 2)[0]).toMatchObject({ id: byDistance(bench.button.at)[0], times: 1 });

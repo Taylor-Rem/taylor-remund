@@ -369,7 +369,7 @@ describe('Revert between jobs', () => {
   test('one crate set down where Fetch may not take it: once nobody has stirred it for a few seconds it comes up, sweeps it into its pan, and drops it down its hatch (R3, 2026-11-20)', () => {
     const { world, physics } = benchStub();
     run(world, 5);
-    setDown(world, physics, 'crate-3', -6.6, -1.6);
+    setDown(world, physics, 'crate-3', -3.4, -1.2); // (L2: -6.6, -1.6 is the Button's console now)
     const first = world.step;
     expect(R(world).state).toBe('below');
     const ev: { step: number; e: SimEvent }[] = [];
@@ -393,7 +393,7 @@ describe('Revert between jobs', () => {
   /** Four strays, then on to the moment Revert starts its sweep: the part it sweeps. */
   function toSweep(world: World, physics: StubPhysics): Id {
     run(world, 5);
-    setDown(world, physics, 'crate-3', -6.6, -1.6);
+    setDown(world, physics, 'crate-3', -3.4, -1.2); // (L2: -6.6, -1.6 is the Button's console now)
     for (let i = 0; i < steps(40) && R(world).state !== 'sweep'; i++) run(world, 1);
     expect(R(world).state).toBe('sweep');
     return R(world).sweeping!;

@@ -86,7 +86,7 @@ describe('the bench heals what Fetch cannot reach', () => {
   }, 300_000);
 
   test('no stand: six handled crates (the most the bench holds, so the dock\'s last resort brings no seventh), every one where Revert has no stand (on the console\'s and the UNDO housing\'s tops, at the bench\'s far right): they go home by the chute one at a time; the belt is fed', async () => {
-    const at: Record<string, Vec3> = { 'crate-1': [8.1, 0.4, 1.7], 'crate-2': [-1.2, 1.34, 0.5], 'crate-3': [-0.2, 1.265, 0.6], 'crate-4': [-2.9, 2.19, 0.4], 'crate-spare-1': [-2.2, 2.19, 0.3], 'crate-spare-2': [8.2, 0.3, 3.4] };
+    const at: Record<string, Vec3> = { 'crate-1': [8.1, 0.4, 1.7], 'crate-2': [-8.15, 1.19, -1.35], 'crate-3': [-7.05, 1.11, -1.25], /* (L2: the console's top, in the corner) */ 'crate-4': [-2.9, 2.19, 0.4], 'crate-spare-1': [-2.2, 2.19, 0.3], 'crate-spare-2': [8.2, 0.3, 3.4] };
     const { w, t } = await setOut('heal-no-stand', at, Object.keys(at));
     for (const [id, p] of Object.entries(at)) expect(lies(w, id, p[0], p[2]), `${id} where it was set`).toBe(true);
     const out = leftAlone(t, 150);

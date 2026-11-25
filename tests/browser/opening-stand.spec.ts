@@ -454,7 +454,8 @@ for (const look of [1, 2] as const) {
       // carried slowly toward it from the stack (it answers), held near a moment, set down on it
       const from = (await screen(p, 'crate-2'))!;
       await hand.down(from);
-      const mid = await project(p, [top[0]! - 1.4, 1.2, top[2]! + 0.2]);
+      // (L2: at the centre the UNDO lever stands to its left: it is brought in from the front right, over Fetch's jog)
+      const mid = await project(p, [top[0]! + 0.6, 1.2, top[2]! + 1.3]);
       for (let i = 1; i <= 40; i++) {
         await hand.move({ x: from.x + ((mid.x - from.x) * i) / 40, y: from.y + ((mid.y - from.y) * i) / 40 });
         await frames(p, 2);
@@ -465,6 +466,9 @@ for (const look of [1, 2] as const) {
       console.log(`[S6] film ${look} ${w}: onto the stand: ${await carry(p, hand, 'crate-2', [top[0]!, top[1]!, top[2]!])}`);
       await until(p, () => isOpen(p, 'crate-2'), 600, 'open');
       await frames(p, 240);
+      // (L2) and lifted off again, set down on the open bench behind the lever: it shuts, the camera goes out
+      console.log(`[S6] film ${look} ${w}: lifted off: ${await carry(p, hand, 'crate-2', [-3.4, 0.3, -1.2])}`);
+      await frames(p, 180);
       await close();
     });
   }

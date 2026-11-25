@@ -231,7 +231,7 @@ describe('the report press', () => {
   }, 120_000);
 
   test('the flick lands it on the belt from wherever the press stands (the way clear)', async () => {
-    const spots: [number, number, number][] = [[-1.4, 0, 0.9], [-4.0, 0, 1.6], [5.6, 0, 1.4], [0.4, 0, -1.8], [-6.6, 0, -0.8], [7.2, 0, 0.9]];
+    const spots: [number, number, number][] = [[-1.4, 0, 0.9], [-4.0, 0, 1.6], [5.6, 0, 1.4], [0.4, 0, -1.8], [-8.2, 0, -0.2], [7.2, 0, 0.9]] /* (L2: -6.6, -0.8 is against the Button's console now) */;
     for (const at of spots) {
       const { w, t } = await pressOut(`rp-from-${at[0]}`, { at });
       expect(w.setting(PRESS.crate, OPEN), `${at}: open`).toBe(true);
