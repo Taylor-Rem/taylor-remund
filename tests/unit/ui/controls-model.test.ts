@@ -51,10 +51,12 @@ describe('names (§ E4 invariant 1: every interactable has a name a screen reade
 });
 
 describe('the list', () => {
-  test('grouped by station, the Button first; what is not on the bench is not a button', () => {
+  test('grouped by station, the line first (I2: the project crates and the stand; the Button is a find in the corner now); what is not on the bench is not a button', () => {
     const w = world();
     const m = listModel(source(w));
-    expect(m.stations.map((s) => s.id)).toEqual(['button', 'patchlamp', 'line', 'top', 'tools']);
+    expect(m.stations.map((s) => s.id)).toEqual(['line', 'patchlamp', 'tools', 'button', 'top']);
+    // (I2) the project crates lead the line
+    expect(m.stations[0]!.items.slice(0, 3).map((i) => i.id)).toEqual(['crate-1', 'crate-2', 'crate-3']);
     const ids = m.stations.flatMap((s) => s.items.map((i) => i.id));
     // shipped spares, Revert in its hatch: not on the bench
     for (const gone of ['crate-spare-1', 'crate-spare-2', 'revert']) expect(ids).not.toContain(gone);

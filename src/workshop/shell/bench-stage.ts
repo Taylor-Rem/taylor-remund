@@ -72,21 +72,23 @@ export const PLAN_BOX = new Box3(new Vector3(-9.8, 0, -5.6), new Vector3(9.8, 0.
 
 /**
  * The bench's stations as § C names them, each with the box its framing shows whole (P3 B2: judged in pictures at
- * 1440×900 and 390×844; § B6 "zooms between the whole bench and one station"). In the controls list's order:
- * the Button first (§ B3: the most obvious thing on the bench), then the centre, the front, the wall. A loose part
- * is framed with the station whose box holds it now (the belt's before the Button's: the crate stack is the belt's).
+ * 1440×900 and 390×844; § B6 "zooms between the whole bench and one station"). In the controls list's order (I2:
+ * the Button is a find in the corner now, under the tool wall, so it no longer comes first): the line first (the
+ * project crates, which the keys carry to the opening stand, then Fetch and the belt's handles), then Patchlamp, the
+ * tool wall, the Button with the UNDO lever by it, the sign's lamp. A loose part is framed with the station whose box
+ * holds it now (the belt's before the Button's: the crate stack is the belt's).
  */
 export const STATION_BOXES = {
-  /** The Button on its console (L2: in the back left corner, under the tool wall), Revert's hatch, the UNDO lever. */
-  button: { min: [-8.7, 0, -2.6], max: [-1.6, 2.0, 1.3] },
-  /** Patch at the board, the stool, the platen, the storefront, the phone. */
-  patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
   /** The belt from the chute to the dock: the stack, Fetch's lane, the striker. */
   line: { min: [-7.8, 0, 0.6], max: [7.4, 2.2, 5.0] },
-  /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
-  top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
+  /** Patch at the board, the stool, the platen, the storefront, the phone. */
+  patchlamp: { min: [-2.9, 0, -5.0], max: [8.9, 3.3, 2.2] },
   /** (P4 T2) The tool wall: the board, its eight tools and the pinned sheet, and the bench in front of it (where a tool is set down). */
   tools: { min: [-10.1, 0, -5.0], max: [-4.6, 6.1, -2.4] },
+  /** The Button on its console (L2: in the back left corner, under the tool wall), Revert's hatch, the UNDO lever. */
+  button: { min: [-8.7, 0, -2.6], max: [-1.6, 2.0, 1.3] },
+  /** The sign and the lamp: TAYLOR REMUND on the wall, the lamp clamped beside it, its pool on the board. */
+  top: { min: [-4.4, 0.9, -5.0], max: [6.0, 6.5, -3.4] },
 } as const satisfies Record<string, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 /**
  * A phone held upright: the camera never zooms out past its home (the centre cluster, about 5.6 units across),
@@ -94,16 +96,16 @@ export const STATION_BOXES = {
  * a control outside that is brought into view when focus reaches it (`Framings.thing`).
  */
 export const STATION_BOXES_PORTRAIT = {
-  /** The Button on its console (L2: in the corner; the UNDO lever, 5 units to its right, is brought into view when focus reaches it). */
-  button: { min: [-8.6, 0, -2.4], max: [-6.5, 1.8, -0.8] },
-  /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
-  patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
   /** The middle of the belt: the stack, the striker, Fetch's lane. */
   line: { min: [-2.0, 0, 0.6], max: [3.8, 2.0, 5.0] },
-  /** The sign's middle and the lamp. */
-  top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
+  /** The board, Patch on its stool, the phone (the platen and the storefront are off to the right). */
+  patchlamp: { min: [-2.5, 0, -5.0], max: [3.3, 3.2, 2.1] },
   /** (P4 T2) The board's middle: its tools. */
   tools: { min: [-9.4, 0.4, -5.0], max: [-5.3, 5.9, -3.0] },
+  /** The Button on its console (L2: in the corner; the UNDO lever, 5 units to its right, is brought into view when focus reaches it). */
+  button: { min: [-8.6, 0, -2.4], max: [-6.5, 1.8, -0.8] },
+  /** The sign's middle and the lamp. */
+  top: { min: [-2.9, 1.5, -5.0], max: [2.9, 6.4, -3.4] },
 } as const satisfies Record<keyof typeof STATION_BOXES, { min: readonly [number, number, number]; max: readonly [number, number, number] }>;
 export type BenchStation = keyof typeof STATION_BOXES;
 export const BENCH_STATIONS = Object.keys(STATION_BOXES) as BenchStation[];
