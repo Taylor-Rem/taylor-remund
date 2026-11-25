@@ -4,7 +4,7 @@
 // member a board is about, and stands his kit piece (posed by the catalogue's own poses) where each beat of his
 // entrance would have him. It does not import or drive any unit. Dev-only; never shipped. No visible words.
 //
-//   ?board=fetch|revert|patch   whose entrance
+//   ?board=fetch|fetch-jet|revert|patch   whose entrance (fetch: by the return chute; fetch-jet: the owner's, flying in)
 //   ?frame=1..n                 which beat (each board says how many)
 //   ?view=phone|wide            the framing (default: by the window's shape)
 //   ?shot=home                  the home framing instead of the board's own close one
@@ -28,6 +28,9 @@
       import { Box3, Euler, Group, Quaternion, Vector3, type Object3D } from 'three';
       import { findPiece, buildEntry } from '../workshop/view/catalogue/registry.ts';
       import { CREW_SCALE } from '../workshop/view/bench.ts';
+      import { NEUTRAL as FETCH_NEUTRAL, EXPRESSIONS as FETCH_FACES } from '../workshop/view/kit/pieces/fetch-porter/rig.ts';
+      /** Fetch's pose with his jetpack lit (its own pose fields: the jets, the puff), over one of his faces. */
+      const jetting = (face: keyof typeof FETCH_FACES, jet: number, puff: number): Record<string, unknown> => ({ ...FETCH_NEUTRAL, ...FETCH_FACES[face], jet: [jet, jet], puff });
 
       const q = new URLSearchParams(location.search);
       const canvas = document.getElementById('stage') as HTMLCanvasElement;
@@ -74,6 +77,18 @@
             { props: [{ piece: 'fetch-porter', opts: { pose: 'oops', seed: 1 }, at: [CHUTE[0] + 0.55, CHUTE[1] + 0.25, CHUTE[2] - 0.05], yaw: 80, pitch: 35, roll: -20, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
             { props: [{ piece: 'fetch-porter', opts: { pose: 'oops', seed: 1 }, at: [PAD[0] - 0.4, 0.05, PAD[2]], yaw: 110, pitch: -10, roll: 14, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
             { props: [{ piece: 'fetch-porter', opts: { pose: 'deadpan', seed: 1 }, at: [PAD[0] + 0.1, 0, PAD[2]], yaw: 20, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [PAD[0] + 0.9, 0.225 * S * 0.67, PAD[2] - 0.1], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: 'eager', seed: 1 }, at: FETCH_START, yaw: 10, scale: S }] },
+          ],
+        },
+        // The owner's take: Fetch flies in, on the jetpack he already has (S5: Taylor's "a little jetpack to fly back
+        // on"), from beyond the bench's left end, high; down over his lane, a bounce on his spring, and his crate
+        'fetch-jet': {
+          hide: ['fetch', 'part:crate-4', 'project-crate:crate-4'],
+          box: [[-8.6, 0, 0.6], [0.4, 3.4, 4.6]],
+          beats: [
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('eager', 1, 0.4), seed: 1 }, at: [-8.0, 2.6, 2.2], yaw: 70, pitch: 12, roll: -8, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('curious', 1, 0.2), seed: 1 }, at: [-4.6, 1.7, 2.6], yaw: 85, pitch: 6, roll: 6, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
+            { props: [{ piece: 'fetch-porter', opts: { pose: jetting('oops', 0.3, 1.8), seed: 1 }, at: [FETCH_START[0] - 0.6, 0.02, FETCH_START[2]], yaw: 40, pitch: -6, scale: S }, { piece: 'crate', opts: { size: 'S', seed: 4 }, at: [FETCH_START[0] + 0.7, 0.2, FETCH_START[2] - 0.2], yaw: 12 }] },
             { props: [{ piece: 'fetch-porter', opts: { pose: 'eager', seed: 1 }, at: FETCH_START, yaw: 10, scale: S }] },
           ],
         },
