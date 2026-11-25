@@ -42,7 +42,8 @@ export function gated(register: string, text: string, _key = ''): boolean {
   return gatedVignette(register, text);
 }
 
-const CLUSTER = ['button', 'phone', 'stool'];
+// (L2: the Button's console is a find in the back left corner, not in the phone's first view; the opening stand takes its place when it is on)
+const CLUSTER = ['phone', 'stool'];
 
 interface LabelCap {
   key: string;
