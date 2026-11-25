@@ -12,6 +12,11 @@ in the same commit.
 - **Where the build is:** `REWRITE.md` § Approval log says which gates have
   passed. Every gate is a stop. A gate marked Taylor is passed only by his
   dated line in that log.
+- **What comes next:** `REWRITE.md` § G ends with the direction Taylor set
+  on 2026-11-25 (a project workstation, demonstrations that are systems to
+  play with, the bench as one area of a studio of fixed views). It is a
+  direction, not a specification: concept pictures go to him before
+  anything of it is built.
 - **The point** (`REWRITE.md` § The point): people who arrive start playing
   without being told to, find things that surprise them, and want to keep
   looking. Then they want to know who made it. A phase that passes its
@@ -83,6 +88,23 @@ everything that needs no graphics card (`--only a,b`, `--skip a,b`,
 - Agent worktrees live in `.claude/worktrees/` (git-ignored). A new
   worktree starts from this branch; reset it onto the commit its brief
   names before working.
+- A project crate opens by being set down on the stand at the front of
+  centre (`sim/machines/opening-stand.ts`), not by a click or its latch.
+  The stand is a placeholder for the project workstation
+  (`REWRITE.md` § G, the direction).
+- A crew member can arrive after the bench is usable (`shell/late.ts`,
+  `view/late/`, `World.join`; `REWRITE.md` § E6 step 5). Pitch is the only
+  one and is off (`PITCH_ON` false): `?pitch=1` switches him on in
+  development, `WORKSHOP_PITCH=1` makes a build with him on, never one to
+  deploy. The budget check counts what loads before the bench is usable
+  and what loads after as two rows (§ E7).
+- The loading pictures and the bake table are recorded from the real scene
+  and go stale when it changes: `node scripts/bake.ts` first, then
+  `node scripts/poster.ts` for each set (`node scripts/check-pictures.ts`
+  names the commands). Both need the real GPU.
+- The lead session's running notes, briefs and review-page sources are
+  under `shots/` (git-ignored, this machine only); `shots/feel/HANDOVER.md`
+  is the way in.
 
 ## File map
 

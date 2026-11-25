@@ -5,11 +5,26 @@ P1 are built and G1 passed on 2026-11-18 (§ Approval log); P2, the
 playable bench, is built and G2 passed on 2026-11-20 (§ Approval log).
 The notes Taylor gave that day are finished on the bench (2026-11-20:
 built, filmed on the real page and re-checked by the lead; he has not
-yet tried them himself). P3 is next** (§ G P2 lists what Taylor added on
+yet tried them himself).** (§ G P2 lists what Taylor added on
 2026-11-18; the gate's numbers are in the packet, last revised
-2026-11-20). Branch
-`rewrite`, local only. `main` is the live site and stays untouched until
-the cutover.
+2026-11-20.)
+
+**As of 2026-11-25: P3 is built and G3's four checks were run; P4 is being
+built as Taylor amended it on 2026-11-21 and again on 2026-11-24 and 25
+(§ G, both blocks). The second block changes the bench's layout, how a
+crate opens and what the download budget means, and § G ends with the
+direction he set on 2026-11-25 for what follows: a project workstation,
+demonstrations that are systems to play with, and the bench as one area
+of a whole workshop. That last part is a direction, not yet a
+specification.**
+
+**Where this lives since 2026-11-25.** Taylor made a second repository that
+day and renamed the branch. In this file "the `rewrite` branch" now means
+branch `main` of `Taylor-Rem/taylor-remund` (the remote `origin`, public),
+and "`main`, the live site" means branch `main` of
+`Taylor-Rem/rem-portfolio` (the remote `live`), which still deploys
+taylorremund.com and stays untouched until the cutover. `CLAUDE.md` has
+the rules: never push to `live`.
 
 Taylor, 2026-11-17: "I don't want a better résumé website. I want an
 unforgettable interactive experience that happens to contain my résumé."
@@ -259,7 +274,8 @@ The other writers:
 - `~/projects/rem-portfolio` is a second checkout that other sessions read
   for reference. Nothing to do there until the cutover.
 - `git pull --ff-only` on `main` before every session; rebase or merge
-  `rewrite` onto it as it moves.
+  `rewrite` onto it as it moves. (Since 2026-11-25: `git fetch live` and
+  merge `live/main` into this branch.)
 
 ---
 
@@ -405,7 +421,8 @@ Taylor, 2026-11-18, "the room picture looks great" (`reference/p2-room/`).
 **Text in the world, three registers.**
 
 - *Label tape* (embossed white capitals on black, red or blue tape):
-  Taylor's voice. `DO NOT TOUCH`. `RESERVED: INSPECTION`.
+  Taylor's voice. `DO NOT TOUCH`. (`RESERVED: INSPECTION` was the other
+  example until the reserved bays were removed on 2026-11-25, § C.)
 - *Crate stencil*: facts. Project names, employers, dates.
 - *Paper cards and slips* in a monospaced face: the crew's voice.
 
@@ -637,6 +654,16 @@ obvious thing on the bench and it does not show everything at once: it
 escalates one rung per press, and each rung reveals at most one thing the
 visitor has not found.
 
+*Moved and made smaller, 2026-11-24 and 25 (Taylor).* The Button's console
+stands in the back-left corner under the tool wall, drawn at 0.85 of its
+size, its cap lit from inside and breathing slowly (steady with reduced
+motion). It is a find now, not the opener: "the button can be a little
+smaller. I don't think it was ever meant to take center stage." "I prefer
+the illuminated button cap to the additional lamp." The centre belongs to
+the project crates (§ C, § G). The rungs are unchanged; a rung's "nearest
+unused station" is measured from the corner. On a phone it is not on the
+first screen.
+
 | rung | what happens | Revert's card |
 |---|---|---|
 | 1. The flinch (3 s) | The lamp dips, the belt lurches back, one crate slides off the stack, Fetch takes fright and Patch facepalms. Revert comes up and winds it back. | WELL, THAT WAS UNNECESSARY. |
@@ -823,6 +850,12 @@ Patch's place: it never walks the bench.
 - *Asked "who are you":* "CLAUDE, WEARING A NAME TAG THAT SAYS PATCH."
 - *Brand rules apply:* Patch is "it", says "I" of itself, and names Taylor.
 
+*Shelved, 2026-11-24 (Taylor):* "if he doesn't actually play a functional
+role other than just going around inspecting things, I feel like we might
+just be able to put him on the backburner." Proof is no longer the first
+arrival and nothing on the bench promises it; what follows is kept as the
+record of the idea.
+
 **Proof, the inspector (first arrival).** Tall and narrow, fixed at a
 bench beside the belt, with a loupe, a rubber stamp and a clipboard. Exact,
 slow, impossible to hurry: the belt stops for it. It checks each part
@@ -961,7 +994,7 @@ camera.
 |---|---|---|---|
 | The sign and the lamp | `#top` | back, centre | the name, lit |
 | Patchlamp | `#patchlamp` | centre | Patch at the board, the phone, the storefront |
-| The Button | `#button` | front of centre | the reddest thing on the bench |
+| The Button | `#button` | front of centre (since 2026-11-25: back left, in the corner) | the reddest thing on the bench |
 | The belt | `#line` | along the front | motion, the striker, the dock |
 | Shipped | `#work` | front right | pallets of stencilled crates |
 | Tool wall | `#tools` | back left | tools on a shadow board |
@@ -983,9 +1016,26 @@ front-left corner. The home view shows the bench's whole front edge and
 about a hundred pixels of what is under it; panned to an end, the
 bench's corner, its legs and the room beyond.
 
+*As changed in P4 (2026-11-24 and 25), chosen by Taylor from mock-ups he
+played.* The Button's console stands in the back-left corner under the
+tool wall, at 0.85 of its size, placed by rendering so that no tool and no
+label of the wall is hidden at four screen shapes. The UNDO lever is where
+it was. The front of centre, in the lamp's pool, is where a project crate
+is set down to be opened: a plain pedestal today, a project workstation to
+come (§ G, the direction). Both reserved bays are gone. Revert stands
+behind the console as before, further back because it needs room to turn.
+Fetch's lane did not move. The tells start from the centre, not from the
+Button.
+
 **How attention is guided without a path.** The lamp makes the centre the
 brightest place. Motion draws the eye left to right along the belt. Tells
 (§ B3) point at whatever is nearest and untouched.
+
+*The reserved bays were removed on 2026-11-25* ("I would like to see what
+the workbench looks like without the 'reserved' paint/tape"; then, of the
+picture without them, "I like this one"). The paragraph is kept as the
+record. What arrives later finds its place in the workshop's areas (§ G,
+the direction).
 
 **The reserved bays.** Two taped rectangles with label tape naming what is
 coming. They are an honest roadmap and a reason to come back. When a
@@ -1530,8 +1580,27 @@ writer.
    making it inside the gesture cost the first grab of a visit three and a
    half frames (found 2026-11-19).
 
+5. *(Added 2026-11-25.)* The late crew. A crew member who is not in the
+   still picture may arrive after the bench is usable, in a chunk of his
+   own: fetched in the first idle time after the bench is live (never on
+   the way to usable), built off the main thread, drawn only once his
+   programs are linked, and joined to the world at the start of a step,
+   like an intent. His first state is his entrance, in the simulation;
+   with reduced motion he is simply there. The UNDO lever cannot take his
+   arrival back, a reset does not replay it, and the saved state is as it
+   was. Nothing waits for him; refused, he does not come and nothing
+   errors. Pitch is the first.
+
 The still picture is rendered from the real scene by a script and
 committed; a check fails if the scene has changed since it was rendered.
+
+Taylor, 2026-11-25, on the lead's recommendation to limit only what loads
+before the bench is usable: "I like your recommendation. In fact, we could
+even do it with others. We load the bench, then once that character loads
+they have an entrance. For Fetch for example, he could fly in. Same with
+Pitch. So yes. We can also raise the limit as well if we're gonna be clever
+with how we load things in." Entrances for Fetch, Patch and Revert exist as
+storyboards only; none is approved or built (§ G, the direction).
 
 ### E7. Budgets and tiers
 
@@ -1543,6 +1612,8 @@ machine.
 | First paint of `/` (HTML, CSS, picture, fonts) | at most 200 KB transferred; LCP at most 1.5 s on the reference laptop with "Fast 4G" throttling; CLS 0 |
 | Stage usable | at most 3 s on the reference laptop unthrottled; at most 6 s with "Fast 4G" |
 | Stage transfer, physics included | at most 2.2 MB compressed. If Rapier alone makes this impossible, G2 decides between raising the number and swapping the engine. |
+| Stage, to usable *(2026-11-25)* | everything `/` fetches up to the bench taking input, physics included: at most 2.2 MB at what the wire carries (measured that day: 2,192,143 B) |
+| Stage, to usable plus after *(2026-11-25)* | with what the page fetches by itself once the bench is live (the late crew): at most 2.6 MB. The 2.6 is the lead's number; Taylor may move it. A late chunk reached eagerly fails the build's check. |
 | Sound | at most 400 KB, after first gesture |
 | Frame time, reference laptop, 1440×900, high tier | median at most 16.7 ms, 95th percentile at most 22 ms over a scripted 60 s session that includes Button rung 4 |
 | Low tier under 4× CPU throttle | at least 30 frames a second |
@@ -1618,7 +1689,9 @@ One command, `npm run verify`, runs everything that needs no graphics card.
   `verify`, upload, deploy to Pages. The Node version is pinned.
 - `CNAME` is emitted at the root of the output.
 - The `rewrite` branch is not pushed, so until the cutover the same script
-  runs locally and is the gate.
+  runs locally and is the gate. (Since 2026-11-25 the branch is `main` of
+  `origin` and is pushed there when Taylor asks; that repository has no
+  build or deployment, so the local script is still the gate.)
 - Rollback is written in § Cutover before it is needed.
 
 ## F. Content migration
@@ -1682,7 +1755,7 @@ they are fun.
 ### Release 1: a small workshop, finished
 
 **The world.** The compact bench, the lamp, the sign, the window, two
-reserved bays.
+reserved bays. *(The bays were removed on 2026-11-25, § C.)*
 
 **The crew.** Fetch, Revert, Patch.
 
@@ -1696,7 +1769,9 @@ reserved bays.
 - The UNDO lever.
 - The lamp's arm (added 2026-11-18).
 - The tool wall, eight tools.
-- The shipped pallets; crates that open.
+- The shipped pallets; crates that open. *(Since 2026-11-24 a project
+  crate opens by being set down on the stand at the centre, not by a
+  double click or its latch: § G, P4 as amended again.)*
 - The mailbox and the résumé clipboard.
 - Two hatches: Patchlamp, and the maker's plate.
 
@@ -1713,6 +1788,11 @@ deepen what is there.
 **Not in release 1, on purpose.** Everything in the arrivals table.
 
 ### Arrivals, in the reserved bays
+
+*(2026-11-25: there are no reserved bays any more, and the inspector, row
+1, is shelved. Where an arrival goes is now a question for the workshop's
+areas: § "The direction after P4's integration" below. Rows 3 and 8 have
+small versions on the bench already, as project crates.)*
 
 Each ships alone, when it is finished to the standard, through its own
 small version of the gates: its truth-table rows approved, its tests, the
@@ -1995,6 +2075,366 @@ the four compliance pages, whose findings are his to rule on.
   his wording, no new character or changed look without his eye, G4 as
   written.
 
+**P4 as Taylor amended it again, 2026-11-24 and 25** (after playing the
+bench and reading the review page; his words are quoted, the rest is the
+lead's summary of what was agreed).
+
+- **A crate opens where it is set down, not where it is clicked.** "having
+  the way to open the crate be by clicking on the box can kinda ruin
+  throwing it around. I wonder if a better way to do this would be to have
+  a bench or table that once you set the crate down on it it then opens,
+  then you can play the minigame, then you can take the box off the bench
+  to zoom back out to view the whole workshop." Built as the opening stand:
+  a project crate the visitor sets on it opens and the camera goes in; one
+  crate at a time; a crate let go leaning is squared up; while the camera
+  is in, only that crate, its thing's controls and its plate take a press
+  ("I don't think that while you play the minigame contained within the
+  box you should be able to grab and move anything around"); the camera
+  stays in while a crate lifted off is in the hand and goes out when it
+  leaves it; the lever undoes each step. The double click and the latch no
+  longer open a crate.
+- **The layout** (§ C, as changed in P4): the stand at the centre, the
+  Button's console in the back-left corner and smaller, the UNDO lever
+  where it was, no reserved bays, the inspector shelved, the lit cap.
+- **The download budget and the late crew** (§ E6 step 5, § E7): the 2.2 MB
+  is what loads before the bench is usable; the page may fetch more by
+  itself afterwards under a second cap; who arrives late makes an entrance.
+  Pitch is built that way, behind his switch: his look on the bench, where
+  he moors and his entrance are still Taylor's to approve.
+- **Where the work lives** (the status at the head of this file): Taylor's
+  own doing on 2026-11-25.
+- **From his review of 2026-11-25.** "I agree with relocating and reducing
+  the size of the Do Not Touch Button, removing the reserved areas and
+  giving the project crates the central position. I prefer the illuminated
+  button cap to the additional lamp." Of the mantel and the keepsakes of
+  retired work: he agrees with the direction; "I'd like the objects
+  themselves to be interactive rather than limiting interaction to their
+  nameplates. I'm not entirely sold on the furniture itself, particularly
+  with how it occupies the bench and obstructs the storefront." Of the two
+  small stand designs shown (a lifter arm, a lamp): rejected; see the
+  direction below.
+- **Still open from the review page** (none of it blocks the integration):
+  the right-hand end of the bench; the palettes and the paint dial's shape;
+  the press's colourway; the tool board, its tools and their list; Pitch's
+  look on the bench, his mooring and his name; the marks on the project
+  crates; a name for the stand; whether Fetch may stop and nudge things
+  left on his tape.
+
+### The direction after P4's integration (Taylor, 2026-11-25): not yet a specification
+
+He asked for these to be thought through before more is built: "I think
+we're reaching a point where we can make this considerably more
+interesting by reconsidering how all these pieces fit together before we
+continue adding more of them." "These are suggestions, not
+specifications." "We don't need to build the whole room now. I just want us
+to have a compelling vision to work toward, so the work we do now fits
+naturally into it." Nothing in this section is approved to build except
+where it says so. Concept pictures come to him first.
+
+**1. The stand becomes a workstation: a machine that takes part.**
+
+"The current stand designs leave a lot to be desired. This is the
+centerpiece of the workbench, and I think it deserves to be considerably
+more than a little wooden platform with a lamp or mechanical arm attached
+to it." "What if the stand were an actual workstation that participated in
+each demonstration? The crate contains the project-specific components,
+while the workstation contains machinery and controls that interact with
+them." "Placing a crate on the workstation could itself be a satisfying
+mechanical interaction." "It should feel like the centerpiece of the
+workshop."
+
+Principles the lead proposed and he took up ("The workstation principles
+are excellent, particularly the idea that the controls live on the machine
+while the state lives in the loose parts from the crate. I also love the
+mechanical sequence you've described for docking and ejecting a crate."):
+
+- One bank of controls, the same for every crate: a dial (choose), a lever
+  (run it for real), a hopper (things go in), a chute onto the belt (what
+  it makes joins the queue and ships at the dock), lamps, a counter, and an
+  eject. A visitor learns the machine once; each crate shows what its
+  project is by how the same controls behave.
+- Controls live on the machine; state lives in loose parts from the crate.
+  The visitor changes the outcome by rearranging real things by hand, and
+  the machine runs honestly on whatever it finds. So each demonstration is
+  a small real system, not a scripted sequence.
+- Docking is a mechanical act (a cradle, clamps, the crate's sides folding
+  down, its parts rising into the machine, a drive engaging), and so is
+  leaving: an eject control. In a phone's close view a crate cannot be
+  dragged off sideways (measured 2026-11-25), so the way out is a control.
+- "I'd also consider whether it could have some playful interactions even
+  without a crate installed."
+- The stand's behaviour is kept under it (set down opens, the press rule,
+  the camera waiting for the hand, undo). The pedestal on the bench is a
+  placeholder for the machine.
+
+"I'd like to see multiple workstation designs. This is the centerpiece of
+the bench, so let's give its design the attention it deserves." Being
+sketched (2026-11-25): a lathe (the crate rides a carriage into a chuck); a
+proving frame (upright, a crosshead that couples from above); an index
+table (round; the table itself is the dial); a fourth of the builder's
+own; and power by flat belt from a line shaft on the wall, engaging as the
+crate docks. He chooses from the pictures.
+
+**2. Demonstrations are systems to play with.**
+
+"I like the underlying concepts of our demonstrations, but I think they're
+currently too shallow. Almost every one of them amounts to pressing a
+button and watching an animation." "The distinction I'm trying to make is
+between triggering a demonstration and actually playing with a system. I'd
+like visitors to be able to experiment and produce different outcomes,
+rather than simply watching the same sequence every time." "I don't
+necessarily want complicated games with scores, objectives or tutorials."
+"I also don't want us to add complexity just for the sake of complexity.
+The interactions should remain approachable, discoverable and satisfying."
+
+**The ledger is first, as the proof of the workstation** (agreed). The
+others follow once it has been judged. The lead's ideas, each resting on a
+sentence `/resume/` already publishes (a toy is a claim, § F3; none has a
+row yet):
+
+- *Ledger.* ("wiping allocations from a target month and iteratively
+  re-processing transactions — including NSF unwind/rewind logic";
+  "dirty-flag async recalc that surfaces errors without runtime validation
+  overhead"; "a 3-tier auto-allocation engine".) Tokens are payments; three
+  ranks of cups are the tiers; the payments' true order is on a rail the
+  visitor cannot scramble. He moves tokens, pulls one out, makes any payment
+  bounce; a flag comes up over the month he touched and its lamp reddens a
+  moment later. The dial picks a month; the lever wipes it and deals again
+  from the rail. Whatever the mess, the right answer comes back, because
+  the repair never trusted the cups. Taylor: "I'd love to be able to
+  physically manipulate the tokens, introduce inconsistencies myself and
+  see how the repair system responds to whatever I've done."
+- *t-components.* ("one hex-color prop drives header/footer/button styling
+  across the library"; "Debounced inline editing (default 500ms)".) Colour
+  chips are loose parts: one carried or thrown at a single machine repaints
+  that machine; one in the workstation's slot repaints the bench. His idea:
+  the dial chooses and an Apply control applies. The lead's alternative,
+  truer to the code: a debounce (spin freely; the bench repaints once the
+  hand has been still half a second, and a counter shows one repaint sent,
+  not six). The approved appearance still returns on a new visit.
+- *Report framework.* (One data method; PDF and Excel rendering, storage
+  and queued email inherited.) The data is whatever is put on the plate;
+  the press prints a report of that thing, and the inherited outputs follow
+  unasked; switches turn each output on or off; envelopes really queue on
+  the belt. His thought: "configure what they're reporting on, select
+  output formats or otherwise influence what the machine produces."
+- *Artificer.* ("a GpuPool with explicit acquire/release semantics";
+  "persistent task state in SQLite (WAL mode) so agents can run arbitrarily
+  long".) The visitor is the workload: jobs go in the hopper, a few
+  furnaces are the GPUs, a job takes one, runs long and gives it back, the
+  rest wait; a job pulled out mid-run frees its furnace and, put back,
+  resumes from its tape. He liked this one "particularly". Before it is
+  designed further the lead needs from him what he finds most interesting
+  in the real project and how its pool behaves when starved.
+- While a crate is docked, only its parts and the workstation's controls
+  take a press.
+
+**3. The bench becomes one area of a workshop.**
+
+"I've also been wondering whether we're naturally evolving from making a
+workbench to making an entire workshop, with the workbench being the
+central part of it. The bench is already becoming crowded." "Perhaps the
+trophy display belongs in an actual cabinet elsewhere in the room. Perhaps
+Pitch has an elevated docking station and flies across the room to retrieve
+crates from shelves. Perhaps some of our future machinery and minigames
+belong in entirely different areas." "I'm not proposing that we scrap our
+current work or immediately begin building an entire room."
+
+- **His creative direction brief, "The Workshop — Creative Direction"
+  (2026-11-25).** A page he wrote for whoever designs the room:
+  `Workshop_Creative_Direction_fixed.html` in the working copy's root. It
+  is his file and is not committed (it embeds reference frames from other
+  people's films, and this repository is public). "The creative retreat. A
+  place to build serious things, collect the things that matter, and play.
+  One coherent room, three distinct moods." "A studio, not an enlarged
+  tabletop." The three moods: *the professional bench* ("Keep the
+  established teal enamel, brass, timber, signage and precise mechanical
+  interactions. Bright task lighting and legible controls. The new
+  workstation is the centerpiece, not a decorative pedestal."); *the hobby
+  corner* ("Amber pools of light, blue shadows, grain, imperfect surfaces
+  and belongings that feel used … Not a résumé display: experiments and
+  amusement are enough. Do not infer hobbies from the reference's guitar or
+  car."); *the room around them* ("expansive glazing, layered mountain
+  silhouettes, timber, globe lights, plants and warm refuge against a cool
+  rainy landscape. Let architecture and negative space unify the different
+  zones … The room should be worth looking at even when nothing is being
+  clicked."). His spatial idea, "Illustrative concept only": "a
+  mountain-side creative studio with a solid service wall for the bench
+  and a glass corner for quiet personal space. Keep an open central floor
+  so the composition breathes"; a working wall (bench, crate storage,
+  Pitch's dock), a personal nook, and a quiet perimeter (the
+  retired-project cabinet, plants, an optional stove). "The bench is an
+  entire destination, not a tiny distant model to operate from the
+  overview." "This is a direction brief, not an implementation
+  authorization … Before building the room, explore alternatives and
+  challenge the proposal." "Recommend a small visual mock and measurable
+  proof before committing to a large room build." "Success: the overview
+  is beautiful in its own right, the workbench remains immediately
+  recognizable, and the hobby corner feels like someone's actual
+  belongings rather than a curated exhibit." The rule on personal things
+  (§ 3, § J) still binds the hobby corner: only what he has named may be
+  drawn. Named so far: a piano, a bass guitar, a pickleball and paddle,
+  golf clubs, skis, a 2019 Mazda3 hatchback and boxing gloves (2026-11-19);
+  and, asked about this brief, "books and camera gear are confirmed
+  hobbies. I forgot to mention them initially" (2026-11-25). Nothing is
+  known beyond those words (no titles, no make of camera).
+- **Views.** "I imagine the workbench being a fixed view. There should be a
+  fixed view of the whole room, then each area of the room has a fixed
+  view, and navigation buttons to navigate around them." "Visitors should
+  be able to navigate directly between areas, with the room overview also
+  being accessible whenever they want." So: a tree of fixed views (room,
+  area, the close view of a docked crate) with one way back; direct links
+  between areas; no walking and no orbiting. The lead's additions, not yet
+  ruled on: every view has an address, so today's anchors keep working and
+  the browser's Back steps back; the buttons are both signs in the world
+  and controls in the strip; on a phone an area that does not fit one
+  screen has a few fixed stops that a swipe snaps between.
+- **Composition.** "we don't necessarily need to restrict the room's layout
+  around the existing bench camera. I'd like each area to be composed
+  independently while still feeling like part of a coherent physical
+  space."
+- **The opening is not decided.** "I'm also not entirely settled on whether
+  we should open on the bench or the room. I'd like to see what the room
+  looks like before deciding. A beautiful room overview followed by a
+  camera movement toward the bench could make for a great introduction,
+  provided we don't compromise the initial loading experience." The lead's
+  proposal for doing it at no cost to loading: take the overview from the
+  bench camera's own position with a wider lens, so that the move is
+  exactly a zoom on a still picture and the wait for the bench is the
+  opening shot. It spends first-paint bytes (196.7 of 200 KB are used), and
+  it fixes the overview's angle; a freer overview needs a real camera move.
+- **Alive, without simulating everything.** "I want the workshop to feel
+  alive and persistent. However, that doesn't necessarily require
+  continuous full-fidelity simulation of areas the visitor isn't looking
+  at. I'd like us to distinguish between maintaining world state and
+  actively simulating everything." The lead's proposal: loose things that
+  can be thrown stay on the bench, the one place with free physics; every
+  machine in another area is state plus a clock (it can say what it looks
+  like after any time without having been stepped); the bench's own cost of
+  stepping unseen is measured before choosing between that and a catch-up
+  on return.
+- **Performance, said plainly.** A larger place is not faster. The bench
+  alone uses about 142 of 180 draw calls and leaves under 2 ms of a frame
+  at laptop size. Areas do not speed anything up; they let more be added
+  without slowing down, if one area at a time is drawn at full detail and
+  simulated, the overview and the travel between areas use the pieces' low
+  detail, and each area loads after the bench is usable (§ E6 step 5 is the
+  mechanism) behind a still picture of its own. Each area needs light of
+  its own (one extra live light cost about 0.4 ms in a test), and the move
+  between two areas is the worst frame. To be measured on a mock before it
+  is promised.
+- **What survives.** The bench as built is the first area, unchanged, and
+  the crew stay on it. The change is structural: named areas, each with its
+  own camera framing, budget and load.
+- **Decided now, so that today's work fits:** nothing new stands on the
+  bench top; a new thing gets an area.
+- "For the latter, I'd prefer some broader room concepts rather than just a
+  mock of the wall cabinet. Let's establish what this workshop could
+  eventually become before deciding where every individual addition
+  belongs." Being sketched (2026-11-25), three compositions of the studio
+  his brief describes, as lit block-outs with the real bench in each: his
+  own (the corner cutaway: service wall, glass wall, the nook on the open
+  floor) and two alternatives that challenge it. Each finds places for the crate store, Pitch's dock, the cabinet
+  of keepsakes, shipped work, the arrivals of the table above, and the
+  things of his own he has named (nothing else personal).
+
+**4. His response to the first sketches (2026-11-25, the same evening).**
+
+Four workstation designs and three compositions of the room were put to
+him (the review page, sheets 9 and 10; § "what the sketches found" is in
+the handover notes). His rulings and requests:
+
+- **The workstation is a hybrid, to be seen whole before it is settled.**
+  "I like the direction of combining the lathe's mechanical identity, the
+  index table's iris docking mechanism and the sorting table's tilted
+  interactive surface. I'd like to see that hybrid as a complete machine
+  before settling on its design. It should feel like a coherent piece of
+  machinery in its own right rather than simply three designs combined."
+- **The way to the belt is the tube.** "I also prefer the visible brass
+  tube over Fetch's lane. Watching things travel through the workshop is
+  part of the fun."
+- **The ledger first**, on that workstation: "I'm happy with Ledger being
+  the first playable demonstration we develop against this workstation."
+- **The room: another round, about architecture.** "I'd like another round
+  of exploration that focuses more on the room as a beautiful piece of
+  architecture. Think less about arranging our existing objects and more
+  about designing a place someone would genuinely want to inhabit." "the
+  current compositions capture the contents of our proposed room better
+  than they capture the atmosphere of the reference. I'd like to see more
+  warmth, intimacy, architectural depth, natural materials and a stronger
+  relationship with the landscape outside. The hobby corner should
+  eventually feel lived in rather than like a display of hobby-related
+  objects." "The workbench's established aesthetic should remain, but the
+  architecture surrounding it has considerable creative freedom."
+- **His favourite of the three is the double-height studio**, with
+  variations to come: "I really like the architectural possibilities
+  introduced by the mezzanine and the verticality of the space." "My
+  biggest criticism of the current design is the completely flat,
+  windowless back wall, with nearly all the glazing concentrated on the
+  right side. I'd like the architecture to have more character and a
+  stronger relationship with the outside environment. Feel free to explore
+  different window arrangements, rooflines, structural features, materials
+  and exterior landscapes. I'm interested in seeing different
+  interpretations of the setting, not just different arrangements of the
+  furniture."
+- **The overview is not settled as a still picture.** "I'm not ready to
+  conclude that the room overview must be a still picture. I'd like us to
+  explore baked lighting, simplified geometry, independent scene activation
+  and other optimizations before settling on that approach. A hybrid of
+  pre-rendered and live elements may ultimately be appropriate. What
+  matters is that we preserve the feeling of a living, coherent environment
+  without compromising usability. **I'm happy to authorize a technical
+  proof of concept to investigate this.**"
+- **The world may grow past the first room.** "the first room should not
+  necessarily represent the eventual boundaries of the project. … I'm not
+  asking for additional rooms or areas now, but I'd like the architecture
+  to accommodate them naturally in the future. Let's limit the scope of the
+  release, not the potential scope of the world."
+- **A companion for the hobby corner, for the longer term.** "As a kid, I
+  played a mobile game called Talking Tom … a little animated 3D character
+  that responded to you tapping on him and interacting with objects around
+  his room. I think something inspired by that interaction model could be
+  wonderful in the hobby corner. Imagine a cute little low-poly character
+  that inhabits the space, reacts to the visitor and interacts with the
+  personal objects around it. Unlike Fetch, Patch and Pitch, this character
+  wouldn't necessarily have a professional or functional responsibility."
+  "There doesn't need to be an objective or a conventional game." "I'm not
+  proposing that we build this character now, nor have I decided what it
+  should look like. I just think it's an exciting direction for the hobby
+  corner and worth considering when designing the space." The lead's notes
+  on it: take the interaction model, not that game's character; the crew's
+  rule holds for it (never hurt, at most put out); the same principle as
+  the demonstrations (reactions that depend on what the visitor and the
+  objects have done, not one animation per tap); the nook needs a clear
+  patch of floor and perches at several heights in its fixed view; nothing
+  it does may claim more about Taylor than that these are his hobbies.
+- "Let's continue developing the workstation and Ledger while exploring the
+  architectural identity and technical feasibility of the larger workshop."
+  "Our immediate scope and existing priorities remain unchanged."
+
+So the next three pieces of work, each his to judge from pictures or
+numbers before anything is built into the bench: (a) the hybrid
+workstation as one complete machine, with the tube and with the ledger
+laid out on it, at laptop and phone size; (b) a second round of room
+architecture, variations of the double-height studio with character in its
+walls, roof and setting; (c) the technical proof of concept: can the whole
+room be shown live, or part live and part pre-rendered, inside the frame
+budget, with areas that wake and sleep independently and room for more
+areas later.
+
+**Order of work he agreed.** "I agree with finishing and integrating the
+already approved work first. After that, I'd like us to explore the
+workstation and the larger workshop vision." Then: he chooses a
+workstation design; the ledger is built on it as the proof; the other
+demonstrations are judged against it; the room's first area after the
+bench is chosen from the concepts.
+
+**For him to settle, from this section:** the hybrid workstation once it is drawn whole; whether Apply
+or the debounce; what of Artificer to play with; which room; whether the
+page opens on the bench or the room, and the first-paint bytes if it is
+the room; whether the bench keeps running unseen; which of the crew, if
+any, make entrances; the words every new control and sign will need.
+
 **P5. Polish.** *Depends on:* G4.
 - Sound, the crew's idle behaviour, timing, the share card.
 - Real phones: his own, and an older one if one can be borrowed.
@@ -2121,7 +2561,9 @@ succeeded; say so at the gate.
 - Finish before starting. A station is taken to the standard before the
   next one is begun.
 - Branch `rewrite`, local. Do not push it. `git pull --ff-only` on `main`
-  at the start of each session and bring `rewrite` up to it.
+  at the start of each session and bring `rewrite` up to it. (Since
+  2026-11-25: this work is `main` of `origin`; the live site is the remote
+  `live`. Never push to `live`. `CLAUDE.md` has the rule in full.)
 - Small commits with plain messages.
 - Read the current documentation for Astro, Three.js and Rapier before
   using them.
@@ -2159,8 +2601,9 @@ milestone. `npm run perf` at G1, G2 and G5. `shot check . --all` and
 **Out of scope for the building session, whatever seems convenient.** Any
 arrival. Any server. Any analytics. Editing a `legal-callout`. Editing the
 rest of a legal wrapper without the approved-edit commit of § E8. Editing
-`CNAME`. Pushing the branch. Changing a price. Writing a personal detail
-about Taylor that he has not supplied.
+`CNAME`. Pushing the branch (since 2026-11-25: pushing to `live`).
+Changing a price. Writing a personal detail about Taylor that he has not
+supplied.
 
 ---
 
@@ -2186,8 +2629,18 @@ about Taylor that he has not supplied.
 | G4 | **The crew's names.** Fetch and Revert are working names. `BRAND.md` shows his real crew already has names for some jobs. | Use the real ones if he is willing to make them public; otherwise keep these. |
 | G6 | **How playtesters reach it before the cutover.** | Tailscale Funnel from this machine for remote testers, his own laptop for people in the room. The branch stays unpublished. |
 | after | The order of arrivals; the desk's objects. | The inspector first. |
+| after (2026-11-25) | The inspector is shelved. What comes after P4's integration is the direction at the end of § G: a workstation, deeper demonstrations (the ledger first), and the bench as one area of a workshop. | His choices are listed there. |
 
 ## Cutover (one merge, when G6 has passed)
+
+*(2026-11-25.)* This list was written when the work was a branch of the
+live site's own repository. Since that day it is `main` of a second
+repository, `Taylor-Rem/taylor-remund`, and the live site is
+`Taylor-Rem/rem-portfolio` (§ the head of this file; `CLAUDE.md`). "One
+merge" no longer describes the step: either the workshop is brought into
+the live repository, or the domain and Pages move to the new one. That is
+Taylor's to decide; the checks below hold either way, reading "`main`" as
+the live repository's branch.
 
 - Every path in § 2 answers 200 in the served output, including `/resume`
   without the slash and the unlinked `/career-send/`.
