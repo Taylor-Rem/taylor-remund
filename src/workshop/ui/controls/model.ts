@@ -227,6 +227,8 @@ export function listModel(src: ControlsSource): ListModel {
  * only for that tool: the others' places would read as eight times "Tool wall" for a crate.
  */
 function placeFor(w: WorldView, dest: Id, held: Id): boolean {
+  // (I2) the opening stand is offered to a project crate only (it is what it is for; anything else just rests there)
+  if (w.scene.openingStand && dest === w.scene.openingStand.mouth) return (w.scene.projects ?? []).some((c) => c.crate === held);
   const m = (w.scene.mouths ?? []).find((x) => x.id === dest);
   if (!m || m.machine !== TOOLWALL.unit) return true;
   return dest === pegId(held.replace(/^tool-/, ''));

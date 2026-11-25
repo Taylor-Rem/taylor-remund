@@ -96,13 +96,21 @@ describe('the visitor’s doings, and what came of them', () => {
     expect([...out, ...r.said]).toContain('Undone: Belt is back as it was.');
   });
 
-  test('P4 S5: a project crate opened and shut by its latch, said by its project', () => {
-    const r = rig();
+  test('P4 S5: a project crate opened and shut (I2: set on the opening stand by the keys\' place, lifted off it; until then by its latch), said by its project', async () => {
+    // (I2: under Rapier, so the crate comes to rest on the stand's deck)
+    const r = rig(false, await rapierWorld(1, { scene: bench }));
     r.step(30);
-    expect(r.act({ type: 'press', id: 'crate-3-lid' })).toEqual(['t-components opened.']);
-    r.step(10);
-    expect(r.act({ type: 'press', id: 'crate-3-lid' })).toEqual(['t-components shut.']);
-  });
+    r.act({ type: 'grab', id: 'crate-3', grip: r.w.motion('crate-3')!.pose.p });
+    r.step(2);
+    r.w.dispatch({ type: 'place', at: 'opening-stand' });
+    // (I2: the latch's press said only "opened"; set down, the place is said too, as any place is)
+    expect(r.step(240)).toEqual(['t-components opened.', 't-components put down.']);
+    const lifted = r.act({ type: 'grab', id: 'crate-3', grip: r.w.motion('crate-3')!.pose.p });
+    lifted.push(...r.step(2));
+    r.w.dispatch({ type: 'place', at: [-5.6, 0, 1.6] });
+    lifted.push(...r.step(240));
+    expect(lifted).toEqual(['t-components picked up.', 't-components shut.', 't-components put down.']);
+  }, 60_000);
 
   test('the workshop reset', () => {
     const r = rig();
