@@ -136,15 +136,17 @@ export function createCrates(ctx: SimContext, spec: CratesSpec): Unit {
       if (!h || h.kind === 'crate' || h.stowedIn !== c.crate) throw new Error(`crates: ${c.crate} holds ${String(c.holds)}, which is not a loose part stowed in it (nor may it be a crate)`);
     }
     ctx.defineSetting(c.crate, OPEN, false, (v) => typeof v === 'boolean');
-    ctx.register({
-      id: c.lid,
-      station: p.station,
-      name: 'name.lid',
-      // (P4 S6) with the opening stand, a latch does nothing: no affordance, so not in the list
-      affordances: stand ? [] : ['open', 'press'],
-      tell: () => ctx.emit({ type: 'tell', id: c.lid }),
-      misfire: (level) => ctx.emit({ type: 'misfire', id: c.lid, level }),
-    });
+    // (P4 S6) with the opening stand, a latch does nothing: (I2) so it is not an interactable at all (no affordance, not
+    // in the list, nothing a hand or a key can take; the view's latch target is inactive with the stand)
+    if (!stand)
+      ctx.register({
+        id: c.lid,
+        station: p.station,
+        name: 'name.lid',
+        affordances: ['open', 'press'],
+        tell: () => ctx.emit({ type: 'tell', id: c.lid }),
+        misfire: (level) => ctx.emit({ type: 'misfire', id: c.lid, level }),
+      });
     ctx.register({
       id: c.plate,
       station: p.station,

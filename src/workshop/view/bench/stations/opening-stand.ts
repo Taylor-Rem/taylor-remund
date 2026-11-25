@@ -31,10 +31,15 @@ const query = (k: string): string | null => {
     return null;
   }
 };
-/** The look asked for: 0 (round one), 1 or 2. */
+/**
+ * (I2) The look the bench has when none is asked for: the lead's provisional pick (2, the lamp) until the owner rules
+ * between the candidates; `?standLook=0|1|2` still shows each.
+ */
+export const STAND_LOOK_DEFAULT: 0 | 1 | 2 = 2;
+/** The look asked for: 0 (round one), 1 or 2; otherwise `STAND_LOOK_DEFAULT`. */
 export const standLook = (): 0 | 1 | 2 => {
   const l = query('standLook');
-  return l === '1' ? 1 : l === '2' ? 2 : 0;
+  return l === '0' ? 0 : l === '1' ? 1 : l === '2' ? 2 : STAND_LOOK_DEFAULT;
 };
 
 export const station: BenchStation = {

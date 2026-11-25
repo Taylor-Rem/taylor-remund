@@ -4,14 +4,19 @@ import { createButtonView } from '../../stations/button.ts';
 import { timed } from '../../stations/timing.ts';
 import { ORDER, type BenchStation } from '../station.ts';
 
-/** (L2, development only) `?corner=1`: the lit cap; `?corner=2`: the work lamp (the candidates for the Button in its corner). */
+/**
+ * (I2) The candidate the bench has when none is asked for: the lead's provisional pick (1, the lit cap) until the owner
+ * rules between them.
+ */
+export const CORNER_DEFAULT: 'lit' | 'lamp' | undefined = 'lit';
+/** (L2, development only) `?corner=1`: the lit cap; `?corner=2`: the work lamp; `?corner=0`: neither (the candidates for the Button in its corner). */
 const corner = (): 'lit' | 'lamp' | undefined => {
-  if (!import.meta.env.DEV) return undefined;
+  if (!import.meta.env.DEV) return CORNER_DEFAULT;
   try {
     const q = new URLSearchParams((globalThis as { location?: { search?: string } }).location?.search ?? '').get('corner');
-    return q === '1' ? 'lit' : q === '2' ? 'lamp' : undefined;
+    return q === '1' ? 'lit' : q === '2' ? 'lamp' : q === '0' ? undefined : CORNER_DEFAULT;
   } catch {
-    return undefined;
+    return CORNER_DEFAULT;
   }
 };
 

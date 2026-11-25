@@ -3,7 +3,7 @@ import './rapier-node.ts';
 import { createRapierPhysics } from '../../src/workshop/sim/physics/rapier.ts';
 import { createWorld } from '../../src/workshop/sim/world.ts';
 import type { World, WorldOptions } from '../../src/workshop/sim/world.ts';
-import { bench, LINE, AT } from '../../src/workshop/sim/scenes/bench.ts';
+import { bench, LINE, AT, withOpeningStand } from '../../src/workshop/sim/scenes/bench.ts';
 import { withPitch, PITCH_BODY } from '../../src/workshop/sim/scenes/bench-pitch.ts';
 import type { SceneDesc } from '../../src/workshop/sim/scene.ts';
 import type { Id, SimEvent, Vec3 } from '../../src/workshop/sim/types.ts';
@@ -21,6 +21,14 @@ const { rounds: _rounds, ...quietRunner } = bench.runner;
  */
 const QUIET: SceneDesc = { ...bench, runner: { ...quietRunner, lane: { points: bench.runner.lane.points.slice(0, 2) } } };
 export { QUIET as BENCH, bench as FULL_BENCH, LINE, AT };
+/**
+ * (I2) The quiet bench and the whole bench with the stand's other way for a crate's thing (`things: 'loose'`, the
+ * development comparison `?things=loose`): out of its open crate the thing is a loose part a hand can carry off, ship,
+ * throw off the bench. The tests of a thing's life as a loose part run here: on the shipped bench (`things: 'fixed'`)
+ * it never leaves its tray.
+ */
+export const LOOSE_BENCH: SceneDesc = withOpeningStand(QUIET, 'centre', 'loose');
+export const LOOSE_FULL_BENCH: SceneDesc = withOpeningStand(bench, 'centre', 'loose');
 
 export async function benchWorld(seed: number | string = 1, opts: Partial<WorldOptions> & { scene?: SceneDesc } = {}): Promise<World> {
   const physics = await createRapierPhysics();
@@ -101,6 +109,28 @@ export function waitFor(world: World, t: Tape, id: Id, at: 'rest' | 'in' | 'ship
     t.run(1);
   }
   return false;
+}
+
+/** (I2) The top of the opening stand's deck in `world`'s scene (where a crate is set down to open it). */
+export function standTop(world: World): Vec3 {
+  const os = world.scene.openingStand;
+  const body = os ? world.scene.statics.find((s) => s.id === os.unit) : undefined;
+  if (!os || !body || body.shape.type !== 'box') throw new Error('standTop: this scene has no opening stand');
+  return [body.pose.p[0], body.pose.p[1] + body.shape.half[1], body.pose.p[2]];
+}
+
+/**
+ * (I2) Open a project crate the one way the bench has (`OPENING_STAND_ON`): carry it to the opening stand and set it
+ * down there (`putOn`), then run until it is open (at most `max` steps; it throws if it never opens). The crate's place
+ * before is wherever it was; after, it is on the stand, open, its thing on its tray.
+ */
+export function openOnStand(world: World, t: Tape, crate: Id, max = 240): void {
+  putOn(world, t, crate, standTop(world));
+  for (let i = 0; i < max; i++) {
+    if (world.setting(crate, 'open') === true) return;
+    t.run(1);
+  }
+  throw new Error(`openOnStand: ${crate} did not open on the stand in ${max} steps`);
 }
 
 /** A point on the belt's surface `u` of the way from its motor end (0) to its far end (1). */

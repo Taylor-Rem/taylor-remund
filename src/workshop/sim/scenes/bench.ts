@@ -17,7 +17,7 @@
  * + half extents; a yawed static turns about +Y by `yaw` degrees.
  */
 import type { Pose, Vec3 } from '../types.ts';
-import type { FetchRounds, MouthSpec, PartSpec, ProjectCrate, SceneDesc, StaticSpec } from '../scene.ts';
+import type { FetchRounds, MouthSpec, PartSpec, ProjectCrate, SceneDesc, StaticSpec, UnitFactory } from '../scene.ts';
 import type { SimContext } from '../context.ts';
 import { CRATE_EDGE, defaultHalfExtents } from '../parts.ts';
 import { qyaw } from '../math.ts';
@@ -937,7 +937,11 @@ const BENCH_BASE: SceneDesc = {
   ],
 };
 
-export const bench: SceneDesc = BENCH_BASE;
+/**
+ * THE bench: the scene every page and test gets by default (`BENCH_BASE` with the opening stand at its place when
+ * `OPENING_STAND_ON`, I2: the stand is how a crate opens). Defined after the stand's section, below.
+ */
+export let bench: SceneDesc;
 
 /**
  * P4 S5, development only (`?standin=1` on the bench's dev pages): the bench with a stand-in thing in one crate, the
@@ -977,7 +981,7 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
 }
 
 /**
- * P4 S6, a prototype behind one switch (`?open=stand`; the shipped bench has none: `OPENING_STAND_ON`): the opening stand
+ * P4 S6, behind one switch (`OPENING_STAND_ON`, on since I2 on 2026-11-25: the shipped bench has it; `?open=stand` was its development switch): the opening stand
  * (sim/machines/opening-stand.ts). A stand with one mouth; a project crate the visitor sets down on it opens there and
  * nowhere else. L2 (the owner's layout, 2026-11-24): its place is `centre`, the Button console's old place at the front
  * of the centre in the lamp's pool, at the station size (S6 round two's `STAND_STATION_SIZE`, 1.5 times the table's
@@ -988,7 +992,7 @@ export function withProjectRow(scene: SceneDesc = bench): SceneDesc {
  * bench between the platen and the dock) stays for comparison. `things`: `fixed` (a crate's thing stays on its tray) or
  * `loose` (as before).
  */
-export const OPENING_STAND_ON = false;
+export const OPENING_STAND_ON = true;
 export type StandPlace = 'centre' | 'c';
 export const OPENING_STAND = {
   unit: 'opening-stand',
@@ -1014,7 +1018,9 @@ export const STAND_STATION_SIZE: StandSize = { half: [0.78, 0.72], h: 0.5 };
 /** (L2) The prototype's table as S6 built it first (round one's size). */
 export const TABLE_SIZE: StandSize = { half: OPENING_STAND.half, h: 0.22 };
 
-export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = 'centre', things: 'fixed' | 'loose' = 'fixed', size: StandSize = STAND_STATION_SIZE): SceneDesc {
+export function withOpeningStand(scene0: SceneDesc = BENCH_BASE, place: StandPlace = 'centre', things: 'fixed' | 'loose' = 'fixed', size: StandSize = STAND_STATION_SIZE): SceneDesc {
+  // (I2) a scene that has the stand already (the bench itself, with `OPENING_STAND_ON`) has it put where asked instead
+  const scene = withoutOpeningStand(scene0);
   const S0 = OPENING_STAND;
   const S = { ...S0, half: size.half };
   const pl = { ...S0.places[place], h: size.h };
@@ -1028,7 +1034,28 @@ export function withOpeningStand(scene: SceneDesc = bench, place: StandPlace = '
     id: `${scene.id}+stand-${place}${things === 'loose' ? '-loose' : ''}-${size.half[0]}x${size.half[1]}x${size.h}`,
     statics: [...scene.statics, body],
     mouths: [...(scene.mouths ?? []), mouth],
-    units: [...(scene.units ?? []), openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] })],
+    units: [...(scene.units ?? []), standUnit(openingStand({ id: S.unit, station: 'line', name: 'name.stand', mouth: S.mouth, aside: pl.aside, floor: pl.at[1] }))],
     openingStand: { unit: S.unit, mouth: S.mouth, things },
   };
 }
+
+/** (I2) The stand's unit factories, so a scene's stand can be taken out again (the factories themselves are opaque). */
+const STAND_UNITS = new WeakSet<UnitFactory>();
+function standUnit(f: UnitFactory): UnitFactory {
+  STAND_UNITS.add(f);
+  return f;
+}
+/** (I2) `scene` without its opening stand (its body, its mouth, its unit, its rule); a scene without one, as it is. */
+export function withoutOpeningStand(scene: SceneDesc): SceneDesc {
+  if (scene.openingStand === undefined) return scene;
+  const { openingStand: os, ...rest } = scene;
+  return {
+    ...rest,
+    statics: scene.statics.filter((s) => s.id !== os.unit),
+    mouths: (scene.mouths ?? []).filter((m) => m.id !== os.mouth),
+    units: (scene.units ?? []).filter((u) => !STAND_UNITS.has(u)),
+  };
+}
+
+// (its id stays `bench`: the shipped bench has one stand, at one place)
+bench = OPENING_STAND_ON ? { ...withOpeningStand(BENCH_BASE), id: BENCH_BASE.id } : BENCH_BASE;
